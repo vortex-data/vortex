@@ -32,7 +32,7 @@ use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::col;
 use vortex::expr::get_item;
-use vortex::expr::in_list_of;
+use vortex::expr::in_list_of_with_mode;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_length;
@@ -68,8 +68,6 @@ use crate::SESSION;
 use crate::convert::compare::between_with_mode;
 use crate::convert::compare::compare;
 use crate::convert::compare::compare_mode;
-use crate::convert::compare::float_in_list;
-use crate::convert::compare::holds_float;
 use crate::convert::dtype::FromLogicalType;
 use crate::convert::table_filter::dynamic_filter_expr;
 use crate::cpp::DUCKDB_TYPE;
@@ -840,11 +838,8 @@ fn try_from_compare_in(
         return Ok(None);
     };
     let element_dtype = list_elements[0].dtype().clone();
-    let expr = if holds_float(&element_dtype) {
-        float_in_list(&element, list_elements)
-    } else {
-        in_list_of(element, element_dtype, list_elements)?
-    };
+    let mode = compare_mode(&element_dtype);
+    let expr = in_list_of_with_mode(element, element_dtype, list_elements, mode)?;
     Ok(Some(if not_in { not(expr) } else { expr }))
 }
 

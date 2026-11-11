@@ -13,9 +13,6 @@ use vortex::dtype::DType;
 use vortex::expr::Expression;
 use vortex::expr::and;
 use vortex::expr::compare_with_mode;
-use vortex::expr::lit;
-use vortex::expr::or_collect;
-use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::CompareMode;
@@ -63,7 +60,7 @@ fn is_nested(dtype: &DType) -> bool {
 ///
 /// DuckDB compares the floats in structs, lists and maps with the same semantics as top-level
 /// floats.
-pub(super) fn holds_float(dtype: &DType) -> bool {
+fn holds_float(dtype: &DType) -> bool {
     match dtype {
         DType::Primitive(ptype, _) => ptype.is_float(),
         DType::Extension(ext) => holds_float(ext.storage_dtype()),
@@ -93,18 +90,6 @@ pub(super) fn compare(
         Some(operator) if !mode.is_total_order() => compare_with_mode(operator, mode, lhs, rhs),
         _ => Binary.new_expr(operator.into(), [lhs, rhs]),
     }
-}
-
-/// Returns `element IN (values)` for float values, as a disjunction of equalities.
-///
-/// The `IN` scalar function compares the bits of floats, so it cannot express DuckDB semantics.
-/// A null value makes a non-match null, as in SQL.
-pub(super) fn float_in_list(element: &Expression, values: Vec<Scalar>) -> Expression {
-    or_collect(values.into_iter().map(|value| {
-        let mode = compare_mode(value.dtype());
-        compare_with_mode(CompareOperator::Eq, mode, element.clone(), lit(value))
-    }))
-    .unwrap_or_else(|| lit(false))
 }
 
 /// Returns `lower <(=) input <(=) upper` for operands of `dtype`, as a conjunction of comparisons

@@ -122,9 +122,9 @@ public final class Expression {
     /**
      * Compare {@code lhs} with {@code rhs}, ordering floats in {@code mode}.
      *
-     * <p>{@link #binary(BinaryOp, Expression, Expression)} orders floats in {@link CompareMode#TOTAL_ORDER}.
-     * A query engine that pushes a float comparison down must use its own semantics, for example
-     * {@link CompareMode#SPARK} or {@link CompareMode#ICEBERG}; otherwise the scan can drop rows.
+     * <p>{@link #binary(BinaryOp, Expression, Expression)} orders floats in {@link CompareMode#TOTAL_ORDER}. A query
+     * engine that pushes a float comparison down must use its own semantics, for example {@link CompareMode#SPARK} or
+     * {@link CompareMode#ICEBERG}; otherwise the scan can drop rows.
      */
     public static Expression compare(BinaryOp op, CompareMode mode, Expression lhs, Expression rhs) {
         Preconditions.checkArgument(op.isComparison(), "%s is not a comparison operator", op);
@@ -219,8 +219,21 @@ public final class Expression {
      *     against an empty list with Vortex's default rules, where the result is {@code false}.
      */
     public static Expression listContains(Expression list, Expression needle, boolean sqlNullSemantics) {
-        return new Expression(
-                NativeExpression.listContains(list.nativePointer(), needle.nativePointer(), sqlNullSemantics));
+        return listContains(list, needle, sqlNullSemantics, CompareMode.TOTAL_ORDER);
+    }
+
+    /**
+     * {@link #listContains(Expression, Expression, boolean)} where the needle and the elements compare floats in
+     * {@code mode}. The lookup stays one pass over the needles, however large the list.
+     */
+    public static Expression listContains(
+            Expression list, Expression needle, boolean sqlNullSemantics, CompareMode mode) {
+        return new Expression(NativeExpression.listContains(
+                list.nativePointer(),
+                needle.nativePointer(),
+                sqlNullSemantics,
+                mode.signedZeros().code(),
+                mode.nanOrder().code()));
     }
 
     /**
@@ -229,7 +242,15 @@ public final class Expression {
      * both filter the row out of a scan.
      */
     public static Expression in(Expression value, Expression list) {
-        return listContains(list, value, /* sqlNullSemantics= */ true);
+        return in(value, list, CompareMode.TOTAL_ORDER);
+    }
+
+    /**
+     * {@link #in(Expression, Expression)} where {@code value} and the elements compare floats in {@code mode}, for
+     * example {@link CompareMode#SPARK}.
+     */
+    public static Expression in(Expression value, Expression list, CompareMode mode) {
+        return listContains(list, value, /* sqlNullSemantics= */ true, mode);
     }
 
     /**
@@ -592,8 +613,8 @@ public final class Expression {
     }
 
     /**
-     * How a comparison orders floats. Integer, decimal, boolean, and string comparisons give the same result in
-     * each mode.
+     * How a comparison orders floats. Integer, decimal, boolean, and string comparisons give the same result in each
+     * mode.
      */
     public record CompareMode(SignedZeros signedZeros, NanOrder nanOrder) {
         /** The Vortex default: total order over the bits of a float, so {@code -0.0 < +0.0}. */

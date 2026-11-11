@@ -81,6 +81,8 @@ pub use exprs::gt_eq;
 pub use exprs::ilike;
 pub use exprs::in_list;
 pub use exprs::in_list_of;
+pub use exprs::in_list_of_with_mode;
+pub use exprs::in_list_with_mode;
 pub use exprs::is_nan;
 pub use exprs::is_not_null;
 pub use exprs::is_null;

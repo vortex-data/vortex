@@ -301,6 +301,12 @@ pub struct LikeOpts {
 pub struct ListContainsOpts {
     #[prost(bool, tag = "1")]
     pub sql_null_semantics: bool,
+    /// How the needle and the elements compare signed float zeros.
+    #[prost(enumeration = "binary_opts::SignedZeros", tag = "2")]
+    pub signed_zeros: i32,
+    /// How the needle and the elements compare float NaN values.
+    #[prost(enumeration = "binary_opts::NanOrder", tag = "3")]
+    pub nan_order: i32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CastOpts {

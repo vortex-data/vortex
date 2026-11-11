@@ -483,21 +483,33 @@ fn strict_from_bool(value: jboolean) -> StrictComparison {
 /// `sql_null_semantics` selects how a null list element behaves: off, it never matches and a
 /// non-matching needle is `false`; on, it is SQL's unknown value and a non-matching needle is
 /// `null`, so `NOT IN` never admits it.
+///
+/// `signed_zeros` and `nan_order` select how the needle and the elements compare floats, as for
+/// `compare`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeExpression_listContains(
-    _env: EnvUnowned,
+    mut env: EnvUnowned,
     _class: JClass,
     list: jlong,
     needle: jlong,
     sql_null_semantics: jboolean,
+    signed_zeros: jbyte,
+    nan_order: jbyte,
 ) -> jlong {
-    let list = unsafe { expr_ref(list) }.clone();
-    let needle = unsafe { expr_ref(needle) }.clone();
-    into_raw(list_contains_opts(
-        list,
-        needle,
-        ListContainsOptions { sql_null_semantics },
-    ))
+    try_or_throw(&mut env, |_| {
+        let compare_mode = parse_compare_mode(signed_zeros, nan_order)?;
+        let list = unsafe { expr_ref(list) }.clone();
+        let needle = unsafe { expr_ref(needle) }.clone();
+
+        Ok(into_raw(list_contains_opts(
+            list,
+            needle,
+            ListContainsOptions {
+                sql_null_semantics,
+                compare_mode,
+            },
+        )))
+    })
 }
 
 #[unsafe(no_mangle)]

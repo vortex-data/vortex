@@ -827,6 +827,18 @@ pub fn compare(
         }
     };
 
+    Ok(PyExpr {
+        inner: expr::compare_with_mode(
+            operator,
+            compare_mode(signed_zeros, nan_order)?,
+            left.into_inner(),
+            right.into_inner(),
+        ),
+    })
+}
+
+/// Parses the float semantics of a comparison.
+fn compare_mode(signed_zeros: &str, nan_order: &str) -> PyResult<CompareMode> {
     let signed_zeros = match signed_zeros {
         "distinct" => SignedZeros::Distinct,
         "equal" => SignedZeros::Equal,
@@ -846,14 +858,7 @@ pub fn compare(
         }
     };
 
-    Ok(PyExpr {
-        inner: expr::compare_with_mode(
-            operator,
-            CompareMode::new(signed_zeros, nan_order),
-            left.into_inner(),
-            right.into_inner(),
-        ),
-    })
+    Ok(CompareMode::new(signed_zeros, nan_order))
 }
 
 /// True where `child` lies between `lower` and `upper`.
@@ -1184,20 +1189,40 @@ pub fn merge(exprs: &Bound<'_, PyAny>, duplicate_handling: &str) -> PyResult<PyE
 /// sql_null_semantics : :class:`bool`
 ///     If ``True``, a non-match against a list containing null produces null, and a null value
 ///     produces null even against an empty list. Defaults to ``False``.
+/// signed_zeros : :class:`str`
+///     How the value and the elements compare signed float zeros, as for :func:`compare`.
+/// nan_order : :class:`str`
+///     How the value and the elements compare float NaN values, as for :func:`compare`.
 ///
 /// Returns
 /// -------
 /// :class:`vortex.Expr`
 #[pyfunction]
-#[pyo3(signature = (child, value, *, sql_null_semantics = false))]
-pub fn list_contains(child: PyIntoExpr, value: PyIntoExpr, sql_null_semantics: bool) -> PyExpr {
-    PyExpr {
+#[pyo3(signature = (
+    child,
+    value,
+    *,
+    sql_null_semantics = false,
+    signed_zeros = "distinct",
+    nan_order = "total_order"
+))]
+pub fn list_contains(
+    child: PyIntoExpr,
+    value: PyIntoExpr,
+    sql_null_semantics: bool,
+    signed_zeros: &str,
+    nan_order: &str,
+) -> PyResult<PyExpr> {
+    Ok(PyExpr {
         inner: expr::list_contains_opts(
             child.into_inner(),
             value.into_inner(),
-            ListContainsOptions { sql_null_semantics },
+            ListContainsOptions {
+                sql_null_semantics,
+                compare_mode: compare_mode(signed_zeros, nan_order)?,
+            },
         ),
-    }
+    })
 }
 
 /// SQL ``value IN (list)`` with SQL null semantics.

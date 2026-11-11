@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import functools
 import io
 import json
 import operator
@@ -362,33 +363,18 @@ def _is_in(needle: ve.Expr, members: dict[str, Any], *, nulls_equal: bool) -> ve
     values = _literal_list(members)
     has_null = values.null_count > 0
 
-    if pa.types.is_floating(values.type) and len(values) > values.null_count:
-        return _float_is_in(needle, values, nulls_equal=nulls_equal, has_null=has_null)
-
     dtype = _dtype.list_(_dtype.DType.from_arrow(values.type))
     members_expr = ve.literal(dtype, values.to_pylist())
 
-    if nulls_equal:
-        return ve.fill_null(ve.list_contains(members_expr, needle), has_null)
-    return ve.list_contains(members_expr, needle, sql_null_semantics=not has_null)
-
-
-def _float_is_in(needle: ve.Expr, values: pa.Array[pa.Scalar[Any]], *, nulls_equal: bool, has_null: bool) -> ve.Expr:
-    """``needle.is_in(values)`` for floats, as an OR of equalities that order floats as Polars does.
-
-    A set compares the bits of floats, but Polars makes ``-0.0`` equal to ``+0.0`` and makes all NaNs
-    equal. A null needle makes each equality null, as Polars requires. With nulls equal, a null
-    needle is a member exactly when the list holds a null.
-    """
-    element = _dtype.DType.from_arrow(values.type)
-    equalities = [_EQ(needle, ve.literal(element, value)) for value in values.to_pylist() if value is not None]
-    contains = ve.or_collect(equalities)
-    if contains is None:
-        raise ValueError("A float is_in list without a value")
+    # Polars makes -0.0 equal to +0.0 and makes all NaNs equal, as in its comparisons.
+    if pa.types.is_floating(values.type):
+        contains = functools.partial(_expr.list_contains, signed_zeros="equal", nan_order="canonical")
+    else:
+        contains = ve.list_contains
 
     if nulls_equal:
-        return ve.fill_null(contains, has_null)
-    return contains
+        return ve.fill_null(contains(members_expr, needle), has_null)
+    return contains(members_expr, needle, sql_null_semantics=not has_null)
 
 
 def _literal_list(expr: dict[str, Any]) -> pa.Array[pa.Scalar[Any]]:

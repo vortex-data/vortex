@@ -15,7 +15,7 @@ use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::dynamic_with_mode;
 use vortex::expr::get_item;
-use vortex::expr::in_list_of;
+use vortex::expr::in_list_of_with_mode;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::lit;
@@ -28,8 +28,6 @@ use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 
 use super::compare::compare;
 use super::compare::compare_mode;
-use super::compare::float_in_list;
-use super::compare::holds_float;
 use super::expr::try_from_bound_expression_with_col_sub;
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb::DynamicFilter;
@@ -99,11 +97,8 @@ pub fn try_from_table_filter(
                 "IN filter must have at least one value"
             );
             let dtype = scalars[0].dtype().clone();
-            if holds_float(&dtype) {
-                float_in_list(col, scalars)
-            } else {
-                in_list_of(col.clone(), dtype, scalars)?
-            }
+            let mode = compare_mode(&dtype);
+            in_list_of_with_mode(col.clone(), dtype, scalars, mode)?
         }
         TableFilterClass::Dynamic(dynamic) => {
             dynamic_filter_expr(dynamic, col.return_dtype(scope_dtype)?, col.clone())?

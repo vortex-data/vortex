@@ -60,6 +60,7 @@ use crate::scalar_fn::fns::merge::Merge;
 use crate::scalar_fn::fns::not::Not;
 use crate::scalar_fn::fns::operators::CompareMode;
 use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::fns::operators::NestedNulls;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::scalar_fn::fns::pack::PackOptions;
@@ -1259,11 +1260,29 @@ pub fn list_contains_opts(
 /// let expr = in_list(root(), lit(vec![1, 2, 3]));
 /// ```
 pub fn in_list(needle: Expression, list: Expression) -> Expression {
+    in_list_with_mode(needle, list, CompareMode::TOTAL_ORDER)
+}
+
+/// Creates `needle IN (list)` with SQL null semantics, where the needle and the elements compare
+/// floats in `compare_mode`. See [`in_list`].
+///
+/// Membership uses only equality, so [`CompareMode::nested_nulls`] has no effect.
+pub fn in_list_with_mode(
+    needle: Expression,
+    list: Expression,
+    compare_mode: CompareMode,
+) -> Expression {
+    let compare_mode = match list.as_opt::<Literal>().map(Scalar::dtype) {
+        Some(DType::List(element_dtype, _)) => compare_mode.for_dtype(element_dtype),
+        _ => compare_mode,
+    };
+
     list_contains_opts(
         list,
         needle,
         ListContainsOptions {
             sql_null_semantics: true,
+            compare_mode: compare_mode.with_nested_nulls(NestedNulls::First),
         },
     )
 }
@@ -1294,6 +1313,21 @@ pub fn in_list_of(
     needle: Expression,
     element_dtype: DType,
     elements: Vec<Scalar>,
+) -> VortexResult<Expression> {
+    in_list_of_with_mode(needle, element_dtype, elements, CompareMode::TOTAL_ORDER)
+}
+
+/// Creates `needle IN (elements)` like [`in_list_of`], where the needle and the elements compare
+/// floats in `compare_mode`.
+///
+/// # Errors
+///
+/// Returns an error if an element is not a null and not of `element_dtype`.
+pub fn in_list_of_with_mode(
+    needle: Expression,
+    element_dtype: DType,
+    elements: Vec<Scalar>,
+    compare_mode: CompareMode,
 ) -> VortexResult<Expression> {
     let element_dtype = if elements.iter().any(Scalar::is_null) {
         element_dtype.as_nullable()
@@ -1336,7 +1370,7 @@ pub fn in_list_of(
         elements.dedup();
     }
     let list = Scalar::list(Arc::new(element_dtype), elements, Nullability::NonNullable);
-    Ok(in_list(needle, lit(list)))
+    Ok(in_list_with_mode(needle, lit(list), compare_mode))
 }
 
 /// The smallest and largest of non-null integer `scalars` when they hold every integer between
@@ -1378,6 +1412,7 @@ pub fn bound_in_list(needle: BoundExpression, list: BoundExpression) -> BoundExp
         .try_new_bound_expr(
             ListContainsOptions {
                 sql_null_semantics: true,
+                compare_mode: CompareMode::TOTAL_ORDER,
             },
             [list, needle],
         )

@@ -178,12 +178,9 @@ public final class SparkFilterToVortexExpression {
             return Optional.of(compare(BinaryOp.EQ, dataType, field, elements.get(0)));
         }
 
-        if (isFloat(dataType)) {
-            return Optional.of(floatIn(field, dataType, elements, holdsNull));
-        }
-
         // A null element keeps SQL's three-valued IN, so a non-match beneath NOT stays null rather than true. The
-        // native set answers a list of any length in one pass, where an OR of equalities grows with the list.
+        // native set answers a list of any length in one pass, where an OR of equalities grows with the list. Float
+        // elements compare with Spark semantics; see compare(...).
         Optional<Expression> elementType = literal(null, dataType);
         if (elementType.isEmpty()) {
             return Optional.empty();
@@ -192,7 +189,9 @@ public final class SparkFilterToVortexExpression {
             elements.add(elementType.get());
         }
         return Optional.of(Expression.in(
-                field, Expression.literalList(elementType.get(), holdsNull, elements.toArray(new Expression[0]))));
+                field,
+                Expression.literalList(elementType.get(), holdsNull, elements.toArray(new Expression[0])),
+                isFloat(dataType) ? CompareMode.SPARK : CompareMode.TOTAL_ORDER));
     }
 
     /**
@@ -201,23 +200,9 @@ public final class SparkFilterToVortexExpression {
      * default, and Spark cannot restore rows that the scan drops, so float comparisons use {@link CompareMode#SPARK}.
      */
     private static Expression compare(BinaryOp op, DataType dataType, Expression lhs, Expression rhs) {
-        return isFloat(dataType) ? Expression.compare(op, CompareMode.SPARK, lhs, rhs) : Expression.binary(op, lhs, rhs);
-    }
-
-    /**
-     * The native set compares the bits of floats, so a float {@code IN} becomes a disjunction of Spark equalities. A
-     * null element makes a non-match null, as in SQL.
-     */
-    private static Expression floatIn(Expression field, DataType dataType, List<Expression> elements, boolean holdsNull) {
-        List<Expression> equalities = new ArrayList<>(elements.size() + 1);
-        for (Expression element : elements) {
-            equalities.add(compare(BinaryOp.EQ, dataType, field, element));
-        }
-        if (holdsNull) {
-            Expression.DType nullType = dataType instanceof FloatType ? Expression.DType.F32 : Expression.DType.F64;
-            equalities.add(compare(BinaryOp.EQ, dataType, field, Expression.nullLiteral(nullType)));
-        }
-        return Expression.or(equalities.toArray(new Expression[0]));
+        return isFloat(dataType)
+                ? Expression.compare(op, CompareMode.SPARK, lhs, rhs)
+                : Expression.binary(op, lhs, rhs);
     }
 
     private static boolean isFloat(DataType dataType) {

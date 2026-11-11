@@ -126,6 +126,10 @@ message LikeOpts {
 
 message ListContainsOpts {
   bool sql_null_semantics = 1;
+  // How the needle and the elements compare signed float zeros.
+  BinaryOpts.SignedZeros signed_zeros = 2;
+  // How the needle and the elements compare float NaN values.
+  BinaryOpts.NanOrder nan_order = 3;
 }
 
 message CastOpts {
