@@ -4,9 +4,10 @@
 //! A DataFusion table over a [`vortex_table::Manifest`].
 //!
 //! The manifest names every data file with its size and footer, so planning a scan needs no
-//! listing and no footer reads: [`VortexManifestTable::scan`] prunes files on the statistics in
-//! their footers, seeds the session's file metadata cache with the footers of the files it keeps,
-//! and hands those files to the same [`VortexFormat`] scan a listing table builds.
+//! listing and no footer reads: [`VortexManifestTable::scan`] prunes files on the stats table the
+//! manifest records, parses only the footers of the files it keeps, seeds the session's file
+//! metadata cache with them, and hands those files to the same [`VortexFormat`] scan a listing
+//! table builds.
 
 use std::fmt;
 use std::sync::Arc;
@@ -36,7 +37,10 @@ use datafusion_physical_plan::empty::EmptyExec;
 use object_store::ObjectMeta;
 use object_store::path::Path;
 use tokio::sync::OnceCell;
+use vortex::buffer::ByteBuffer;
+use vortex::error::VortexError;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
@@ -57,14 +61,41 @@ use crate::convert::ExpressionConverter;
 /// One data file of a manifest table.
 struct ManifestFile {
     meta: ObjectMeta,
-    footer: Footer,
+    /// The footer region the manifest inlines, and the hash it records for it.
+    region: ByteBuffer,
+    footer_hash: u64,
+    /// The parsed footer, once a scan keeps the file.
+    footer: OnceCell<Footer>,
+    /// The file's DataFusion statistics, once a scan keeps the file.
+    statistics: OnceCell<Arc<Statistics>>,
+}
+
+impl ManifestFile {
+    /// The file's footer, checked against its hash and parsed on first use.
+    async fn footer(&self, session: &VortexSession) -> VortexResult<&Footer> {
+        self.footer
+            .get_or_try_init(|| async { self.parse_footer(session) })
+            .await
+    }
+
+    fn parse_footer(&self, session: &VortexSession) -> VortexResult<Footer> {
+        vortex_ensure_eq!(
+            footer_hash(&self.region),
+            self.footer_hash,
+            "the inlined footer of {} does not match its hash",
+            self.meta.location
+        );
+        parse_footer(self.region.clone(), self.meta.size, session)
+    }
 }
 
 /// A DataFusion [`TableProvider`] over the files a [`Manifest`] names.
 ///
-/// Every manifest entry must inline its footer. Filters are reported as
-/// [`Inexact`](TableProviderFilterPushDown::Inexact): the manifest only prunes whole files, and
-/// the scan's own filter pushdown handles the rows of the files it keeps.
+/// Every manifest entry must inline its footer. When the manifest records its files' stats, a
+/// scan prunes on them before parsing any footer, and parses only the footers of the files it
+/// keeps. Filters are reported as [`Inexact`](TableProviderFilterPushDown::Inexact): the
+/// manifest only prunes whole files, and the scan's own filter pushdown handles the rows of the
+/// files it keeps.
 pub struct VortexManifestTable {
     format: Arc<VortexFormat>,
     session: VortexSession,
@@ -73,8 +104,6 @@ pub struct VortexManifestTable {
     files: Vec<ManifestFile>,
     /// Column statistics of every file, one row per file, for pruning them all at once.
     table_stats: Arc<TableStats>,
-    /// Per-file statistics, computed from the footers on the first scan.
-    statistics: OnceCell<Vec<Arc<Statistics>>>,
 }
 
 impl fmt::Debug for VortexManifestTable {
@@ -103,13 +132,6 @@ impl VortexManifestTable {
                 let region = entry.footer.clone().ok_or_else(|| {
                     vortex_err!("{} has no inlined footer in the manifest", entry.path)
                 })?;
-                vortex_ensure_eq!(
-                    footer_hash(&region),
-                    entry.footer_hash,
-                    "the inlined footer of {} does not match its hash",
-                    entry.path
-                );
-                let footer = parse_footer(region, entry.byte_size, &session)?;
                 let location = entry
                     .path
                     .split('/')
@@ -123,37 +145,46 @@ impl VortexManifestTable {
                     e_tag: None,
                     version: None,
                 };
-                Ok(ManifestFile { meta, footer })
+                Ok(ManifestFile {
+                    meta,
+                    region,
+                    footer_hash: entry.footer_hash,
+                    footer: OnceCell::new(),
+                    statistics: OnceCell::new(),
+                })
             })
             .collect::<VortexResult<Vec<_>>>()?;
-        let first = files
-            .first()
-            .ok_or_else(|| vortex_err!("the manifest names no files"))?;
-        for file in &files[1..] {
-            vortex_ensure_eq!(
-                file.footer.dtype(),
-                first.footer.dtype(),
-                "{} has a different dtype from the table's first file",
-                file.meta.location
-            );
+        if files.is_empty() {
+            vortex_bail!("the manifest names no files");
         }
-        let schema = Arc::new(session.arrow().to_arrow_schema(first.footer.dtype())?);
-        // The manifest's own stats table when it records one, so no footer is read for pruning.
+        // The manifest's own stats table when it records one, so no footer is parsed until a scan
+        // keeps its file. Otherwise every footer is parsed now, to build the table.
         let table_stats = match manifest.stats() {
-            Some(stats) => {
-                vortex_ensure_eq!(
-                    stats.dtype(),
-                    first.footer.dtype(),
-                    "the manifest's stats are for another dtype"
-                );
-                Arc::clone(stats)
+            Some(stats) => Arc::clone(stats),
+            None => {
+                let footers = files
+                    .iter()
+                    .map(|file| file.parse_footer(&session))
+                    .collect::<VortexResult<Vec<_>>>()?;
+                let dtype = footers[0].dtype();
+                for (file, footer) in files.iter().zip(&footers) {
+                    vortex_ensure_eq!(
+                        footer.dtype(),
+                        dtype,
+                        "{} has a different dtype from the table's first file",
+                        file.meta.location
+                    );
+                }
+                let stats = TableStats::try_new(&footers, dtype, &session)?;
+                for (file, footer) in files.iter().zip(footers) {
+                    file.footer
+                        .set(footer)
+                        .map_err(|_| vortex_err!("{} was parsed twice", file.meta.location))?;
+                }
+                Arc::new(stats)
             }
-            None => Arc::new(TableStats::try_new(
-                files.iter().map(|file| &file.footer),
-                first.footer.dtype(),
-                &session,
-            )?),
         };
+        let schema = Arc::new(session.arrow().to_arrow_schema(table_stats.dtype())?);
         Ok(Self {
             format,
             session,
@@ -161,15 +192,22 @@ impl VortexManifestTable {
             schema,
             files,
             table_stats,
-            statistics: OnceCell::new(),
         })
     }
 
-    /// Puts every file's footer in the session's file metadata cache, so neither planning nor the
-    /// scan reads a footer.
-    fn seed_footer_cache(&self, state: &dyn Session) {
+    /// Parses the footer of each of `kept` and puts it in the session's file metadata cache, so
+    /// neither planning nor the scan reads a footer, and checks it has the table's dtype.
+    async fn seed_footer_cache(&self, state: &dyn Session, kept: &[usize]) -> VortexResult<()> {
         let cache = state.runtime_env().cache_manager.get_file_metadata_cache();
-        for file in &self.files {
+        for &i in kept {
+            let file = &self.files[i];
+            let footer = file.footer(&self.session).await?;
+            vortex_ensure_eq!(
+                footer.dtype(),
+                self.table_stats.dtype(),
+                "{} has a different dtype from the table's",
+                file.meta.location
+            );
             let cached = cache
                 .get(&file.meta.location)
                 .is_some_and(|entry| entry.is_valid_for(&file.meta));
@@ -178,30 +216,29 @@ impl VortexManifestTable {
                     &file.meta.location,
                     CachedFileMetadataEntry::new(
                         file.meta.clone(),
-                        Arc::new(CachedVortexMetadata::from_footer(file.footer.clone())),
+                        Arc::new(CachedVortexMetadata::from_footer(footer.clone())),
                     ),
                 );
             }
         }
+        Ok(())
     }
 
-    async fn file_statistics(&self, state: &dyn Session) -> DFResult<&[Arc<Statistics>]> {
-        let statistics = self
+    /// The DataFusion statistics of the file at `i`, from its cached footer.
+    async fn file_statistics(&self, state: &dyn Session, i: usize) -> DFResult<Arc<Statistics>> {
+        let file = &self.files[i];
+        let statistics = file
             .statistics
             .get_or_try_init(|| async {
                 let store = state.runtime_env().object_store(&self.object_store_url)?;
-                let mut statistics = Vec::with_capacity(self.files.len());
-                for file in &self.files {
-                    let stats = self
-                        .format
-                        .infer_stats(state, &store, Arc::clone(&self.schema), &file.meta)
-                        .await?;
-                    statistics.push(Arc::new(stats));
-                }
-                Ok::<_, DataFusionError>(statistics)
+                let stats = self
+                    .format
+                    .infer_stats(state, &store, Arc::clone(&self.schema), &file.meta)
+                    .await?;
+                Ok::<_, DataFusionError>(Arc::new(stats))
             })
             .await?;
-        Ok(statistics)
+        Ok(Arc::clone(statistics))
     }
 
     /// The conjunction of the filters Vortex can evaluate, if any.
@@ -251,37 +288,33 @@ impl TableProvider for VortexManifestTable {
         limit: Option<usize>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
         let start = std::time::Instant::now();
-        self.seed_footer_cache(state);
-        let seeded = start.elapsed();
-        let statistics = self.file_statistics(state).await?;
-        let stats_done = start.elapsed();
         let predicate = self.pruning_predicate(state, filters)?;
-
-        // One evaluation of the filter's proof over the stats of every file.
+        // One evaluation of the filter's proof over the stats of every file, before any footer.
         let pruned = match &predicate {
-            Some(predicate) => Some(
-                self.table_stats
-                    .prune(predicate)
-                    .map_err(|e| DataFusionError::External(Box::new(e)))?,
-            ),
+            Some(predicate) => Some(self.table_stats.prune(predicate).map_err(external)?),
             None => None,
         };
-        let mut kept = Vec::with_capacity(self.files.len());
-        for (i, (file, stats)) in self.files.iter().zip(statistics).enumerate() {
-            if !pruned.as_ref().is_some_and(|pruned| pruned.value(i)) {
-                kept.push(
-                    PartitionedFile::from(file.meta.clone()).with_statistics(Arc::clone(stats)),
-                );
-            }
+        let kept_ordinals: Vec<usize> = (0..self.files.len())
+            .filter(|&i| !pruned.as_ref().is_some_and(|pruned| pruned.value(i)))
+            .collect();
+        let pruned_at = start.elapsed();
+        self.seed_footer_cache(state, &kept_ordinals)
+            .await
+            .map_err(external)?;
+        let seeded_at = start.elapsed();
+        let mut kept = Vec::with_capacity(kept_ordinals.len());
+        for &i in &kept_ordinals {
+            let stats = self.file_statistics(state, i).await?;
+            kept.push(PartitionedFile::from(self.files[i].meta.clone()).with_statistics(stats));
         }
         tracing::debug!(
             files = self.files.len(),
             kept = kept.len(),
             pruned = self.files.len() - kept.len(),
             predicate = ?predicate.as_ref().map(|p| p.to_string()),
-            seed_us = seeded.as_micros(),
-            stats_us = (stats_done - seeded).as_micros(),
-            prune_us = (start.elapsed() - stats_done).as_micros(),
+            prune_us = pruned_at.as_micros(),
+            seed_us = (seeded_at - pruned_at).as_micros(),
+            stats_us = (start.elapsed() - seeded_at).as_micros(),
             "planned manifest scan"
         );
 
@@ -310,6 +343,10 @@ impl TableProvider for VortexManifestTable {
             .build();
         self.format.create_physical_plan(state, config).await
     }
+}
+
+fn external(e: VortexError) -> DataFusionError {
+    DataFusionError::External(Box::new(e))
 }
 
 #[cfg(test)]
@@ -406,6 +443,9 @@ mod tests {
         let plan =
             datafusion_catalog::TableProvider::scan(&table, &state, None, &filters, None).await?;
         assert_eq!(scanned_files(plan.as_ref()), files);
+        // Only the kept files' footers are parsed.
+        let parsed = table.files.iter().filter(|f| f.footer.get().is_some());
+        assert_eq!(parsed.count(), files);
         Ok(())
     }
 
