@@ -337,6 +337,29 @@ async fn in_file_bm25_ranks_rare_terms_first() -> VortexResult<()> {
     Ok(())
 }
 
+/// MaxScore skips walking the postings of terms that cannot change the top `k`, so a small `k`
+/// must rank exactly as scoring every row does.
+#[rstest]
+#[case("needle echo")]
+#[case("alpha bravo charlie")]
+#[case("echo delta needle papa")]
+#[tokio::test]
+async fn bm25_top_k_matches_scoring_every_row(#[case] query: &str) -> VortexResult<()> {
+    let session = session()?;
+    let data = Data::generate(7, ROWS);
+    let file = write_indexed_file(&session, &data).await?;
+    let index = open_in_file_index(InvertedIndex, &file, "text")?.expect("inverted index");
+
+    let every = index.search_bm25(query, ROWS).await?;
+    for k in [1, 3, 10] {
+        let top = index.search_bm25(query, k).await?;
+        let rows: Vec<u64> = top.iter().map(|h| h.row).collect();
+        let expected: Vec<u64> = every[..k].iter().map(|h| h.row).collect();
+        assert_eq!(rows, expected, "k = {k}");
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn in_file_ivf_finds_nearest_vectors() -> VortexResult<()> {
     let session = session()?;
@@ -540,6 +563,103 @@ async fn standalone_ivf_reads_probed_lists_by_position() -> VortexResult<()> {
             .await?;
         assert_eq!(hits[0].row, row as u64);
     }
+    Ok(())
+}
+
+/// Files of one table may differ in a column's nullability; a different type is still refused.
+#[tokio::test]
+async fn standalone_index_accepts_files_that_differ_in_nullability() -> VortexResult<()> {
+    let session = session()?;
+    let mut builder = IndexFileBuilder::new(
+        InvertedIndex,
+        (),
+        "text",
+        DType::Utf8(Nullability::NonNullable),
+        &session,
+    )?;
+    builder.push_file(
+        CoveredFile::new("a.vortex", 2),
+        [VarBinViewArray::from_iter_str(["red fox", "blue jay"]).into_array()],
+    )?;
+    builder.push_file(
+        CoveredFile::new("b.vortex", 2),
+        [VarBinViewArray::from_iter_nullable_str([Some("red kite"), None]).into_array()],
+    )?;
+    assert!(
+        builder
+            .push_file(
+                CoveredFile::new("c.vortex", 1),
+                [VarBinViewArray::from_iter_bin([b"red"]).into_array()],
+            )
+            .is_err()
+    );
+
+    let mut bytes = ByteBufferMut::empty();
+    builder.write(&mut bytes).await?;
+    let index = IndexFile::open(
+        InvertedIndex,
+        &session
+            .open_options()
+            .include_metadata()
+            .open_buffer(bytes.freeze())?,
+    )?;
+    let (_, selections) = index
+        .locate_files(&text_match(root(), "red"))
+        .await?
+        .expect("claims text_match");
+    let files: Vec<usize> = selections.iter().map(|s| s.file).collect();
+    assert_eq!(files, vec![0, 1]);
+    Ok(())
+}
+
+/// Each file starts on a block boundary of the shared index, so a match in one file never selects
+/// rows of its neighbour, even when the files' lengths are not multiples of the block length.
+#[tokio::test]
+async fn trigram_blocks_do_not_straddle_files() -> VortexResult<()> {
+    let session = session()?;
+    let rows = 10_000;
+    let file = |needle_row: Option<usize>| {
+        VarBinViewArray::from_iter_str((0..rows).map(|row| {
+            if Some(row) == needle_row {
+                "needle".to_string()
+            } else {
+                format!("hay {}", row % 7)
+            }
+        }))
+        .into_array()
+    };
+    let mut builder = IndexFileBuilder::new(
+        TrigramIndex,
+        TrigramOptions { block_len: 8192 },
+        "text",
+        DType::Utf8(Nullability::NonNullable),
+        &session,
+    )?;
+    builder.push_file(CoveredFile::new("a.vortex", rows as u64), [file(None)])?;
+    builder.push_file(CoveredFile::new("b.vortex", rows as u64), [file(Some(100))])?;
+    let mut bytes = ByteBufferMut::empty();
+    builder.write(&mut bytes).await?;
+    let index = IndexFile::open(
+        TrigramIndex,
+        &session
+            .open_options()
+            .include_metadata()
+            .open_buffer(bytes.freeze())?,
+    )?;
+
+    let (_, selections) = index
+        .locate_files(&like(root(), lit("%needle%")))
+        .await?
+        .expect("claims like");
+    let selected: Vec<(usize, Vec<u64>)> = selections
+        .iter()
+        .map(|s| match &s.selection {
+            Selection::IncludeRoaring(rows) => (s.file, vec![rows.min().unwrap_or(0), rows.len()]),
+            other => panic!("unexpected selection {other:?}"),
+        })
+        .collect();
+    // Only file b's first block: its rows 0..8192.
+    assert_eq!(selected, vec![(1, vec![0, 8192])]);
     Ok(())
 }
 
