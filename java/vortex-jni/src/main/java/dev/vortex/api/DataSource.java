@@ -27,6 +27,9 @@ import org.apache.arrow.vector.types.pojo.Schema;
  * <p>Call {@link #close()} to release this handle and its cached file resources promptly. Scans and partitions already
  * created from it remain valid and retain the resources they still need. {@link VortexCleaner} releases an unclosed
  * handle when it becomes unreachable.
+ *
+ * <p>Native calls are synchronized with {@code close()} to prevent another thread from freeing the handle during an
+ * operation.
  */
 public final class DataSource implements AutoCloseable {
     private final Session session;
@@ -129,8 +132,6 @@ public final class DataSource implements AutoCloseable {
         try (ArrowSchema schema = ArrowSchema.allocateNew(allocator)) {
             NativeDataSource.arrowSchema(session.nativePointer(), pointer, schema.memoryAddress());
             return Data.importSchema(allocator, schema, null);
-        } finally {
-            Reference.reachabilityFence(this);
         }
     }
 
@@ -141,17 +142,13 @@ public final class DataSource implements AutoCloseable {
      */
     public synchronized RowCount rowCount() {
         Preconditions.checkState(!closed, "data source is closed");
-        try {
-            long[] out = new long[2];
-            NativeDataSource.rowCount(pointer, out);
-            return switch ((int) out[1]) {
-                case 1 -> new RowCount.Estimate(out[0]);
-                case 2 -> new RowCount.Exact(out[0]);
-                default -> RowCount.Unknown.INSTANCE;
-            };
-        } finally {
-            Reference.reachabilityFence(this);
-        }
+        long[] out = new long[2];
+        NativeDataSource.rowCount(pointer, out);
+        return switch ((int) out[1]) {
+            case 1 -> new RowCount.Estimate(out[0]);
+            case 2 -> new RowCount.Exact(out[0]);
+            default -> RowCount.Unknown.INSTANCE;
+        };
     }
 
     /** Precision-aware row count. See {@link #rowCount()}. */
@@ -197,17 +194,13 @@ public final class DataSource implements AutoCloseable {
      */
     public synchronized ByteSize byteSize() {
         Preconditions.checkState(!closed, "data source is closed");
-        try {
-            long[] out = new long[2];
-            NativeDataSource.byteSize(pointer, out);
-            return switch ((int) out[1]) {
-                case 1 -> new ByteSize.Estimate(out[0]);
-                case 2 -> new ByteSize.Exact(out[0]);
-                default -> ByteSize.Unknown.INSTANCE;
-            };
-        } finally {
-            Reference.reachabilityFence(this);
-        }
+        long[] out = new long[2];
+        NativeDataSource.byteSize(pointer, out);
+        return switch ((int) out[1]) {
+            case 1 -> new ByteSize.Estimate(out[0]);
+            case 2 -> new ByteSize.Exact(out[0]);
+            default -> ByteSize.Unknown.INSTANCE;
+        };
     }
 
     /** Precision-aware byte size. See {@link #byteSize()}. */
@@ -276,7 +269,7 @@ public final class DataSource implements AutoCloseable {
                     splitConcurrency);
             return Scan.fromPointer(session, scanPtr);
         } finally {
-            Reference.reachabilityFence(this);
+            Reference.reachabilityFence(options);
         }
     }
 

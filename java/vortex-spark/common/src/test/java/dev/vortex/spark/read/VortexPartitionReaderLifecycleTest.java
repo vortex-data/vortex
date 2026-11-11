@@ -87,7 +87,6 @@ final class VortexPartitionReaderLifecycleTest {
             assertEquals(10, reader.get().column(0).getInt(0));
             if (state.equals("exhausted")) {
                 assertFalse(reader.next());
-                assertClosed(source, scan, readable);
             }
         }
         reader.close();
@@ -98,6 +97,24 @@ final class VortexPartitionReaderLifecycleTest {
         assertNull(field(reader, "scan"));
         assertNull(field(reader, "currentReader"));
         assertNull(field(reader, "currentBatch"));
+    }
+
+    @Test
+    void exhaustionLeavesNativeHandlesForTheOwnerToClose() throws Exception {
+        try (VortexPartitionReader reader = open()) {
+            DataSource source = (DataSource) field(reader, "dataSource");
+            Scan scan = (Scan) field(reader, "scan");
+            NativeReadable readable = (NativeReadable) field(reader, "readable");
+            assertTrue(reader.next());
+            assertEquals(10, reader.get().column(0).getInt(0));
+            assertFalse(reader.next());
+            assertFalse(reader.next());
+            assertEquals(3L, source.rowCount().asOptional().orElseThrow());
+            assertFalse(scan.hasNext());
+            readable.readFully(0, ByteBuffer.allocateDirect(1));
+            reader.close();
+            assertClosed(source, scan, readable);
+        }
     }
 
     @ParameterizedTest
@@ -188,7 +205,7 @@ final class VortexPartitionReaderLifecycleTest {
 
     private static void assertClosed(DataSource source, Scan scan, NativeReadable readable) {
         assertThrows(IllegalStateException.class, source::rowCount);
-        assertFalse(scan.hasNext());
+        assertThrows(IllegalStateException.class, scan::hasNext);
         assertThrows(IllegalStateException.class, () -> readable.readFully(0, ByteBuffer.allocateDirect(1)));
     }
 

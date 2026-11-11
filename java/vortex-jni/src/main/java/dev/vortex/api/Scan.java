@@ -8,7 +8,6 @@ import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativePartition;
 import dev.vortex.jni.NativeScan;
 import java.lang.ref.Cleaner;
-import java.lang.ref.Reference;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.concurrent.atomic.AtomicLong;
@@ -23,6 +22,9 @@ import org.apache.arrow.vector.types.pojo.Schema;
  * <p>Call {@link #close()} to release the scan and any partition prefetched by {@link #hasNext()} but not yet returned
  * by {@link #next()}. Partitions already returned remain valid. {@link VortexCleaner} releases an unclosed scan when it
  * becomes unreachable.
+ *
+ * <p>Native calls are synchronized with {@code close()} to prevent another thread from freeing the handle during an
+ * operation.
  */
 public final class Scan implements Iterator<Partition>, AutoCloseable {
     private final Session session;
@@ -62,27 +64,29 @@ public final class Scan implements Iterator<Partition>, AutoCloseable {
         try (ArrowSchema schema = ArrowSchema.allocateNew(allocator)) {
             NativeScan.arrowSchema(session.nativePointer(), pointer, schema.memoryAddress());
             return Data.importSchema(allocator, schema, null);
-        } finally {
-            Reference.reachabilityFence(this);
         }
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws IllegalStateException if this scan has been closed
+     */
     @Override
     public synchronized boolean hasNext() {
-        if (closed) {
-            return false;
+        Preconditions.checkState(!closed, "scan is closed");
+        if (!primed) {
+            nextPartitionPointer.set(NativeScan.nextPartition(pointer));
+            primed = true;
         }
-        try {
-            if (!primed) {
-                nextPartitionPointer.set(NativeScan.nextPartition(pointer));
-                primed = true;
-            }
-            return nextPartitionPointer.get() != 0;
-        } finally {
-            Reference.reachabilityFence(this);
-        }
+        return nextPartitionPointer.get() != 0;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws IllegalStateException if this scan has been closed
+     */
     @Override
     public synchronized Partition next() {
         if (!hasNext()) {

@@ -19,6 +19,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.arrow.memory.AllocationListener;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.OutOfMemoryException;
 import org.apache.arrow.memory.RootAllocator;
@@ -109,17 +111,26 @@ final class ReadLifecycleTest {
     }
 
     @ParameterizedTest
-    @ValueSource(longs = {0, 64})
-    void failedStreamAllocationOrImportReleasesTheConsumedPartition(long limit) throws Exception {
+    @ValueSource(ints = {1, 2})
+    void failedStreamAllocationOrImportReleasesTheConsumedPartition(int failingAllocation) throws Exception {
         NativeInput input = openNativeInput();
         Scan scan = input.source().scan(ScanOptions.of());
         Partition partition = scan.next();
         scan.close();
         input.source().close();
         assertFalse(input.readable().refersTo(null));
-        // Arrow 19 allocates two 40-byte stream structs, rounded to 64 bytes each.
-        try (BufferAllocator limited = new RootAllocator(limit)) {
+        AtomicInteger allocations = new AtomicInteger();
+        AllocationListener listener = new AllocationListener() {
+            @Override
+            public void onPreAllocation(long size) {
+                if (allocations.incrementAndGet() == failingAllocation) {
+                    throw new OutOfMemoryException("injected allocation failure");
+                }
+            }
+        };
+        try (BufferAllocator limited = new RootAllocator(listener, Long.MAX_VALUE)) {
             assertThrows(OutOfMemoryException.class, () -> partition.scanArrow(limited));
+            assertEquals(failingAllocation, allocations.get());
             assertEquals(0, limited.getAllocatedMemory());
             assertThrows(IllegalStateException.class, () -> partition.scanArrow(allocator));
             assertReadableReleased(input);
@@ -139,12 +150,25 @@ final class ReadLifecycleTest {
             }
             scan.close();
             scan.close();
-            assertFalse(scan.hasNext());
-            assertThrows(NoSuchElementException.class, scan::next);
+            assertThrows(IllegalStateException.class, scan::hasNext);
+            assertThrows(IllegalStateException.class, scan::next);
             assertThrows(IllegalStateException.class, () -> scan.arrowSchema(allocator));
             try (Scan another = source.scan(ScanOptions.of())) {
                 assertTrue(another.hasNext());
             }
+        }
+    }
+
+    @Test
+    void exhaustedOpenScanRetainsIteratorSemantics() throws IOException {
+        try (DataSource source = DataSource.open(session, uri);
+                Scan scan = source.scan(ScanOptions.of())) {
+            try (ArrowReader reader = scan.next().scanArrow(allocator)) {
+                assertValues(reader);
+            }
+            assertFalse(scan.hasNext());
+            assertFalse(scan.hasNext());
+            assertThrows(NoSuchElementException.class, scan::next);
         }
     }
 
