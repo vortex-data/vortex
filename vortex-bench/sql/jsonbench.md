@@ -79,8 +79,8 @@ and the V2 scan (lower is better):
 
 | Shredding | Q0 | Q1 | Q2 | Q3 | Q4 |
 | --- | --- | --- | --- | --- | --- |
-| `none` | 0.82 | 0.79 | 0.63 | 0.51 | 0.53 |
-| `query-fields` | 0.06 | 0.23 | 0.13 | 0.10 | 0.11 |
+| `none` | 0.51 | 0.50 | 0.37 | 0.35 | 0.36 |
+| `query-fields` | 0.07 | 0.25 | 0.16 | 0.12 | 0.11 |
 
 The file is 126.5 MB against 128.6 MB of Parquet for `none`, and 126.3 MB against 118.6 MB
 for `query-fields`.

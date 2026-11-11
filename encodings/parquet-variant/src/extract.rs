@@ -157,16 +157,26 @@ fn utf8(bytes: &[u8]) -> Option<Extracted<'_>> {
 }
 
 /// The first `N` bytes of `bytes`.
+#[inline]
 fn array<const N: usize>(bytes: &[u8]) -> Option<[u8; N]> {
     bytes.get(..N)?.try_into().ok()
 }
 
 /// Reads a little-endian unsigned integer of `width` bytes, at most four.
+#[inline]
 fn read_uint(bytes: &[u8], width: usize) -> Option<usize> {
-    let bytes = bytes.get(..width)?;
-    let mut buffer = [0u8; 4];
-    buffer[..width].copy_from_slice(bytes);
-    usize::try_from(u32::from_le_bytes(buffer)).ok()
+    // The width is one byte far more often than not, and a fixed-width read is a single load
+    // where copying a variable number of bytes is a call.
+    Some(match width {
+        1 => usize::from(*bytes.first()?),
+        2 => usize::from(u16::from_le_bytes(array(bytes)?)),
+        3 => {
+            let [low, mid, high] = array(bytes)?;
+            usize::from(low) | usize::from(mid) << 8 | usize::from(high) << 16
+        }
+        4 => usize::try_from(u32::from_le_bytes(array(bytes)?)).ok()?,
+        _ => return None,
+    })
 }
 
 /// The two low bits of a value's first byte, its basic type.
