@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use futures::TryStreamExt;
+use rstest::rstest;
 use vortex::VortexSessionDefault;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -35,7 +36,10 @@ use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_layout::layouts::indexed::IndexExactness;
 use vortex_layout::layouts::indexed::IndexVTable;
 use vortex_scan::planning::drive::ParallelDriver;
+use vortex_scan::planning::drive::PlanDriver;
+use vortex_scan::planning::drive::PlanRoot;
 use vortex_scan::planning::drive::ScopedBatch;
+use vortex_scan::planning::drive::SequentialDriver;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
@@ -177,6 +181,47 @@ async fn scan_ids(
     Ok(ids)
 }
 
+/// The ids `root` yields, by file then row.
+async fn plan_ids(root: PlanRoot, sequential: bool) -> VortexResult<Vec<u64>> {
+    let batches: Vec<ScopedBatch> = if sequential {
+        SequentialDriver::new().execute(root).try_collect().await?
+    } else {
+        ParallelDriver::new(TokioRuntime::current())
+            .with_ordered(true)
+            .execute(root)
+            .try_collect()
+            .await?
+    };
+    let mut ctx = SESSION.create_execution_ctx();
+    let mut ids = Vec::new();
+    for batch in batches {
+        let column: ArrayRef = batch
+            .batch
+            .execute::<StructArray>(&mut ctx)?
+            .unmasked_field_by_name("id")?
+            .clone();
+        ids.extend_from_slice(
+            column
+                .execute::<PrimitiveArray>(&mut ctx)?
+                .as_slice::<u64>(),
+        );
+    }
+    // The sequential driver yields files in order but may interleave their chunks.
+    if sequential {
+        ids.sort_unstable();
+    }
+    Ok(ids)
+}
+
+fn id_scan(storage: &Arc<MemoryStorage>, manifest: &Manifest) -> TableScan {
+    TableScan::new(
+        SESSION.clone(),
+        Arc::clone(storage) as _,
+        Arc::new(manifest.clone()),
+    )
+    .with_projection(select(["id"], root()))
+}
+
 fn needles(files: u64) -> Vec<u64> {
     (0..files * ROWS).filter(|id| id % 97 == 0).collect()
 }
@@ -256,5 +301,69 @@ async fn ranked_hits_map_to_scanned_rows() -> VortexResult<()> {
     assert_eq!(ids.len(), ranked.hits.len());
     let best = ranked.best_first()[0];
     assert_eq!(ids[best], target);
+    Ok(())
+}
+
+/// An index lookup planned as one plan: its index reads run through the driver, then only the
+/// matching rows are scanned.
+#[rstest]
+#[case::sequential(true)]
+#[case::parallel(false)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_planned_lookup_scans_only_the_matching_rows(
+    #[case] sequential: bool,
+) -> VortexResult<()> {
+    let (storage, manifest) = table(3).await?;
+    let index = TableIndex::bind(text_index(&manifest, &storage).await?, &manifest);
+    let root = index.plan_matching(&text_match(root(), "needle"), id_scan(&storage, &manifest))?;
+    assert_eq!(plan_ids(root, sequential).await?, needles(3));
+    Ok(())
+}
+
+/// A ranked search planned as one plan finds the same rows as the search run on its own.
+#[rstest]
+#[case::sequential(true)]
+#[case::parallel(false)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_planned_ranked_search_matches_the_awaited_one(
+    #[case] sequential: bool,
+) -> VortexResult<()> {
+    let (storage, manifest) = table(3).await?;
+    let ivf = build_index(
+        IvfIndex,
+        IvfOptions { lists: 4, dim: 0 },
+        "vec",
+        DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, Nullability::NonNullable)),
+            DIM_U32,
+            Nullability::NonNullable,
+        ),
+        &manifest,
+        &storage,
+    )
+    .await?;
+    let index = Arc::new(TableIndex::bind(ivf, &manifest));
+    let target = 1234u64;
+    let query: Vec<f32> = (0..DIM).map(|d| component(target, d)).collect();
+
+    let awaited = index.index().rows().search_vectors(&query, 5, 4).await?;
+    let expected = index.ranked(&awaited)?;
+    let expected_ids = scan_ids(&storage, &manifest, expected.selections.clone()).await?;
+
+    let search = index.index().rows().search_vectors_steps(&query, 5, 4)?;
+    let (root, ranked) = index.plan_ranked(search, id_scan(&storage, &manifest))?;
+    let ids = plan_ids(root, sequential).await?;
+    let ranked = ranked
+        .get()
+        .ok_or_else(|| vortex_err!("the plan ran the search"))?;
+    assert_eq!(ranked.hits, expected.hits);
+    let mut expected_sorted = expected_ids.clone();
+    expected_sorted.sort_unstable();
+    let mut sorted = ids.clone();
+    sorted.sort_unstable();
+    assert_eq!(sorted, expected_sorted);
+    if !sequential {
+        assert_eq!(ids[ranked.best_first()[0]], target);
+    }
     Ok(())
 }

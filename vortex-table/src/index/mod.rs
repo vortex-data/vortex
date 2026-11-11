@@ -15,18 +15,25 @@
 //! over a table that has grown since the index was built.
 
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::VortexFile;
+use vortex_file::v2::gather;
 use vortex_index::CoveredFile;
+use vortex_index::FileSelection;
 use vortex_index::Hit;
 use vortex_index::IndexFile;
 use vortex_index::IndexFileBuilder;
+use vortex_index::IndexStep;
 use vortex_io::VortexReadAt;
 use vortex_layout::layouts::indexed::IndexExactness;
 use vortex_layout::layouts::indexed::IndexVTable;
+use vortex_scan::planning::drive::PlanRoot;
+use vortex_scan::planning::planner::PlannerOutput;
+use vortex_scan::planning::planner::WorkScope;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
@@ -34,6 +41,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::manifest::Manifest;
 use crate::manifest::ManifestEntry;
+use crate::scan::TableScan;
 use crate::storage::TableStorage;
 
 /// The fingerprint an index records for a table file: its footer hash, little-endian.
@@ -166,16 +174,9 @@ impl<V: IndexVTable> TableIndex<V> {
         let Some((exactness, found)) = self.index.locate_files(expr).await? else {
             return Ok(None);
         };
-        let mut selections: HashMap<u64, Selection> = found
-            .into_iter()
-            .filter_map(|found| Some((self.ordinals[found.file]?, found.selection)))
-            .collect();
-        for &ordinal in &self.uncovered {
-            selections.insert(ordinal, Selection::All);
-        }
         Ok(Some(IndexSelections {
             exactness,
-            selections,
+            selections: self.selections(found),
         }))
     }
 
@@ -211,6 +212,120 @@ impl<V: IndexVTable> TableIndex<V> {
             })
             .collect::<VortexResult<_>>()?;
         Ok(RankedSelections { selections, hits })
+    }
+}
+
+impl<V: IndexVTable> TableIndex<V> {
+    /// The rows of each file `locate` would select: covered files' matches, and uncovered files
+    /// in full.
+    fn selections(&self, found: Vec<FileSelection>) -> HashMap<u64, Selection> {
+        select_files(&self.ordinals, &self.uncovered, found)
+    }
+
+    /// Plans `scan` over the rows that may match `expr`, an expression over the indexed column,
+    /// as one plan: its first planners read the index through the driver, and then open only the
+    /// data files and rows the index points at.
+    ///
+    /// A superset index leaves rows that don't match, so give `scan` the predicate as a filter
+    /// as well. When the index makes no claim on `expr`, the plan scans every file.
+    pub fn plan_matching(&self, expr: &Expression, scan: TableScan) -> VortexResult<PlanRoot> {
+        let ordinals = self.ordinals.clone();
+        let uncovered = self.uncovered.clone();
+        let step = self.index.locate_files_steps(expr)?;
+        plan_after(step, scan, move |located| {
+            Ok(located.map(|(_, found)| select_files(&ordinals, &uncovered, found)))
+        })
+    }
+
+    /// Plans `scan` over the rows of a ranked search, such as
+    /// [`search_vectors_steps`](vortex_index::IndexRows::search_vectors_steps) or
+    /// [`search_bm25_steps`](vortex_index::IndexRows::search_bm25_steps) on
+    /// [`IndexFile::rows`], as one plan whose first planners run the search.
+    ///
+    /// The returned cell holds the search's [`RankedSelections`] once the search has run, which
+    /// is before the plan yields its first batch: run the plan with ordered output, and its
+    /// `i`-th row is the cell's `i`-th hit.
+    pub fn plan_ranked(
+        self: &Arc<Self>,
+        search: IndexStep<Vec<Hit>>,
+        scan: TableScan,
+    ) -> VortexResult<(PlanRoot, Arc<OnceLock<RankedSelections>>)> {
+        let ranked = Arc::new(OnceLock::new());
+        let this = Arc::clone(self);
+        let cell = Arc::clone(&ranked);
+        let root = plan_after(search, scan, move |hits| {
+            let selections = this.ranked(&hits)?;
+            let rows = selections.selections.clone();
+            drop(cell.set(selections));
+            Ok(Some(rows))
+        })?;
+        Ok((root, ranked))
+    }
+}
+
+/// The selection of each manifest file, from the files an index search found.
+fn select_files(
+    ordinals: &[Option<u64>],
+    uncovered: &[u64],
+    found: Vec<FileSelection>,
+) -> HashMap<u64, Selection> {
+    let mut selections: HashMap<u64, Selection> = found
+        .into_iter()
+        .filter_map(|found| Some((ordinals[found.file]?, found.selection)))
+        .collect();
+    for &ordinal in uncovered {
+        selections.insert(ordinal, Selection::All);
+    }
+    selections
+}
+
+/// Runs `step` as planners, then plans `scan` over the selections `select` makes of its answer,
+/// or over every file when it makes none.
+pub fn plan_after<T: Send + 'static>(
+    step: IndexStep<T>,
+    scan: TableScan,
+    select: impl FnOnce(T) -> VortexResult<Option<HashMap<u64, Selection>>> + Send + 'static,
+) -> VortexResult<PlanRoot> {
+    let scope = WorkScope {
+        file_ordinal: 0,
+        rows: 0..scan.row_count(),
+    };
+    step_root(
+        scope,
+        step,
+        Box::new(move |answer| {
+            Ok(match select(answer)? {
+                Some(selections) => scan.with_file_selections(selections),
+                None => scan,
+            }
+            .plan())
+        }),
+    )
+}
+
+/// What a chain of index steps plans once it has its answer.
+type Finish<T> = Box<dyn FnOnce(T) -> VortexResult<PlanRoot> + Send>;
+
+/// The plan of `step`: each read a gathering planner over the index, whose continuation plans
+/// the next step, and the answer handed to `finish`.
+fn step_root<T: Send + 'static>(
+    scope: WorkScope,
+    step: IndexStep<T>,
+    finish: Finish<T>,
+) -> VortexResult<PlanRoot> {
+    match step {
+        IndexStep::Done(answer) => finish(answer),
+        IndexStep::Read(read, then) => {
+            let next_scope = scope.clone();
+            gather(
+                scope,
+                *read,
+                Box::new(move |batches| {
+                    let next = step_root(next_scope, then(batches)?, finish)?;
+                    Ok(Some(PlannerOutput::Open(next.scope, next.planner, next.io)))
+                }),
+            )
+        }
     }
 }
 

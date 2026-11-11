@@ -137,6 +137,11 @@ impl TableScan {
         self
     }
 
+    /// Rows in the table, across every file of its manifest.
+    pub fn row_count(&self) -> u64 {
+        self.manifest.row_count()
+    }
+
     /// Opens files through `cache`, and keeps the files this scan opens there.
     pub fn with_file_cache(mut self, cache: Arc<FileCache>) -> Self {
         self.cache = Some(cache);
