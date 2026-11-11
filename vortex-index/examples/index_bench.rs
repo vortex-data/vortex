@@ -31,7 +31,6 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use vortex::VortexSessionDefault;
@@ -60,11 +59,13 @@ use vortex_index::IvfIndex;
 use vortex_index::IvfOptions;
 use vortex_index::TrigramIndex;
 use vortex_index::TrigramOptions;
+use vortex_index::rows::collect;
 use vortex_index::text_match;
 use vortex_io::CoalesceConfig;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_io::std_file::FileReadAt;
+use vortex_layout::scan::v2::ScanBuilder;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
@@ -302,14 +303,12 @@ fn parse_flags(rest: &[String]) -> VortexResult<QueryArgs> {
 
 /// Count rows of `data` passing `filter` within `selection`.
 async fn count(data: &VortexFile, filter: &Expression, selection: Selection) -> VortexResult<u64> {
-    let chunks: Vec<ArrayRef> = data
-        .scan()?
-        .with_filter(filter.bind(data.dtype())?)
-        .with_selection(selection)
-        .with_projection(root().bind(data.dtype())?)
-        .into_array_stream()?
-        .try_collect()
-        .await?;
+    let chunks = collect(
+        ScanBuilder::new(data.session().clone(), data.scan_file())
+            .with_some_filter(Some(filter.bind(data.dtype())?))
+            .with_selection(selection),
+    )
+    .await?;
     Ok(chunks.iter().map(|c| c.len() as u64).sum())
 }
 

@@ -16,8 +16,8 @@
 //! back to each file's own rows, ready to pass to a scan as a row selection.
 
 use std::sync::Arc;
+use std::sync::OnceLock;
 
-use futures::TryStreamExt;
 use futures::stream;
 use prost::Message;
 use roaring::RoaringTreemap;
@@ -53,11 +53,13 @@ use vortex_layout::layouts::indexed::IndexVTable;
 use vortex_layout::layouts::indexed::RowLocator;
 use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
+use vortex_layout::scan::v2::ScanBuilder;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
 use crate::rows::Hit;
 use crate::rows::IndexRows;
+use crate::rows::collect;
 
 /// Key of the metadata segment describing a standalone index file.
 pub const INDEX_FILE_METADATA_KEY: &str = "vortex.index";
@@ -287,12 +289,10 @@ impl<V: IndexVTable> IndexFileBuilder<V> {
         file: &VortexFile,
     ) -> VortexResult<()> {
         let projection = col(self.column.as_str()).bind(file.dtype())?;
-        let chunks: Vec<ArrayRef> = file
-            .scan()?
-            .with_projection(projection)
-            .into_array_stream()?
-            .try_collect()
-            .await?;
+        let chunks = collect(
+            ScanBuilder::new(file.session().clone(), file.scan_file()).with_projection(projection),
+        )
+        .await?;
         self.push_file(covered, chunks)
     }
 
@@ -490,8 +490,9 @@ impl<V: IndexVTable> IndexFile<V> {
             source_dtype: info.source_dtype.clone(),
             index_dtype,
             data_row_count: total,
-            reader: file.layout_reader()?,
+            file: file.scan_file(),
             session: file.session().clone(),
+            memo: OnceLock::new(),
         };
         Ok(Self {
             info,

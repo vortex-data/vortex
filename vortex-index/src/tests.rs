@@ -8,7 +8,6 @@
 
 use std::sync::Arc;
 
-use futures::TryStreamExt;
 use rstest::rstest;
 use vortex::VortexSessionDefault;
 use vortex_array::ArrayRef;
@@ -46,6 +45,7 @@ use vortex_layout::layouts::indexed::IndexedStrategy;
 use vortex_layout::layouts::indexed::RowLocator;
 use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
+use vortex_layout::scan::v2::ScanBuilder;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
@@ -60,6 +60,7 @@ use crate::TrigramIndex;
 use crate::TrigramOptions;
 use crate::initialize;
 use crate::open_in_file_index;
+use crate::rows::collect;
 use crate::text_match;
 
 const ROWS: usize = 3000;
@@ -249,14 +250,13 @@ async fn scan_ids(
     filter: Expression,
     selection: Selection,
 ) -> VortexResult<Vec<i32>> {
-    let chunks: Vec<ArrayRef> = file
-        .scan()?
-        .with_filter(filter.bind(file.dtype())?)
-        .with_selection(selection)
-        .with_projection(col("id").bind(file.dtype())?)
-        .into_array_stream()?
-        .try_collect()
-        .await?;
+    let chunks = collect(
+        ScanBuilder::new(file.session().clone(), file.scan_file())
+            .with_some_filter(Some(filter.bind(file.dtype())?))
+            .with_selection(selection)
+            .with_projection(col("id").bind(file.dtype())?),
+    )
+    .await?;
     let mut ctx = file.session().create_execution_ctx();
     let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
     let ids = ChunkedArray::try_new(chunks, dtype)?
