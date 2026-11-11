@@ -31,6 +31,10 @@ vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]
+arrow-array = { workspace = true }
+parquet = { workspace = true, features = ["arrow"] }
 rstest = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 vortex = { workspace = true, features = ["files", "tokio"] }
+vortex-arrow = { workspace = true }

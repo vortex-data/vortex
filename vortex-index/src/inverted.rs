@@ -47,8 +47,8 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::postings::IndexRowsChunk;
 use crate::postings::bitmap_from_bytes;
 use crate::postings::bitmap_to_bytes;
-use crate::postings::u32s_from_bytes;
-use crate::postings::u32s_to_bytes;
+use crate::postings::u32s_from_varints;
+use crate::postings::u32s_to_varints;
 use crate::rows::Hit;
 use crate::rows::IndexRows;
 use crate::rows::top_k;
@@ -82,6 +82,8 @@ impl InvertedIndex {
 }
 
 /// Sorted terms, each with its rows and the term's frequency in each row, in row order.
+///
+/// Frequencies are stored as varints, so a typical posting costs its roaring bits plus one byte.
 #[derive(Debug)]
 pub struct InvertedEntries {
     terms: Vec<String>,
@@ -210,7 +212,7 @@ impl IndexVTable for InvertedIndex {
             .iter()
             .map(bitmap_to_bytes)
             .collect::<VortexResult<Vec<_>>>()?;
-        let freqs = chunk.freqs.iter().map(|f| u32s_to_bytes(f));
+        let freqs = chunk.freqs.iter().map(|f| u32s_to_varints(f));
         Ok(StructArray::try_new_with_dtype(
             vec![
                 VarBinViewArray::from_iter_str(&chunk.terms).into_array(),
@@ -247,7 +249,7 @@ impl IndexVTable for InvertedIndex {
         let freqs = rows
             .binary_field(FREQS_FIELD, ctx)?
             .iter()
-            .map(|bytes| u32s_from_bytes(bytes.as_slice()))
+            .map(|bytes| u32s_from_varints(bytes.as_slice()))
             .collect::<VortexResult<Vec<_>>>()?;
         for (bitmap, freqs) in postings.iter().zip(&freqs) {
             vortex_ensure_eq!(
