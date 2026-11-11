@@ -1760,18 +1760,11 @@ mod tests {
             "expected fill_null, got {optimized}"
         );
 
-        // Original keeps CASE WHEN's nullable result dtype; the rewrite tightens it to
-        // NonNullable because a non-null fill cannot leave any nulls behind. Values match.
-        assert_arrays_eq!(
-            apply_expr(&original, &array),
-            PrimitiveArray::from_option_iter([Some(1i64), Some(0), Some(3)]).into_array(),
-            &mut ctx
-        );
-        assert_arrays_eq!(
-            apply_bound_expr(&optimized, &array),
-            buffer![1i64, 0, 3].into_array(),
-            &mut ctx
-        );
+        // The rewrite keeps CASE WHEN's nullable result dtype, so both forms agree exactly.
+        let expected =
+            PrimitiveArray::from_option_iter([Some(1i64), Some(0), Some(3)]).into_array();
+        assert_arrays_eq!(apply_expr(&original, &array), expected, &mut ctx);
+        assert_arrays_eq!(apply_bound_expr(&optimized, &array), expected, &mut ctx);
         Ok(())
     }
 
@@ -1789,7 +1782,7 @@ mod tests {
             let result = input.clone().apply_bound(&optimized)?;
             assert_arrays_eq!(
                 result,
-                VarBinViewArray::from_iter_str(["a", "fallback"]),
+                VarBinViewArray::from_iter_nullable_str([Some("a"), Some("fallback")]),
                 &mut ctx
             );
         }
