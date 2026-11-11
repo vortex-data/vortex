@@ -179,14 +179,13 @@ struct ReadDriver<R> {
     reader: Arc<R>,
     batches: IoBatchStream,
     pending: VecDeque<IoRequest>,
-    // EXPERIMENT: when each pending read was queued.
-    queued: VecDeque<std::time::Instant>,
-    // EXPERIMENT: free slots reported to the request stream before it is polled.
-    free_slots: Option<Arc<AtomicUsize>>,
     reads: SelectAll<ReadRangeResults>,
     num_active: usize,
     batches_done: bool,
     concurrency: usize,
+    // The slots neither active nor claimed by a pending read, reported to `batches` before each
+    // poll so it hands over only reads that can start.
+    free_slots: Arc<AtomicUsize>,
     metrics: RequestMetrics,
 }
 
@@ -195,18 +194,18 @@ impl<R: VortexReadAt> ReadDriver<R> {
         reader: R,
         batches: BoxStream<'static, Vec<IoRequest>>,
         concurrency: usize,
+        free_slots: Arc<AtomicUsize>,
         metrics: RequestMetrics,
     ) -> Self {
         Self {
             reader: Arc::new(reader),
             batches: batches.fuse(),
             pending: VecDeque::new(),
-            queued: VecDeque::new(),
-            free_slots: None,
             reads: SelectAll::new(),
             num_active: 0,
             batches_done: false,
             concurrency,
+            free_slots,
             metrics,
         }
     }
@@ -216,21 +215,6 @@ impl<R: VortexReadAt> ReadDriver<R> {
             let batch_len = (self.concurrency - self.num_active).min(self.pending.len());
             let reqs = self.pending.drain(..batch_len).collect::<Vec<_>>();
             self.num_active += batch_len;
-            {
-                use vortex_io::xp;
-                for queued in self.queued.drain(..batch_len) {
-                    xp::add(&xp::QUEUE_NS, xp::since(queued));
-                }
-                xp::max(&xp::MAX_ACTIVE, self.num_active as u64);
-                for req in &reqs {
-                    xp::add(&xp::READS, 1);
-                    xp::add(&xp::READ_BYTES, req.len() as u64);
-                    for length in req.xp_segment_lengths() {
-                        xp::add(&xp::SEGMENTS, 1);
-                        xp::add(&xp::SEGMENT_BYTES, length as u64);
-                    }
-                }
-            }
 
             self.metrics.read_ranges_calls.add(1);
             self.metrics.read_ranges_num_ranges.update(batch_len as f64);
@@ -261,22 +245,18 @@ impl<R: VortexReadAt> Stream for ReadDriver<R> {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.as_mut().get_mut();
 
-        if let Some(free) = &this.free_slots {
-            free.store(
+        // Observe every batch already available so submission can fill all free slots at once.
+        // This poll follows every read completion, so a stream holding requests back for want of
+        // a slot sees each slot as it frees.
+        if !this.batches_done {
+            this.free_slots.store(
                 this.concurrency
                     .saturating_sub(this.num_active + this.pending.len()),
                 Ordering::Relaxed,
             );
-        }
-        // Observe every batch already available so submission can fill all free slots at once.
-        if !this.batches_done {
             loop {
                 match this.batches.poll_next_unpin(cx) {
-                    Poll::Ready(Some(batch)) => {
-                        let now = std::time::Instant::now();
-                        this.queued.extend(std::iter::repeat_n(now, batch.len()));
-                        this.pending.extend(batch)
-                    }
+                    Poll::Ready(Some(batch)) => this.pending.extend(batch),
                     Poll::Ready(None) => {
                         this.batches_done = true;
                         break;
@@ -343,6 +323,7 @@ impl FileSegmentSource {
             // Increase max_size to keep the effective payload window consistent.
             let extra = (max_alignment.as_usize() as u64).saturating_sub(1);
             config.max_size = config.max_size.saturating_add(extra);
+            config.idle_max_size = config.idle_max_size.saturating_add(extra);
             config
         });
         let concurrency = reader.concurrency();
@@ -353,25 +334,19 @@ impl FileSegmentSource {
             );
         }
 
+        let free_slots = Arc::new(AtomicUsize::new(concurrency));
         let stream = IoRequestStream::new(
             StreamExt::boxed(recv),
             coalesce_config,
             max_alignment,
             concurrency,
             metrics.clone(),
-        );
-        // EXPERIMENT: `adapt` lets the driver report its free slots to the request stream.
-        let free_slots = vortex_io::xp::knobs()
-            .adapt
-            .then(|| Arc::new(AtomicUsize::new(concurrency)));
-        let stream = match &free_slots {
-            Some(free) => stream.with_free_slots(Arc::clone(free)).boxed(),
-            None => stream.boxed(),
-        };
+        )
+        .with_free_slots(Arc::clone(&free_slots))
+        .boxed();
 
-        let mut driver = ReadDriver::new(reader, stream, concurrency, metrics);
-        driver.free_slots = free_slots;
-        let drive_fut = driver.collect::<()>();
+        let drive_fut =
+            ReadDriver::new(reader, stream, concurrency, free_slots, metrics).collect::<()>();
 
         // Spawn the driver so the runtime makes I/O progress independently of any reader. Readers
         // join it (below) only to surface a panic raised while driving reads.

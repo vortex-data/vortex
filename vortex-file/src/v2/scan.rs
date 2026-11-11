@@ -124,9 +124,7 @@ impl ScanDriver {
         scan: Arc<PreparedScan>,
         map_fn: MapFn<A>,
     ) -> BoxStream<'static, VortexResult<A>> {
-        let in_flight = vortex_io::xp::knobs()
-            .inflight
-            .unwrap_or(self.concurrency * get_available_parallelism().unwrap_or(1));
+        let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
         let inline = in_flight <= 1;
         let scope = WorkScope {
             file_ordinal: 0,
@@ -144,13 +142,7 @@ impl ScanDriver {
             map_fn,
             inline,
         );
-        // EXPERIMENT: `dev` steps the root run on the caller's poll, as on develop.
-        let root = if vortex_io::xp::knobs().dev {
-            root
-        } else {
-            on_runtime(&self.handle, root, in_flight)
-        };
-        let batches = root
+        let batches = on_runtime(&self.handle, root, in_flight)
             .map_ok(move |yielded| match yielded {
                 Yielded::Batch(start, batch) => {
                     stream::once(future::ready(Ok((start, batch)))).boxed()

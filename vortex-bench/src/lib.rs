@@ -84,9 +84,6 @@ use vortex::editions::EditionMember;
 use vortex::editions::EditionSessionExt;
 pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
-/// EXPERIMENT: read-path counters for the CI A/B. Not for merge.
-#[doc(hidden)]
-pub use vortex::io::xp as xp_diag;
 use vortex::session::VortexSession;
 
 /// Tunes mimalloc for benchmarking. Call this first thing in each benchmark binary's `main`.

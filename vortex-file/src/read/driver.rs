@@ -4,6 +4,9 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
 
@@ -26,8 +29,10 @@ pin_project! {
     /// Converts request lifecycle events into batches of physical reads.
     ///
     /// Polled requests become eligible in registration order. An eligible request may absorb nearby
-    /// registered requests according to `coalesce_window`. Each poll emits every physical read
-    /// currently available, up to `batch_size`; it never waits for a full batch.
+    /// registered requests according to `coalesce_window`: up to its `max_size` while more polled
+    /// requests wait than the poll can start, and up to its `idle_max_size` otherwise. Each poll
+    /// emits every physical read currently available, up to `batch_size` and to the free slots
+    /// reported by the driver; it never waits for a full batch.
     pub(crate) struct IoRequestStream<S> {
         #[pin]
         events: S,
@@ -36,8 +41,10 @@ pin_project! {
         coalesce_window: Option<CoalesceConfig>,
         // Maximum physical reads returned by one stream item.
         batch_size: usize,
-        // EXPERIMENT: free read slots the driver reports before each poll, when adaptive.
-        free_slots: Option<std::sync::Arc<std::sync::atomic::AtomicUsize>>,
+        // Read slots the driver has free, when it reports them. A poll emits at most this many
+        // reads and counts them off, so requests that would only wait for a slot stay here, where
+        // they can still be merged with the requests that arrive meanwhile.
+        free_slots: Option<Arc<AtomicUsize>>,
         state: State,
     }
 }
@@ -66,11 +73,11 @@ impl<S> IoRequestStream<S> {
         }
     }
 
-    /// EXPERIMENT: emit only as many reads as `free_slots` allows, coalescing only under backlog.
-    pub(crate) fn with_free_slots(
-        mut self,
-        free_slots: std::sync::Arc<std::sync::atomic::AtomicUsize>,
-    ) -> Self {
+    /// Emits at most as many reads as `free_slots` holds when polled, and counts them off.
+    ///
+    /// Whoever sets `free_slots` must poll the stream again once it raises the count: a stream
+    /// with no free slots stays pending even though it holds requests.
+    pub(crate) fn with_free_slots(mut self, free_slots: Arc<AtomicUsize>) -> Self {
         self.free_slots = Some(free_slots);
         self
     }
@@ -103,37 +110,29 @@ where
         }
 
         // Emit a partial batch immediately so the downstream driver can fill free I/O slots.
-        let mut batch = Vec::with_capacity(*this.batch_size);
-        if let Some(free_slots) = this.free_slots.as_ref() {
-            // EXPERIMENT: fill only the free slots, and merge a read with its neighbours only
-            // while more polled requests wait than slots remain.
-            let budget =
-                (*this.batch_size).min(free_slots.load(std::sync::atomic::Ordering::Relaxed));
-            while batch.len() < budget {
-                let remaining = budget - batch.len();
-                let small = this.coalesce_window.as_ref().and_then(|w| {
-                    vortex_io::xp::knobs()
-                        .min_kib
-                        .map(|kib| CoalesceConfig::new(w.distance, (kib << 10).min(w.max_size)))
-                });
-                let window = if this.state.polled_requests.len() > remaining {
-                    *this.coalesce_window
+        let budget = match this.free_slots {
+            Some(free_slots) => (*this.batch_size).min(free_slots.load(Ordering::Relaxed)),
+            None => *this.batch_size,
+        };
+        let mut batch = Vec::with_capacity(budget);
+        while batch.len() < budget {
+            // Merging requests that could each start in this poll would only serialize them, so
+            // merge up to the full window only while more of them wait than this poll can start.
+            let backlog = this.state.polled_requests.len() > budget - batch.len();
+            let window = this.coalesce_window.map(|window| {
+                if backlog {
+                    window
                 } else {
-                    small
-                };
-                let Some(request) = this.state.next(window.as_ref()) else {
-                    break;
-                };
-                batch.push(request);
-            }
-            free_slots.fetch_sub(batch.len(), std::sync::atomic::Ordering::Relaxed);
-        } else {
-            while batch.len() < *this.batch_size {
-                let Some(request) = this.state.next(this.coalesce_window.as_ref()) else {
-                    break;
-                };
-                batch.push(request);
-            }
+                    CoalesceConfig::new(window.distance, window.idle_max_size.min(window.max_size))
+                }
+            });
+            let Some(request) = this.state.next(window.as_ref()) else {
+                break;
+            };
+            batch.push(request);
+        }
+        if let Some(free_slots) = this.free_slots {
+            free_slots.fetch_sub(batch.len(), Ordering::Relaxed);
         }
         if !batch.is_empty() {
             return Poll::Ready(Some(batch));
@@ -540,14 +539,7 @@ mod tests {
             ReadEvent::Polled(3),
         ];
 
-        let outputs = collect_outputs(
-            events,
-            Some(CoalesceConfig {
-                distance: 0,
-                max_size: 1024,
-            }),
-        )
-        .await;
+        let outputs = collect_outputs(events, Some(CoalesceConfig::new(0, 1024))).await;
         assert_eq!(outputs.len(), 1);
 
         match outputs[0].inner() {
@@ -557,6 +549,96 @@ mod tests {
             }
             _ => panic!("Expected coalesced request"),
         }
+    }
+
+    /// Polls a stream over three adjacent polled requests, whose window merges all three only
+    /// under backlog, with `free` slots reported.
+    fn poll_adjacent_with_free_slots(free: usize) -> Poll<Option<Vec<IoRequest>>> {
+        let mut events = Vec::new();
+        let mut receivers = Vec::new();
+        for id in 0..3 {
+            let (request, recv) = create_request(id, id as u64 * 10, 10);
+            events.push(ReadEvent::Request(request));
+            events.push(ReadEvent::Polled(id));
+            receivers.push(recv);
+        }
+        let metrics_registry = DefaultMetricsRegistry::default();
+        let metrics = RequestMetrics::new(&metrics_registry, vec![]);
+        let mut batches = Box::pin(
+            IoRequestStream::new(
+                stream::iter(events),
+                Some(CoalesceConfig::new(0, 1024).with_idle_max_size(10)),
+                Alignment::none(),
+                32,
+                metrics,
+            )
+            .with_free_slots(Arc::new(AtomicUsize::new(free))),
+        );
+        let waker = futures::task::noop_waker();
+        let polled = batches.as_mut().poll_next(&mut Context::from_waker(&waker));
+        drop(receivers);
+        polled
+    }
+
+    #[test]
+    fn test_free_slots_keep_requests_apart() {
+        let Poll::Ready(Some(batch)) = poll_adjacent_with_free_slots(3) else {
+            vortex_panic!("expected a batch");
+        };
+        assert_eq!(
+            batch.iter().map(|r| r.range()).collect::<Vec<_>>(),
+            [0..10, 10..20, 20..30]
+        );
+    }
+
+    #[test]
+    fn test_backlog_merges_requests() {
+        let Poll::Ready(Some(batch)) = poll_adjacent_with_free_slots(1) else {
+            vortex_panic!("expected a batch");
+        };
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].range(), 0..30);
+    }
+
+    #[test]
+    fn test_no_free_slots_holds_requests_back() {
+        assert!(poll_adjacent_with_free_slots(0).is_pending());
+    }
+
+    #[test]
+    fn test_free_slots_are_counted_off() {
+        let (sender, receiver) = mpsc::unbounded();
+        let mut receivers = Vec::new();
+        for id in 0..3 {
+            let (request, recv) = create_request(id, id as u64 * 100, 10);
+            assert!(sender.unbounded_send(ReadEvent::Request(request)).is_ok());
+            assert!(sender.unbounded_send(ReadEvent::Polled(id)).is_ok());
+            receivers.push(recv);
+        }
+        let free_slots = Arc::new(AtomicUsize::new(2));
+        let metrics_registry = DefaultMetricsRegistry::default();
+        let metrics = RequestMetrics::new(&metrics_registry, vec![]);
+        let mut batches = Box::pin(
+            IoRequestStream::new(receiver, None, Alignment::none(), 32, metrics)
+                .with_free_slots(Arc::clone(&free_slots)),
+        );
+        let waker = futures::task::noop_waker();
+        let mut context = Context::from_waker(&waker);
+
+        let Poll::Ready(Some(batch)) = batches.as_mut().poll_next(&mut context) else {
+            vortex_panic!("expected a batch");
+        };
+        assert_eq!(batch.len(), 2);
+        assert_eq!(free_slots.load(Ordering::Relaxed), 0);
+        assert!(batches.as_mut().poll_next(&mut context).is_pending());
+
+        free_slots.store(1, Ordering::Relaxed);
+        let Poll::Ready(Some(batch)) = batches.as_mut().poll_next(&mut context) else {
+            vortex_panic!("expected the held-back request once a slot freed");
+        };
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].offset(), 200);
+        drop((sender, receivers));
     }
 
     #[tokio::test]
@@ -571,14 +653,7 @@ mod tests {
         ];
 
         // Gap is 5, window is 6 - should coalesce
-        let outputs = collect_outputs(
-            events,
-            Some(CoalesceConfig {
-                distance: 6,
-                max_size: 1024,
-            }),
-        )
-        .await;
+        let outputs = collect_outputs(events, Some(CoalesceConfig::new(6, 1024))).await;
         assert_eq!(outputs.len(), 1);
         match outputs[0].inner() {
             IoRequestInner::Coalesced(c) => assert_eq!(c.requests().len(), 2),
@@ -615,10 +690,7 @@ mod tests {
 
         let outputs = collect_outputs_with_alignment(
             events,
-            Some(CoalesceConfig {
-                distance: 1,
-                max_size: 1024,
-            }),
+            Some(CoalesceConfig::new(1, 1024)),
             Alignment::new(4),
         )
         .await;
@@ -760,14 +832,7 @@ mod tests {
             ReadEvent::Polled(2), // Poll middle request
         ];
 
-        let outputs = collect_outputs(
-            events,
-            Some(CoalesceConfig {
-                distance: 60,
-                max_size: 1024,
-            }),
-        )
-        .await;
+        let outputs = collect_outputs(events, Some(CoalesceConfig::new(60, 1024))).await;
         assert_eq!(outputs.len(), 1);
 
         match outputs[0].inner() {
@@ -805,14 +870,7 @@ mod tests {
             ReadEvent::Polled(3),
         ];
 
-        let outputs = collect_outputs(
-            events,
-            Some(CoalesceConfig {
-                distance: 5,
-                max_size: 1024,
-            }),
-        )
-        .await;
+        let outputs = collect_outputs(events, Some(CoalesceConfig::new(5, 1024))).await;
         assert_eq!(outputs.len(), 2);
         assert_eq!(outputs[0].range(), 0..20);
         assert_eq!(outputs[1].range(), 1000..1010);
@@ -840,10 +898,7 @@ mod tests {
         let metrics = RequestMetrics::new(&metrics_registry, vec![]);
         let io_stream = IoRequestStream::new(
             event_stream,
-            Some(CoalesceConfig {
-                distance: 5,
-                max_size: 1024,
-            }),
+            Some(CoalesceConfig::new(5, 1024)),
             Alignment::none(),
             1024,
             metrics,
