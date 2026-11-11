@@ -19,7 +19,9 @@
 //! once per row rather than per posting: as the postings of the empty term, which no text
 //! tokenizes to, with each row's length in place of its frequency.
 
+use std::cell::RefCell;
 use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 use std::sync::Arc;
 
 use roaring::RoaringBitmap;
@@ -45,6 +47,8 @@ use vortex_array::expr::col;
 use vortex_array::expr::eq;
 use vortex_array::expr::lit;
 use vortex_array::expr::or_collect;
+use vortex_array::expr::root;
+use vortex_array::expr::select;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -58,15 +62,16 @@ use vortex_layout::layouts::indexed::IndexQueryPlan;
 use vortex_layout::layouts::indexed::IndexVTable;
 use vortex_layout::layouts::indexed::IndexVTableRef;
 use vortex_layout::layouts::indexed::RowLocator;
+use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::keys::KeyColumn;
 use crate::postings::IndexRowsChunk;
 use crate::rows::Hit;
 use crate::rows::IndexRows;
 use crate::rows::IndexStep;
-use crate::rows::top_k;
 use crate::text_match::TextMatch;
 use crate::tokenize::tokenize;
 
@@ -207,12 +212,6 @@ impl Scoring {
             .zip(self.posting.tfs.iter())
             .map(|(&row, &tf)| (row, self.weight * corpus.saturation(tf, row)))
     }
-
-    /// The term's score in `row`, if the row holds the term.
-    fn score_of(&self, row: u32, corpus: &Corpus) -> Option<f32> {
-        let idx = self.posting.rows.binary_search(&row).ok()?;
-        Some(self.weight * corpus.saturation(self.posting.tfs[idx], row))
-    }
 }
 
 fn u32_field(
@@ -234,31 +233,35 @@ impl InvertedEntries {
     }
 
     fn get(&self, term: &str, ctx: &mut ExecutionCtx) -> VortexResult<Option<Posting>> {
-        let Some(idx) = self.position(term) else {
-            return Ok(None);
-        };
-        let postings = self
-            .postings
-            .list_elements_at(idx, ctx)?
-            .execute::<StructArray>(ctx)?;
-        let mut rows = u32_field(&postings, GAP_FIELD, ctx)?.to_vec();
-        let mut row = 0u32;
-        for gap in &mut rows {
-            row = row.wrapping_add(*gap);
-            *gap = row;
-        }
-        let tfs = u32_field(&postings, TF_FIELD, ctx)?;
-        vortex_ensure_eq!(
-            rows.len(),
-            tfs.len(),
-            "Inverted index entry has mismatched rows and frequencies"
-        );
-        Ok(Some(Posting {
-            rows,
-            tfs,
-            bound: self.bounds[idx],
-        }))
+        self.position(term)
+            .map(|idx| decode_posting(&self.postings, idx, self.bounds[idx], ctx))
+            .transpose()
     }
+}
+
+/// Decode list `idx` of `lists`, a term's postings, turning its gaps back into rows.
+fn decode_posting(
+    lists: &ListViewArray,
+    idx: usize,
+    bound: u8,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Posting> {
+    let postings = lists
+        .list_elements_at(idx, ctx)?
+        .execute::<StructArray>(ctx)?;
+    let mut rows = u32_field(&postings, GAP_FIELD, ctx)?.to_vec();
+    let mut row = 0u32;
+    for gap in &mut rows {
+        row = row.wrapping_add(*gap);
+        *gap = row;
+    }
+    let tfs = u32_field(&postings, TF_FIELD, ctx)?;
+    vortex_ensure_eq!(
+        rows.len(),
+        tfs.len(),
+        "Inverted index entry has mismatched rows and frequencies"
+    );
+    Ok(Posting { rows, tfs, bound })
 }
 
 fn find(
@@ -454,38 +457,52 @@ impl IndexVTable for InvertedIndex {
     }
 }
 
-/// Merge two lists of `(row, score)` sorted by row, summing the scores of rows in both.
-fn merge(a: Vec<(u32, f32)>, b: impl Iterator<Item = (u32, f32)>) -> Vec<(u32, f32)> {
-    let mut out = Vec::with_capacity(a.len());
-    let mut a = a.into_iter().peekable();
-    for (row, score) in b {
-        while let Some(&(next, next_score)) = a.peek() {
-            if next >= row {
-                break;
-            }
-            out.push((next, next_score));
-            a.next();
-        }
-        match a.peek() {
-            Some(&(next, next_score)) if next == row => {
-                out.push((row, next_score + score));
-                a.next();
-            }
-            _ => out.push((row, score)),
-        }
+/// A scored row, ordered worst first: lower score, then higher row.
+#[derive(Clone, Copy, PartialEq)]
+struct Ranked(f32, u32);
+
+impl Eq for Ranked {}
+
+impl PartialOrd for Ranked {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
-    out.extend(a);
-    out
 }
 
-/// The `k`th best score of `scored`, or `None` if it holds fewer than `k` rows.
-fn kth_best(scored: &[(u32, f32)], k: usize) -> Option<f32> {
-    if k == 0 || scored.len() < k {
+impl Ord for Ranked {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other.0.total_cmp(&self.0).then(self.1.cmp(&other.1))
+    }
+}
+
+/// The `k` best scored rows of `touched`, as a heap whose top is the worst of them.
+fn best_k(scores: &[f32], touched: &[u32], k: usize) -> BinaryHeap<Ranked> {
+    let mut heap = BinaryHeap::with_capacity(k + 1);
+    for &row in touched {
+        let score = scores[row as usize];
+        if score == 0.0 {
+            continue;
+        }
+        let ranked = Ranked(score, row);
+        if heap.len() < k {
+            heap.push(ranked);
+        } else if heap.peek().is_some_and(|worst| ranked < *worst) {
+            heap.pop();
+            heap.push(ranked);
+        }
+    }
+    heap
+}
+
+/// The `k`th best score of the rows in `touched`, or `None` if fewer than `k` are scored.
+fn kth_best(scores: &[f32], touched: &[u32], k: usize) -> Option<f32> {
+    if k == 0 {
         return None;
     }
-    let mut scores: Vec<f32> = scored.iter().map(|(_, score)| *score).collect();
-    let (_, kth, _) = scores.select_nth_unstable_by(k - 1, |a, b| b.total_cmp(a));
-    Some(*kth)
+    let heap = best_k(scores, touched, k);
+    (heap.len() == k)
+        .then(|| heap.peek().map(|worst| worst.0))
+        .flatten()
 }
 
 impl IndexRows<InvertedIndex> {
@@ -494,13 +511,16 @@ impl IndexRows<InvertedIndex> {
     /// A row scores if it holds any query token. Only the entries for the query's tokens are
     /// read. Terms are scored in order of the most they can add to a row; once the terms left
     /// could not lift a row the earlier terms missed into the top `k`, they only add to the rows
-    /// already found, looking each one up instead of walking their postings.
+    /// already found instead of being walked in full.
     pub async fn search_bm25(self: &Arc<Self>, query: &str, k: usize) -> VortexResult<Vec<Hit>> {
         self.search_bm25_steps(query, k)?.run().await
     }
 
     /// [`search_bm25`](Self::search_bm25) as steps: the key column on the first search, then the
-    /// query's terms, with the corpus entry on the first search.
+    /// postings of the query's terms, with the corpus entry on the first search.
+    ///
+    /// The key column says which index row holds each term, so the read projects only the
+    /// postings and bounds of those rows, and never decodes a term.
     pub fn search_bm25_steps(
         self: &Arc<Self>,
         query: &str,
@@ -511,42 +531,119 @@ impl IndexRows<InvertedIndex> {
             return Ok(IndexStep::Done(Vec::new()));
         }
         let corpus = self.memo_get::<Corpus>();
-        let mut keys = terms.clone();
-        if corpus.is_none() {
-            keys.push(CORPUS_TERM.to_string());
-        }
         let this = Arc::clone(self);
-        self.chunks_for_keys_step(keys)?.map(move |chunks| {
-            let mut ctx = this.session.create_execution_ctx();
-            let corpus = match corpus {
-                Some(corpus) => corpus,
-                None => {
-                    let lengths = find(&chunks, CORPUS_TERM, &mut ctx)?
-                        .ok_or_else(|| vortex_err!("Inverted index has no row lengths"))?;
-                    let corpus = Arc::new(Corpus::new(&lengths.rows, &lengths.tfs));
-                    this.memo_set(Arc::clone(&corpus));
-                    corpus
-                }
-            };
-            bm25_top(&chunks, &terms, k, &corpus, &mut ctx)
+        self.key_column_step::<String>()?.and_then(move |column| {
+            // Index rows to read, each with the query term it holds, or `None` for the corpus.
+            let mut wanted: Vec<(u64, Option<usize>)> = terms
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, term)| column.position(term).map(|row| (row, Some(idx))))
+                .collect();
+            if wanted.is_empty() {
+                return Ok(IndexStep::Done(Vec::new()));
+            }
+            if corpus.is_none() {
+                let row = column
+                    .position(&CORPUS_TERM.to_string())
+                    .ok_or_else(|| vortex_err!("Inverted index has no row lengths"))?;
+                wanted.push((row, None));
+            }
+            wanted.sort_unstable();
+            let rows = StrictSortedBuffer::try_new(wanted.iter().map(|(row, _)| *row).collect())?;
+            let projection =
+                select(vec![POSTINGS_FIELD, BOUND_FIELD], root()).bind(&this.index_dtype)?;
+            let scan = this
+                .scan()
+                .with_row_indices(rows)
+                .with_projection(projection);
+            Ok(IndexStep::Read(
+                Box::new(scan),
+                Box::new(move |arrays| {
+                    let mut ctx = this.session.create_execution_ctx();
+                    let mut postings = read_postings(arrays, wanted.len(), &mut ctx)?.into_iter();
+                    let mut lists = Vec::with_capacity(terms.len());
+                    let mut corpus = corpus;
+                    for (_, term) in &wanted {
+                        let posting = postings
+                            .next()
+                            .ok_or_else(|| vortex_err!("Inverted index read too few rows"))?;
+                        match term {
+                            Some(_) => lists.push(posting),
+                            None => {
+                                let read = Arc::new(Corpus::new(&posting.rows, &posting.tfs));
+                                this.memo_set(Arc::clone(&read));
+                                corpus = Some(read);
+                            }
+                        }
+                    }
+                    let corpus =
+                        corpus.ok_or_else(|| vortex_err!("Inverted index has no row lengths"))?;
+                    let lists = lists
+                        .into_iter()
+                        .map(|posting| Scoring::new(posting, &corpus))
+                        .collect();
+                    Ok(IndexStep::Done(bm25_top(lists, k, &corpus)))
+                }),
+            ))
         })
     }
 }
 
-/// The `k` rows of `chunks` that score best for `terms` under BM25, best first.
-fn bm25_top(
-    chunks: &[Arc<InvertedEntries>],
-    terms: &[String],
-    k: usize,
-    corpus: &Corpus,
+/// Decode `count` index rows of postings and bounds, in row order.
+fn read_postings(
+    arrays: Vec<ArrayRef>,
+    count: usize,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Vec<Hit>> {
-    let mut lists = Vec::with_capacity(terms.len());
-    for term in terms {
-        if let Some(posting) = find(chunks, term, ctx)? {
-            lists.push(Scoring::new(posting, corpus));
+) -> VortexResult<Vec<Posting>> {
+    let mut out = Vec::with_capacity(count);
+    for array in arrays {
+        let rows = IndexRowsChunk::new(array, ctx)?;
+        let lists = rows.field(POSTINGS_FIELD)?.execute::<ListViewArray>(ctx)?;
+        let bounds = rows.field(BOUND_FIELD)?.execute::<PrimitiveArray>(ctx)?;
+        for (idx, &bound) in bounds.as_slice::<u8>().iter().enumerate() {
+            out.push(decode_posting(&lists, idx, bound, ctx)?);
         }
     }
+    vortex_ensure_eq!(
+        out.len(),
+        count,
+        "Inverted index read the wrong number of rows"
+    );
+    Ok(out)
+}
+
+thread_local! {
+    /// Each row's score so far in the current search, zero for rows not scored: kept between
+    /// searches, and reset after each, so a search costs only the rows it touches.
+    static SCORES: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The `k` rows of `lists` that score best under BM25, best first.
+fn bm25_top(mut lists: Vec<Scoring>, k: usize, corpus: &Corpus) -> Vec<Hit> {
+    SCORES.with_borrow_mut(|scores| {
+        if scores.len() < corpus.norms.len() {
+            scores.resize(corpus.norms.len(), 0.0);
+        }
+        let mut touched = Vec::new();
+        let hits = bm25_top_into(&mut lists, k, corpus, scores, &mut touched);
+        for row in touched {
+            scores[row as usize] = 0.0;
+        }
+        hits
+    })
+}
+
+/// [`bm25_top`], adding scores into `scores` by row, and listing in `touched` every row it sets.
+///
+/// Every BM25 contribution is positive, so a row's score is zero exactly when no term has
+/// added to it yet.
+fn bm25_top_into(
+    lists: &mut [Scoring],
+    k: usize,
+    corpus: &Corpus,
+    scores: &mut [f32],
+    touched: &mut Vec<u32>,
+) -> Vec<Hit> {
     lists.sort_by(|a, b| b.max_score.total_cmp(&a.max_score));
     // What the terms from each position on can add to one row at most. Summed in f64 with some
     // slack, so f32 rounding of a row's own sum never exceeds it.
@@ -556,39 +653,78 @@ fn bm25_top(
     }
     let bound = |idx: usize| remaining[idx] * (1.0 + 1e-5) + 1e-6;
 
-    let mut scored: Vec<(u32, f32)> = Vec::new();
     let mut walked = 0;
     while walked < lists.len() {
-        if kth_best(&scored, k).is_some_and(|kth| bound(walked) < f64::from(kth)) {
+        // The terms left cannot lift a new row into the top `k` once `k` rows already beat
+        // everything those terms could add.
+        let rest = bound(walked);
+        if touched
+            .iter()
+            .filter(|&&row| rest < f64::from(scores[row as usize]))
+            .take(k)
+            .count()
+            == k
+        {
             break;
         }
-        scored = merge(scored, lists[walked].scored(corpus));
+        for (row, add) in lists[walked].scored(corpus) {
+            let score = &mut scores[row as usize];
+            if *score == 0.0 {
+                touched.push(row);
+            }
+            *score += add;
+        }
         walked += 1;
     }
     if walked < lists.len() {
-        let floor = kth_best(&scored, k).map_or(f64::NEG_INFINITY, f64::from);
+        // Rows that cannot reach the top `k` drop out, and the terms left only add to the rest.
+        let floor = kth_best(scores, touched, k).map_or(f64::NEG_INFINITY, f64::from);
         let rest = bound(walked);
-        scored.retain_mut(|(row, score)| {
+        for &row in touched.iter() {
+            let score = &mut scores[row as usize];
             if f64::from(*score) + rest < floor {
-                return false;
+                *score = 0.0;
             }
-            for list in &lists[walked..] {
-                if let Some(extra) = list.score_of(*row, corpus) {
-                    *score += extra;
+        }
+        let mut candidates: Vec<u32> = touched
+            .iter()
+            .copied()
+            .filter(|&row| scores[row as usize] != 0.0)
+            .collect();
+        candidates.sort_unstable();
+        for list in &lists[walked..] {
+            let (rows, tfs) = (&list.posting.rows, &list.posting.tfs);
+            if candidates.len() * 16 < rows.len() {
+                // Few candidates: skip through the list to each of them.
+                let mut at = 0;
+                for &row in &candidates {
+                    at += rows[at..].partition_point(|&r| r < row);
+                    if at == rows.len() {
+                        break;
+                    }
+                    if rows[at] == row {
+                        scores[row as usize] += list.weight * corpus.saturation(tfs[at], row);
+                    }
+                }
+            } else {
+                for (&row, &tf) in rows.iter().zip(tfs.iter()) {
+                    let score = &mut scores[row as usize];
+                    if *score != 0.0 {
+                        *score += list.weight * corpus.saturation(tf, row);
+                    }
                 }
             }
-            true
-        });
+        }
     }
 
-    let hits = scored
+    best_k(scores, touched, k)
+        .into_sorted_vec()
         .into_iter()
-        .map(|(row, score)| Hit {
+        .map(|Ranked(score, row)| Hit {
             row: u64::from(row),
             score,
         })
-        .collect();
-    Ok(top_k(hits, k))
+        .collect()
 }
 
 /// Builds an [`InvertedIndex`] while the column streams past.

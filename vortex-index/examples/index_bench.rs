@@ -74,6 +74,8 @@ use vortex_session::VortexSession;
 /// A file source that counts the bytes it is asked for.
 struct CountingReadAt {
     inner: Arc<dyn VortexReadAt>,
+    /// With `INLINE_READ=1`, reads are done on the calling task rather than a blocking thread.
+    file: Arc<std::fs::File>,
     bytes: Arc<AtomicU64>,
     name: String,
 }
@@ -106,6 +108,18 @@ impl VortexReadAt for CountingReadAt {
         if std::env::var_os("TRACE_READS").is_some() {
             eprintln!("read {} {offset} {length}", self.name);
         }
+        if std::env::var_os("INLINE_READ").is_some() {
+            use std::os::unix::fs::FileExt;
+            let mut buffer = vortex_buffer::ByteBufferMut::with_capacity_aligned(length, alignment);
+            // SAFETY: read_exact_at initializes every byte before the buffer is frozen.
+            unsafe { buffer.set_len(length) };
+            let result = self
+                .file
+                .read_exact_at(buffer.as_mut_slice(), offset)
+                .map(|()| BufferHandle::new_host(buffer.freeze()))
+                .map_err(Into::into);
+            return Box::pin(futures::future::ready(result));
+        }
         self.inner.read_at(offset, length, alignment)
     }
 }
@@ -118,6 +132,7 @@ async fn open(
     let bytes = Arc::new(AtomicU64::new(0));
     let source = Arc::new(CountingReadAt {
         inner: Arc::new(FileReadAt::open(path, session.handle())?),
+        file: Arc::new(std::fs::File::open(path)?),
         bytes: Arc::clone(&bytes),
         name: path.display().to_string(),
     });
