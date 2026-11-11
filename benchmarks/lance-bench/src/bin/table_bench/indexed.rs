@@ -25,9 +25,11 @@ use lance_linalg::distance::MetricType;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::Chunked;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::chunked::ChunkedArrayExt;
 use vortex::array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::dtype::DType;
@@ -264,6 +266,14 @@ fn cosine_scores(
     query: &[f32],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Vec<(f32, u64)>> {
+    // Score each chunk as it is, rather than copying the chunks into one array first.
+    if let Some(chunked) = batch.as_opt::<Chunked>() {
+        let mut scores = Vec::with_capacity(batch.len());
+        for chunk in chunked.iter_chunks() {
+            scores.extend(cosine_scores(chunk.clone(), query, ctx)?);
+        }
+        return Ok(scores);
+    }
     let norm = |v: &[f32]| super::dot(v, v).sqrt().max(f32::MIN_POSITIVE);
     let q_norm = norm(query);
     let array = batch.execute::<StructArray>(ctx)?;

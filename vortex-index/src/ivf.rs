@@ -19,6 +19,7 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::sync::Arc;
 
+use parking_lot::Mutex;
 use roaring::RoaringBitmap;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -54,6 +55,7 @@ use vortex_layout::layouts::indexed::IndexVTableRef;
 use vortex_layout::layouts::indexed::RowLocator;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::postings::IndexRowsChunk;
 use crate::postings::bitmap_from_bytes;
@@ -112,6 +114,18 @@ pub struct IvfEntries {
     centroids: Vec<Vec<f32>>,
     rows: Vec<RoaringBitmap>,
     codes: Vec<ByteBuffer>,
+}
+
+impl IvfEntries {
+    /// One entry per list, so each list can be kept on its own.
+    fn split(&self) -> impl Iterator<Item = Self> + '_ {
+        (0..self.lists.len()).map(|idx| Self {
+            lists: vec![self.lists[idx]],
+            centroids: vec![self.centroids[idx].clone()],
+            rows: vec![self.rows[idx].clone()],
+            codes: vec![self.codes[idx].clone()],
+        })
+    }
 }
 
 fn index_fields() -> StructFields {
@@ -524,7 +538,7 @@ impl IndexRows<IvfIndex> {
 
             let mut wanted: Vec<u32> = probes.iter().map(|(list, _)| *list).collect();
             wanted.sort_unstable();
-            this.read_lists_step(wanted)?
+            this.cached_lists_step(wanted)?
                 .map(move |lists| Ok(score_lists(&lists, &query, dim, k)))
         })
     }
@@ -565,6 +579,44 @@ impl IndexRows<IvfIndex> {
         })
     }
 
+    /// The entries of `lists`, from those decoded by earlier searches where it can, like the
+    /// partition cache of other vector indexes, reading only the rest.
+    fn cached_lists_step(
+        self: &Arc<Self>,
+        lists: Vec<u32>,
+    ) -> VortexResult<IndexStep<Vec<Arc<IvfEntries>>>> {
+        let cache = self.memo_get::<ListCache>().unwrap_or_else(|| {
+            let cache = Arc::new(ListCache::default());
+            self.memo_set(Arc::clone(&cache));
+            cache
+        });
+        let mut found = Vec::with_capacity(lists.len());
+        let mut missing = Vec::new();
+        {
+            let cached = cache.lists.lock();
+            for list in lists {
+                match cached.get(&list) {
+                    Some(entries) => found.push(Arc::clone(entries)),
+                    None => missing.push(list),
+                }
+            }
+        }
+        if missing.is_empty() {
+            return Ok(IndexStep::Done(found));
+        }
+        self.read_lists_step(missing)?.map(move |read| {
+            let mut cached = cache.lists.lock();
+            for entries in &read {
+                for one in entries.split() {
+                    let one = Arc::new(one);
+                    cached.insert(one.lists[0], Arc::clone(&one));
+                    found.push(one);
+                }
+            }
+            Ok(found)
+        })
+    }
+
     fn lists_by_filter(
         self: &Arc<Self>,
         lists: &[u32],
@@ -596,6 +648,12 @@ impl IndexRows<IvfIndex> {
                 Ok(centroids)
             })
     }
+}
+
+/// The decoded entries of each list read so far, by list.
+#[derive(Default)]
+struct ListCache {
+    lists: Mutex<HashMap<u32, Arc<IvfEntries>>>,
 }
 
 /// The `k` best rows of `lists` for the unit vector `query`, by their quantized vectors.

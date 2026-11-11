@@ -50,6 +50,7 @@ use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
 use crate::CoveredFile;
+use crate::Hit;
 use crate::IndexFile;
 use crate::IndexFileBuilder;
 use crate::IndexFileInfo;
@@ -378,6 +379,39 @@ async fn in_file_ivf_finds_nearest_vectors() -> VortexResult<()> {
     let expected = data.nearest(&query, 10);
     let found = hits.iter().filter(|h| expected.contains(&h.row)).count();
     assert!(found >= 8, "recall {found}/10");
+    Ok(())
+}
+
+#[tokio::test]
+async fn ivf_searches_answer_the_same_from_cached_lists() -> VortexResult<()> {
+    let session = session()?;
+    let data = Data::generate(7, ROWS);
+    let file = write_indexed_file(&session, &data).await?;
+    let index = open_in_file_index(IvfIndex, &file, "vec")?.expect("ivf index");
+    let lists = index.options().lists as usize;
+    let rows = |hits: Vec<Hit>| {
+        hits.into_iter()
+            .map(|h| (h.row, h.score))
+            .collect::<Vec<_>>()
+    };
+
+    // The first search probes half the lists and keeps them; the second probes them all, so it
+    // reads the rest and takes the first half from the cache.
+    let query = data.vectors[777];
+    let half = index.search_vectors(&query, 20, lists / 2).await?;
+    let all_cold = index.search_vectors(&query, 20, lists).await?;
+    let all_warm = index.search_vectors(&query, 20, lists).await?;
+    assert_eq!(rows(all_cold.clone()), rows(all_warm));
+    assert_eq!(
+        rows(half),
+        rows(index.search_vectors(&query, 20, lists / 2).await?)
+    );
+
+    let fresh = open_in_file_index(IvfIndex, &file, "vec")?.expect("ivf index");
+    assert_eq!(
+        rows(all_cold),
+        rows(fresh.search_vectors(&query, 20, lists).await?)
+    );
     Ok(())
 }
 
