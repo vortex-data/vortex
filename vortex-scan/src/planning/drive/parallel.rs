@@ -16,6 +16,7 @@ use futures::stream;
 use futures::stream::BoxStream;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
+use vortex_io::runtime::Task;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use super::MapFn;
@@ -36,6 +37,9 @@ const DEFAULT_ROOTS_PER_WORKER: usize = 2;
 /// the next one whenever it runs fewer than its roots-per-worker, so a scan spreads over the
 /// workers as fast as its planners declare independent work, whether that is the chunks of one
 /// file or the files of a table. Dependent children stay with their parent on its worker.
+///
+/// The first worker runs in the returned stream, and the rest are spawned only once a planner
+/// emits an independent child, so a plan with nothing to spread runs as on a sequential driver.
 ///
 /// Batches arrive as workers produce them. With [`ordered`](Self::with_ordered), the driver holds
 /// them until the plan is done and yields them by file and first row.
@@ -91,23 +95,25 @@ impl ParallelDriver {
         // An unbounded queue whose receiver is alive accepts every send.
         drop(shared.queue.try_send(root));
         let (out, batches) = mpsc::channel(self.workers);
-        let tasks: Vec<_> = (0..self.workers)
-            .map(|_| {
-                let worker = Worker {
-                    shared: Arc::clone(&shared),
-                    take: take.clone(),
-                    out: out.clone(),
-                    map_fn: Arc::clone(&map_fn),
-                    roots_per_worker: self.roots_per_worker,
-                };
-                self.handle.spawn(worker.run())
-            })
-            .collect();
-        drop(out);
-        // Awaiting the workers once the stream ends re-raises a worker's panic, and dropping the
-        // stream early drops them, which cancels them.
-        let joined = stream::once(futures::future::join_all(tasks)).filter_map(|_| async { None });
-        let batches = batches.chain(joined);
+        // The first worker runs in the stream itself. It spawns the others only once the plan
+        // emits independent work, so a plan that is one chain of dependent steps, such as an
+        // index search, costs no more than on a sequential driver.
+        let first = Worker {
+            shared,
+            take,
+            out,
+            map_fn,
+            roots_per_worker: self.roots_per_worker,
+            helpers: Some(Helpers {
+                handle: self.handle.clone(),
+                count: self.workers - 1,
+            }),
+            spawned: Vec::new(),
+        };
+        // Dropping the stream early drops the first worker and the helpers it spawned, which
+        // cancels them.
+        let joined = stream::once(first.run()).filter_map(|()| async { None });
+        let batches = stream::select(batches, joined);
         if !self.ordered {
             return batches.boxed();
         }
@@ -150,12 +156,21 @@ impl Shared {
     }
 }
 
+/// The workers the first worker spawns once the plan emits independent work.
+struct Helpers {
+    handle: Handle,
+    count: usize,
+}
+
 struct Worker<A> {
     shared: Arc<Shared>,
     take: Receiver<PlanRoot>,
     out: mpsc::Sender<VortexResult<ScopedBatch<A>>>,
     map_fn: MapFn<A>,
     roots_per_worker: usize,
+    /// Only on the first worker, until it spawns them.
+    helpers: Option<Helpers>,
+    spawned: Vec<Task<()>>,
 }
 
 impl<A: Send + 'static> Worker<A> {
@@ -164,7 +179,33 @@ impl<A: Send + 'static> Worker<A> {
             // Stop every worker, then report the error unless the stream was dropped.
             self.shared.queue.close();
             drop(self.out.send(Err(error)).await);
+            return;
         }
+        // Let the helpers' batches through before awaiting them, which re-raises a panic.
+        drop(self.out);
+        futures::future::join_all(self.spawned).await;
+    }
+
+    fn spawn_helpers(&mut self) {
+        let Some(helpers) = self.helpers.take() else {
+            return;
+        };
+        self.spawned = (0..helpers.count)
+            .map(|_| {
+                helpers.handle.spawn(
+                    Worker {
+                        shared: Arc::clone(&self.shared),
+                        take: self.take.clone(),
+                        out: self.out.clone(),
+                        map_fn: Arc::clone(&self.map_fn),
+                        roots_per_worker: self.roots_per_worker,
+                        helpers: None,
+                        spawned: Vec::new(),
+                    }
+                    .run(),
+                )
+            })
+            .collect();
     }
 
     async fn drive(&mut self) -> VortexResult<()> {
@@ -198,7 +239,10 @@ impl<A: Send + 'static> Worker<A> {
                         return Ok(());
                     }
                 }
-                Progress::Spawn(spawned) => self.shared.push(roots.root_of(spawned)?),
+                Progress::Spawn(spawned) => {
+                    self.shared.push(roots.root_of(spawned)?);
+                    self.spawn_helpers();
+                }
                 Progress::RootDone(root) => {
                     roots.finish(root);
                     self.shared.finish();
