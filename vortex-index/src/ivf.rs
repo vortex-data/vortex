@@ -15,6 +15,8 @@
 //! The results are approximate in two ways: a true neighbour can sit in a list that is not probed,
 //! and scores come from quantized vectors. Probe more lists for better recall.
 
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use std::sync::Arc;
 
 use roaring::RoaringBitmap;
@@ -61,7 +63,6 @@ use crate::postings::f32s_to_bytes;
 use crate::rows::Hit;
 use crate::rows::IndexRows;
 use crate::rows::IndexStep;
-use crate::rows::top_k;
 
 /// Stable registry id of the IVF vector index.
 pub const IVF_INDEX_ID: &str = "vortex.idx.ivf";
@@ -212,6 +213,67 @@ impl QuantizedQuery {
             scale,
             values: values.iter().map(|&c| c as i8).collect(),
         }
+    }
+
+    /// The dot product with each of `codes`, a run of codes `code_len` bytes long, into `out`.
+    fn dot_all(&self, codes: &[u8], code_len: usize, out: &mut Vec<f32>) {
+        out.clear();
+        out.reserve(codes.len() / code_len);
+        #[cfg(target_arch = "x86_64")]
+        if std::arch::is_x86_feature_detected!("avx2") {
+            // SAFETY: the CPU supports AVX2, checked just above.
+            unsafe { self.dot_all_avx2(codes, code_len, out) };
+            return;
+        }
+        self.dot_all_portable(codes, code_len, out);
+    }
+
+    /// [`dot_all`](Self::dot_all) with AVX2: sixteen values at a time are widened to `i16` and
+    /// multiplied and summed in pairs into `i32` lanes.
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2")]
+    fn dot_all_avx2(&self, codes: &[u8], code_len: usize, out: &mut Vec<f32>) {
+        use std::arch::x86_64::*;
+
+        let query = self.values.as_slice();
+        let wide = query.len() / 16 * 16;
+        for code in codes.chunks_exact(code_len) {
+            let (scale, values) = split_code(code);
+            let mut lanes = _mm256_setzero_si256();
+            for start in (0..wide).step_by(16) {
+                // SAFETY: `start + 16 <= wide`, and the query and the code's values both hold
+                // `query.len() >= wide` bytes, so each unaligned 16-byte load is in bounds.
+                let (q, c) = unsafe {
+                    (
+                        _mm_loadu_si128(query.as_ptr().add(start).cast()),
+                        _mm_loadu_si128(values.as_ptr().add(start).cast()),
+                    )
+                };
+                let products = _mm256_madd_epi16(_mm256_cvtepi8_epi16(q), _mm256_cvtepi8_epi16(c));
+                lanes = _mm256_add_epi32(lanes, products);
+            }
+            let half = _mm_add_epi32(
+                _mm256_castsi256_si128(lanes),
+                _mm256_extracti128_si256::<1>(lanes),
+            );
+            let half = _mm_add_epi32(half, _mm_shuffle_epi32::<0b0100_1110>(half));
+            let half = _mm_add_epi32(half, _mm_shuffle_epi32::<0b1011_0001>(half));
+            let rest: i32 = query[wide..]
+                .iter()
+                .zip(&values[wide..])
+                .map(|(&q, &c)| i32::from(q) * i32::from(c as i8))
+                .sum();
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a sum of 127 * 127 products stays exact in f32 for any practical dimension"
+            )]
+            let sum = (_mm_cvtsi128_si32(half) + rest) as f32;
+            out.push(sum * scale * self.scale);
+        }
+    }
+
+    fn dot_all_portable(&self, codes: &[u8], code_len: usize, out: &mut Vec<f32>) {
+        out.extend(codes.chunks_exact(code_len).map(|code| self.dot(code)));
     }
 
     /// The dot product with a vector quantized by [`quantize`].
@@ -537,22 +599,98 @@ impl IndexRows<IvfIndex> {
 }
 
 /// The `k` best rows of `lists` for the unit vector `query`, by their quantized vectors.
+///
+/// Every code is scored, but only a code that would enter the current top `k` has its row looked
+/// up in the list's bitmap, so the cost is one dot product per code and little else.
 fn score_lists(lists: &[Arc<IvfEntries>], query: &[f32], dim: usize, k: usize) -> Vec<Hit> {
     let quantized = QuantizedQuery::new(query);
     let code_len = 4 + dim;
-    let mut hits = Vec::new();
+    let mut best = BestK::new(k);
+    let mut scores = Vec::new();
     for entries in lists {
         for (rows, codes) in entries.rows.iter().zip(&entries.codes) {
-            for (row, code) in rows.iter().zip(codes.chunks_exact(code_len)) {
-                hits.push(Hit {
-                    row: u64::from(row),
-                    score: quantized.dot(code),
-                });
+            quantized.dot_all(codes, code_len, &mut scores);
+            for (position, &score) in (0u32..).zip(&scores) {
+                if best.may_admit(score)
+                    && let Some(row) = rows.select(position)
+                {
+                    best.offer(Hit {
+                        row: u64::from(row),
+                        score,
+                    });
+                }
             }
         }
     }
-    top_k(hits, k)
+    best.into_sorted()
 }
+
+/// The best `k` hits offered so far: highest score first, then lowest row.
+struct BestK {
+    k: usize,
+    /// The kept hits, with the worst at the top.
+    heap: BinaryHeap<Worst>,
+}
+
+impl BestK {
+    fn new(k: usize) -> Self {
+        Self {
+            k,
+            heap: BinaryHeap::with_capacity(k + 1),
+        }
+    }
+
+    /// Whether a hit scoring `score` could be kept. A tie with the worst kept hit may be, if its
+    /// row is lower.
+    fn may_admit(&self, score: f32) -> bool {
+        self.heap.len() < self.k || self.heap.peek().is_some_and(|worst| score >= worst.0.score)
+    }
+
+    fn offer(&mut self, hit: Hit) {
+        if self.heap.len() < self.k {
+            self.heap.push(Worst(hit));
+        } else if let Some(mut worst) = self.heap.peek_mut()
+            && Worst(hit) < *worst
+        {
+            *worst = Worst(hit);
+        }
+    }
+
+    fn into_sorted(self) -> Vec<Hit> {
+        self.heap
+            .into_sorted_vec()
+            .into_iter()
+            .map(|w| w.0)
+            .collect()
+    }
+}
+
+/// A hit ordered so that a worse hit is greater: lower score, then higher row.
+struct Worst(Hit);
+
+impl Ord for Worst {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .0
+            .score
+            .total_cmp(&self.0.score)
+            .then(self.0.row.cmp(&other.0.row))
+    }
+}
+
+impl PartialOrd for Worst {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for Worst {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for Worst {}
 
 /// Buffers every vector, then clusters and quantizes them on finish.
 pub struct IvfBuilder {
@@ -639,5 +777,88 @@ impl IndexBuilder for IvfBuilder {
 
     fn buffered_bytes(&self) -> u64 {
         (self.vectors.len() * 4 + self.rows.len() * 4) as u64
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    /// Deterministic values in `[-1, 1)`.
+    fn values(count: usize, seed: u32) -> Vec<f32> {
+        let mut state = seed;
+        (0..count)
+            .map(|_| {
+                state = state.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                f32::from(u16::try_from(state >> 16).unwrap_or(0)) / 32_768.0 - 1.0
+            })
+            .collect()
+    }
+
+    fn codes(vectors: &[f32], dim: usize) -> Vec<u8> {
+        let mut codes = Vec::new();
+        for vector in vectors.chunks_exact(dim) {
+            quantize(vector, &mut codes);
+        }
+        codes
+    }
+
+    #[rstest]
+    #[case::wide(64)]
+    #[case::wide_with_tail(70)]
+    #[case::only_tail(12)]
+    fn dot_all_matches_one_dot_at_a_time(#[case] dim: usize) {
+        let query = QuantizedQuery::new(&values(dim, 1));
+        let codes = codes(&values(dim * 100, 2), dim);
+        let mut all = Vec::new();
+        query.dot_all(&codes, 4 + dim, &mut all);
+        let one_by_one: Vec<f32> = codes
+            .chunks_exact(4 + dim)
+            .map(|code| query.dot(code))
+            .collect();
+        assert_eq!(all, one_by_one);
+    }
+
+    #[test]
+    fn score_lists_keeps_the_best_of_every_list() {
+        let dim = 16;
+        let lists: Vec<Arc<IvfEntries>> = (0..3u32)
+            .map(|list| {
+                let rows: RoaringBitmap = (0..200).map(|row| row * 3 + list).collect();
+                let vectors = values(dim * 200, list + 10);
+                Arc::new(IvfEntries {
+                    lists: vec![list],
+                    centroids: vec![Vec::new()],
+                    rows: vec![rows],
+                    codes: vec![ByteBuffer::from(codes(&vectors, dim))],
+                })
+            })
+            .collect();
+        let query = values(dim, 7);
+        let quantized = QuantizedQuery::new(&query);
+        let every: Vec<Hit> = lists
+            .iter()
+            .flat_map(|entries| {
+                entries.rows[0]
+                    .iter()
+                    .zip(entries.codes[0].chunks_exact(4 + dim))
+                    .map(|(row, code)| Hit {
+                        row: u64::from(row),
+                        score: quantized.dot(code),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let expected = crate::rows::top_k(every, 25);
+        let found = score_lists(&lists, &query, dim, 25);
+        assert_eq!(
+            found.iter().map(|h| (h.row, h.score)).collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|h| (h.row, h.score))
+                .collect::<Vec<_>>()
+        );
     }
 }

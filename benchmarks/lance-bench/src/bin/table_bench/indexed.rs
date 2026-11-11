@@ -22,6 +22,8 @@ use lance_index::scalar::InvertedIndexParams;
 use lance_index::vector::ivf::IvfBuildParams;
 use lance_index::vector::sq::builder::SQBuildParams;
 use lance_linalg::distance::MetricType;
+use vortex::array::ArrayRef;
+use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -35,7 +37,9 @@ use vortex::array::expr::root;
 use vortex::array::expr::select;
 use vortex::buffer::ByteBuffer;
 use vortex::buffer::ByteBufferMut;
+use vortex::error::VortexResult;
 use vortex::layout::layouts::indexed::IndexVTable;
+use vortex::scan::planning::drive::MapFn;
 use vortex::scan::planning::drive::ScopedBatch;
 use vortex_index::Hit;
 use vortex_index::IndexFile;
@@ -223,50 +227,61 @@ impl VortexTable {
     ) -> anyhow::Result<Vec<u64>> {
         let scan = self.scan().with_projection(select(["id", "emb"], root()));
         let (plan, _) = index.plan_ranked(search, scan)?;
-        let batches = self.driver.as_dyn().execute(plan).try_collect().await?;
-        self.cosine_best(batches, query, k)
+        let query: Arc<[f32]> = query.into();
+        let session = self.session.clone();
+        // Each batch of candidates is decoded and re-scored on the worker that read it.
+        let score: MapFn<Vec<(f32, u64)>> = Arc::new(move |batch| {
+            let mut best = cosine_scores(batch, &query, &mut session.create_execution_ctx())?;
+            super::keep_best(&mut best, k);
+            Ok(best)
+        });
+        let mut best: Vec<(f32, u64)> = Vec::new();
+        let mut batches = self.driver.execute_with(plan, score);
+        while let Some(batch) = batches.try_next().await? {
+            best.extend(batch.batch);
+            super::keep_best(&mut best, k);
+        }
+        Ok(best.into_iter().map(|(_, id)| id).collect())
     }
 
     /// The exact cosine top-k, by a full scan, to measure recall against.
     async fn exact_cosine(&self, query: &[f32], k: usize) -> anyhow::Result<Vec<u64>> {
         let scan = self.scan().with_projection(select(["id", "emb"], root()));
         let batches = self.collect(scan).await?;
-        self.cosine_best(batches, query, k)
-    }
-
-    /// The `k` rows of `batches` whose vectors are most cosine-similar to `query`.
-    fn cosine_best(
-        &self,
-        batches: Vec<ScopedBatch>,
-        query: &[f32],
-        k: usize,
-    ) -> anyhow::Result<Vec<u64>> {
-        let norm = |v: &[f32]| super::dot(v, v).sqrt().max(f32::MIN_POSITIVE);
-        let q_norm = norm(query);
         let mut best: Vec<(f32, u64)> = Vec::new();
         let mut ctx = self.session.create_execution_ctx();
         for batch in batches {
-            let array = batch.batch.execute::<StructArray>(&mut ctx)?;
-            let ids = array
-                .unmasked_field_by_name("id")?
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)?;
-            let emb = array
-                .unmasked_field_by_name("emb")?
-                .clone()
-                .execute::<FixedSizeListArray>(&mut ctx)?;
-            let values = emb.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;
-            for (v, &id) in values
-                .as_slice::<f32>()
-                .chunks_exact(query.len())
-                .zip(ids.as_slice::<u64>())
-            {
-                best.push((super::dot(v, query) / (norm(v) * q_norm), id));
-            }
+            best.extend(cosine_scores(batch.batch, query, &mut ctx)?);
             super::keep_best(&mut best, k);
         }
         Ok(best.into_iter().map(|(_, id)| id).collect())
     }
+}
+
+/// The cosine similarity to `query` of each row of a batch of `id` and `emb`, with its id.
+fn cosine_scores(
+    batch: ArrayRef,
+    query: &[f32],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<(f32, u64)>> {
+    let norm = |v: &[f32]| super::dot(v, v).sqrt().max(f32::MIN_POSITIVE);
+    let q_norm = norm(query);
+    let array = batch.execute::<StructArray>(ctx)?;
+    let ids = array
+        .unmasked_field_by_name("id")?
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
+    let emb = array
+        .unmasked_field_by_name("emb")?
+        .clone()
+        .execute::<FixedSizeListArray>(ctx)?;
+    let values = emb.elements().clone().execute::<PrimitiveArray>(ctx)?;
+    Ok(values
+        .as_slice::<f32>()
+        .chunks_exact(query.len())
+        .zip(ids.as_slice::<u64>())
+        .map(|(v, &id)| (super::dot(v, query) / (norm(v) * q_norm), id))
+        .collect())
 }
 
 async fn lance_ids(scanner: &mut Scanner) -> anyhow::Result<Vec<u64>> {
