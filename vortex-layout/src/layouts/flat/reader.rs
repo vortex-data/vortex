@@ -93,6 +93,20 @@ impl FlatReader {
     }
 }
 
+/// Decodes the storage of an unshredded Variant `array` if `expr` extracts from it more than once,
+/// as each `variant_get` would otherwise decode it again.
+pub(crate) fn decode_for_repeated_extraction(
+    array: ArrayRef,
+    expr: &BoundExpression,
+    session: &VortexSession,
+) -> VortexResult<ArrayRef> {
+    if array.dtype().is_variant() && count_variant_gets(expr) > 1 {
+        decode_unshredded_storage(array, &mut session.create_execution_ctx())
+    } else {
+        Ok(array)
+    }
+}
+
 /// The number of `variant_get` calls in `expr`.
 fn count_variant_gets(expr: &BoundExpression) -> usize {
     usize::from(expr.is::<VariantGet>())
@@ -163,11 +177,7 @@ impl LayoutReader for FlatReader {
                 array = array.slice(row_range.clone())?;
             }
 
-            // Several extractions from one Variant would each decode its storage.
-            if array.dtype().is_variant() && count_variant_gets(&expr) > 1 {
-                let mut ctx = session.create_execution_ctx();
-                array = decode_unshredded_storage(array, &mut ctx)?;
-            }
+            array = decode_for_repeated_extraction(array, &expr, &session)?;
 
             let mask_density = mask.density();
             let array_mask = if mask_density < EXPR_EVAL_THRESHOLD {
@@ -240,11 +250,7 @@ impl LayoutReader for FlatReader {
                 array = array.filter(mask)?;
             }
 
-            // Several extractions from one Variant would each decode its storage.
-            if array.dtype().is_variant() && count_variant_gets(&expr) > 1 {
-                let mut ctx = session.create_execution_ctx();
-                array = decode_unshredded_storage(array, &mut ctx)?;
-            }
+            array = decode_for_repeated_extraction(array, &expr, &session)?;
 
             // Evaluate the projection expression.
             array = array.apply_bound(&expr)?;

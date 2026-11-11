@@ -96,9 +96,11 @@ aggregation takes most of the remaining time. What is left in Vortex:
 3. **One pass per path.** Extracting several paths of an unshredded Variant parses each
    value once per path. A kernel that extracts them in one pass would speed up `none` for
    Vortex and Parquet alike.
-4. **The V2 scan decodes per extraction.** The V1 scan decodes the storage of an unshredded
-   Variant once per chunk when an expression extracts from it more than once. The V2 scan
-   does not yet, and is slower on `none`.
+4. **The V2 scan is behind the V1 scan on `none`.** The V1 scan decodes the storage of an
+   unshredded Variant once per chunk when an expression extracts from it more than once. The
+   V2 scan applies the same step where it evaluates an expression over a Variant batch, but
+   its filter and projection reach the column separately, so it still decodes more than once
+   and runs `none` at 0.87 to 1.16 of Parquet. On `query-fields` the two scans are level.
 
 ## Running locally
 
