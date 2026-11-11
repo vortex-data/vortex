@@ -503,11 +503,7 @@ impl IndexRows<IvfIndex> {
 
     /// Every centroid, flattened: read from the directory row on the first search, then reused.
     async fn centroids(&self) -> VortexResult<Arc<Vec<f32>>> {
-        if let Some(centroids) = self
-            .memo
-            .get()
-            .and_then(|memo| Arc::clone(memo).downcast::<Vec<f32>>().ok())
-        {
+        if let Some(centroids) = self.memo_get::<Vec<f32>>() {
             return Ok(centroids);
         }
         let directory = self.read_lists(&[DIRECTORY_LIST]).await?;
@@ -519,8 +515,7 @@ impl IndexRows<IvfIndex> {
                 .cloned()
                 .unwrap_or_default(),
         );
-        // A concurrent first search may have set it already; both read the same centroids.
-        drop(self.memo.set(Arc::clone(&centroids) as _));
+        self.memo_set(Arc::clone(&centroids));
         Ok(centroids)
     }
 }

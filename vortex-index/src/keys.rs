@@ -4,7 +4,6 @@
 //! A cached copy of an index's sorted key column, so a lookup finds its keys' rows by binary
 //! search and reads just those rows, rather than filtering the whole index through its zone maps.
 
-use std::any::Any;
 use std::sync::Arc;
 
 use vortex_array::VortexSessionExecute;
@@ -59,11 +58,16 @@ impl KeyColumn<u32> for Vec<u32> {
     }
 }
 
-/// Sorted strings, packed into one buffer.
+/// Strings in runs of ascending order, packed into one buffer.
+///
+/// An index may order its keys by something else first, as the inverted index orders terms by
+/// how common they are, so each run is searched in turn.
 pub(crate) struct Strings {
     bytes: Vec<u8>,
     /// Start of each string in `bytes`, plus the end of the last.
     offsets: Vec<usize>,
+    /// Start of each run of ascending strings, plus the end of the last.
+    runs: Vec<usize>,
 }
 
 impl Strings {
@@ -90,32 +94,43 @@ impl KeyColumn<String> for Strings {
                 offsets.push(bytes.len());
             }
         }
-        Ok(Self { bytes, offsets })
+        let mut keys = Self {
+            bytes,
+            offsets,
+            runs: vec![0],
+        };
+        let count = keys.offsets.len() - 1;
+        for idx in 1..count {
+            if keys.get(idx) < keys.get(idx - 1) {
+                keys.runs.push(idx);
+            }
+        }
+        if count > 0 {
+            keys.runs.push(count);
+        }
+        Ok(keys)
     }
 
     fn position(&self, key: &String) -> Option<u64> {
-        let count = self.offsets.len() - 1;
-        let (mut lo, mut hi) = (0, count);
-        while lo < hi {
-            let mid = lo + (hi - lo) / 2;
-            match self.get(mid).cmp(key.as_bytes()) {
-                std::cmp::Ordering::Less => lo = mid + 1,
-                std::cmp::Ordering::Greater => hi = mid,
-                std::cmp::Ordering::Equal => return Some(mid as u64),
+        self.runs.windows(2).find_map(|run| {
+            let (mut lo, mut hi) = (run[0], run[1]);
+            while lo < hi {
+                let mid = lo + (hi - lo) / 2;
+                match self.get(mid).cmp(key.as_bytes()) {
+                    std::cmp::Ordering::Less => lo = mid + 1,
+                    std::cmp::Ordering::Greater => hi = mid,
+                    std::cmp::Ordering::Equal => return Some(mid as u64),
+                }
             }
-        }
-        None
+            None
+        })
     }
 }
 
 impl<V: IndexVTable> IndexRows<V> {
     /// The index's key column, read on first use and then kept.
     async fn key_column<K: IndexKey>(&self) -> VortexResult<Arc<K::Column>> {
-        if let Some(keys) = self
-            .memo
-            .get()
-            .and_then(|memo| Arc::clone(memo).downcast::<K::Column>().ok())
-        {
+        if let Some(keys) = self.memo_get::<K::Column>() {
             return Ok(keys);
         }
         let key_field = self
@@ -127,11 +142,7 @@ impl<V: IndexVTable> IndexRows<V> {
         let arrays = collect(self.scan().with_projection(projection)).await?;
         let mut ctx = self.session.create_execution_ctx();
         let keys = Arc::new(K::Column::load(arrays, &mut ctx)?);
-        // A concurrent first lookup may have set it already; both read the same column.
-        drop(
-            self.memo
-                .set(Arc::clone(&keys) as Arc<dyn Any + Send + Sync>),
-        );
+        self.memo_set(Arc::clone(&keys));
         Ok(keys)
     }
 

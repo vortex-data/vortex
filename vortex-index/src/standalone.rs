@@ -17,7 +17,6 @@
 //! back to each file's own rows, ready to pass to a scan as a row selection.
 
 use std::sync::Arc;
-use std::sync::OnceLock;
 
 use futures::stream;
 use prost::Message;
@@ -26,8 +25,10 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::listview::ListViewRebuildMode;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
@@ -35,6 +36,7 @@ use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::expr::Expression;
 use vortex_array::expr::col;
 use vortex_array::stream::ArrayStreamAdapter;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -47,6 +49,7 @@ use vortex_file::WriteSummary;
 use vortex_io::VortexWrite;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
+use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::indexed::IndexBuilder;
 use vortex_layout::layouts::indexed::IndexExactness;
@@ -371,8 +374,11 @@ impl<V: IndexVTable> IndexFileBuilder<V> {
         for encoded in encoded {
             let len = encoded.len();
             for start in (0..len).step_by(piece) {
-                let slice = encoded.slice(start..(start + piece).min(len))?;
-                arrays.push(compact(slice, &mut ctx)?);
+                split_by_bytes(
+                    encoded.slice(start..(start + piece).min(len))?,
+                    &mut arrays,
+                    &mut ctx,
+                )?;
             }
         }
 
@@ -417,6 +423,27 @@ fn same_column_type(column: &DType, indexed: &DType) -> bool {
         || storage(column).eq_ignore_nullability(&storage(indexed))
 }
 
+/// Push `slice` compacted onto `arrays`, halved until each piece is at most
+/// [`INDEX_CHUNK_TARGET_BYTES`] or one row.
+///
+/// List columns are written in the pieces they arrive in (see [`default_index_strategy`]), so a
+/// row holding a long list, such as a common term's postings, gets a chunk to itself and a
+/// lookup of a rare term reads a chunk of many short lists.
+fn split_by_bytes(
+    slice: ArrayRef,
+    arrays: &mut Vec<ArrayRef>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let compacted = compact(slice, ctx)?;
+    let len = compacted.len();
+    if len <= 1 || compacted.nbytes() <= INDEX_CHUNK_TARGET_BYTES {
+        arrays.push(compacted);
+        return Ok(());
+    }
+    split_by_bytes(compacted.slice(0..len / 2)?, arrays, ctx)?;
+    split_by_bytes(compacted.slice(len / 2..len)?, arrays, ctx)
+}
+
 /// Copy the variable-length values a slice uses out of its parent's buffers, so writing the
 /// slice writes only its own bytes.
 fn compact(slice: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
@@ -432,6 +459,11 @@ fn compact(slice: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
                     .execute::<VarBinViewArray>(ctx)?
                     .compact_buffers(ctx)?
                     .into_array())
+            } else if matches!(column.dtype(), DType::List(..)) {
+                Ok(column
+                    .execute::<ListViewArray>(ctx)?
+                    .rebuild(ListViewRebuildMode::MakeExact, ctx)?
+                    .into_array())
             } else {
                 Ok(column)
             }
@@ -443,11 +475,14 @@ fn compact(slice: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     )
 }
 
-/// The default writer for index rows: small chunks, with binary payload columns (postings,
-/// bitmaps, codes) written as-is in chunks of the same size.
+/// The default writer for index rows: small chunks, with binary payload columns (bitmaps, codes)
+/// written as-is in chunks of the same size, and list columns (postings) compressed in the
+/// chunks they arrive in.
 ///
-/// Payloads are already compact, and leaving them out of dictionary encoding keeps each chunk's
-/// payload in its own small segment, so a lookup reads only the payloads of the keys it matched.
+/// Binary payloads are already compact, and leaving them out of dictionary encoding keeps each
+/// chunk's payload in its own small segment, so a lookup reads only the payloads of the keys it
+/// matched. List columns are compressed like any column, but not regrouped, so their chunks
+/// keep the byte-sized boundaries [`split_by_bytes`] chose.
 fn default_index_strategy(
     session: &VortexSession,
     index_dtype: &DType,
@@ -470,6 +505,13 @@ fn default_index_strategy(
                 );
                 builder = builder
                     .with_field_writer(FieldPath::from_name(name.clone()), Arc::new(payload));
+            } else if matches!(dtype, DType::List(..)) {
+                let lists = CompressingStrategy::new(
+                    ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+                    BtrBlocksCompressorBuilder::from_session(session).build(),
+                );
+                builder =
+                    builder.with_field_writer(FieldPath::from_name(name.clone()), Arc::new(lists));
             }
         }
     }
@@ -557,7 +599,7 @@ impl<V: IndexVTable> IndexFile<V> {
             data_row_count: total,
             file: with_cache(file.scan_file()),
             session: file.session().clone(),
-            memo: OnceLock::new(),
+            memo: Default::default(),
         };
         Ok(Self {
             info,

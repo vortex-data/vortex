@@ -12115,6 +12115,7 @@ version = "0.1.0"
 dependencies = [
  "arrow-array 59.3.2",
  "futures",
+ "parking_lot",
  "parquet 59.3.2",
  "prost 0.14.4",
  "roaring",
@@ -12124,6 +12125,7 @@ dependencies = [
  "vortex",
  "vortex-array",
  "vortex-arrow",
+ "vortex-btrblocks",
  "vortex-buffer",
  "vortex-edition",
  "vortex-error",
