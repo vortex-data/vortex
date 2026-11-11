@@ -501,6 +501,38 @@ fn test_vortex_scan_nested_float_filters_match_duckdb(#[case] predicate: &str) -
     Ok(())
 }
 
+/// A pushed filter on nested values with nulls inside gives the same rows as DuckDB gives for a
+/// native table. DuckDB orders a nested null after all values.
+#[rstest]
+#[case::struct_lt("s < {'a': 1}")]
+#[case::struct_gt("s > {'a': 2}")]
+#[case::struct_eq_null_field("s = {'a': NULL::INT}")]
+#[case::list_lt("l < [1, 5]")]
+#[case::list_gte("l >= [1, NULL::INT]")]
+fn test_vortex_scan_nested_null_filters_match_duckdb(#[case] predicate: &str) -> Result<()> {
+    let conn = database_connection();
+    let tempdir = tempfile::tempdir()?;
+    let path = format!("{}/nested_nulls.vortex", tempdir.path().to_string_lossy());
+
+    conn.query(
+        "CREATE TABLE native AS SELECT {'a': value} AS s, [1, value] AS l FROM \
+         (VALUES (NULL::INT), (0), (1), (2), (3)) t(value)",
+    )?;
+    conn.query(&format!("COPY native TO '{path}' (FORMAT VORTEX)"))?;
+
+    let expected = query_count(
+        &conn,
+        &format!("SELECT COUNT(*) FROM native WHERE {predicate}"),
+    )?;
+    let actual = query_count(
+        &conn,
+        &format!("SELECT COUNT(*) FROM '{path}' WHERE {predicate}"),
+    )?;
+
+    assert_eq!(actual, expected, "{predicate}");
+    Ok(())
+}
+
 /// A top-N dynamic filter keeps every `NaN`, because DuckDB orders all `NaN` values above `+inf`.
 #[test]
 fn test_vortex_scan_float_top_n_keeps_all_nans() -> Result<()> {

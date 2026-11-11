@@ -99,6 +99,9 @@ pub struct BinaryOpts {
     /// How a comparison treats float NaN values. Other operators always use `TotalOrder`.
     #[prost(enumeration = "binary_opts::NanOrder", tag = "3")]
     pub nan_order: i32,
+    /// How a comparison orders nulls inside nested values. Other operators always use `First`.
+    #[prost(enumeration = "binary_opts::NestedNulls", tag = "4")]
+    pub nested_nulls: i32,
 }
 /// Nested message and enum types in `BinaryOpts`.
 pub mod binary_opts {
@@ -173,6 +176,42 @@ pub mod binary_opts {
                 "TotalOrder" => Some(Self::TotalOrder),
                 "Canonical" => Some(Self::Canonical),
                 "Ieee754" => Some(Self::Ieee754),
+                _ => None,
+            }
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum NestedNulls {
+        First = 0,
+        Last = 1,
+    }
+    impl NestedNulls {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::First => "First",
+                Self::Last => "Last",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "First" => Some(Self::First),
+                "Last" => Some(Self::Last),
                 _ => None,
             }
         }

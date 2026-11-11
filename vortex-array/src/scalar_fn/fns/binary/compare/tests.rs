@@ -60,6 +60,7 @@ use crate::scalar_fn::fns::binary::scalar_cmp;
 use crate::scalar_fn::fns::operators::CompareMode;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::NanOrder;
+use crate::scalar_fn::fns::operators::NestedNulls;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar_fn::fns::operators::SignedZeros;
 use crate::test_harness::ExpectedOutcome;
@@ -1157,6 +1158,7 @@ const DATAFUSION: CompareMode = CompareMode::new(SignedZeros::Equal, NanOrder::T
 const SPARK: CompareMode = CompareMode::new(SignedZeros::Equal, NanOrder::Canonical);
 const ICEBERG: CompareMode = CompareMode::new(SignedZeros::Distinct, NanOrder::Canonical);
 const CLICKHOUSE: CompareMode = CompareMode::new(SignedZeros::Equal, NanOrder::Ieee754);
+const DUCKDB: CompareMode = SPARK.with_nested_nulls(NestedNulls::Last);
 
 fn compare_with(
     lhs: ArrayRef,
@@ -1392,6 +1394,7 @@ fn compare_mode_agrees_with_total_order(
 #[case::total_order(BinaryOptions::from(Operator::Eq))]
 #[case::datafusion(BinaryOptions::compare(CompareOperator::Lt, DATAFUSION))]
 #[case::clickhouse(BinaryOptions::compare(CompareOperator::NotEq, CLICKHOUSE))]
+#[case::duckdb(BinaryOptions::compare(CompareOperator::Gt, DUCKDB))]
 fn binary_options_round_trip(#[case] options: BinaryOptions) -> VortexResult<()> {
     let bytes = Binary
         .serialize(&options)?
@@ -1407,6 +1410,7 @@ fn compare_mode_requires_comparison_operator() -> VortexResult<()> {
         op: Operator::Add.into(),
         signed_zeros: ProtoSignedZeros::Equal.into(),
         nan_order: 0,
+        nested_nulls: 0,
     }
     .encode_to_vec();
 
@@ -1419,13 +1423,101 @@ fn compare_mode_requires_comparison_operator() -> VortexResult<()> {
 #[rstest]
 #[case::integer(Scalar::from(1i32), CompareMode::TOTAL_ORDER)]
 #[case::string(Scalar::from("a"), CompareMode::TOTAL_ORDER)]
-#[case::float(Scalar::from(1.0f64), CLICKHOUSE)]
+#[case::float(Scalar::from(1.0f64), SPARK)]
+#[case::integer_list(int_list_scalar(), CompareMode::TOTAL_ORDER.with_nested_nulls(NestedNulls::Last))]
 fn compare_with_mode_keeps_total_order_without_floats(
     #[case] value: Scalar,
     #[case] expected: CompareMode,
 ) {
-    let expr = compare_with_mode(CompareOperator::Eq, CLICKHOUSE, root(), lit(value));
+    let expr = compare_with_mode(CompareOperator::Eq, DUCKDB, root(), lit(value));
 
     let options = expr.as_::<Binary>();
     assert_eq!(options.compare_mode(), expected);
+}
+
+fn int_list_scalar() -> Scalar {
+    Scalar::list(
+        Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        vec![1i32.into()],
+        Nullability::NonNullable,
+    )
+}
+
+/// Nested nulls order first or last as the mode requires, at each level. Nested nulls are equal
+/// to each other. The rows are `{a: null} ? {a: 1}`, `{a: 1} ? {a: null}` and
+/// `{a: null} ? {a: null}`.
+#[rstest]
+#[case::first_lt(CompareMode::TOTAL_ORDER, CompareOperator::Lt, [true, false, false])]
+#[case::first_gt(CompareMode::TOTAL_ORDER, CompareOperator::Gt, [false, true, false])]
+#[case::last_lt(DUCKDB, CompareOperator::Lt, [false, true, false])]
+#[case::last_gt(DUCKDB, CompareOperator::Gt, [true, false, false])]
+#[case::last_eq(DUCKDB, CompareOperator::Eq, [false, false, true])]
+fn compare_mode_struct_nested_nulls(
+    #[case] mode: CompareMode,
+    #[case] op: CompareOperator,
+    #[case] expected: [bool; 3],
+) -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let lhs = StructArray::from_fields(&[(
+        "a",
+        PrimitiveArray::from_option_iter([None, Some(1i32), None]).into_array(),
+    )])?
+    .into_array();
+    let rhs = StructArray::from_fields(&[(
+        "a",
+        PrimitiveArray::from_option_iter([Some(1i32), None, None]).into_array(),
+    )])?
+    .into_array();
+
+    let result = compare_with(lhs, rhs, op, mode)?;
+
+    assert_arrays_eq!(result, BoolArray::from_iter(expected), ctx);
+    Ok(())
+}
+
+/// A list element that is null orders after all values when nested nulls are last. The rows are
+/// `[1, null] ? [1, 2]` and `[null] ? [5, 6]`.
+#[rstest]
+#[case::first_lt(CompareMode::TOTAL_ORDER, CompareOperator::Lt, [true, true])]
+#[case::last_lt(DUCKDB, CompareOperator::Lt, [false, false])]
+#[case::last_gt(DUCKDB, CompareOperator::Gt, [true, true])]
+fn compare_mode_list_nested_nulls(
+    #[case] mode: CompareMode,
+    #[case] op: CompareOperator,
+    #[case] expected: [bool; 2],
+) -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let lhs = ListArray::try_new(
+        PrimitiveArray::from_option_iter([Some(1i32), None, None]).into_array(),
+        PrimitiveArray::from_iter([0i32, 2, 3]).into_array(),
+        Validity::NonNullable,
+        ctx,
+    )?
+    .into_array();
+    let rhs = ListArray::try_new(
+        PrimitiveArray::from_iter([1i32, 2, 5, 6]).into_array(),
+        PrimitiveArray::from_iter([0i32, 2, 4]).into_array(),
+        Validity::NonNullable,
+        ctx,
+    )?
+    .into_array();
+
+    let result = compare_with(lhs, rhs, op, mode)?;
+
+    assert_arrays_eq!(result, BoolArray::from_iter(expected), ctx);
+    Ok(())
+}
+
+/// Nested nulls that order last disagree with the total order only for nested values.
+#[test]
+fn nested_nulls_agree_with_total_order_only_when_flat() {
+    let mode = CompareMode::TOTAL_ORDER.with_nested_nulls(NestedNulls::Last);
+    let list = int_list_scalar();
+
+    assert!(!mode.agrees_with_total_order(CompareOperator::Lt, list.dtype(), Some(&list)));
+    assert!(mode.agrees_with_total_order(
+        CompareOperator::Lt,
+        &DType::Primitive(PType::I32, Nullability::NonNullable),
+        None
+    ));
 }

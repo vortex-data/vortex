@@ -45,6 +45,7 @@ use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::operators::CompareMode;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::NanOrder;
+use crate::scalar_fn::fns::operators::NestedNulls;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar_fn::fns::operators::SignedZeros;
 
@@ -164,12 +165,17 @@ impl ScalarFnVTable for Binary {
             NanOrder::Canonical => pb::binary_opts::NanOrder::Canonical,
             NanOrder::Ieee754 => pb::binary_opts::NanOrder::Ieee754,
         };
+        let nested_nulls = match instance.compare_mode.nested_nulls() {
+            NestedNulls::First => pb::binary_opts::NestedNulls::First,
+            NestedNulls::Last => pb::binary_opts::NestedNulls::Last,
+        };
 
         Ok(Some(
             pb::BinaryOpts {
                 op: instance.operator.into(),
                 signed_zeros: signed_zeros.into(),
                 nan_order: nan_order.into(),
+                nested_nulls: nested_nulls.into(),
             }
             .encode_to_vec(),
         ))
@@ -192,8 +198,13 @@ impl ScalarFnVTable for Binary {
             pb::binary_opts::NanOrder::Canonical => NanOrder::Canonical,
             pb::binary_opts::NanOrder::Ieee754 => NanOrder::Ieee754,
         };
+        let nested_nulls = match pb::binary_opts::NestedNulls::try_from(opts.nested_nulls)? {
+            pb::binary_opts::NestedNulls::First => NestedNulls::First,
+            pb::binary_opts::NestedNulls::Last => NestedNulls::Last,
+        };
 
-        let compare_mode = CompareMode::new(signed_zeros, nan_order);
+        let compare_mode =
+            CompareMode::new(signed_zeros, nan_order).with_nested_nulls(nested_nulls);
         if compare_mode.is_total_order() {
             return Ok(operator.into());
         }

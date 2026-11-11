@@ -61,7 +61,6 @@ use crate::scalar_fn::fns::not::Not;
 use crate::scalar_fn::fns::operators::CompareMode;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::scalar_fn::fns::operators::contains_float;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::scalar_fn::fns::pack::PackOptions;
 use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZone;
@@ -342,25 +341,21 @@ pub fn bound_binary(
 ///
 /// [`eq`] and the other comparison builders use [`CompareMode::TOTAL_ORDER`].
 ///
-/// A comparison with a literal that does not contain floats cannot compare floats, so it uses
-/// [`CompareMode::TOTAL_ORDER`]. The result is the same, and rewrites that need the total order
-/// still apply to it.
+/// A comparison with a literal uses the default for each setting of the mode that cannot change
+/// a comparison of the literal's dtype, such as the float settings for an integer literal. The
+/// result is the same, and rewrites that need the total order still apply to it.
 pub fn compare_with_mode(
     operator: CompareOperator,
     compare_mode: CompareMode,
     lhs: Expression,
     rhs: Expression,
 ) -> Expression {
-    let compares_no_floats = [&lhs, &rhs].into_iter().any(|operand| {
-        operand
-            .as_opt::<Literal>()
-            .is_some_and(|scalar| !contains_float(scalar.dtype()))
-    });
-    let compare_mode = if compares_no_floats {
-        CompareMode::TOTAL_ORDER
-    } else {
-        compare_mode
-    };
+    let compare_mode = [&lhs, &rhs]
+        .into_iter()
+        .find_map(|operand| operand.as_opt::<Literal>())
+        .map_or(compare_mode, |scalar| {
+            compare_mode.for_dtype(scalar.dtype())
+        });
 
     Binary
         .try_new_expr(BinaryOptions::compare(operator, compare_mode), [lhs, rhs])

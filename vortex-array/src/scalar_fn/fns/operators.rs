@@ -285,10 +285,25 @@ pub enum NanOrder {
     Ieee754,
 }
 
-/// How a comparison orders floating-point values.
+/// How a comparison orders a null value inside a nested value, such as a null struct field or a
+/// null list element.
 ///
-/// The mode changes only floating-point operands. Integer, decimal, boolean, and byte comparisons
-/// give the same result in each mode. The default mode is [`CompareMode::TOTAL_ORDER`].
+/// A null at the top level always makes the result null. Nested nulls are equal to each other.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum NestedNulls {
+    /// A nested null is less than all values. This is the order of [`Scalar`] values.
+    #[default]
+    First,
+    /// A nested null is greater than all values. DuckDB uses this order.
+    Last,
+}
+
+/// How a comparison orders floating-point values and the nulls inside nested values.
+///
+/// The float settings change only operands that contain floats, and [`NestedNulls`] changes only
+/// nested operands. Integer, decimal, boolean, and byte comparisons give the same result in each
+/// mode. The default mode is [`CompareMode::TOTAL_ORDER`].
 ///
 /// | Engine            | [`SignedZeros`] | [`NanOrder`]  |
 /// |-------------------|-----------------|---------------|
@@ -297,11 +312,14 @@ pub enum NanOrder {
 /// | Spark, DuckDB     | `Equal`         | `Canonical`   |
 /// | Iceberg, Paimon   | `Distinct`      | `Canonical`   |
 /// | ClickHouse, NumPy | `Equal`         | `Ieee754`     |
+///
+/// DuckDB also uses [`NestedNulls::Last`].
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CompareMode {
     signed_zeros: SignedZeros,
     nan_order: NanOrder,
+    nested_nulls: NestedNulls,
 }
 
 impl CompareMode {
@@ -311,10 +329,21 @@ impl CompareMode {
     pub const TOTAL_ORDER: Self = Self::new(SignedZeros::Distinct, NanOrder::TotalOrder);
 
     /// Returns the mode with the given treatment of signed zeros and `NaN` values.
+    ///
+    /// Nested nulls order as in [`NestedNulls::First`].
     pub const fn new(signed_zeros: SignedZeros, nan_order: NanOrder) -> Self {
         Self {
             signed_zeros,
             nan_order,
+            nested_nulls: NestedNulls::First,
+        }
+    }
+
+    /// Returns this mode with the given order of nested nulls.
+    pub const fn with_nested_nulls(self, nested_nulls: NestedNulls) -> Self {
+        Self {
+            nested_nulls,
+            ..self
         }
     }
 
@@ -328,9 +357,28 @@ impl CompareMode {
         self.nan_order
     }
 
+    /// Returns how the mode orders nulls inside nested values.
+    pub fn nested_nulls(self) -> NestedNulls {
+        self.nested_nulls
+    }
+
     /// Returns whether this mode is [`CompareMode::TOTAL_ORDER`].
     pub fn is_total_order(self) -> bool {
         self == Self::TOTAL_ORDER
+    }
+
+    /// Returns this mode with the default for each setting that cannot change a comparison of
+    /// values of `dtype`.
+    pub(crate) fn for_dtype(self, dtype: &DType) -> Self {
+        let mut mode = self;
+        if !contains_float(dtype) {
+            mode.signed_zeros = SignedZeros::Distinct;
+            mode.nan_order = NanOrder::TotalOrder;
+        }
+        if !is_nested(dtype) {
+            mode.nested_nulls = NestedNulls::First;
+        }
+        mode
     }
 
     /// Returns whether comparing values of `dtype` with `operator` in this mode always gives the
@@ -343,22 +391,27 @@ impl CompareMode {
     ///   same side of it.
     /// - With a [`NanOrder`] other than [`NanOrder::TotalOrder`], the operator must be `=` or `!=`
     ///   and the constant must not be `NaN`. A `NaN` on the left is then unequal in each mode.
+    /// - With [`NestedNulls::Last`], the values must not be nested.
     pub fn agrees_with_total_order(
         self,
         operator: CompareOperator,
         dtype: &DType,
         constant: Option<&Scalar>,
     ) -> bool {
-        if self.is_total_order() || !contains_float(dtype) {
+        let mode = self.for_dtype(dtype);
+        if mode.is_total_order() {
             return true;
+        }
+        if mode.nested_nulls != NestedNulls::First {
+            return false;
         }
 
         let Some(value) = constant.and_then(float_value) else {
             return false;
         };
 
-        let zeros_agree = self.signed_zeros == SignedZeros::Distinct || value != 0.0;
-        let nans_agree = self.nan_order == NanOrder::TotalOrder
+        let zeros_agree = mode.signed_zeros == SignedZeros::Distinct || value != 0.0;
+        let nans_agree = mode.nan_order == NanOrder::TotalOrder
             || (matches!(operator, CompareOperator::Eq | CompareOperator::NotEq)
                 && !value.is_nan());
 
@@ -378,7 +431,28 @@ impl Display for CompareMode {
             NanOrder::Ieee754 => "ieee754",
         };
 
-        write!(f, "zeros={zeros}, nan={nan}")
+        let nested_nulls = match self.nested_nulls {
+            NestedNulls::First => "first",
+            NestedNulls::Last => "last",
+        };
+
+        write!(f, "zeros={zeros}, nan={nan}, nested_nulls={nested_nulls}")
+    }
+}
+
+/// Returns whether values of `dtype` are nested, so that they can hold nulls below the top level.
+pub(crate) fn is_nested(dtype: &DType) -> bool {
+    match dtype {
+        DType::Extension(ext) => is_nested(ext.storage_dtype()),
+        DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) | DType::Map(..) => true,
+        DType::Null
+        | DType::Bool(_)
+        | DType::Primitive(..)
+        | DType::Decimal(..)
+        | DType::Utf8(_)
+        | DType::Binary(_)
+        | DType::Union(..)
+        | DType::Variant(_) => false,
     }
 }
 

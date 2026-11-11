@@ -79,6 +79,8 @@ message BinaryOpts {
   SignedZeros signed_zeros = 2;
   // How a comparison treats float NaN values. Other operators always use `TotalOrder`.
   NanOrder nan_order = 3;
+  // How a comparison orders nulls inside nested values. Other operators always use `First`.
+  NestedNulls nested_nulls = 4;
 
   enum SignedZeros {
     Distinct = 0;
@@ -89,6 +91,11 @@ message BinaryOpts {
     TotalOrder = 0;
     Canonical = 1;
     Ieee754 = 2;
+  }
+
+  enum NestedNulls {
+    First = 0;
+    Last = 1;
   }
 
   enum BinaryOp {

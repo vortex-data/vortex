@@ -65,8 +65,9 @@ use vortex_spatial::scalar_fn::distance::SpatialDistance;
 use vortex_spatial::scalar_fn::intersects::SpatialIntersects;
 
 use crate::SESSION;
+use crate::convert::compare::between_with_mode;
 use crate::convert::compare::compare;
-use crate::convert::compare::float_between;
+use crate::convert::compare::compare_mode;
 use crate::convert::compare::float_in_list;
 use crate::convert::compare::holds_float;
 use crate::convert::dtype::FromLogicalType;
@@ -711,8 +712,10 @@ fn try_from_expression_inner(
             };
 
             let dtype = operand_dtype(between.input);
-            if holds_float(&dtype) {
-                return Ok(Some(float_between(
+            let mode = compare_mode(&dtype);
+            if !mode.is_total_order() {
+                return Ok(Some(between_with_mode(
+                    mode,
                     array,
                     lower,
                     between.lower_inclusive,

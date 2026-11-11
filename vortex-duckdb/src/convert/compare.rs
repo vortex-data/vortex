@@ -4,9 +4,10 @@
 //! Comparisons with the float semantics of DuckDB.
 //!
 //! DuckDB makes `-0.0` equal to `+0.0`, makes all `NaN` values equal, and orders `NaN` above all
-//! other values. Vortex orders floats in total order by default, so each float comparison that
-//! DuckDB pushes down uses [`DUCKDB_COMPARE_MODE`]. DuckDB does not apply a pushed table filter
-//! again, so a comparison with other semantics would add or drop rows.
+//! other values. Inside a nested value, it orders a null above all values. Vortex orders floats in
+//! total order and nested nulls first by default, so each comparison that DuckDB pushes down uses
+//! [`compare_mode`]. DuckDB does not apply a pushed table filter again, so a comparison with other
+//! semantics would add or drop rows.
 
 use vortex::dtype::DType;
 use vortex::expr::Expression;
@@ -20,19 +21,41 @@ use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::CompareMode;
 use vortex::scalar_fn::fns::operators::CompareOperator;
 use vortex::scalar_fn::fns::operators::NanOrder;
+use vortex::scalar_fn::fns::operators::NestedNulls;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::scalar_fn::fns::operators::SignedZeros;
 
 /// The float comparison semantics of DuckDB.
-pub(super) const DUCKDB_COMPARE_MODE: CompareMode =
-    CompareMode::new(SignedZeros::Equal, NanOrder::Canonical);
+const DUCKDB_FLOAT_MODE: CompareMode = CompareMode::new(SignedZeros::Equal, NanOrder::Canonical);
 
-/// Returns the compare mode for operands of `dtype`.
+/// Returns the compare mode of DuckDB for operands of `dtype`.
 pub(super) fn compare_mode(dtype: &DType) -> CompareMode {
-    if holds_float(dtype) {
-        DUCKDB_COMPARE_MODE
+    let mode = if holds_float(dtype) {
+        DUCKDB_FLOAT_MODE
     } else {
         CompareMode::TOTAL_ORDER
+    };
+
+    if is_nested(dtype) {
+        mode.with_nested_nulls(NestedNulls::Last)
+    } else {
+        mode
+    }
+}
+
+/// Returns true if values of `dtype` are nested, so that they can hold nulls below the top level.
+fn is_nested(dtype: &DType) -> bool {
+    match dtype {
+        DType::Extension(ext) => is_nested(ext.storage_dtype()),
+        DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) | DType::Map(..) => true,
+        DType::Null
+        | DType::Bool(_)
+        | DType::Primitive(..)
+        | DType::Decimal(..)
+        | DType::Utf8(_)
+        | DType::Binary(_)
+        | DType::Union(..)
+        | DType::Variant(_) => false,
     }
 }
 
@@ -78,20 +101,19 @@ pub(super) fn compare(
 /// A null value makes a non-match null, as in SQL.
 pub(super) fn float_in_list(element: &Expression, values: Vec<Scalar>) -> Expression {
     or_collect(values.into_iter().map(|value| {
-        compare_with_mode(
-            CompareOperator::Eq,
-            DUCKDB_COMPARE_MODE,
-            element.clone(),
-            lit(value),
-        )
+        let mode = compare_mode(value.dtype());
+        compare_with_mode(CompareOperator::Eq, mode, element.clone(), lit(value))
     }))
     .unwrap_or_else(|| lit(false))
 }
 
-/// Returns `lower <(=) input <(=) upper` for float operands, as a conjunction of comparisons.
+/// Returns `lower <(=) input <(=) upper` for operands of `dtype`, as a conjunction of comparisons
+/// in `mode`.
 ///
-/// The `Between` scalar function compares in total order, so it cannot express DuckDB semantics.
-pub(super) fn float_between(
+/// The `Between` scalar function compares in total order. Use this function when the compare mode
+/// of `dtype` is a different order.
+pub(super) fn between_with_mode(
+    mode: CompareMode,
     input: Expression,
     lower: Expression,
     lower_inclusive: bool,
@@ -110,7 +132,7 @@ pub(super) fn float_between(
     };
 
     and(
-        compare_with_mode(lower_operator, DUCKDB_COMPARE_MODE, input.clone(), lower),
-        compare_with_mode(upper_operator, DUCKDB_COMPARE_MODE, input, upper),
+        compare_with_mode(lower_operator, mode, input.clone(), lower),
+        compare_with_mode(upper_operator, mode, input, upper),
     )
 }

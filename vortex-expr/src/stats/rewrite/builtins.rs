@@ -45,6 +45,7 @@ use vortex_array::scalar_fn::fns::list_contains::ListContains;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::fns::lower::Lower;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
+use vortex_array::scalar_fn::fns::operators::NestedNulls;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::scalar_fn::internal::lower_bound::LowerBound;
 use vortex_array::scalar_fn::internal::lower_bound::LowerBoundKind;
@@ -162,9 +163,12 @@ fn binary_falsify<P: NonNanProof>(
     let lhs = expr.child(0);
     let rhs = expr.child(1);
 
-    // The statistics are bounds in total order. Each other compare mode is a coarser order that
+    // The statistics are bounds in total order. Each other float order is a coarser order that
     // total order refines, so these bounds stay valid when the stat comparisons use the mode of
-    // the predicate.
+    // the predicate. Nested nulls that order last do not refine it, so they get no rewrite.
+    if options.compare_mode().nested_nulls() != NestedNulls::First {
+        return Ok(None);
+    }
     let cmp = |operator, a, b| compare_with_mode(operator, options.compare_mode(), a, b);
 
     Ok(match options.operator() {
