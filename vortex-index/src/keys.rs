@@ -1,0 +1,190 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! A cached copy of an index's sorted key column, so a lookup finds its keys' rows by binary
+//! search and reads just those rows, rather than filtering the whole index through its zone maps.
+
+use std::sync::Arc;
+
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::expr::col;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
+use vortex_layout::layouts::indexed::IndexVTable;
+
+use crate::rows::IndexRows;
+use crate::rows::IndexStep;
+
+/// A key type an index sorts its rows by: the first field of its rows.
+pub(crate) trait IndexKey: Ord + Send + Sync + 'static {
+    /// Every key of the index, in row order.
+    type Column: KeyColumn<Self> + Send + Sync + 'static;
+}
+
+/// A column of sorted keys.
+pub(crate) trait KeyColumn<K: ?Sized> {
+    /// Read the column from the executed key arrays of an index, in row order.
+    fn load(
+        arrays: Vec<vortex_array::ArrayRef>,
+        ctx: &mut vortex_array::ExecutionCtx,
+    ) -> VortexResult<Self>
+    where
+        Self: Sized;
+
+    /// The row holding `key`, if any.
+    fn position(&self, key: &K) -> Option<u64>;
+}
+
+impl IndexKey for u32 {
+    type Column = Vec<u32>;
+}
+
+impl KeyColumn<u32> for Vec<u32> {
+    fn load(
+        arrays: Vec<vortex_array::ArrayRef>,
+        ctx: &mut vortex_array::ExecutionCtx,
+    ) -> VortexResult<Self> {
+        let mut keys = Vec::new();
+        for array in arrays {
+            keys.extend_from_slice(array.execute::<PrimitiveArray>(ctx)?.as_slice::<u32>());
+        }
+        Ok(keys)
+    }
+
+    fn position(&self, key: &u32) -> Option<u64> {
+        self.binary_search(key).ok().map(|idx| idx as u64)
+    }
+}
+
+/// Strings in runs of ascending order, packed into one buffer.
+///
+/// An index may order its keys by something else first, as the inverted index orders terms by
+/// how common they are, so each run is searched in turn.
+pub(crate) struct Strings {
+    bytes: Vec<u8>,
+    /// Start of each string in `bytes`, plus the end of the last.
+    offsets: Vec<usize>,
+    /// Start of each run of ascending strings, plus the end of the last.
+    runs: Vec<usize>,
+}
+
+impl Strings {
+    fn get(&self, idx: usize) -> &[u8] {
+        &self.bytes[self.offsets[idx]..self.offsets[idx + 1]]
+    }
+}
+
+impl IndexKey for String {
+    type Column = Strings;
+}
+
+impl KeyColumn<String> for Strings {
+    fn load(
+        arrays: Vec<vortex_array::ArrayRef>,
+        ctx: &mut vortex_array::ExecutionCtx,
+    ) -> VortexResult<Self> {
+        let mut bytes = Vec::new();
+        let mut offsets = vec![0];
+        for array in arrays {
+            let values = array.execute::<VarBinViewArray>(ctx)?;
+            // Copy straight from the views and their buffers: `bytes_at` makes a reference-counted
+            // buffer per string, which costs more than the copy for short terms.
+            let buffers: Vec<&[u8]> = (0..values.data_buffers().len())
+                .map(|idx| values.buffer(idx).as_slice())
+                .collect();
+            offsets.reserve(values.len());
+            for view in values.views() {
+                if view.is_inlined() {
+                    bytes.extend_from_slice(view.as_inlined().value());
+                } else {
+                    let view = view.as_view();
+                    let buffer = buffers.get(view.buffer_index as usize).ok_or_else(|| {
+                        vortex_err!("Index key view points past its {} buffers", buffers.len())
+                    })?;
+                    let value = buffer.get(view.as_range()).ok_or_else(|| {
+                        vortex_err!("Index key view points past the end of its buffer")
+                    })?;
+                    bytes.extend_from_slice(value);
+                }
+                offsets.push(bytes.len());
+            }
+        }
+        let mut keys = Self {
+            bytes,
+            offsets,
+            runs: vec![0],
+        };
+        let count = keys.offsets.len() - 1;
+        for idx in 1..count {
+            if keys.get(idx) < keys.get(idx - 1) {
+                keys.runs.push(idx);
+            }
+        }
+        if count > 0 {
+            keys.runs.push(count);
+        }
+        Ok(keys)
+    }
+
+    fn position(&self, key: &String) -> Option<u64> {
+        self.runs.windows(2).find_map(|run| {
+            let (mut lo, mut hi) = (run[0], run[1]);
+            while lo < hi {
+                let mid = lo + (hi - lo) / 2;
+                match self.get(mid).cmp(key.as_bytes()) {
+                    std::cmp::Ordering::Less => lo = mid + 1,
+                    std::cmp::Ordering::Greater => hi = mid,
+                    std::cmp::Ordering::Equal => return Some(mid as u64),
+                }
+            }
+            None
+        })
+    }
+}
+
+impl<V: IndexVTable> IndexRows<V> {
+    /// The index's key column, read on first use and then kept.
+    pub(crate) fn key_column_step<K: IndexKey>(
+        self: &Arc<Self>,
+    ) -> VortexResult<IndexStep<Arc<K::Column>>> {
+        if let Some(keys) = self.memo_get::<K::Column>() {
+            return Ok(IndexStep::Done(keys));
+        }
+        let key_field = self
+            .index_dtype
+            .as_struct_fields_opt()
+            .and_then(|fields| fields.names().iter().next().cloned())
+            .ok_or_else(|| vortex_err!("Index rows have no key field"))?;
+        let projection = col(key_field).bind(&self.index_dtype)?;
+        let this = Arc::clone(self);
+        Ok(IndexStep::Read(
+            Box::new(self.scan().with_projection(projection)),
+            Box::new(move |arrays| {
+                let mut ctx = this.session.create_execution_ctx();
+                let keys = Arc::new(K::Column::load(arrays, &mut ctx)?);
+                this.memo_set(Arc::clone(&keys));
+                Ok(IndexStep::Done(keys))
+            }),
+        ))
+    }
+
+    /// Decode the rows holding `keys`, found through the cached key column. Absent keys are
+    /// skipped.
+    pub(crate) fn chunks_for_keys_step<K: IndexKey>(
+        self: &Arc<Self>,
+        keys: Vec<K>,
+    ) -> VortexResult<IndexStep<Vec<Arc<V::Chunk>>>> {
+        let this = Arc::clone(self);
+        self.key_column_step::<K>()?.and_then(move |column| {
+            let mut rows: Vec<u64> = keys.iter().filter_map(|key| column.position(key)).collect();
+            if rows.is_empty() {
+                return Ok(IndexStep::Done(Vec::new()));
+            }
+            rows.sort_unstable();
+            rows.dedup();
+            this.chunks_at_step(rows)
+        })
+    }
+}
