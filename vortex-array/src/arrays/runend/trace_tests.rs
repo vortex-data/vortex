@@ -18,11 +18,17 @@ use crate::arrays::ConstantArray;
 use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::ScalarFnArray;
+use crate::arrays::SliceArray;
+use crate::arrays::VarBinViewArray;
 use crate::arrays::runend::RunEnd;
 use crate::assert_arrays_eq;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
+use crate::scalar_fn::EmptyOptions;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::lower::Lower;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::session::ArraySession;
 use crate::test_harness::trace::trace_op;
@@ -144,5 +150,46 @@ fn trace_take_on_runend() -> VortexResult<()> {
       return output=vortex.primitive(i32, len=4)
     ");
 
+    Ok(())
+}
+
+#[test]
+fn lower_on_sliced_runend_reaches_dict_values() -> VortexResult<()> {
+    // Rows: ["Great", "Great", "LAKES", "Great", "Great", null].
+    let dict = DictArray::try_new(
+        PrimitiveArray::from_iter([0u32, 1, 0, 2]).into_array(),
+        VarBinViewArray::from_iter_nullable_str([Some("Great"), Some("LAKES"), None]).into_array(),
+    )?
+    .into_array();
+    let runend = RunEnd::try_new(
+        PrimitiveArray::from_iter([2u32, 3, 5, 6]).into_array(),
+        dict,
+        &mut execution_ctx(),
+    )?
+    .into_array();
+    let sliced = SliceArray::new(runend, 1..5).into_array();
+    let lowered = ScalarFnArray::try_new(Lower.bind(EmptyOptions), [sliced])?.into_array();
+
+    let optimized = lowered.optimize_ctx(&SESSION)?;
+    insta::assert_snapshot!(optimized.display_tree_encodings_only().to_string(), @"
+    root: vortex.runend(utf8?, len=4)
+      ends: vortex.primitive(u32, len=3)
+      values: vortex.dict(utf8?, len=3)
+        codes: vortex.primitive(u32, len=3)
+        values: vortex.lower(utf8?, len=3)
+          input: vortex.varbinview(utf8?, len=3)
+            validity: vortex.bool(bool, len=3)
+    ");
+
+    assert_arrays_eq!(
+        optimized,
+        VarBinViewArray::from_iter_nullable_str([
+            Some("great"),
+            Some("lakes"),
+            Some("great"),
+            Some("great")
+        ]),
+        &mut execution_ctx()
+    );
     Ok(())
 }

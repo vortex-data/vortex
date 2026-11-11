@@ -10,12 +10,14 @@ use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::Slice;
 use crate::arrays::runend::RunEnd;
 use crate::arrays::runend::array::RunEndArrayExt;
 use crate::arrays::runend::array::RunEndArraySlotsExt;
 use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::arrays::slice::SliceReduceAdaptor;
 use crate::dtype::DType;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -32,6 +34,7 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     kernels.register_reduce_parent_rule(Cast, RunEnd, const { &CastReduceAdaptor(RunEnd) });
     kernels.register_reduce_parent_rule(AnyScalarFn, RunEnd, const { &RunEndScalarFnRule });
     kernels.register_reduce_parent_rule(FillNull, RunEnd, const { &FillNullReduceAdaptor(RunEnd) });
+    kernels.register_reduce_parent_rule(Slice, RunEnd, const { &SliceReduceAdaptor(RunEnd) });
 }
 
 /// A rule to push down scalar functions through run-end encoding into the values array.
