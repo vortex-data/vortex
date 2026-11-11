@@ -29,6 +29,7 @@ python3 benchmarks/omnigraph-bench/data/generate.py --people 200000 --out graph.
 $OG init --schema benchmarks/omnigraph-bench/data/schema.pg graph.omni
 
 # Default load limits: keyed loads take at most 8,192 entities and 32 MiB, so load in chunks.
+mkdir chunks
 grep '"type":"Person"' graph.jsonl | split -l 8000 -d -a 4 - chunks/p_
 grep '"edge":"Knows"'  graph.jsonl | split -l 8000 -d -a 4 - chunks/e_
 mode=overwrite; for f in chunks/p_* chunks/e_*; do
