@@ -339,4 +339,35 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_deserialize_rejects_non_primitive_dtype() -> VortexResult<()> {
+        let metadata = RLEMetadata {
+            values_len: 0,
+            indices_len: 0,
+            indices_ptype: PType::U16 as i32,
+            values_idx_offsets_len: 0,
+            values_idx_offsets_ptype: PType::U64 as i32,
+            offset: 0,
+        }
+        .encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = ArrayPlugin::deserialize(
+            &RLE,
+            ArrayDeserialization::new(
+                VTable::id(&RLE),
+                &DType::Utf8(Nullability::NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("Cannot convert DType utf8 into PType")
+        }));
+        Ok(())
+    }
 }
