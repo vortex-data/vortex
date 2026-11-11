@@ -24,7 +24,9 @@
 //! line per query with its result, the median warm latency, and the exact bytes Vortex read from
 //! each file on a fresh open. `--scan` answers trigram queries without the index, and `--index-only`
 //! probes the trigram index without reading data. `--top-k-only` runs only the BM25 ranking of a
-//! full-text query, skipping its match count.
+//! full-text query, skipping its match count. Index files are read directly on the querying
+//! task; `QUEUED_READS=1` sends their reads through the file's coalescing read driver and a
+//! blocking thread instead, as data files are read.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -71,11 +73,15 @@ use vortex_layout::scan::v2::ScanBuilder;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
+/// Microseconds since the first call, for `TRACE_READ_TIMES`.
+fn trace_clock() -> f64 {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f64() * 1e6
+}
+
 /// A file source that counts the bytes it is asked for.
 struct CountingReadAt {
     inner: Arc<dyn VortexReadAt>,
-    /// With `INLINE_READ=1`, reads are done on the calling task rather than a blocking thread.
-    file: Arc<std::fs::File>,
     bytes: Arc<AtomicU64>,
     name: String,
 }
@@ -108,17 +114,19 @@ impl VortexReadAt for CountingReadAt {
         if std::env::var_os("TRACE_READS").is_some() {
             eprintln!("read {} {offset} {length}", self.name);
         }
-        if std::env::var_os("INLINE_READ").is_some() {
-            use std::os::unix::fs::FileExt;
-            let mut buffer = vortex_buffer::ByteBufferMut::with_capacity_aligned(length, alignment);
-            // SAFETY: read_exact_at initializes every byte before the buffer is frozen.
-            unsafe { buffer.set_len(length) };
-            let result = self
-                .file
-                .read_exact_at(buffer.as_mut_slice(), offset)
-                .map(|()| BufferHandle::new_host(buffer.freeze()))
-                .map_err(Into::into);
-            return Box::pin(futures::future::ready(result));
+        if std::env::var_os("TRACE_READ_TIMES").is_some() {
+            let name = self.name.clone();
+            let start = trace_clock();
+            let thread = format!("{:?}", std::thread::current().id());
+            let read = self.inner.read_at(offset, length, alignment);
+            return Box::pin(async move {
+                let result = read.await;
+                eprintln!(
+                    "readtime {name} {offset} {length} start_us={start:.1} end_us={:.1} thread={thread}",
+                    trace_clock()
+                );
+                result
+            });
         }
         self.inner.read_at(offset, length, alignment)
     }
@@ -130,15 +138,23 @@ async fn open(
     metadata: bool,
 ) -> VortexResult<(VortexFile, Arc<AtomicU64>)> {
     let bytes = Arc::new(AtomicU64::new(0));
+    // Index files are read with a few small reads per lookup, so they skip the coalescing read
+    // driver and the blocking thread pool unless `QUEUED_READS=1`.
+    let direct = metadata && std::env::var_os("QUEUED_READS").is_none();
+    let reader = FileReadAt::open(path, session.handle())?;
     let source = Arc::new(CountingReadAt {
-        inner: Arc::new(FileReadAt::open(path, session.handle())?),
-        file: Arc::new(std::fs::File::open(path)?),
+        inner: Arc::new(if direct {
+            reader.with_inline_reads()
+        } else {
+            reader
+        }),
         bytes: Arc::clone(&bytes),
         name: path.display().to_string(),
     });
     let file = session
         .open_options()
         .with_include_metadata(metadata)
+        .with_direct_reads(direct)
         .open(source)
         .await?;
     Ok((file, bytes))
@@ -500,6 +516,9 @@ async fn query(session: &VortexSession, args: &[String]) -> VortexResult<()> {
                 _ => (&warm_data, &warm),
             };
             let start = Instant::now();
+            if std::env::var_os("TRACE_READ_TIMES").is_some() {
+                eprintln!("query_start us={:.1}", trace_clock());
+            }
             answer = match index {
                 Opened::Trigram(index) => {
                     if flags.index_only {
@@ -520,7 +539,12 @@ async fn query(session: &VortexSession, args: &[String]) -> VortexResult<()> {
                         index_bytes.load(Ordering::Relaxed),
                     );
                 }
-                None => times.push(start.elapsed().as_secs_f64() * 1000.0),
+                None => {
+                    times.push(start.elapsed().as_secs_f64() * 1000.0);
+                    if std::env::var_os("TRACE_READ_TIMES").is_some() {
+                        eprintln!("query_end us={:.1}", trace_clock());
+                    }
+                }
             }
         }
         println!(
