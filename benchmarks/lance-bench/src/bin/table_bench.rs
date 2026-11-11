@@ -139,6 +139,15 @@ struct Args {
     /// zero ranks by the index's quantized vectors alone.
     #[arg(long, default_value_t = 4)]
     refine: usize,
+    /// Distinct query vectors the vector search rotates through.
+    #[arg(long, default_value_t = 200)]
+    queries: usize,
+    /// Timed passes over the query vectors, after one untimed warm-up pass.
+    #[arg(long, default_value_t = 3)]
+    rounds: usize,
+    /// Fresh opens timed for the cold first query.
+    #[arg(long, default_value_t = 5)]
+    cold_opens: usize,
     /// Inline footers into the Vortex manifest.
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     inline_footers: bool,
@@ -325,6 +334,7 @@ fn rounded(sum: f64) -> i64 {
     sum.round() as i64
 }
 
+#[derive(Clone)]
 struct VortexTable {
     session: VortexSession,
     storage: Arc<LocalStorage>,
@@ -336,6 +346,7 @@ struct VortexTable {
 }
 
 /// The Vortex plan driver a run uses.
+#[derive(Clone)]
 enum Driver {
     Sequential(SequentialDriver),
     Parallel(ParallelDriver),
@@ -552,6 +563,8 @@ struct Inputs {
     random_rows: Vec<Vec<u64>>,
     windows: Vec<Vec<u64>>,
     query: Vec<f32>,
+    /// Distinct query vectors for the indexed vector search.
+    queries: Vec<Vec<f32>>,
     ts_range: (i64, i64),
     category: u32,
     rare_token: String,
@@ -590,6 +603,16 @@ fn inputs(args: &Args) -> Inputs {
         query: (0..args.dims)
             .map(|_| rng.random_range(-1.0f32..1.0))
             .collect(),
+        queries: {
+            let mut rng = StdRng::seed_from_u64(7);
+            (0..args.queries)
+                .map(|_| {
+                    (0..args.dims)
+                        .map(|_| rng.random_range(-1.0f32..1.0))
+                        .collect()
+                })
+                .collect()
+        },
         ts_range: (start, start + width),
         category: 7,
         rare_token: format!("q{}q", VOCABULARY - 3),

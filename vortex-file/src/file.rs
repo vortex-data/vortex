@@ -125,9 +125,15 @@ impl VortexFile {
     /// [`data_source`](Self::data_source) will share the same reader tree. Repeated V2 scans of
     /// [`scan_file`](Self::scan_file) will share its segment locations and a [`ScanCache`].
     pub fn with_caching(self) -> Self {
+        self.with_scan_cache(ScanCache::default())
+    }
+
+    /// [`with_caching`](Self::with_caching), with V2 scans sharing `plans`, such as a
+    /// [`ScanCache`] that retains fewer segments.
+    pub fn with_scan_cache(self, plans: ScanCache) -> Self {
         let scan_cache = FileScanCache {
             locations: segment_locations(&self.footer),
-            plans: ScanCache::default(),
+            plans,
         };
         Self {
             footer: self.footer,

@@ -51,6 +51,7 @@ use vortex_index::InvertedIndex;
 use vortex_index::IvfIndex;
 use vortex_index::IvfOptions;
 use vortex_index::text_match;
+use vortex_table::FileCache;
 use vortex_table::TableScan;
 use vortex_table::index::TableIndex;
 use vortex_table::index::index_table;
@@ -144,6 +145,24 @@ pub(super) async fn vortex_indexes(args: &Args, table: &VortexTable) -> anyhow::
         ivf: Arc::new(TableIndex::bind(ivf, &table.manifest)),
         text: Arc::new(TableIndex::bind(text, &table.manifest)),
     })
+}
+
+/// Opens the Vortex IVF index file afresh, as a cold query would, and binds it to the table.
+async fn open_vortex_ivf(
+    args: &Args,
+    table: &VortexTable,
+) -> anyhow::Result<Arc<TableIndex<IvfIndex>>> {
+    let path = args
+        .dir
+        .join("vortex")
+        .join(format!("indexes-{}", args.ivf_lists))
+        .join("emb.ivf.vortex");
+    let bytes = ByteBuffer::from(fs::read(path)?);
+    let file = open_index_file(&table.session, Arc::new(bytes)).await?;
+    Ok(Arc::new(TableIndex::bind(
+        IndexFile::open(IvfIndex, &file)?,
+        &table.manifest,
+    )))
 }
 
 /// Builds Lance's indexes once: IVF_SQ over the embeddings, inverted over the text.
@@ -246,17 +265,32 @@ impl VortexTable {
         Ok(best.into_iter().map(|(_, id)| id).collect())
     }
 
-    /// The exact cosine top-k, by a full scan, to measure recall against.
-    async fn exact_cosine(&self, query: &[f32], k: usize) -> anyhow::Result<Vec<u64>> {
+    /// The exact cosine top-k of each of `queries`, by one full scan, to measure recall against.
+    async fn exact_cosine_many(
+        &self,
+        queries: &[Vec<f32>],
+        k: usize,
+    ) -> anyhow::Result<Vec<Vec<u64>>> {
         let scan = self.scan().with_projection(select(["id", "emb"], root()));
         let batches = self.collect(scan).await?;
-        let mut best: Vec<(f32, u64)> = Vec::new();
+        let mut best: Vec<Vec<(f32, u64)>> = vec![Vec::new(); queries.len()];
         let mut ctx = self.session.create_execution_ctx();
         for batch in batches {
-            best.extend(cosine_scores(batch.batch, query, &mut ctx)?);
-            super::keep_best(&mut best, k);
+            for (values, ids) in vectors(batch.batch, &mut ctx)? {
+                for (query, best) in queries.iter().zip(&mut best) {
+                    best.extend(cosine(
+                        values.as_slice::<f32>(),
+                        ids.as_slice::<u64>(),
+                        query,
+                    ));
+                    super::keep_best(best, k);
+                }
+            }
         }
-        Ok(best.into_iter().map(|(_, id)| id).collect())
+        Ok(best
+            .into_iter()
+            .map(|best| best.into_iter().map(|(_, id)| id).collect())
+            .collect())
     }
 }
 
@@ -266,16 +300,30 @@ fn cosine_scores(
     query: &[f32],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Vec<(f32, u64)>> {
-    // Score each chunk as it is, rather than copying the chunks into one array first.
-    if let Some(chunked) = batch.as_opt::<Chunked>() {
-        let mut scores = Vec::with_capacity(batch.len());
-        for chunk in chunked.iter_chunks() {
-            scores.extend(cosine_scores(chunk.clone(), query, ctx)?);
-        }
-        return Ok(scores);
+    let mut scores = Vec::with_capacity(batch.len());
+    for (values, ids) in vectors(batch, ctx)? {
+        scores.extend(cosine(
+            values.as_slice::<f32>(),
+            ids.as_slice::<u64>(),
+            query,
+        ));
     }
-    let norm = |v: &[f32]| super::dot(v, v).sqrt().max(f32::MIN_POSITIVE);
-    let q_norm = norm(query);
+    Ok(scores)
+}
+
+/// The flat vectors and ids of a batch of `id` and `emb`, one pair per chunk, so the chunks are
+/// read as they are rather than copied into one array first.
+fn vectors(
+    batch: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<(PrimitiveArray, PrimitiveArray)>> {
+    if let Some(chunked) = batch.as_opt::<Chunked>() {
+        let mut parts = Vec::new();
+        for chunk in chunked.iter_chunks() {
+            parts.extend(vectors(chunk.clone(), ctx)?);
+        }
+        return Ok(parts);
+    }
     let array = batch.execute::<StructArray>(ctx)?;
     let ids = array
         .unmasked_field_by_name("id")?
@@ -286,12 +334,179 @@ fn cosine_scores(
         .clone()
         .execute::<FixedSizeListArray>(ctx)?;
     let values = emb.elements().clone().execute::<PrimitiveArray>(ctx)?;
-    Ok(values
-        .as_slice::<f32>()
+    Ok(vec![(values, ids)])
+}
+
+/// The cosine similarity to `query` of each of `values`' vectors, with its id.
+fn cosine<'a>(
+    values: &'a [f32],
+    ids: &'a [u64],
+    query: &'a [f32],
+) -> impl Iterator<Item = (f32, u64)> + 'a {
+    let norm = |v: &[f32]| super::dot(v, v).sqrt().max(f32::MIN_POSITIVE);
+    let q_norm = norm(query);
+    values
         .chunks_exact(query.len())
-        .zip(ids.as_slice::<u64>())
-        .map(|(v, &id)| (super::dot(v, query) / (norm(v) * q_norm), id))
-        .collect())
+        .zip(ids)
+        .map(move |(v, &id)| (super::dot(v, query) / (norm(v) * q_norm), id))
+}
+
+/// The approximate top-`k` search over every query vector, timed the way ANN benchmarks time it:
+/// distinct queries in rotation after an untimed warm-up pass, median and p99 latency, and recall
+/// averaged over the queries. Vortex runs with and without its data-segment cache, since Lance
+/// keeps no data pages of its own, and both systems are also timed cold: opening the table and
+/// its index afresh, then running one query.
+async fn vector_search(
+    args: &Args,
+    table: &VortexTable,
+    indexes: &Indexes,
+    dataset: &Dataset,
+    inputs: &Inputs,
+    k: usize,
+) -> anyhow::Result<()> {
+    let queries = &inputs.queries;
+    let exact = table.exact_cosine_many(queries, k).await?;
+    let candidates = k * args.refine.max(1);
+    let vortex = |table: VortexTable, ivf: Arc<TableIndex<IvfIndex>>, query: Vec<f32>| async move {
+        let search = ivf
+            .index()
+            .rows()
+            .search_vectors_steps(&query, candidates, args.nprobe)?;
+        if args.refine == 0 {
+            table.ranked_ids(&ivf, search).await
+        } else {
+            table.refined(&ivf, search, &query, k).await
+        }
+    };
+    let lance = |dataset: Dataset, query: Vec<f32>| async move {
+        let mut scanner = dataset.scan();
+        scanner.project(&["id"])?;
+        scanner.nearest("emb", &la::Float32Array::from(query), k)?;
+        scanner.distance_metric(MetricType::Cosine);
+        scanner.nprobes(args.nprobe);
+        if args.refine > 0 {
+            scanner.refine(u32::try_from(args.refine)?);
+        }
+        lance_ids(&mut scanner).await
+    };
+
+    let uncached = VortexTable {
+        cache: Arc::new(FileCache::retaining(0)),
+        ..table.clone()
+    };
+    let cached = latencies(args, queries, &exact, |q| {
+        vortex(table.clone(), Arc::clone(&indexes.ivf), q)
+    })
+    .await?;
+    let no_data_cache = latencies(args, queries, &exact, |q| {
+        vortex(uncached.clone(), Arc::clone(&indexes.ivf), q)
+    })
+    .await?;
+    let lance_warm = latencies(args, queries, &exact, |q| lance(dataset.clone(), q)).await?;
+
+    // Cold: a fresh file cache and a freshly opened index, or a freshly opened dataset, timed
+    // through its first query. The OS page cache stays warm for both.
+    let mut vortex_cold = Vec::new();
+    let mut lance_cold = Vec::new();
+    for query in queries.iter().take(args.cold_opens) {
+        let start = Instant::now();
+        let fresh = VortexTable {
+            cache: Arc::new(FileCache::new()),
+            ..table.clone()
+        };
+        let ivf = open_vortex_ivf(args, &fresh).await?;
+        vortex(fresh, ivf, query.clone()).await?;
+        vortex_cold.push(start.elapsed());
+
+        let start = Instant::now();
+        let fresh = Dataset::open(&args.dir.join("lance").to_string_lossy()).await?;
+        lance(fresh, query.clone()).await?;
+        lance_cold.push(start.elapsed());
+    }
+
+    let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+    println!(
+        "\nv2: top-{k} of {} distinct queries, nprobe {}, refine {}; {} timed rounds after a \
+         warm-up round; cold is open + first query, median of {}",
+        queries.len(),
+        args.nprobe,
+        args.refine,
+        args.rounds,
+        vortex_cold.len()
+    );
+    println!(
+        "\n| v2 | vortex p50 | vortex p99 | lance p50 | lance p99 | p50 vortex / lance | recall@{k} vortex | lance |"
+    );
+    println!("|---|---:|---:|---:|---:|---:|---:|---:|");
+    for (name, vortex) in [
+        ("warm, data cache", &cached),
+        ("warm, no data cache", &no_data_cache),
+    ] {
+        println!(
+            "| {name} | {:.2} | {:.2} | {:.2} | {:.2} | {:.2} | {:.3} | {:.3} |",
+            ms(vortex.p50),
+            ms(vortex.p99),
+            ms(lance_warm.p50),
+            ms(lance_warm.p99),
+            ms(vortex.p50) / ms(lance_warm.p50),
+            vortex.recall,
+            lance_warm.recall,
+        );
+    }
+    vortex_cold.sort();
+    lance_cold.sort();
+    let (vc, lc) = (
+        vortex_cold[vortex_cold.len() / 2],
+        lance_cold[lance_cold.len() / 2],
+    );
+    println!(
+        "| cold (open + first query) | {:.2} | | {:.2} | | {:.2} | | |",
+        ms(vc),
+        ms(lc),
+        ms(vc) / ms(lc)
+    );
+    Ok(())
+}
+
+/// The latency percentiles and mean recall of a search over every query.
+struct Latencies {
+    p50: Duration,
+    p99: Duration,
+    recall: f64,
+}
+
+/// Runs `search` once over every query untimed, for the warm-up and recall, then times
+/// `args.rounds` passes over them.
+async fn latencies<F, Fut>(
+    args: &Args,
+    queries: &[Vec<f32>],
+    exact: &[Vec<u64>],
+    search: F,
+) -> anyhow::Result<Latencies>
+where
+    F: Fn(Vec<f32>) -> Fut,
+    Fut: Future<Output = anyhow::Result<Vec<u64>>>,
+{
+    let mut recall_sum = 0.0;
+    for (query, exact) in queries.iter().zip(exact) {
+        recall_sum += recall(&search(query.clone()).await?, exact);
+    }
+    let mut times = Vec::with_capacity(args.rounds * queries.len());
+    for _ in 0..args.rounds {
+        for query in queries {
+            let start = Instant::now();
+            search(query.clone()).await?;
+            times.push(start.elapsed());
+        }
+    }
+    times.sort();
+    // The nearest-rank percentile, in integers.
+    let at = |percent: usize| times[(times.len() - 1) * percent / 100];
+    Ok(Latencies {
+        p50: at(50),
+        p99: at(99),
+        recall: recall_sum / queries.len().max(1) as f64,
+    })
 }
 
 async fn lance_ids(scanner: &mut Scanner) -> anyhow::Result<Vec<u64>> {
@@ -340,48 +555,7 @@ pub(super) async fn run(
     let k = 10;
 
     if selected("v2") {
-        let exact = table.exact_cosine(&inputs.query, k).await?;
-        let (vortex_time, vortex) = time(args.iterations, || async {
-            let candidates = k * args.refine.max(1);
-            let search = indexes.ivf.index().rows().search_vectors_steps(
-                &inputs.query,
-                candidates,
-                args.nprobe,
-            )?;
-            Ok(Answer::TopK(if args.refine == 0 {
-                table.ranked_ids(&indexes.ivf, search).await?
-            } else {
-                table
-                    .refined(&indexes.ivf, search, &inputs.query, k)
-                    .await?
-            }))
-        })
-        .await?;
-        let (lance_time, lance) = time(args.iterations, || async {
-            let mut scanner = dataset.scan();
-            scanner.project(&["id"])?;
-            scanner.nearest("emb", &la::Float32Array::from(inputs.query.clone()), k)?;
-            scanner.distance_metric(MetricType::Cosine);
-            scanner.nprobes(args.nprobe);
-            if args.refine > 0 {
-                scanner.refine(u32::try_from(args.refine)?);
-            }
-            Ok(Answer::TopK(lance_ids(&mut scanner).await?))
-        })
-        .await?;
-        let (Answer::TopK(vortex), Answer::TopK(lance)) = (vortex, lance) else {
-            anyhow::bail!("top-k answers");
-        };
-        row(
-            "v2",
-            vortex_time,
-            lance_time,
-            format!(
-                "recall@{k}: vortex {:.1}, lance {:.1}",
-                recall(&vortex, &exact),
-                recall(&lance, &exact)
-            ),
-        );
+        vector_search(args, table, indexes, dataset, inputs, k).await?;
     }
 
     if selected("t2") {

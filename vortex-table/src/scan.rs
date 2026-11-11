@@ -44,6 +44,7 @@ use vortex_io::request::IoSource;
 use vortex_io::request::IoTarget;
 use vortex_io::request::ReadAtIoService;
 use vortex_layout::scan::v2::ScanBuilder;
+use vortex_layout::scan::v2::ScanCache;
 use vortex_scan::planning::drive::PlanDriver;
 use vortex_scan::planning::drive::PlanRoot;
 use vortex_scan::planning::drive::ScopedBatch;
@@ -77,12 +78,30 @@ pub struct TableScan {
 #[derive(Default)]
 pub struct FileCache {
     files: Mutex<HashMap<(String, u64), VortexFile>>,
+    /// Bytes of segments each file's scans retain, or `None` for the default.
+    retained_bytes: Option<u64>,
 }
 
 impl FileCache {
     /// An empty cache.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// An empty cache whose files' scans retain up to `bytes` of recently read segments each;
+    /// zero keeps no segment data between scans, only the files' footers and plans.
+    pub fn retaining(bytes: u64) -> Self {
+        Self {
+            retained_bytes: Some(bytes),
+            ..Self::default()
+        }
+    }
+
+    fn cache_file(&self, file: VortexFile) -> VortexFile {
+        match self.retained_bytes {
+            Some(bytes) => file.with_scan_cache(ScanCache::with_retained_bytes(bytes)),
+            None => file.with_caching(),
+        }
     }
 
     fn get(&self, entry: &ManifestEntry) -> Option<VortexFile> {
@@ -310,7 +329,7 @@ impl FilePlanner {
         )?;
         let file = match &self.shared.cache {
             Some(cache) => {
-                let file = file.with_caching();
+                let file = cache.cache_file(file);
                 cache.insert(entry, file.clone());
                 file
             }
