@@ -130,8 +130,9 @@ impl ScalarFnVTable for Mask {
             .vortex_expect("Mask must be non-nullable");
 
         if mask_lit {
-            // Mask is all true, so the output is just the input.
-            Ok(Some(expr.child(0).clone()))
+            // Mask is all true, so the output is just the input, widened to the nullable dtype
+            // that `mask` always returns.
+            Ok(Some(expr.child(0).clone().cast_if_needed(expr.dtype())))
         } else {
             // Mask is all false, so the output is all nulls.
             let input_dtype = expr.child(0).dtype();

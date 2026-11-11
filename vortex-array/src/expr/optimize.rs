@@ -56,6 +56,7 @@ impl BoundExpression {
             let mut changed = false;
 
             if let Some(simplified) = expr.simplify_node()? {
+                debug_assert_rewrite_preserves_dtype("simplify", expr, &simplified);
                 current = Some(simplified);
                 changed = true;
             }
@@ -64,8 +65,13 @@ impl BoundExpression {
             // free; the block scopes the borrow so `current` can be updated.
             let reduced = {
                 let expr = current.as_ref().unwrap_or(self);
-                expr.reduce_node(&ExpressionReduceNode::new(expr))?
-                    .map(ExpressionReduceNode::into_expression)
+                let reduced = expr
+                    .reduce_node(&ExpressionReduceNode::new(expr))?
+                    .map(ExpressionReduceNode::into_expression);
+                if let Some(reduced) = &reduced {
+                    debug_assert_rewrite_preserves_dtype("reduce", expr, reduced);
+                }
+                reduced
             };
             if let Some(reduced_expr) = reduced {
                 current = Some(reduced_expr);
@@ -111,6 +117,7 @@ impl BoundExpression {
 
         if let Some(new_children) = new_children {
             let updated = expr.clone().with_children(new_children)?;
+            debug_assert_rewrite_preserves_dtype("optimizing children", expr, &updated);
 
             // After updating children, try to optimize root again
             current = Some(updated.try_optimize()?.unwrap_or(updated));
@@ -118,6 +125,22 @@ impl BoundExpression {
 
         Ok(current)
     }
+}
+
+/// Rewrites must be transparent to the rest of the expression tree: a parent was bound against
+/// the dtype of the node being replaced, so a replacement with a different dtype (most often a
+/// different nullability) silently changes the meaning of the tree.
+#[inline]
+fn debug_assert_rewrite_preserves_dtype(
+    rule: &str,
+    before: &BoundExpression,
+    after: &BoundExpression,
+) {
+    debug_assert_eq!(
+        before.dtype(),
+        after.dtype(),
+        "{rule} changed the dtype of {before} to that of {after}"
+    );
 }
 
 #[cfg(test)]
@@ -142,11 +165,16 @@ mod tests {
     use crate::dtype::StructFields;
     use crate::expr::Expression;
     use crate::expr::and;
+    use crate::expr::case_when;
     use crate::expr::cast;
     use crate::expr::eq;
+    use crate::expr::fill_null;
     use crate::expr::get_item;
+    use crate::expr::is_not_null;
+    use crate::expr::is_null;
     use crate::expr::lit;
     use crate::expr::lt_eq;
+    use crate::expr::mask;
     use crate::expr::merge;
     use crate::expr::or;
     use crate::expr::pack;
@@ -230,6 +258,30 @@ mod tests {
     #[case::zip_false(
         zip_expr(lit(false), root(), lit(1i32)),
         DType::Primitive(PType::I32, Nullability::Nullable)
+    )]
+    #[case::mask_true(
+        mask(root(), lit(true)),
+        DType::Primitive(PType::I32, Nullability::NonNullable)
+    )]
+    #[case::fill_null_non_nullable_input(
+        fill_null(root(), lit(Scalar::from(Some(0i32)))),
+        DType::Primitive(PType::I32, Nullability::NonNullable)
+    )]
+    #[case::case_when_is_null_to_fill_null(
+        case_when(is_null(root()), lit(0i64), root()),
+        DType::Primitive(PType::I64, Nullability::Nullable)
+    )]
+    #[case::case_when_is_not_null_to_fill_null(
+        case_when(is_not_null(root()), root(), lit(0i64)),
+        DType::Primitive(PType::I64, Nullability::Nullable)
+    )]
+    #[case::case_when_null_fill_of_non_nullable(
+        case_when(
+            is_null(root()),
+            lit(Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable))),
+            root()
+        ),
+        DType::Primitive(PType::I64, Nullability::NonNullable)
     )]
     fn literal_simplification_preserves_result_dtype(
         #[case] expr: Expression,

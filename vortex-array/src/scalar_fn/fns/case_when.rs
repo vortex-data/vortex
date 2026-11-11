@@ -38,6 +38,7 @@ use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
+use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::optimizer::ArrayOptimizer;
 use crate::proto::expr as pb;
@@ -306,19 +307,25 @@ impl ScalarFnVTable for CaseWhen {
             return Ok(None);
         };
 
+        // `CASE WHEN` unions the nullability of its branches, which `x` and `fill_null` alone
+        // need not match, so keep the dtype binding inferred.
         if scalar.is_null() {
             // Filling the nulls of `x` with NULL is a no-op
-            return Ok(Some(x.clone()));
+            return Ok(Some(x.clone().cast_if_needed(expr.dtype())));
         }
 
         if !FillNull::supports_dtype(x.dtype()) {
             return Ok(None);
         }
 
-        Ok(Some(FillNull.try_new_bound_expr(
-            EmptyOptions,
-            [x.clone(), fill.clone()],
-        )?))
+        // `fill_null` takes its result nullability from the fill, so give the fill the
+        // nullability of the `CASE WHEN`. A cast remains only if nested nullability differs.
+        let fill = bound::lit(scalar.cast(&scalar.dtype().with_nullability(expr.dtype().nullability()))?);
+        Ok(Some(
+            FillNull
+                .try_new_bound_expr(EmptyOptions, [x.clone(), fill])?
+                .cast_if_needed(expr.dtype()),
+        ))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {

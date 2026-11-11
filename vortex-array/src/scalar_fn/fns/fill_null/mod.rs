@@ -191,7 +191,9 @@ impl ScalarFnVTable for FillNull {
         expr: &BoundExpression,
     ) -> VortexResult<Option<BoundExpression>> {
         if !expr.child(0).dtype().is_nullable() {
-            return Ok(Some(expr.child(0).clone()));
+            // There are no nulls to fill, but the result still takes the fill value's
+            // nullability.
+            return Ok(Some(expr.child(0).clone().cast_if_needed(expr.dtype())));
         }
 
         Ok(None)

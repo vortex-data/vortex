@@ -28,7 +28,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::StructFields;
 use crate::expr::BoundExpression;
-use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::Arity;
@@ -177,11 +176,7 @@ impl ScalarFnVTable for Zip {
             };
             // The selected branch can be less nullable than the zip result, which unions
             // both branches' nullability, so keep the dtype that binding inferred.
-            return Ok(Some(if selected.dtype() == expr.dtype() {
-                selected
-            } else {
-                bound::cast(selected, expr.dtype().clone())
-            }));
+            return Ok(Some(selected.cast_if_needed(expr.dtype())));
         }
 
         Ok(None)
