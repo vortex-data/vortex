@@ -12,12 +12,14 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_layout::layouts::indexed::IndexExactness;
 use vortex_layout::layouts::indexed::IndexVTable;
 use vortex_layout::layouts::indexed::RowLocator;
 use vortex_layout::scan::v2::ScanBuilder;
 use vortex_layout::scan::v2::ScanFile;
+use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
 /// Run a scan v2 `builder` to its end, collecting its batches in row order.
@@ -94,14 +96,19 @@ impl<V: IndexVTable> IndexRows<V> {
         self.bound_chunks(filter).await
     }
 
-    async fn bound_chunks(
-        &self,
-        filter: Option<BoundExpression>,
-    ) -> VortexResult<Vec<Arc<V::Chunk>>> {
+    /// Read the index rows at `rows`, strictly ascending, without evaluating a filter.
+    ///
+    /// For kinds whose key is the row position, so a lookup needs no key column read.
+    pub(crate) async fn chunks_at(&self, rows: Vec<u64>) -> VortexResult<Vec<Arc<V::Chunk>>> {
+        let indices = StrictSortedBuffer::try_new(Buffer::from(rows))?;
         let arrays = collect(
-            ScanBuilder::new(self.session.clone(), self.file.clone()).with_some_filter(filter),
+            ScanBuilder::new(self.session.clone(), self.file.clone()).with_row_indices(indices),
         )
         .await?;
+        self.decode_all(arrays)
+    }
+
+    fn decode_all(&self, arrays: Vec<ArrayRef>) -> VortexResult<Vec<Arc<V::Chunk>>> {
         let mut ctx = self.session.create_execution_ctx();
         arrays
             .into_iter()
@@ -112,6 +119,17 @@ impl<V: IndexVTable> IndexRows<V> {
                     .map(Arc::new)
             })
             .collect()
+    }
+
+    async fn bound_chunks(
+        &self,
+        filter: Option<BoundExpression>,
+    ) -> VortexResult<Vec<Arc<V::Chunk>>> {
+        let arrays = collect(
+            ScanBuilder::new(self.session.clone(), self.file.clone()).with_some_filter(filter),
+        )
+        .await?;
+        self.decode_all(arrays)
     }
 
     /// Answer a predicate over the indexed column, if this index can.

@@ -504,6 +504,45 @@ async fn standalone_search_maps_hits_to_files() -> VortexResult<()> {
     Ok(())
 }
 
+/// Every stored vector is its own nearest neighbour when every list is probed, so a lookup that
+/// read the wrong lists, or a build that numbered rows out of order, shows up as a wrong row.
+#[tokio::test]
+async fn standalone_ivf_reads_probed_lists_by_position() -> VortexResult<()> {
+    let session = session()?;
+    let data = Data::generate(3, ROWS);
+    let file = write_plain_file(&session, &data).await?;
+    let mut builder = IndexFileBuilder::new(
+        IvfIndex,
+        IvfOptions { lists: 16, dim: 0 },
+        "vec",
+        DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, Nullability::NonNullable)),
+            DIM as u32,
+            Nullability::NonNullable,
+        ),
+        &session,
+    )?;
+    builder.add_file("part.vortex", &file).await?;
+    let mut bytes = ByteBufferMut::empty();
+    builder.write(&mut bytes).await?;
+    let ivf = IndexFile::open(
+        IvfIndex,
+        &session
+            .open_options()
+            .include_metadata()
+            .open_buffer(bytes.freeze())?,
+    )?;
+    let lists = ivf.rows().options().lists as usize;
+    for row in (0..ROWS).step_by(97) {
+        let hits = ivf
+            .rows()
+            .search_vectors(&data.vectors[row], 1, lists)
+            .await?;
+        assert_eq!(hits[0].row, row as u64);
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn opening_with_the_wrong_kind_fails() -> VortexResult<()> {
     let session = session()?;

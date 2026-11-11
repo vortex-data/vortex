@@ -448,14 +448,9 @@ impl IndexRows<IvfIndex> {
         probes.sort_by(|a, b| b.1.total_cmp(&a.1));
         probes.truncate(nprobe.max(1));
 
-        let Some(filter) = or_collect(
-            probes
-                .iter()
-                .map(|(list, _)| eq(col(LIST_FIELD), lit(*list))),
-        ) else {
-            return Ok(Vec::new());
-        };
-        let lists = self.chunks(Some(filter)).await?;
+        let mut wanted: Vec<u32> = probes.iter().map(|(list, _)| *list).collect();
+        wanted.sort_unstable();
+        let lists = self.read_lists(&wanted).await?;
 
         let quantized = QuantizedQuery::new(&query);
         let code_len = 4 + dim;
@@ -473,6 +468,39 @@ impl IndexRows<IvfIndex> {
         Ok(top_k(hits, k))
     }
 
+    /// The entries of `lists`, sorted ascending.
+    ///
+    /// The builder writes list `i` at row `i` and the directory row after the last list, so the
+    /// rows are read by position, with no filter over the list column. An index whose rows don't
+    /// line up that way is read through a filter instead.
+    async fn read_lists(&self, lists: &[u32]) -> VortexResult<Vec<Arc<IvfEntries>>> {
+        let position = |list: u32| {
+            u64::from(if list == DIRECTORY_LIST {
+                self.options.lists
+            } else {
+                list
+            })
+        };
+        let mut rows: Vec<u64> = lists.iter().map(|&list| position(list)).collect();
+        rows.sort_unstable();
+        rows.dedup();
+        if rows
+            .last()
+            .is_some_and(|&last| last < self.file.layout.row_count())
+        {
+            let entries = self.chunks_at(rows).await?;
+            let found = entries.iter().flat_map(|e| e.lists.iter().copied());
+            if found.eq(lists.iter().copied()) {
+                return Ok(entries);
+            }
+        }
+        let Some(filter) = or_collect(lists.iter().map(|&list| eq(col(LIST_FIELD), lit(list))))
+        else {
+            return Ok(Vec::new());
+        };
+        self.chunks(Some(filter)).await
+    }
+
     /// Every centroid, flattened: read from the directory row on the first search, then reused.
     async fn centroids(&self) -> VortexResult<Arc<Vec<f32>>> {
         if let Some(centroids) = self
@@ -482,9 +510,7 @@ impl IndexRows<IvfIndex> {
         {
             return Ok(centroids);
         }
-        let directory = self
-            .chunks(Some(eq(col(LIST_FIELD), lit(DIRECTORY_LIST))))
-            .await?;
+        let directory = self.read_lists(&[DIRECTORY_LIST]).await?;
         let centroids = Arc::new(
             directory
                 .iter()
