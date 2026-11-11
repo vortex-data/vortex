@@ -15,12 +15,20 @@
 //!
 //! [Variant encoding]: https://github.com/apache/parquet-format/blob/master/VariantEncoding.md
 
+use std::sync::Arc;
+
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::validity::Validity;
+use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBufferMut;
 use vortex_mask::Mask;
 
 /// The value of a path in one row.
@@ -56,41 +64,68 @@ pub(crate) fn extract(
         DType::Primitive(PType::I64, _) => Target::Int64,
         _ => return None,
     };
-    if path.is_empty() {
+    if path.is_empty() || path.len() > MAX_PATH_LEN {
         return None;
     }
 
     let len = value.len();
-    let row = |idx: usize| -> Option<Extracted<'_>> {
+    let mut fields = FieldCache::new(path);
+    let mut row = |idx: usize| -> Option<Extracted<'_>> {
         if !valid.value(idx) {
             return Some(Extracted::Missing);
         }
-        let metadata = Metadata::new(bytes_at(metadata, idx))?;
-        extract_row(&metadata, bytes_at(value, idx), path, target)
+        let fields = fields.resolve(metadata, idx)?;
+        extract_row(fields, bytes_at(value, idx), path, target)
     };
 
+    let mut validity = BitBufferMut::with_capacity(len);
     match target {
         Target::Utf8 => {
-            let mut values = Vec::with_capacity(len);
+            // The views are built here rather than by a builder, which would check the UTF-8 of
+            // every string a second time.
+            let mut views = BufferMut::<BinaryView>::with_capacity(len);
+            let mut bytes = ByteBufferMut::empty();
             for idx in 0..len {
-                values.push(match row(idx)? {
-                    Extracted::Utf8(value) => Some(value),
+                let string = match row(idx)? {
+                    Extracted::Utf8(string) => Some(string.as_bytes()),
                     Extracted::Missing => None,
                     Extracted::Int(_) => return None,
-                });
+                };
+                validity.append(string.is_some());
+                let string = string.unwrap_or_default();
+                let offset = u32::try_from(bytes.len()).ok()?;
+                if string.len() > BinaryView::MAX_INLINED_SIZE {
+                    bytes.extend_from_slice(string);
+                }
+                views.push(BinaryView::make_view(string, 0, offset));
             }
-            Some(VarBinViewArray::from_iter_nullable_str(values).into_array())
+            // SAFETY: every view is either inlined or spans a string just copied to the only
+            // buffer, and each string was checked to be UTF-8 when it was read.
+            let array = unsafe {
+                VarBinViewArray::new_unchecked(
+                    views.freeze(),
+                    Arc::from([bytes.freeze()]),
+                    DType::Utf8(Nullability::Nullable),
+                    Validity::from(validity.freeze()),
+                )
+            };
+            Some(array.into_array())
         }
         Target::Int64 => {
-            let mut values = Vec::with_capacity(len);
+            let mut values = BufferMut::<i64>::with_capacity(len);
             for idx in 0..len {
-                values.push(match row(idx)? {
+                let value = match row(idx)? {
                     Extracted::Int(value) => Some(value),
                     Extracted::Missing => None,
                     Extracted::Utf8(_) => return None,
-                });
+                };
+                validity.append(value.is_some());
+                values.push(value.unwrap_or_default());
             }
-            Some(PrimitiveArray::from_option_iter(values).into_array())
+            Some(
+                PrimitiveArray::new(values.freeze(), Validity::from(validity.freeze()))
+                    .into_array(),
+            )
         }
     }
 }
@@ -106,22 +141,99 @@ fn bytes_at(array: &VarBinViewArray, idx: usize) -> &[u8] {
     }
 }
 
+/// The longest path [`extract`] covers.
+const MAX_PATH_LEN: usize = 8;
+
+/// How to find the fields of a path in the objects of rows that share one metadata.
+#[derive(Clone, Copy)]
+enum Fields<'a> {
+    /// The dictionary id of each field name of the path. [`ABSENT`] is the id of a name that
+    /// the dictionary does not hold, which no object has.
+    Ids([usize; MAX_PATH_LEN]),
+    /// The dictionary holds a name of the path more than once, so that the name has no single
+    /// id. The fields are found by name.
+    Names(Metadata<'a>),
+}
+
+/// An id that is not in any dictionary: the ids of an object are at most four bytes wide.
+const ABSENT: usize = usize::MAX;
+
+/// The [`Fields`] of a path, for the metadata of the rows seen most recently.
+///
+/// Few rows have a metadata of their own: the rows of a table share a handful of shapes, and
+/// the metadata child is dictionary encoded. Resolving the names of the path against a metadata
+/// once turns the lookup in every object from a binary search over names into a scan for an id.
+struct FieldCache<'a> {
+    path: &'a [&'a str],
+    /// Direct mapped on a hash of the metadata's view. Rows with the same metadata under a
+    /// dictionary have the same view.
+    slots: Vec<Option<(u128, Fields<'a>)>>,
+}
+
+impl<'a> FieldCache<'a> {
+    const SLOTS: usize = 256;
+
+    fn new(path: &'a [&'a str]) -> Self {
+        Self {
+            path,
+            slots: vec![None; Self::SLOTS],
+        }
+    }
+
+    /// The fields of the path for row `idx` of `metadata`.
+    #[inline]
+    fn resolve(&mut self, metadata: &'a VarBinViewArray, idx: usize) -> Option<Fields<'a>> {
+        let key = metadata.views()[idx].as_u128();
+        // The top byte of the low half of a multiplicative hash, as the table has 256 slots.
+        let mixed = (key ^ (key >> 64)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        let slot = usize::from(mixed.to_le_bytes()[7]);
+        if let Some((cached, fields)) = self.slots[slot]
+            && cached == key
+        {
+            return Some(fields);
+        }
+        let fields = Self::fields(self.path, Metadata::new(bytes_at(metadata, idx))?)?;
+        self.slots[slot] = Some((key, fields));
+        Some(fields)
+    }
+
+    fn fields(path: &[&str], metadata: Metadata<'a>) -> Option<Fields<'a>> {
+        let mut ids = [ABSENT; MAX_PATH_LEN];
+        for id in 0..metadata.len {
+            let name = metadata.name(id)?;
+            for (field, found) in path.iter().zip(ids.iter_mut()) {
+                if field.as_bytes() == name {
+                    if *found != ABSENT {
+                        return Some(Fields::Names(metadata));
+                    }
+                    *found = id;
+                }
+            }
+        }
+        Some(Fields::Ids(ids))
+    }
+}
+
 /// Follows `path` from `value`, and reads what it reaches as `target`.
 ///
 /// Returns `None` for a value that is neither missing nor of the target's type, and for bytes
 /// that are cut short.
 fn extract_row<'a>(
-    metadata: &Metadata<'_>,
+    fields: Fields<'_>,
     mut value: &'a [u8],
     path: &[&str],
     target: Target,
 ) -> Option<Extracted<'a>> {
-    for name in path {
+    for (depth, name) in path.iter().enumerate() {
         // A value that is not an object has no fields.
         let Some(object) = Object::new(value)? else {
             return Some(Extracted::Missing);
         };
-        match object.field(metadata, name)? {
+        let field = match &fields {
+            Fields::Ids(ids) => object.field_with_id(ids[depth])?,
+            Fields::Names(metadata) => object.field(metadata, name)?,
+        };
+        match field {
             Some(field) => value = field,
             None => return Some(Extracted::Missing),
         }
@@ -193,7 +305,10 @@ const INT64: u8 = 6;
 const LONG_STRING: u8 = 16;
 
 /// The dictionary of field names of a Variant value.
+#[derive(Clone, Copy)]
 struct Metadata<'a> {
+    /// The number of names.
+    len: usize,
     /// The width in bytes of an offset.
     offset_size: usize,
     /// The offsets of the names, one more than there are names.
@@ -210,6 +325,7 @@ impl<'a> Metadata<'a> {
         let offsets_start = 1 + offset_size;
         let names_start = offsets_start + (len + 1) * offset_size;
         Some(Self {
+            len,
             offset_size,
             offsets: bytes.get(offsets_start..names_start)?,
             names: bytes.get(names_start..)?,
@@ -263,6 +379,32 @@ impl<'a> Object<'a> {
         }))
     }
 
+    /// The value of the field whose name has dictionary id `id`, or `Some(None)` if the object
+    /// has no such field.
+    #[inline]
+    fn field_with_id(&self, id: usize) -> Option<Option<&'a [u8]>> {
+        let position = if self.id_size == 1 {
+            self.ids.iter().position(|&field| usize::from(field) == id)
+        } else {
+            let mut position = None;
+            for (idx, field) in self.ids.chunks_exact(self.id_size).enumerate() {
+                if read_uint(field, self.id_size)? == id {
+                    position = Some(idx);
+                    break;
+                }
+            }
+            position
+        };
+        let Some(position) = position else {
+            return Some(None);
+        };
+        let offset = read_uint(
+            self.offsets.get(position * self.offset_size..)?,
+            self.offset_size,
+        )?;
+        Some(Some(self.values.get(offset..)?))
+    }
+
     /// The value of the field `name`, or `Some(None)` if the object has no such field.
     fn field(&self, metadata: &Metadata<'_>, name: &str) -> Option<Option<&'a [u8]>> {
         let (mut low, mut high) = (0, self.len);
@@ -287,7 +429,6 @@ impl<'a> Object<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::LazyLock;
 
     use arrow_array::ArrayRef as ArrowArrayRef;
@@ -299,7 +440,6 @@ mod tests {
     use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::dtype::Nullability;
     use vortex_arrow::ArrowSessionExt;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -434,6 +574,32 @@ mod tests {
     }
 
     /// Rows that hold no value are null, whatever their bytes are.
+    /// A dictionary may hold a name twice unless it is sorted, and an object may then use
+    /// either id.
+    #[rstest]
+    #[case::first_id(0)]
+    #[case::second_id(1)]
+    fn finds_a_field_whose_name_is_in_the_dictionary_twice(#[case] id: u8) -> VortexResult<()> {
+        // Version 1 with one-byte offsets, then two names, both "a".
+        let metadata = [0x01, 2, 0, 1, 2, b'a', b'a'];
+        // An object of one field, whose value is the short string "x".
+        let value = [0x02, 1, id, 0, 2, 0x05, b'x'];
+        let extracted = extract(
+            &VarBinViewArray::from_iter_bin([metadata]),
+            &VarBinViewArray::from_iter_bin([value]),
+            &Mask::new_true(1),
+            &["a"],
+            &utf8(),
+        )
+        .ok_or_else(|| vortex_err!("not extracted in place"))?;
+        assert_arrays_eq!(
+            extracted,
+            VarBinViewArray::from_iter_nullable_str([Some("x")]),
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
     #[test]
     fn rows_without_a_value_are_null() -> VortexResult<()> {
         let json: ArrowArrayRef = Arc::new(StringArray::from(vec![r#"{"a":"x"}"#, r#"{"a":"y"}"#]));
