@@ -40,6 +40,7 @@ use vortex::array::expr::select;
 use vortex::buffer::ByteBuffer;
 use vortex::buffer::ByteBufferMut;
 use vortex::error::VortexResult;
+use vortex::file::OpenOptionsSessionExt;
 use vortex::layout::layouts::indexed::IndexVTable;
 use vortex::scan::planning::drive::MapFn;
 use vortex::scan::planning::drive::ScopedBatch;
@@ -157,8 +158,12 @@ async fn open_vortex_ivf(
         .join("vortex")
         .join(format!("indexes-{}", args.ivf_lists))
         .join("emb.ivf.vortex");
-    let bytes = ByteBuffer::from(fs::read(path)?);
-    let file = open_index_file(&table.session, Arc::new(bytes)).await?;
+    let file = table
+        .session
+        .open_options()
+        .include_metadata()
+        .open_path(path)
+        .await?;
     Ok(Arc::new(TableIndex::bind(
         IndexFile::open(IvfIndex, &file)?,
         &table.manifest,
