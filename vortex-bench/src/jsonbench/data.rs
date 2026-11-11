@@ -143,6 +143,7 @@ mod tests {
     #[case::unshredded(Shredding::None)]
     #[case::partial(Shredding::Partial)]
     #[case::query_fields(Shredding::QueryFields)]
+    #[case::inferred(Shredding::Inferred)]
     fn converts_ndjson_to_variant_parquet(#[case] shredding: Shredding) -> anyhow::Result<()> {
         let dir = tempfile::tempdir()?;
         let json_gz = dir.path().join("events.json.gz");

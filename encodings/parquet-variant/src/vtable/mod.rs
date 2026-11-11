@@ -211,6 +211,7 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::EqMode;
+    use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -248,11 +249,14 @@ mod tests {
     use vortex_layout::VTable as LayoutVTable;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::layouts::variant::Variant as VariantLayoutEncoding;
+    use vortex_layout::layouts::variant::VariantChunkShredder;
+    use vortex_layout::layouts::variant::VariantShredder;
     use vortex_layout::session::LayoutSession;
     use vortex_layout::session::LayoutSessionExt;
     use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
+    use crate::InferredShredding;
     use crate::ParquetVariant;
     use crate::array::ParquetVariantArraySlotsExt;
 
@@ -432,6 +436,79 @@ mod tests {
             .await?;
 
         assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    /// A writer with a shredder writes an unshredded Variant with the Variant layout too, and a
+    /// scan extracts what the unshredded Variant holds.
+    #[rstest]
+    #[tokio::test]
+    async fn test_file_roundtrip_variant_shredded_by_the_writer(
+        parquet_variant_file_session: VortexResult<VortexSession>,
+    ) -> VortexResult<()> {
+        let session = parquet_variant_file_session?;
+        crate::initialize(&session);
+
+        let json: ArrowArrayRef = Arc::new(StringArray::from(vec![
+            r#"{"kind":"commit","n":1,"commit":{"collection":"post"},"mixed":1}"#,
+            r#"{"kind":"identity","n":2,"mixed":"two"}"#,
+            r#"{"kind":"commit","n":3,"commit":{"collection":"like"}}"#,
+        ]));
+        let unshredded =
+            ParquetVariant::from_arrow_variant(&json_to_variant(&json)?, &session.arrow())?;
+
+        let shredder: VariantShredder = Arc::new(|first, ctx| {
+            Ok(InferredShredding::infer(first, ctx)?.map(|shredding| {
+                Arc::new(move |chunk, ctx: &mut ExecutionCtx| shredding.shred(chunk, ctx))
+                    as VariantChunkShredder
+            }))
+        });
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(
+                vortex_file::WriteStrategyBuilder::from_session(&session)
+                    .with_variant_shredder(shredder)
+                    .build(),
+            )
+            .write(&mut bytes, unshredded.to_array_stream())
+            .await?;
+        let file = session.open_options().open_buffer(bytes)?;
+        assert_eq!(
+            file.footer().layout().encoding_id(),
+            LayoutVTable::id(&VariantLayoutEncoding)
+        );
+
+        let utf8 = DType::Utf8(Nullability::Nullable);
+        let i64 = DType::Primitive(PType::I64, Nullability::Nullable);
+        let mut ctx = session.create_execution_ctx();
+        for (path, dtype) in [
+            (VariantPath::field("kind"), utf8.clone()),
+            (
+                VariantPath::new([
+                    VariantPathElement::field("commit"),
+                    VariantPathElement::field("collection"),
+                ]),
+                utf8.clone(),
+            ),
+            (VariantPath::field("n"), i64.clone()),
+            // A field of two types is not shredded, and stays in the core storage.
+            (VariantPath::field("mixed"), utf8),
+            (VariantPath::field("mixed"), i64),
+        ] {
+            let extraction = variant_get(root(), path, Some(dtype));
+            let expected = unshredded
+                .clone()
+                .apply(&extraction)?
+                .execute::<ArrayRef>(&mut ctx)?;
+            let scanned = file
+                .scan()?
+                .with_projection(extraction.bind(file.dtype())?)
+                .into_array_stream()?
+                .read_all()
+                .await?;
+            assert_arrays_eq!(scanned, expected, &mut ctx);
+        }
         Ok(())
     }
 

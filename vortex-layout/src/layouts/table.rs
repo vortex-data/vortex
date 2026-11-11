@@ -28,6 +28,7 @@ use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
 use crate::layouts::list::writer::ListLayoutStrategy;
 use crate::layouts::struct_::StructStrategy;
+use crate::layouts::variant::VariantShredder;
 use crate::layouts::variant::VariantStrategy;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -64,6 +65,9 @@ pub struct TableStrategy {
     list_layout_factory: Option<ListLayoutFactory>,
     /// Whether shredded Variant fields are written with [`VariantStrategy`].
     variant_layout: bool,
+    /// Shreds the Variant fields that are not shredded, if they are written with
+    /// [`VariantStrategy`].
+    variant_shredder: Option<VariantShredder>,
 }
 
 impl TableStrategy {
@@ -92,6 +96,7 @@ impl TableStrategy {
             leaf: fallback,
             list_layout_factory: None,
             variant_layout: false,
+            variant_shredder: None,
         }
     }
 
@@ -189,6 +194,14 @@ impl TableStrategy {
         self.variant_layout = true;
         self
     }
+
+    /// Shred the Variant fields that are not shredded with `shredder`, so that
+    /// [`VariantStrategy`] has columns to split them into. This has no effect without
+    /// [`with_variant_layout`](Self::with_variant_layout).
+    pub fn with_variant_shredder(mut self, shredder: VariantShredder) -> Self {
+        self.variant_shredder = Some(shredder);
+        self
+    }
 }
 
 impl TableStrategy {
@@ -259,6 +272,7 @@ impl TableStrategy {
             leaf: Arc::clone(&self.leaf),
             list_layout_factory: self.list_layout_factory.clone(),
             variant_layout: self.variant_layout,
+            variant_shredder: self.variant_shredder.clone(),
         }
     }
 
@@ -271,6 +285,7 @@ impl TableStrategy {
             leaf: Arc::clone(&self.leaf),
             list_layout_factory: self.list_layout_factory.clone(),
             variant_layout: self.variant_layout,
+            variant_shredder: self.variant_shredder.clone(),
         }
     }
 
@@ -324,7 +339,15 @@ impl LayoutStrategy for TableStrategy {
         if dtype.is_variant() && self.variant_layout {
             // The stored struct goes back through a clean dispatcher, so that its shredded
             // child is split into columns, and a Variant in it is split in turn.
-            return VariantStrategy::new(Arc::new(self.descend_clean()), Arc::clone(&self.leaf))
+            // A Variant inside the struct is the residual of a shredded object. The shredder
+            // has seen its fields already, so it is written as it is.
+            let mut storage = self.descend_clean();
+            storage.variant_shredder = None;
+            let mut strategy = VariantStrategy::new(Arc::new(storage), Arc::clone(&self.leaf));
+            if let Some(shredder) = &self.variant_shredder {
+                strategy = strategy.with_shredder(Arc::clone(shredder));
+            }
+            return strategy
                 .write_stream(ctx, segment_sink, stream, eof, session)
                 .await;
         }

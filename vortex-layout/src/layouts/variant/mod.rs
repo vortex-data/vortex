@@ -28,6 +28,8 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
+pub use writer::VariantChunkShredder;
+pub use writer::VariantShredder;
 pub use writer::VariantStrategy;
 
 use crate::Layout;

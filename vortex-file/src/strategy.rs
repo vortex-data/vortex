@@ -29,6 +29,7 @@ use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::variant::Variant;
+use vortex_layout::layouts::variant::VariantShredder;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
 use vortex_session::VortexSession;
@@ -131,6 +132,8 @@ pub struct WriteStrategyBuilder {
     use_list_layout: bool,
     /// Whether shredded Variant fields are split into columns with the Variant layout.
     use_variant_layout: bool,
+    /// Shreds the Variant fields that are not shredded, if the Variant layout is used.
+    variant_shredder: Option<VariantShredder>,
 }
 
 impl WriteStrategyBuilder {
@@ -152,7 +155,17 @@ impl WriteStrategyBuilder {
             use_variant_layout: session
                 .enabled_component_ids(ComponentKind::Layout)
                 .contains(&Variant.id()),
+            variant_shredder: None,
         }
+    }
+
+    /// Shred the Variant fields that are not shredded with `shredder`, so that the Variant layout
+    /// stores what they have in common as columns.
+    ///
+    /// This has no effect unless the session enables the Variant layout, which is unstable.
+    pub fn with_variant_shredder(mut self, shredder: VariantShredder) -> Self {
+        self.variant_shredder = Some(shredder);
+        self
     }
 
     /// Override the row block size used for row repartitioning and zoned statistics.
@@ -306,6 +319,9 @@ impl WriteStrategyBuilder {
 
         if self.use_variant_layout {
             table_strategy = table_strategy.with_variant_layout();
+            if let Some(shredder) = self.variant_shredder {
+                table_strategy = table_strategy.with_variant_shredder(shredder);
+            }
         }
 
         if self.use_list_layout {

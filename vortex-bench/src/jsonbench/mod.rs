@@ -55,6 +55,9 @@ pub enum Shredding {
     Partial,
     /// Every field the queries read: `partial` plus `commit.collection` and `commit.operation`.
     QueryFields,
+    /// Nothing is shredded in the Parquet file. The Vortex writer shreds the fields that it
+    /// finds the documents to have in common.
+    Inferred,
 }
 
 impl Shredding {
@@ -63,12 +66,13 @@ impl Shredding {
             Shredding::None => "none",
             Shredding::Partial => "partial",
             Shredding::QueryFields => "query-fields",
+            Shredding::Inferred => "inferred",
         }
     }
 
-    /// The Parquet Variant shredding schema, or `None` when nothing is shredded.
+    /// The shredding schema of the Parquet file, or `None` when nothing is shredded in it.
     fn schema(&self) -> anyhow::Result<Option<DataType>> {
-        if *self == Shredding::None {
+        if matches!(self, Shredding::None | Shredding::Inferred) {
             return Ok(None);
         }
         let mut builder = ShreddedSchemaBuilder::new()
@@ -92,9 +96,10 @@ impl FromStr for Shredding {
             "none" => Ok(Shredding::None),
             "partial" => Ok(Shredding::Partial),
             "query-fields" => Ok(Shredding::QueryFields),
+            "inferred" => Ok(Shredding::Inferred),
             _ => anyhow::bail!(
-                "Failed to parse {s}, valid shredding values are `none`, `partial`, and \
-                 `query-fields`"
+                "Failed to parse {s}, valid shredding values are `none`, `partial`, \
+                 `query-fields`, and `inferred`"
             ),
         }
     }

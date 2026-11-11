@@ -7,7 +7,10 @@
 use std::clone::Clone;
 use std::fmt::Display;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use anyhow::bail;
 use appian::AppianBenchmark;
@@ -34,11 +37,15 @@ use tpch_nested::Shape;
 use tpch_nested::TpcHNestedBenchmark;
 pub use utils::file::*;
 pub use utils::logging::*;
+use vortex::array::ExecutionCtx;
 use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::encodings::parquet_variant::InferredShredding;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
 use vortex::file::WriteStrategyBuilder;
+use vortex::layout::layouts::variant::VariantChunkShredder;
+use vortex::layout::layouts::variant::VariantShredder;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::spatialbench::SpatialBenchBenchmark;
@@ -174,6 +181,33 @@ fn enable_unstable_bench_variant_edition() {
     SESSION
         .enable_edition(UNSTABLE_BENCH_VARIANT)
         .vortex_expect("bench Variant edition is registered");
+}
+
+/// Whether [`write_strategy_builder`] shreds the Variants that are not shredded.
+static SHRED_VARIANTS_ON_WRITE: AtomicBool = AtomicBool::new(false);
+
+/// Makes the Vortex writer shred an unshredded Variant by a schema it infers from the values.
+fn enable_variant_shredding_on_write() {
+    SHRED_VARIANTS_ON_WRITE.store(true, Ordering::Relaxed);
+}
+
+fn shreds_variants_on_write() -> bool {
+    SHRED_VARIANTS_ON_WRITE.load(Ordering::Relaxed)
+}
+
+/// The write strategy of [`SESSION`], with what the benchmark being run has enabled.
+pub fn write_strategy_builder() -> WriteStrategyBuilder {
+    let builder = WriteStrategyBuilder::from_session(&SESSION);
+    if !shreds_variants_on_write() {
+        return builder;
+    }
+    let shredder: VariantShredder = Arc::new(|first, ctx| {
+        Ok(InferredShredding::infer(first, ctx)?.map(|shredding| {
+            Arc::new(move |chunk, ctx: &mut ExecutionCtx| shredding.shred(chunk, ctx))
+                as VariantChunkShredder
+        }))
+    });
+    builder.with_variant_shredder(shredder)
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -350,12 +384,15 @@ impl CompactionStrategy {
     pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
         match self {
             CompactionStrategy::Compact => options.with_strategy(
-                WriteStrategyBuilder::from_session(&SESSION)
+                write_strategy_builder()
                     .with_btrblocks_builder(
                         BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
                     )
                     .build(),
             ),
+            CompactionStrategy::Default if shreds_variants_on_write() => {
+                options.with_strategy(write_strategy_builder().build())
+            }
             CompactionStrategy::Default => options,
         }
     }
@@ -528,6 +565,9 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             enable_unstable_bench_variant_edition();
             let files = opts.get_as::<usize>(SCALE_FACTOR_KEY).unwrap_or(1);
             let shredding = opts.get_as::<Shredding>("shredding").unwrap_or_default();
+            if shredding == Shredding::Inferred {
+                enable_variant_shredding_on_write();
+            }
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
             let benchmark = JsonBenchBenchmark::new(files, shredding, remote_data_dir)?;
             Ok(Box::new(benchmark) as _)

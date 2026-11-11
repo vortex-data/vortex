@@ -18,7 +18,7 @@ Two options select the dataset:
 
 - `--opt scale-factor=N`: the number of source files, each one million events. The default
   is 1, and JSONBench's own sizes are 1, 10, 100, and 1000.
-- `--opt shredding=none|partial|query-fields`: which fields are
+- `--opt shredding=none|partial|query-fields|inferred`: which fields are
   [shredded](https://github.com/apache/parquet-format/blob/master/VariantShredding.md) into
   typed columns. Fields that are not shredded stay in the binary Variant value.
 
@@ -27,6 +27,7 @@ Two options select the dataset:
 | `none` (default) | None |
 | `partial` | `kind`, `did`, `time_us` |
 | `query-fields` | The above plus `commit.collection`, `commit.operation` |
+| `inferred` | None in the Parquet file. The Vortex writer shreds what the documents have in common |
 
 Every option value has its own data directory, `data/jsonbench/<N>m-<shredding>`. The source
 files are shared, in `data/jsonbench/json`.
@@ -74,28 +75,45 @@ An unshredded Variant value is an opaque binary blob that the lightweight encodi
 compress. The default Vortex preset therefore compresses the binary storage of a Variant with
 zstd, as Vortex Compact does, which keeps the unshredded file level with zstd Parquet.
 
+With `inferred`, the Parquet file is the unshredded one, and the Vortex writer chooses what
+to shred. It samples the first chunk of the column, and shreds every object field, up to four
+objects deep, that holds a string, an integer, a double, or a boolean in each sampled row that
+has it. A row that does not fit keeps its value in the binary Variant, so the file holds the
+same documents. Here that shreds every field the queries read, without being told which.
+
 Query time of Vortex relative to Parquet, on one million rows with DataFusion on four cores
 and the V2 scan (lower is better):
 
-| Shredding | Q0 | Q1 | Q2 | Q3 | Q4 |
-| --- | --- | --- | --- | --- | --- |
-| `none` | 0.51 | 0.50 | 0.37 | 0.35 | 0.36 |
-| `query-fields` | 0.07 | 0.25 | 0.16 | 0.12 | 0.11 |
+| Shredding | Q0 | Q1 | Q2 | Q3 | Q4 | Vortex file | Parquet file |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `none` | 0.62 | 0.44 | 0.29 | 0.28 | 0.31 | 126.5 MB | 128.6 MB |
+| `query-fields` | 0.07 | 0.25 | 0.14 | 0.08 | 0.10 | 126.3 MB | 118.6 MB |
+| `inferred` | 0.04 | 0.11 | 0.04 | 0.03 | 0.03 | 163.2 MB | 128.6 MB |
 
-The file is 126.5 MB against 128.6 MB of Parquet for `none`, and 126.3 MB against 118.6 MB
-for `query-fields`.
+In absolute terms, the `inferred` Vortex file answers the five queries in 12, 70, 32, 19 and
+22 ms, where the `none` Vortex file takes 173, 283, 240, 228 and 226 ms.
+
+The `inferred` file is larger because the default preset has no zstd for the shredded string
+columns, which hold content hashes and record keys that the lightweight encodings barely
+compress. Vortex Compact writes the same shredding in 133.1 MB, and answers the queries in 14,
+70, 37, 33 and 30 ms.
 
 The suite runs on the V2 scan, which `vx-bench` selects for it. `datafusion-bench` defaults
 to the V1 scan, so pass `--scan-v1 false` when running it directly.
 
 On `none`, a split decodes the storage of a Variant once, however many filters and
 projections extract from it, and a string or an integer under object fields is read from the
-encoded bytes in place. Parquet goes through the `variant_get` kernel of
-`parquet-variant-compute`, which builds a `Variant` over every row and every object on the
-way down. What is left in Vortex:
+encoded bytes in place: the names of the path are resolved against each distinct metadata
+once, and every object is then scanned for a field id. Parquet goes through the `variant_get`
+kernel of `parquet-variant-compute`, which builds a `Variant` over every row and every object
+on the way down. About four fifths of the CPU time Vortex still spends on `none` is zstd
+decompression of the values, which is what an unshredded Variant costs to read. Shredding is
+the way past it, which is what `inferred` does.
 
-1. **One pass per path.** Extracting several paths of an unshredded Variant walks each value
-   once per path. Extracting them in one pass would share the walk down to a common object.
+What is left:
+
+1. **Shredding on write is opt-in.** `inferred` enables it for this suite. The schema comes
+   from the first chunk alone, and the shredding runs on the writer's thread.
 2. **Extractions the in-place reader does not cover.** A path through a list, a value that
    needs a cast, and a target other than a string or a 64-bit integer go through the general
    kernel, at Parquet's speed.
@@ -109,5 +127,6 @@ way down. What is left in Vortex:
 ```bash
 vx-bench run jsonbench --engine datafusion --format parquet,vortex,vortex-compact
 vx-bench run jsonbench --engine datafusion --format parquet,vortex --opt shredding=query-fields
+vx-bench run jsonbench --engine datafusion --format parquet,vortex --opt shredding=inferred
 vx-bench run jsonbench --engine duckdb --format parquet,duckdb
 ```

@@ -42,14 +42,29 @@ use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
+use crate::sequence::SequenceId;
 use crate::sequence::SequencePointer;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
 
+/// Shreds every chunk of one Variant stream alike, keeping the values each chunk holds.
+pub type VariantChunkShredder =
+    Arc<dyn Fn(ArrayRef, &mut ExecutionCtx) -> VortexResult<ArrayRef> + Send + Sync>;
+
+/// Chooses how to shred a Variant stream that is not shredded, from its first chunk. Returns
+/// `None` to leave the stream as it is.
+pub type VariantShredder = Arc<
+    dyn Fn(&ArrayRef, &mut ExecutionCtx) -> VortexResult<Option<VariantChunkShredder>>
+        + Send
+        + Sync,
+>;
+
 /// Writes a shredded Variant stream as the struct of its core storage and its shredded child.
 ///
-/// A stream whose first chunk is not shredded has nothing to split, and is written by the
-/// fallback strategy as it is. Every chunk of a shredded stream must be shredded alike.
+/// A stream whose first chunk is not shredded is shredded by the [`VariantShredder`], if there is
+/// one and it finds something to shred. Otherwise the stream has nothing to split, and is
+/// written by the fallback strategy as it is. Every chunk of a shredded stream must be shredded
+/// alike.
 ///
 /// **Note**: this writes an unstable and experimental layout that is expected to change. Using
 /// it may lead to unreadable files in the future.
@@ -59,13 +74,26 @@ pub struct VariantStrategy {
     storage: Arc<dyn LayoutStrategy>,
     /// Writes a Variant stream that is not shredded.
     fallback: Arc<dyn LayoutStrategy>,
+    /// Shreds a stream that is not shredded.
+    shredder: Option<VariantShredder>,
 }
 
 impl VariantStrategy {
     /// Creates a Variant writer that writes the struct of a shredded Variant through `storage`,
     /// and a Variant that is not shredded through `fallback`.
     pub fn new(storage: Arc<dyn LayoutStrategy>, fallback: Arc<dyn LayoutStrategy>) -> Self {
-        Self { storage, fallback }
+        Self {
+            storage,
+            fallback,
+            shredder: None,
+        }
+    }
+
+    /// Shreds a stream that is not shredded with `shredder`, instead of writing it through the
+    /// fallback.
+    pub fn with_shredder(mut self, shredder: VariantShredder) -> Self {
+        self.shredder = Some(shredder);
+        self
     }
 }
 
@@ -86,19 +114,38 @@ impl LayoutStrategy for VariantStrategy {
 
         // The dtype of a Variant does not say how it is shredded, so the first chunk decides.
         let first = stream.next().await.transpose()?;
+        let shredded_dtype = |chunk: &ArrayRef| -> VortexResult<Option<DType>> {
+            let variant = chunk
+                .clone()
+                .execute::<VariantArray>(&mut session.create_execution_ctx())?;
+            Ok(variant.shredded().map(|shredded| shredded.dtype().clone()))
+        };
+        let shredder = match (&first, &self.shredder) {
+            (Some((_, chunk)), Some(shredder)) if shredded_dtype(chunk)?.is_none() => {
+                shredder(chunk, &mut session.create_execution_ctx())?
+            }
+            _ => None,
+        };
+        let shred = {
+            let session = session.clone();
+            move |chunk: VortexResult<(SequenceId, ArrayRef)>| {
+                let Some(shredder) = &shredder else {
+                    return chunk;
+                };
+                let (sequence_id, chunk) = chunk?;
+                Ok((
+                    sequence_id,
+                    shredder(chunk, &mut session.create_execution_ctx())?,
+                ))
+            }
+        };
+        let first = first.map(|chunk| shred(Ok(chunk))).transpose()?;
         let shredded_dtype = first
             .as_ref()
-            .map(|(_, chunk)| {
-                let variant = chunk
-                    .clone()
-                    .execute::<VariantArray>(&mut session.create_execution_ctx())?;
-                Ok::<_, vortex_error::VortexError>(
-                    variant.shredded().map(|shredded| shredded.dtype().clone()),
-                )
-            })
+            .map(|(_, chunk)| shredded_dtype(chunk))
             .transpose()?
             .flatten();
-        let stream = stream::iter(first.map(Ok)).chain(stream);
+        let stream = stream::iter(first.map(Ok)).chain(stream.map(shred));
 
         let Some(shredded_dtype) = shredded_dtype else {
             let stream = SequentialStreamAdapter::new(dtype, stream).sendable();
