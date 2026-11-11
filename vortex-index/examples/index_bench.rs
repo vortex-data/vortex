@@ -25,6 +25,10 @@
 //! each file on a fresh open. `--scan` answers trigram queries without the index, and `--index-only`
 //! probes the trigram index without reading data. `--top-k-only` runs only the BM25 ranking of a
 //! full-text query, skipping its match count.
+//!
+//! `SIM_LATENCY_MS=<ms>` serves every read as an object store would: each request waits that long
+//! for its first byte and then streams at `SIM_MBPS` (default 100) MB/s, and reads coalesce with the
+//! object-store policy. The first, fresh-open run of each query is then timed as `cold_ms`.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -81,7 +85,34 @@ fn trace_clock() -> f64 {
 struct CountingReadAt {
     inner: Arc<dyn VortexReadAt>,
     bytes: Arc<AtomicU64>,
+    requests: Arc<AtomicU64>,
+    sim: Option<SimStore>,
     name: String,
+}
+
+/// The latency and bandwidth of a simulated object store request.
+#[derive(Clone, Copy)]
+struct SimStore {
+    latency_ms: f64,
+    mbps: f64,
+}
+
+impl SimStore {
+    fn from_env() -> Option<Self> {
+        let latency_ms = std::env::var("SIM_LATENCY_MS").ok()?.parse().ok()?;
+        let mbps = std::env::var("SIM_MBPS")
+            .ok()
+            .and_then(|mbps| mbps.parse().ok())
+            .unwrap_or(100.0);
+        Some(Self { latency_ms, mbps })
+    }
+
+    #[expect(clippy::cast_precision_loss, reason = "a simulated delay")]
+    fn delay(&self, length: usize) -> std::time::Duration {
+        std::time::Duration::from_secs_f64(
+            self.latency_ms / 1000.0 + length as f64 / (self.mbps * 1e6),
+        )
+    }
 }
 
 impl VortexReadAt for CountingReadAt {
@@ -90,6 +121,9 @@ impl VortexReadAt for CountingReadAt {
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
         if std::env::var_os("NO_COALESCE").is_some() {
             return None;
+        }
+        if self.sim.is_some() {
+            return Some(CoalesceConfig::object_storage());
         }
         self.inner.coalesce_config()
     }
@@ -109,6 +143,14 @@ impl VortexReadAt for CountingReadAt {
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         self.bytes.fetch_add(length as u64, Ordering::Relaxed);
+        self.requests.fetch_add(1, Ordering::Relaxed);
+        let mut read = self.inner.read_at(offset, length, alignment);
+        if let Some(sim) = self.sim {
+            read = Box::pin(async move {
+                let (result, ()) = futures::join!(read, tokio::time::sleep(sim.delay(length)));
+                result
+            });
+        }
         if std::env::var_os("TRACE_READS").is_some() {
             eprintln!("read {} {offset} {length}", self.name);
         }
@@ -116,7 +158,6 @@ impl VortexReadAt for CountingReadAt {
             let name = self.name.clone();
             let start = trace_clock();
             let thread = format!("{:?}", std::thread::current().id());
-            let read = self.inner.read_at(offset, length, alignment);
             return Box::pin(async move {
                 let result = read.await;
                 eprintln!(
@@ -126,7 +167,7 @@ impl VortexReadAt for CountingReadAt {
                 result
             });
         }
-        self.inner.read_at(offset, length, alignment)
+        read
     }
 }
 
@@ -134,11 +175,13 @@ async fn open(
     session: &VortexSession,
     path: &Path,
     metadata: bool,
-) -> VortexResult<(VortexFile, Arc<AtomicU64>)> {
-    let bytes = Arc::new(AtomicU64::new(0));
+) -> VortexResult<(VortexFile, Counts)> {
+    let counts = Counts::default();
     let source = Arc::new(CountingReadAt {
         inner: Arc::new(FileReadAt::open(path, session.handle())?),
-        bytes: Arc::clone(&bytes),
+        bytes: Arc::clone(&counts.bytes),
+        requests: Arc::clone(&counts.requests),
+        sim: SimStore::from_env(),
         name: path.display().to_string(),
     });
     let file = session
@@ -146,7 +189,23 @@ async fn open(
         .with_include_metadata(metadata)
         .open(source)
         .await?;
-    Ok((file, bytes))
+    Ok((file, counts))
+}
+
+/// The bytes and requests a file was asked for.
+#[derive(Clone, Default)]
+struct Counts {
+    bytes: Arc<AtomicU64>,
+    requests: Arc<AtomicU64>,
+}
+
+impl Counts {
+    fn take(&self) -> (u64, u64) {
+        (
+            self.bytes.load(Ordering::Relaxed),
+            self.requests.load(Ordering::Relaxed),
+        )
+    }
 }
 
 fn file_len(path: &Path) -> VortexResult<u64> {
@@ -484,7 +543,8 @@ async fn query(session: &VortexSession, args: &[String]) -> VortexResult<()> {
         }
         let mut times = Vec::new();
         let mut answer = serde_json::Value::Null;
-        let mut bytes = (0, 0);
+        let mut bytes = ((0, 0), (0, 0));
+        let mut cold_ms = 0.0;
         // The first run opens fresh files and counts their bytes; later runs measure warm latency
         // on files that stay open.
         for run in 0..=flags.repeat {
@@ -522,11 +582,9 @@ async fn query(session: &VortexSession, args: &[String]) -> VortexResult<()> {
                 Opened::Ivf(index) => run_ivf(index, &vectors[qi], flags.k, flags.nprobe).await?,
             };
             match &fresh {
-                Some(((_, data_bytes), (_, index_bytes))) => {
-                    bytes = (
-                        data_bytes.load(Ordering::Relaxed),
-                        index_bytes.load(Ordering::Relaxed),
-                    );
+                Some(((_, data_counts), (_, index_counts))) => {
+                    cold_ms = start.elapsed().as_secs_f64() * 1000.0;
+                    bytes = (data_counts.take(), index_counts.take());
                 }
                 None => {
                     times.push(start.elapsed().as_secs_f64() * 1000.0);
@@ -542,8 +600,11 @@ async fn query(session: &VortexSession, args: &[String]) -> VortexResult<()> {
                 "q": qi,
                 "answer": answer,
                 "warm_ms": if times.is_empty() { 0.0 } else { median(times) },
-                "data_bytes_read": bytes.0,
-                "index_bytes_read": bytes.1,
+                "cold_ms": cold_ms,
+                "data_bytes_read": bytes.0.0,
+                "data_requests": bytes.0.1,
+                "index_bytes_read": bytes.1.0,
+                "index_requests": bytes.1.1,
             })
         );
     }
