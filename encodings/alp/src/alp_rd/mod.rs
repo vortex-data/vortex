@@ -39,6 +39,7 @@ use crate::match_each_alp_float_ptype;
 
 mod array;
 mod compute;
+mod fused;
 mod kernel;
 mod ops;
 mod rules;
@@ -228,7 +229,7 @@ fn check_left_parts_codes(codes: &mut [u16], validity: &Mask, dict_len: usize) -
     }
 }
 
-fn code_not_in_dictionary(code: u16, dict_len: usize) -> VortexError {
+pub(crate) fn code_not_in_dictionary(code: u16, dict_len: usize) -> VortexError {
     vortex_err!("ALP-RD left-parts code {code} is not in the {dict_len}-entry dictionary")
 }
 
