@@ -732,3 +732,36 @@ async fn covered_files_keep_catalog_identity() -> VortexResult<()> {
     assert!(!covered.matches(51, &covered.fingerprint));
     Ok(())
 }
+
+/// Many rare terms land in a few large chunks, not one per few hundred terms: each chunk is a
+/// footer entry, and a footer too large for the first read costs an object-store round trip.
+#[tokio::test]
+async fn inverted_index_file_keeps_few_chunks_for_many_terms() -> VortexResult<()> {
+    let session = session()?;
+    let rows = 20_000u64;
+    let texts = VarBinViewArray::from_iter_str((0..rows).map(|row| format!("w{row}")));
+    let mut builder = IndexFileBuilder::new(
+        InvertedIndex,
+        (),
+        "text",
+        DType::Utf8(Nullability::NonNullable),
+        &session,
+    )?;
+    builder.push_file(CoveredFile::new("part.vortex", rows), [texts.into_array()])?;
+    let mut bytes = ByteBufferMut::empty();
+    builder.write(&mut bytes).await?;
+    let file = session
+        .open_options()
+        .include_metadata()
+        .open_buffer(bytes.freeze())?;
+    let segments = file.footer().segment_map().len();
+    assert!(segments <= 8, "{segments} segments for {rows} rare terms");
+
+    let index = IndexFile::open(InvertedIndex, &file)?;
+    let hits = index.rows().search_bm25("w12345", 3).await?;
+    assert_eq!(
+        hits.iter().map(|hit| hit.row).collect::<Vec<_>>(),
+        vec![12345]
+    );
+    Ok(())
+}
