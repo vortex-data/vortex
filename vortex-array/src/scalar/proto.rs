@@ -36,14 +36,27 @@ use crate::scalar::UnionValue;
 
 impl From<&Scalar> for pb::Scalar {
     fn from(value: &Scalar) -> Self {
-        pb::Scalar {
-            dtype: Some(
-                (value.dtype())
-                    .try_into()
-                    .vortex_expect("Failed to convert DType to proto"),
-            ),
-            value: Some(Box::new(ScalarValue::to_proto(value.value()))),
-        }
+        value
+            .to_proto()
+            .vortex_expect("Failed to convert DType to proto")
+    }
+}
+
+impl Scalar {
+    /// Serializes this scalar into its [protobuf](pb::Scalar) representation.
+    ///
+    /// Prefer this over the infallible `From<&Scalar>` conversion wherever an error can be
+    /// returned, since that conversion panics when the dtype cannot be serialized.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the dtype cannot be serialized, for example when an extension dtype's
+    /// metadata serializer fails.
+    pub fn to_proto(&self) -> VortexResult<pb::Scalar> {
+        Ok(pb::Scalar {
+            dtype: Some(self.dtype().try_into()?),
+            value: Some(Box::new(ScalarValue::to_proto(self.value()))),
+        })
     }
 }
 
@@ -533,11 +546,18 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::UnionVariants;
+    use crate::dtype::extension::ExtDType;
+    use crate::dtype::extension::ExtId;
+    use crate::dtype::extension::ExtVTable;
     use crate::dtype::half::f16;
     use crate::proto::scalar as pb;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+    use crate::scalar_fn::ScalarFnVTable;
+    use crate::scalar_fn::fns::list_contains::PreparedSet;
+    use crate::scalar_fn::fns::list_contains::PreparedSetData;
+    use crate::scalar_fn::fns::literal::Literal;
 
     fn session() -> VortexSession {
         VortexSession::empty()
@@ -1176,6 +1196,82 @@ mod tests {
             )
             .unwrap(),
             Scalar::primitive(0i64, Nullability::Nullable)
+        );
+    }
+
+    /// An extension type whose metadata serializer always fails, standing in for a plugin.
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+    struct FailingMetadata;
+
+    impl ExtVTable for FailingMetadata {
+        type Metadata = usize;
+        type NativeValue<'a> = &'a str;
+
+        #[expect(clippy::disallowed_methods, reason = "test-only id")]
+        fn id(&self) -> ExtId {
+            ExtId::new("test.failing_metadata")
+        }
+
+        fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            vortex_bail!("metadata serializer failed")
+        }
+
+        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            Ok(0)
+        }
+
+        fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+            Ok(())
+        }
+
+        fn unpack_native<'a>(
+            _ext_dtype: &'a ExtDType<Self>,
+            _storage_value: &'a ScalarValue,
+        ) -> VortexResult<Self::NativeValue<'a>> {
+            Ok("")
+        }
+    }
+
+    fn failing_metadata_scalar() -> Scalar {
+        let ext_dtype = ExtDType::<FailingMetadata>::try_new(
+            0,
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+        )
+        .unwrap();
+        Scalar::new(
+            DType::Extension(ext_dtype.erased()),
+            Some(ScalarValue::Primitive(PValue::I32(1))),
+        )
+    }
+
+    #[test]
+    fn to_proto_propagates_extension_metadata_error() {
+        let err = failing_metadata_scalar().to_proto().unwrap_err();
+        assert!(
+            err.to_string().contains("metadata serializer failed"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn scalar_fn_serializers_propagate_extension_metadata_error() {
+        let scalar = failing_metadata_scalar();
+        let err = Literal.serialize(&scalar).unwrap_err();
+        assert!(
+            err.to_string().contains("metadata serializer failed"),
+            "{err}"
+        );
+
+        let list = Scalar::list(
+            scalar.dtype().clone(),
+            vec![scalar],
+            Nullability::NonNullable,
+        );
+        let set = PreparedSetData::try_new(list).unwrap();
+        let err = PreparedSet.serialize(&set).unwrap_err();
+        assert!(
+            err.to_string().contains("metadata serializer failed"),
+            "{err}"
         );
     }
 }
