@@ -35,7 +35,6 @@ use crate::MAX_POSTSCRIPT_SIZE;
 use crate::VortexFile;
 use crate::footer::Footer;
 use crate::segments::BufferSegmentSource;
-use crate::segments::DirectSegmentSource;
 use crate::segments::FileSegmentSource;
 use crate::segments::InitialReadSegmentCache;
 use crate::segments::RequestMetrics;
@@ -76,8 +75,6 @@ pub struct VortexOpenOptions {
     labels: Vec<Label>,
     /// Whether to cache file's LayoutReader between scans
     cache_layout_reader: bool,
-    /// Whether segment reads go straight to the reader, rather than through a coalescing driver.
-    direct_reads: bool,
 }
 
 /// Extension trait for constructing [`VortexOpenOptions`] from a session.
@@ -97,7 +94,6 @@ pub trait OpenOptionsSessionExt:
             metrics_registry: None,
             labels: Vec::default(),
             cache_layout_reader: false,
-            direct_reads: false,
         }
     }
 }
@@ -110,16 +106,6 @@ impl VortexOpenOptions {
     /// Return the session this opener is bound to.
     pub fn session(&self) -> &VortexSession {
         &self.session
-    }
-
-    /// Read each segment with its own read on the task that awaits it, rather than through a
-    /// background driver that coalesces and schedules the file's reads.
-    ///
-    /// For files read with few, small, latency-bound reads, such as an index consulted on every
-    /// lookup. See [`DirectSegmentSource`].
-    pub fn with_direct_reads(mut self, direct_reads: bool) -> Self {
-        self.direct_reads = direct_reads;
-        self
     }
 
     /// Configure how many bytes to read from the end of the file before parsing the footer.
@@ -344,19 +330,12 @@ impl VortexOpenOptions {
         let metrics = RequestMetrics::new(metrics_registry.as_ref(), self.labels);
 
         // Create a segment source backed by the VortexRead implementation.
-        let segment_source: Arc<dyn SegmentSource> = if self.direct_reads {
-            Arc::new(SharedSegmentSource::new(DirectSegmentSource::new(
-                footer.segment_specs_with_metadata(),
-                Arc::new(reader),
-            )))
-        } else {
-            Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
-                footer.segment_specs_with_metadata(),
-                reader,
-                self.session.handle(),
-                metrics,
-            )))
-        };
+        let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
+            footer.segment_specs_with_metadata(),
+            reader,
+            self.session.handle(),
+            metrics,
+        )));
 
         // Wrap up the segment source to first resolve segments from the initial read cache.
         let segment_source: Arc<dyn SegmentSource> = Arc::new(SegmentCacheSourceAdapter::new(

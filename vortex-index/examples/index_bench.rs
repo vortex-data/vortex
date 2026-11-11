@@ -24,9 +24,7 @@
 //! line per query with its result, the median warm latency, and the exact bytes Vortex read from
 //! each file on a fresh open. `--scan` answers trigram queries without the index, and `--index-only`
 //! probes the trigram index without reading data. `--top-k-only` runs only the BM25 ranking of a
-//! full-text query, skipping its match count. Index files are read directly on the querying
-//! task; `QUEUED_READS=1` sends their reads through the file's coalescing read driver and a
-//! blocking thread instead, as data files are read.
+//! full-text query, skipping its match count.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -138,23 +136,14 @@ async fn open(
     metadata: bool,
 ) -> VortexResult<(VortexFile, Arc<AtomicU64>)> {
     let bytes = Arc::new(AtomicU64::new(0));
-    // Index files are read with a few small reads per lookup, so they skip the coalescing read
-    // driver and the blocking thread pool unless `QUEUED_READS=1`.
-    let direct = metadata && std::env::var_os("QUEUED_READS").is_none();
-    let reader = FileReadAt::open(path, session.handle())?;
     let source = Arc::new(CountingReadAt {
-        inner: Arc::new(if direct {
-            reader.with_inline_reads()
-        } else {
-            reader
-        }),
+        inner: Arc::new(FileReadAt::open(path, session.handle())?),
         bytes: Arc::clone(&bytes),
         name: path.display().to_string(),
     });
     let file = session
         .open_options()
         .with_include_metadata(metadata)
-        .with_direct_reads(direct)
         .open(source)
         .await?;
     Ok((file, bytes))
