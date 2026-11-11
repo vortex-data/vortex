@@ -23,6 +23,8 @@ use vortex_btrblocks::schemes::string::FSSTScheme;
 use vortex_btrblocks::schemes::string::NullDominatedSparseScheme;
 use vortex_btrblocks::schemes::string::StringDictScheme;
 use vortex_error::VortexResult;
+use vortex_sparse::Sparse;
+use vortex_sparse::SparseExt as _;
 use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -200,6 +202,38 @@ fn test_null_dominated_long_values_not_left_uncompressed() -> VortexResult<()> {
         "{} compressed to {} bytes for {value_bytes} bytes of values",
         compressed.encoding_id(),
         compressed.nbytes()
+    );
+    assert_arrays_eq!(compressed, array, &mut ctx);
+    Ok(())
+}
+
+/// The values Sparse keeps are compressed in turn, and its estimate counts on it: a dictionary of
+/// the whole column still pays a code for every null row.
+#[test]
+fn test_null_dominated_repeated_values_sparse_over_dict() -> VortexResult<()> {
+    const CITIES: [&str; 4] = [
+        "San Francisco, California, United States",
+        "New York City, New York, United States",
+        "London, England, United Kingdom",
+        "Amsterdam, North Holland, Netherlands",
+    ];
+    let array = VarBinViewArray::from_iter(
+        (0..65_536).map(|row| (row % 100 == 0).then(|| CITIES[(row / 100) % CITIES.len()])),
+        DType::Utf8(Nullability::Nullable),
+    )
+    .into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&StringDictScheme)
+        .with_new_scheme(&NullDominatedSparseScheme)
+        .build()
+        .compress(&array, &mut ctx)?;
+
+    let sparse = compressed.as_opt::<Sparse>();
+    assert!(
+        sparse.is_some_and(|sparse| sparse.patches().values().is::<Dict>()),
+        "{}",
+        compressed.display_tree()
     );
     assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
