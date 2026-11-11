@@ -61,6 +61,10 @@ impl Selection {
     }
 }
 
+/// How many levels of canonical Variant the chunks of a Variant's core storage may be wrapped in
+/// for the compressor to still merge them.
+const MAX_CHUNKED_STORAGE_DEPTH: usize = 4;
+
 impl CascadingCompressor {
     /// Compresses an array using cascading adaptive compression.
     ///
@@ -255,14 +259,22 @@ impl CascadingCompressor {
             Canonical::Variant(variant_array) => {
                 // Chunked core storage would compress chunk by chunk. Its encoding may execute
                 // to a single array whose children span the chunks, which compress as a whole.
-                let core_storage = variant_array.core_storage().clone();
-                let core_storage = if core_storage.is::<Chunked>() {
-                    let merged = core_storage.clone().execute::<VariantArray>(exec_ctx)?;
-                    if merged.shredded().is_none() && !merged.core_storage().is::<Chunked>() {
-                        merged.core_storage().clone()
-                    } else {
-                        core_storage
+                // Each execution unwraps one level, as the chunks can be canonical Variants
+                // around that encoding.
+                let mut core_storage = variant_array.core_storage().clone();
+                for _ in 0..MAX_CHUNKED_STORAGE_DEPTH {
+                    if !core_storage.is::<Chunked>() {
+                        break;
                     }
+                    let merged = core_storage.clone().execute::<VariantArray>(exec_ctx)?;
+                    if merged.shredded().is_some() {
+                        break;
+                    }
+                    core_storage = merged.core_storage().clone();
+                }
+                // Storage that stays chunked compresses as the chunks it came in.
+                let core_storage = if core_storage.is::<Chunked>() {
+                    variant_array.core_storage().clone()
                 } else {
                     core_storage
                 };
