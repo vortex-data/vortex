@@ -50,6 +50,7 @@ use vortex_error::vortex_panic;
 use vortex_session::registry::CachedId;
 
 use crate::alp_rd::check_left_parts_codes;
+use crate::alp_rd::fused::fused_decode;
 use crate::alp_rd_decode;
 
 mod plugin;
@@ -153,6 +154,9 @@ impl VTable for ALPRD {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        if let Some(decoded) = fused_decode(&array, ctx)? {
+            return Ok(ExecutionResult::done(decoded));
+        }
         let array = require_child!(array, array.left_parts(), ALPRDSlots::LEFT_PARTS => Primitive);
         let array =
             require_child!(array, array.right_parts(), ALPRDSlots::RIGHT_PARTS => Primitive);

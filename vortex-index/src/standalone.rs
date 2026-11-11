@@ -1,0 +1,759 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! Standalone index files: an index stored outside the data, covering one or more data files.
+//!
+//! An index file is an ordinary Vortex file. Its rows are the index content, written through the
+//! default strategy so they are chunked, compressed and zone-mapped like any data, and a metadata
+//! segment under [`INDEX_FILE_METADATA_KEY`] records the index kind, its options, the indexed
+//! column, and the data files it covers. A catalog lists index files next to data files and
+//! hands them to [`IndexFile::open`]; [`IndexFileInfo::read`] tells it what an index file is
+//! without knowing its kind. Open index files with `include_metadata()` so the description is
+//! loaded.
+//!
+//! The covered files share one index, built once over a combined row space: each file starts at
+//! the next multiple of [`FILE_ROW_ALIGN`] after the previous one, so block-granular indexes such
+//! as the trigram index never put two files' rows in one block. [`IndexFile::locate_files`] and [`IndexFile::hits_by_file`] map results
+//! back to each file's own rows, ready to pass to a scan as a row selection.
+
+use std::sync::Arc;
+
+use futures::stream;
+use prost::Message;
+use roaring::RoaringTreemap;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::listview::ListViewRebuildMode;
+use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldPath;
+use vortex_array::dtype::proto::dtype as pb;
+use vortex_array::expr::Expression;
+use vortex_array::expr::col;
+use vortex_array::stream::ArrayStreamAdapter;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
+use vortex_file::VortexFile;
+use vortex_file::WriteOptionsSessionExt;
+use vortex_file::WriteStrategyBuilder;
+use vortex_file::WriteSummary;
+use vortex_io::VortexWrite;
+use vortex_layout::LayoutStrategy;
+use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
+use vortex_layout::layouts::compressed::CompressingStrategy;
+use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+use vortex_layout::layouts::indexed::IndexBuilder;
+use vortex_layout::layouts::indexed::IndexExactness;
+use vortex_layout::layouts::indexed::IndexVTable;
+use vortex_layout::layouts::indexed::RowLocator;
+use vortex_layout::layouts::repartition::RepartitionStrategy;
+use vortex_layout::layouts::repartition::RepartitionWriterOptions;
+use vortex_layout::scan::v2::ScanBuilder;
+use vortex_layout::scan::v2::ScanCache;
+use vortex_layout::scan::v2::ScanFile;
+use vortex_scan::selection::Selection;
+use vortex_session::VortexSession;
+
+use crate::rows::Hit;
+use crate::rows::IndexRows;
+use crate::rows::IndexStep;
+use crate::rows::Located;
+use crate::rows::collect;
+
+/// Key of the metadata segment describing a standalone index file.
+pub const INDEX_FILE_METADATA_KEY: &str = "vortex.index";
+
+const INDEX_FILE_VERSION: u32 = 2;
+
+/// Where each covered file starts in the combined row space: a multiple of this many rows.
+///
+/// A multiple of every power-of-two block length up to it, such as the trigram index's default
+/// 8192, and of the 2^16-row containers that row bitmaps are made of.
+pub const FILE_ROW_ALIGN: u64 = 1 << 16;
+
+/// Where each of `row_counts` starts in the combined row space, plus where the last one ends.
+fn file_offsets(row_counts: impl IntoIterator<Item = u64>) -> Vec<u64> {
+    let mut offsets = Vec::new();
+    let mut end = 0u64;
+    for rows in row_counts {
+        let start = end.next_multiple_of(FILE_ROW_ALIGN);
+        offsets.push(start);
+        end = start + rows;
+    }
+    offsets.push(end);
+    offsets
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct IndexFileMetadata {
+    #[prost(uint32, tag = "1")]
+    version: u32,
+    #[prost(string, tag = "2")]
+    kind: String,
+    #[prost(bytes = "vec", tag = "3")]
+    options: Vec<u8>,
+    #[prost(string, tag = "4")]
+    column: String,
+    #[prost(message, optional, tag = "5")]
+    source_dtype: Option<pb::DType>,
+    #[prost(message, repeated, tag = "6")]
+    files: Vec<CoveredFileProto>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct CoveredFileProto {
+    #[prost(string, tag = "1")]
+    uri: String,
+    #[prost(uint64, tag = "2")]
+    row_count: u64,
+    #[prost(bytes = "vec", tag = "3")]
+    fingerprint: Vec<u8>,
+}
+
+/// A data file an index covers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CoveredFile {
+    /// Where the catalog finds the data file.
+    pub uri: String,
+    /// Rows in the data file when the index was built.
+    pub row_count: u64,
+    /// Optional catalog-defined identity, such as a hash of the data file's footer, so a reader
+    /// can tell that the file was replaced since the index was built. Empty when not set.
+    pub fingerprint: Vec<u8>,
+}
+
+impl CoveredFile {
+    /// A covered file without a fingerprint.
+    pub fn new(uri: impl Into<String>, row_count: u64) -> Self {
+        Self {
+            uri: uri.into(),
+            row_count,
+            fingerprint: Vec::new(),
+        }
+    }
+
+    /// Whether `file` still looks like the file this index was built over.
+    pub fn matches(&self, row_count: u64, fingerprint: &[u8]) -> bool {
+        self.row_count == row_count
+            && (self.fingerprint.is_empty() || self.fingerprint == fingerprint)
+    }
+}
+
+/// What an index file holds, read without knowing its kind.
+#[derive(Clone, Debug)]
+pub struct IndexFileInfo {
+    /// The index kind's registry id, such as `vortex.idx.inverted`.
+    pub kind: String,
+    /// The indexed column of the covered data files.
+    pub column: String,
+    /// The dtype of the indexed column.
+    pub source_dtype: DType,
+    /// The covered data files, in row-space order.
+    pub files: Vec<CoveredFile>,
+    options: Vec<u8>,
+}
+
+impl IndexFileInfo {
+    /// Read the description of an index file.
+    pub fn read(file: &VortexFile) -> VortexResult<Self> {
+        let Some(bytes) = file.metadata_segment(INDEX_FILE_METADATA_KEY) else {
+            if file
+                .footer()
+                .metadata_segment(INDEX_FILE_METADATA_KEY)
+                .is_some()
+            {
+                vortex_bail!(
+                    "Index file metadata was not loaded: open it with `include_metadata()`"
+                );
+            }
+            vortex_bail!("Not a Vortex index file: no {INDEX_FILE_METADATA_KEY} segment");
+        };
+        let metadata = IndexFileMetadata::decode(bytes.as_slice())
+            .map_err(|err| vortex_err!("Invalid index file metadata: {err}"))?;
+        vortex_ensure_eq!(
+            metadata.version,
+            INDEX_FILE_VERSION,
+            "Unsupported index file version"
+        );
+        let source_dtype = DType::from_proto(
+            metadata
+                .source_dtype
+                .as_ref()
+                .ok_or_else(|| vortex_err!("Index file metadata has no source dtype"))?,
+            file.session(),
+        )?;
+        Ok(Self {
+            kind: metadata.kind,
+            column: metadata.column,
+            source_dtype,
+            files: metadata
+                .files
+                .into_iter()
+                .map(|f| CoveredFile {
+                    uri: f.uri,
+                    row_count: f.row_count,
+                    fingerprint: f.fingerprint,
+                })
+                .collect(),
+            options: metadata.options,
+        })
+    }
+}
+
+/// Builds a standalone index file over a column of one or more data files.
+pub struct IndexFileBuilder<V: IndexVTable> {
+    vtable: Arc<V>,
+    initial_options: Vec<u8>,
+    column: String,
+    source_dtype: DType,
+    builder: V::Builder,
+    files: Vec<CoveredFile>,
+    rows: u64,
+    session: VortexSession,
+    strategy: Option<Arc<dyn LayoutStrategy>>,
+}
+
+/// Index rows per chunk by default.
+///
+/// Every lookup reads whole chunks of the index, so they are kept much smaller than data chunks
+/// (which coalesce to about 1 MiB): a probe for a handful of keys then reads a handful of small
+/// segments, found through the zone map on the index's sorted key column.
+pub const DEFAULT_INDEX_CHUNK_ROWS: usize = 256;
+
+/// Rough upper bound on an index chunk's bytes. Kinds with large rows, such as an IVF list's
+/// codes, get fewer rows per chunk, down to one, so a lookup reads only the rows it matched.
+const INDEX_CHUNK_TARGET_BYTES: u64 = 1 << 20;
+
+/// Uncompressed bytes per chunk of the key column of an index with list rows, such as an
+/// inverted index's terms, which is read whole rather than probed.
+const KEY_CHUNK_TARGET_BYTES: u64 = 1 << 20;
+
+/// Uncompressed bytes per chunk of the other scalar columns of an index with list rows, such as
+/// an inverted index's score bounds, which are read by row.
+const VALUE_CHUNK_TARGET_BYTES: u64 = 64 << 10;
+
+/// Rows per index chunk for rows averaging `row_bytes`.
+fn chunk_rows(row_bytes: u64) -> usize {
+    usize::try_from(INDEX_CHUNK_TARGET_BYTES / row_bytes.max(1))
+        .unwrap_or(usize::MAX)
+        .clamp(1, DEFAULT_INDEX_CHUNK_ROWS)
+}
+
+impl<V: IndexVTable> IndexFileBuilder<V> {
+    /// Start an index of kind `vtable` over `column`, whose values have `source_dtype`.
+    pub fn new(
+        vtable: V,
+        options: V::Options,
+        column: impl Into<String>,
+        source_dtype: DType,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
+        vortex_ensure!(
+            vtable.index_dtype(&source_dtype, &options).is_some(),
+            "Index {} cannot index {source_dtype}",
+            vtable.id()
+        );
+        let builder = vtable.builder(&source_dtype, &options, None, session)?;
+        Ok(Self {
+            initial_options: vtable.serialize_options(&options),
+            vtable: Arc::new(vtable),
+            column: column.into(),
+            source_dtype,
+            builder,
+            files: Vec::new(),
+            rows: 0,
+            session: session.clone(),
+            strategy: None,
+        })
+    }
+
+    /// Write the index rows with `strategy` rather than the default small-chunk strategy.
+    pub fn with_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
+        self.strategy = Some(strategy);
+        self
+    }
+
+    /// Index the column values of one data file, given as chunks in row order.
+    pub fn push_file(
+        &mut self,
+        file: CoveredFile,
+        chunks: impl IntoIterator<Item = ArrayRef>,
+    ) -> VortexResult<()> {
+        let mut ctx = self.session.create_execution_ctx();
+        self.rows = self.rows.next_multiple_of(FILE_ROW_ALIGN);
+        let start = self.rows;
+        for chunk in chunks {
+            vortex_ensure!(
+                same_column_type(chunk.dtype(), &self.source_dtype),
+                "Chunk dtype {} does not match the indexed column's {}",
+                chunk.dtype(),
+                self.source_dtype
+            );
+            self.builder.push(&chunk, self.rows, &mut ctx)?;
+            self.rows += chunk.len() as u64;
+        }
+        vortex_ensure_eq!(
+            self.rows - start,
+            file.row_count,
+            "Pushed rows do not match the covered file's row count"
+        );
+        u32::try_from(self.rows).map_err(|_| {
+            vortex_err!(
+                "An index file covers at most u32::MAX rows, got {}",
+                self.rows
+            )
+        })?;
+        self.files.push(file);
+        Ok(())
+    }
+
+    /// Read the indexed column of a data file and index it, recording it by `uri` alone.
+    pub async fn add_file(
+        &mut self,
+        uri: impl Into<String>,
+        file: &VortexFile,
+    ) -> VortexResult<()> {
+        self.add_covered_file(CoveredFile::new(uri, file.row_count()), file)
+            .await
+    }
+
+    /// Read the indexed column of a data file and index it, recording it as `covered`.
+    ///
+    /// Use this to bind the index to a catalog's own identity for the file, such as a path
+    /// relative to the table and a hash of the file's footer as the fingerprint.
+    pub async fn add_covered_file(
+        &mut self,
+        covered: CoveredFile,
+        file: &VortexFile,
+    ) -> VortexResult<()> {
+        let projection = col(self.column.as_str()).bind(file.dtype())?;
+        let chunks = collect(
+            ScanBuilder::new(file.session().clone(), file.scan_file()).with_projection(projection),
+        )
+        .await?;
+        self.push_file(covered, chunks)
+    }
+
+    /// Finish the index and write it as a Vortex file.
+    pub async fn write<W: VortexWrite + Unpin>(self, write: W) -> VortexResult<WriteSummary> {
+        let Self {
+            vtable,
+            initial_options,
+            column,
+            source_dtype,
+            builder,
+            files,
+            session,
+            strategy,
+            ..
+        } = self;
+
+        let (chunks, options_bytes) = match builder.finish()? {
+            Some((chunks, options)) => {
+                let bytes = vtable.serialize_options(&options);
+                (chunks, bytes)
+            }
+            // A declined build writes an index with no rows: every lookup then misses.
+            None => (Vec::new(), initial_options),
+        };
+        let options = vtable.deserialize_options(&options_bytes)?;
+        let index_dtype = vtable
+            .index_dtype(&source_dtype, &options)
+            .ok_or_else(|| vortex_err!("Index {} cannot index {source_dtype}", vtable.id()))?;
+
+        let mut ctx = session.create_execution_ctx();
+        // Hand the writer small slices, so each index chunk, and so each lookup's read, stays
+        // small even when a kind emits its whole content as one chunk.
+        let encoded = chunks
+            .iter()
+            .map(|chunk| vtable.encode(chunk, &options, &mut ctx))
+            .collect::<VortexResult<Vec<_>>>()?;
+        let rows: u64 = encoded.iter().map(|e| e.len() as u64).sum();
+        let bytes: u64 = encoded.iter().map(|e| e.nbytes()).sum();
+        let piece = chunk_rows(bytes / rows.max(1));
+        // List rows vary from a few bytes to megabytes, so they are cut by bytes alone: a row
+        // cap would leave thousands of tiny chunks of rare terms, each a footer entry and a read.
+        let slice_rows = if has_list_field(&index_dtype) {
+            usize::MAX
+        } else {
+            piece
+        };
+        let mut arrays = Vec::new();
+        for encoded in encoded {
+            let len = encoded.len();
+            for start in (0..len).step_by(slice_rows) {
+                split_by_bytes(
+                    encoded.slice(start..start.saturating_add(slice_rows).min(len))?,
+                    &mut arrays,
+                    &mut ctx,
+                )?;
+            }
+        }
+
+        let metadata = IndexFileMetadata {
+            version: INDEX_FILE_VERSION,
+            kind: vtable.id().to_string(),
+            options: options_bytes,
+            column,
+            source_dtype: Some((&source_dtype).try_into()?),
+            files: files
+                .into_iter()
+                .map(|f| CoveredFileProto {
+                    uri: f.uri,
+                    row_count: f.row_count,
+                    fingerprint: f.fingerprint,
+                })
+                .collect(),
+        };
+
+        session
+            .write_options()
+            .with_strategy(
+                strategy.unwrap_or_else(|| default_index_strategy(&session, &index_dtype, piece)),
+            )
+            .with_metadata_segment(INDEX_FILE_METADATA_KEY, metadata.encode_to_vec())
+            .write(
+                write,
+                ArrayStreamAdapter::new(index_dtype, stream::iter(arrays.into_iter().map(Ok))),
+            )
+            .await
+    }
+}
+
+/// Whether a covered file's column can feed an index built for `indexed`: files of one table may
+/// differ in nullability, and store an extension type or its storage type.
+fn same_column_type(column: &DType, indexed: &DType) -> bool {
+    let storage = |dtype: &DType| match dtype {
+        DType::Extension(ext) => ext.storage_dtype().clone(),
+        other => other.clone(),
+    };
+    column.eq_ignore_nullability(indexed)
+        || storage(column).eq_ignore_nullability(&storage(indexed))
+}
+
+/// Push `slice` compacted onto `arrays`, halved until each piece is at most
+/// [`INDEX_CHUNK_TARGET_BYTES`] or one row.
+///
+/// List columns are written in the pieces they arrive in (see [`default_index_strategy`]), so a
+/// row holding a long list, such as a common term's postings, gets a chunk to itself and a
+/// lookup of a rare term reads a chunk of many short lists.
+fn split_by_bytes(
+    slice: ArrayRef,
+    arrays: &mut Vec<ArrayRef>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let compacted = compact(slice, ctx)?;
+    let len = compacted.len();
+    if len <= 1 || compacted.nbytes() <= INDEX_CHUNK_TARGET_BYTES {
+        arrays.push(compacted);
+        return Ok(());
+    }
+    split_by_bytes(compacted.slice(0..len / 2)?, arrays, ctx)?;
+    split_by_bytes(compacted.slice(len / 2..len)?, arrays, ctx)
+}
+
+/// Copy the variable-length values a slice uses out of its parent's buffers, so writing the
+/// slice writes only its own bytes.
+fn compact(slice: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    let DType::Struct(fields, _) = slice.dtype().clone() else {
+        return Ok(slice);
+    };
+    let rows = slice.execute::<StructArray>(ctx)?;
+    let columns = (0..fields.nfields())
+        .map(|idx| {
+            let column = rows.unmasked_field(idx).clone();
+            if matches!(column.dtype(), DType::Binary(_) | DType::Utf8(_)) {
+                Ok(column
+                    .execute::<VarBinViewArray>(ctx)?
+                    .compact_buffers(ctx)?
+                    .into_array())
+            } else if matches!(column.dtype(), DType::List(..)) {
+                Ok(column
+                    .execute::<ListViewArray>(ctx)?
+                    .rebuild(ListViewRebuildMode::MakeExact, ctx)?
+                    .into_array())
+            } else {
+                Ok(column)
+            }
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    Ok(
+        StructArray::try_new_with_dtype(columns, fields, rows.len(), rows.validity()?)?
+            .into_array(),
+    )
+}
+
+/// Whether index rows of `index_dtype` hold a list, such as an inverted index's postings.
+fn has_list_field(index_dtype: &DType) -> bool {
+    index_dtype.as_struct_fields_opt().is_some_and(|fields| {
+        fields
+            .fields()
+            .any(|dtype| matches!(dtype, DType::List(..)))
+    })
+}
+
+/// The default writer for index rows: small chunks, with binary payload columns (bitmaps, codes)
+/// written as-is in chunks of the same size, and list columns (postings) compressed in the
+/// chunks they arrive in.
+///
+/// Binary payloads are already compact, and leaving them out of dictionary encoding keeps each
+/// chunk's payload in its own small segment, so a lookup reads only the payloads of the keys it
+/// matched. List columns are compressed like any column, but not regrouped, so their chunks
+/// keep the byte-sized boundaries [`split_by_bytes`] chose.
+fn default_index_strategy(
+    session: &VortexSession,
+    index_dtype: &DType,
+    chunk_rows: usize,
+) -> Arc<dyn LayoutStrategy> {
+    let mut builder = WriteStrategyBuilder::from_session(session)
+        .with_row_block_size(chunk_rows)
+        .with_data_block_target_bytes(None);
+    if let Some(fields) = index_dtype.as_struct_fields_opt() {
+        // Beside list rows, scalar columns are chunked by bytes rather than rows: the rows are
+        // many and small, and every chunk costs a footer entry.
+        let has_lists = has_list_field(index_dtype);
+        for (idx, (name, dtype)) in fields.names().iter().zip(fields.fields()).enumerate() {
+            if matches!(dtype, DType::Binary(_)) {
+                let payload = RepartitionStrategy::new(
+                    ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+                    RepartitionWriterOptions {
+                        block_size_minimum: 0,
+                        block_len_multiple: chunk_rows,
+                        block_size_target: None,
+                        canonicalize: true,
+                    },
+                );
+                builder = builder
+                    .with_field_writer(FieldPath::from_name(name.clone()), Arc::new(payload));
+            } else if matches!(dtype, DType::List(..)) {
+                let lists = CompressingStrategy::new(
+                    ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+                    BtrBlocksCompressorBuilder::from_session(session).build(),
+                );
+                builder =
+                    builder.with_field_writer(FieldPath::from_name(name.clone()), Arc::new(lists));
+            } else if has_lists {
+                // The key column is read whole, so its chunks are large; other columns are read
+                // by row beside the lists, so theirs stay small.
+                let target = if idx == 0 {
+                    KEY_CHUNK_TARGET_BYTES
+                } else {
+                    VALUE_CHUNK_TARGET_BYTES
+                };
+                let chunked = RepartitionStrategy::new(
+                    CompressingStrategy::new(
+                        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+                        BtrBlocksCompressorBuilder::from_session(session).build(),
+                    ),
+                    RepartitionWriterOptions {
+                        block_size_minimum: target,
+                        block_len_multiple: chunk_rows,
+                        block_size_target: Some(target),
+                        canonicalize: true,
+                    },
+                );
+                builder = builder
+                    .with_field_writer(FieldPath::from_name(name.clone()), Arc::new(chunked));
+            }
+        }
+    }
+    builder.build()
+}
+
+/// `file`, keeping the plans its scans lower so repeated lookups reuse them. Segment bytes are
+/// not retained: every lookup reads its rows again.
+///
+/// Every lookup is a scan of the index file, and lowering its layout into a plan costs about as
+/// much as the lookup itself for an index of thousands of chunks.
+fn with_cache(file: ScanFile) -> ScanFile {
+    ScanFile {
+        cache: file
+            .cache
+            .clone()
+            .or_else(|| Some(ScanCache::with_retained_bytes(0))),
+        ..file
+    }
+}
+
+/// Rows of one covered data file selected by an index lookup.
+#[derive(Clone, Debug)]
+pub struct FileSelection {
+    /// Position of the file in [`IndexFile::files`].
+    pub file: usize,
+    /// Rows to read, local to the file. Pass this to the file's scan.
+    pub selection: Selection,
+}
+
+/// A ranked search hit in a covered data file.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FileHit {
+    /// Position of the file in [`IndexFile::files`].
+    pub file: usize,
+    /// Row within that file.
+    pub row: u64,
+    /// Higher is better.
+    pub score: f32,
+}
+
+/// An opened standalone index file.
+pub struct IndexFile<V: IndexVTable> {
+    info: IndexFileInfo,
+    rows: Arc<IndexRows<V>>,
+    /// Start of each covered file in the combined row space, plus the end of the last.
+    offsets: Vec<u64>,
+}
+
+impl<V: IndexVTable> IndexFile<V> {
+    /// Open an index file written by [`IndexFileBuilder`] for kind `vtable`.
+    pub fn open(vtable: V, file: &VortexFile) -> VortexResult<Self> {
+        let info = IndexFileInfo::read(file)?;
+        if info.kind != vtable.id().as_ref() {
+            vortex_bail!(
+                "Index file holds a {} index, not {}",
+                info.kind,
+                vtable.id()
+            );
+        }
+        let options = vtable.deserialize_options(&info.options)?;
+        let index_dtype = vtable
+            .index_dtype(&info.source_dtype, &options)
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Index {} no longer indexes {}",
+                    info.kind,
+                    info.source_dtype
+                )
+            })?;
+        vortex_ensure_eq!(
+            file.dtype(),
+            &index_dtype,
+            "Index file rows do not match the dtype the index kind declares"
+        );
+
+        let offsets = file_offsets(info.files.iter().map(|f| f.row_count));
+        let total = offsets.last().copied().unwrap_or(0);
+
+        let rows = Arc::new(IndexRows {
+            vtable: Arc::new(vtable),
+            options,
+            source_dtype: info.source_dtype.clone(),
+            index_dtype,
+            data_row_count: total,
+            file: with_cache(file.scan_file()),
+            session: file.session().clone(),
+            memo: Default::default(),
+        });
+        Ok(Self {
+            info,
+            rows,
+            offsets,
+        })
+    }
+
+    /// The index content, for lookups and ranked search in the combined row space.
+    pub fn rows(&self) -> &Arc<IndexRows<V>> {
+        &self.rows
+    }
+
+    /// The indexed column of the covered data files.
+    pub fn column(&self) -> &str {
+        &self.info.column
+    }
+
+    /// The covered data files, in row-space order.
+    pub fn files(&self) -> &[CoveredFile] {
+        &self.info.files
+    }
+
+    /// Answer a predicate over the indexed column, as a row selection per covered file.
+    ///
+    /// Files with no possible match are left out, so a caller never opens them. Returns `None`
+    /// when the index makes no claim on `expr`; scan every file then.
+    pub async fn locate_files(
+        &self,
+        expr: &Expression,
+    ) -> VortexResult<Option<(IndexExactness, Vec<FileSelection>)>> {
+        self.locate_files_steps(expr)?.run().await
+    }
+
+    /// [`locate_files`](Self::locate_files) as steps.
+    pub fn locate_files_steps(
+        &self,
+        expr: &Expression,
+    ) -> VortexResult<IndexStep<Located<Vec<FileSelection>>>> {
+        let files: Vec<u64> = self.info.files.iter().map(|f| f.row_count).collect();
+        let offsets = self.offsets.clone();
+        self.rows.locate_steps(expr)?.map(move |located| {
+            let Some((exactness, locator)) = located else {
+                return Ok(None);
+            };
+            let mut selections = Vec::new();
+            for (file, row_count) in files.into_iter().enumerate() {
+                let start = offsets[file];
+                let rows = local_rows(&locator, start..start + row_count)?;
+                if !rows.is_empty() {
+                    selections.push(FileSelection {
+                        file,
+                        selection: Selection::IncludeRoaring(rows),
+                    });
+                }
+            }
+            Ok(Some((exactness, selections)))
+        })
+    }
+
+    /// Map hits in the combined row space to their data files.
+    pub fn hits_by_file(&self, hits: &[Hit]) -> VortexResult<Vec<FileHit>> {
+        hits.iter()
+            .map(|hit| {
+                let file = self.offsets.partition_point(|&start| start <= hit.row) - 1;
+                vortex_ensure!(
+                    file < self.info.files.len()
+                        && hit.row - self.offsets[file] < self.info.files[file].row_count,
+                    "Hit row {} is in no covered file",
+                    hit.row
+                );
+                Ok(FileHit {
+                    file,
+                    row: hit.row - self.offsets[file],
+                    score: hit.score,
+                })
+            })
+            .collect()
+    }
+}
+
+/// The rows of `locator` within `range`, shifted to start at zero.
+fn local_rows(locator: &RowLocator, range: std::ops::Range<u64>) -> VortexResult<RoaringTreemap> {
+    let mut rows = RoaringTreemap::new();
+    match locator {
+        RowLocator::Rows(bitmap) => {
+            let start = u32::try_from(range.start)?;
+            let end = u32::try_from(range.end)?;
+            for row in bitmap.range(start..end) {
+                rows.insert(u64::from(row) - range.start);
+            }
+        }
+        RowLocator::Blocks { block_len, ids } => {
+            let first = u32::try_from(range.start / block_len)?;
+            let last = u32::try_from(range.end.div_ceil(*block_len))?;
+            for block in ids.range(first..last) {
+                let block_start = (u64::from(block) * block_len).max(range.start);
+                let block_end = ((u64::from(block) + 1) * block_len).min(range.end);
+                if block_start < block_end {
+                    rows.insert_range(block_start - range.start..block_end - range.start);
+                }
+            }
+        }
+    }
+    Ok(rows)
+}
