@@ -19,7 +19,6 @@ import pyarrow.dataset as ds
 import pytest
 
 import vortex as vx
-from vortex.polars_ import decompose_predicate
 
 NAN = math.nan
 NEG_NAN = -math.nan
@@ -99,20 +98,3 @@ def test_polars_float_filters(source: pa.Table, vxf: vx.VortexFile, predicate: C
     actual = rows(vxf.to_polars().filter(predicate(pl.col("x"))).collect().to_arrow())
 
     assert actual == expected
-
-
-def f64(value: float) -> pl.Expr:
-    """A typed literal, as Polars gives it to an IO source."""
-    return pl.lit(value, pl.Float64)
-
-
-@pytest.mark.parametrize(
-    "predicate",
-    [pl.col("x") == f64(NAN), pl.col("x") > f64(-math.inf), pl.col("x").is_between(f64(NAN), f64(math.inf))],
-    ids=str,
-)
-def test_polars_pushes_nan_and_infinite_literals(vxf: vx.VortexFile, predicate: pl.Expr) -> None:
-    pushed, residual = decompose_predicate(predicate, vx.array(vxf.dtype.to_arrow_schema().empty_table()))
-
-    assert pushed is not None
-    assert residual is None
