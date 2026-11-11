@@ -589,6 +589,57 @@ async fn standalone_index_accepts_files_that_differ_in_nullability() -> VortexRe
     Ok(())
 }
 
+/// Each file starts on a block boundary of the shared index, so a match in one file never selects
+/// rows of its neighbour, even when the files' lengths are not multiples of the block length.
+#[tokio::test]
+async fn trigram_blocks_do_not_straddle_files() -> VortexResult<()> {
+    let session = session()?;
+    let rows = 10_000;
+    let file = |needle_row: Option<usize>| {
+        VarBinViewArray::from_iter_str((0..rows).map(|row| {
+            if Some(row) == needle_row {
+                "needle".to_string()
+            } else {
+                format!("hay {}", row % 7)
+            }
+        }))
+        .into_array()
+    };
+    let mut builder = IndexFileBuilder::new(
+        TrigramIndex,
+        TrigramOptions { block_len: 8192 },
+        "text",
+        DType::Utf8(Nullability::NonNullable),
+        &session,
+    )?;
+    builder.push_file(CoveredFile::new("a.vortex", rows as u64), [file(None)])?;
+    builder.push_file(CoveredFile::new("b.vortex", rows as u64), [file(Some(100))])?;
+    let mut bytes = ByteBufferMut::empty();
+    builder.write(&mut bytes).await?;
+    let index = IndexFile::open(
+        TrigramIndex,
+        &session
+            .open_options()
+            .include_metadata()
+            .open_buffer(bytes.freeze())?,
+    )?;
+
+    let (_, selections) = index
+        .locate_files(&like(root(), lit("%needle%")))
+        .await?
+        .expect("claims like");
+    let selected: Vec<(usize, Vec<u64>)> = selections
+        .iter()
+        .map(|s| match &s.selection {
+            Selection::IncludeRoaring(rows) => (s.file, vec![rows.min().unwrap_or(0), rows.len()]),
+            other => panic!("unexpected selection {other:?}"),
+        })
+        .collect();
+    // Only file b's first block: its rows 0..8192.
+    assert_eq!(selected, vec![(1, vec![0, 8192])]);
+    Ok(())
+}
+
 #[tokio::test]
 async fn opening_with_the_wrong_kind_fails() -> VortexResult<()> {
     let session = session()?;

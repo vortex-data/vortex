@@ -11,8 +11,9 @@
 //! without knowing its kind. Open index files with `include_metadata()` so the description is
 //! loaded.
 //!
-//! The covered files are concatenated in the order they were added, and the index works in that
-//! combined row space. [`IndexFile::locate_files`] and [`IndexFile::hits_by_file`] map results
+//! The covered files share one index, built once over a combined row space: each file starts at
+//! the next multiple of [`FILE_ROW_ALIGN`] after the previous one, so block-granular indexes such
+//! as the trigram index never put two files' rows in one block. [`IndexFile::locate_files`] and [`IndexFile::hits_by_file`] map results
 //! back to each file's own rows, ready to pass to a scan as a row selection.
 
 use std::sync::Arc;
@@ -64,7 +65,26 @@ use crate::rows::collect;
 /// Key of the metadata segment describing a standalone index file.
 pub const INDEX_FILE_METADATA_KEY: &str = "vortex.index";
 
-const INDEX_FILE_VERSION: u32 = 1;
+const INDEX_FILE_VERSION: u32 = 2;
+
+/// Where each covered file starts in the combined row space: a multiple of this many rows.
+///
+/// A multiple of every power-of-two block length up to it, such as the trigram index's default
+/// 8192, and of the 2^16-row containers that row bitmaps are made of.
+pub const FILE_ROW_ALIGN: u64 = 1 << 16;
+
+/// Where each of `row_counts` starts in the combined row space, plus where the last one ends.
+fn file_offsets(row_counts: impl IntoIterator<Item = u64>) -> Vec<u64> {
+    let mut offsets = Vec::new();
+    let mut end = 0u64;
+    for rows in row_counts {
+        let start = end.next_multiple_of(FILE_ROW_ALIGN);
+        offsets.push(start);
+        end = start + rows;
+    }
+    offsets.push(end);
+    offsets
+}
 
 #[derive(Clone, PartialEq, Message)]
 struct IndexFileMetadata {
@@ -254,6 +274,7 @@ impl<V: IndexVTable> IndexFileBuilder<V> {
         chunks: impl IntoIterator<Item = ArrayRef>,
     ) -> VortexResult<()> {
         let mut ctx = self.session.create_execution_ctx();
+        self.rows = self.rows.next_multiple_of(FILE_ROW_ALIGN);
         let start = self.rows;
         for chunk in chunks {
             vortex_ensure!(
@@ -477,7 +498,7 @@ pub struct FileHit {
 pub struct IndexFile<V: IndexVTable> {
     info: IndexFileInfo,
     rows: IndexRows<V>,
-    /// Start of each covered file in the combined row space, plus the total at the end.
+    /// Start of each covered file in the combined row space, plus the end of the last.
     offsets: Vec<u64>,
 }
 
@@ -508,13 +529,8 @@ impl<V: IndexVTable> IndexFile<V> {
             "Index file rows do not match the dtype the index kind declares"
         );
 
-        let mut offsets = Vec::with_capacity(info.files.len() + 1);
-        let mut total = 0u64;
-        offsets.push(0);
-        for covered in &info.files {
-            total += covered.row_count;
-            offsets.push(total);
-        }
+        let offsets = file_offsets(info.files.iter().map(|f| f.row_count));
+        let total = offsets.last().copied().unwrap_or(0);
 
         let rows = IndexRows {
             vtable: Arc::new(vtable),
@@ -560,8 +576,9 @@ impl<V: IndexVTable> IndexFile<V> {
             return Ok(None);
         };
         let mut selections = Vec::new();
-        for (file, window) in self.offsets.windows(2).enumerate() {
-            let rows = local_rows(&locator, window[0]..window[1])?;
+        for (file, covered) in self.info.files.iter().enumerate() {
+            let start = self.offsets[file];
+            let rows = local_rows(&locator, start..start + covered.row_count)?;
             if !rows.is_empty() {
                 selections.push(FileSelection {
                     file,
@@ -578,8 +595,9 @@ impl<V: IndexVTable> IndexFile<V> {
             .map(|hit| {
                 let file = self.offsets.partition_point(|&start| start <= hit.row) - 1;
                 vortex_ensure!(
-                    file < self.info.files.len(),
-                    "Hit row {} is past the covered files",
+                    file < self.info.files.len()
+                        && hit.row - self.offsets[file] < self.info.files[file].row_count,
+                    "Hit row {} is in no covered file",
                     hit.row
                 );
                 Ok(FileHit {
