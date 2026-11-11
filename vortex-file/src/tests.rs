@@ -3477,3 +3477,40 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
     assert_arrays_eq!(result, mk_struct(vec![big])?, &mut ctx);
     Ok(())
 }
+
+/// Direct reads serve a v2 scan the same rows as the coalescing read driver.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn direct_inline_reads_serve_v2_row_lookups() -> VortexResult<()> {
+    use vortex_io::session::RuntimeSessionExt;
+    use vortex_io::std_file::FileReadAt;
+    use vortex_layout::scan::v2::ScanBuilder as V2ScanBuilder;
+
+    let array = PrimitiveArray::from_iter(0..50_000u32).into_array();
+    let directory = tempdir()?;
+    let path = directory.path().join("direct.vortex");
+    let mut writer = FileWrite::create(&path, TokioRuntime::current()).await?;
+    SESSION
+        .write_options()
+        .write(&mut writer, array.to_array_stream())
+        .await?;
+    writer.shutdown().await?;
+
+    let rows = [3u64, 9_000, 20_001, 49_999];
+    let file = SESSION
+        .open_options()
+        .with_direct_reads(true)
+        .open_read(Arc::new(
+            FileReadAt::open(&path, SESSION.handle())?.with_inline_reads(),
+        ))
+        .await?;
+    let batches = crate::v2::collect(
+        V2ScanBuilder::new(SESSION.clone(), file.scan_file())
+            .with_row_indices(strict_sorted(Buffer::from_iter(rows))),
+    )
+    .await?;
+    let actual = ChunkedArray::try_new(batches, array.dtype().clone())?.into_array();
+    let expected = PrimitiveArray::from_iter(rows.map(|row| row as u32)).into_array();
+    assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+    Ok(())
+}

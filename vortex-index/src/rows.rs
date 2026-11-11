@@ -103,6 +103,7 @@ pub struct Hit {
 }
 
 /// Keep the `k` best hits, best first. Ties keep the lower row first.
+#[cfg(test)]
 pub(crate) fn top_k(mut hits: Vec<Hit>, k: usize) -> Vec<Hit> {
     let order = |a: &Hit, b: &Hit| b.score.total_cmp(&a.score).then(a.row.cmp(&b.row));
     if hits.len() > k {
