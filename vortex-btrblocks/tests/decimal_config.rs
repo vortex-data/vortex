@@ -15,6 +15,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Decimal;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::Dict;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::i256;
@@ -227,5 +228,67 @@ fn wide_decimal_parts_roundtrip(
         &SESSION,
     )?;
     assert_arrays_eq!(array, decoded, &mut ctx);
+    Ok(())
+}
+
+/// Low-cardinality decimals of every values width compress to a dictionary of decimal values.
+/// That includes wide decimals, which byte parts leave canonical under the core edition and
+/// split into one array per part without editions.
+#[rstest]
+#[case::i64(DecimalArray::new(
+    (0..4096usize).map(|i| [123_456_789_012_345i64, -7, 42][i % 3]).collect::<Buffer<_>>(),
+    DecimalDType::new(18, 2),
+    Validity::NonNullable,
+))]
+#[case::i128(DecimalArray::new(
+    (0..4096usize).map(|i| [10i128.pow(37) + 1, -(10i128.pow(36)), 5][i % 3]).collect::<Buffer<_>>(),
+    DecimalDType::new(38, 2),
+    Validity::from_iter((0..4096).map(|i| i % 7 != 0)),
+))]
+#[case::i256(DecimalArray::new(
+    (0..4096usize)
+        .map(|i| [i256::from_parts(1, 1 << 100), i256::from_parts(9, -(1 << 90))][i % 2])
+        .collect::<Buffer<_>>(),
+    DecimalDType::new(76, 2),
+    Validity::NonNullable,
+))]
+fn low_cardinality_decimal_compresses_to_dict(
+    #[case] input: DecimalArray,
+    #[values(
+        || BtrBlocksCompressorBuilder::from_session(&CORE_SESSION),
+        || BtrBlocksCompressorBuilder::from_session(&SESSION).disable_editions()
+    )]
+    builder: fn() -> BtrBlocksCompressorBuilder,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = input.into_array();
+    let compressed = builder().build().compress(&input, &mut ctx)?;
+
+    assert!(compressed.is::<Dict>(), "{}", compressed.display_tree());
+    assert!(compressed.nbytes() * 4 < input.nbytes());
+    assert_arrays_eq!(compressed, input, &mut ctx);
+    Ok(())
+}
+
+/// Decimals with mostly unique values keep the byte parts encoding.
+#[test]
+fn high_cardinality_decimal_keeps_byte_parts() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = DecimalArray::new(
+        (0..4096i64).map(|i| i * 7919).collect::<Buffer<_>>(),
+        DecimalDType::new(18, 2),
+        Validity::NonNullable,
+    )
+    .into_array();
+    let compressed = BtrBlocksCompressorBuilder::from_session(&CORE_SESSION)
+        .build()
+        .compress(&input, &mut ctx)?;
+
+    assert!(
+        compressed.is::<DecimalByteParts>(),
+        "{}",
+        compressed.display_tree()
+    );
+    assert_arrays_eq!(compressed, input, &mut ctx);
     Ok(())
 }

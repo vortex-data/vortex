@@ -11,7 +11,9 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
 use vortex_array::dtype::DecimalType;
+use vortex_compressor::builtins::low_cardinality_decimal;
 use vortex_compressor::scheme::CompressionEstimate;
+use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_decimal_byte_parts::DecimalBytePartsSlots;
@@ -25,6 +27,8 @@ use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
+
+pub use vortex_compressor::builtins::DecimalDictScheme;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum DecimalSchemeMode {
@@ -114,10 +118,16 @@ impl Scheme for DecimalScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
+        // A dictionary may be smaller, so let sampling choose between byte parts and the
+        // dictionary. The distinct values are only counted when `DecimalDictScheme` is eligible.
+        if low_cardinality_decimal(data, exec_ctx) == Some(true) {
+            return CompressionEstimate::Deferred(DeferredEstimate::Sample);
+        }
+
         // Decimal compression is almost always beneficial (narrowing + primitive compression).
         CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
     }
