@@ -320,7 +320,8 @@ impl ScalarFnVTable for CaseWhen {
 
         // `fill_null` takes its result nullability from the fill, so give the fill the
         // nullability of the `CASE WHEN`. A cast remains only if nested nullability differs.
-        let fill = bound::lit(scalar.cast(&scalar.dtype().with_nullability(expr.dtype().nullability()))?);
+        let fill =
+            bound::lit(scalar.cast(&scalar.dtype().with_nullability(expr.dtype().nullability()))?);
         Ok(Some(
             FillNull
                 .try_new_bound_expr(EmptyOptions, [x.clone(), fill])?
