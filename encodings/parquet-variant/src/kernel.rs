@@ -22,12 +22,14 @@ use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::arrays::Chunked;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::Extension;
 use vortex_array::arrays::Filter;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::Struct;
+use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::extension::ExtensionArrayExt;
@@ -60,6 +62,7 @@ use vortex_session::VortexSession;
 use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
 use crate::ParquetVariantArraySlotsExt;
+use crate::arrow::merge_storage_chunks;
 use crate::compute::AllNonDistinctParquetVariant;
 
 pub(crate) fn initialize(session: &VortexSession) {
@@ -80,6 +83,7 @@ pub(crate) fn initialize(session: &VortexSession) {
         TakeExecuteAdaptor(ParquetVariant),
     );
     kernels.register_execute_parent_kernel(VariantGet.id(), ParquetVariant, VariantGetKernel);
+    kernels.register_execute_parent_kernel(Chunked.id(), ParquetVariant, ChunkedStorageKernel);
     kernels.register_execute_parent_kernel(
         JsonToVariant.id(),
         Extension,
@@ -91,6 +95,38 @@ pub(crate) fn initialize(session: &VortexSession) {
         Some(AllNonDistinct.id()),
         &AllNonDistinctParquetVariant,
     );
+}
+
+/// Executes chunks of Parquet Variant storage to one storage array with chunked children.
+///
+/// A chunked Variant otherwise canonicalizes to a Variant over chunked storage, which keeps every
+/// chunk a separate array: to compress on its own, and to deserialize as its own subtree.
+#[derive(Default, Debug)]
+struct ChunkedStorageKernel;
+
+impl ExecuteParentKernel<ParquetVariant> for ChunkedStorageKernel {
+    type Parent = Chunked;
+
+    fn execute_parent(
+        &self,
+        array: ArrayView<'_, ParquetVariant>,
+        parent: ArrayView<'_, Chunked>,
+        _child_idx: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // Only plain storage merges. A shredded child has to be made canonical chunk by chunk,
+        // which rebuilds it from the layout of its own chunk, so those chunks stay apart, as do
+        // chunks of other encodings and chunks that disagree on having a value.
+        let mergeable = parent.iter_chunks().all(|chunk| {
+            chunk.as_opt::<ParquetVariant>().is_some_and(|chunk| {
+                chunk.typed_value().is_none() && chunk.value().is_some() == array.value().is_some()
+            })
+        });
+        if !mergeable {
+            return Ok(None);
+        }
+        merge_storage_chunks(&parent.chunks(), parent.dtype().nullability()).map(Some)
+    }
 }
 
 #[derive(Default, Debug)]
@@ -346,6 +382,7 @@ mod tests {
     use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::arrays::variant::VariantArraySlotsExt;
+    use vortex_array::arrays::variant::decode_unshredded_storage;
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar_is_null;
     use vortex_array::dtype::DType as VortexDType;
@@ -1204,6 +1241,94 @@ mod tests {
                 Some(VortexDType::Primitive(PType::I64, Nullability::Nullable)),
             )?,
             PrimitiveArray::from_option_iter(rows.iter().map(|&row| rev[row])),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Chunks of storage execute to one storage array, so that a chunked Variant compresses and
+    /// deserializes as a single array.
+    #[test]
+    fn test_chunked_storage_executes_to_one_storage_array() -> VortexResult<()> {
+        let first = make_unshredded_json_array(vec![Some(r#"{"a":1}"#), Some(r#"{"a":2}"#)])?;
+        let second = make_unshredded_json_array(vec![Some(r#"{"a":3}"#)])?;
+        let dtype = first.dtype().clone();
+        let chunked = ChunkedArray::try_new([first, second], dtype)?.into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let Canonical::Variant(canonical) = chunked.clone().execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+        assert!(canonical.core_storage().is::<ParquetVariant>());
+
+        let requested = VortexDType::Primitive(PType::I64, Nullability::Nullable);
+        assert_arrays_eq!(
+            execute_variant_get(chunked, "$.a", Some(requested))?,
+            PrimitiveArray::from_option_iter([Some(1i64), Some(2), Some(3)]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Decoding the storage once leaves a storage array whose children need no more decoding,
+    /// whether or not the Variant was filtered first, and extracts the same values.
+    #[rstest]
+    #[case::whole(false)]
+    #[case::filtered(true)]
+    fn test_decode_unshredded_storage(#[case] filtered: bool) -> VortexResult<()> {
+        let rows = vec![Some(r#"{"a":1}"#), Some(r#"{"a":2}"#), Some(r#"{"a":3}"#)];
+        let array = make_unshredded_json_array(rows)?;
+        let (array, expected) = if filtered {
+            (
+                array.filter(Mask::from_iter([true, false, true]))?,
+                [Some(1i64), Some(3)].as_slice(),
+            )
+        } else {
+            (array, [Some(1i64), Some(2), Some(3)].as_slice())
+        };
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let decoded = decode_unshredded_storage(array, &mut ctx)?;
+
+        let variant = decoded.as_::<Variant>();
+        let storage = variant
+            .core_storage()
+            .as_opt::<ParquetVariant>()
+            .ok_or_else(|| vortex_err!("expected parquet variant core storage"))?;
+        assert!(storage.metadata().is_canonical());
+        assert!(storage.value().is_some_and(|value| value.is_canonical()));
+        assert_arrays_eq!(
+            execute_variant_get(
+                decoded,
+                "$.a",
+                Some(VortexDType::Primitive(PType::I64, Nullability::Nullable)),
+            )?,
+            PrimitiveArray::from_option_iter(expected.iter().copied()),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// A shredded Variant is left alone: its extractions read the shredded children.
+    #[test]
+    fn test_decode_unshredded_storage_keeps_shredded() -> VortexResult<()> {
+        let events = make_nested_shredded_events()?;
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let decoded = decode_unshredded_storage(events.clone(), &mut ctx)?;
+
+        assert!(decoded.as_::<Variant>().shredded().is_some());
+        assert_arrays_eq!(
+            execute_variant_get(
+                decoded,
+                "$.kind",
+                Some(VortexDType::Utf8(Nullability::Nullable)),
+            )?,
+            execute_variant_get(
+                events,
+                "$.kind",
+                Some(VortexDType::Utf8(Nullability::Nullable)),
+            )?,
             &mut ctx
         );
         Ok(())

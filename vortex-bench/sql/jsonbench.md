@@ -73,29 +73,32 @@ Query time of Vortex relative to Parquet, on one million rows with DataFusion on
 
 | Shredding | Q0 | Q1 | Q2 | Q3 | Q4 |
 | --- | --- | --- | --- | --- | --- |
-| `none` | 1.02 | 1.32 | 1.08 | 1.09 | 0.87 |
-| `query-fields` | 0.22 | 0.43 | 0.29 | 0.28 | 0.24 |
+| `none` | 1.03 | 1.02 | 1.06 | 0.83 | 0.77 |
+| `query-fields` | 0.21 | 0.40 | 0.33 | 0.29 | 0.26 |
 
 The file is 126.5 MB against 128.6 MB of Parquet for `none`, and 135.1 MB against 118.6 MB
 for `query-fields`.
 
-With the queried fields shredded, DataFusion's aggregation takes most of the remaining time.
-What is left in Vortex, largest first:
+On `none` both formats spend their time in the same `parquet-variant-compute` kernel, which
+parses every Variant once per extracted path. With the queried fields shredded, DataFusion's
+aggregation takes most of the remaining time. What is left in Vortex:
 
-1. **Every extraction decodes the storage again.** Each `variant_get` over an unshredded
-   path decompresses the metadata and the value and converts them to Arrow, once per call,
-   where DataFusion over Parquet decodes the column once. Extracting several paths in one
-   pass, or decoding the storage once per chunk, would close the gap on `none`, which is
-   widest on Q1.
-2. **A Variant column is one unit of IO.** A chunk holds the metadata, the binary value, and
+1. **A Variant column is one unit of IO.** A chunk holds the metadata, the binary value, and
    every shredded column in a single segment, so a query that needs one shredded field still
    reads all of it. Writing each shredded field as its own column layout, and resolving
    `variant_get` in the layout reader, would let a shredded query read only the fields it
    names. On local disk this is a small part of the shredded queries; on object storage it
    is the bytes fetched.
-3. **A chunked Variant compresses chunk by chunk.** The compressor keeps the chunks of a
-   chunked Variant apart, so a writer that feeds it small batches stores many small Variants.
-   `data-gen` avoids this by reading each Parquet row group as one batch.
+2. **Shredded chunks compress chunk by chunk.** The compressor merges the chunks of an
+   unshredded Variant, but keeps shredded ones apart, so a writer that feeds it small batches
+   of shredded data stores many small Variants. `data-gen` avoids this by reading each
+   Parquet row group as one batch.
+3. **One pass per path.** Extracting several paths of an unshredded Variant parses each
+   value once per path. A kernel that extracts them in one pass would speed up `none` for
+   Vortex and Parquet alike.
+4. **The V2 scan decodes per extraction.** The V1 scan decodes the storage of an unshredded
+   Variant once per chunk when an expression extracts from it more than once. The V2 scan
+   does not yet, and is slower on `none`.
 
 ## Running locally
 

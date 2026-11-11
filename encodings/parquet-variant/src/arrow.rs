@@ -245,12 +245,22 @@ fn prepare_chunked_variant_for_export(
         storages.push(prepare_variant_for_export(chunk.clone(), typed_value, ctx)?);
         offset = end;
     }
+    merge_storage_chunks(&storages, array.dtype().nullability())
+}
+
+/// Merges Parquet Variant `storages` into one, whose children chunk the children of each.
+///
+/// The children of every storage must agree on presence and, up to nullability, on dtype.
+pub(crate) fn merge_storage_chunks(
+    storages: &[ArrayRef],
+    nullability: Nullability,
+) -> VortexResult<ArrayRef> {
     let storages = storages
         .iter()
         .map(|storage| storage.as_::<ParquetVariant>())
         .collect::<Vec<_>>();
 
-    let validity = match array.dtype().nullability() {
+    let validity = match nullability {
         Nullability::NonNullable => Validity::NonNullable,
         Nullability::Nullable => {
             let validities = storages

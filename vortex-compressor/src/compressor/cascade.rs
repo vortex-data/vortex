@@ -10,6 +10,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
+use vortex_array::arrays::Chunked;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
@@ -252,11 +253,24 @@ impl CascadingCompressor {
                 }
             }
             Canonical::Variant(variant_array) => {
+                // Chunked core storage would compress chunk by chunk. Its encoding may execute
+                // to a single array whose children span the chunks, which compress as a whole.
+                let core_storage = variant_array.core_storage().clone();
+                let core_storage = if core_storage.is::<Chunked>() {
+                    let merged = core_storage.clone().execute::<VariantArray>(exec_ctx)?;
+                    if merged.shredded().is_none() && !merged.core_storage().is::<Chunked>() {
+                        merged.core_storage().clone()
+                    } else {
+                        core_storage
+                    }
+                } else {
+                    core_storage
+                };
                 let core_storage = self
                     .variant_storage
                     .as_deref()
                     .unwrap_or(self)
-                    .compress_physical_slots(variant_array.core_storage(), exec_ctx)?;
+                    .compress_physical_slots(&core_storage, exec_ctx)?;
                 let shredded = variant_array
                     .shredded()
                     .map(|arr| {

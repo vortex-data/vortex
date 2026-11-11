@@ -13,10 +13,12 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::variant::decode_unshredded_storage;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
+use vortex_array::scalar_fn::fns::variant_get::VariantGet;
 use vortex_array::serde::SerializedArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -91,6 +93,16 @@ impl FlatReader {
     }
 }
 
+/// The number of `variant_get` calls in `expr`.
+fn count_variant_gets(expr: &BoundExpression) -> usize {
+    usize::from(expr.is::<VariantGet>())
+        + expr
+            .children()
+            .iter()
+            .map(count_variant_gets)
+            .sum::<usize>()
+}
+
 impl LayoutReader for FlatReader {
     fn name(&self) -> &Arc<str> {
         &self.name
@@ -151,6 +163,12 @@ impl LayoutReader for FlatReader {
                 array = array.slice(row_range.clone())?;
             }
 
+            // Several extractions from one Variant would each decode its storage.
+            if array.dtype().is_variant() && count_variant_gets(&expr) > 1 {
+                let mut ctx = session.create_execution_ctx();
+                array = decode_unshredded_storage(array, &mut ctx)?;
+            }
+
             let mask_density = mask.density();
             let array_mask = if mask_density < EXPR_EVAL_THRESHOLD {
                 // We have the choice to apply the filter or the expression first, we apply the
@@ -196,6 +214,7 @@ impl LayoutReader for FlatReader {
         let name = Arc::clone(&self.name);
         let array = self.array_future();
         let expr = expr.clone();
+        let session = self.session.clone();
 
         Ok(async move {
             trace!("Flat array evaluation {} - {}", name, expr);
@@ -219,6 +238,12 @@ impl LayoutReader for FlatReader {
             //  `CAST(a, u8) WHERE a < 256`
             if !mask.all_true() {
                 array = array.filter(mask)?;
+            }
+
+            // Several extractions from one Variant would each decode its storage.
+            if array.dtype().is_variant() && count_variant_gets(&expr) > 1 {
+                let mut ctx = session.create_execution_ctx();
+                array = decode_unshredded_storage(array, &mut ctx)?;
             }
 
             // Evaluate the projection expression.
