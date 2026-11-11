@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The eight TPC-H tables at scale factor 1, each as a whole-table compression dataset.
+//! The TPC-H tables at scale factor 1, each as a whole-table compression dataset.
+//!
+//! `nation` (25 rows) and `region` (5 rows) are left out: at that size their files are mostly
+//! format overhead, which says little about compression.
 
 use std::path::PathBuf;
 
@@ -24,24 +27,20 @@ use crate::utils::split;
 pub enum TpchSf1Table {
     Customer,
     LineItem,
-    Nation,
     Orders,
     Part,
     PartSupp,
-    Region,
     Supplier,
 }
 
 impl TpchSf1Table {
-    /// Every TPC-H table.
-    pub const ALL: [Self; 8] = [
+    /// Every TPC-H table this suite measures.
+    pub const ALL: [Self; 6] = [
         Self::Customer,
         Self::LineItem,
-        Self::Nation,
         Self::Orders,
         Self::Part,
         Self::PartSupp,
-        Self::Region,
         Self::Supplier,
     ];
 
@@ -50,11 +49,9 @@ impl TpchSf1Table {
         match self {
             Self::Customer => "customer",
             Self::LineItem => "lineitem",
-            Self::Nation => "nation",
             Self::Orders => "orders",
             Self::Part => "part",
             Self::PartSupp => "partsupp",
-            Self::Region => "region",
             Self::Supplier => "supplier",
         }
     }
@@ -90,11 +87,9 @@ impl Dataset for TpchSf1Table {
         match self {
             Self::Customer => "TPC-H SF1 customer",
             Self::LineItem => "TPC-H SF1 lineitem",
-            Self::Nation => "TPC-H SF1 nation",
             Self::Orders => "TPC-H SF1 orders",
             Self::Part => "TPC-H SF1 part",
             Self::PartSupp => "TPC-H SF1 partsupp",
-            Self::Region => "TPC-H SF1 region",
             Self::Supplier => "TPC-H SF1 supplier",
         }
     }
