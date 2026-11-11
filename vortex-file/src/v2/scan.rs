@@ -177,17 +177,22 @@ impl ScanDriver {
 /// Runs `builder` to its end on the calling task, collecting its batches in row order.
 ///
 /// For small reads, such as index content or a table manifest, that need no runtime of their own.
+/// The sequential driver lets a chunk waiting for a read be overtaken by a later one, so the
+/// batches are put back in row order before they are returned.
 pub async fn collect(builder: ScanBuilder) -> VortexResult<Vec<ArrayRef>> {
     let scan = Arc::new(builder.prepare()?);
     let scope = WorkScope {
         file_ordinal: scan.file_ordinal(),
         rows: scan.rows().clone(),
     };
-    SequentialDriver::new()
+    let mut batches: Vec<(u64, ArrayRef)> = SequentialDriver::new()
         .execute(PlanRoot::new(scope, compose(&scan), scan.io()))
-        .map_ok(|batch| batch.batch)
+        .map_ok(|batch| (batch.scope.rows.start, batch.batch))
         .try_collect()
-        .await
+        .await?;
+    // Stable, so batches of one chunk keep the order they were produced in.
+    batches.sort_by_key(|(start, _)| *start);
+    Ok(batches.into_iter().map(|(_, batch)| batch).collect())
 }
 
 /// The planners of a scan, composed: with a filter, its pruning plans first over the whole scan,
