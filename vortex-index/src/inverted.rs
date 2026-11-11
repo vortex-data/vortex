@@ -1,26 +1,39 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! A full-text inverted index: for each token, the rows holding it, each with its BM25 score.
+//! A full-text inverted index: for each token, the rows holding it and how often.
 //!
 //! Answers [`text_match`](crate::text_match::text_match) exactly, since it tokenizes the same way,
 //! and ranks rows for a free-text query with BM25 through [`IndexRows::search_bm25`].
 //!
-//! The index is built once over all the rows it covers, so each posting's BM25 contribution is
-//! known at build time and stored in place of its term frequency: a row's score for a query is
-//! the sum of its postings' stored scores. Each term also stores the largest of its scores, which
-//! bounds what the term can add to any row, so a search skips scoring the rows of terms too
-//! common to change its top `k` (MaxScore).
+//! Postings are plain Vortex columns, so the writer's compressor packs them: each term's postings
+//! are a `List<Struct{gap, tf}>` of the gap from the previous row and the term's frequency there,
+//! which bit-pack to a few bits a posting. A bit-packed chunk has one bit width, so terms are
+//! ordered by how many rows hold them (in powers of two), then alphabetically: each chunk of
+//! terms then has gaps of about the same size. Zone maps over the term still prune a lookup to
+//! one chunk per frequency class.
+//!
+//! The index is built once over all the rows it covers, so each term also stores a bound on the
+//! largest BM25 score it gives any row, which a search uses to skip scoring the rows of terms too
+//! common to change its top `k` (MaxScore). Row lengths, which BM25 normalizes by, are stored
+//! once per row rather than per posting: as the postings of the empty term, which no text
+//! tokenizes to, with each row's length in place of its frequency.
 
+use std::cmp::Reverse;
 use std::sync::Arc;
 
 use roaring::RoaringBitmap;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ListArray;
+use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability::NonNullable;
@@ -34,7 +47,7 @@ use vortex_array::expr::lit;
 use vortex_array::expr::or_collect;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::validity::Validity;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -50,9 +63,6 @@ use vortex_session::registry::CachedId;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::postings::IndexRowsChunk;
-use crate::postings::bitmap_from_bytes;
-use crate::postings::bitmap_to_bytes;
-use crate::postings::f32s_to_bytes;
 use crate::rows::Hit;
 use crate::rows::IndexRows;
 use crate::rows::IndexStep;
@@ -65,13 +75,19 @@ pub const INVERTED_INDEX_ID: &str = "vortex.idx.inverted";
 
 const TERM_FIELD: &str = "term";
 const POSTINGS_FIELD: &str = "postings";
-const SCORES_FIELD: &str = "scores";
-const MAX_SCORE_FIELD: &str = "max_score";
+const GAP_FIELD: &str = "gap";
+const TF_FIELD: &str = "tf";
+const BOUND_FIELD: &str = "bound";
+
+/// The term whose postings hold every non-empty row's length instead of a frequency.
+const CORPUS_TERM: &str = "";
 
 /// BM25 term-frequency saturation.
 const BM25_K1: f32 = 1.2;
 /// BM25 document-length normalization.
 const BM25_B: f32 = 0.75;
+/// A term's stored bound is its largest `tf / (tf + norm)`, rounded up to this many steps.
+const BOUND_STEPS: f32 = 255.0;
 
 /// A full-text inverted index over a UTF-8 column.
 #[derive(Clone, Debug)]
@@ -84,74 +100,197 @@ impl InvertedIndex {
     }
 }
 
-/// Sorted terms, each with its rows and, per row in row order, the term's BM25 score there.
-///
-/// Scores are little-endian `f32`s, read in place, so a search reads one term's score for one
-/// row without decoding the rest.
+/// Terms, each with its postings still encoded: a lookup decodes just the terms it reads.
 #[derive(Debug)]
 pub struct InvertedEntries {
     terms: Vec<String>,
-    postings: Vec<RoaringBitmap>,
-    scores: Vec<ByteBuffer>,
-    max_scores: Vec<f32>,
+    /// `List<Struct{gap: u32, tf: u32}>`, one list per term, in row order.
+    postings: ListViewArray,
+    bounds: Vec<u8>,
 }
 
-/// One term's postings.
-struct Posting<'a> {
-    rows: &'a RoaringBitmap,
-    scores: &'a [u8],
+/// One term's postings, decoded.
+struct Posting {
+    rows: Vec<u32>,
+    tfs: Buffer<u32>,
+    bound: u8,
+}
+
+/// What BM25 needs of the whole corpus: its size and each row's length normalization.
+struct Corpus {
+    docs: f32,
+    /// `k1 * (1 - b + b * length / average)`, by row. Rows past the end are empty.
+    norms: Vec<f32>,
+}
+
+impl Corpus {
+    /// From the non-empty rows, ascending, and their lengths.
+    #[expect(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        reason = "corpus counts only weight scores, so f32 precision is ample"
+    )]
+    fn new(rows: &[u32], lengths: &[u32]) -> Self {
+        let total: u64 = lengths.iter().map(|&length| u64::from(length)).sum();
+        let avg_length = if rows.is_empty() {
+            1.0
+        } else {
+            (total as f64 / rows.len() as f64) as f32
+        };
+        let norm_a = BM25_K1 * (1.0 - BM25_B);
+        let norm_b = BM25_K1 * BM25_B / avg_length;
+        let mut norms = vec![norm_a; rows.last().map_or(0, |&row| row as usize + 1)];
+        for (&row, &length) in rows.iter().zip(lengths) {
+            norms[row as usize] = norm_a + norm_b * length as f32;
+        }
+        Self {
+            docs: rows.len() as f32,
+            norms,
+        }
+    }
+
+    /// IDF times `k1 + 1`, for a term held by `df` rows.
+    #[expect(clippy::cast_precision_loss, reason = "row counts only weight scores")]
+    fn weight(&self, df: usize) -> f32 {
+        let df = df as f32;
+        (1.0 + (self.docs - df + 0.5) / (df + 0.5)).ln() * (BM25_K1 + 1.0)
+    }
+
+    /// `tf / (tf + norm)`: a term's score in `row` is this times its weight.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "term frequencies only weight scores"
+    )]
+    fn saturation(&self, tf: u32, row: u32) -> f32 {
+        let tf = tf as f32;
+        tf / (tf + self.norms[row as usize])
+    }
+
+    /// The bound stored for postings `(row, tf)`: their largest saturation, rounded up.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a saturation is in [0, 1), so its steps fit a u8"
+    )]
+    fn bound(&self, postings: impl Iterator<Item = (u32, u32)>) -> u8 {
+        let max = postings
+            .map(|(row, tf)| self.saturation(tf, row))
+            .fold(0.0, f32::max);
+        (max * BOUND_STEPS).ceil().clamp(0.0, BOUND_STEPS) as u8
+    }
+}
+
+/// A posting list being scored: its rows and frequencies, the term's weight, and the most it
+/// adds to a row.
+struct Scoring {
+    posting: Posting,
+    weight: f32,
     max_score: f32,
 }
 
-impl Posting<'_> {
-    /// Each row and its score, in row order.
-    fn scored(&self) -> impl Iterator<Item = (u32, f32)> + '_ {
-        self.rows.iter().zip(
-            self.scores
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .map(|c| f32::from_le_bytes(*c)),
-        )
+impl Scoring {
+    fn new(posting: Posting, corpus: &Corpus) -> Self {
+        let weight = corpus.weight(posting.rows.len());
+        let max_score = weight * f32::from(posting.bound) / BOUND_STEPS;
+        Self {
+            posting,
+            weight,
+            max_score,
+        }
+    }
+
+    /// Each row and the term's score there, in row order.
+    fn scored<'a>(&'a self, corpus: &'a Corpus) -> impl Iterator<Item = (u32, f32)> + 'a {
+        self.posting
+            .rows
+            .iter()
+            .zip(self.posting.tfs.iter())
+            .map(|(&row, &tf)| (row, self.weight * corpus.saturation(tf, row)))
     }
 
     /// The term's score in `row`, if the row holds the term.
-    fn score_of(&self, row: u32) -> Option<f32> {
-        if !self.rows.contains(row) {
-            return None;
-        }
-        let idx = usize::try_from(self.rows.rank(row) - 1).ok()? * 4;
-        let bytes = self.scores.get(idx..idx + 4)?;
-        Some(f32::from_le_bytes(bytes.try_into().ok()?))
+    fn score_of(&self, row: u32, corpus: &Corpus) -> Option<f32> {
+        let idx = self.posting.rows.binary_search(&row).ok()?;
+        Some(self.weight * corpus.saturation(self.posting.tfs[idx], row))
     }
+}
+
+fn u32_field(
+    postings: &StructArray,
+    name: &str,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Buffer<u32>> {
+    Ok(postings
+        .unmasked_field_by_name(name)?
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?
+        .into_buffer::<u32>())
 }
 
 impl InvertedEntries {
-    fn get(&self, term: &str) -> Option<Posting<'_>> {
-        self.terms
-            .binary_search_by(|probe| probe.as_str().cmp(term))
-            .ok()
-            .map(|idx| Posting {
-                rows: &self.postings[idx],
-                scores: self.scores[idx].as_slice(),
-                max_score: self.max_scores[idx],
-            })
+    /// Terms are ordered by frequency class, so not sorted within a chunk.
+    fn position(&self, term: &str) -> Option<usize> {
+        self.terms.iter().position(|probe| probe == term)
+    }
+
+    fn get(&self, term: &str, ctx: &mut ExecutionCtx) -> VortexResult<Option<Posting>> {
+        let Some(idx) = self.position(term) else {
+            return Ok(None);
+        };
+        let postings = self
+            .postings
+            .list_elements_at(idx, ctx)?
+            .execute::<StructArray>(ctx)?;
+        let mut rows = u32_field(&postings, GAP_FIELD, ctx)?.to_vec();
+        let mut row = 0u32;
+        for gap in &mut rows {
+            row = row.wrapping_add(*gap);
+            *gap = row;
+        }
+        let tfs = u32_field(&postings, TF_FIELD, ctx)?;
+        vortex_ensure_eq!(
+            rows.len(),
+            tfs.len(),
+            "Inverted index entry has mismatched rows and frequencies"
+        );
+        Ok(Some(Posting {
+            rows,
+            tfs,
+            bound: self.bounds[idx],
+        }))
     }
 }
 
-fn find<'a>(chunks: &'a [Arc<InvertedEntries>], term: &str) -> Option<Posting<'a>> {
-    chunks.iter().find_map(|chunk| chunk.get(term))
+fn find(
+    chunks: &[Arc<InvertedEntries>],
+    term: &str,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Posting>> {
+    for chunk in chunks {
+        if let Some(posting) = chunk.get(term, ctx)? {
+            return Ok(Some(posting));
+        }
+    }
+    Ok(None)
+}
+
+fn posting_fields() -> StructFields {
+    let names: FieldNames = vec![GAP_FIELD, TF_FIELD].into();
+    let u32 = DType::Primitive(PType::U32, NonNullable);
+    StructFields::new(names, vec![u32.clone(), u32])
 }
 
 fn index_fields() -> StructFields {
-    let names: FieldNames = vec![TERM_FIELD, POSTINGS_FIELD, SCORES_FIELD, MAX_SCORE_FIELD].into();
+    let names: FieldNames = vec![TERM_FIELD, POSTINGS_FIELD, BOUND_FIELD].into();
     StructFields::new(
         names,
         vec![
             DType::Utf8(NonNullable),
-            DType::Binary(NonNullable),
-            DType::Binary(NonNullable),
-            DType::Primitive(PType::F32, NonNullable),
+            DType::List(
+                Arc::new(DType::Struct(posting_fields(), NonNullable)),
+                NonNullable,
+            ),
+            DType::Primitive(PType::U8, NonNullable),
         ],
     )
 }
@@ -203,12 +342,11 @@ impl IndexVTable for InvertedIndex {
         _dtype: &DType,
         _options: &(),
         _data_block_len: Option<u64>,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<InvertedBuilder> {
         Ok(InvertedBuilder {
             terms: HashMap::new(),
-            docs: 0,
-            total_length: 0,
+            session: session.clone(),
         })
     }
 
@@ -246,19 +384,12 @@ impl IndexVTable for InvertedIndex {
         _options: &(),
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let postings = chunk
-            .postings
-            .iter()
-            .map(bitmap_to_bytes)
-            .collect::<VortexResult<Vec<_>>>()?;
         Ok(StructArray::try_new_with_dtype(
             vec![
                 VarBinViewArray::from_iter_str(&chunk.terms).into_array(),
-                VarBinViewArray::from_iter_bin(postings).into_array(),
-                VarBinViewArray::from_iter_bin(chunk.scores.iter().map(ByteBuffer::as_slice))
-                    .into_array(),
+                chunk.postings.clone().into_array(),
                 chunk
-                    .max_scores
+                    .bounds
                     .iter()
                     .copied()
                     .collect::<PrimitiveArray>()
@@ -286,32 +417,16 @@ impl IndexVTable for InvertedIndex {
                     .map_err(|err| vortex_err!("Inverted index term is not UTF-8: {err}"))
             })
             .collect::<VortexResult<Vec<_>>>()?;
-        let postings = rows
-            .binary_field(POSTINGS_FIELD, ctx)?
-            .iter()
-            .map(|bytes| bitmap_from_bytes(bytes.as_slice()))
-            .collect::<VortexResult<Vec<_>>>()?;
-        let scores = rows.binary_field(SCORES_FIELD, ctx)?;
-        let max_scores = rows
-            .field(MAX_SCORE_FIELD)?
+        let bounds = rows
+            .field(BOUND_FIELD)?
             .execute::<PrimitiveArray>(ctx)?
-            .as_slice::<f32>()
+            .as_slice::<u8>()
             .to_vec();
-        for (bitmap, scores) in postings.iter().zip(&scores) {
-            vortex_ensure_eq!(
-                bitmap.len() * 4,
-                scores.len() as u64,
-                "Inverted index entry has mismatched postings and scores"
-            );
-        }
-        // Rows are sorted by term, and the chunk boundaries never split that order.
-        debug_assert!(terms.is_sorted());
         debug_assert_eq!(rows.len(), terms.len());
         Ok(InvertedEntries {
             terms,
-            postings,
-            scores,
-            max_scores,
+            postings: rows.field(POSTINGS_FIELD)?.execute::<ListViewArray>(ctx)?,
+            bounds,
         })
     }
 
@@ -321,16 +436,18 @@ impl IndexVTable for InvertedIndex {
         chunks: &[Arc<InvertedEntries>],
         _data_row_count: u64,
         _options: &(),
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<RowLocator> {
         let mut result: Option<RoaringBitmap> = None;
         for term in terms {
-            let Some(posting) = find(chunks, term) else {
+            let Some(posting) = find(chunks, term, ctx)? else {
                 return Ok(RowLocator::empty_rows());
             };
+            let rows = RoaringBitmap::from_sorted_iter(posting.rows.iter().copied())
+                .map_err(|err| vortex_err!("Inverted index rows are not sorted: {err}"))?;
             result = Some(match result {
-                None => posting.rows.clone(),
-                Some(acc) => acc & posting.rows,
+                None => rows,
+                Some(acc) => acc & rows,
             });
         }
         Ok(RowLocator::Rows(result.unwrap_or_default()))
@@ -383,7 +500,7 @@ impl IndexRows<InvertedIndex> {
     }
 
     /// [`search_bm25`](Self::search_bm25) as steps: the key column on the first search, then the
-    /// query's terms.
+    /// query's terms, with the corpus entry on the first search.
     pub fn search_bm25_steps(
         self: &Arc<Self>,
         query: &str,
@@ -393,17 +510,46 @@ impl IndexRows<InvertedIndex> {
         if terms.is_empty() || k == 0 {
             return Ok(IndexStep::Done(Vec::new()));
         }
-        self.chunks_for_keys_step(terms.clone())?
-            .map(move |chunks| Ok(bm25_top(&chunks, &terms, k)))
+        let corpus = self.memo_get::<Corpus>();
+        let mut keys = terms.clone();
+        if corpus.is_none() {
+            keys.push(CORPUS_TERM.to_string());
+        }
+        let this = Arc::clone(self);
+        self.chunks_for_keys_step(keys)?.map(move |chunks| {
+            let mut ctx = this.session.create_execution_ctx();
+            let corpus = match corpus {
+                Some(corpus) => corpus,
+                None => {
+                    let lengths = find(&chunks, CORPUS_TERM, &mut ctx)?
+                        .ok_or_else(|| vortex_err!("Inverted index has no row lengths"))?;
+                    let corpus = Arc::new(Corpus::new(&lengths.rows, &lengths.tfs));
+                    this.memo_set(Arc::clone(&corpus));
+                    corpus
+                }
+            };
+            bm25_top(&chunks, &terms, k, &corpus, &mut ctx)
+        })
     }
 }
 
 /// The `k` rows of `chunks` that score best for `terms` under BM25, best first.
-fn bm25_top(chunks: &[Arc<InvertedEntries>], terms: &[String], k: usize) -> Vec<Hit> {
-    let mut lists: Vec<Posting<'_>> = terms.iter().filter_map(|term| find(chunks, term)).collect();
+fn bm25_top(
+    chunks: &[Arc<InvertedEntries>],
+    terms: &[String],
+    k: usize,
+    corpus: &Corpus,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<Hit>> {
+    let mut lists = Vec::with_capacity(terms.len());
+    for term in terms {
+        if let Some(posting) = find(chunks, term, ctx)? {
+            lists.push(Scoring::new(posting, corpus));
+        }
+    }
     lists.sort_by(|a, b| b.max_score.total_cmp(&a.max_score));
-    // What the terms from each position on can add to one row at most. Summed in f64 with
-    // some slack, so f32 rounding of a row's own sum never exceeds it.
+    // What the terms from each position on can add to one row at most. Summed in f64 with some
+    // slack, so f32 rounding of a row's own sum never exceeds it.
     let mut remaining = vec![0f64; lists.len() + 1];
     for idx in (0..lists.len()).rev() {
         remaining[idx] = remaining[idx + 1] + f64::from(lists[idx].max_score);
@@ -416,7 +562,7 @@ fn bm25_top(chunks: &[Arc<InvertedEntries>], terms: &[String], k: usize) -> Vec<
         if kth_best(&scored, k).is_some_and(|kth| bound(walked) < f64::from(kth)) {
             break;
         }
-        scored = merge(scored, lists[walked].scored());
+        scored = merge(scored, lists[walked].scored(corpus));
         walked += 1;
     }
     if walked < lists.len() {
@@ -427,7 +573,7 @@ fn bm25_top(chunks: &[Arc<InvertedEntries>], terms: &[String], k: usize) -> Vec<
                 return false;
             }
             for list in &lists[walked..] {
-                if let Some(extra) = list.score_of(*row) {
+                if let Some(extra) = list.score_of(*row, corpus) {
                     *score += extra;
                 }
             }
@@ -442,16 +588,52 @@ fn bm25_top(chunks: &[Arc<InvertedEntries>], terms: &[String], k: usize) -> Vec<
             score,
         })
         .collect();
-    top_k(hits, k)
+    Ok(top_k(hits, k))
 }
 
 /// Builds an [`InvertedIndex`] while the column streams past.
 pub struct InvertedBuilder {
-    /// For each term, `(row, frequency, row length)` in row order. Rows arrive in order, so
-    /// appending keeps them sorted.
-    terms: HashMap<String, Vec<(u32, u32, u32)>>,
-    docs: u64,
-    total_length: u64,
+    /// For each term, `(row, frequency)` in row order. Rows arrive in order, so appending keeps
+    /// them sorted. The corpus term holds each non-empty row's length.
+    terms: HashMap<String, Vec<(u32, u32)>>,
+    session: VortexSession,
+}
+
+/// Concatenate each term's postings into one `List<Struct{gap, tf}>`.
+fn posting_lists<'a>(
+    lists: impl IntoIterator<Item = &'a [(u32, u32)]>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ListViewArray> {
+    let mut gaps = Vec::new();
+    let mut tfs = Vec::new();
+    let mut offsets = vec![0u64];
+    for list in lists {
+        let mut prev = 0;
+        for &(row, tf) in list {
+            gaps.push(row - prev);
+            tfs.push(tf);
+            prev = row;
+        }
+        offsets.push(gaps.len() as u64);
+    }
+    let len = gaps.len();
+    let elements = StructArray::try_new_with_dtype(
+        vec![
+            Buffer::from(gaps).into_array(),
+            Buffer::from(tfs).into_array(),
+        ],
+        posting_fields(),
+        len,
+        Validity::NonNullable,
+    )?;
+    ListArray::try_new(
+        elements.into_array(),
+        Buffer::from(offsets).into_array(),
+        Validity::NonNullable,
+        ctx,
+    )?
+    .into_array()
+    .execute::<ListViewArray>(ctx)
 }
 
 impl IndexBuilder for InvertedBuilder {
@@ -480,59 +662,52 @@ impl IndexBuilder for InvertedBuilder {
                 length += 1;
                 *row_terms.entry(token).or_default() += 1;
             }
-            for (term, tf) in row_terms.drain() {
-                self.terms.entry(term).or_default().push((row, tf, length));
+            if length == 0 {
+                continue;
             }
-            self.docs += 1;
-            self.total_length += u64::from(length);
+            for (term, tf) in row_terms.drain() {
+                self.terms.entry(term).or_default().push((row, tf));
+            }
+            self.terms
+                .entry(CORPUS_TERM.to_string())
+                .or_default()
+                .push((row, length));
         }
         Ok(())
     }
 
-    #[expect(
-        clippy::cast_precision_loss,
-        clippy::cast_possible_truncation,
-        reason = "corpus counts only weight scores, so f32 precision is ample"
-    )]
-    fn finish(self) -> VortexResult<Option<(Vec<InvertedEntries>, ())>> {
-        let doc_count = self.docs as f32;
-        let avg_length = if self.docs == 0 {
-            1.0
-        } else {
-            (self.total_length as f64 / self.docs as f64) as f32
-        };
-        // The per-row part of the BM25 denominator: k1 * (1 - b + b * len / avg).
-        let norm_a = BM25_K1 * (1.0 - BM25_B);
-        let norm_b = BM25_K1 * BM25_B / avg_length;
+    fn finish(mut self) -> VortexResult<Option<(Vec<InvertedEntries>, ())>> {
+        let mut ctx = self.session.create_execution_ctx();
+        let lengths = self.terms.remove(CORPUS_TERM).unwrap_or_default();
+        let (rows, row_lengths): (Vec<u32>, Vec<u32>) = lengths.iter().copied().unzip();
+        let corpus = Corpus::new(&rows, &row_lengths);
 
+        // The corpus entry first, then by frequency class, most common first, then by term.
         let mut entries: Vec<_> = self.terms.into_iter().collect();
-        entries.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
-        let mut terms = Vec::with_capacity(entries.len());
-        let mut postings = Vec::with_capacity(entries.len());
-        let mut scores = Vec::with_capacity(entries.len());
-        let mut max_scores = Vec::with_capacity(entries.len());
-        for (term, rows) in entries {
-            let df = rows.len() as f32;
-            let idf = (1.0 + (doc_count - df + 0.5) / (df + 0.5)).ln();
-            let weight = idf * (BM25_K1 + 1.0);
-            let term_scores: Vec<f32> = rows
-                .iter()
-                .map(|&(_, tf, length)| {
-                    let tf = tf as f32;
-                    weight * tf / (tf + norm_a + norm_b * length as f32)
-                })
-                .collect();
-            terms.push(term);
-            postings.push(rows.iter().map(|(row, ..)| *row).collect::<RoaringBitmap>());
-            max_scores.push(term_scores.iter().copied().fold(0.0, f32::max));
-            scores.push(ByteBuffer::from(f32s_to_bytes(&term_scores)));
-        }
+        entries.sort_unstable_by(|(a, pa), (b, pb)| {
+            Reverse(pa.len().ilog2())
+                .cmp(&Reverse(pb.len().ilog2()))
+                .then_with(|| a.cmp(b))
+        });
+        entries.insert(0, (CORPUS_TERM.to_string(), lengths));
+
+        let bounds = entries
+            .iter()
+            .enumerate()
+            .map(|(idx, (_, postings))| {
+                if idx == 0 {
+                    0
+                } else {
+                    corpus.bound(postings.iter().copied())
+                }
+            })
+            .collect();
+        let postings = posting_lists(entries.iter().map(|(_, p)| p.as_slice()), &mut ctx)?;
         Ok(Some((
             vec![InvertedEntries {
-                terms,
+                terms: entries.into_iter().map(|(term, _)| term).collect(),
                 postings,
-                scores,
-                max_scores,
+                bounds,
             }],
             (),
         )))
@@ -541,7 +716,7 @@ impl IndexBuilder for InvertedBuilder {
     fn buffered_bytes(&self) -> u64 {
         self.terms
             .iter()
-            .map(|(term, rows)| (term.len() + rows.len() * 12) as u64)
+            .map(|(term, rows)| (term.len() + rows.len() * 8) as u64)
             .sum()
     }
 }

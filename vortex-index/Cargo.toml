@@ -17,9 +17,11 @@ workspace = true
 
 [dependencies]
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
+parking_lot = { workspace = true }
 prost = { workspace = true }
 roaring = { workspace = true }
 vortex-array = { workspace = true }
+vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-edition = { workspace = true }
 vortex-error = { workspace = true }

@@ -4,9 +4,10 @@
 //! Reading an index's content, wherever it is stored.
 
 use std::any::Any;
+use std::any::TypeId;
 use std::sync::Arc;
-use std::sync::OnceLock;
 
+use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
@@ -21,6 +22,7 @@ use vortex_layout::scan::v2::ScanBuilder;
 use vortex_layout::scan::v2::ScanFile;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::InvertedIndex;
 use crate::TrigramIndex;
@@ -127,8 +129,8 @@ pub struct IndexRows<V: IndexVTable> {
     pub(crate) file: ScanFile,
     pub(crate) session: VortexSession,
     /// State an index kind derives once from its content and reuses across searches, such as
-    /// the IVF centroids.
-    pub(crate) memo: OnceLock<Arc<dyn Any + Send + Sync>>,
+    /// the IVF centroids, one value per type.
+    pub(crate) memo: Mutex<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
 }
 
 impl<V: IndexVTable> IndexRows<V> {
@@ -145,6 +147,20 @@ impl<V: IndexVTable> IndexRows<V> {
     /// Rows of indexed data the index covers.
     pub fn data_row_count(&self) -> u64 {
         self.data_row_count
+    }
+
+    /// The value of type `T` kept by [`Self::memo_set`], if any.
+    pub(crate) fn memo_get<T: Any + Send + Sync>(&self) -> Option<Arc<T>> {
+        self.memo
+            .lock()
+            .get(&TypeId::of::<T>())
+            .and_then(|value| Arc::clone(value).downcast::<T>().ok())
+    }
+
+    /// Keep `value` for later searches. A concurrent first search may have kept one already;
+    /// both derived it from the same content.
+    pub(crate) fn memo_set<T: Any + Send + Sync>(&self, value: Arc<T>) {
+        self.memo.lock().insert(TypeId::of::<T>(), value);
     }
 
     pub(crate) fn scan(&self) -> ScanBuilder {
