@@ -20,6 +20,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use super::DictConstraints;
 use super::DictEncoder;
+use super::codes_ptype_for_max_len;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -28,6 +29,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::decimal::DecimalArrayExt;
 use crate::dtype::BigCast;
 use crate::dtype::DecimalDType;
+use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -35,51 +37,42 @@ use crate::dtype::UnsignedPType;
 use crate::match_each_decimal_value_type;
 use crate::validity::Validity;
 
-/// Creates a dictionary encoder for decimal arrays of `decimal_dtype`.
+/// Creates a decimal encoder with a fixed code width based on the value domain and dictionary
+/// length limit.
 ///
-/// Dictionary values are stored in the canonical values type of the precision, so chunks whose
-/// values are stored narrower or wider share one dictionary. Codes have a fixed width chosen like
-/// [`super::primitive::primitive_dict_builder`], from the value domain and the length limit.
-pub fn decimal_dict_builder(
+/// Dictionary values are stored as `T`, which callers choose as the canonical values type of
+/// `decimal_dtype`, so chunks whose values are stored narrower or wider share one dictionary. The
+/// bound includes a possible null entry, so nullable values may require wider codes even when few
+/// distinct values occur. [`super::dict_encode_with_constraints`] narrows the codes after encoding;
+/// callers using this encoder directly retain the selected width.
+pub fn decimal_dict_builder<T: NativeDecimalType + Hash>(
     decimal_dtype: DecimalDType,
     nullability: Nullability,
     constraints: &DictConstraints,
     allocator: BufferAllocatorRef,
 ) -> Box<dyn DictEncoder> {
-    match_each_decimal_value_type!(decimal_dtype.canonical_values_type(), |T| {
-        decimal_dict_builder_typed::<T>(decimal_dtype, nullability, constraints, allocator)
-    })
-}
-
-fn decimal_dict_builder_typed<T: NativeDecimalType + Hash>(
-    decimal_dtype: DecimalDType,
-    nullability: Nullability,
-    constraints: &DictConstraints,
-    allocator: BufferAllocatorRef,
-) -> Box<dyn DictEncoder> {
-    // Codes start at zero, and nullable values need an additional dictionary entry for null.
-    let max_code = match T::DECIMAL_TYPE.byte_width() {
-        1 => u8::MAX as u64,
-        2 => u16::MAX as u64,
-        4 => u32::MAX as u64,
-        _ => u64::MAX,
+    // Nullable values need an additional dictionary entry for null.
+    let domain_len = match T::DECIMAL_TYPE {
+        DecimalType::I8 => 1 << u8::BITS,
+        DecimalType::I16 => 1 << u16::BITS,
+        DecimalType::I32 => 1 << u32::BITS,
+        DecimalType::I64 | DecimalType::I128 | DecimalType::I256 => u64::MAX,
     }
     .saturating_add(<u64 as From<bool>>::from(nullability.is_nullable()));
-    let max_code = max_code.min(constraints.max_len.saturating_sub(1) as u64);
-    match max_code {
-        max if max <= u8::MAX as u64 => Box::new(DecimalDictBuilder::<T, u8>::new_in(
+    match codes_ptype_for_max_len(domain_len.min(constraints.max_len as u64)) {
+        PType::U8 => Box::new(DecimalDictBuilder::<T, u8>::new_in(
             decimal_dtype,
             nullability,
             constraints,
             allocator,
         )),
-        max if max <= u16::MAX as u64 => Box::new(DecimalDictBuilder::<T, u16>::new_in(
+        PType::U16 => Box::new(DecimalDictBuilder::<T, u16>::new_in(
             decimal_dtype,
             nullability,
             constraints,
             allocator,
         )),
-        max if max <= u32::MAX as u64 => Box::new(DecimalDictBuilder::<T, u32>::new_in(
+        PType::U32 => Box::new(DecimalDictBuilder::<T, u32>::new_in(
             decimal_dtype,
             nullability,
             constraints,
@@ -275,10 +268,12 @@ mod tests {
 
     use rstest::rstest;
     use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::decimal_dict_builder;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
@@ -295,13 +290,16 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::DecimalType;
+    use crate::dtype::Nullability;
     use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
     use crate::dtype::i256;
     use crate::match_each_decimal_value_type;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    const USIZE_PTYPE: PType = PType::min_unsigned_ptype_for_value(usize::MAX as u64);
 
     fn decimal_of(values: &[i64], precision: u8, validity: Validity) -> DecimalArray {
         let decimal_dtype = DecimalDType::new(precision, 2);
@@ -399,6 +397,72 @@ mod tests {
             assert_arrays_eq!(dict, array, &mut ctx);
         }
         Ok(())
+    }
+
+    #[test]
+    fn reset_clears_dict() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let first =
+            decimal_of(&[1, 0, 3], 9, Validity::from_iter([true, false, true])).into_array();
+        let constraints = DictConstraints {
+            max_len: u32::MAX as usize,
+            ..UNCONSTRAINED
+        };
+        let mut encoder = dict_encoder_in(&first, &constraints, ctx.allocator().clone());
+
+        assert_arrays_eq!(
+            encoder.encode(&first, &mut ctx)?,
+            buffer![0u32, 1, 2].into_array(),
+            &mut ctx
+        );
+        assert_arrays_eq!(encoder.reset(), first, &mut ctx);
+
+        let second = decimal_of(&[4, 5], 9, Validity::AllValid).into_array();
+        assert_arrays_eq!(
+            encoder.encode(&second, &mut ctx)?,
+            buffer![0u32, 1].into_array(),
+            &mut ctx
+        );
+        assert_arrays_eq!(encoder.reset(), second, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::i8(2, NonNullable, usize::MAX, PType::U8)]
+    #[case::nullable_i8(2, Nullable, usize::MAX, PType::U16)]
+    #[case::i16(4, NonNullable, usize::MAX, PType::U16)]
+    #[case::nullable_i16(4, Nullable, usize::MAX, PType::U32)]
+    #[case::i32(9, NonNullable, usize::MAX, PType::U32)]
+    #[case::nullable_i32(9, Nullable, usize::MAX, USIZE_PTYPE)]
+    #[case::i64(18, NonNullable, usize::MAX, USIZE_PTYPE)]
+    #[case::i128(38, Nullable, usize::MAX, USIZE_PTYPE)]
+    #[case::i256(76, Nullable, usize::MAX, USIZE_PTYPE)]
+    #[case::empty_budget(4, Nullable, 0, PType::U8)]
+    #[case::full_u8_codes(4, Nullable, 256, PType::U8)]
+    #[case::widen_u8_codes(4, Nullable, 257, PType::U16)]
+    #[case::full_u16_codes(9, Nullable, 65_536, PType::U16)]
+    #[case::widen_u16_codes(9, Nullable, 65_537, PType::U32)]
+    fn codes_fit_dictionary_bounds(
+        #[case] precision: u8,
+        #[case] nullability: Nullability,
+        #[case] max_len: usize,
+        #[case] expected_codes_ptype: PType,
+    ) {
+        let ctx = SESSION.create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(precision, 2);
+        let constraints = DictConstraints {
+            max_len,
+            ..UNCONSTRAINED
+        };
+        let encoder = match_each_decimal_value_type!(decimal_dtype.canonical_values_type(), |T| {
+            decimal_dict_builder::<T>(
+                decimal_dtype,
+                nullability,
+                &constraints,
+                ctx.allocator().clone(),
+            )
+        });
+        assert_eq!(encoder.codes_ptype(), expected_codes_ptype);
     }
 
     #[test]
