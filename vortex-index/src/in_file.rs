@@ -16,6 +16,7 @@ use vortex_layout::LayoutChildType;
 use vortex_layout::LayoutRef;
 use vortex_layout::layouts::indexed::IndexVTable;
 use vortex_layout::layouts::indexed::Indexed;
+use vortex_layout::scan::v2::ScanCache;
 use vortex_layout::scan::v2::ScanFile;
 
 use crate::rows::IndexRows;
@@ -53,7 +54,9 @@ pub fn open_in_file_index<V: IndexVTable>(
     // The index content's segments sit in the data file, beside the data's.
     let scan_file = ScanFile {
         layout: index_child,
-        cache: None,
+        // The data file's cache describes its root layout, so the index child gets its own: every
+        // lookup then reuses the lowered plan instead of rebuilding it. It retains no segments.
+        cache: Some(ScanCache::with_retained_bytes(0)),
         ..file.scan_file()
     };
     Ok(Some(IndexRows {

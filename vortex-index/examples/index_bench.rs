@@ -16,13 +16,15 @@
 //! ```text
 //! index_bench build <trigram|fts|ivf> <input.parquet> <column> <outdir> [lists]
 //! index_bench query <trigram|fts|ivf> <outdir> <queries> [--repeat N] [--only I] [--scan]
-//!                   [--nprobe N] [--k K]
+//!                   [--index-only] [--top-k-only] [--nprobe N] [--k K]
 //! ```
 //!
 //! `build` writes `<outdir>/data.vortex` holding the column and a standalone index file
 //! `<outdir>/<kind>.vxi` over it, and prints sizes and timings as JSON. `query` prints one JSON
 //! line per query with its result, the median warm latency, and the exact bytes Vortex read from
-//! each file on a fresh open. `--scan` answers trigram queries without the index.
+//! each file on a fresh open. `--scan` answers trigram queries without the index, and `--index-only`
+//! probes the trigram index without reading data. `--top-k-only` runs only the BM25 ranking of a
+//! full-text query, skipping its match count.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -270,6 +272,7 @@ struct QueryArgs {
     only: Option<usize>,
     scan: bool,
     index_only: bool,
+    top_k_only: bool,
     nprobe: usize,
     k: usize,
 }
@@ -280,6 +283,7 @@ fn parse_flags(rest: &[String]) -> VortexResult<QueryArgs> {
         only: None,
         scan: false,
         index_only: false,
+        top_k_only: false,
         nprobe: 8,
         k: 10,
     };
@@ -298,6 +302,7 @@ fn parse_flags(rest: &[String]) -> VortexResult<QueryArgs> {
             "--k" => q.k = value()?,
             "--scan" => q.scan = true,
             "--index-only" => q.index_only = true,
+            "--top-k-only" => q.top_k_only = true,
             other => vortex_bail!("unknown flag {other}"),
         }
     }
@@ -313,6 +318,24 @@ async fn count(data: &VortexFile, filter: &Expression, selection: Selection) -> 
     )
     .await?;
     Ok(chunks.iter().map(|c| c.len() as u64).sum())
+}
+
+/// An opened index file of the benchmarked kind.
+enum Opened {
+    Trigram(IndexFile<TrigramIndex>),
+    Fts(IndexFile<InvertedIndex>),
+    Ivf(IndexFile<IvfIndex>),
+}
+
+impl Opened {
+    fn open(kind: &str, file: &VortexFile) -> VortexResult<Self> {
+        Ok(match kind {
+            "trigram" => Self::Trigram(IndexFile::open(TrigramIndex, file)?),
+            "fts" => Self::Fts(IndexFile::open(InvertedIndex, file)?),
+            "ivf" => Self::Ivf(IndexFile::open(IvfIndex, file)?),
+            other => vortex_bail!("unknown index kind {other}"),
+        })
+    }
 }
 
 /// One query's answer, as JSON.
@@ -353,14 +376,22 @@ async fn run_trigram(
     Ok(serde_json::json!({ "rows": rows }))
 }
 
-async fn run_fts(index: &IndexFile<InvertedIndex>, query: &str, k: usize) -> VortexResult<Answer> {
-    let matches = match index.locate_files(&text_match(root(), query)).await? {
-        Some((_, selections)) => selections
+/// Count the rows holding every query token, unless `top_k_only`, then rank the top `k` by BM25.
+async fn run_fts(
+    index: &IndexFile<InvertedIndex>,
+    query: &str,
+    k: usize,
+    top_k_only: bool,
+) -> VortexResult<Answer> {
+    let mut matches = 0;
+    if !top_k_only
+        && let Some((_, selections)) = index.locate_files(&text_match(root(), query)).await?
+    {
+        matches = selections
             .iter()
             .map(|s| s.selection.row_count(u64::MAX))
-            .sum(),
-        None => 0,
-    };
+            .sum::<u64>();
+    }
     let hits = index.rows().search_bm25(query, k).await?;
     Ok(serde_json::json!({
         "matches": matches,
@@ -424,6 +455,8 @@ async fn query(session: &VortexSession, args: &[String]) -> VortexResult<()> {
     // Files kept open across warm runs, as a long-lived reader would.
     let (warm_data, _) = open(session, &data_path, false).await?;
     let (warm_index, _) = open(session, &index_path, true).await?;
+    // Opened once, as a long-lived reader would, so caches it fills survive across warm runs.
+    let warm = Opened::open(kind, &warm_index)?;
 
     for qi in 0..count_queries {
         if flags.only.is_some_and(|only| only != qi) {
@@ -443,30 +476,27 @@ async fn query(session: &VortexSession, args: &[String]) -> VortexResult<()> {
             } else {
                 None
             };
-            let (data, index_file) = match &fresh {
-                Some(((data, _), (index, _))) => (data, index),
-                None => (&warm_data, &warm_index),
+            let fresh_index = match &fresh {
+                Some((_, (index, _))) => Some(Opened::open(kind, index)?),
+                None => None,
+            };
+            let (data, index) = match (&fresh, &fresh_index) {
+                (Some(((data, _), _)), Some(index)) => (data, index),
+                _ => (&warm_data, &warm),
             };
             let start = Instant::now();
-            answer = match kind.as_str() {
-                "trigram" => {
-                    let index = IndexFile::open(TrigramIndex, index_file)?;
+            answer = match index {
+                Opened::Trigram(index) => {
                     if flags.index_only {
-                        run_trigram_index(&index, &texts[qi]).await?
+                        run_trigram_index(index, &texts[qi]).await?
                     } else {
                         let column = index.column().to_string();
-                        run_trigram(data, (!flags.scan).then_some(&index), &texts[qi], &column)
+                        run_trigram(data, (!flags.scan).then_some(index), &texts[qi], &column)
                             .await?
                     }
                 }
-                "fts" => {
-                    let index = IndexFile::open(InvertedIndex, index_file)?;
-                    run_fts(&index, &texts[qi], flags.k).await?
-                }
-                _ => {
-                    let index = IndexFile::open(IvfIndex, index_file)?;
-                    run_ivf(&index, &vectors[qi], flags.k, flags.nprobe).await?
-                }
+                Opened::Fts(index) => run_fts(index, &texts[qi], flags.k, flags.top_k_only).await?,
+                Opened::Ivf(index) => run_ivf(index, &vectors[qi], flags.k, flags.nprobe).await?,
             };
             match &fresh {
                 Some(((_, data_bytes), (_, index_bytes))) => {

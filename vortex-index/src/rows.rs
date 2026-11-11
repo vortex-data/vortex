@@ -25,6 +25,9 @@ use vortex_layout::scan::v2::ScanFile;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
+use crate::InvertedIndex;
+use crate::TrigramIndex;
+
 /// Run a scan v2 `builder` to its end, collecting its batches in row order.
 ///
 /// Index content and catalog reads are small, so one chunk runs at a time per worker.
@@ -33,6 +36,12 @@ pub async fn collect(builder: ScanBuilder) -> VortexResult<Vec<ArrayRef>> {
         .run(builder)
         .try_collect()
         .await
+}
+
+/// The keys a plan reads, by key type.
+enum PlanKeys<'a> {
+    Strings(&'a [String]),
+    U32s(&'a [u32]),
 }
 
 /// A scored row returned by a ranked search, in the index's row space.
@@ -91,6 +100,10 @@ impl<V: IndexVTable> IndexRows<V> {
         self.data_row_count
     }
 
+    pub(crate) fn scan(&self) -> ScanBuilder {
+        ScanBuilder::new(self.session.clone(), self.file.clone())
+    }
+
     /// Read and decode the index rows matching `filter`, or every row without one.
     ///
     /// Index content is an ordinary layout, so the filter is pruned by its zone maps before any
@@ -130,11 +143,24 @@ impl<V: IndexVTable> IndexRows<V> {
         &self,
         filter: Option<BoundExpression>,
     ) -> VortexResult<Vec<Arc<V::Chunk>>> {
-        let arrays = collect(
-            ScanBuilder::new(self.session.clone(), self.file.clone()).with_some_filter(filter),
-        )
-        .await?;
+        let arrays = collect(self.scan().with_some_filter(filter)).await?;
         self.decode_all(arrays)
+    }
+
+    /// The keys a plan of this crate's keyed kinds reads: its query is exactly the sorted keys
+    /// its filter matches, so the rows can be found through the cached key column instead.
+    fn plan_keys<'a>(&self, query: &'a V::Query) -> Option<PlanKeys<'a>> {
+        let kind: &dyn Any = self.vtable.as_ref();
+        let query: &dyn Any = query;
+        if kind.is::<InvertedIndex>() {
+            return query
+                .downcast_ref::<Vec<String>>()
+                .map(|k| PlanKeys::Strings(k));
+        }
+        if kind.is::<TrigramIndex>() {
+            return query.downcast_ref::<Vec<u32>>().map(|k| PlanKeys::U32s(k));
+        }
+        None
     }
 
     /// Answer a predicate over the indexed column, if this index can.
@@ -152,7 +178,11 @@ impl<V: IndexVTable> IndexRows<V> {
         else {
             return Ok(None);
         };
-        let chunks = self.bound_chunks(Some(plan.filter)).await?;
+        let chunks = match self.plan_keys(&plan.query) {
+            Some(PlanKeys::Strings(keys)) => self.chunks_for_keys(keys).await?,
+            Some(PlanKeys::U32s(keys)) => self.chunks_for_keys(keys).await?,
+            None => self.bound_chunks(Some(plan.filter)).await?,
+        };
         let mut ctx = self.session.create_execution_ctx();
         let locator = self.vtable.resolve(
             &plan.query,

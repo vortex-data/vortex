@@ -26,6 +26,7 @@
 pub mod in_file;
 pub mod inverted;
 pub mod ivf;
+mod keys;
 mod postings;
 pub mod rows;
 pub mod standalone;

@@ -337,6 +337,29 @@ async fn in_file_bm25_ranks_rare_terms_first() -> VortexResult<()> {
     Ok(())
 }
 
+/// MaxScore skips walking the postings of terms that cannot change the top `k`, so a small `k`
+/// must rank exactly as scoring every row does.
+#[rstest]
+#[case("needle echo")]
+#[case("alpha bravo charlie")]
+#[case("echo delta needle papa")]
+#[tokio::test]
+async fn bm25_top_k_matches_scoring_every_row(#[case] query: &str) -> VortexResult<()> {
+    let session = session()?;
+    let data = Data::generate(7, ROWS);
+    let file = write_indexed_file(&session, &data).await?;
+    let index = open_in_file_index(InvertedIndex, &file, "text")?.expect("inverted index");
+
+    let every = index.search_bm25(query, ROWS).await?;
+    for k in [1, 3, 10] {
+        let top = index.search_bm25(query, k).await?;
+        let rows: Vec<u64> = top.iter().map(|h| h.row).collect();
+        let expected: Vec<u64> = every[..k].iter().map(|h| h.row).collect();
+        assert_eq!(rows, expected, "k = {k}");
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn in_file_ivf_finds_nearest_vectors() -> VortexResult<()> {
     let session = session()?;

@@ -11,7 +11,6 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
@@ -28,45 +27,6 @@ pub(crate) fn bitmap_to_bytes(bitmap: &RoaringBitmap) -> VortexResult<Vec<u8>> {
 pub(crate) fn bitmap_from_bytes(bytes: &[u8]) -> VortexResult<RoaringBitmap> {
     RoaringBitmap::deserialize_from(bytes)
         .map_err(|err| vortex_err!("Failed to deserialize roaring bitmap: {err}"))
-}
-
-/// Pack `u32`s as LEB128 varints: one byte for each value below 128, which term frequencies
-/// almost always are.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "each byte keeps the low seven bits on purpose"
-)]
-pub(crate) fn u32s_to_varints(values: &[u32]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(values.len());
-    for &v in values {
-        let mut v = v;
-        while v >= 0x80 {
-            out.push((v as u8) | 0x80);
-            v >>= 7;
-        }
-        out.push(v as u8);
-    }
-    out
-}
-
-/// Unpack varints written by [`u32s_to_varints`].
-pub(crate) fn u32s_from_varints(bytes: &[u8]) -> VortexResult<Vec<u32>> {
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut value = 0u32;
-    let mut shift = 0u32;
-    for &b in bytes {
-        vortex_ensure!(shift < 32, "varint overflows u32");
-        value |= u32::from(b & 0x7f) << shift;
-        if b & 0x80 == 0 {
-            out.push(value);
-            value = 0;
-            shift = 0;
-        } else {
-            shift += 7;
-        }
-    }
-    vortex_ensure_eq!(shift, 0, "truncated varint");
-    Ok(out)
 }
 
 /// Pack `f32`s little-endian.
@@ -113,18 +73,5 @@ impl IndexRowsChunk {
     ) -> VortexResult<Vec<ByteBuffer>> {
         let values = self.field(name)?.execute::<VarBinViewArray>(ctx)?;
         Ok((0..values.len()).map(|idx| values.bytes_at(idx)).collect())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn varints_roundtrip() -> VortexResult<()> {
-        let values = vec![0, 1, 127, 128, 300, 16_384, u32::MAX];
-        assert_eq!(u32s_from_varints(&u32s_to_varints(&values))?, values);
-        assert_eq!(u32s_to_varints(&[1, 2, 3]).len(), 3);
-        Ok(())
     }
 }

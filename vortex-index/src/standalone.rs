@@ -55,6 +55,8 @@ use vortex_layout::layouts::indexed::RowLocator;
 use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::scan::v2::ScanBuilder;
+use vortex_layout::scan::v2::ScanCache;
+use vortex_layout::scan::v2::ScanFile;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
@@ -474,6 +476,21 @@ fn default_index_strategy(
     builder.build()
 }
 
+/// `file`, keeping the plans its scans lower so repeated lookups reuse them. Segment bytes are
+/// not retained: every lookup reads its rows again.
+///
+/// Every lookup is a scan of the index file, and lowering its layout into a plan costs about as
+/// much as the lookup itself for an index of thousands of chunks.
+fn with_cache(file: ScanFile) -> ScanFile {
+    ScanFile {
+        cache: file
+            .cache
+            .clone()
+            .or_else(|| Some(ScanCache::with_retained_bytes(0))),
+        ..file
+    }
+}
+
 /// Rows of one covered data file selected by an index lookup.
 #[derive(Clone, Debug)]
 pub struct FileSelection {
@@ -538,7 +555,7 @@ impl<V: IndexVTable> IndexFile<V> {
             source_dtype: info.source_dtype.clone(),
             index_dtype,
             data_row_count: total,
-            file: file.scan_file(),
+            file: with_cache(file.scan_file()),
             session: file.session().clone(),
             memo: OnceLock::new(),
         };
