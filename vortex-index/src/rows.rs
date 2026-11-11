@@ -7,18 +7,31 @@ use std::any::Any;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+use futures::TryStreamExt;
+use vortex_array::ArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
-use vortex_file::v2::collect;
+use vortex_file::v2::ScanDriver;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::layouts::indexed::IndexExactness;
 use vortex_layout::layouts::indexed::IndexVTable;
 use vortex_layout::layouts::indexed::RowLocator;
 use vortex_layout::scan::v2::ScanBuilder;
 use vortex_layout::scan::v2::ScanFile;
 use vortex_session::VortexSession;
+
+/// Run a scan v2 `builder` to its end, collecting its batches in row order.
+///
+/// Index content and catalog reads are small, so one chunk runs at a time per worker.
+pub async fn collect(builder: ScanBuilder) -> VortexResult<Vec<ArrayRef>> {
+    ScanDriver::new(builder.session().handle(), 1, true)
+        .run(builder)
+        .try_collect()
+        .await
+}
 
 /// A scored row returned by a ranked search, in the index's row space.
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -35,7 +35,6 @@ use vortex_file::OpenOptionsSessionExt;
 use vortex_file::VortexFile;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::WriteStrategyBuilder;
-use vortex_file::v2::collect;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -61,6 +60,7 @@ use crate::TrigramIndex;
 use crate::TrigramOptions;
 use crate::initialize;
 use crate::open_in_file_index;
+use crate::rows::collect;
 use crate::text_match;
 
 const ROWS: usize = 3000;

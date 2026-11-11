@@ -52,7 +52,6 @@ use vortex_error::vortex_err;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::VortexFile;
 use vortex_file::WriteOptionsSessionExt;
-use vortex_file::v2::collect;
 use vortex_index::IndexFile;
 use vortex_index::IndexFileBuilder;
 use vortex_index::InvertedIndex;
@@ -60,6 +59,7 @@ use vortex_index::IvfIndex;
 use vortex_index::IvfOptions;
 use vortex_index::TrigramIndex;
 use vortex_index::TrigramOptions;
+use vortex_index::rows::collect;
 use vortex_index::text_match;
 use vortex_io::CoalesceConfig;
 use vortex_io::VortexReadAt;
@@ -269,6 +269,7 @@ struct QueryArgs {
     repeat: usize,
     only: Option<usize>,
     scan: bool,
+    index_only: bool,
     nprobe: usize,
     k: usize,
 }
@@ -278,6 +279,7 @@ fn parse_flags(rest: &[String]) -> VortexResult<QueryArgs> {
         repeat: 5,
         only: None,
         scan: false,
+        index_only: false,
         nprobe: 8,
         k: 10,
     };
@@ -295,6 +297,7 @@ fn parse_flags(rest: &[String]) -> VortexResult<QueryArgs> {
             "--nprobe" => q.nprobe = value()?,
             "--k" => q.k = value()?,
             "--scan" => q.scan = true,
+            "--index-only" => q.index_only = true,
             other => vortex_bail!("unknown flag {other}"),
         }
     }
@@ -314,6 +317,18 @@ async fn count(data: &VortexFile, filter: &Expression, selection: Selection) -> 
 
 /// One query's answer, as JSON.
 type Answer = serde_json::Value;
+
+/// Probe the trigram index alone: the rows its candidate blocks cover, with no data read.
+async fn run_trigram_index(index: &IndexFile<TrigramIndex>, pattern: &str) -> VortexResult<Answer> {
+    let candidates: u64 = match index.locate_files(&like(root(), lit(pattern))).await? {
+        Some((_, selections)) => selections
+            .iter()
+            .map(|s| s.selection.row_count(u64::MAX))
+            .sum(),
+        None => u64::MAX,
+    };
+    Ok(serde_json::json!({ "candidate_rows": candidates }))
+}
 
 async fn run_trigram(
     data: &VortexFile,
@@ -436,8 +451,13 @@ async fn query(session: &VortexSession, args: &[String]) -> VortexResult<()> {
             answer = match kind.as_str() {
                 "trigram" => {
                     let index = IndexFile::open(TrigramIndex, index_file)?;
-                    let column = index.column().to_string();
-                    run_trigram(data, (!flags.scan).then_some(&index), &texts[qi], &column).await?
+                    if flags.index_only {
+                        run_trigram_index(&index, &texts[qi]).await?
+                    } else {
+                        let column = index.column().to_string();
+                        run_trigram(data, (!flags.scan).then_some(&index), &texts[qi], &column)
+                            .await?
+                    }
                 }
                 "fts" => {
                     let index = IndexFile::open(InvertedIndex, index_file)?;
