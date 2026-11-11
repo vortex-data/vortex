@@ -22,6 +22,11 @@ impl CachedVortexMetadata {
         }
     }
 
+    /// Create a new cached metadata entry from a parsed footer.
+    pub fn from_footer(footer: Footer) -> Self {
+        Self { footer }
+    }
+
     /// Get the cached footer.
     pub fn footer(&self) -> &Footer {
         &self.footer

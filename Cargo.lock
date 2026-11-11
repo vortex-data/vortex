@@ -2821,6 +2821,7 @@ dependencies = [
  "vortex-bench",
  "vortex-datafusion",
  "vortex-metrics",
+ "vortex-table",
 ]
 
 [[package]]
@@ -11831,6 +11832,7 @@ dependencies = [
  "vortex-array",
  "vortex-arrow",
  "vortex-json",
+ "vortex-table",
  "vortex-utils",
 ]
 

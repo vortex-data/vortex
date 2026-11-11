@@ -46,8 +46,9 @@ url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files", "tokio"] }
 vortex-arrow = { workspace = true }
 vortex-bench = { workspace = true }
-vortex-datafusion = { workspace = true }
+vortex-datafusion = { workspace = true, features = ["table"] }
 vortex-metrics = { workspace = true }
+vortex-table = { workspace = true }
 
 [build-dependencies]
 custom-labels = { workspace = true }

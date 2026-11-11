@@ -27,6 +27,7 @@ use itertools::Itertools;
 pub use segment::*;
 use vortex_array::ArrayId;
 use vortex_array::dtype::DType;
+use vortex_array::expr::Expression;
 use vortex_array::flatbuffers::FlatBuffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -39,6 +40,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 use crate::flatbuffers::footer as fb;
+use crate::pruning::is_falsified_by_file_stats;
 
 /// Maximum number of user-defined metadata segments. Keeps postscript bookkeeping small so the
 /// footer and required segments still fit the initial tail read.
@@ -247,6 +249,22 @@ impl Footer {
     /// Returns the number of rows in the file.
     pub fn row_count(&self) -> u64 {
         self.root_layout.row_count()
+    }
+
+    /// Returns `true` if the file-level statistics prove `filter` matches no row of the file.
+    ///
+    /// This needs only the footer, so a catalog that stores footers can prune files without
+    /// opening them.
+    pub fn can_prune(&self, filter: &Expression, session: &VortexSession) -> VortexResult<bool> {
+        let Some(stats) = self.statistics() else {
+            return Ok(false);
+        };
+        is_falsified_by_file_stats(
+            &filter.bind(self.dtype())?,
+            self.row_count(),
+            stats,
+            session,
+        )
     }
 
     /// Validate that every segment declared in the footer lies within a file of `file_size` bytes.
