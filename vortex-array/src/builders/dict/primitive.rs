@@ -19,6 +19,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use super::DictConstraints;
 use super::DictEncoder;
+use super::codes_ptype_for_max_len;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -43,28 +44,27 @@ pub fn primitive_dict_builder<T: NativePType>(
 where
     NativeValue<T>: Hash + Eq,
 {
-    // Codes start at zero, and nullable values need an additional dictionary entry for null.
-    let max_code = match T::PTYPE.bit_width() {
-        8 => u8::MAX as u64,
-        16 => u16::MAX as u64,
-        32 => u32::MAX as u64,
+    // Nullable values need an additional dictionary entry for null.
+    let domain_len = match T::PTYPE.bit_width() {
+        8 => 1 << u8::BITS,
+        16 => 1 << u16::BITS,
+        32 => 1 << u32::BITS,
         64 => u64::MAX,
         width => vortex_panic!("invalid bit_width: {width}"),
     }
     .saturating_add(u64::from(nullability.is_nullable()));
-    let max_code = max_code.min(constraints.max_len.saturating_sub(1) as u64);
-    match max_code {
-        max if max <= u8::MAX as u64 => Box::new(PrimitiveDictBuilder::<T, u8>::new_in(
+    match codes_ptype_for_max_len(domain_len.min(constraints.max_len as u64)) {
+        PType::U8 => Box::new(PrimitiveDictBuilder::<T, u8>::new_in(
             nullability,
             constraints,
             allocator,
         )),
-        max if max <= u16::MAX as u64 => Box::new(PrimitiveDictBuilder::<T, u16>::new_in(
+        PType::U16 => Box::new(PrimitiveDictBuilder::<T, u16>::new_in(
             nullability,
             constraints,
             allocator,
         )),
-        max if max <= u32::MAX as u64 => Box::new(PrimitiveDictBuilder::<T, u32>::new_in(
+        PType::U32 => Box::new(PrimitiveDictBuilder::<T, u32>::new_in(
             nullability,
             constraints,
             allocator,
