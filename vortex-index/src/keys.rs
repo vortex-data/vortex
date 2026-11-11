@@ -129,7 +129,9 @@ impl KeyColumn<String> for Strings {
 
 impl<V: IndexVTable> IndexRows<V> {
     /// The index's key column, read on first use and then kept.
-    fn key_column_step<K: IndexKey>(self: &Arc<Self>) -> VortexResult<IndexStep<Arc<K::Column>>> {
+    pub(crate) fn key_column_step<K: IndexKey>(
+        self: &Arc<Self>,
+    ) -> VortexResult<IndexStep<Arc<K::Column>>> {
         if let Some(keys) = self.memo_get::<K::Column>() {
             return Ok(IndexStep::Done(keys));
         }
