@@ -17,6 +17,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 
 mod bytes;
@@ -86,7 +87,9 @@ pub fn dict_encoder_in(
             bytes_dict_builder(array.dtype().clone(), constraints, allocator)
         }
         DType::Decimal(decimal_dtype, nullability) => {
-            decimal_dict_builder(*decimal_dtype, *nullability, constraints, allocator)
+            match_each_decimal_value_type!(decimal_dtype.canonical_values_type(), |D| {
+                decimal_dict_builder::<D>(*decimal_dtype, *nullability, constraints, allocator)
+            })
         }
         dtype => {
             vortex_panic!(
