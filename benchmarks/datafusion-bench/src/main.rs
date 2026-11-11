@@ -28,6 +28,7 @@ use futures::TryStreamExt as _;
 use itertools::Itertools as _;
 use mimalloc::MiMalloc;
 use parking_lot::Mutex;
+use vortex::buffer::ByteBufferMut;
 use vortex::file::multi::MultiFileDataSource;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
@@ -57,6 +58,7 @@ use vortex_datafusion::VortexFormat;
 use vortex_datafusion::VortexManifestTable;
 use vortex_datafusion::metrics::VortexMetricsFinder;
 use vortex_datafusion::v2::VortexTable;
+use vortex_table::Manifest;
 use vortex_table::ManifestBuilder;
 
 /// Common arguments shared across benchmarks
@@ -361,7 +363,10 @@ async fn register_manifest_tables<B: Benchmark + ?Sized>(
             );
             builder.add(relative, &read).await?;
         }
-        let manifest = builder.finish();
+        // Round-trip the manifest, so the table prunes on the stats it reads back.
+        let mut bytes = ByteBufferMut::empty();
+        builder.finish()?.write(&SESSION, &mut bytes).await?;
+        let manifest = Manifest::read(&SESSION, Arc::new(bytes.freeze())).await?;
 
         let provider = VortexManifestTable::try_new(
             Arc::clone(&vortex_format),

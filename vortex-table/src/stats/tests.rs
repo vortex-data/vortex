@@ -56,14 +56,18 @@ async fn prune_matches_each_footer(
 ) -> VortexResult<()> {
     let footers = footers().await?;
     let stats = TableStats::try_new(&footers, footers[0].dtype(), &SESSION)?;
-    let pruned = stats.prune(&filter)?;
-    for (i, footer) in footers.iter().enumerate() {
-        assert_eq!(
-            pruned.value(i),
-            footer.can_prune(&filter, &SESSION)?,
-            "file {i} under {filter}"
-        );
-        assert_eq!(!pruned.value(i), kept[i], "file {i} under {filter}");
+    // The stats a written manifest reads back, without inlined footers to fall back on.
+    let (_, manifest) = table(false).await?;
+    let read = manifest.stats().expect("the manifest records stats");
+    for pruned in [stats.prune(&filter)?, read.prune(&filter)?] {
+        for (i, footer) in footers.iter().enumerate() {
+            assert_eq!(
+                pruned.value(i),
+                footer.can_prune(&filter, &SESSION)?,
+                "file {i} under {filter}"
+            );
+            assert_eq!(!pruned.value(i), kept[i], "file {i} under {filter}");
+        }
     }
     Ok(())
 }

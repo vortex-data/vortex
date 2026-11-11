@@ -17,6 +17,8 @@
 //! falsification proof is then bound to this table and evaluated once, giving a mask over every
 //! file of the table, instead of being evaluated against each footer in turn.
 
+use std::fmt;
+
 use vortex_array::ArrayRef;
 use vortex_array::Columnar;
 use vortex_array::IntoArray;
@@ -53,13 +55,16 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 /// The aggregates recorded for one top-level column, across the files of a table.
-struct ColumnStats {
-    name: FieldName,
-    /// The aggregates some file records for the column, in the order of the column's fields.
-    aggregates: Vec<AggregateFnRef>,
+#[derive(Clone, Debug)]
+pub(crate) struct ColumnStats {
+    pub(crate) name: FieldName,
+    /// The aggregates some file records for the column, each with the field of the column's
+    /// stats struct that holds its values.
+    pub(crate) aggregates: Vec<(AggregateFnRef, FieldName)>,
 }
 
 /// File-level column statistics of every file of a table, one row per file.
+#[derive(Clone)]
 pub struct TableStats {
     /// The dtype of the table's files.
     dtype: DType,
@@ -121,6 +126,7 @@ impl TableStats {
             }
             let mut names = Vec::with_capacity(aggregates.len());
             let mut values = Vec::with_capacity(aggregates.len());
+            let mut column_aggregates = Vec::with_capacity(aggregates.len());
             for (aggregate_fn, value_dtype) in &aggregates {
                 let mut builder = builder_with_capacity_in(value_dtype, footers.len(), &allocator);
                 for stats in &per_file {
@@ -132,14 +138,16 @@ impl TableStats {
                     });
                     append(builder.as_mut(), value, value_dtype)?;
                 }
-                names.push(FieldName::from(aggregate_fn.to_string()));
+                let field = FieldName::from(aggregate_fn.to_string());
+                names.push(field.clone());
                 values.push(builder.finish());
+                column_aggregates.push((aggregate_fn.clone(), field));
             }
             let column =
                 StructArray::try_new(names.into(), values, footers.len(), Validity::NonNullable)?;
             columns.push(ColumnStats {
                 name: name.clone(),
-                aggregates: aggregates.into_iter().map(|(f, _)| f).collect(),
+                aggregates: column_aggregates,
             });
             column_arrays.push(column.into_array());
         }
@@ -163,6 +171,34 @@ impl TableStats {
             row_counts,
             session: session.clone(),
         })
+    }
+
+    /// Statistics already laid out as a table, as a manifest stores them: `columns` names each
+    /// top-level column of `table` and the aggregate each of its fields holds.
+    pub(crate) fn from_parts(
+        dtype: DType,
+        columns: Vec<ColumnStats>,
+        table: ArrayRef,
+        row_counts: ArrayRef,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
+        vortex_ensure_eq!(table.len(), row_counts.len());
+        Ok(Self {
+            dtype,
+            columns,
+            table,
+            row_counts,
+            session: session.clone(),
+        })
+    }
+
+    /// The dtype of the table's files.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    pub(crate) fn columns(&self) -> &[ColumnStats] {
+        &self.columns
     }
 
     /// Files in the table.
@@ -212,6 +248,16 @@ impl TableStats {
     }
 }
 
+impl fmt::Debug for TableStats {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TableStats")
+            .field("dtype", &self.dtype)
+            .field("columns", &self.columns)
+            .field("files", &self.len())
+            .finish()
+    }
+}
+
 fn append(
     builder: &mut dyn ArrayBuilder,
     value: Option<Scalar>,
@@ -253,20 +299,20 @@ impl StatBinder for TableStatsBinder<'_> {
         };
         // The stored aggregate that best satisfies the requested one, as a footer resolves it.
         let mut best = None;
-        for stored in &stats.aggregates {
+        for (stored, field) in &stats.aggregates {
             match stored.can_satisfy(aggregate_fn) {
                 AggregateFnSatisfaction::Exact => {
-                    best = Some(stored);
+                    best = Some(field);
                     break;
                 }
-                AggregateFnSatisfaction::Approximate => best = Some(stored),
+                AggregateFnSatisfaction::Approximate => best = Some(field),
                 AggregateFnSatisfaction::No => {}
             }
         }
-        let Some(stored) = best else {
+        let Some(field) = best else {
             return Ok(None);
         };
-        let value = get_item(stored.to_string(), get_item(column.clone(), root()));
+        let value = get_item(field.clone(), get_item(column.clone(), root()));
         let bound = value.bind(self.stats.table.dtype())?;
         let value = if bound.dtype() == stat_dtype {
             value
@@ -286,5 +332,6 @@ fn top_level_field(expr: &BoundExpression) -> Option<&FieldName> {
     expr.child(0).is_root().then_some(name)
 }
 
+pub(crate) mod spec;
 #[cfg(test)]
 mod tests;

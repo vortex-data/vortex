@@ -110,7 +110,7 @@ async fn table(files: u64) -> VortexResult<(Arc<MemoryStorage>, Manifest)> {
         builder.add(path.clone(), &bytes).await?;
         storage.put(path, bytes);
     }
-    Ok((storage, builder.finish()))
+    Ok((storage, builder.finish()?))
 }
 
 async fn build_index<V: IndexVTable + Clone>(
@@ -209,7 +209,7 @@ async fn files_added_or_rewritten_after_the_index_are_scanned_in_full() -> Vorte
     let rewritten = data_file(7).await?;
     let mut builder = ManifestBuilder::new(SESSION.clone());
     builder.add(entries[1].path.clone(), &rewritten).await?;
-    entries[1] = builder.finish().entries()[0].clone();
+    entries[1] = builder.finish()?.entries()[0].clone();
     storage.put(entries[1].path.clone(), rewritten);
     storage.put(entries[3].path.clone(), data_file(3).await?);
     let manifest = Manifest::new(entries);

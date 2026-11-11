@@ -12,6 +12,12 @@
 //! | `footer_len`    | u64    | length of the footer region, through the end of the file        |
 //! | `footer_hash`   | u64    | [`footer_hash`](crate::footer::footer_hash) of the region       |
 //! | `footer`        | binary | the region itself, or empty when the manifest does not inline it |
+//! | `stats`         | struct | the file's column statistics, when the manifest records them    |
+//!
+//! `stats` is a [`TableStats`] table, `struct { <column>: struct { <aggregate>: value? } }`, so
+//! a planner prunes every file in one evaluation without parsing any footer. Its field names
+//! are for display: the aggregate behind each field, and the files' dtype, are kept in the
+//! manifest's `vortex.table.stats` metadata segment.
 //!
 //! The footer holds the file's dtype, layout, segment map, and column statistics, so a planner
 //! prunes a file on its statistics and opens it from the manifest alone: with the footer inlined
@@ -23,6 +29,7 @@ use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
@@ -42,6 +49,10 @@ use vortex_session::VortexSession;
 
 use crate::footer::FooterRegion;
 use crate::footer::footer_hash;
+use crate::stats::TableStats;
+use crate::stats::spec::STATS_SPEC_KEY;
+use crate::stats::spec::read_spec;
+use crate::stats::spec::write_spec;
 
 /// One data file of a table.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,15 +94,35 @@ impl ManifestEntry {
 }
 
 /// The files of a table, in table order.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default)]
 pub struct Manifest {
     entries: Vec<ManifestEntry>,
+    stats: Option<Arc<TableStats>>,
 }
 
 impl Manifest {
     /// A manifest over `entries`, in table order.
     pub fn new(entries: Vec<ManifestEntry>) -> Self {
-        Self { entries }
+        Self {
+            entries,
+            stats: None,
+        }
+    }
+
+    /// The manifest with `stats`, one row per entry, as the column statistics of its files.
+    pub fn with_stats(mut self, stats: TableStats) -> VortexResult<Self> {
+        vortex_ensure_eq!(
+            stats.len(),
+            self.entries.len(),
+            "the stats have a row per file"
+        );
+        self.stats = Some(Arc::new(stats));
+        Ok(self)
+    }
+
+    /// The column statistics of every file, when the manifest records them.
+    pub fn stats(&self) -> Option<&Arc<TableStats>> {
+        self.stats.as_ref()
     }
 
     /// The table's files, in table order. A file's ordinal is its index here.
@@ -119,7 +150,7 @@ impl Manifest {
                     .map_or(&[][..], |footer| footer.as_slice())
             })
             .collect();
-        Ok(StructArray::from_fields(&[
+        let mut fields = vec![
             ("path", VarBinArray::from(paths).into_array()),
             ("byte_size", u64s(|e| e.byte_size)),
             ("row_count", u64s(|e| e.row_count)),
@@ -127,11 +158,16 @@ impl Manifest {
             ("footer_len", u64s(|e| e.footer_len)),
             ("footer_hash", u64s(|e| e.footer_hash)),
             ("footer", VarBinArray::from(footers).into_array()),
-        ])?
-        .into_array())
+        ];
+        if let Some(stats) = &self.stats {
+            fields.push(("stats", stats.table().clone()));
+        }
+        Ok(StructArray::from_fields(&fields)?.into_array())
     }
 
-    /// Reads a manifest back from the struct array [`to_array`](Self::to_array) made.
+    /// Reads a manifest's entries back from the struct array [`to_array`](Self::to_array) made.
+    /// Its statistics need the schema [`write`](Self::write) keeps beside the array, so only
+    /// [`read`](Self::read) restores them.
     pub fn from_array(array: ArrayRef, session: &VortexSession) -> VortexResult<Self> {
         let mut ctx = session.create_execution_ctx();
         let array = array.execute::<StructArray>(&mut ctx)?;
@@ -164,7 +200,7 @@ impl Manifest {
                 })
             })
             .collect::<VortexResult<_>>()?;
-        Ok(Self { entries })
+        Ok(Self::new(entries))
     }
 
     /// Writes the manifest as a Vortex file.
@@ -173,21 +209,47 @@ impl Manifest {
         session: &VortexSession,
         write: W,
     ) -> VortexResult<()> {
-        session
-            .write_options()
+        let mut options = session.write_options();
+        if let Some(stats) = &self.stats {
+            options = options.with_metadata_segment(STATS_SPEC_KEY, write_spec(stats)?);
+        }
+        options
             .write(write, self.to_array()?.to_array_stream())
             .await?;
         Ok(())
     }
 
-    /// Reads a manifest from a Vortex file.
+    /// Reads a manifest from a Vortex file, with the statistics it records.
     pub async fn read(session: &VortexSession, read: Arc<dyn VortexReadAt>) -> VortexResult<Self> {
-        let file = session.open_options().open(read).await?;
+        let file = session.open_options().include_metadata().open(read).await?;
+        let spec = file.metadata_segment(STATS_SPEC_KEY).cloned();
         let chunks = collect(ScanBuilder::new(session.clone(), file.scan_file())).await?;
+        let mut ctx = session.create_execution_ctx();
         let mut entries = Vec::new();
+        let mut stats_chunks = Vec::new();
         for chunk in chunks {
+            if spec.is_some() {
+                let chunk = chunk.clone().execute::<StructArray>(&mut ctx)?;
+                stats_chunks.push(chunk.unmasked_field_by_name("stats")?.clone());
+            }
             entries.extend(Self::from_array(chunk, session)?.entries);
         }
-        Ok(Self { entries })
+        let manifest = Self::new(entries);
+        let Some(spec) = spec else {
+            return Ok(manifest);
+        };
+        let stats_dtype = file
+            .dtype()
+            .as_struct_fields_opt()
+            .and_then(|fields| fields.field("stats"))
+            .ok_or_else(|| vortex_err!("the manifest records a stats schema but no stats"))?;
+        let table = match stats_chunks.len() {
+            1 => stats_chunks.remove(0),
+            _ => ChunkedArray::try_new(stats_chunks, stats_dtype)?.into_array(),
+        };
+        let row_counts =
+            PrimitiveArray::from_iter(manifest.entries.iter().map(|e| e.row_count)).into_array();
+        let stats = read_spec(spec.as_slice(), table, row_counts, session)?;
+        manifest.with_stats(stats)
     }
 }

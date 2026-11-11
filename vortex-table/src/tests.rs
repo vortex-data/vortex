@@ -15,6 +15,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::expr::col;
 use vortex_array::expr::gt_eq;
@@ -24,6 +25,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_io::VortexReadAt;
 use vortex_io::runtime::tokio::TokioRuntime;
@@ -134,11 +136,17 @@ pub(crate) async fn table(
         builder.add(path.clone(), &bytes).await?;
         storage.put(path, bytes);
     }
-    let manifest = builder.finish();
+    let manifest = builder.finish()?;
     let mut buf = ByteBufferMut::empty();
     manifest.write(&SESSION, &mut buf).await?;
     let read = Manifest::read(&SESSION, Arc::new(buf.freeze())).await?;
-    assert_eq!(read, manifest);
+    assert_eq!(read.entries(), manifest.entries());
+    let (Some(read_stats), Some(stats)) = (read.stats(), manifest.stats()) else {
+        vortex_bail!("the manifest lost its stats");
+    };
+    assert_eq!(read_stats.dtype(), stats.dtype());
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_arrays_eq!(read_stats.table(), stats.table(), &mut ctx);
     Ok((storage, Arc::new(read)))
 }
 

@@ -12578,6 +12578,7 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "parking_lot",
+ "prost 0.14.4",
  "rstest",
  "tempfile",
  "tokio",

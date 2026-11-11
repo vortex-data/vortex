@@ -22,6 +22,7 @@ index = ["dep:vortex-index"]
 [dependencies]
 futures = { workspace = true, features = ["std", "executor"] }
 parking_lot = { workspace = true }
+prost = { workspace = true }
 twox-hash = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }

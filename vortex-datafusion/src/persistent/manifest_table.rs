@@ -72,7 +72,7 @@ pub struct VortexManifestTable {
     schema: SchemaRef,
     files: Vec<ManifestFile>,
     /// Column statistics of every file, one row per file, for pruning them all at once.
-    table_stats: TableStats,
+    table_stats: Arc<TableStats>,
     /// Per-file statistics, computed from the footers on the first scan.
     statistics: OnceCell<Vec<Arc<Statistics>>>,
 }
@@ -138,11 +138,22 @@ impl VortexManifestTable {
             );
         }
         let schema = Arc::new(session.arrow().to_arrow_schema(first.footer.dtype())?);
-        let table_stats = TableStats::try_new(
-            files.iter().map(|file| &file.footer),
-            first.footer.dtype(),
-            &session,
-        )?;
+        // The manifest's own stats table when it records one, so no footer is read for pruning.
+        let table_stats = match manifest.stats() {
+            Some(stats) => {
+                vortex_ensure_eq!(
+                    stats.dtype(),
+                    first.footer.dtype(),
+                    "the manifest's stats are for another dtype"
+                );
+                Arc::clone(stats)
+            }
+            None => Arc::new(TableStats::try_new(
+                files.iter().map(|file| &file.footer),
+                first.footer.dtype(),
+                &session,
+            )?),
+        };
         Ok(Self {
             format,
             session,
@@ -321,12 +332,14 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::validity::Validity;
+    use vortex::buffer::ByteBufferMut;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreReadAt;
     use vortex::io::object_store::ObjectStoreWrite;
     use vortex::io::session::RuntimeSessionExt;
     use vortex::session::VortexSession;
+    use vortex_table::Manifest;
     use vortex_table::ManifestBuilder;
 
     use super::VortexManifestTable;
@@ -351,13 +364,18 @@ mod tests {
             let read = ObjectStoreReadAt::new(Arc::clone(&ctx.store), path, session.handle());
             builder.add(format!("{file}.vortex"), &read).await?;
         }
+        // Round-trip the manifest, so the table prunes on the stats it reads back.
+        let mut bytes = ByteBufferMut::empty();
+        builder.finish()?.write(&session, &mut bytes).await?;
+        let manifest = Manifest::read(&session, Arc::new(bytes.freeze())).await?;
+        assert!(manifest.stats().is_some());
         let format = Arc::new(VortexFormat::new(session.clone()));
         Ok(VortexManifestTable::try_new(
             format,
             session,
             ObjectStoreUrl::local_filesystem(),
             &prefix,
-            &builder.finish(),
+            &manifest,
         )?)
     }
 
