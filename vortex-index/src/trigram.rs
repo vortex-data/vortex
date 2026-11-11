@@ -52,7 +52,10 @@ use crate::tokenize::trigrams;
 pub const TRIGRAM_INDEX_ID: &str = "vortex.idx.trigram";
 
 /// Block length used when neither the options nor the data child's chunking pick one.
-pub const DEFAULT_TRIGRAM_BLOCK_LEN: u64 = 1024;
+///
+/// Matches the default writer's row block size, which data chunks are multiples of, so a pruned
+/// block never straddles a chunk boundary.
+pub const DEFAULT_TRIGRAM_BLOCK_LEN: u64 = 8192;
 
 const TRIGRAM_FIELD: &str = "trigram";
 const BLOCKS_FIELD: &str = "blocks";
