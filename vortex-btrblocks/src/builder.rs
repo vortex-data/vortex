@@ -18,6 +18,7 @@ use crate::SchemeExt;
 use crate::SchemeId;
 use crate::allowed_ids::AllowedIds;
 use crate::schemes::binary;
+use crate::schemes::boolean;
 use crate::schemes::fixed_size_list;
 use crate::schemes::float;
 use crate::schemes::integer;
@@ -70,6 +71,8 @@ impl CompressionMode {
                 // stays excluded until GPU delta decode is benchmarked against the schemes it
                 // would displace.
                 excluded.extend([
+                    boolean::BoolRunEndScheme.id(),
+                    boolean::BoolSparseScheme.id(),
                     integer::DeltaScheme::default().id(),
                     integer::SparseScheme.id(),
                     integer::IntRLEScheme.id(),

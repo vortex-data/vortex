@@ -10,12 +10,14 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ArrayView;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
@@ -183,6 +185,96 @@ fn runend_encode_nullable_primitive<T: NativePType>(
         ends.freeze(),
         PrimitiveArray::new(values, Validity::from(validity.freeze())),
     )
+}
+
+/// Run-end encode a `BoolArray` without nulls, returning a tuple of `(ends, values)`.
+///
+/// The values child keeps the input's nullability.
+///
+/// # Errors
+///
+/// Returns an error if the array contains nulls.
+pub fn runend_encode_bool(
+    array: ArrayView<Bool>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(PrimitiveArray, ArrayRef)> {
+    let has_nulls = match array.validity()? {
+        Validity::NonNullable | Validity::AllValid => false,
+        Validity::AllInvalid => !array.is_empty(),
+        Validity::Array(validity) => {
+            validity
+                .execute::<BoolArray>(ctx)?
+                .to_bit_buffer()
+                .true_count()
+                != array.len()
+        }
+    };
+    if has_nulls {
+        vortex_bail!("run-end encoding of booleans with nulls is not supported");
+    }
+
+    let bits = array.to_bit_buffer();
+
+    let mut ends = BufferMut::<u64>::empty();
+    for_each_transition_word(&bits, |base, mut transitions| {
+        while transitions != 0 {
+            ends.push((base + transitions.trailing_zeros() as usize) as u64);
+            transitions &= transitions - 1;
+        }
+    });
+    if !bits.is_empty() {
+        ends.push(bits.len() as u64);
+    }
+
+    // Runs alternate between `true` and `false`, so the first bit gives all of the values.
+    let first = !bits.is_empty() && bits.value(0);
+    let values = BitBuffer::collect_bool(ends.len(), |run| first ^ (run % 2 == 1));
+
+    let ends = PrimitiveArray::new(ends.freeze(), Validity::NonNullable).narrow(ctx)?;
+    ends.statistics()
+        .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+    let values = BoolArray::new(values, array.dtype().nullability().into()).into_array();
+    Ok((ends, values))
+}
+
+/// Count the runs of equal values in a bitmap, a word at a time.
+pub fn bool_run_count(bits: &BitBuffer) -> usize {
+    if bits.is_empty() {
+        return 0;
+    }
+
+    let mut transitions = 0;
+    for_each_transition_word(bits, |_, word| transitions += word.count_ones() as usize);
+    transitions + 1
+}
+
+/// Calls `f(base, transitions)` for each 64-bit word of `bits`, where bit `j` of `transitions` is
+/// set when bit `base + j` differs from bit `base + j - 1`.
+///
+/// Bit 0 of the bitmap never counts as a transition.
+fn for_each_transition_word(bits: &BitBuffer, mut f: impl FnMut(usize, u64)) {
+    if bits.is_empty() {
+        return;
+    }
+
+    let chunks = bits.chunks();
+
+    // Seed the carry with the first bit, so that bit 0 compares equal to its predecessor.
+    let mut carry = u64::from(bits.value(0));
+    let mut base = 0;
+
+    for word in chunks.iter() {
+        f(base, word ^ ((word << 1) | carry));
+        carry = word >> 63;
+        base += 64;
+    }
+
+    let remainder_len = chunks.remainder_len();
+    if remainder_len > 0 {
+        let word = chunks.remainder_bits();
+        let mask = u64::MAX >> (64 - remainder_len);
+        f(base, (word ^ ((word << 1) | carry)) & mask);
+    }
 }
 
 pub fn runend_decode_primitive(
@@ -444,14 +536,61 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::RunEnd;
+    use crate::arrays::bool::BoolArrayExt;
+    use crate::arrays::runend::compress::bool_run_count;
     use crate::arrays::runend::compress::runend_decode_primitive;
     use crate::arrays::runend::compress::runend_encode;
     use crate::assert_arrays_eq;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    /// Bits alternate in runs of `run`, with lengths on 64-bit word boundaries. `valid` adds a
+    /// validity bitmap that is all valid (`true`) or has one null (`false`).
+    #[rstest]
+    #[case(0, 1, None)]
+    #[case(1, 1, None)]
+    #[case(63, 62, None)]
+    #[case(64, 63, None)]
+    #[case(65, 64, None)]
+    #[case(130, 1, None)]
+    #[case(300, 61, Some(true))]
+    #[case(300, 61, Some(false))]
+    fn encode_bool(
+        #[case] len: usize,
+        #[case] run: usize,
+        #[case] valid: Option<bool>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let bits: Vec<bool> = (0..len).map(|i| (i / run) % 2 == 1).collect();
+        // Array-backed even when all valid, which `Validity::from(BitBuffer)` would collapse.
+        let validity = valid.map_or(Validity::NonNullable, |v| {
+            Validity::Array(BoolArray::from_iter((0..len).map(|i| v || i != 1)).into_array())
+        });
+        let arr = BoolArray::new(BitBuffer::from(bits.clone()), validity);
+        let runs = |b: &[bool]| b.len().min(1) + b.windows(2).filter(|w| w[0] != w[1]).count();
+        for offset in [0, 1].into_iter().filter(|&o| o <= len) {
+            let sliced = arr.to_bit_buffer().slice(offset..);
+            assert_eq!(bool_run_count(&sliced), runs(&bits[offset..]));
+
+            let sliced = BoolArray::new(sliced, Validity::NonNullable);
+            let encoded = RunEnd::encode(sliced.clone().into_array(), &mut ctx)?;
+            assert_arrays_eq!(encoded, sliced, &mut ctx);
+        }
+
+        let encoded = RunEnd::encode(arr.clone().into_array(), &mut ctx);
+        if valid == Some(false) {
+            assert!(encoded.is_err());
+        } else {
+            assert_arrays_eq!(encoded?, arr, &mut ctx);
+        }
+        Ok(())
+    }
 
     #[test]
     fn encode() -> VortexResult<()> {
