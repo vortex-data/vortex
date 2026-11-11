@@ -185,7 +185,7 @@ fn compress_constant(source: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
         );
     };
 
-    let scalar = detach_scalar(source.execute_scalar(first_valid, ctx)?)?;
+    let scalar = detach_scalar(source.execute_scalar(first_valid, ctx)?);
     let const_arr = ConstantArray::new(scalar, source.len()).into_array();
 
     if mask.all_true() {
@@ -199,9 +199,12 @@ fn compress_constant(source: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
 ///
 /// `execute_scalar` returns a zero-copy slice of the source buffer for these types. A constant
 /// holding that slice would keep the whole buffer alive, and `nbytes` would not account for it.
-fn detach_scalar(scalar: Scalar) -> VortexResult<Scalar> {
+fn detach_scalar(scalar: Scalar) -> Scalar {
     let (dtype, value) = scalar.into_parts();
-    Scalar::try_new(dtype, value.map(detach_value))
+
+    // SAFETY: `detach_value` copies the bytes of a value but keeps its variant and shape, so the
+    // value stays valid for the dtype of the scalar it came from.
+    unsafe { Scalar::new_unchecked(dtype, value.map(detach_value)) }
 }
 
 /// Copies the string and binary bytes of `value`, including the elements of a fixed-size list or
