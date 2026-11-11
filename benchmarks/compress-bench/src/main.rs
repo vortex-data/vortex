@@ -36,7 +36,6 @@ use vortex_bench::compress::benchmark_decompress;
 use vortex_bench::compress::calculate_ratios;
 use vortex_bench::create_output_writer;
 use vortex_bench::datasets::Dataset;
-use vortex_bench::datasets::clickbench_hits::ClickBenchHits0;
 use vortex_bench::datasets::sparse_wide::SparseWide;
 use vortex_bench::datasets::struct_list_of_ints::StructListOfInts;
 use vortex_bench::datasets::taxi_data::TaxiData;
@@ -325,7 +324,6 @@ async fn run_compress(
         &TPCHLCommentCanonical,
         &DownloadableDataset::RPlace,
         &DownloadableDataset::AirQuality,
-        &ClickBenchHits0,
     ]
     .into_iter()
     .chain(TpchSf1Table::ALL.iter().map(|d| d as &dyn Dataset))

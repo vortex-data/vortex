@@ -14,7 +14,6 @@ use vortex::error::vortex_panic;
 use crate::clickbench::Flavor;
 use crate::tpch_nested::Shape;
 
-pub mod clickbench_hits;
 pub mod data_downloads;
 pub mod feature_vectors;
 pub mod nested_lists;
