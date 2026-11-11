@@ -6100,12 +6100,18 @@ dependencies = [
  "glob",
  "lance",
  "lance-file",
+ "lance-index",
+ "lance-linalg",
  "mimalloc",
  "parquet 58.4.1",
+ "rand 0.10.3",
  "tempfile",
  "tokio",
  "tracing",
+ "vortex",
  "vortex-bench",
+ "vortex-index",
+ "vortex-table",
 ]
 
 [[package]]
