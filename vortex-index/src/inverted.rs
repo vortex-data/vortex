@@ -53,6 +53,7 @@ use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_layout::layouts::indexed::IndexBuilder;
@@ -158,7 +159,9 @@ impl Corpus {
     #[expect(clippy::cast_precision_loss, reason = "row counts only weight scores")]
     fn weight(&self, df: usize) -> f32 {
         let df = df as f32;
-        (1.0 + (self.docs - df + 0.5) / (df + 0.5)).ln() * (BM25_K1 + 1.0)
+        // `ln_1p`, as `ln(1 + x)` rounds to zero for a term in nearly every row of a large corpus,
+        // and every contribution must be positive.
+        ((self.docs - df + 0.5) / (df + 0.5)).ln_1p() * (BM25_K1 + 1.0)
     }
 
     /// `tf / (tf + norm)`: a term's score in `row` is this times its weight.
@@ -252,7 +255,9 @@ fn decode_posting(
     let mut rows = u32_field(&postings, GAP_FIELD, ctx)?.to_vec();
     let mut row = 0u32;
     for gap in &mut rows {
-        row = row.wrapping_add(*gap);
+        row = row
+            .checked_add(*gap)
+            .ok_or_else(|| vortex_err!("Inverted index rows overflow u32"))?;
         *gap = row;
     }
     let tfs = u32_field(&postings, TF_FIELD, ctx)?;
@@ -477,7 +482,7 @@ impl Ord for Ranked {
 
 /// The `k` best scored rows of `touched`, as a heap whose top is the worst of them.
 fn best_k(scores: &[f32], touched: &[u32], k: usize) -> BinaryHeap<Ranked> {
-    let mut heap = BinaryHeap::with_capacity(k + 1);
+    let mut heap = BinaryHeap::with_capacity(k.min(touched.len()).saturating_add(1));
     for &row in touched {
         let score = scores[row as usize];
         if score == 0.0 {
@@ -580,8 +585,17 @@ impl IndexRows<InvertedIndex> {
                         corpus.ok_or_else(|| vortex_err!("Inverted index has no row lengths"))?;
                     let lists = lists
                         .into_iter()
-                        .map(|posting| Scoring::new(posting, &corpus))
-                        .collect();
+                        .map(|posting| {
+                            vortex_ensure!(
+                                posting
+                                    .rows
+                                    .last()
+                                    .is_none_or(|&row| (row as usize) < corpus.norms.len()),
+                                "Inverted index posting is past the last row with a length"
+                            );
+                            Ok(Scoring::new(posting, &corpus))
+                        })
+                        .collect::<VortexResult<Vec<_>>>()?;
                     Ok(IndexStep::Done(bm25_top(lists, k, &corpus)))
                 }),
             ))
@@ -624,13 +638,28 @@ fn bm25_top(mut lists: Vec<Scoring>, k: usize, corpus: &Corpus) -> Vec<Hit> {
         if scores.len() < corpus.norms.len() {
             scores.resize(corpus.norms.len(), 0.0);
         }
-        let mut touched = Vec::new();
-        let hits = bm25_top_into(&mut lists, k, corpus, scores, &mut touched);
-        for row in touched {
-            scores[row as usize] = 0.0;
-        }
-        hits
+        let mut guard = ResetScores {
+            scores,
+            touched: Vec::new(),
+        };
+        let ResetScores { scores, touched } = &mut guard;
+        bm25_top_into(&mut lists, k, corpus, scores, touched)
     })
+}
+
+/// Zeroes the rows a search touched when it ends, even by a panic, so the next search on the
+/// thread starts from a clean array.
+struct ResetScores<'a> {
+    scores: &'a mut Vec<f32>,
+    touched: Vec<u32>,
+}
+
+impl Drop for ResetScores<'_> {
+    fn drop(&mut self) {
+        for &row in &self.touched {
+            self.scores[row as usize] = 0.0;
+        }
+    }
 }
 
 /// [`bm25_top`], adding scores into `scores` by row, and listing in `touched` every row it sets.
@@ -651,7 +680,9 @@ fn bm25_top_into(
     for idx in (0..lists.len()).rev() {
         remaining[idx] = remaining[idx + 1] + f64::from(lists[idx].max_score);
     }
-    let bound = |idx: usize| remaining[idx] * (1.0 + 1e-5) + 1e-6;
+    // The slack grows with the terms, as f32 rounding of a row's sum does.
+    let slack = 1e-5 * (lists.len() as f64).max(1.0);
+    let bound = |idx: usize| remaining[idx] * (1.0 + slack) + 1e-6;
 
     let mut walked = 0;
     while walked < lists.len() {

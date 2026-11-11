@@ -137,13 +137,17 @@ impl VortexReadAt for FileReadAt {
         let file = Arc::clone(&self.file);
         let allocator = self.allocator.clone();
         if self.inline {
-            let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
-            // SAFETY: read_exact_at initializes every byte before the buffer is frozen.
-            unsafe { buffer.set_len(length) };
-            let read = read_exact_at(&file, buffer.as_mut_slice(), offset)
-                .map(|()| BufferHandle::new_host(buffer.freeze()))
-                .map_err(Into::into);
-            return future::ready(read).boxed();
+            // Read when first polled, not when requested: a caller may request under a lock, or
+            // drop the request unread.
+            return future::lazy(move |_| {
+                let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
+                // SAFETY: read_exact_at initializes every byte before the buffer is frozen.
+                unsafe { buffer.set_len(length) };
+                read_exact_at(&file, buffer.as_mut_slice(), offset)
+                    .map(|()| BufferHandle::new_host(buffer.freeze()))
+                    .map_err(Into::into)
+            })
+            .boxed();
         }
         let handle = self.handle.clone();
         async move {
