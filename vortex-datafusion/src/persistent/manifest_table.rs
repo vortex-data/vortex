@@ -36,11 +36,13 @@ use datafusion_physical_plan::empty::EmptyExec;
 use object_store::ObjectMeta;
 use object_store::path::Path;
 use tokio::sync::OnceCell;
+use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and;
+use vortex::file::FileStatsPruner;
 use vortex::file::Footer;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
@@ -230,17 +232,26 @@ impl TableProvider for VortexManifestTable {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
+        let start = std::time::Instant::now();
         self.seed_footer_cache(state);
+        let seeded = start.elapsed();
         let statistics = self.file_statistics(state).await?;
+        let stats_done = start.elapsed();
         let predicate = self.pruning_predicate(state, filters)?;
 
+        let to_df = |e: VortexError| DataFusionError::External(Box::new(e));
+        // Every file shares the first file's dtype, so the filter is rewritten for pruning once.
+        let pruner = predicate
+            .as_ref()
+            .map(|predicate| {
+                FileStatsPruner::try_new(predicate, self.files[0].footer.dtype(), &self.session)
+            })
+            .transpose()
+            .map_err(to_df)?;
         let mut kept = Vec::with_capacity(self.files.len());
         for (file, stats) in self.files.iter().zip(statistics) {
-            let pruned = match &predicate {
-                Some(predicate) => file
-                    .footer
-                    .can_prune(predicate, &self.session)
-                    .map_err(|e| DataFusionError::External(Box::new(e)))?,
+            let pruned = match &pruner {
+                Some(pruner) => pruner.can_prune(&file.footer).map_err(to_df)?,
                 None => false,
             };
             if !pruned {
@@ -254,6 +265,9 @@ impl TableProvider for VortexManifestTable {
             kept = kept.len(),
             pruned = self.files.len() - kept.len(),
             predicate = ?predicate.as_ref().map(|p| p.to_string()),
+            seed_us = seeded.as_micros(),
+            stats_us = (stats_done - seeded).as_micros(),
+            prune_us = (start.elapsed() - stats_done).as_micros(),
             "planned manifest scan"
         );
 
