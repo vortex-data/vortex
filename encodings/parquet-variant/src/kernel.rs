@@ -1209,6 +1209,56 @@ mod tests {
         Ok(())
     }
 
+    /// Rows whose value does not fit the shredded type stay in the residual value, and are
+    /// extracted from there into the positions the typed column leaves null.
+    #[rstest]
+    #[case::as_string(DataType::Utf8, VortexDType::Utf8(Nullability::Nullable))]
+    #[case::as_integer(
+        DataType::Int64,
+        VortexDType::Primitive(PType::I64, Nullability::Nullable)
+    )]
+    fn test_variant_get_fills_rows_the_shredded_column_lacks(
+        #[case] shredded_type: DataType,
+        #[case] requested: VortexDType,
+    ) -> VortexResult<()> {
+        let rows = vec![
+            Some(r#"{"a":"x"}"#),
+            Some(r#"{"a":7}"#),
+            Some(r#"{"b":1}"#),
+            Some(r#"{"a":"y"}"#),
+            Some(r#"{"a":8}"#),
+            Some(r#"{"a":true}"#),
+        ];
+        let unshredded = make_unshredded_json_array(rows.clone())?;
+
+        let json: ArrowArrayRef = Arc::new(StringArray::from(rows));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("a", &shredded_type)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let shredded = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let Canonical::Variant(shredded) = shredded.execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+
+        // Shredding must not change what a path extracts to.
+        let expected = execute_variant_get(unshredded, "$.a", Some(requested.clone()))?;
+        assert!(
+            !expected
+                .validity()?
+                .execute_mask(expected.len(), &mut ctx)?
+                .all_false(),
+            "the fixture must extract some values"
+        );
+        assert_arrays_eq!(
+            execute_variant_get(shredded.into_array(), "$.a", Some(requested))?,
+            expected,
+            &mut ctx
+        );
+        Ok(())
+    }
+
     #[test]
     fn test_variant_get_canonical_shredded_child_overrides_raw_core() -> VortexResult<()> {
         let canonical = make_canonical_raw_core_with_shredded_child()?;

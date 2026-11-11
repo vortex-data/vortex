@@ -73,27 +73,29 @@ Query time of Vortex relative to Parquet, on one million rows with DataFusion on
 
 | Shredding | Q0 | Q1 | Q2 | Q3 | Q4 |
 | --- | --- | --- | --- | --- | --- |
-| `none` | 0.91 | 1.34 | 1.58 | 1.03 | 0.95 |
-| `query-fields` | 0.36 | 0.60 | 0.59 | 0.63 | 0.68 |
+| `none` | 1.02 | 1.32 | 1.08 | 1.09 | 0.87 |
+| `query-fields` | 0.22 | 0.43 | 0.29 | 0.28 | 0.24 |
 
-What still costs time, largest first:
+The file is 126.5 MB against 128.6 MB of Parquet for `none`, and 135.1 MB against 118.6 MB
+for `query-fields`.
 
-1. **A Variant column is one unit of IO.** A chunk holds the metadata, the binary value, and
+With the queried fields shredded, DataFusion's aggregation takes most of the remaining time.
+What is left in Vortex, largest first:
+
+1. **Every extraction decodes the storage again.** Each `variant_get` over an unshredded
+   path decompresses the metadata and the value and converts them to Arrow, once per call,
+   where DataFusion over Parquet decodes the column once. Extracting several paths in one
+   pass, or decoding the storage once per chunk, would close the gap on `none`, which is
+   widest on Q1.
+2. **A Variant column is one unit of IO.** A chunk holds the metadata, the binary value, and
    every shredded column in a single segment, so a query that needs one shredded field still
-   reads and deserializes all of it. Writing each shredded field as its own column layout, and
-   resolving `variant_get` in the layout reader, would let a shredded query read only the
-   fields it names. This is what bounds the `query-fields` numbers.
-2. **Every extraction decodes the storage again.** Each `variant_get` over an unshredded
-   path decompresses the metadata and the value and converts them to Arrow, once per call:
-   Q2 extracts four paths in its projection and two in its filter. Extracting several paths
-   in one pass, or decoding the storage once per chunk, would remove most of the gap on
-   `none`.
-3. **The filter and the projection both extract.** DataFusion keeps the filtered paths in the
-   projection after the scan has absorbed the filter, so they are extracted twice.
-4. **Rows that a shredded column does not cover.** `variant_get` checks the residual value
-   for the rows where the typed column is null. It returns early when none of them holds a
-   value, and otherwise extracts from every row; scattering the few extracted rows into the
-   typed column would avoid that.
+   reads all of it. Writing each shredded field as its own column layout, and resolving
+   `variant_get` in the layout reader, would let a shredded query read only the fields it
+   names. On local disk this is a small part of the shredded queries; on object storage it
+   is the bytes fetched.
+3. **A chunked Variant compresses chunk by chunk.** The compressor keeps the chunks of a
+   chunked Variant apart, so a writer that feeds it small batches stores many small Variants.
+   `data-gen` avoids this by reading each Parquet row group as one batch.
 
 ## Running locally
 

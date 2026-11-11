@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use vortex_buffer::Buffer;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -161,9 +162,20 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
             return Ok(Some(typed));
         }
 
-        // TODO: scatter `null_rows_fallback` into the typed child instead of extracting from
-        // every row of core storage again.
-        let fallback = make_fallback(ctx)?;
+        // Scatter the extracted rows back to their positions: row `i` reads the extracted row
+        // that it is the n-th null typed row for. Valid typed rows read an arbitrary extracted
+        // row, which the zip discards.
+        let mut extracted = 0u64;
+        let positions = typed_mask
+            .to_bit_buffer()
+            .iter()
+            .map(|valid| {
+                let position = extracted;
+                extracted += u64::from(!valid);
+                position.min(null_rows_fallback.len() as u64 - 1)
+            })
+            .collect::<Buffer<u64>>();
+        let fallback = null_rows_fallback.take(positions.into_array())?;
         typed_mask
             .into_array()
             .zip(typed, fallback)?
