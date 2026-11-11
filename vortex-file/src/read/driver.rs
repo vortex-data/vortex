@@ -111,12 +111,17 @@ where
                 (*this.batch_size).min(free_slots.load(std::sync::atomic::Ordering::Relaxed));
             while batch.len() < budget {
                 let remaining = budget - batch.len();
+                let small = this.coalesce_window.as_ref().and_then(|w| {
+                    vortex_io::xp::knobs()
+                        .min_kib
+                        .map(|kib| CoalesceConfig::new(w.distance, (kib << 10).min(w.max_size)))
+                });
                 let window = if this.state.polled_requests.len() > remaining {
-                    this.coalesce_window.as_ref()
+                    *this.coalesce_window
                 } else {
-                    None
+                    small
                 };
-                let Some(request) = this.state.next(window) else {
+                let Some(request) = this.state.next(window.as_ref()) else {
                     break;
                 };
                 batch.push(request);

@@ -30,6 +30,8 @@ pub struct Knobs {
     /// Hand the read driver only as many reads as it has free slots, and coalesce a read only
     /// when more requests wait than there are slots left.
     pub adapt: bool,
+    /// With `adapt`, still merge reads up to this many KiB when slots are free.
+    pub min_kib: Option<u64>,
 }
 
 pub fn knobs() -> &'static Knobs {
@@ -46,6 +48,8 @@ pub fn knobs() -> &'static Knobs {
                 k.dev = true;
             } else if part == "adapt" {
                 k.adapt = true;
+            } else if let Some(n) = part.strip_prefix("min").and_then(num) {
+                k.min_kib = Some(n);
             } else if let Some(n) = part.strip_prefix("conc").and_then(num) {
                 k.conc = Some(n as usize);
             } else if part == "nocoal" {

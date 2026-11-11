@@ -21,7 +21,7 @@ PARTS_DIR = Path("parts")
 DATASETS = ["taxi", "feature-vectors", "nested-lists", "nested-structs"]
 # EXPERIMENT (not for merge): same-machine A/B of read-path variants, Vortex only.
 FORMATS = ["vortex"]
-XP_MODES = ["base", "dev", "adapt", "adapt+conc64", "adapt+conc128", "conc64", "coal64"]
+XP_MODES = ["base", "dev", "adapt+conc64", "adapt+conc64+min256", "adapt+conc64+min512", "adapt+conc64+min1024", "adapt+conc32+min512"]
 # Rounds per open mode; every mode runs once per round, in a shuffled order.
 XP_ROUNDS = {"cached": 1, "reopen": 2}
 # Only this mode's first round feeds the results the PR comment compares.
