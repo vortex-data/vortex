@@ -43,7 +43,7 @@ use crate::MemoryStorage;
 use crate::TableScan;
 use crate::TableStorage;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+pub(crate) static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
 /// Counts the reads of each file, to show which files a scan touched.
 struct CountingStorage {
@@ -123,7 +123,9 @@ async fn data_file(file: u64) -> VortexResult<ByteBuffer> {
 }
 
 /// A table of [`FILES`] files in memory, its manifest round-tripped through a Vortex file.
-async fn table(inline_footers: bool) -> VortexResult<(Arc<MemoryStorage>, Arc<Manifest>)> {
+pub(crate) async fn table(
+    inline_footers: bool,
+) -> VortexResult<(Arc<MemoryStorage>, Arc<Manifest>)> {
     let storage = Arc::new(MemoryStorage::new());
     let mut builder = ManifestBuilder::new(SESSION.clone()).with_inline_footers(inline_footers);
     for file in 0..FILES {

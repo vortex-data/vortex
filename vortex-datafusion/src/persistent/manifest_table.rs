@@ -36,17 +36,16 @@ use datafusion_physical_plan::empty::EmptyExec;
 use object_store::ObjectMeta;
 use object_store::path::Path;
 use tokio::sync::OnceCell;
-use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and;
-use vortex::file::FileStatsPruner;
 use vortex::file::Footer;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_table::Manifest;
+use vortex_table::TableStats;
 use vortex_table::footer::footer_hash;
 use vortex_table::footer::parse_footer;
 
@@ -72,6 +71,8 @@ pub struct VortexManifestTable {
     object_store_url: ObjectStoreUrl,
     schema: SchemaRef,
     files: Vec<ManifestFile>,
+    /// Column statistics of every file, one row per file, for pruning them all at once.
+    table_stats: TableStats,
     /// Per-file statistics, computed from the footers on the first scan.
     statistics: OnceCell<Vec<Arc<Statistics>>>,
 }
@@ -137,12 +138,18 @@ impl VortexManifestTable {
             );
         }
         let schema = Arc::new(session.arrow().to_arrow_schema(first.footer.dtype())?);
+        let table_stats = TableStats::try_new(
+            files.iter().map(|file| &file.footer),
+            first.footer.dtype(),
+            &session,
+        )?;
         Ok(Self {
             format,
             session,
             object_store_url,
             schema,
             files,
+            table_stats,
             statistics: OnceCell::new(),
         })
     }
@@ -239,22 +246,18 @@ impl TableProvider for VortexManifestTable {
         let stats_done = start.elapsed();
         let predicate = self.pruning_predicate(state, filters)?;
 
-        let to_df = |e: VortexError| DataFusionError::External(Box::new(e));
-        // Every file shares the first file's dtype, so the filter is rewritten for pruning once.
-        let pruner = predicate
-            .as_ref()
-            .map(|predicate| {
-                FileStatsPruner::try_new(predicate, self.files[0].footer.dtype(), &self.session)
-            })
-            .transpose()
-            .map_err(to_df)?;
+        // One evaluation of the filter's proof over the stats of every file.
+        let pruned = match &predicate {
+            Some(predicate) => Some(
+                self.table_stats
+                    .prune(predicate)
+                    .map_err(|e| DataFusionError::External(Box::new(e)))?,
+            ),
+            None => None,
+        };
         let mut kept = Vec::with_capacity(self.files.len());
-        for (file, stats) in self.files.iter().zip(statistics) {
-            let pruned = match &pruner {
-                Some(pruner) => pruner.can_prune(&file.footer).map_err(to_df)?,
-                None => false,
-            };
-            if !pruned {
+        for (i, (file, stats)) in self.files.iter().zip(statistics).enumerate() {
+            if !pruned.as_ref().is_some_and(|pruned| pruned.value(i)) {
                 kept.push(
                     PartitionedFile::from(file.meta.clone()).with_statistics(Arc::clone(stats)),
                 );
