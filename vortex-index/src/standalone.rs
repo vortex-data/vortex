@@ -18,7 +18,6 @@
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-use futures::TryStreamExt;
 use futures::stream;
 use prost::Message;
 use roaring::RoaringTreemap;
@@ -37,11 +36,13 @@ use vortex_error::vortex_err;
 use vortex_file::VortexFile;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::WriteSummary;
+use vortex_file::v2::collect;
 use vortex_io::VortexWrite;
 use vortex_layout::layouts::indexed::IndexBuilder;
 use vortex_layout::layouts::indexed::IndexExactness;
 use vortex_layout::layouts::indexed::IndexVTable;
 use vortex_layout::layouts::indexed::RowLocator;
+use vortex_layout::scan::v2::ScanBuilder;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
@@ -261,12 +262,10 @@ impl<V: IndexVTable> IndexFileBuilder<V> {
         file: &VortexFile,
     ) -> VortexResult<()> {
         let projection = col(self.column.as_str()).bind(file.dtype())?;
-        let chunks: Vec<ArrayRef> = file
-            .scan()?
-            .with_projection(projection)
-            .into_array_stream()?
-            .try_collect()
-            .await?;
+        let chunks = collect(
+            ScanBuilder::new(file.session().clone(), file.scan_file()).with_projection(projection),
+        )
+        .await?;
         self.push_file(covered, chunks)
     }
 
@@ -398,7 +397,7 @@ impl<V: IndexVTable> IndexFile<V> {
             source_dtype: info.source_dtype.clone(),
             index_dtype,
             data_row_count: total,
-            reader: file.layout_reader()?,
+            file: file.scan_file(),
             session: file.session().clone(),
             memo: OnceLock::new(),
         };

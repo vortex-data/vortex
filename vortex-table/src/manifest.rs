@@ -20,7 +20,6 @@
 
 use std::sync::Arc;
 
-use futures::TryStreamExt;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -35,8 +34,10 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
+use vortex_file::v2::collect;
 use vortex_io::VortexReadAt;
 use vortex_io::VortexWrite;
+use vortex_layout::scan::v2::ScanBuilder;
 use vortex_session::VortexSession;
 
 use crate::footer::FooterRegion;
@@ -182,7 +183,7 @@ impl Manifest {
     /// Reads a manifest from a Vortex file.
     pub async fn read(session: &VortexSession, read: Arc<dyn VortexReadAt>) -> VortexResult<Self> {
         let file = session.open_options().open(read).await?;
-        let chunks: Vec<ArrayRef> = file.scan()?.into_array_stream()?.try_collect().await?;
+        let chunks = collect(ScanBuilder::new(session.clone(), file.scan_file())).await?;
         let mut entries = Vec::new();
         for chunk in chunks {
             entries.extend(Self::from_array(chunk, session)?.entries);

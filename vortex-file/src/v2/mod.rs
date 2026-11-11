@@ -6,4 +6,5 @@ mod scan;
 
 pub use file_stats_reader::*;
 pub use scan::ScanDriver;
+pub use scan::collect;
 pub use scan::compose;

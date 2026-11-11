@@ -13,10 +13,10 @@ use std::sync::OnceLock;
 use vortex_error::VortexResult;
 use vortex_file::VortexFile;
 use vortex_layout::LayoutChildType;
-use vortex_layout::LayoutReaderContext;
 use vortex_layout::LayoutRef;
 use vortex_layout::layouts::indexed::IndexVTable;
 use vortex_layout::layouts::indexed::Indexed;
+use vortex_layout::scan::v2::ScanFile;
 
 use crate::rows::IndexRows;
 
@@ -50,19 +50,19 @@ pub fn open_in_file_index<V: IndexVTable>(
         return Ok(None);
     }
     let index_child = indexed.children()?.swap_remove(position + 1);
-    let reader = index_child.new_reader(
-        format!("{column}.index:{id}").into(),
-        file.segment_source(),
-        file.session(),
-        &LayoutReaderContext::new(),
-    )?;
+    // The index content's segments sit in the data file, beside the data's.
+    let scan_file = ScanFile {
+        layout: index_child,
+        cache: None,
+        ..file.scan_file()
+    };
     Ok(Some(IndexRows {
         vtable: Arc::new(vtable),
         options,
         source_dtype,
         index_dtype: spec.index_dtype().clone(),
         data_row_count: indexed.row_count(),
-        reader,
+        file: scan_file,
         session: file.session().clone(),
         memo: OnceLock::new(),
     }))

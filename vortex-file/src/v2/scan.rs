@@ -38,6 +38,9 @@ use vortex_layout::scan::v2::PreparedScan;
 use vortex_layout::scan::v2::PrunePlanner;
 use vortex_layout::scan::v2::ScanBuilder;
 use vortex_mask::Mask;
+use vortex_scan::planning::drive::PlanDriver;
+use vortex_scan::planning::drive::PlanRoot;
+use vortex_scan::planning::drive::SequentialDriver;
 use vortex_scan::planning::driver::Progress;
 use vortex_scan::planning::driver::Run;
 use vortex_scan::planning::driver::Spawned;
@@ -169,6 +172,22 @@ impl ScanDriver {
         .try_flatten()
         .boxed()
     }
+}
+
+/// Runs `builder` to its end on the calling task, collecting its batches in row order.
+///
+/// For small reads, such as index content or a table manifest, that need no runtime of their own.
+pub async fn collect(builder: ScanBuilder) -> VortexResult<Vec<ArrayRef>> {
+    let scan = Arc::new(builder.prepare()?);
+    let scope = WorkScope {
+        file_ordinal: scan.file_ordinal(),
+        rows: scan.rows().clone(),
+    };
+    SequentialDriver::new()
+        .execute(PlanRoot::new(scope, compose(&scan), scan.io()))
+        .map_ok(|batch| batch.batch)
+        .try_collect()
+        .await
 }
 
 /// The planners of a scan, composed: with a filter, its pruning plans first over the whole scan,
