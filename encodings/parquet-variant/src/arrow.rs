@@ -20,12 +20,15 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Chunked;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::Masked;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::Variant;
+use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::masked::MaskedArrayExt;
 use vortex_array::arrays::masked::MaskedArraySlotsExt;
@@ -50,6 +53,7 @@ use vortex_arrow::to_arrow_null_buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
 
@@ -134,19 +138,32 @@ pub(crate) fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
     export_storage_to_target(&unshredded_parquet, target_fields, options, ctx)
 }
 
-/// Stop before canonicalization hides constant and masked storage behind a Variant wrapper.
+/// Stop before canonicalization hides constant, masked, and chunked storage behind a Variant
+/// wrapper.
 struct ParquetVariantExportable;
 
 impl Matcher for ParquetVariantExportable {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<ParquetVariant>() || array.is::<Constant>() || array.is::<Masked>())
-            .then_some(array)
+        (array.is::<ParquetVariant>()
+            || array.is::<Constant>()
+            || array.is::<Masked>()
+            || is_non_empty_chunked(array))
+        .then_some(array)
     }
 }
 
-fn prepare_variant_for_export(
+/// An empty `ChunkedArray` has no chunk storage to export, so it is left to canonicalize.
+fn is_non_empty_chunked(array: &ArrayRef) -> bool {
+    array
+        .as_opt::<Chunked>()
+        .is_some_and(|chunked| chunked.nchunks() > 0)
+}
+
+/// Executes the Variant `array` down to one Parquet Variant storage array, attaching
+/// `typed_value` as its shredded child.
+pub(crate) fn prepare_variant_for_export(
     array: ArrayRef,
     typed_value: Option<ArrayRef>,
     ctx: &mut ExecutionCtx,
@@ -175,6 +192,10 @@ fn prepare_variant_for_export(
         return attach_typed_value(array, typed_value);
     }
 
+    if is_non_empty_chunked(&array) {
+        return prepare_chunked_variant_for_export(&array, typed_value, ctx);
+    }
+
     // `MaskedArray` children have no nulls, so the mask alone is the validity of the result.
     if let Some(masked) = array.as_opt::<Masked>() {
         let child = prepare_variant_for_export(masked.child().clone(), typed_value, ctx)?;
@@ -199,6 +220,109 @@ fn prepare_variant_for_export(
     }
 
     vortex_bail!("cannot export Variant without ParquetVariant core storage")
+}
+
+/// Prepares every chunk of the `ChunkedArray` `array`, then chunks each storage child across them
+/// into the children of one Parquet Variant array.
+///
+/// A chunked Variant canonicalizes to a Variant whose core storage is chunked again, so executing
+/// it never reaches Parquet Variant storage.
+fn prepare_chunked_variant_for_export(
+    array: &ArrayRef,
+    typed_value: Option<ArrayRef>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let chunked = array.as_::<Chunked>();
+
+    let mut offset = 0;
+    let mut storages = Vec::with_capacity(chunked.nchunks());
+    for chunk in chunked.iter_chunks() {
+        let end = offset + chunk.len();
+        let typed_value = typed_value
+            .as_ref()
+            .map(|typed_value| typed_value.slice(offset..end))
+            .transpose()?;
+        storages.push(prepare_variant_for_export(chunk.clone(), typed_value, ctx)?);
+        offset = end;
+    }
+    let storages = storages
+        .iter()
+        .map(|storage| storage.as_::<ParquetVariant>())
+        .collect::<Vec<_>>();
+
+    let validity = match array.dtype().nullability() {
+        Nullability::NonNullable => Validity::NonNullable,
+        Nullability::Nullable => {
+            let validities = storages
+                .iter()
+                .map(|storage| storage.parquet_variant_validity().to_array(storage.len()));
+            Validity::Array(
+                ChunkedArray::try_new(validities, DType::Bool(Nullability::NonNullable))?
+                    .into_array(),
+            )
+        }
+    };
+    let metadata = chunk_storage_child(
+        "metadata",
+        storages
+            .iter()
+            .map(|storage| Some(storage.metadata().clone())),
+    )?
+    .ok_or_else(|| vortex_err!("Parquet Variant storage always has a metadata child"))?;
+    let value = chunk_storage_child(
+        "value",
+        storages.iter().map(|storage| storage.value().cloned()),
+    )?;
+    let typed_value = chunk_storage_child(
+        "typed_value",
+        storages
+            .iter()
+            .map(|storage| storage.typed_value().cloned()),
+    )?;
+
+    ParquetVariant::try_new(validity, metadata, value, typed_value).map(IntoArray::into_array)
+}
+
+/// Chunks the `name` storage child of every chunk, or returns `None` if no chunk has it.
+///
+/// Chunks may disagree on the nullability of a child, in which case all of them widen to nullable.
+fn chunk_storage_child(
+    name: &str,
+    children: impl Iterator<Item = Option<ArrayRef>>,
+) -> VortexResult<Option<ArrayRef>> {
+    let children = children.collect::<Vec<_>>();
+    if children.iter().all(Option::is_none) {
+        return Ok(None);
+    }
+    let children = children
+        .into_iter()
+        .map(|child| {
+            child.ok_or_else(|| {
+                vortex_err!(
+                    "cannot export chunked Variant to Arrow: chunks disagree on the presence of \
+                     the {name} child"
+                )
+            })
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    let dtype = if children.iter().any(|child| child.dtype().is_nullable()) {
+        children[0].dtype().as_nullable()
+    } else {
+        children[0].dtype().clone()
+    };
+    let children = children
+        .into_iter()
+        .map(|child| {
+            if child.dtype() == &dtype {
+                Ok(child)
+            } else {
+                child.cast(dtype.clone())
+            }
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    Ok(Some(ChunkedArray::try_new(children, dtype)?.into_array()))
 }
 
 fn attach_typed_value(storage: ArrayRef, typed_value: Option<ArrayRef>) -> VortexResult<ArrayRef> {
@@ -455,6 +579,7 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::MaskedArray;
@@ -853,6 +978,47 @@ mod tests {
 
         let actual = session.arrow().from_arrow_array(exported, &field)?;
         assert_variant_scalars_eq(&actual, &expected, &session)
+    }
+
+    /// A Variant column read from a file arrives as one chunk per written chunk.
+    #[rstest]
+    fn test_export_chunked_variant(
+        session: VortexSession,
+        #[values(false, true)] wrap_canonical: bool,
+    ) -> VortexResult<()> {
+        let chunk = |values: &[i32]| -> VortexResult<ArrayRef> {
+            let rows = values
+                .iter()
+                .map(|value| VariantBuilder::new().with_value(*value).finish())
+                .collect::<Vec<_>>();
+            let metadata = VarBinViewArray::from_iter_bin(rows.iter().map(|(m, _)| m.as_slice()));
+            let value = VarBinViewArray::from_iter_bin(rows.iter().map(|(_, v)| v.as_slice()));
+            let storage = ParquetVariant::try_new(
+                Validity::NonNullable,
+                metadata.into_array(),
+                Some(value.into_array()),
+                None,
+            )?
+            .into_array();
+            Ok(if wrap_canonical {
+                VariantArray::try_new(storage, None)?.into_array()
+            } else {
+                storage
+            })
+        };
+        let array = ChunkedArray::try_new(
+            [chunk(&[1, 2])?, chunk(&[3])?],
+            DType::Variant(Nullability::NonNullable),
+        )?
+        .into_array();
+
+        let result = export_variant(&session, array)?;
+
+        assert_eq!(result.len(), 3);
+        for (index, expected) in [1i32, 2, 3].into_iter().enumerate() {
+            assert_eq!(result.value(index), PqVariant::from(expected));
+        }
+        Ok(())
     }
 
     #[rstest]

@@ -41,6 +41,8 @@ opentelemetry.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry_sdk.workspace = true
 parking_lot = { workspace = true }
+parquet-variant = { workspace = true }
+parquet-variant-compute = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files", "tokio"] }

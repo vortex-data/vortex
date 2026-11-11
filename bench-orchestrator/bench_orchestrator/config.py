@@ -60,6 +60,7 @@ class Benchmark(Enum):
     FINEWEB = "fineweb"
     GHARCHIVE = "gh-archive"
     JOB = "job"
+    JSONBENCH = "jsonbench"
     POLARSIGNALS = "polarsignals"
     PUBLIC_BI = "public-bi"
     STATPOPGEN = "statpopgen"
@@ -93,6 +94,18 @@ BENCHMARK_ENGINES: dict[Benchmark, frozenset[Engine]] = {
 }
 
 
+# Engine/format targets a benchmark cannot run, beyond what `ENGINE_FORMATS` rules out. JSONBench
+# stores a Variant column, which the Vortex DuckDB extension cannot export to DuckDB yet.
+BENCHMARK_UNSUPPORTED_TARGETS: dict[Benchmark, frozenset[tuple[Engine, Format]]] = {
+    Benchmark.JSONBENCH: frozenset(
+        {
+            (Engine.DUCKDB, Format.VORTEX),
+            (Engine.DUCKDB, Format.VORTEX_COMPACT),
+        }
+    ),
+}
+
+
 # Benchmarks whose Vortex scans still run on the V1 scan. The orchestrator runs every other
 # benchmark on the planner-driven V2 scan, overriding the benchmark binaries' V1 default.
 # These suites write the list layout, which the V2 scan cannot read yet.
@@ -113,6 +126,11 @@ def uses_scan_v2(benchmark: Benchmark) -> bool:
 def engines_for_benchmark(benchmark: Benchmark) -> frozenset[Engine]:
     """Return the engines `benchmark` supports, defaulting to every engine when unrestricted."""
     return BENCHMARK_ENGINES.get(benchmark, frozenset(Engine))
+
+
+def benchmark_supports_target(benchmark: Benchmark, engine: Engine, fmt: Format) -> bool:
+    """Return whether `benchmark` can run on `engine` over `fmt`, given the engine supports both."""
+    return (engine, fmt) not in BENCHMARK_UNSUPPORTED_TARGETS.get(benchmark, frozenset())
 
 
 T = TypeVar("T")
@@ -233,6 +251,11 @@ def resolve_axis_targets(
             if not target.is_supported():
                 warnings.append(f"Format {fmt.value} is not supported by engine {engine.value}")
                 continue
+            if benchmark is not None and not benchmark_supports_target(benchmark, target.engine, target.format):
+                warnings.append(
+                    f"Benchmark {benchmark.value} does not support format {fmt.value} on engine {engine.value}"
+                )
+                continue
             targets.append(target)
 
     return _unique_preserve_order(targets), warnings
@@ -258,6 +281,11 @@ def validate_targets(
             errors.append(f"Format {target.format.value} is not supported by engine {target.engine.value}")
         if benchmark is not None and target.engine not in engines_for_benchmark(benchmark):
             errors.append(f"Benchmark {benchmark.value} does not support engine {target.engine.value}")
+        elif benchmark is not None and not benchmark_supports_target(benchmark, target.engine, target.format):
+            errors.append(
+                f"Benchmark {benchmark.value} does not support format {target.format.value} "
+                f"on engine {target.engine.value}"
+            )
 
     if options.get("remote-data-dir") and any(target.format == Format.LANCE for target in normalized_targets):
         errors.append("Lance format is not supported for remote storage benchmarks.")

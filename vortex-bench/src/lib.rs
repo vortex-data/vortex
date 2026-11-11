@@ -19,6 +19,8 @@ use clickbench::Flavor;
 use fineweb::FinewebBenchmark;
 use itertools::Itertools;
 use job::JobBenchmark;
+use jsonbench::JsonBenchBenchmark;
+use jsonbench::Shredding;
 use polarsignals::PolarSignalsBenchmark;
 use public_bi::PBIDataset;
 use public_bi::PublicBiBenchmark;
@@ -52,6 +54,7 @@ pub mod display;
 pub mod downloadable_dataset;
 pub mod fineweb;
 pub mod job;
+pub mod jsonbench;
 pub mod measurements;
 pub mod memory;
 pub mod output;
@@ -407,6 +410,8 @@ pub enum BenchmarkArg {
     GhArchive,
     #[clap(name = "job")]
     Job,
+    #[clap(name = "jsonbench")]
+    JsonBench,
     #[clap(name = "polarsignals")]
     PolarSignals,
     #[clap(name = "public-bi")]
@@ -483,6 +488,13 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         BenchmarkArg::Job => {
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
             let benchmark = JobBenchmark::with_remote_data_dir(remote_data_dir)?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::JsonBench => {
+            let files = opts.get_as::<usize>(SCALE_FACTOR_KEY).unwrap_or(1);
+            let shredding = opts.get_as::<Shredding>("shredding").unwrap_or_default();
+            let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
+            let benchmark = JsonBenchBenchmark::new(files, shredding, remote_data_dir)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::PolarSignals => {

@@ -47,6 +47,7 @@ use vortex_error::vortex_err;
 
 use crate::ParquetVariant;
 use crate::ParquetVariantArray;
+use crate::arrow::prepare_variant_for_export;
 
 #[array_slots(ParquetVariant)]
 pub struct ParquetVariantSlots {
@@ -352,6 +353,12 @@ pub(crate) fn parquet_typed_value_from_logical_shredded(
         .into_array());
     }
 
+    // A shredded object read from a file can be chunked, which hides its fields.
+    let shredded = if shredded.dtype().is_struct() && !shredded.is::<Struct>() {
+        shredded.execute::<StructArray>(ctx)?.into_array()
+    } else {
+        shredded
+    };
     let Some(struct_array) = shredded.as_opt::<Struct>() else {
         // A bare typed leaf (a fully shredded scalar) is already a valid Parquet `typed_value`.
         return Ok(shredded);
@@ -388,14 +395,9 @@ fn parquet_shredded_field_from_logical(
     // Partially shredded fields canonicalize to a nested Variant whose core storage holds the
     // residual `value` and whose own shredded tree holds the typed children.
     if let Some(variant) = logical_field.as_opt::<Variant>() {
-        let core = variant
-            .core_storage()
-            .as_opt::<ParquetVariant>()
-            .ok_or_else(|| {
-                vortex_err!(
-                    "cannot rebuild Parquet shredded field: nested Variant lacks Parquet Variant core storage"
-                )
-            })?;
+        // The core storage of a Variant read from a file can be chunked or masked.
+        let core = prepare_variant_for_export(variant.core_storage().clone(), None, ctx)?;
+        let core = core.as_::<ParquetVariant>();
         let value = core.value().cloned().ok_or_else(|| {
             vortex_err!("cannot rebuild Parquet shredded field: partially shredded Variant has no residual value")
         })?;

@@ -88,6 +88,16 @@ fn calculate_physical_field_type(
         storage_dtype = ext.storage_dtype();
     }
 
+    // A Variant exports as the Arrow storage struct of the session's Variant encoding, which has
+    // no struct dtype to reconcile with the logical struct.
+    if storage_dtype.is_variant() {
+        return Ok(arrow_session
+            .to_arrow_field("", dtype)
+            .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}"))?
+            .data_type()
+            .clone());
+    }
+
     // Check if the logical type is one that doesn't roundtrip through DType
     Ok(match logical_type {
         // Dictionary types lose their encoding when converted to DType
@@ -337,6 +347,27 @@ mod tests {
 
         let physical_schema =
             calculate_physical_schema(&dtype, &logical_schema, &VortexSession::empty().arrow())?;
+        assert_eq!(physical_schema, logical_schema);
+        Ok(())
+    }
+
+    #[test]
+    fn test_variant_uses_arrow_storage_type() -> anyhow::Result<()> {
+        // A Variant has no struct dtype, although its Arrow storage is a struct.
+        let session = VortexSession::empty();
+        let arrow_session = session.arrow();
+        let variant = DType::Variant(Nullability::Nullable);
+        let logical_schema = Schema::new(vec![arrow_session.to_arrow_field("v", &variant)?]);
+        assert!(matches!(
+            logical_schema.field(0).data_type(),
+            DataType::Struct(_)
+        ));
+        let dtype = DType::Struct(
+            StructFields::from_iter([("v", variant)]),
+            Nullability::NonNullable,
+        );
+
+        let physical_schema = calculate_physical_schema(&dtype, &logical_schema, &arrow_session)?;
         assert_eq!(physical_schema, logical_schema);
         Ok(())
     }
