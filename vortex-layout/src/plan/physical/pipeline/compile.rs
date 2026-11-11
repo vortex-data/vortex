@@ -20,7 +20,9 @@ use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScanPlan;
 use crate::plan::physical::operator::Operator;
 use crate::plan::physical::operator::Source;
+use crate::plan::physical::operators::OnceSource;
 use crate::plan::physical::operators::ScanSource;
+use crate::plan::physical::operators::select;
 
 /// A pipeline under construction: a source and the stages after it, not yet given outlets, so a
 /// parent plan can add stages before it becomes a pipeline.
@@ -148,11 +150,19 @@ impl Compiler<'_> {
         } else {
             Some(usize::try_from(rows.start)?..usize::try_from(rows.end)?)
         };
+        if let Some(array) = self.core.values.segment(scan.segment_id()) {
+            return Ok(Some(Chain::new(OnceSource::new(select(
+                array,
+                slice.as_ref(),
+                filter.as_ref(),
+            )?))));
+        }
         self.core.segments.push(scan.segment_id());
         Ok(Some(Chain::new(ScanSource::new(
             scan.clone(),
             slice,
             filter,
+            self.core.values.clone(),
         ))))
     }
 }

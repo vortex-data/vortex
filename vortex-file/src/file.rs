@@ -31,7 +31,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::FileStatistics;
 use crate::footer::Footer;
-use crate::pruning::is_falsified_by_file_stats;
 use crate::source::FileDataSource;
 use crate::v2::FileStatsLayoutReader;
 
@@ -125,9 +124,15 @@ impl VortexFile {
     /// [`data_source`](Self::data_source) will share the same reader tree. Repeated V2 scans of
     /// [`scan_file`](Self::scan_file) will share its segment locations and a [`ScanCache`].
     pub fn with_caching(self) -> Self {
+        self.with_scan_cache(ScanCache::default())
+    }
+
+    /// [`with_caching`](Self::with_caching), with V2 scans sharing `plans`, such as a
+    /// [`ScanCache`] that retains fewer segments.
+    pub fn with_scan_cache(self, plans: ScanCache) -> Self {
         let scan_cache = FileScanCache {
             locations: segment_locations(&self.footer),
-            plans: ScanCache::default(),
+            plans,
         };
         Self {
             footer: self.footer,
@@ -282,16 +287,7 @@ impl VortexFile {
     /// Row-count-aware pruning predicates are evaluated with the file's total
     /// row count as their scope.
     pub fn can_prune(&self, filter: &Expression) -> VortexResult<bool> {
-        let Some(stats) = self.footer.statistics() else {
-            return Ok(false);
-        };
-
-        is_falsified_by_file_stats(
-            &filter.bind(self.footer.dtype())?,
-            self.footer.row_count(),
-            stats,
-            &self.session,
-        )
+        self.footer.can_prune(filter, &self.session)
     }
 
     /// Return the file's natural row splits as root-coordinate ranges.

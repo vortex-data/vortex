@@ -272,8 +272,9 @@ async fn run_batches(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult
     loop {
         match run.advance()? {
             Progress::Batch(batch) => batches.push(batch),
-            Progress::Spawn(scope, chunk) => {
-                run.admit(chunk, scope, io.session());
+            Progress::Spawn(spawned) => {
+                let session = spawned.session_or(|| io.session());
+                run.admit(spawned.planner, spawned.scope, session);
             }
             Progress::RootDone(_) if run.live_roots() > 0 => {}
             Progress::RootDone(_) | Progress::Idle => break,
@@ -629,6 +630,55 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
     Ok(())
 }
 
+/// Whether `a` and `b`, or any of their descendants at the same position, are the same array.
+fn shares_a_node(a: &ArrayRef, b: &ArrayRef) -> bool {
+    ArrayRef::ptr_eq(a, b)
+        || a.children()
+            .iter()
+            .zip(b.children().iter())
+            .any(|(a, b)| shares_a_node(a, b))
+}
+
+/// A second scan of a file finds its segments' decoded arrays in the file's cache, so it requests
+/// no segment and emits the very arrays the first scan decoded, unless the cache retains nothing.
+#[rstest]
+#[case::retained(None, 0, true)]
+#[case::not_retained(Some(0), CHUNKS, false)]
+#[tokio::test]
+async fn repeated_scans_reuse_decoded_segments(
+    #[case] retained_bytes: Option<u64>,
+    #[case] second_requests: usize,
+    #[case] reused: bool,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, chunked_flat().as_ref()).await?;
+    let counted = Arc::new(CountingSegmentSource::new(segments));
+    let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
+    let mut file = scan_file(&segments, &layout)?;
+    file.cache =
+        Some(retained_bytes.map_or_else(ScanCache::default, ScanCache::with_retained_bytes));
+    let scan = || ScanBuilder::new(session.clone(), file.clone());
+
+    let first = run_scan(scan()).await?;
+    let after_first = counted.requests();
+    assert_eq!(after_first, CHUNKS);
+    let second = run_scan(scan()).await?;
+    assert_eq!(counted.requests() - after_first, second_requests);
+    assert_eq!(first.len(), second.len());
+    for (first, second) in first.iter().zip(&second) {
+        assert_eq!(shares_a_node(first, second), reused);
+    }
+
+    let dtype = first[0].dtype().clone();
+    let mut ctx = session.create_execution_ctx();
+    assert_arrays_eq!(
+        ChunkedArray::try_new(second, dtype.clone())?.into_array(),
+        ChunkedArray::try_new(first, dtype)?.into_array(),
+        &mut ctx
+    );
+    Ok(())
+}
+
 /// Work chunks that each overlap half of a stored segment read it once while the file's cache
 /// retains segments, and once per chunk when it retains nothing.
 #[rstest]
@@ -939,8 +989,9 @@ async fn prune(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Optio
     loop {
         match run.advance()? {
             Progress::Batch(_) => vortex_bail!("pruning alone produced a batch"),
-            Progress::Spawn(scope, planner) => {
-                run.admit(planner, scope, io.session());
+            Progress::Spawn(spawned) => {
+                let session = spawned.session_or(|| io.session());
+                run.admit(spawned.planner, spawned.scope, session);
             }
             Progress::RootDone(_) if run.live_roots() > 0 => {}
             Progress::RootDone(_) | Progress::Idle => return Ok(kept.lock().take()),

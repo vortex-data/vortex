@@ -29,7 +29,7 @@ pub(super) struct RetainedSegments {
 }
 
 /// The bytes a file's scans retain by default.
-const DEFAULT_RETAINED_BYTES: u64 = 64 << 20;
+pub(super) const DEFAULT_RETAINED_BYTES: u64 = 64 << 20;
 
 impl Default for RetainedSegments {
     fn default() -> Self {

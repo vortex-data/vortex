@@ -13,6 +13,7 @@ use rustc_hash::FxHashMap;
 use vortex_array::expr::BoundExpression;
 
 use super::io::SegmentRanges;
+use super::retain::DEFAULT_RETAINED_BYTES;
 use super::retain::RetainedSegments;
 use super::retain::RetainingSegmentSource;
 use crate::plan::physical::PlanRef;
@@ -38,7 +39,6 @@ use crate::segments::SegmentSource;
 #[derive(Clone, Default)]
 pub struct ScanCache(Arc<Inner>);
 
-#[derive(Default)]
 struct Inner {
     root: Mutex<Option<PlanRef>>,
     /// Optimized plans of non-identity projections. Values are cached by the plan that produced
@@ -48,19 +48,38 @@ struct Inner {
     /// Plans of filters, keyed by the filter expression. A pruning plan remembers the zones it
     /// excluded, so sharing the plans prunes a file's zones once for every scan of that filter.
     filters: Mutex<FxHashMap<ExprKey, Arc<FilterPlans>>>,
+    /// Dictionary values, and recently decoded segments within the same budget as `retained`.
     values: ValueCache,
     /// Recently read segments, shared by the chunks of every scan of the file.
     retained: Arc<RetainedSegments>,
 }
 
+impl Default for Inner {
+    fn default() -> Self {
+        Self::retaining(DEFAULT_RETAINED_BYTES)
+    }
+}
+
+impl Inner {
+    fn retaining(bytes: u64) -> Self {
+        Self {
+            root: Mutex::default(),
+            projections: Mutex::default(),
+            ranges: Mutex::default(),
+            filters: Mutex::default(),
+            values: ValueCache::with_segment_bytes(bytes),
+            retained: Arc::new(RetainedSegments::new(bytes)),
+        }
+    }
+}
+
 impl ScanCache {
     /// A cache whose scans retain up to `bytes` of recently read segments, so chunks that share
-    /// a stored segment read it once. The default retains 64 MiB; zero retains nothing.
+    /// a stored segment read it once, and as much of their decoded arrays, so a later scan of
+    /// a segment neither reads nor decodes it again. The default retains 64 MiB; zero retains
+    /// nothing.
     pub fn with_retained_bytes(bytes: u64) -> Self {
-        Self(Arc::new(Inner {
-            retained: Arc::new(RetainedSegments::new(bytes)),
-            ..Inner::default()
-        }))
+        Self(Arc::new(Inner::retaining(bytes)))
     }
 
     /// The lowered root plan an earlier scan kept.

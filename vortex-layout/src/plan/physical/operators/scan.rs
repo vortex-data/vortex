@@ -21,6 +21,7 @@ use crate::plan::physical::operator::Source;
 use crate::plan::physical::operator::SourceBlocked;
 use crate::plan::physical::operator::SourceReady;
 use crate::plan::physical::operator::Step;
+use crate::plan::physical::pipeline::ValueCache;
 use crate::segments::SegmentId;
 
 /// Decodes the whole of a scan's segment.
@@ -42,7 +43,7 @@ fn decode(
 }
 
 /// Slices a whole decoded segment to `slice`, then keeps the rows `filter` selects.
-fn select(
+pub(crate) fn select(
     array: ArrayRef,
     slice: Option<&Range<usize>>,
     filter: Option<&Mask>,
@@ -66,6 +67,8 @@ pub(crate) struct ScanSource {
     unread: Option<SegmentId>,
     /// The segment has been emitted.
     done: bool,
+    /// Where the decoded segment is kept for later scans.
+    cache: ValueCache,
 }
 
 impl ScanSource {
@@ -73,6 +76,7 @@ impl ScanSource {
         plan: SegmentScanPlan,
         slice: Option<Range<usize>>,
         filter: Option<Mask>,
+        cache: ValueCache,
     ) -> Self {
         Self {
             unread: Some(plan.segment_id()),
@@ -80,6 +84,7 @@ impl ScanSource {
             slice,
             filter,
             done: false,
+            cache,
         }
     }
 }
@@ -103,11 +108,13 @@ impl Operator for ScanSource {
         if self.done {
             return Ok(Step::End);
         }
-        let (_, bytes) = cx
+        let (segment, bytes) = cx
             .take_segment()
             .ok_or_else(|| vortex_err!("Segment scan ran without its bytes"))?;
         self.done = true;
+        let len = bytes.len() as u64;
         let array = decode(&self.plan, bytes, cx.session())?;
+        self.cache.insert_segment(segment, &array, len);
         Ok(Step::Final(select(
             array,
             self.slice.as_ref(),

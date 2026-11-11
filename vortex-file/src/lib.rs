@@ -126,6 +126,7 @@ pub use file::*;
 pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
+pub use pruning::FileStatsPruner;
 pub use strategy::*;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;
