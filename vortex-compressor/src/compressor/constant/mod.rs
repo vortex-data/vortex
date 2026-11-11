@@ -27,6 +27,9 @@ use vortex_array::dtype::NativePType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
+use vortex_buffer::BufferString;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -182,13 +185,39 @@ fn compress_constant(source: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
         );
     };
 
-    let scalar = source.execute_scalar(first_valid, ctx)?;
+    let scalar = detach_scalar(source.execute_scalar(first_valid, ctx)?)?;
     let const_arr = ConstantArray::new(scalar, source.len()).into_array();
 
     if mask.all_true() {
         Ok(const_arr)
     } else {
         Ok(MaskedArray::try_new(const_arr, validity, ctx)?.into_array())
+    }
+}
+
+/// Copies the string and binary bytes of `scalar` out of the buffers of the array it came from.
+///
+/// `execute_scalar` returns a zero-copy slice of the source buffer for these types. A constant
+/// holding that slice would keep the whole buffer alive, and `nbytes` would not account for it.
+fn detach_scalar(scalar: Scalar) -> VortexResult<Scalar> {
+    let (dtype, value) = scalar.into_parts();
+    Scalar::try_new(dtype, value.map(detach_value))
+}
+
+/// Copies the string and binary bytes of `value`, including the elements of a fixed-size list or
+/// of an extension's storage. Union and variant values are left as they are: `is_constant` does
+/// not support those arrays beyond length one.
+fn detach_value(value: ScalarValue) -> ScalarValue {
+    match value {
+        ScalarValue::Utf8(value) => ScalarValue::Utf8(BufferString::from(value.as_str())),
+        ScalarValue::Binary(value) => ScalarValue::Binary(ByteBuffer::copy_from(&value)),
+        ScalarValue::Tuple(values) => ScalarValue::Tuple(
+            values
+                .into_iter()
+                .map(|value| value.map(detach_value))
+                .collect(),
+        ),
+        value => value,
     }
 }
 
