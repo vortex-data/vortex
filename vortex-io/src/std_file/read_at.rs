@@ -13,17 +13,23 @@ use std::os::unix::fs::FileExt;
 use std::os::windows::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 
 use futures::FutureExt;
+use futures::StreamExt;
 use futures::future::BoxFuture;
+use futures::stream;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::memory::BufferAllocatorRef;
 use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 
 use crate::CoalesceConfig;
+use crate::ReadAtRequest;
+use crate::ReadAtStream;
 use crate::VortexReadAt;
 use crate::runtime::Handle;
+use crate::xp;
 
 /// Read exactly `buffer.len()` bytes from `file` starting at `offset`.
 /// This is a platform-specific helper that uses the most efficient method available.
@@ -116,11 +122,15 @@ impl VortexReadAt for FileReadAt {
     }
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
-        Some(CoalesceConfig::file())
+        match xp::knobs().coal {
+            Some(Some((distance, max_size))) => Some(CoalesceConfig::new(distance, max_size)),
+            Some(None) => None,
+            None => Some(CoalesceConfig::file()),
+        }
     }
 
     fn concurrency(&self) -> usize {
-        DEFAULT_CONCURRENCY
+        xp::knobs().conc.unwrap_or(DEFAULT_CONCURRENCY)
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
@@ -141,17 +151,97 @@ impl VortexReadAt for FileReadAt {
         let file = Arc::clone(&self.file);
         let handle = self.handle.clone();
         let allocator = self.allocator.clone();
+        let submitted = Instant::now();
         async move {
-            handle
+            let (result, started, ended) = handle
                 .spawn_blocking(move || {
-                    let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
-                    // SAFETY: read_exact_at initializes every byte before the buffer is frozen.
-                    unsafe { buffer.set_len(length) };
-                    read_exact_at(&file, buffer.as_mut_slice(), offset)?;
-                    Ok(BufferHandle::new_host(buffer.freeze()))
+                    let started = Instant::now();
+                    let result = read_one(&file, &allocator, offset, length, alignment);
+                    (result, started, Instant::now())
                 })
-                .await
+                .await;
+            xp::add(&xp::TASKS, 1);
+            xp::add(&xp::SCHED_NS, (started - submitted).as_nanos() as u64);
+            xp::add(&xp::PREAD_NS, (ended - started).as_nanos() as u64);
+            xp::add(&xp::RETURN_NS, xp::since(ended));
+            result
         }
         .boxed()
     }
+
+    fn read_ranges(&self, requests: Arc<[ReadAtRequest]>) -> ReadAtStream {
+        let Some(group) = xp::knobs().batch else {
+            let reads = requests
+                .iter()
+                .copied()
+                .map(|request| {
+                    let read = self.read_at(request.offset, request.length, request.alignment);
+                    async move { (request, read.await) }
+                })
+                .collect::<Vec<_>>();
+            return stream::iter(reads)
+                .buffer_unordered(self.concurrency().max(1))
+                .boxed();
+        };
+        // EXPERIMENT: read the batch on few blocking tasks, each reading its share in order.
+        let group = if group == 0 {
+            requests.len().max(1)
+        } else {
+            group
+        };
+        let tasks = requests
+            .chunks(group)
+            .map(|chunk| {
+                let chunk = chunk.to_vec();
+                let file = Arc::clone(&self.file);
+                let handle = self.handle.clone();
+                let allocator = self.allocator.clone();
+                let submitted = Instant::now();
+                async move {
+                    let (results, started, ended) = handle
+                        .spawn_blocking(move || {
+                            let started = Instant::now();
+                            let results = chunk
+                                .into_iter()
+                                .map(|r| {
+                                    let res = read_one(
+                                        &file,
+                                        &allocator,
+                                        r.offset,
+                                        r.length,
+                                        r.alignment,
+                                    );
+                                    (r, res)
+                                })
+                                .collect::<Vec<_>>();
+                            (results, started, Instant::now())
+                        })
+                        .await;
+                    xp::add(&xp::TASKS, 1);
+                    xp::add(&xp::SCHED_NS, (started - submitted).as_nanos() as u64);
+                    xp::add(&xp::PREAD_NS, (ended - started).as_nanos() as u64);
+                    xp::add(&xp::RETURN_NS, xp::since(ended));
+                    stream::iter(results)
+                }
+            })
+            .collect::<Vec<_>>();
+        stream::iter(tasks)
+            .buffer_unordered(self.concurrency().max(1))
+            .flatten_unordered(None)
+            .boxed()
+    }
+}
+
+fn read_one(
+    file: &File,
+    allocator: &BufferAllocatorRef,
+    offset: u64,
+    length: usize,
+    alignment: Alignment,
+) -> VortexResult<BufferHandle> {
+    let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
+    // SAFETY: read_exact_at initializes every byte before the buffer is frozen.
+    unsafe { buffer.set_len(length) };
+    read_exact_at(file, buffer.as_mut_slice(), offset)?;
+    Ok(BufferHandle::new_host(buffer.freeze()))
 }

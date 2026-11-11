@@ -30,3 +30,5 @@ pub mod std_file;
 #[cfg(feature = "tokio")]
 mod tokio;
 mod write;
+#[doc(hidden)]
+pub mod xp;

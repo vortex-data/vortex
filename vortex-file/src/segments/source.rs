@@ -179,6 +179,8 @@ struct ReadDriver<R> {
     reader: Arc<R>,
     batches: IoBatchStream,
     pending: VecDeque<IoRequest>,
+    // EXPERIMENT: when each pending read was queued.
+    queued: VecDeque<std::time::Instant>,
     reads: SelectAll<ReadRangeResults>,
     num_active: usize,
     batches_done: bool,
@@ -197,6 +199,7 @@ impl<R: VortexReadAt> ReadDriver<R> {
             reader: Arc::new(reader),
             batches: batches.fuse(),
             pending: VecDeque::new(),
+            queued: VecDeque::new(),
             reads: SelectAll::new(),
             num_active: 0,
             batches_done: false,
@@ -210,6 +213,21 @@ impl<R: VortexReadAt> ReadDriver<R> {
             let batch_len = (self.concurrency - self.num_active).min(self.pending.len());
             let reqs = self.pending.drain(..batch_len).collect::<Vec<_>>();
             self.num_active += batch_len;
+            {
+                use vortex_io::xp;
+                for queued in self.queued.drain(..batch_len) {
+                    xp::add(&xp::QUEUE_NS, xp::since(queued));
+                }
+                xp::max(&xp::MAX_ACTIVE, self.num_active as u64);
+                for req in &reqs {
+                    xp::add(&xp::READS, 1);
+                    xp::add(&xp::READ_BYTES, req.len() as u64);
+                    for length in req.xp_segment_lengths() {
+                        xp::add(&xp::SEGMENTS, 1);
+                        xp::add(&xp::SEGMENT_BYTES, length as u64);
+                    }
+                }
+            }
 
             self.metrics.read_ranges_calls.add(1);
             self.metrics.read_ranges_num_ranges.update(batch_len as f64);
@@ -244,7 +262,11 @@ impl<R: VortexReadAt> Stream for ReadDriver<R> {
         if !this.batches_done {
             loop {
                 match this.batches.poll_next_unpin(cx) {
-                    Poll::Ready(Some(batch)) => this.pending.extend(batch),
+                    Poll::Ready(Some(batch)) => {
+                        let now = std::time::Instant::now();
+                        this.queued.extend(std::iter::repeat_n(now, batch.len()));
+                        this.pending.extend(batch)
+                    }
                     Poll::Ready(None) => {
                         this.batches_done = true;
                         break;

@@ -65,6 +65,16 @@ impl IoRequest {
     }
 }
 
+impl IoRequest {
+    /// EXPERIMENT: the lengths of the segment requests this read serves.
+    pub(crate) fn xp_segment_lengths(&self) -> Vec<usize> {
+        match &self.0 {
+            IoRequestInner::Single(r) => vec![r.length],
+            IoRequestInner::Coalesced(r) => r.requests.iter().map(|r| r.length).collect(),
+        }
+    }
+}
+
 // Testing functionality
 #[cfg(test)]
 impl IoRequest {

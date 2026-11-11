@@ -19,13 +19,19 @@ BINARY = "target/release_debug/random-access-bench"
 PARTS_DIR = Path("parts")
 
 DATASETS = ["taxi", "feature-vectors", "nested-lists", "nested-structs"]
-FORMATS = ["arrow-ipc", "parquet", "lance", "litdata", "vortex"]
+# EXPERIMENT (not for merge): same-machine A/B of read-path variants, Vortex only.
+FORMATS = ["vortex"]
+XP_MODES = ["base", "dev", "conc8", "conc128", "coal64", "nocoal", "batch", "batch4", "inflight16"]
+# Rounds per open mode; every mode runs once per round, in a shuffled order.
+XP_ROUNDS = {"cached": 1, "reopen": 2}
+# Only this mode's first round feeds the results the PR comment compares.
+XP_REPORTED_MODE = "base"
 # Formats only benchmarked from local disk. A remote run would silently read them from local disk.
 LOCAL_ONLY_FORMATS = {"arrow-ipc", "litdata"}
 PATTERNS = ["correlated", "uniform"]
 OPEN_MODES = ["cached", "reopen"]
 # Seconds each measurement runs for, passed as --time-limit.
-TIME_LIMIT_SECS = 5
+TIME_LIMIT_SECS = 3
 
 
 def drop_os_caches() -> None:
@@ -78,14 +84,27 @@ def prepare_data(remote_data_dir: str | None) -> None:
 
 
 def run_combinations(emit_ingest_records: bool, remote_data_dir: str | None) -> None:
+    import os
+    import random
+
     PARTS_DIR.mkdir(parents=True, exist_ok=True)
     formats = benchmark_formats(remote_data_dir)
-    total = len(DATASETS) * len(formats) * len(PATTERNS) * len(OPEN_MODES)
+    jobs = []
+    for rnd in range(max(XP_ROUNDS.values())):
+        for dataset in DATASETS:
+            for fmt in formats:
+                for pattern in PATTERNS:
+                    for open_mode in OPEN_MODES:
+                        if rnd >= XP_ROUNDS[open_mode]:
+                            continue
+                        modes = list(XP_MODES)
+                        random.shuffle(modes)
+                        jobs += [(rnd, dataset, fmt, pattern, open_mode, m) for m in modes]
+    total = len(jobs)
     i = 0
-    for dataset in DATASETS:
-        for fmt in formats:
-            for pattern in PATTERNS:
-                for open_mode in OPEN_MODES:
+    for n, (rnd, dataset, fmt, pattern, open_mode, xp_mode) in enumerate(jobs, 1):
+                    report = rnd == 0 and xp_mode == XP_REPORTED_MODE
+                    os.environ["XP_MODE"] = xp_mode
                     drop_os_caches()
 
                     args = [
@@ -105,16 +124,17 @@ def run_combinations(emit_ingest_records: bool, remote_data_dir: str | None) -> 
                         "-d",
                         "gh-json",
                         "-o",
-                        str(PARTS_DIR / f"{i}.gh.json"),
+                        str(PARTS_DIR / (f"{i}.gh.json" if report else f"xp{n}.gh.json.skip")),
                     ]
                     if remote_data_dir:
                         args += ["--remote-data-dir", remote_data_dir]
-                    if emit_ingest_records:
+                    if emit_ingest_records and report:
                         args += ["--ingest-jsonl", str(PARTS_DIR / f"{i}.ingest.jsonl")]
-                    with log_group(f"Benchmark [{i + 1}/{total}] {dataset} / {fmt} / {pattern} / {open_mode}"):
-                        print("+", " ".join(args), flush=True)
+                    with log_group(f"Benchmark [{n}/{total}] round {rnd} {xp_mode} {dataset} / {fmt} / {pattern} / {open_mode}"):
+                        print("+", f"XP_MODE={xp_mode}", " ".join(args), flush=True)
                         subprocess.run(args, check=True)
-                    i += 1
+                    if report:
+                        i += 1
 
 
 """
