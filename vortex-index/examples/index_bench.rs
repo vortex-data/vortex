@@ -71,6 +71,12 @@ use vortex_layout::scan::v2::ScanBuilder;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
+/// Microseconds since the first call, for `TRACE_READ_TIMES`.
+fn trace_clock() -> f64 {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f64() * 1e6
+}
+
 /// A file source that counts the bytes it is asked for.
 struct CountingReadAt {
     inner: Arc<dyn VortexReadAt>,
@@ -107,6 +113,20 @@ impl VortexReadAt for CountingReadAt {
         self.bytes.fetch_add(length as u64, Ordering::Relaxed);
         if std::env::var_os("TRACE_READS").is_some() {
             eprintln!("read {} {offset} {length}", self.name);
+        }
+        if std::env::var_os("TRACE_READ_TIMES").is_some() {
+            let name = self.name.clone();
+            let start = trace_clock();
+            let thread = format!("{:?}", std::thread::current().id());
+            let read = self.inner.read_at(offset, length, alignment);
+            return Box::pin(async move {
+                let result = read.await;
+                eprintln!(
+                    "readtime {name} {offset} {length} start_us={start:.1} end_us={:.1} thread={thread}",
+                    trace_clock()
+                );
+                result
+            });
         }
         if std::env::var_os("INLINE_READ").is_some() {
             use std::os::unix::fs::FileExt;
@@ -500,6 +520,9 @@ async fn query(session: &VortexSession, args: &[String]) -> VortexResult<()> {
                 _ => (&warm_data, &warm),
             };
             let start = Instant::now();
+            if std::env::var_os("TRACE_READ_TIMES").is_some() {
+                eprintln!("query_start us={:.1}", trace_clock());
+            }
             answer = match index {
                 Opened::Trigram(index) => {
                     if flags.index_only {
@@ -520,7 +543,12 @@ async fn query(session: &VortexSession, args: &[String]) -> VortexResult<()> {
                         index_bytes.load(Ordering::Relaxed),
                     );
                 }
-                None => times.push(start.elapsed().as_secs_f64() * 1000.0),
+                None => {
+                    times.push(start.elapsed().as_secs_f64() * 1000.0);
+                    if std::env::var_os("TRACE_READ_TIMES").is_some() {
+                        eprintln!("query_end us={:.1}", trace_clock());
+                    }
+                }
             }
         }
         println!(
