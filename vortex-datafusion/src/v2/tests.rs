@@ -518,3 +518,28 @@ async fn test_dynamic_extension_literals_refresh_and_keep_residuals(
 
     Ok(())
 }
+
+/// The V2 source has no schema adapter, so a projection over an extension column must produce
+/// batches with exactly the plan schema.
+#[tokio::test]
+async fn test_extension_projection_preserves_arrow_type() -> anyhow::Result<()> {
+    let fixture = ExtensionFilterFixture::new(ExtensionFilterType::Json)?;
+    let projection = ProjectionExprs::from(vec![ProjectionExpr::new(fixture.column(), "value")]);
+    let projected = fixture
+        .source()
+        .await?
+        .try_swapping_with_projection(&projection)?
+        .ok_or_else(|| anyhow!("projection was not swapped"))?;
+    let plan = Arc::new(DataSourceExec::new(projected)) as Arc<dyn ExecutionPlan>;
+    let plan_schema = plan.schema();
+
+    let batches = datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await?;
+    for batch in &batches {
+        assert_eq!(batch.schema(), plan_schema);
+    }
+
+    let actual = concat_batches(&plan_schema, &batches)?;
+    assert_eq!(actual.column(0), fixture.batch.column(1));
+
+    Ok(())
+}

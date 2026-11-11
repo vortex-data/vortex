@@ -15,6 +15,7 @@ use crate::SchemeExt;
 use crate::schemes::binary;
 use crate::schemes::boolean;
 use crate::schemes::decimal;
+use crate::schemes::fixed_size_list;
 use crate::schemes::float;
 use crate::schemes::integer;
 use crate::schemes::string;
@@ -98,6 +99,8 @@ impl Default for CompressionSession {
                 &decimal::DECIMAL_V1,
                 // Temporal schemes.
                 &temporal::TemporalScheme,
+                // Fixed-size list schemes.
+                &fixed_size_list::FixedSizeListSparseScheme,
             ],
         }
     }

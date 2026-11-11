@@ -31,11 +31,12 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_arrow::ArrowExport;
 use vortex_arrow::ArrowExportOptions;
-use vortex_arrow::ArrowExportVTable;
+use vortex_arrow::ArrowExtVTable;
 use vortex_arrow::ArrowImport;
-use vortex_arrow::ArrowImportVTable;
+use vortex_arrow::ArrowMetadataPolicy;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -129,8 +130,7 @@ fn point_array(storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Point
         &SpatialMetadata::default(),
         coordinate_dimension(storage.dtype())?,
     );
-    let session = ctx.session().clone();
-    let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
+    let arrow = storage.clone().execute_arrow(None, ctx)?;
     PointArray::try_from((arrow.as_ref(), point_type))
         .map_err(|e| vortex_err!("failed to construct PointArray: {e}"))
 }
@@ -151,26 +151,25 @@ pub(crate) fn point_geometries(
         .collect()
 }
 
-impl ArrowExportVTable for Point {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_POINT
+impl ArrowExtVTable for Point {
+    fn metadata_policy() -> ArrowMetadataPolicy {
+        ArrowMetadataPolicy::ArrowNative
     }
 
-    fn vortex_id(&self) -> Id {
-        self.id()
+    fn arrow_ext_id(&self) -> Id {
+        *ARROW_POINT
     }
 
     fn to_arrow_field(
         &self,
         name: &str,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
-        let ext_type = dtype.as_extension();
-        let spatial_metadata = ext_type.metadata::<Point>();
-        let dimension = coordinate_dimension(ext_type.storage_dtype())?;
+        let spatial_metadata = ext_dtype.metadata();
+        let dimension = coordinate_dimension(ext_dtype.storage_dtype())?;
 
-        let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
+        let mut field = session.to_arrow_field(name, ext_dtype.storage_dtype())?;
         field.try_with_extension_type(point_type(spatial_metadata, dimension))?;
 
         Ok(Some(field))
@@ -183,15 +182,6 @@ impl ArrowExportVTable for Point {
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
-        let is_point = array
-            .dtype()
-            .as_extension_opt()
-            .map(|ext| ext.is::<Point>())
-            .unwrap_or(false);
-        if !is_point {
-            return Ok(ArrowExport::Unsupported(array));
-        }
-
         let Ok(point_meta) = target.try_extension_type::<PointType>() else {
             return Ok(ArrowExport::Unsupported(array));
         };
@@ -207,12 +197,8 @@ impl ArrowExportVTable for Point {
             target.data_type().clone(),
             target.is_nullable(),
         );
-        let session = ctx.session().clone();
         let arrow_storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(&storage_field), ctx)?;
+            storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
         // Round-trip through the GeoArrow point array type: this validates that the storage is
         // the separated-coordinate struct layout expected for a `PointType` extension field.
@@ -221,22 +207,11 @@ impl ArrowExportVTable for Point {
 
         Ok(ArrowExport::Exported(points.into_arrow()))
     }
-}
 
-impl ArrowImportVTable for Point {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_POINT
-    }
-
-    /// Import a `geoarrow.point` field as the [`Point`] dtype. Keyed off the standard GeoArrow name,
-    /// so any producer (DataFusion, DuckDB, geoarrow-rs, …) resolves here. Accepts the full
-    /// `PointType` extension, or — for a metadata-less geometry literal — the name alone, inferring
-    /// the dimension from the coordinate field names.
     fn from_arrow_field(
-        &self,
         field: &Field,
         session: &ArrowSession,
-    ) -> VortexResult<Option<DType>> {
+    ) -> VortexResult<Option<ExtDType<Self>>> {
         let (dimension, metadata) = if let Ok(point_meta) = field.try_extension_type::<PointType>()
         {
             vortex_ensure!(
@@ -266,23 +241,20 @@ impl ArrowImportVTable for Point {
         };
 
         let storage_dtype = coordinate_storage_dtype(dimension, field.is_nullable().into());
-        Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(Point, metadata, storage_dtype)?.erased(),
-        )))
+        Ok(Some(ExtDType::try_with_vtable(
+            Point,
+            metadata,
+            storage_dtype,
+        )?))
     }
 
     fn from_arrow_array(
-        &self,
         array: ArrowArrayRef,
         field: &Field,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let Some(ext_dtype) = dtype.as_extension_opt() else {
-            return Ok(ArrowImport::Unsupported(array));
-        };
-        if !ext_dtype.is::<Point>()
-            || field.try_extension_type::<PointType>().is_err()
+        if field.try_extension_type::<PointType>().is_err()
             || !matches!(array.data_type(), DataType::Struct(_))
         {
             return Ok(ArrowImport::Unsupported(array));
@@ -290,7 +262,7 @@ impl ArrowImportVTable for Point {
 
         let storage = session.from_arrow_array(array, field.is_nullable())?;
         Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(ext_dtype.clone(), storage)?.into_array(),
+            ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array(),
         ))
     }
 }

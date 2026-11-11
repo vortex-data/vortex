@@ -119,7 +119,7 @@ impl<'a> BatchInputs<'a> {
     }
 
     /// Attach the plan a dispatch selected for these inputs.
-    pub(crate) fn with_plan<'b>(
+    pub(super) fn with_plan<'b>(
         &'b self,
         arg_dtypes: &'b [DType],
         plan: BatchPlan,

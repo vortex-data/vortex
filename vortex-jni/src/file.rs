@@ -31,6 +31,7 @@ use vortex::utils::aliases::hash_map::HashMap;
 use crate::RUNTIME;
 use crate::errors::try_or_throw;
 use crate::io::java_readable;
+use crate::io::read_coalesce_config;
 use crate::object_store::object_store_fs;
 use crate::session::session_ref;
 use crate::statistics::ColumnStatistics;
@@ -193,8 +194,9 @@ fn open_readable_file(
         u64::try_from(length).map_err(|_| vortex_err!("negative readable length: {length}"))?;
 
     let vm = env.get_java_vm()?;
+    let coalesce_config = read_coalesce_config(env, readable)?;
     let readable = Arc::new(env.new_global_ref(readable)?);
-    let source = java_readable(vm, readable, length, session.handle());
+    let source = java_readable(vm, readable, length, coalesce_config, session.handle());
 
     // `MultiFileDataSource` strips leading slashes and the scan path keys Java readables by
     // that same normalized form, so normalize here too — otherwise a read through this function

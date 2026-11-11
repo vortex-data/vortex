@@ -27,7 +27,7 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::decimal::DecimalArrayExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
-use crate::arrays::runend::iter::trimmed_ends_iter;
+use crate::arrays::runend::iter::slice_relative_ends;
 use crate::buffer::BufferHandle;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -288,7 +288,7 @@ pub fn runend_decode_primitive(
     Ok(match_each_native_ptype!(values.ptype(), |P| {
         match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
             runend_decode_typed_primitive(
-                trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
+                slice_relative_ends(ends.as_slice::<E>(), offset, length),
                 values.as_slice::<P>(),
                 validity_mask,
                 values.dtype().nullability(),
@@ -465,7 +465,7 @@ pub fn runend_decode_decimal(
     Ok(match_each_decimal_value_type!(values.values_type(), |D| {
         let (decoded, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
             runend_decode_slice(
-                trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
+                slice_relative_ends(ends.as_slice::<E>(), offset, length),
                 values.buffer::<D>().as_slice(),
                 validity_mask,
                 values.dtype().nullability(),
@@ -498,7 +498,7 @@ pub fn runend_decode_varbinview(
 
     let (decoded_views, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
         runend_decode_slice(
-            trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
+            slice_relative_ends(ends.as_slice::<E>(), offset, length),
             views,
             validity_mask,
             values.dtype().nullability(),

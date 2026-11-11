@@ -37,10 +37,22 @@ pub trait SessionExt: Sized + private::Sealed {
 
     /// Returns the session variable of type `V`, inserting a default one if it does not exist.
     ///
-    /// The default is constructed and inserted copy-on-write: `V::default()` runs without any lock
-    /// held, so it may freely re-enter the session, and a concurrent insert of the same type is
-    /// resolved by keeping the first value published.
+    /// This is [`get_or_insert_with`](Self::get_or_insert_with) with `V::default` as the
+    /// initializer.
     fn get<V: VortexSessionVar + Default>(&self) -> SessionGuard<'_, V>;
+
+    /// Returns the session variable of type `V`, inserting the result of `init` if it does not
+    /// exist.
+    ///
+    /// Use this instead of [`get`](Self::get) when the first value of `V` depends on the session,
+    /// for example on another session variable. The value is constructed and inserted
+    /// copy-on-write: `init` runs without any lock held, so it may freely re-enter the session. A
+    /// concurrent insert of the same type is resolved by keeping the first value published, so
+    /// `init` may run even though its result is then dropped.
+    fn get_or_insert_with<V: VortexSessionVar>(
+        &self,
+        init: impl FnOnce() -> V,
+    ) -> SessionGuard<'_, V>;
 
     /// Returns the session variable of type `V` if it exists.
     fn get_opt<V: VortexSessionVar>(&self) -> Option<SessionGuard<'_, V>>;

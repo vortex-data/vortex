@@ -187,7 +187,7 @@ pub(crate) async fn decode_fsst_varbin(
     } = i32_offsets_from_lengths(lens, ctx).await?;
 
     if total_size == 0 {
-        let allocation = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?);
+        let allocation = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?)?;
         let values = BufferHandle::new_device(allocation.slice(0..0));
         return Ok(DecodedVarBin {
             dtype,
@@ -273,7 +273,7 @@ where
         dtype,
         len,
         offsets: output_offsets,
-        values: BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output))),
+        values: BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)?)),
         validity,
     })
 }
@@ -372,8 +372,8 @@ where
     // views directly and both buffers can remain on-device. Larger heaps use the host rollover
     // path below to split decoded bytes across multiple backing buffers.
     if let Some(device_views) = device_views {
-        let views = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_views)));
-        let bytes = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)));
+        let views = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_views)?));
+        let bytes = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)?));
         return Ok(Canonical::VarBinView(unsafe {
             VarBinViewArray::new_handle_unchecked(views, Arc::from([bytes]), dtype, validity)
         }));
@@ -381,7 +381,7 @@ where
 
     // BinaryView offsets are u32. Retain the host rollover path for decoded heaps
     // that need multiple backing buffers; ordinary batches stay entirely on-device.
-    let host_bytes = CudaDeviceBuffer::new(device_output)
+    let host_bytes = CudaDeviceBuffer::new(device_output)?
         .copy_to_host(Alignment::new(1))?
         .await?;
     let host_bytes = host_bytes.slice(0..total_size);
@@ -405,6 +405,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::VarBinArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::buffer::Buffer;
     use vortex::dtype::DType;
     use vortex::dtype::Nullability;
@@ -521,7 +522,7 @@ mod tests {
             VarBinArray::from_iter(values, DType::Utf8(Nullability::Nullable)).into_array();
         let compressor = fsst_train_compressor(&varbin, cuda_ctx.execution_ctx())?;
         let fsst = fsst_compress(&varbin, &compressor, cuda_ctx.execution_ctx())?.into_array();
-        let sliced = fsst.slice(1..4)?;
+        let sliced = fsst.slice(1..4)?.optimize_ctx(cuda_ctx.execution_ctx())?;
 
         let gpu_result = FSSTExecutor.execute(sliced.clone(), &mut cuda_ctx).await?;
         assert_device_resident(&gpu_result);

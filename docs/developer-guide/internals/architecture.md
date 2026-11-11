@@ -1,4 +1,4 @@
-# Crate Architecture
+# Crate architecture
 
 The Vortex workspace is organized as a Rust monorepo with four main groups: core crates,
 encodings, language bindings, and query engine integrations.

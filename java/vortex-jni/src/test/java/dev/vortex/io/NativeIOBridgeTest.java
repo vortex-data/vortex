@@ -48,6 +48,8 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /** Round-trip tests for the caller-provided I/O bridge ({@link NativeReadable} / {@link NativeWritable}). */
 public final class NativeIOBridgeTest {
@@ -70,15 +72,37 @@ public final class NativeIOBridgeTest {
         private final String name;
         private final FileChannel channel;
         private final long length;
+        private final int coalesceDistance;
+        private final int coalesceMaxSize;
+        private int distanceCalls;
+        private int maxSizeCalls;
 
         FileChannelReadable(Path path) throws IOException {
             this(path.toString(), path);
         }
 
         FileChannelReadable(String name, Path path) throws IOException {
+            this(name, path, DEFAULT_COALESCE_DISTANCE, DEFAULT_COALESCE_MAX_SIZE);
+        }
+
+        FileChannelReadable(String name, Path path, int coalesceDistance, int coalesceMaxSize) throws IOException {
+            this.coalesceDistance = coalesceDistance;
+            this.coalesceMaxSize = coalesceMaxSize;
             this.name = name;
             this.channel = FileChannel.open(path, StandardOpenOption.READ);
             this.length = channel.size();
+        }
+
+        @Override
+        public int coalesceDistance() {
+            distanceCalls++;
+            return coalesceDistance;
+        }
+
+        @Override
+        public int coalesceMaxSize() {
+            maxSizeCalls++;
+            return coalesceMaxSize;
         }
 
         @Override
@@ -385,6 +409,52 @@ public final class NativeIOBridgeTest {
             long total = (long) batches * rowsPerBatch;
             assertEquals(total, rows);
             assertEquals(total, seen.cardinality());
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false, 1048576, 33554432", "true, 1048576, 33554432", "false, 0, 1", "true, 0, 1"})
+    public void testCoalescingSettingsCapturedOnce(boolean metadata, int distance, int maxSize) throws IOException {
+        Path path = tempDir.resolve("coalescing.vortex");
+        Session session = Session.create();
+        writePeopleFile(session, ArrowAllocation.rootAllocator(), path);
+
+        try (FileChannelReadable readable = new FileChannelReadable(path.toString(), path, distance, maxSize)) {
+            registerReadable(metadata, session, readable);
+            assertEquals(1, readable.distanceCalls);
+            assertEquals(1, readable.maxSizeCalls);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "false, -1, 1024, coalesceDistance",
+        "true, -1, 1024, coalesceDistance",
+        "false, 0, 0, coalesceMaxSize",
+        "true, 0, 0, coalesceMaxSize",
+        "false, 0, -1, coalesceMaxSize",
+        "true, 0, -1, coalesceMaxSize"
+    })
+    public void testInvalidCoalescingSettingsRejected(boolean metadata, int distance, int maxSize, String setting)
+            throws IOException {
+        Path path = tempDir.resolve("invalid_coalescing.vortex");
+        Files.write(path, new byte[] {0});
+        Session session = Session.create();
+        try (FileChannelReadable readable = new FileChannelReadable(path.toString(), path, distance, maxSize)) {
+            RuntimeException thrown =
+                    assertThrows(RuntimeException.class, () -> registerReadable(metadata, session, readable));
+            assertTrue(thrown.getMessage().contains(setting), thrown.getMessage());
+        }
+    }
+
+    /** Registers {@code readable} through the file-metadata or data-source JNI entry point. */
+    private static void registerReadable(boolean metadata, Session session, NativeReadable readable) {
+        if (metadata) {
+            assertEquals(2, NativeFiles.readStatistics(session, readable).size());
+        } else {
+            assertEquals(
+                    3L,
+                    DataSource.open(session, readable).rowCount().asOptional().orElseThrow());
         }
     }
 

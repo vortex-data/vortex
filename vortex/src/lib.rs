@@ -346,7 +346,6 @@ impl VortexSessionDefault for VortexSession {
             .with::<MemorySession>()
             .with::<CompressionSession>()
             .with::<RuntimeSession>();
-        vortex_arrow::initialize(&session);
         #[cfg(feature = "parquet-variant")]
         vortex_parquet_variant::initialize(&session);
         vortex_uuid::initialize(&session);
@@ -616,6 +615,7 @@ mod test {
         use vortex_array::dtype::extension::ExtVTable;
         use vortex_array::dtype::session::DTypeSessionExt;
         use vortex_arrow::ArrowSessionExt;
+        use vortex_arrow::ExecuteArrowExt;
         use vortex_uuid::Uuid;
 
         let session = VortexSession::default();
@@ -634,7 +634,7 @@ mod test {
         assert!(array.dtype().as_extension().is::<Uuid>());
 
         let mut ctx = session.create_execution_ctx();
-        let exported = session.arrow().execute_arrow(array, None, &mut ctx)?;
+        let exported = array.execute_arrow(None, &mut ctx)?;
         let fsb = exported.as_fixed_size_binary();
         assert_eq!(fsb.len(), 2);
         assert_eq!(fsb.value(0), b"0123456789abcdef");

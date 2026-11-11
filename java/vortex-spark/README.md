@@ -65,6 +65,31 @@ Catalog tables read and write through the V1 file format;
 `spark.sql.sources.useV1SourceList=vortex` puts every path on it, which is what the `_metadata`
 column and dynamic partition pruning need.
 
+## Read coalescing
+
+Nearby storage reads can be merged to reduce requests. Set the maximum gap and merged span in bytes:
+
+```java
+Dataset<Row> result = spark.read()
+    .format("vortex")
+    .option("vortex.read.coalesce.distance", 262144)
+    .option("vortex.read.coalesce.maxSize", 16777216)
+    .load("s3a://bucket/path");
+```
+
+The defaults remain a 1 MiB gap and a 16 MiB maximum merged span. The gap must be non-negative
+(zero merges only adjacent or overlapping reads); the maximum span must be positive. Both accept
+integers up to 2147483647 bytes. The native reader caps maximums near that limit to leave room
+for alignment padding (up to 64 KiB minus one byte). Individual reads can exceed the maximum
+merged span, and merged reads may include leading alignment padding.
+A wider gap trades fewer storage requests for more bytes read, including segments already held
+in the file's segment cache.
+
+Options are case-insensitive and work with both V1 and V2 reads.
+
+Java callers supplying their own `NativeReadable` can override `coalesceDistance()` and
+`coalesceMaxSize()`. Native code captures these limits once when registering each source.
+
 ## Benchmarks
 
 JMH benchmarks live in `common/src/jmh/java`. They measure the per-file open cost of the

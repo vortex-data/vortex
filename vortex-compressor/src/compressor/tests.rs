@@ -15,6 +15,7 @@ use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_si
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
@@ -28,6 +29,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
+use vortex_array::builders::dict::dict_encode;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
@@ -47,6 +49,7 @@ use vortex_session::VortexSession;
 
 use super::CascadingCompressor;
 use super::ROOT_SCHEME_ID;
+use super::TrialOutput;
 use super::sample::estimate_compression_ratio_with_sampling;
 use super::select::WinnerEstimate;
 use super::structural;
@@ -333,6 +336,126 @@ impl Scheme for ZeroBytesSamplingScheme {
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         Ok(NullArray::new(data.array().len()).into_array())
+    }
+}
+
+/// Samples to a finite ratio by writing a single byte.
+#[derive(Debug)]
+struct FiniteSamplingScheme;
+
+impl Scheme for FiniteSamplingScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.finite_sampling"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        Ok(PrimitiveArray::new(buffer![0u8], Validity::NonNullable).into_array())
+    }
+}
+
+/// Promises a ratio it does not deliver: its output is the input.
+#[derive(Debug)]
+struct OverpromisingScheme;
+
+impl Scheme for OverpromisingScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.overpromising"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::Ratio(100.0))
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        Ok(data.array().clone())
+    }
+}
+
+/// Stores a dictionary as its trial output, then reports that it cannot beat the threshold.
+#[derive(Debug)]
+struct TrialStoringScheme;
+
+impl Scheme for TrialStoringScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.trial_storing"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
+            |_compressor, data, _best_so_far, _ctx, exec_ctx| {
+                let array = dict_encode(data.array(), exec_ctx)?.into_array();
+                data.get_or_insert_with(|| TrialOutput {
+                    scheme: TrialStoringScheme.id(),
+                    array,
+                });
+                Ok(EstimateVerdict::Skip)
+            },
+        )))
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unreachable!("test helper should never be selected for compression")
     }
 }
 
@@ -672,6 +795,61 @@ fn threshold_updates_from_earlier_deferred_callback() -> VortexResult<()> {
         observed,
         Some(Some(EstimateScore::FiniteCompression(r))) if r == 3.0
     ));
+    Ok(())
+}
+
+#[test]
+fn callbacks_observe_samples_registered_after_them() -> VortexResult<()> {
+    let _guard = OBSERVER_LOCK.lock();
+    *OBSERVED_THRESHOLD.lock() = None;
+
+    let compressor =
+        CascadingCompressor::new(vec![&ThresholdObservingScheme, &FiniteSamplingScheme]);
+    let schemes: [&'static dyn Scheme; 2] = [&ThresholdObservingScheme, &FiniteSamplingScheme];
+    let data = estimate_test_data();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+
+    let observed = *OBSERVED_THRESHOLD.lock();
+    assert!(matches!(
+        observed,
+        Some(Some(EstimateScore::FiniteCompression(_)))
+    ));
+    Ok(())
+}
+
+#[test]
+fn smaller_trial_output_replaces_an_overpromising_winner() -> VortexResult<()> {
+    let compressor = CascadingCompressor::new(vec![&OverpromisingScheme, &TrialStoringScheme]);
+    let array = PrimitiveArray::from_iter((0..1024i64).map(|value| value % 4)).into_array();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let compressed = compressor.compress(&array, &mut exec_ctx)?;
+
+    assert!(compressed.is::<Dict>());
+    assert_arrays_eq!(compressed, array, &mut exec_ctx);
+    Ok(())
+}
+
+#[test]
+fn all_null_sample_gives_no_estimate() -> VortexResult<()> {
+    // Only the first row is valid, and the sampler does not land on it.
+    let array =
+        PrimitiveArray::from_option_iter((0..100_000).map(|index| (index == 0).then_some(index)))
+            .into_array();
+    let compressor = CascadingCompressor::new(vec![&FiniteSamplingScheme]);
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let score = estimate_compression_ratio_with_sampling(
+        &compressor,
+        &FiniteSamplingScheme,
+        &array,
+        CompressorContext::new(),
+        &mut exec_ctx,
+    )?;
+
+    assert_eq!(score, EstimateScore::ZeroBytes);
     Ok(())
 }
 

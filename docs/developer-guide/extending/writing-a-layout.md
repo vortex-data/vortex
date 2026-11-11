@@ -1,4 +1,4 @@
-# Writing a Layout
+# Writing a layout
 
 :::{warning}
 This page is under construction.
