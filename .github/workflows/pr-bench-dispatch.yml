@@ -190,3 +190,32 @@ jobs:
     secrets: inherit
     with:
       matrix_preset: "pr-full"
+
+  # `action/bench-sql/<id>` runs a single SQL benchmark, such as `action/bench-sql/polarsignals`,
+  # at its `pr-all` coverage. `<id>` is any benchmark ID listed by `vx-bench matrix pr-all`.
+  remove-sql-single-label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: startsWith(github.event.label.name, 'action/bench-sql/')
+    outputs:
+      benchmarks: ${{ steps.parse.outputs.benchmarks }}
+    steps:
+      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
+        if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
+        with:
+          labels: ${{ github.event.label.name }}
+          fail_on_error: true
+      - name: Parse benchmark ID from label
+        id: parse
+        shell: bash
+        env:
+          LABEL: ${{ github.event.label.name }}
+        run: echo "benchmarks=${LABEL#action/bench-sql/}" >> "$GITHUB_OUTPUT"
+
+  sql-single-bench:
+    needs: remove-sql-single-label
+    uses: ./.github/workflows/pr-bench-sql.yml
+    secrets: inherit
+    with:
+      matrix_preset: "pr-all"
+      benchmarks: ${{ needs.remove-sql-single-label.outputs.benchmarks }}
