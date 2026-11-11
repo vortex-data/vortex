@@ -351,6 +351,58 @@ public final class JNIWriterTest {
         assertEquals(List.of(30, 25, 40), ages);
     }
 
+    @Test
+    public void testEstimatedSize() throws IOException {
+        Path outputPath = tempDir.resolve("test_estimated_size.vortex");
+        String writePath = outputPath.toAbsolutePath().toUri().toString();
+
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Schema schema = personSchema();
+        String[] names = {"Alice", "Bob", "Carol", "Dave"};
+        int batchRows = 8192;
+        int batches = 32;
+
+        Session session = Session.create();
+        VortexWriteSummary summary;
+        long estimateWhileOpen;
+        double ratioWhileOpen;
+        try (VortexWriter writer = VortexWriter.builder(session, writePath, schema, allocator)
+                        .build();
+                VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
+            assertEquals(0L, writer.estimatedSize());
+
+            VarCharVector nameVec = (VarCharVector) root.getVector("name");
+            IntVector ageVec = (IntVector) root.getVector("age");
+            for (int batch = 0; batch < batches; batch++) {
+                nameVec.allocateNew(batchRows);
+                ageVec.allocateNew(batchRows);
+                for (int row = 0; row < batchRows; row++) {
+                    nameVec.setSafe(row, names[row % names.length].getBytes(UTF_8));
+                    ageVec.setSafe(row, row % 100);
+                }
+                root.setRowCount(batchRows);
+                writer.writeBatch(root, allocator);
+                root.clear();
+            }
+
+            estimateWhileOpen = writer.estimatedSize();
+            ratioWhileOpen = writer.compressionRatio();
+            assertTrue(estimateWhileOpen >= writer.bytesWritten() + writer.bufferedBytes());
+
+            summary = writer.finish();
+            assertEquals(summary.fileSize(), writer.estimatedSize());
+        }
+
+        // The data compresses well, so the writer measured a ratio below one and estimated a file
+        // much smaller than the uncompressed input.
+        long uncompressedInput = (long) batches * batchRows * (Integer.BYTES + 16);
+        assertTrue(ratioWhileOpen > 0 && ratioWhileOpen < 1, "ratio " + ratioWhileOpen);
+        assertTrue(estimateWhileOpen > 0);
+        assertTrue(estimateWhileOpen < uncompressedInput / 2, "estimate " + estimateWhileOpen);
+        assertEquals(Files.size(outputPath), summary.fileSize());
+        assertEquals((long) batches * batchRows, summary.rowCount());
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     public void testMapRoundTrip(boolean independentBuffers) throws IOException {

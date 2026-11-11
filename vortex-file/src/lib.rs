@@ -113,6 +113,7 @@ mod pruning;
 mod read;
 /// Segment sources, caches, and sinks used by file readers and writers.
 pub mod segments;
+mod size_estimator;
 mod source;
 mod strategy;
 #[cfg(test)]
@@ -126,6 +127,7 @@ pub use file::*;
 pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
+pub use size_estimator::WriteSizeEstimator;
 pub use strategy::*;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;

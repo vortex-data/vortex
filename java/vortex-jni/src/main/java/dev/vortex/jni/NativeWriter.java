@@ -54,8 +54,14 @@ public final class NativeWriter {
     /** Number of bytes successfully written to the underlying sink so far. */
     public static native long bytesWritten(long writerPointer);
 
-    /** Number of uncompressed bytes buffered by the native writer that have not yet reached the sink. */
+    /** Number of compressed bytes that the native writer holds and that have not yet reached the sink. */
     public static native long bufferedBytes(long writerPointer);
+
+    /** Estimated size of the file if the write finished now, without the footer. */
+    public static native long estimatedSize(long writerPointer);
+
+    /** Compressed bytes divided by uncompressed bytes over the data that the writer compressed so far. */
+    public static native double compressionRatio(long writerPointer);
 
     /** Flush and close the writer. Must be called exactly once. */
     public static native void close(long writerPointer);

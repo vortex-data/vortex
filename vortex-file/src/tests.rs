@@ -2144,12 +2144,18 @@ async fn test_buffered_bytes_are_writer_scoped() -> VortexResult<()> {
     first.push(array.clone()).await?;
     first.push(array.clone()).await?;
     first.push(array.clone()).await?;
+
+    // Each leaf retains two chunks. The count also includes the segments that wait for the
+    // output, and how many wait depends on the progress of the write task. So only check the
+    // lower bound. The second writer has its own count.
+    assert!(first.buffered_bytes() >= 2 * BUFFER_SIZE);
+    assert_eq!(second.buffered_bytes(), 0);
+
     second.push(array.clone()).await?;
     second.push(array.clone()).await?;
     second.push(array).await?;
 
-    assert_eq!(first.buffered_bytes(), 2 * BUFFER_SIZE);
-    assert_eq!(second.buffered_bytes(), 2 * BUFFER_SIZE);
+    assert!(second.buffered_bytes() >= 2 * BUFFER_SIZE);
 
     first.finish().await?;
     second.finish().await?;
