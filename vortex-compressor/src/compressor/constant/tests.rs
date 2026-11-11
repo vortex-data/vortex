@@ -148,7 +148,7 @@ fn detach_scalar_copies_bytes_nested_in_lists() -> VortexResult<()> {
         Some(ScalarValue::Tuple(vec![element()?, element()?])),
     )?;
 
-    let detached = detach_scalar(scalar.clone())?;
+    let detached = detach_scalar(scalar.clone());
 
     assert_eq!(detached, scalar);
     let Some(ScalarValue::Tuple(elements)) = detached.value() else {
