@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
+use anyhow::Context as _;
 use futures::TryStreamExt;
 use lance::Dataset;
 use lance::dataset::scanner::Scanner;
@@ -34,17 +35,17 @@ use vortex::array::expr::root;
 use vortex::array::expr::select;
 use vortex::buffer::ByteBuffer;
 use vortex::buffer::ByteBufferMut;
+use vortex::layout::layouts::indexed::IndexVTable;
 use vortex::scan::planning::drive::ScopedBatch;
-use vortex::scan::selection::Selection;
-use vortex::utils::aliases::hash_map::HashMap;
+use vortex_index::Hit;
 use vortex_index::IndexFile;
 use vortex_index::IndexFileBuilder;
+use vortex_index::IndexStep;
 use vortex_index::InvertedIndex;
 use vortex_index::IvfIndex;
 use vortex_index::IvfOptions;
 use vortex_index::text_match;
 use vortex_table::TableScan;
-use vortex_table::index::RankedSelections;
 use vortex_table::index::TableIndex;
 use vortex_table::index::index_table;
 use vortex_table::index::open_index_file;
@@ -57,8 +58,8 @@ use super::time;
 
 /// The Vortex indexes, bound to the table.
 pub(super) struct Indexes {
-    ivf: TableIndex<IvfIndex>,
-    text: TableIndex<InvertedIndex>,
+    ivf: Arc<TableIndex<IvfIndex>>,
+    text: Arc<TableIndex<InvertedIndex>>,
 }
 
 /// Builds the Vortex index files once, next to the table, and binds them to its manifest.
@@ -134,8 +135,8 @@ pub(super) async fn vortex_indexes(args: &Args, table: &VortexTable) -> anyhow::
     let ivf = IndexFile::open(IvfIndex, &open(ivf_path).await?)?;
     let text = IndexFile::open(InvertedIndex, &open(text_path).await?)?;
     Ok(Indexes {
-        ivf: TableIndex::bind(ivf, &table.manifest),
-        text: TableIndex::bind(text, &table.manifest),
+        ivf: Arc::new(TableIndex::bind(ivf, &table.manifest)),
+        text: Arc::new(TableIndex::bind(text, &table.manifest)),
     })
 }
 
@@ -182,16 +183,8 @@ pub(super) async fn lance_indexes(args: &Args, dataset: &mut Dataset) -> anyhow:
 }
 
 impl VortexTable {
-    /// The ids of the rows `selections` picks, by file and row.
-    async fn ids_of(&self, selections: HashMap<u64, Selection>) -> anyhow::Result<Vec<u64>> {
-        // Ordered, so ids line up with the hits of a ranked search.
-        let batches: Vec<ScopedBatch> = self
-            .scan()
-            .with_projection(select(["id"], root()))
-            .with_file_selections(selections)
-            .execute(self.ordered.as_dyn())
-            .try_collect()
-            .await?;
+    /// The ids of `batches`, in their order.
+    fn ids(&self, batches: Vec<ScopedBatch>) -> anyhow::Result<Vec<u64>> {
         let mut ids = Vec::new();
         for batch in batches {
             ids.extend_from_slice(self.column(batch.batch, "id")?.as_slice::<u64>());
@@ -199,34 +192,52 @@ impl VortexTable {
         Ok(ids)
     }
 
-    /// The ids of a ranked search's hits, best first.
-    async fn ranked_ids(&self, ranked: RankedSelections) -> anyhow::Result<Vec<u64>> {
-        let order = ranked.best_first();
-        let ids = self.ids_of(ranked.selections).await?;
+    fn id_scan(&self) -> TableScan {
+        self.scan().with_projection(select(["id"], root()))
+    }
+
+    /// The ids of a ranked search's hits, best first, from one plan that runs the search and
+    /// then reads the hits' rows.
+    async fn ranked_ids<V: IndexVTable>(
+        &self,
+        index: &Arc<TableIndex<V>>,
+        search: IndexStep<Vec<Hit>>,
+    ) -> anyhow::Result<Vec<u64>> {
+        let (plan, ranked) = index.plan_ranked(search, self.id_scan())?;
+        // Ordered, so ids line up with the hits of the search.
+        let batches = self.ordered.as_dyn().execute(plan).try_collect().await?;
+        let ids = self.ids(batches)?;
+        let ranked = ranked.get().context("the plan ran the search")?;
         anyhow::ensure!(ids.len() == ranked.hits.len(), "a hit's row is missing");
-        Ok(order.into_iter().map(|i| ids[i]).collect())
+        Ok(ranked.best_first().into_iter().map(|i| ids[i]).collect())
+    }
+
+    /// The best `k` of a ranked search's candidates, re-scored by their stored vectors, from one
+    /// plan that runs the search and then reads the candidates' vectors.
+    async fn refined(
+        &self,
+        index: &Arc<TableIndex<IvfIndex>>,
+        search: IndexStep<Vec<Hit>>,
+        query: &[f32],
+        k: usize,
+    ) -> anyhow::Result<Vec<u64>> {
+        let scan = self.scan().with_projection(select(["id", "emb"], root()));
+        let (plan, _) = index.plan_ranked(search, scan)?;
+        let batches = self.driver.as_dyn().execute(plan).try_collect().await?;
+        self.cosine_best(batches, query, k)
     }
 
     /// The exact cosine top-k, by a full scan, to measure recall against.
     async fn exact_cosine(&self, query: &[f32], k: usize) -> anyhow::Result<Vec<u64>> {
-        self.cosine_top_k(self.scan(), query, k).await
+        let scan = self.scan().with_projection(select(["id", "emb"], root()));
+        let batches = self.collect(scan).await?;
+        self.cosine_best(batches, query, k)
     }
 
-    /// Re-scores a ranked search's candidates by their stored vectors, keeping the best `k`.
-    async fn refined(
+    /// The `k` rows of `batches` whose vectors are most cosine-similar to `query`.
+    fn cosine_best(
         &self,
-        ranked: RankedSelections,
-        query: &[f32],
-        k: usize,
-    ) -> anyhow::Result<Vec<u64>> {
-        let scan = self.scan().with_file_selections(ranked.selections);
-        self.cosine_top_k(scan, query, k).await
-    }
-
-    /// The `k` rows of `scan` whose vectors are most cosine-similar to `query`.
-    async fn cosine_top_k(
-        &self,
-        scan: TableScan,
+        batches: Vec<ScopedBatch>,
         query: &[f32],
         k: usize,
     ) -> anyhow::Result<Vec<u64>> {
@@ -234,8 +245,7 @@ impl VortexTable {
         let q_norm = norm(query);
         let mut best: Vec<(f32, u64)> = Vec::new();
         let mut ctx = self.session.create_execution_ctx();
-        let scan = scan.with_projection(select(["id", "emb"], root()));
-        for batch in self.collect(scan).await? {
+        for batch in batches {
             let array = batch.batch.execute::<StructArray>(&mut ctx)?;
             let ids = array
                 .unmasked_field_by_name("id")?
@@ -308,17 +318,17 @@ pub(super) async fn run(
         let exact = table.exact_cosine(&inputs.query, k).await?;
         let (vortex_time, vortex) = time(args.iterations, || async {
             let candidates = k * args.refine.max(1);
-            let hits = indexes
-                .ivf
-                .index()
-                .rows()
-                .search_vectors(&inputs.query, candidates, args.nprobe)
-                .await?;
-            let ranked = indexes.ivf.ranked(&hits)?;
+            let search = indexes.ivf.index().rows().search_vectors_steps(
+                &inputs.query,
+                candidates,
+                args.nprobe,
+            )?;
             Ok(Answer::TopK(if args.refine == 0 {
-                table.ranked_ids(ranked).await?
+                table.ranked_ids(&indexes.ivf, search).await?
             } else {
-                table.refined(ranked, &inputs.query, k).await?
+                table
+                    .refined(&indexes.ivf, search, &inputs.query, k)
+                    .await?
             }))
         })
         .await?;
@@ -351,15 +361,12 @@ pub(super) async fn run(
 
     if selected("t2") {
         let (vortex_time, vortex) = time(args.iterations, || async {
-            let hits = indexes
+            let search = indexes
                 .text
                 .index()
                 .rows()
-                .search_bm25(&inputs.bm25_query, k)
-                .await?;
-            Ok(Answer::TopK(
-                table.ranked_ids(indexes.text.ranked(&hits)?).await?,
-            ))
+                .search_bm25_steps(&inputs.bm25_query, k)?;
+            Ok(Answer::TopK(table.ranked_ids(&indexes.text, search).await?))
         })
         .await?;
         let (lance_time, lance) = time(args.iterations, || async {
@@ -384,13 +391,13 @@ pub(super) async fn run(
 
     if selected("t3") {
         let (vortex_time, vortex) = time(args.iterations, || async {
-            let found = indexes
+            let plan = indexes
                 .text
-                .locate(&text_match(root(), inputs.term.as_str()))
-                .await?
-                .ok_or_else(|| anyhow::anyhow!("the inverted index claims text_match"))?;
+                .plan_matching(&text_match(root(), inputs.term.as_str()), table.id_scan())?;
+            let batches: Vec<ScopedBatch> =
+                table.driver.as_dyn().execute(plan).try_collect().await?;
             Ok(Answer::Rows(
-                table.ids_of(found.selections).await?.len() as u64
+                batches.iter().map(|batch| batch.batch.len() as u64).sum(),
             ))
         })
         .await?;
