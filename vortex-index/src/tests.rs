@@ -543,6 +543,52 @@ async fn standalone_ivf_reads_probed_lists_by_position() -> VortexResult<()> {
     Ok(())
 }
 
+/// Files of one table may differ in a column's nullability; a different type is still refused.
+#[tokio::test]
+async fn standalone_index_accepts_files_that_differ_in_nullability() -> VortexResult<()> {
+    let session = session()?;
+    let mut builder = IndexFileBuilder::new(
+        InvertedIndex,
+        (),
+        "text",
+        DType::Utf8(Nullability::NonNullable),
+        &session,
+    )?;
+    builder.push_file(
+        CoveredFile::new("a.vortex", 2),
+        [VarBinViewArray::from_iter_str(["red fox", "blue jay"]).into_array()],
+    )?;
+    builder.push_file(
+        CoveredFile::new("b.vortex", 2),
+        [VarBinViewArray::from_iter_nullable_str([Some("red kite"), None]).into_array()],
+    )?;
+    assert!(
+        builder
+            .push_file(
+                CoveredFile::new("c.vortex", 1),
+                [VarBinViewArray::from_iter_bin([b"red"]).into_array()],
+            )
+            .is_err()
+    );
+
+    let mut bytes = ByteBufferMut::empty();
+    builder.write(&mut bytes).await?;
+    let index = IndexFile::open(
+        InvertedIndex,
+        &session
+            .open_options()
+            .include_metadata()
+            .open_buffer(bytes.freeze())?,
+    )?;
+    let (_, selections) = index
+        .locate_files(&text_match(root(), "red"))
+        .await?
+        .expect("claims text_match");
+    let files: Vec<usize> = selections.iter().map(|s| s.file).collect();
+    assert_eq!(files, vec![0, 1]);
+    Ok(())
+}
+
 #[tokio::test]
 async fn opening_with_the_wrong_kind_fails() -> VortexResult<()> {
     let session = session()?;

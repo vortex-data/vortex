@@ -257,7 +257,7 @@ impl<V: IndexVTable> IndexFileBuilder<V> {
         let start = self.rows;
         for chunk in chunks {
             vortex_ensure!(
-                chunk.dtype() == &self.source_dtype,
+                same_column_type(chunk.dtype(), &self.source_dtype),
                 "Chunk dtype {} does not match the indexed column's {}",
                 chunk.dtype(),
                 self.source_dtype
@@ -381,6 +381,17 @@ impl<V: IndexVTable> IndexFileBuilder<V> {
             )
             .await
     }
+}
+
+/// Whether a covered file's column can feed an index built for `indexed`: files of one table may
+/// differ in nullability, and store an extension type or its storage type.
+fn same_column_type(column: &DType, indexed: &DType) -> bool {
+    let storage = |dtype: &DType| match dtype {
+        DType::Extension(ext) => ext.storage_dtype().clone(),
+        other => other.clone(),
+    };
+    column.eq_ignore_nullability(indexed)
+        || storage(column).eq_ignore_nullability(&storage(indexed))
 }
 
 /// Copy the variable-length values a slice uses out of its parent's buffers, so writing the
