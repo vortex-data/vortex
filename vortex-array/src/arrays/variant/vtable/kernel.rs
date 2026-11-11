@@ -33,6 +33,7 @@ use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_get::VariantGetOptions;
 use crate::scalar_fn::fns::variant_get::VariantPath;
 use crate::scalar_fn::fns::variant_get::VariantPathElement;
+use crate::validity::Validity;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -72,8 +73,7 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
             .map(|shredded| {
                 typed_shredded_path(shredded, parent.options.path().elements(), ctx)?
                     .map(|(typed, remaining)| {
-                        let len = typed.len();
-                        let typed = typed.mask(core_validity.to_array(len))?.optimize_ctx(ctx)?;
+                        let typed = mask_with_validity(typed, &core_validity)?.optimize_ctx(ctx)?;
                         Ok::<_, VortexError>((typed, remaining))
                     })
                     .transpose()
@@ -152,6 +152,20 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
     }
 }
 
+/// Nulls out the rows of `array` that `validity` marks invalid.
+///
+/// A validity without nulls leaves `array` as it is: wrapping it in a mask would hide its
+/// encoding from the kernels that extract from it.
+fn mask_with_validity(array: ArrayRef, validity: &Validity) -> VortexResult<ArrayRef> {
+    match validity {
+        Validity::NonNullable | Validity::AllValid => Ok(array),
+        validity => {
+            let len = array.len();
+            array.mask(validity.to_array(len))
+        }
+    }
+}
+
 /// Walks `path` through the shredded tree, returning the array it reaches and the elements of
 /// `path` that are left.
 ///
@@ -177,10 +191,7 @@ fn typed_shredded_path<'a>(
         let Some(field) = current_struct.unmasked_field_by_name_opt(name.as_ref()) else {
             return Ok(None);
         };
-        let len = current_struct.len();
-        let current_validity = current_struct.validity()?.to_array(len);
-
-        current = field.clone().mask(current_validity.clone())?;
+        current = mask_with_validity(field.clone(), &current_struct.validity()?)?;
     }
 
     Ok(Some((current, &[])))

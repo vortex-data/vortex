@@ -20,12 +20,15 @@ use crate::IntoArray;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::Variant;
 use crate::arrays::VariantArray;
 use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::variant::VariantArraySlotsExt;
 use crate::builders::builder_with_capacity_in;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::Nullability;
@@ -39,6 +42,7 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::mask::Mask;
 
 /// Extracts a field/index path from Variant values.
 ///
@@ -161,6 +165,16 @@ impl ScalarFnVTable for VariantGet {
                 })
                 .collect::<VortexResult<Vec<_>>>()?;
             return Ok(ChunkedArray::try_new(chunks, dtype)?.into_array());
+        }
+        // A mask only nulls rows out, so it commutes with extraction.
+        if let Some(masked) = input.as_opt::<ScalarFn>()
+            && masked.scalar_fn().id() == Mask.id()
+        {
+            return VariantGet::try_new(masked.child_at(0).clone(), options.clone())?
+                .into_array()
+                .execute::<ArrayRef>(ctx)?
+                .mask(masked.child_at(1).clone())?
+                .execute::<ArrayRef>(ctx);
         }
         if !input.is::<Variant>() {
             let canonical = input.clone().execute::<VariantArray>(ctx)?;
