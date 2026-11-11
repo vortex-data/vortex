@@ -120,6 +120,25 @@ static UNSTABLE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[EditionMember::layout(&"vortex.list")],
 };
 
+const BENCH_VARIANT_EDITION_FAMILY: EditionFamily = EditionFamily {
+    name: "bench-variant",
+    origin: "vortex-bench",
+    doc: "The unstable Variant layout, which the V2 scan reads, without the list layout, which \
+it cannot.",
+};
+
+/// The Variant layout from the unstable edition, on its own.
+const UNSTABLE_BENCH_VARIANT: EditionId = EditionId::new("bench-variant", 2026, 11, 0);
+
+static UNSTABLE_BENCH_VARIANT_DECLARATION: EditionDeclaration = EditionDeclaration {
+    edition: Edition {
+        id: UNSTABLE_BENCH_VARIANT,
+        immutable: false,
+        min_library_version: None,
+    },
+    added: &[EditionMember::layout(&"vortex.variant")],
+};
+
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
@@ -131,6 +150,13 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .register_edition(&UNSTABLE_BENCH_DECLARATION)
         .vortex_expect("bench edition declaration is valid");
     session
+        .editions()
+        .declare_family(&BENCH_VARIANT_EDITION_FAMILY)
+        .vortex_expect("bench Variant edition family is valid");
+    session
+        .register_edition(&UNSTABLE_BENCH_VARIANT_DECLARATION)
+        .vortex_expect("bench Variant edition declaration is valid");
+    session
 });
 
 /// Enables [`UNSTABLE_BENCH`] on [`SESSION`], so it writes lists with the list layout.
@@ -140,6 +166,14 @@ fn enable_unstable_bench_edition() {
     SESSION
         .enable_edition(UNSTABLE_BENCH)
         .vortex_expect("bench edition is registered");
+}
+
+/// Enables [`UNSTABLE_BENCH_VARIANT`] on [`SESSION`], so it writes a shredded Variant with the
+/// Variant layout: a column for its core storage and one for each shredded field.
+fn enable_unstable_bench_variant_edition() {
+    SESSION
+        .enable_edition(UNSTABLE_BENCH_VARIANT)
+        .vortex_expect("bench Variant edition is registered");
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -491,6 +525,7 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::JsonBench => {
+            enable_unstable_bench_variant_edition();
             let files = opts.get_as::<usize>(SCALE_FACTOR_KEY).unwrap_or(1);
             let shredding = opts.get_as::<Shredding>("shredding").unwrap_or_default();
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);

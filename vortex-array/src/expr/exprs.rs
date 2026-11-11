@@ -69,6 +69,8 @@ use crate::scalar_fn::fns::strpos::Strpos;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_get::VariantGetOptions;
 use crate::scalar_fn::fns::variant_get::VariantPath;
+use crate::scalar_fn::fns::variant_pack::VariantPack;
+use crate::scalar_fn::fns::variant_pack::VariantPackOptions;
 use crate::scalar_fn::fns::zip::Zip;
 
 /// Creates an expression that references the root scope.
@@ -187,6 +189,28 @@ pub fn variant_get(
     dtype: Option<DType>,
 ) -> Expression {
     VariantGet.new_expr(VariantGetOptions::new(path.into(), dtype), vec![child])
+}
+
+/// Creates an expression that builds a Variant from its `core` storage and `shredded` child.
+///
+/// `complete` says that `shredded` holds every value it could hold; see
+/// [`VariantPackOptions::complete`].
+pub fn variant_pack(core: Expression, shredded: Expression, complete: bool) -> Expression {
+    VariantPack.new_expr(VariantPackOptions::new(complete), vec![core, shredded])
+}
+
+/// Creates an expression that builds a Variant from its `core` storage and a `shredded` struct
+/// that is not nullable, whose validity is `validity`.
+pub fn variant_pack_with_validity(
+    core: Expression,
+    shredded: Expression,
+    validity: Expression,
+    complete: bool,
+) -> Expression {
+    VariantPack.new_expr(
+        VariantPackOptions::with_shredded_validity(complete),
+        vec![core, shredded, validity],
+    )
 }
 
 /// Creates a bound expression that extracts a path from a Variant expression.

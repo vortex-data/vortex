@@ -60,9 +60,15 @@ Vortex Variant to a DuckDB `VARIANT`. The `duckdb` format needs a `duckdb` CLI w
 
 DataFusion hoists each `variant_get` call into a projection above the scan, and the Vortex
 scan absorbs it: `vortex-datafusion` converts the call to the Vortex `variant_get`
-expression, in projections and in filters. For a shredded path the scan then reads the typed
-column, and never touches the binary Variant value. Parquet has no such pushdown, so
-DataFusion reads the whole Variant column and extracts from it.
+expression, in projections and in filters. Parquet has no such pushdown, so DataFusion reads
+the whole Variant column and extracts from it.
+
+A shredded Variant is written with the Variant layout, which stores the Variant as a struct
+of its core storage and its shredded child. The struct is written like any other, so each
+shredded field is a column of its own, with its own encoding and statistics. A scan that
+extracts a shredded path reads that column and nothing else: Q0 on `query-fields` reads
+0.5 MB of the 126 MB file, as dictionary codes over 15 strings. The layout is unstable. This
+suite enables it through an edition of its own, and other writers do not use it.
 
 An unshredded Variant value is an opaque binary blob that the lightweight encodings cannot
 compress. The default Vortex preset therefore compresses the binary storage of a Variant with
@@ -73,10 +79,10 @@ and the V2 scan (lower is better):
 
 | Shredding | Q0 | Q1 | Q2 | Q3 | Q4 |
 | --- | --- | --- | --- | --- | --- |
-| `none` | 0.92 | 0.96 | 0.95 | 0.77 | 0.71 |
-| `query-fields` | 0.30 | 0.44 | 0.29 | 0.21 | 0.24 |
+| `none` | 1.06 | 1.05 | 0.84 | 0.71 | 0.75 |
+| `query-fields` | 0.08 | 0.25 | 0.13 | 0.12 | 0.11 |
 
-The file is 126.5 MB against 128.6 MB of Parquet for `none`, and 135.1 MB against 118.6 MB
+The file is 126.5 MB against 128.6 MB of Parquet for `none`, and 126.3 MB against 118.6 MB
 for `query-fields`.
 
 The suite runs on the V2 scan, which `vx-bench` selects for it. `datafusion-bench` defaults
@@ -84,18 +90,15 @@ to the V1 scan, so pass `--scan-v1 false` when running it directly.
 
 On `none` both formats spend their time in the same `parquet-variant-compute` kernel, which
 parses every Variant once per extracted path. A split decodes the storage of a Variant once,
-however many filters and projections extract from it. With the queried fields shredded,
-DataFusion's aggregation takes most of the remaining time. What is left in Vortex:
+however many filters and projections extract from it. What is left in Vortex:
 
-1. **A Variant column is one unit of IO.** A chunk holds the metadata, the binary value, and
-   every shredded column in a single segment, so a query that needs one shredded field still
-   reads all of it. Writing each shredded field as its own column layout, and resolving
-   `variant_get` in the layout reader, would let a shredded query read only the fields it
-   names. On local disk this is a small part of the shredded queries; on object storage it
-   is the bytes fetched.
-2. **One pass per path.** Extracting several paths of an unshredded Variant parses each
+1. **One pass per path.** Extracting several paths of an unshredded Variant parses each
    value once per path. A kernel that extracts them in one pass would speed up `none` for
    Vortex and Parquet alike.
+2. **Shredded paths the scan cannot prove complete.** The scan reads a shredded column alone
+   only when the writer recorded that no row left a value for it in the core storage. Where
+   some row did, as for a field that holds strings in some rows and numbers in others, the
+   scan reads the core storage as well.
 
 ## Running locally
 

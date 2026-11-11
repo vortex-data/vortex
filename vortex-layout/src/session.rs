@@ -22,6 +22,7 @@ use crate::layouts::flat::Flat;
 use crate::layouts::indexed::Indexed;
 use crate::layouts::list::List;
 use crate::layouts::struct_::Struct;
+use crate::layouts::variant::Variant;
 use crate::layouts::zoned::LegacyStats;
 use crate::layouts::zoned::Zoned;
 
@@ -82,6 +83,7 @@ impl Default for LayoutSession {
         this.register(&LegacyStats as &dyn LayoutPlugin);
         this.register(&Dict as &dyn LayoutPlugin);
         this.register(&List as &dyn LayoutPlugin);
+        this.register(&Variant as &dyn LayoutPlugin);
         this.register(&Indexed as &dyn LayoutPlugin);
         this
     }

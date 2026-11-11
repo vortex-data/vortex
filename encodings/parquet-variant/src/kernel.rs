@@ -148,12 +148,9 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
 
         // Residual storage without a value in any row holds no path, as for the rows of a
         // shredded field that the typed column does not cover. Answer from the validity of the
-        // value alone, without decoding the metadata.
+        // value alone, without decoding the metadata. This holds for any requested dtype,
+        // Variant included: a missing path is a null of it.
         if array.typed_value().is_none()
-            && parent
-                .options
-                .dtype()
-                .is_some_and(|dtype| !dtype.is_variant())
             && let Some(value) = array.value()
             && value
                 .validity()?
@@ -386,10 +383,14 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar_is_null;
     use vortex_array::dtype::DType as VortexDType;
+    use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::expr::BoundExpression;
+    use vortex_array::expr::get_item;
     use vortex_array::expr::root;
     use vortex_array::expr::variant_get;
+    use vortex_array::expr::variant_pack;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar_fn::fns::variant_get::VariantPath;
     use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
@@ -1266,6 +1267,89 @@ mod tests {
             execute_variant_get(chunked, "$.a", Some(requested))?,
             PrimitiveArray::from_option_iter([Some(1i64), Some(2), Some(3)]),
             &mut ctx
+        );
+        Ok(())
+    }
+
+    /// The struct that the Variant layout stores for [`make_nested_shredded_events`]: the core
+    /// storage and the shredded child as fields, and an extraction of `path` as `dtype` from
+    /// the Variant packed back from them, optimized.
+    fn extraction_over_pack(
+        path: &str,
+        dtype: VortexDType,
+        complete: bool,
+    ) -> VortexResult<(ArrayRef, BoundExpression)> {
+        let events = make_nested_shredded_events()?;
+        let events = events.as_::<Variant>();
+        let shredded = events
+            .shredded()
+            .ok_or_else(|| vortex_err!("expected a shredded child"))?
+            .clone();
+        let storage = VortexStructArray::try_new(
+            FieldNames::from(["core", "shredded"]),
+            vec![events.core_storage().clone(), shredded],
+            events.len(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        let packed = variant_pack(
+            get_item("core", root()),
+            get_item("shredded", root()),
+            complete,
+        );
+        let expr = variant_get(packed, parse_path(path)?, Some(dtype))
+            .bind(storage.dtype())?
+            .optimize_recursive()?;
+        Ok((storage, expr))
+    }
+
+    /// An extraction from a packed Variant reads the shredded child alone when it holds the
+    /// path, and the core storage alone when it does not.
+    #[rstest]
+    // A shredded leaf.
+    #[case::shredded("$.kind", &[Some("commit"), Some("identity"), Some("commit")], "shredded")]
+    // A leaf of a shredded object, which is a Variant of its own.
+    #[case::nested("$.commit.collection", &[Some("post"), None, Some("like")], "shredded")]
+    // A field that was not shredded is only in the core storage.
+    #[case::unshredded("$.other", &[None, None, None], "core")]
+    fn test_variant_get_over_complete_pack_reads_one_child(
+        #[case] path: &str,
+        #[case] expected: &[Option<&str>],
+        #[case] child: &str,
+    ) -> VortexResult<()> {
+        let utf8 = VortexDType::Utf8(Nullability::Nullable);
+        let (storage, expr) = extraction_over_pack(path, utf8, true)?;
+
+        let read = expr.to_string();
+        let other = if child == "core" { "shredded" } else { "core" };
+        assert!(read.contains(child), "{read} must read {child}");
+        assert!(!read.contains(other), "{read} must not read {other}");
+        assert_arrays_eq!(
+            storage.apply_bound(&expr)?,
+            VarBinViewArray::from_iter_nullable_str(expected.iter().copied()),
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    /// A shredded child that is not complete can have left a value in the core storage, so
+    /// the extraction keeps both.
+    #[test]
+    fn test_variant_get_over_partial_pack_reads_both_children() -> VortexResult<()> {
+        let utf8 = VortexDType::Utf8(Nullability::Nullable);
+        let (storage, expr) = extraction_over_pack("$.kind", utf8, false)?;
+
+        let read = expr.to_string();
+        assert!(read.contains("core") && read.contains("shredded"), "{read}");
+        assert_arrays_eq!(
+            storage.apply_bound(&expr)?,
+            VarBinViewArray::from_iter_nullable_str([
+                Some("commit"),
+                Some("identity"),
+                Some("commit")
+            ]),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }

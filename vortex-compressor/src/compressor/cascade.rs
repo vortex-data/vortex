@@ -61,9 +61,9 @@ impl Selection {
     }
 }
 
-/// How many levels of canonical Variant the chunks of a Variant's core storage may be wrapped in
-/// for the compressor to still merge them.
-const MAX_CHUNKED_STORAGE_DEPTH: usize = 4;
+/// How many lazy layers the compressor unwraps from a Variant's core storage: chunks, canonical
+/// Variants around the chunks' storage, slices.
+const MAX_STORAGE_DEPTH: usize = 4;
 
 impl CascadingCompressor {
     /// Compresses an array using cascading adaptive compression.
@@ -257,20 +257,22 @@ impl CascadingCompressor {
                 }
             }
             Canonical::Variant(variant_array) => {
-                // Chunked core storage would compress chunk by chunk. Its encoding may execute
-                // to a single array whose children span the chunks, which compress as a whole.
-                // Each execution unwraps one level, as the chunks can be canonical Variants
-                // around that encoding.
+                // Core storage that is chunked would compress chunk by chunk, and storage under
+                // a lazy array, such as a slice, would be written with it. Executing it yields
+                // the storage encoding itself, whose children span the chunks or are the sliced
+                // ones. Each execution unwraps one level, as the chunks can be canonical
+                // Variants around that encoding.
                 let mut core_storage = variant_array.core_storage().clone();
-                for _ in 0..MAX_CHUNKED_STORAGE_DEPTH {
-                    if !core_storage.is::<Chunked>() {
+                for _ in 0..MAX_STORAGE_DEPTH {
+                    let executed = core_storage.clone().execute::<VariantArray>(exec_ctx)?;
+                    // The storage encoding executes to a Variant over itself.
+                    let settled = executed.core_storage().encoding_id()
+                        == core_storage.encoding_id()
+                        && !core_storage.is::<Chunked>();
+                    if settled || executed.shredded().is_some() {
                         break;
                     }
-                    let merged = core_storage.clone().execute::<VariantArray>(exec_ctx)?;
-                    if merged.shredded().is_some() {
-                        break;
-                    }
-                    core_storage = merged.core_storage().clone();
+                    core_storage = executed.core_storage().clone();
                 }
                 // Storage that stays chunked compresses as the chunks it came in.
                 let core_storage = if core_storage.is::<Chunked>() {

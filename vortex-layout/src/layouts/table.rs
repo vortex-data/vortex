@@ -28,6 +28,7 @@ use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
 use crate::layouts::list::writer::ListLayoutStrategy;
 use crate::layouts::struct_::StructStrategy;
+use crate::layouts::variant::VariantStrategy;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -61,6 +62,8 @@ pub struct TableStrategy {
     ///
     /// [`ListLayoutStrategy`]: ListLayoutStrategy
     list_layout_factory: Option<ListLayoutFactory>,
+    /// Whether shredded Variant fields are written with [`VariantStrategy`].
+    variant_layout: bool,
 }
 
 impl TableStrategy {
@@ -88,6 +91,7 @@ impl TableStrategy {
             validity,
             leaf: fallback,
             list_layout_factory: None,
+            variant_layout: false,
         }
     }
 
@@ -175,6 +179,16 @@ impl TableStrategy {
         self.list_layout_factory = Some(Arc::new(factory));
         self
     }
+
+    /// Enable writing shredded Variant fields with [`VariantStrategy`], which stores the core
+    /// storage and each shredded field as columns of their own.
+    ///
+    /// **Note**: this is an unstable and experimental layout that is expected to change.
+    /// Using it may lead to unreadable files in the future.
+    pub fn with_variant_layout(mut self) -> Self {
+        self.variant_layout = true;
+        self
+    }
 }
 
 impl TableStrategy {
@@ -244,6 +258,7 @@ impl TableStrategy {
             validity: Arc::clone(&self.validity),
             leaf: Arc::clone(&self.leaf),
             list_layout_factory: self.list_layout_factory.clone(),
+            variant_layout: self.variant_layout,
         }
     }
 
@@ -255,6 +270,7 @@ impl TableStrategy {
             validity: Arc::clone(&self.validity),
             leaf: Arc::clone(&self.leaf),
             list_layout_factory: self.list_layout_factory.clone(),
+            variant_layout: self.variant_layout,
         }
     }
 
@@ -301,6 +317,14 @@ impl LayoutStrategy for TableStrategy {
             && let Some(list_strategy) = self.list_strategy()
         {
             return list_strategy
+                .write_stream(ctx, segment_sink, stream, eof, session)
+                .await;
+        }
+
+        if dtype.is_variant() && self.variant_layout {
+            // The stored struct goes back through a clean dispatcher, so that its shredded
+            // child is split into columns, and a Variant in it is split in turn.
+            return VariantStrategy::new(Arc::new(self.descend_clean()), Arc::clone(&self.leaf))
                 .write_stream(ctx, segment_sink, stream, eof, session)
                 .await;
         }

@@ -39,10 +39,14 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::mask::Mask;
+use crate::scalar_fn::fns::variant_pack::VariantPack;
 
 /// How many lazy layers `variant_get` unwraps from its input before it extracts row by row.
 const MAX_CANONICALIZE_DEPTH: usize = 8;
@@ -220,6 +224,66 @@ impl ScalarFnVTable for VariantGet {
                 .into_array()
         })?;
         VariantArray::try_new(array, None).map(|array| array.into_array())
+    }
+
+    /// Reads a shredded path from the shredded child of a [`VariantPack`] input, leaving its
+    /// core storage unread.
+    fn reduce<T: ReduceNode>(&self, options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
+        let input = node.child(0);
+        let Some(pack) = input
+            .scalar_fn()
+            .and_then(|scalar_fn| scalar_fn.as_opt::<VariantPack>())
+        else {
+            return Ok(None);
+        };
+        let core = input.child(0);
+        let mut current = input.child(1);
+        let mut path = options.path().elements();
+        // Whether `current` is below the shredded child itself. Only the shredded child can
+        // have left values in the core storage, so only reading it needs it to be complete.
+        let mut descended = false;
+
+        loop {
+            let dtype = current.node_dtype()?;
+            match (&dtype, path.split_first()) {
+                // A shredded Variant holds the rest of the path itself.
+                (DType::Variant(_), _) if descended => {
+                    let rest = VariantGetOptions::new(
+                        VariantPath::new(path.iter().cloned()),
+                        options.dtype().cloned(),
+                    );
+                    return node.new_node(VariantGet.bind(rest), &[current]).map(Some);
+                }
+                (DType::Struct(fields, _), Some((VariantPathElement::Field(name), rest))) => {
+                    if fields.find(name.as_ref()).is_none() {
+                        // A field that was not shredded is only in the core storage.
+                        return if descended {
+                            Ok(None)
+                        } else {
+                            node.new_node(VariantGet.bind(options.clone()), &[core])
+                                .map(Some)
+                        };
+                    }
+                    if !descended && !pack.complete() {
+                        return Ok(None);
+                    }
+                    current = current.new_node(GetItem.bind(name.clone()), &[current.clone()])?;
+                    path = rest;
+                    descended = true;
+                }
+                // The end of the path at a typed value of the requested dtype.
+                (dtype, None)
+                    if options.dtype().is_some_and(|requested| {
+                        !requested.is_variant() && dtype.eq_ignore_nullability(requested)
+                    }) && (descended || pack.complete()) =>
+                {
+                    return node
+                        .new_node(Cast.bind(node.node_dtype()?), &[current])
+                        .map(Some);
+                }
+                _ => return Ok(None),
+            }
+        }
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
