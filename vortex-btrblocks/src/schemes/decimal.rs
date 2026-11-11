@@ -11,6 +11,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
 use vortex_array::dtype::DecimalType;
+pub use vortex_compressor::builtins::DecimalDictScheme;
 use vortex_compressor::builtins::low_cardinality_decimal;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
@@ -27,8 +28,6 @@ use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
-
-pub use vortex_compressor::builtins::DecimalDictScheme;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum DecimalSchemeMode {
