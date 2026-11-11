@@ -140,9 +140,29 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
 
         // Null typed rows are not necessarily missing from the logical variant value;
         // fill those rows from core storage and keep valid typed rows unchanged.
-        // TODO: we are computing the entire fallback array here but only take indices where
-        // typed_mask is false, so we can narrow the core_storage to only the false
-        // indices and compute from there then zip
+        if typed_mask.all_false() {
+            return make_fallback(ctx).map(Some);
+        }
+        // Usually the null typed rows are missing from core storage as well, as for a field
+        // that only some objects have. Extract from just those rows first: when none of them
+        // holds a value, the typed child is the whole answer and the rest of core storage is
+        // never read.
+        let null_rows = !&typed_mask;
+        let null_rows_fallback = execute_fallback_variant_get(
+            parent.options.clone(),
+            array.core_storage().filter(null_rows)?,
+            ctx,
+        )?;
+        if null_rows_fallback
+            .validity()?
+            .execute_mask(null_rows_fallback.len(), ctx)?
+            .all_false()
+        {
+            return Ok(Some(typed));
+        }
+
+        // TODO: scatter `null_rows_fallback` into the typed child instead of extracting from
+        // every row of core storage again.
         let fallback = make_fallback(ctx)?;
         typed_mask
             .into_array()

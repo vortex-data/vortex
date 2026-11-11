@@ -22,6 +22,7 @@ use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::Extension;
 use vortex_array::arrays::Filter;
@@ -39,6 +40,7 @@ use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::dtype::DType;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::variant_get::VariantGet;
 use vortex_array::scalar_fn::fns::variant_get::VariantPath;
@@ -106,6 +108,25 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
     ) -> VortexResult<Option<ArrayRef>> {
         if child_idx != 0 {
             return Ok(None);
+        }
+
+        // Residual storage without a value in any row holds no path, as for the rows of a
+        // shredded field that the typed column does not cover. Answer from the validity of the
+        // value alone, without decoding the metadata.
+        if array.typed_value().is_none()
+            && parent
+                .options
+                .dtype()
+                .is_some_and(|dtype| !dtype.is_variant())
+            && let Some(value) = array.value()
+            && value
+                .validity()?
+                .execute_mask(value.len(), ctx)?
+                .all_false()
+        {
+            return Ok(Some(
+                ConstantArray::new(Scalar::null(parent.dtype().clone()), array.len()).into_array(),
+            ));
         }
 
         let arrow_variant = array.to_arrow(&ArrowExportOptions::default(), ctx)?;
