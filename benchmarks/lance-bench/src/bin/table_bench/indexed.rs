@@ -34,8 +34,6 @@ use vortex::array::expr::root;
 use vortex::array::expr::select;
 use vortex::buffer::ByteBuffer;
 use vortex::buffer::ByteBufferMut;
-use vortex::io::session::RuntimeSessionExt;
-use vortex::scan::planning::drive::ParallelDriver;
 use vortex::scan::planning::drive::ScopedBatch;
 use vortex::scan::selection::Selection;
 use vortex::utils::aliases::hash_map::HashMap;
@@ -45,6 +43,7 @@ use vortex_index::InvertedIndex;
 use vortex_index::IvfIndex;
 use vortex_index::IvfOptions;
 use vortex_index::text_match;
+use vortex_table::TableScan;
 use vortex_table::index::RankedSelections;
 use vortex_table::index::TableIndex;
 use vortex_table::index::index_table;
@@ -186,12 +185,11 @@ impl VortexTable {
     /// The ids of the rows `selections` picks, by file and row.
     async fn ids_of(&self, selections: HashMap<u64, Selection>) -> anyhow::Result<Vec<u64>> {
         // Ordered, so ids line up with the hits of a ranked search.
-        let driver = ParallelDriver::new(self.session.handle()).with_ordered(true);
         let batches: Vec<ScopedBatch> = self
             .scan()
             .with_projection(select(["id"], root()))
             .with_file_selections(selections)
-            .execute(&driver)
+            .execute(self.ordered.as_dyn())
             .try_collect()
             .await?;
         let mut ids = Vec::new();
@@ -211,17 +209,32 @@ impl VortexTable {
 
     /// The exact cosine top-k, by a full scan, to measure recall against.
     async fn exact_cosine(&self, query: &[f32], k: usize) -> anyhow::Result<Vec<u64>> {
-        let norm = |v: &[f32]| {
-            v.iter()
-                .map(|x| x * x)
-                .sum::<f32>()
-                .sqrt()
-                .max(f32::MIN_POSITIVE)
-        };
+        self.cosine_top_k(self.scan(), query, k).await
+    }
+
+    /// Re-scores a ranked search's candidates by their stored vectors, keeping the best `k`.
+    async fn refined(
+        &self,
+        ranked: RankedSelections,
+        query: &[f32],
+        k: usize,
+    ) -> anyhow::Result<Vec<u64>> {
+        let scan = self.scan().with_file_selections(ranked.selections);
+        self.cosine_top_k(scan, query, k).await
+    }
+
+    /// The `k` rows of `scan` whose vectors are most cosine-similar to `query`.
+    async fn cosine_top_k(
+        &self,
+        scan: TableScan,
+        query: &[f32],
+        k: usize,
+    ) -> anyhow::Result<Vec<u64>> {
+        let norm = |v: &[f32]| super::dot(v, v).sqrt().max(f32::MIN_POSITIVE);
         let q_norm = norm(query);
         let mut best: Vec<(f32, u64)> = Vec::new();
         let mut ctx = self.session.create_execution_ctx();
-        let scan = self.scan().with_projection(select(["id", "emb"], root()));
+        let scan = scan.with_projection(select(["id", "emb"], root()));
         for batch in self.collect(scan).await? {
             let array = batch.batch.execute::<StructArray>(&mut ctx)?;
             let ids = array
@@ -233,9 +246,12 @@ impl VortexTable {
                 .clone()
                 .execute::<FixedSizeListArray>(&mut ctx)?;
             let values = emb.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;
-            for (row, v) in values.as_slice::<f32>().chunks(query.len()).enumerate() {
-                let dot: f32 = v.iter().zip(query).map(|(a, b)| a * b).sum();
-                best.push((dot / (norm(v) * q_norm), ids.as_slice::<u64>()[row]));
+            for (v, &id) in values
+                .as_slice::<f32>()
+                .chunks_exact(query.len())
+                .zip(ids.as_slice::<u64>())
+            {
+                best.push((super::dot(v, query) / (norm(v) * q_norm), id));
             }
             super::keep_best(&mut best, k);
         }
@@ -291,15 +307,19 @@ pub(super) async fn run(
     if selected("v2") {
         let exact = table.exact_cosine(&inputs.query, k).await?;
         let (vortex_time, vortex) = time(args.iterations, || async {
+            let candidates = k * args.refine.max(1);
             let hits = indexes
                 .ivf
                 .index()
                 .rows()
-                .search_vectors(&inputs.query, k, args.nprobe)
+                .search_vectors(&inputs.query, candidates, args.nprobe)
                 .await?;
-            Ok(Answer::TopK(
-                table.ranked_ids(indexes.ivf.ranked(&hits)?).await?,
-            ))
+            let ranked = indexes.ivf.ranked(&hits)?;
+            Ok(Answer::TopK(if args.refine == 0 {
+                table.ranked_ids(ranked).await?
+            } else {
+                table.refined(ranked, &inputs.query, k).await?
+            }))
         })
         .await?;
         let (lance_time, lance) = time(args.iterations, || async {
@@ -308,6 +328,9 @@ pub(super) async fn run(
             scanner.nearest("emb", &la::Float32Array::from(inputs.query.clone()), k)?;
             scanner.distance_metric(MetricType::Cosine);
             scanner.nprobes(args.nprobe);
+            if args.refine > 0 {
+                scanner.refine(u32::try_from(args.refine)?);
+            }
             Ok(Answer::TopK(lance_ids(&mut scanner).await?))
         })
         .await?;

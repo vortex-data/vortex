@@ -3,7 +3,9 @@
 
 //! Reading an index's content, wherever it is stored.
 
+use std::any::Any;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use futures::TryStreamExt;
 use vortex_array::VortexSessionExecute;
@@ -52,6 +54,9 @@ pub struct IndexRows<V: IndexVTable> {
     pub(crate) data_row_count: u64,
     pub(crate) reader: LayoutReaderRef,
     pub(crate) session: VortexSession,
+    /// State an index kind derives once from its content and reuses across searches, such as
+    /// the IVF centroids.
+    pub(crate) memo: OnceLock<Arc<dyn Any + Send + Sync>>,
 }
 
 impl<V: IndexVTable> IndexRows<V> {

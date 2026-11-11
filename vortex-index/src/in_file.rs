@@ -8,6 +8,7 @@
 //! filter the scan can push down.
 
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use vortex_error::VortexResult;
 use vortex_file::VortexFile;
@@ -63,6 +64,7 @@ pub fn open_in_file_index<V: IndexVTable>(
         data_row_count: indexed.row_count(),
         reader,
         session: file.session().clone(),
+        memo: OnceLock::new(),
     }))
 }
 

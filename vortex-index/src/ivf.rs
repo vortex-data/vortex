@@ -39,6 +39,7 @@ use vortex_array::expr::eq;
 use vortex_array::expr::lit;
 use vortex_array::expr::or_collect;
 use vortex_array::validity::Validity;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
@@ -75,9 +76,9 @@ const CENTROIDS_FIELD: &str = "centroids";
 const ROWS_FIELD: &str = "rows";
 const CODES_FIELD: &str = "codes";
 
-const KMEANS_ITERATIONS: usize = 10;
+const KMEANS_ITERATIONS: usize = 25;
 /// Training points per list; more are sampled evenly.
-const KMEANS_SAMPLES_PER_LIST: usize = 256;
+const KMEANS_SAMPLES_PER_LIST: usize = 512;
 
 /// An IVF vector index over a column of `f32` vectors: either `FixedSizeList<f32>` or an
 /// extension type stored as one, such as `vortex.tensor.vector`.
@@ -108,7 +109,7 @@ pub struct IvfEntries {
     lists: Vec<u32>,
     centroids: Vec<Vec<f32>>,
     rows: Vec<RoaringBitmap>,
-    codes: Vec<Vec<u8>>,
+    codes: Vec<ByteBuffer>,
 }
 
 fn index_fields() -> StructFields {
@@ -158,8 +159,18 @@ fn flat_vectors(chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<(Vec<f
     Ok((elements.as_slice::<f32>().to_vec(), valid))
 }
 
+/// A dot product over eight lanes, which the compiler turns into SIMD.
 fn dot(a: &[f32], b: &[f32]) -> f32 {
-    a.iter().zip(b).map(|(x, y)| x * y).sum()
+    let mut lanes = [0f32; 8];
+    let (a_chunks, a_rest) = a.as_chunks::<8>();
+    let (b_chunks, b_rest) = b.as_chunks::<8>();
+    for (x, y) in a_chunks.iter().zip(b_chunks) {
+        for lane in 0..8 {
+            lanes[lane] += x[lane] * y[lane];
+        }
+    }
+    let rest: f32 = a_rest.iter().zip(b_rest).map(|(x, y)| x * y).sum();
+    lanes.iter().sum::<f32>() + rest
 }
 
 /// Scale `v` to unit length, leaving a zero vector as is.
@@ -185,15 +196,52 @@ fn quantize(v: &[f32], out: &mut Vec<u8>) {
     );
 }
 
-/// The dot product of `query` with a vector quantized by [`quantize`].
-fn quantized_dot(query: &[f32], code: &[u8]) -> f32 {
+/// A query quantized like the stored vectors, so it scores against their codes in integers.
+struct QuantizedQuery {
+    scale: f32,
+    values: Vec<i8>,
+}
+
+impl QuantizedQuery {
+    fn new(query: &[f32]) -> Self {
+        let mut code = Vec::with_capacity(4 + query.len());
+        quantize(query, &mut code);
+        let (scale, values) = split_code(&code);
+        Self {
+            scale,
+            values: values.iter().map(|&c| c as i8).collect(),
+        }
+    }
+
+    /// The dot product with a vector quantized by [`quantize`].
+    fn dot(&self, code: &[u8]) -> f32 {
+        let (scale, values) = split_code(code);
+        let mut lanes = [0i32; 16];
+        let (q_chunks, q_rest) = self.values.as_chunks::<16>();
+        let (c_chunks, c_rest) = values.as_chunks::<16>();
+        for (q, c) in q_chunks.iter().zip(c_chunks) {
+            for lane in 0..16 {
+                lanes[lane] += i32::from(q[lane]) * i32::from(c[lane] as i8);
+            }
+        }
+        let rest: i32 = q_rest
+            .iter()
+            .zip(c_rest)
+            .map(|(&q, &c)| i32::from(q) * i32::from(c as i8))
+            .sum();
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a sum of 127 * 127 products stays exact in f32 for any practical dimension"
+        )]
+        let sum = (lanes.iter().sum::<i32>() + rest) as f32;
+        sum * scale * self.scale
+    }
+}
+
+/// The scale and the `i8` values (as bytes) of a code written by [`quantize`].
+fn split_code(code: &[u8]) -> (f32, &[u8]) {
     let scale = f32::from_le_bytes([code[0], code[1], code[2], code[3]]);
-    let sum: f32 = code[4..]
-        .iter()
-        .zip(query)
-        .map(|(&c, q)| f32::from(c as i8) * q)
-        .sum();
-    sum * scale
+    (scale, &code[4..])
 }
 
 /// The index of the centroid nearest `v` by cosine similarity.
@@ -349,11 +397,7 @@ impl IndexVTable for IvfIndex {
             .iter()
             .map(|bytes| bitmap_from_bytes(bytes.as_slice()))
             .collect::<VortexResult<_>>()?;
-        let codes = entries
-            .binary_field(CODES_FIELD, ctx)?
-            .into_iter()
-            .map(|bytes| bytes.as_slice().to_vec())
-            .collect();
+        let codes = entries.binary_field(CODES_FIELD, ctx)?;
         Ok(IvfEntries {
             lists,
             centroids,
@@ -391,16 +435,10 @@ impl IndexRows<IvfIndex> {
         let mut query = query.to_vec();
         normalize(&mut query);
 
-        let directory = self
-            .chunks(Some(eq(col(LIST_FIELD), lit(DIRECTORY_LIST))))
-            .await?;
-        let Some(centroids) = directory
-            .iter()
-            .flat_map(|entries| entries.centroids.iter())
-            .find(|centroids| !centroids.is_empty())
-        else {
+        let centroids = self.centroids().await?;
+        if centroids.is_empty() {
             return Ok(Vec::new());
-        };
+        }
 
         let mut probes: Vec<(u32, f32)> = centroids
             .chunks_exact(dim)
@@ -419,6 +457,7 @@ impl IndexRows<IvfIndex> {
         };
         let lists = self.chunks(Some(filter)).await?;
 
+        let quantized = QuantizedQuery::new(&query);
         let code_len = 4 + dim;
         let mut hits = Vec::new();
         for entries in &lists {
@@ -426,12 +465,37 @@ impl IndexRows<IvfIndex> {
                 for (row, code) in rows.iter().zip(codes.chunks_exact(code_len)) {
                     hits.push(Hit {
                         row: u64::from(row),
-                        score: quantized_dot(&query, code),
+                        score: quantized.dot(code),
                     });
                 }
             }
         }
         Ok(top_k(hits, k))
+    }
+
+    /// Every centroid, flattened: read from the directory row on the first search, then reused.
+    async fn centroids(&self) -> VortexResult<Arc<Vec<f32>>> {
+        if let Some(centroids) = self
+            .memo
+            .get()
+            .and_then(|memo| Arc::clone(memo).downcast::<Vec<f32>>().ok())
+        {
+            return Ok(centroids);
+        }
+        let directory = self
+            .chunks(Some(eq(col(LIST_FIELD), lit(DIRECTORY_LIST))))
+            .await?;
+        let centroids = Arc::new(
+            directory
+                .iter()
+                .flat_map(|entries| entries.centroids.iter())
+                .find(|centroids| !centroids.is_empty())
+                .cloned()
+                .unwrap_or_default(),
+        );
+        // A concurrent first search may have set it already; both read the same centroids.
+        drop(self.memo.set(Arc::clone(&centroids) as _));
+        Ok(centroids)
     }
 }
 
@@ -502,12 +566,12 @@ impl IndexBuilder for IvfBuilder {
             entries.lists.push(u32::try_from(list)?);
             entries.centroids.push(Vec::new());
             entries.rows.push(rows);
-            entries.codes.push(codes);
+            entries.codes.push(ByteBuffer::from(codes));
         }
         entries.lists.push(DIRECTORY_LIST);
         entries.centroids.push(centroids.concat());
         entries.rows.push(RoaringBitmap::new());
-        entries.codes.push(Vec::new());
+        entries.codes.push(ByteBuffer::empty());
 
         Ok(Some((
             vec![entries],

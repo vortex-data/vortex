@@ -16,6 +16,7 @@
 //! back to each file's own rows, ready to pass to a scan as a row selection.
 
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use futures::TryStreamExt;
 use futures::stream;
@@ -399,6 +400,7 @@ impl<V: IndexVTable> IndexFile<V> {
             data_row_count: total,
             reader: file.layout_reader()?,
             session: file.session().clone(),
+            memo: OnceLock::new(),
         };
         Ok(Self {
             info,

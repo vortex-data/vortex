@@ -39,6 +39,7 @@ use anyhow::Context as _;
 use clap::Parser;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::stream::BoxStream;
 use lance::Dataset;
 use lance::dataset::ProjectionRequest;
 use lance::dataset::WriteParams;
@@ -73,10 +74,13 @@ use vortex::array::expr::select;
 use vortex::array::validity::Validity;
 use vortex::buffer::ByteBuffer;
 use vortex::buffer::ByteBufferMut;
+use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::scan::planning::drive::MapFn;
 use vortex::scan::planning::drive::ParallelDriver;
 use vortex::scan::planning::drive::PlanDriver;
+use vortex::scan::planning::drive::PlanRoot;
 use vortex::scan::planning::drive::ScopedBatch;
 use vortex::scan::planning::drive::SequentialDriver;
 use vortex::scan::selection::Selection;
@@ -131,6 +135,10 @@ struct Args {
     /// IVF lists searched per query.
     #[arg(long, default_value_t = 16)]
     nprobe: usize,
+    /// Approximate top-k candidates per result that both systems re-score by the stored vectors;
+    /// zero ranks by the index's quantized vectors alone.
+    #[arg(long, default_value_t = 4)]
+    refine: usize,
     /// Inline footers into the Vortex manifest.
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     inline_footers: bool,
@@ -322,7 +330,36 @@ struct VortexTable {
     storage: Arc<LocalStorage>,
     manifest: Arc<Manifest>,
     cache: Arc<FileCache>,
-    driver: Box<dyn PlanDriver>,
+    driver: Driver,
+    /// Yields batches by file, then row, for lookups whose output must line up with their input.
+    ordered: Driver,
+}
+
+/// The Vortex plan driver a run uses.
+enum Driver {
+    Sequential(SequentialDriver),
+    Parallel(ParallelDriver),
+}
+
+impl Driver {
+    fn as_dyn(&self) -> &dyn PlanDriver {
+        match self {
+            Self::Sequential(driver) => driver,
+            Self::Parallel(driver) => driver,
+        }
+    }
+
+    /// Runs `root`, applying `map_fn` to each batch where it is produced.
+    fn execute_with<A: Send + 'static>(
+        &self,
+        root: PlanRoot,
+        map_fn: MapFn<A>,
+    ) -> BoxStream<'static, VortexResult<ScopedBatch<A>>> {
+        match self {
+            Self::Sequential(driver) => driver.execute_with(root, map_fn),
+            Self::Parallel(driver) => driver.execute_with(root, map_fn),
+        }
+    }
 }
 
 impl VortexTable {
@@ -336,7 +373,7 @@ impl VortexTable {
     }
 
     async fn collect(&self, scan: TableScan) -> anyhow::Result<Vec<ScopedBatch>> {
-        Ok(scan.execute(self.driver.as_ref()).try_collect().await?)
+        Ok(scan.execute(self.driver.as_dyn()).try_collect().await?)
     }
 
     fn column(&self, batch: ArrayRef, name: &str) -> anyhow::Result<PrimitiveArray> {
@@ -408,10 +445,12 @@ impl VortexTable {
 
     async fn top_k(&self, query: &[f32], k: usize) -> anyhow::Result<Answer> {
         let scan = self.scan().with_projection(select(["id", "emb"], root()));
-        let mut best: Vec<(f32, u64)> = Vec::new();
-        let mut ctx = self.session.create_execution_ctx();
-        for batch in self.collect(scan).await? {
-            let array = batch.batch.execute::<StructArray>(&mut ctx)?;
+        let query: Arc<[f32]> = query.into();
+        let session = self.session.clone();
+        // Each batch is scored, and cut to its best k, on the worker that decoded it.
+        let score: MapFn<Vec<(f32, u64)>> = Arc::new(move |batch| {
+            let mut ctx = session.create_execution_ctx();
+            let array = batch.execute::<StructArray>(&mut ctx)?;
             let ids = array
                 .unmasked_field_by_name("id")?
                 .clone()
@@ -421,15 +460,37 @@ impl VortexTable {
                 .clone()
                 .execute::<FixedSizeListArray>(&mut ctx)?;
             let values = emb.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;
-            for (row, chunk) in values.as_slice::<f32>().chunks(query.len()).enumerate() {
-                let score: f32 = chunk.iter().zip(query).map(|(a, b)| a * b).sum();
-                best.push((score, ids.as_slice::<u64>()[row]));
-            }
+            let mut best: Vec<(f32, u64)> = values
+                .as_slice::<f32>()
+                .chunks_exact(query.len())
+                .zip(ids.as_slice::<u64>())
+                .map(|(vector, &id)| (dot(vector, &query), id))
+                .collect();
+            keep_best(&mut best, k);
+            Ok(best)
+        });
+        let mut best: Vec<(f32, u64)> = Vec::new();
+        let mut batches = self.driver.execute_with(scan.plan(), score);
+        while let Some(batch) = batches.try_next().await? {
+            best.extend(batch.batch);
             keep_best(&mut best, k);
         }
-        keep_best(&mut best, k);
         Ok(Answer::TopK(best.into_iter().map(|(_, id)| id).collect()))
     }
+}
+
+/// A dot product over eight lanes, which the compiler turns into SIMD.
+fn dot(a: &[f32], b: &[f32]) -> f32 {
+    let mut lanes = [0f32; 8];
+    let (a_chunks, a_rest) = a.as_chunks::<8>();
+    let (b_chunks, b_rest) = b.as_chunks::<8>();
+    for (x, y) in a_chunks.iter().zip(b_chunks) {
+        for lane in 0..8 {
+            lanes[lane] += x[lane] * y[lane];
+        }
+    }
+    let rest: f32 = a_rest.iter().zip(b_rest).map(|(x, y)| x * y).sum();
+    lanes.iter().sum::<f32>() + rest
 }
 
 fn keep_best(best: &mut Vec<(f32, u64)>, k: usize) {
@@ -642,14 +703,23 @@ async fn main() -> anyhow::Result<()> {
     let vortex_dir = args.dir.join("vortex");
     let manifest_bytes = ByteBuffer::from(fs::read(vortex_dir.join("manifest.vortex"))?);
     let manifest = Arc::new(Manifest::read(&session, Arc::new(manifest_bytes)).await?);
-    let driver: Box<dyn PlanDriver> = if args.sequential {
-        Box::new(SequentialDriver::new())
-    } else {
+    let parallel = || {
         let mut driver = ParallelDriver::new(session.handle());
         if let Some(workers) = args.workers {
             driver = driver.with_workers(workers);
         }
-        Box::new(driver)
+        driver
+    };
+    let (driver, ordered) = if args.sequential {
+        (
+            Driver::Sequential(SequentialDriver::new()),
+            Driver::Sequential(SequentialDriver::new()),
+        )
+    } else {
+        (
+            Driver::Parallel(parallel()),
+            Driver::Parallel(parallel().with_ordered(true)),
+        )
     };
     let table = VortexTable {
         storage: Arc::new(LocalStorage::new(&vortex_dir, session.handle())),
@@ -657,6 +727,7 @@ async fn main() -> anyhow::Result<()> {
         manifest,
         cache: Arc::new(FileCache::new()),
         driver,
+        ordered,
     };
     let mut dataset = Dataset::open(&args.dir.join("lance").to_string_lossy()).await?;
     let indexes = if args.indexes {
