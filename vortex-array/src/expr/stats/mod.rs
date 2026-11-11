@@ -29,7 +29,6 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
 
 #[derive(
     Debug,
@@ -181,7 +180,7 @@ impl Stat {
             }
             Self::UncompressedSizeInBytes => {
                 return aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
-                    .return_dtype(&UncompressedSizeOpts::exact(), data_type);
+                    .return_dtype(&EmptyOptions, data_type);
             }
             Self::NaNCount => {
                 return aggregate_fn::fns::nan_count::NanCount
@@ -204,10 +203,9 @@ impl Stat {
             Self::Sum => aggregate_fn::fns::sum::Sum.bind(NumericalAggregateOpts::skip_nans()),
             Self::NullCount => aggregate_fn::fns::null_count::NullCount.bind(EmptyOptions),
             Self::NaNCount => aggregate_fn::fns::nan_count::NanCount.bind(EmptyOptions),
-            // The stat slot holds the exact size, so the statistic measures referenced bytes.
             Self::UncompressedSizeInBytes => {
                 aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
-                    .bind(UncompressedSizeOpts::exact())
+                    .bind(EmptyOptions)
             }
             Self::IsConstant | Self::IsSorted | Self::IsStrictSorted => return None,
         })
@@ -216,8 +214,7 @@ impl Stat {
     /// Return the statistic represented by `aggregate_fn`, if it has a legacy stat slot.
     ///
     /// Min/max/sum statistics skip NaN values, so NaN-including configurations of those
-    /// aggregates have no stat slot. The uncompressed size statistic is exact, so the inexact
-    /// configuration of that aggregate has no stat slot either.
+    /// aggregates have no stat slot.
     pub fn from_aggregate_fn(aggregate_fn: &AggregateFnRef) -> Option<Self> {
         if let Some(options) = aggregate_fn.as_opt::<aggregate_fn::fns::sum::Sum>() {
             return options.skip_nans.then_some(Self::Sum);
@@ -234,11 +231,10 @@ impl Stat {
         if let Some(options) = aggregate_fn.as_opt::<aggregate_fn::fns::max::Max>() {
             return options.skip_nans.then_some(Self::Max);
         }
-        if let Some(options) =
-            aggregate_fn
-                .as_opt::<aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes>()
+        if aggregate_fn
+            .is::<aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes>()
         {
-            return options.is_exact().then_some(Self::UncompressedSizeInBytes);
+            return Some(Self::UncompressedSizeInBytes);
         }
         None
     }
@@ -270,18 +266,22 @@ impl Display for Stat {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use enum_iterator::all;
+    use vortex_session::VortexSession;
 
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::expr::stats::Stat;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn min_of_nulls_is_not_panic() {
         let min = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None])
             .statistics()
-            .compute_as::<i64>(Stat::Min, &mut array_session().create_execution_ctx());
+            .compute_as::<i64>(Stat::Min, &mut SESSION.create_execution_ctx());
 
         assert_eq!(min, None);
     }

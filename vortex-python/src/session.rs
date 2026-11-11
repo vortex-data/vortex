@@ -11,6 +11,9 @@ use std::sync::atomic::AtomicPtr;
 use std::sync::atomic::Ordering;
 
 use vortex::VortexSessionDefault;
+use vortex::editions::EditionSessionExt;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::io::runtime::BlockingRuntime;
 #[cfg(unix)]
 use vortex::io::runtime::Handle;
@@ -84,4 +87,27 @@ pub(crate) fn reset_session_handle(handle: Handle) {
         let session = unsafe { &*current };
         session.session().with_handle(handle);
     }
+}
+
+/// Returns the session for a write that selects `edition`, for example `core2025.10.0`.
+///
+/// Without an edition, this is the shared session. With an edition, this is a new session that
+/// enables the edition, so that the selection does not change other writes. Select an older
+/// edition to write files that older Vortex readers can read.
+pub(crate) fn write_session(edition: Option<&str>) -> VortexResult<VortexSession> {
+    let Some(edition) = edition else {
+        return Ok(session().clone());
+    };
+
+    let session = VortexSession::default().with_handle(current_runtime().handle());
+    let declared = session
+        .editions()
+        .find_by_name(edition)
+        .ok_or_else(|| vortex_err!("Unknown Vortex edition: {edition}"))?;
+
+    session
+        .enable_edition(declared.id)
+        .map_err(|error| vortex_err!("{error}"))?;
+
+    Ok(session)
 }

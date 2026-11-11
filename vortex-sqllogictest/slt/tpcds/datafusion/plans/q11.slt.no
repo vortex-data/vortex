@@ -103,8 +103,8 @@ logical_plan
 16)------------------------------Inner Join: customer.c_customer_sk = store_sales.ss_customer_sk
 17)--------------------------------TableScan: customer projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], partial_filters=[Boolean(true)]
 18)--------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_customer_sk, ss_ext_discount_amt, ss_ext_list_price]
-19)----------------------------Filter: date_dim.d_year = Int64(2001)
-20)------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2001)]
+19)----------------------------Filter: date_dim.d_year = Int32(2001)
+20)------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(2001)]
 21)------------SubqueryAlias: t_s_secyear
 22)--------------SubqueryAlias: year_total
 23)----------------Projection: customer.c_customer_id AS customer_id, customer.c_first_name AS customer_first_name, customer.c_last_name AS customer_last_name, customer.c_preferred_cust_flag AS customer_preferred_cust_flag, sum(store_sales.ss_ext_list_price - store_sales.ss_ext_discount_amt) AS year_total
@@ -115,8 +115,8 @@ logical_plan
 28)--------------------------Inner Join: customer.c_customer_sk = store_sales.ss_customer_sk
 29)----------------------------TableScan: customer projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], partial_filters=[Boolean(true)]
 30)----------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_customer_sk, ss_ext_discount_amt, ss_ext_list_price]
-31)------------------------Filter: date_dim.d_year = Int64(2002)
-32)--------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2002)]
+31)------------------------Filter: date_dim.d_year = Int32(2002)
+32)--------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(2002)]
 33)----------SubqueryAlias: t_w_firstyear
 34)------------SubqueryAlias: year_total
 35)--------------Projection: customer.c_customer_id AS customer_id, sum(web_sales.ws_ext_list_price - web_sales.ws_ext_discount_amt) AS year_total
@@ -129,8 +129,8 @@ logical_plan
 42)----------------------------Inner Join: customer.c_customer_sk = web_sales.ws_bill_customer_sk
 43)------------------------------TableScan: customer projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], partial_filters=[Boolean(true)]
 44)------------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_bill_customer_sk, ws_ext_discount_amt, ws_ext_list_price]
-45)--------------------------Filter: date_dim.d_year = Int64(2001)
-46)----------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2001)]
+45)--------------------------Filter: date_dim.d_year = Int32(2001)
+46)----------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(2001)]
 47)------SubqueryAlias: t_w_secyear
 48)--------SubqueryAlias: year_total
 49)----------Projection: customer.c_customer_id AS customer_id, sum(web_sales.ws_ext_list_price - web_sales.ws_ext_discount_amt) AS year_total
@@ -141,8 +141,8 @@ logical_plan
 54)--------------------Inner Join: customer.c_customer_sk = web_sales.ws_bill_customer_sk
 55)----------------------TableScan: customer projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], partial_filters=[Boolean(true)]
 56)----------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_bill_customer_sk, ws_ext_discount_amt, ws_ext_list_price]
-57)------------------Filter: date_dim.d_year = Int64(2002)
-58)--------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2002)]
+57)------------------Filter: date_dim.d_year = Int32(2002)
+58)--------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(2002)]
 physical_plan
 01)SortPreservingMergeExec: [customer_id@0 ASC, customer_first_name@1 ASC, customer_last_name@2 ASC, customer_preferred_cust_flag@3 ASC], fetch=100
 02)--SortExec: TopK(fetch=100), expr=[customer_id@0 ASC, customer_first_name@1 ASC, customer_last_name@2 ASC, customer_preferred_cust_flag@3 ASC], preserve_partitioning=[true]
@@ -160,7 +160,7 @@ physical_plan
 14)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year], file_type=vortex, predicate: d_year@6 = 2001
 15)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_customer_sk@0, ws_bill_customer_sk@1)], projection=[c_customer_id@1, c_first_name@2, c_last_name@3, c_preferred_cust_flag@4, c_birth_country@5, c_login@6, c_email_address@7, ws_sold_date_sk@8, ws_ext_discount_amt@10, ws_ext_list_price@11]
 16)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], file_type=vortex
-17)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_bill_customer_sk, ws_ext_discount_amt, ws_ext_list_price], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
+17)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_bill_customer_sk, ws_ext_discount_amt, ws_ext_list_price], file_type=vortex
 18)----------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(customer_id@0, customer_id@0)]
 19)------------CoalescePartitionsExec
 20)--------------ProjectionExec: expr=[c_customer_id@0 as customer_id, sum(store_sales.ss_ext_list_price - store_sales.ss_ext_discount_amt)@1 as year_total]
@@ -172,8 +172,8 @@ physical_plan
 26)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@7)], projection=[c_customer_id@2, c_first_name@3, c_last_name@4, c_preferred_cust_flag@5, c_birth_country@6, c_login@7, c_email_address@8, ss_ext_discount_amt@10, ss_ext_list_price@11, d_year@1]
 27)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year], file_type=vortex, predicate: d_year@6 = 2001
 28)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_customer_sk@0, ss_customer_sk@1)], projection=[c_customer_id@1, c_first_name@2, c_last_name@3, c_preferred_cust_flag@4, c_birth_country@5, c_login@6, c_email_address@7, ss_sold_date_sk@8, ss_ext_discount_amt@10, ss_ext_list_price@11]
-29)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], file_type=vortex, predicate: DynamicFilter [ empty ]
-30)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_customer_sk, ss_ext_discount_amt, ss_ext_list_price], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
+29)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], file_type=vortex
+30)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_customer_sk, ss_ext_discount_amt, ss_ext_list_price], file_type=vortex
 31)------------ProjectionExec: expr=[c_customer_id@0 as customer_id, c_first_name@1 as customer_first_name, c_last_name@2 as customer_last_name, c_preferred_cust_flag@3 as customer_preferred_cust_flag, sum(store_sales.ss_ext_list_price - store_sales.ss_ext_discount_amt)@8 as year_total]
 32)--------------AggregateExec: mode=FinalPartitioned, gby=[c_customer_id@0 as c_customer_id, c_first_name@1 as c_first_name, c_last_name@2 as c_last_name, c_preferred_cust_flag@3 as c_preferred_cust_flag, c_birth_country@4 as c_birth_country, c_login@5 as c_login, c_email_address@6 as c_email_address, d_year@7 as d_year], aggr=[sum(store_sales.ss_ext_list_price - store_sales.ss_ext_discount_amt)], ordering_mode=PartiallySorted([7])
 33)----------------RepartitionExec: partitioning=Hash([c_customer_id@0, c_first_name@1, c_last_name@2, c_preferred_cust_flag@3, c_birth_country@4, c_login@5, c_email_address@6, d_year@7], 4), input_partitions=4
@@ -181,8 +181,8 @@ physical_plan
 35)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@7)], projection=[c_customer_id@2, c_first_name@3, c_last_name@4, c_preferred_cust_flag@5, c_birth_country@6, c_login@7, c_email_address@8, ss_ext_discount_amt@10, ss_ext_list_price@11, d_year@1]
 36)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year], file_type=vortex, predicate: d_year@6 = 2002
 37)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_customer_sk@0, ss_customer_sk@1)], projection=[c_customer_id@1, c_first_name@2, c_last_name@3, c_preferred_cust_flag@4, c_birth_country@5, c_login@6, c_email_address@7, ss_sold_date_sk@8, ss_ext_discount_amt@10, ss_ext_list_price@11]
-38)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], file_type=vortex, predicate: DynamicFilter [ empty ]
-39)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_customer_sk, ss_ext_discount_amt, ss_ext_list_price], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
+38)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], file_type=vortex
+39)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_customer_sk, ss_ext_discount_amt, ss_ext_list_price], file_type=vortex
 40)------ProjectionExec: expr=[c_customer_id@0 as customer_id, sum(web_sales.ws_ext_list_price - web_sales.ws_ext_discount_amt)@8 as year_total]
 41)--------AggregateExec: mode=FinalPartitioned, gby=[c_customer_id@0 as c_customer_id, c_first_name@1 as c_first_name, c_last_name@2 as c_last_name, c_preferred_cust_flag@3 as c_preferred_cust_flag, c_birth_country@4 as c_birth_country, c_login@5 as c_login, c_email_address@6 as c_email_address, d_year@7 as d_year], aggr=[sum(web_sales.ws_ext_list_price - web_sales.ws_ext_discount_amt)], ordering_mode=PartiallySorted([7])
 42)----------RepartitionExec: partitioning=Hash([c_customer_id@0, c_first_name@1, c_last_name@2, c_preferred_cust_flag@3, c_birth_country@4, c_login@5, c_email_address@6, d_year@7], 4), input_partitions=4
@@ -190,5 +190,5 @@ physical_plan
 44)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_sold_date_sk@7)], projection=[c_customer_id@2, c_first_name@3, c_last_name@4, c_preferred_cust_flag@5, c_birth_country@6, c_login@7, c_email_address@8, ws_ext_discount_amt@10, ws_ext_list_price@11, d_year@1]
 45)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year], file_type=vortex, predicate: d_year@6 = 2002
 46)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_customer_sk@0, ws_bill_customer_sk@1)], projection=[c_customer_id@1, c_first_name@2, c_last_name@3, c_preferred_cust_flag@4, c_birth_country@5, c_login@6, c_email_address@7, ws_sold_date_sk@8, ws_ext_discount_amt@10, ws_ext_list_price@11]
-47)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], file_type=vortex, predicate: DynamicFilter [ empty ]
-48)------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_bill_customer_sk, ws_ext_discount_amt, ws_ext_list_price], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
+47)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], file_type=vortex
+48)------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_bill_customer_sk, ws_ext_discount_amt, ws_ext_list_price], file_type=vortex

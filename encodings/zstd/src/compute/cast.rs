@@ -95,7 +95,11 @@ mod tests {
 
     use crate::Zstd;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_cast_zstd_i32_to_i64() {
@@ -112,9 +116,8 @@ mod tests {
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
 
-        let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
-            decoded,
+            casted,
             PrimitiveArray::from_iter([1i64, 2, 3, 4, 5]),
             &mut ctx
         );
@@ -133,6 +136,11 @@ mod tests {
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::Nullable)
+        );
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_option_iter([Some(10u32), Some(20), Some(30), Some(40)]),
+            &mut ctx
         );
     }
 
@@ -153,9 +161,8 @@ mod tests {
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
         // Verify the values are correct
-        let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
-            decoded,
+            casted,
             PrimitiveArray::from_iter([20u32, 30, 40, 50]),
             &mut ctx
         );
@@ -181,9 +188,8 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
-        let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
         let expected = PrimitiveArray::from_iter([20u32, 30, 40, 50]);
-        assert_arrays_eq!(decoded, expected, &mut ctx);
+        assert_arrays_eq!(casted, expected, &mut ctx);
     }
 
     #[rstest]

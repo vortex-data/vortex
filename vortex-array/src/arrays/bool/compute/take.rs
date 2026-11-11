@@ -178,25 +178,27 @@ where
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
-    use crate::Canonical;
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn take_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let reference = BoolArray::from_iter(vec![
             Some(false),
             Some(true),
@@ -205,14 +207,11 @@ mod test {
             Some(false),
         ]);
 
-        let b = reference
-            .take(buffer![0, 3, 4].into_array())
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap();
-        assert_eq!(
-            b.to_bit_buffer(),
-            BoolArray::from_iter([Some(false), None, Some(false)]).to_bit_buffer()
+        let b = reference.take(buffer![0, 3, 4].into_array()).unwrap();
+        assert_arrays_eq!(
+            b,
+            BoolArray::from_iter([Some(false), None, Some(false)]),
+            &mut ctx
         );
 
         let all_invalid_indices = PrimitiveArray::from_option_iter([None::<i32>, None, None]);
@@ -222,7 +221,7 @@ mod test {
 
     #[test]
     fn test_bool_array_take_with_null_out_of_bounds_indices() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = BoolArray::from_iter(vec![Some(false), Some(true), None, None, Some(false)]);
         let indices = PrimitiveArray::new(
             buffer![0, 3, 100],
@@ -240,7 +239,7 @@ mod test {
 
     #[test]
     fn test_non_null_bool_array_take_with_null_out_of_bounds_indices() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = BoolArray::from_iter(vec![false, true, false, true, false]);
         let indices = PrimitiveArray::new(
             buffer![0, 3, 100],
@@ -257,7 +256,7 @@ mod test {
 
     #[test]
     fn test_bool_array_take_all_null_indices() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = BoolArray::from_iter(vec![Some(false), Some(true), None, None, Some(false)]);
         let indices = PrimitiveArray::new(
             buffer![0, 3, 100],
@@ -269,7 +268,7 @@ mod test {
 
     #[test]
     fn test_non_null_bool_array_take_all_null_indices() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = BoolArray::from_iter(vec![false, true, false, true, false]);
         let indices = PrimitiveArray::new(
             buffer![0, 3, 100],
@@ -285,14 +284,11 @@ mod test {
     fn test_non_null_constant_bool_take_with_nullable_indices(
         #[case] value: bool,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = BoolArray::from_iter([value]);
         let codes = PrimitiveArray::new(buffer![0i64, 0, 0], Validity::AllValid);
 
-        let actual = DictArray::try_new(codes.into_array(), values.into_array())?
-            .into_array()
-            .execute::<Canonical>(&mut ctx)?
-            .into_array();
+        let actual = DictArray::try_new(codes.into_array(), values.into_array())?.into_array();
 
         assert_arrays_eq!(
             actual,
@@ -308,9 +304,6 @@ mod test {
     #[case(BoolArray::from_iter([true, false]))]
     #[case(BoolArray::from_iter([true]))]
     fn test_take_bool_conformance(#[case] array: BoolArray) {
-        test_take_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_take_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

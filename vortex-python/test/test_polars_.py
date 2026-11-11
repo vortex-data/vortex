@@ -17,7 +17,7 @@ from polars.testing import assert_frame_equal
 
 import vortex as vx
 import vortex.expr as ve
-from vortex.polars_ import polars_to_vortex
+from vortex.polars_ import decompose_predicate, polars_to_vortex
 
 
 @pytest.mark.parametrize(
@@ -59,7 +59,7 @@ def vxf(tmpdir_factory) -> vx.VortexFile:
 
 def test_to_polars_with_limit(vxf: vx.VortexFile) -> None:
     df = vxf.to_polars().limit(100).collect()
-    assert len(df) == 100
+    assert df.to_dicts() == [{"index": x, "value": math.sqrt(x)} for x in range(100)]
 
 
 def test_to_polars_with_filter(vxf: vx.VortexFile) -> None:
@@ -71,13 +71,13 @@ def test_to_polars_with_filter(vxf: vx.VortexFile) -> None:
 def test_to_polars_with_projection(vxf: vx.VortexFile) -> None:
     df = vxf.to_polars().select("index").limit(10).collect()
     assert df.columns == ["index"]
-    assert len(df) == 10
+    assert df["index"].to_list() == list(range(10))
 
 
 def test_to_polars_with_projection_and_filter(vxf: vx.VortexFile) -> None:
     df = vxf.to_polars().select("index", "value").filter(pl.col("index") < 100).collect()
     assert df.columns == ["index", "value"]
-    assert len(df) == 100
+    assert df.to_dicts() == [{"index": x, "value": math.sqrt(x)} for x in range(100)]
 
 
 def test_polars_time_literals(tmp_path):
@@ -449,3 +449,151 @@ def test_polars_struct_field_null_parents_and_leaf(tmp_path):
     predicate = pl.col("x").struct.field("child").struct.field("value") >= 0
     expected = pl.DataFrame({"id": [4], "x": [{"child": {"value": 50}}]})
     _assert_struct_field_scan(tmp_path, outer, predicate, expected)
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        pl.col("x").is_in([1, 3]),
+        pl.col("x").is_in([1, None]),
+        pl.col("x").is_in([]),
+        pl.col("x").is_in([1, None], nulls_equal=True),
+        pl.col("x").is_in([1], nulls_equal=True),
+        ~pl.col("x").is_in([1, 3]),
+        ~pl.col("x").is_in([1, None]),
+        pl.col("x").is_in(pl.Series([2, 3]).implode()),
+        pl.col("s").is_in(["a", "c"]),
+        ~pl.col("s").is_in(["a", None]),
+    ],
+)
+def test_polars_is_in(tmp_path, expr):
+    frame = pl.DataFrame({"id": [0, 1, 2, 3], "x": [1, 2, None, 3], "s": ["a", "b", None, "c"]})
+    path = tmp_path / "is_in.vortex"
+    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    expected = frame.lazy().filter(expr).collect()
+    actual = vx.open(str(path)).to_polars().filter(expr).collect()
+    assert_frame_equal(actual, expected)
+
+
+def _assert_has_residual(predicate: pl.Expr) -> None:
+    # These tests exercise the per-batch Polars fallback; fail loudly if the predicate becomes
+    # fully translatable instead of silently testing plain pushdown.
+    assert decompose_predicate(predicate)[1] is not None
+
+
+def test_decompose_predicate_mixed() -> None:
+    predicate = (pl.col("a") > 1) & (pl.col("b") % 2 == 0) & (pl.col("c") == "x")
+    pushed, residual = decompose_predicate(predicate)
+    assert pushed is not None
+    assert pushed.serialize() == ((ve.column("a") > 1) & (ve.column("c") == "x")).serialize()
+    assert residual is not None
+    assert residual.meta.eq(pl.col("b") % 2 == 0)
+
+
+def test_decompose_predicate_all_pushed() -> None:
+    pushed, residual = decompose_predicate((pl.col("a") > 1) & (pl.col("b") == 2))
+    assert pushed is not None
+    assert pushed.serialize() == ((ve.column("a") > 1) & (ve.column("b") == 2)).serialize()
+    assert residual is None
+
+
+def test_decompose_predicate_none_pushed() -> None:
+    predicate = pl.col("a") % 2 == 0
+    pushed, residual = decompose_predicate(predicate)
+    assert pushed is None
+    assert residual is not None
+    assert residual.meta.eq(predicate)
+
+
+def test_to_polars_with_unsupported_filter(vxf: vx.VortexFile) -> None:
+    predicate = pl.col("index") % 250_000 == 7
+    _assert_has_residual(predicate)
+    df = vxf.to_polars().filter(predicate).collect()
+    assert sorted(df["index"].to_list()) == [7, 250_007, 500_007, 750_007]
+
+
+def test_to_polars_with_partially_supported_filter(vxf: vx.VortexFile) -> None:
+    predicate = (pl.col("index") < 10) & (pl.col("index") % 3 == 0)
+    _assert_has_residual(predicate)
+    df = vxf.to_polars().filter(predicate).collect()
+    assert sorted(df["index"].to_list()) == [0, 3, 6, 9]
+
+
+def test_to_polars_with_projection_and_unsupported_filter(vxf: vx.VortexFile) -> None:
+    # value = sqrt(index), so 2 * value in [4, 6] keeps indices 4 through 9.
+    predicate = (pl.col("value") * 2).is_between(4.0, 6.0)
+    _assert_has_residual(predicate)
+    df = vxf.to_polars().filter(predicate).select("index").collect()
+    assert df.columns == ["index"]
+    assert sorted(df["index"].to_list()) == [4, 5, 6, 7, 8, 9]
+
+
+def test_to_polars_with_unsupported_filter_and_limit(vxf: vx.VortexFile) -> None:
+    predicate = pl.col("index") % 2 == 0
+    _assert_has_residual(predicate)
+    df = vxf.to_polars().filter(predicate).limit(10).collect()
+    assert df["index"].to_list() == list(range(0, 20, 2))
+
+
+def test_decompose_predicate_or_pushes_implied_predicate() -> None:
+    a = pl.col("a")
+    predicate = ((a < 10) & (a % 2 == 0)) | ((a > 990) & (a % 2 == 1))
+    pushed, residual = decompose_predicate(predicate)
+    # Every row passing the predicate passes (a < 10) | (a > 990); Polars re-checks the rest.
+    assert pushed is not None
+    assert pushed.serialize() == ((ve.column("a") < 10) | (ve.column("a") > 990)).serialize()
+    assert residual is not None
+    assert residual.meta.eq(predicate)
+
+
+def test_decompose_predicate_or_with_unconstrained_side() -> None:
+    # Any row may satisfy `a % 2 == 0`, so nothing about the OR can be pushed down.
+    predicate = (pl.col("a") < 10) | (pl.col("a") % 2 == 0)
+    pushed, residual = decompose_predicate(predicate)
+    assert pushed is None
+    assert residual is not None
+    assert residual.meta.eq(predicate)
+
+
+def test_to_polars_with_partially_supported_or(vxf: vx.VortexFile) -> None:
+    index = pl.col("index")
+    predicate = ((index < 10) & (index % 2 == 0)) | ((index > 999_990) & (index % 2 == 1))
+    _assert_has_residual(predicate)
+    df = vxf.to_polars().filter(predicate).collect()
+    assert sorted(df["index"].to_list()) == [0, 2, 4, 6, 8, 999_991, 999_993, 999_995, 999_997, 999_999]
+
+
+def test_decompose_predicate_scope_rejects_bitwise_and() -> None:
+    # Polars serializes a bitwise `&` of integers like a logical one, and the translation
+    # only fails once Vortex binds it to the data.
+    scope = vx.array(pa.table({"a": pa.array([], type=pa.int64())}))
+    predicate = (pl.col("a") > 1) & ((pl.col("a") & 1) == 1)
+    pushed, residual = decompose_predicate(predicate, scope)
+    assert pushed is not None
+    assert pushed.serialize() == (ve.column("a") > 1).serialize()
+    assert residual is not None
+    assert residual.meta.eq((pl.col("a") & 1) == 1)
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        (pl.col("x") & 1) == 1,
+        # Polars rewrites out-of-range comparisons to when(x.is_not_null()).then(true).otherwise(null).
+        pl.col("small") > -1,
+        pl.col("small") < 300,
+    ],
+)
+def test_to_polars_with_predicate_vortex_rejects(tmp_path, predicate):
+    table = pa.table(
+        {
+            "id": list(range(6)),
+            "x": pa.array([0, 1, 2, None, 4, 5], type=pa.int64()),
+            "small": pa.array([0, 1, None, 3, 4, 255], type=pa.uint8()),
+        }
+    )
+    path = tmp_path / "rejected.vortex"
+    vx.io.write(vx.array(table), str(path))
+    expected = pl.DataFrame(table).lazy().filter(predicate).collect()
+    actual = vx.open(str(path)).to_polars().filter(predicate).collect()
+    assert_frame_equal(actual, expected)

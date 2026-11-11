@@ -6,9 +6,7 @@
 //! Each `from_arrow_*` function converts one Arrow array shape; [`from_arrow_dyn`] dispatches on
 //! the Arrow [`DataType`]. These functions have no awareness of Arrow extension types — the
 //! plugin-aware entry points are the [`ArrowSession`](crate::ArrowSession) methods, which fall
-//! back to these conversions for non-extension data. The deprecated [`FromArrowArray`] impls are
-//! thin shims over these functions and will eventually be removed.
-#![allow(deprecated)]
+//! back to these conversions for non-extension data.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -73,6 +71,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
@@ -84,17 +83,22 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::decimal::check_precision;
+use vortex_array::arrays::decimal::copy_to_canonical_width;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::MapDType;
+use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
 use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::extension::datetime::Timestamp;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBuffer;
@@ -106,8 +110,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_mask::Mask;
 
-use crate::FromArrowArray;
 use crate::dtype::from_arrow_time_unit;
 
 /// Zero-copy conversion of Arrow buffers into non-nullable Vortex arrays.
@@ -179,140 +183,126 @@ where
     Ok(PrimitiveArray::new(buffer, validity).into_array())
 }
 
-macro_rules! impl_from_arrow_primitive {
-    ($T:path) => {
-        impl FromArrowArray<&ArrowPrimitiveArray<$T>> for ArrayRef {
-            fn from_arrow(value: &ArrowPrimitiveArray<$T>, nullable: bool) -> VortexResult<Self> {
-                from_arrow_primitive(value, nullable)
-            }
-        }
-    };
-}
-
-impl_from_arrow_primitive!(Int8Type);
-impl_from_arrow_primitive!(Int16Type);
-impl_from_arrow_primitive!(Int32Type);
-impl_from_arrow_primitive!(Int64Type);
-impl_from_arrow_primitive!(UInt8Type);
-impl_from_arrow_primitive!(UInt16Type);
-impl_from_arrow_primitive!(UInt32Type);
-impl_from_arrow_primitive!(UInt64Type);
-impl_from_arrow_primitive!(Float16Type);
-impl_from_arrow_primitive!(Float32Type);
-impl_from_arrow_primitive!(Float64Type);
-
-/// Zero-copy conversion of an Arrow `Decimal32` array into a Vortex decimal array.
+/// Conversion of an Arrow `Decimal32` array into a Vortex decimal array, zero-copy when the Arrow
+/// width is the [canonical width](DecimalDType::canonical_values_type), otherwise a checked copy.
 pub fn from_arrow_decimal32(
     array: &ArrowPrimitiveArray<Decimal32Type>,
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
-    let decimal_type = DecimalDType::new(array.precision(), array.scale());
-    let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
-    let validity = nulls(array.nulls(), nullable)?;
-    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+    let values = Buffer::from_arrow_scalar_buffer(array.values().clone());
+    from_arrow_decimal(
+        values,
+        array.nulls(),
+        array.precision(),
+        array.scale(),
+        nullable,
+    )
 }
 
-impl FromArrowArray<&ArrowPrimitiveArray<Decimal32Type>> for ArrayRef {
-    fn from_arrow(
-        array: &ArrowPrimitiveArray<Decimal32Type>,
-        nullable: bool,
-    ) -> VortexResult<Self> {
-        from_arrow_decimal32(array, nullable)
-    }
-}
-
-/// Zero-copy conversion of an Arrow `Decimal64` array into a Vortex decimal array.
+/// Conversion of an Arrow `Decimal64` array into a Vortex decimal array, zero-copy when the Arrow
+/// width is the [canonical width](DecimalDType::canonical_values_type), otherwise a checked copy.
 pub fn from_arrow_decimal64(
     array: &ArrowPrimitiveArray<Decimal64Type>,
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
-    let decimal_type = DecimalDType::new(array.precision(), array.scale());
-    let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
-    let validity = nulls(array.nulls(), nullable)?;
-    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+    let values = Buffer::from_arrow_scalar_buffer(array.values().clone());
+    from_arrow_decimal(
+        values,
+        array.nulls(),
+        array.precision(),
+        array.scale(),
+        nullable,
+    )
 }
 
-impl FromArrowArray<&ArrowPrimitiveArray<Decimal64Type>> for ArrayRef {
-    fn from_arrow(
-        array: &ArrowPrimitiveArray<Decimal64Type>,
-        nullable: bool,
-    ) -> VortexResult<Self> {
-        from_arrow_decimal64(array, nullable)
-    }
-}
-
-/// Zero-copy conversion of an Arrow `Decimal128` array into a Vortex decimal array.
+/// Conversion of an Arrow `Decimal128` array into a Vortex decimal array, zero-copy when the Arrow
+/// width is the [canonical width](DecimalDType::canonical_values_type), otherwise a checked copy.
 pub fn from_arrow_decimal128(
     array: &ArrowPrimitiveArray<Decimal128Type>,
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
-    let decimal_type = DecimalDType::new(array.precision(), array.scale());
-    let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
-    let validity = nulls(array.nulls(), nullable)?;
-    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+    let values = Buffer::from_arrow_scalar_buffer(array.values().clone());
+    from_arrow_decimal(
+        values,
+        array.nulls(),
+        array.precision(),
+        array.scale(),
+        nullable,
+    )
 }
 
-impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
-    fn from_arrow(
-        array: &ArrowPrimitiveArray<Decimal128Type>,
-        nullable: bool,
-    ) -> VortexResult<Self> {
-        from_arrow_decimal128(array, nullable)
-    }
-}
-
-/// Zero-copy conversion of an Arrow `Decimal256` array into a Vortex decimal array.
+/// Conversion of an Arrow `Decimal256` array into a Vortex decimal array, zero-copy when the Arrow
+/// width is the [canonical width](DecimalDType::canonical_values_type), otherwise a checked copy.
 pub fn from_arrow_decimal256(
     array: &ArrowPrimitiveArray<Decimal256Type>,
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
-    let decimal_type = DecimalDType::new(array.precision(), array.scale());
-    let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
+    let values = Buffer::from_arrow_scalar_buffer(array.values().clone());
     // SAFETY: Our i256 implementation has the same bit-pattern representation of the
     //  arrow_buffer::i256 type. It is safe to treat values held inside the buffer as values
     //  of either type.
-    let buffer = unsafe { std::mem::transmute::<Buffer<arrow_buffer::i256>, Buffer<i256>>(buffer) };
-    let validity = nulls(array.nulls(), nullable)?;
-    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+    let values = unsafe { std::mem::transmute::<Buffer<arrow_buffer::i256>, Buffer<i256>>(values) };
+    from_arrow_decimal(
+        values,
+        array.nulls(),
+        array.precision(),
+        array.scale(),
+        nullable,
+    )
 }
 
-impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
-    fn from_arrow(
-        array: &ArrowPrimitiveArray<Decimal256Type>,
-        nullable: bool,
-    ) -> VortexResult<Self> {
-        from_arrow_decimal256(array, nullable)
-    }
-}
+/// Converts the values of an Arrow decimal array into a Vortex decimal array at the canonical width
+/// of its precision.
+///
+/// arrow-rs does not check that the values of an array fit its precision, so this function checks
+/// every valid value. When `T` is the canonical width, the array keeps the Arrow buffer and
+/// [`check_precision`] checks it. Otherwise [`copy_to_canonical_width`] copies the values, which
+/// writes zeros into the null slots when it narrows. Null slots are never checked.
+///
+/// # Errors
+///
+/// Returns an error if the precision or scale is invalid, if `nullable` is false and the array has
+/// nulls, or if a valid value is outside the precision.
+fn from_arrow_decimal<T: NativeDecimalType>(
+    values: Buffer<T>,
+    arrow_nulls: Option<&NullBuffer>,
+    precision: u8,
+    scale: i8,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
+    let decimal_dtype = DecimalDType::try_new(precision, scale)?;
+    let validity = nulls(arrow_nulls, nullable)?;
+    let mask = arrow_nulls.map_or_else(
+        || Mask::new_true(values.len()),
+        |arrow_nulls| Mask::from_buffer(BitBuffer::from(arrow_nulls.inner().clone())),
+    );
 
-macro_rules! impl_from_arrow_temporal {
-    ($T:path) => {
-        impl FromArrowArray<&ArrowPrimitiveArray<$T>> for ArrayRef {
-            fn from_arrow(
-                value: &ArrowPrimitiveArray<$T>,
-                nullable: bool,
-            ) -> vortex_error::VortexResult<Self> {
-                from_arrow_temporal(value, nullable)
-            }
-        }
+    let values_type = decimal_dtype.canonical_values_type();
+    let checked_values = if T::DECIMAL_TYPE == values_type {
+        check_precision(values.as_slice(), &mask, decimal_dtype)
+            .map(|()| BufferHandle::new_host(values.into_byte_buffer()))
+    } else {
+        copy_to_canonical_width(values.as_slice(), &mask, decimal_dtype)
     };
+    let checked_values = checked_values.map_err(|err| {
+        err.with_context(format!(
+            "Arrow decimal import requires every valid value to be within the precision of \
+             {decimal_dtype}; call arrow-rs PrimitiveArray::null_if_overflow_precision before \
+             the import to turn such values into nulls"
+        ))
+    })?;
+
+    // SAFETY: Every valid value is within the precision of `decimal_dtype`. `check_precision`
+    // checked the zero-copy values, and `copy_to_canonical_width` checks a narrowing copy. A
+    // widening copy needs no check: the canonical width is wider than `T` only when the precision
+    // is above `T::MAX_PRECISION`, and every value of `T` has at most `T::MAX_PRECISION + 1`
+    // digits. Arrow keeps its null buffer at the length of the values, so the validity matches.
+    let array = unsafe {
+        DecimalArray::new_unchecked_handle(checked_values, values_type, decimal_dtype, validity)
+    };
+
+    Ok(array.into_array())
 }
-
-// timestamp
-impl_from_arrow_temporal!(TimestampSecondType);
-impl_from_arrow_temporal!(TimestampMillisecondType);
-impl_from_arrow_temporal!(TimestampMicrosecondType);
-impl_from_arrow_temporal!(TimestampNanosecondType);
-
-// time
-impl_from_arrow_temporal!(Time32SecondType);
-impl_from_arrow_temporal!(Time32MillisecondType);
-impl_from_arrow_temporal!(Time64MicrosecondType);
-impl_from_arrow_temporal!(Time64NanosecondType);
-
-// date
-impl_from_arrow_temporal!(Date32Type);
-impl_from_arrow_temporal!(Date64Type);
 
 /// Conversion of an Arrow temporal array (timestamp/date/time) into a Vortex temporal
 /// extension array.
@@ -331,7 +321,12 @@ where
 
     Ok(match value.data_type() {
         DataType::Timestamp(time_unit, tz) => {
-            TemporalArray::new_timestamp(arr, from_arrow_time_unit(*time_unit), tz.clone()).into()
+            let dtype = Timestamp::try_new_with_tz(
+                from_arrow_time_unit(*time_unit),
+                tz.clone(),
+                arr.dtype().nullability(),
+            )?;
+            ExtensionArray::try_new(dtype.erased(), arr)?.into_array()
         }
         DataType::Time32(time_unit) => {
             TemporalArray::new_time(arr, from_arrow_time_unit(*time_unit)).into()
@@ -394,15 +389,6 @@ where
     .into_array())
 }
 
-impl<T: ByteArrayType> FromArrowArray<&GenericByteArray<T>> for ArrayRef
-where
-    <T as ByteArrayType>::Offset: IntegerPType,
-{
-    fn from_arrow(value: &GenericByteArray<T>, nullable: bool) -> VortexResult<Self> {
-        from_arrow_bytes(value, nullable)
-    }
-}
-
 /// Zero-copy conversion of an Arrow string/binary view array into a Vortex `VarBinView` array.
 pub fn from_arrow_byte_view<T: ByteViewType>(
     value: &GenericByteViewArray<T>,
@@ -437,12 +423,6 @@ pub fn from_arrow_byte_view<T: ByteViewType>(
     })
 }
 
-impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
-    fn from_arrow(value: &GenericByteViewArray<T>, nullable: bool) -> VortexResult<Self> {
-        from_arrow_byte_view(value, nullable)
-    }
-}
-
 /// Zero-copy conversion of an Arrow boolean array into a Vortex `Bool` array.
 pub fn from_arrow_boolean(value: &ArrowBooleanArray, nullable: bool) -> VortexResult<ArrayRef> {
     Ok(BoolArray::new(
@@ -450,12 +430,6 @@ pub fn from_arrow_boolean(value: &ArrowBooleanArray, nullable: bool) -> VortexRe
         nulls(value.nulls(), nullable)?,
     )
     .into_array())
-}
-
-impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
-    fn from_arrow(value: &ArrowBooleanArray, nullable: bool) -> VortexResult<Self> {
-        from_arrow_boolean(value, nullable)
-    }
 }
 
 /// Strip out the nulls from this array and return a new array without nulls.
@@ -531,12 +505,6 @@ pub fn from_arrow_struct(value: &ArrowStructArray, nullable: bool) -> VortexResu
     .into_array())
 }
 
-impl FromArrowArray<&ArrowStructArray> for ArrayRef {
-    fn from_arrow(value: &ArrowStructArray, nullable: bool) -> VortexResult<Self> {
-        from_arrow_struct(value, nullable)
-    }
-}
-
 /// Conversion of an Arrow (large) list array into a Vortex `List` array.
 pub fn from_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     value: &GenericListArray<O>,
@@ -559,14 +527,10 @@ pub fn from_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     )?;
     let nulls = nulls(value.nulls(), nullable)?;
 
-    // `offsets` are always non-nullable.
-    Ok(ListArray::try_new(elements, offsets.into_array(), nulls)?.into_array())
-}
-
-impl<O: IntegerPType + OffsetSizeTrait> FromArrowArray<&GenericListArray<O>> for ArrayRef {
-    fn from_arrow(value: &GenericListArray<O>, nullable: bool) -> VortexResult<Self> {
-        from_arrow_list(value, nullable)
-    }
+    // SAFETY: Arrow offsets are non-negative and sorted, and `trim_offsets` rebases them onto
+    // the referenced values, so the last offset is the elements length. The validity comes from
+    // the same Arrow array, so it has one entry per list.
+    Ok(unsafe { ListArray::new_unchecked(elements, offsets.into_array(), nulls) }.into_array())
 }
 
 /// Conversion of an Arrow (large) list-view array into a Vortex `ListView` array.
@@ -588,13 +552,9 @@ pub fn from_arrow_list_view<O: OffsetSizeTrait + NativePType>(
     let sizes = array.sizes().clone().into_array();
     let nulls = nulls(array.nulls(), nullable)?;
 
-    Ok(ListViewArray::try_new(elements, offsets, sizes, nulls)?.into_array())
-}
-
-impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListViewArray<O>> for ArrayRef {
-    fn from_arrow(array: &GenericListViewArray<O>, nullable: bool) -> VortexResult<Self> {
-        from_arrow_list_view(array, nullable)
-    }
+    // SAFETY: Arrow list views share one integer type for offsets and sizes, and every view
+    // lies within the values. The validity comes from the same Arrow array.
+    Ok(unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, nulls) }.into_array())
 }
 
 /// Conversion of an Arrow fixed-size list array into a Vortex `FixedSizeList` array.
@@ -613,12 +573,6 @@ pub fn from_arrow_fixed_size_list(
         array.len(),
     )?
     .into_array())
-}
-
-impl FromArrowArray<&ArrowFixedSizeListArray> for ArrayRef {
-    fn from_arrow(array: &ArrowFixedSizeListArray, nullable: bool) -> VortexResult<Self> {
-        from_arrow_fixed_size_list(array, nullable)
-    }
 }
 
 pub(crate) fn map_from_arrow_parts(
@@ -668,13 +622,24 @@ pub(crate) fn map_from_arrow_parts(
         .into_array();
     let offsets = offsets.inner().slice(0, len).into_array();
     let validity = nulls(arrow_nulls, nullable)?;
-    let entries = ListViewArray::try_new(entries, offsets, sizes, validity)?;
+    // SAFETY: the sizes are the differences of sorted, non-negative Arrow Map offsets that lie
+    // within the entries, and share their integer type. The validity has one entry per map.
+    let entries = unsafe { ListViewArray::new_unchecked(entries, offsets, sizes, validity) };
     // SAFETY: Arrow Map offsets are sorted list offsets. Vortex sizes are adjacent offset
-    // differences, so every view's end equals the next view's start. Sliced Arrow arrays may
-    // leave leading or trailing entries unreferenced, which zero-copy-to-list permits.
+    // differences, so every view's end equals the next view's start. The caller trims the
+    // entries to the referenced range and rebases the offsets, so the first offset is zero and
+    // the last offset equals the entry count.
     let entries = unsafe { entries.with_zero_copy_to_list(true) };
 
     Ok(MapArray::try_new(map_dtype, entries)?.into_array())
+}
+
+/// Select the child entries that the map offsets reference, and rebase the offsets.
+pub(crate) fn trim_map_entries(array: &ArrowMapArray) -> (ArrowStructArray, OffsetBuffer<i32>) {
+    let (offsets, referenced) = trim_offsets(array.offsets());
+    let entries = array.entries().slice(referenced.start, referenced.len());
+
+    (entries, offsets)
 }
 
 /// Conversion of an Arrow map array into a Vortex `Map` array.
@@ -682,20 +647,9 @@ pub fn from_arrow_map(array: &ArrowMapArray, nullable: bool) -> VortexResult<Arr
     let DataType::Map(_, keys_sorted) = array.data_type() else {
         vortex_panic!("Invalid data type for MapArray: {}", array.data_type());
     };
-    let entries = from_arrow_struct(array.entries(), false)?;
-    map_from_arrow_parts(
-        entries,
-        array.offsets(),
-        array.nulls(),
-        *keys_sorted,
-        nullable,
-    )
-}
-
-impl FromArrowArray<&ArrowMapArray> for ArrayRef {
-    fn from_arrow(array: &ArrowMapArray, nullable: bool) -> VortexResult<Self> {
-        from_arrow_map(array, nullable)
-    }
+    let (entries, offsets) = trim_map_entries(array);
+    let entries = from_arrow_struct(&entries, false)?;
+    map_from_arrow_parts(entries, &offsets, array.nulls(), *keys_sorted, nullable)
 }
 
 /// Conversion of an Arrow null array into a Vortex `Null` array.
@@ -705,12 +659,6 @@ pub fn from_arrow_null(value: &ArrowNullArray, nullable: bool) -> VortexResult<A
         "Cannot convert an Arrow NullArray into a non-nullable Vortex array"
     );
     Ok(NullArray::new(value.len()).into_array())
-}
-
-impl FromArrowArray<&ArrowNullArray> for ArrayRef {
-    fn from_arrow(value: &ArrowNullArray, nullable: bool) -> VortexResult<Self> {
-        from_arrow_null(value, nullable)
-    }
 }
 
 /// Conversion of an Arrow dictionary array into a Vortex `Dict` array.
@@ -725,12 +673,6 @@ pub fn from_arrow_dictionary<K: ArrowDictionaryKeyType>(
     Ok(unsafe { DictArray::new_unchecked(keys, values) })
 }
 
-impl<K: ArrowDictionaryKeyType> FromArrowArray<&DictionaryArray<K>> for DictArray {
-    fn from_arrow(array: &DictionaryArray<K>, nullable: bool) -> VortexResult<Self> {
-        from_arrow_dictionary(array, nullable)
-    }
-}
-
 /// Convert an Arrow [`NullBuffer`] into a Vortex [`Validity`] for an array of the given
 /// nullability.
 ///
@@ -741,7 +683,9 @@ pub fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> VortexResult<Validit
     if nullable {
         Ok(nulls
             .map(|nulls| {
-                if nulls.null_count() == nulls.len() {
+                if nulls.is_empty() {
+                    Validity::AllValid
+                } else if nulls.null_count() == nulls.len() {
                     Validity::AllInvalid
                 } else {
                     Validity::from(BitBuffer::from(nulls.inner().clone()))
@@ -880,13 +824,9 @@ pub fn from_arrow_dyn(array: &dyn ArrowArray, nullable: bool) -> VortexResult<Ar
             .into_array()),
             key_dt => vortex_bail!("Unsupported dictionary key type: {key_dt}"),
         },
-        dt => vortex_bail!("Array encoding not implemented for Arrow data type {dt}"),
-    }
-}
-
-impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
-    fn from_arrow(array: &dyn ArrowArray, nullable: bool) -> VortexResult<Self> {
-        from_arrow_dyn(array, nullable)
+        dt => {
+            vortex_bail!("Array encoding not implemented for Arrow data type {dt}")
+        }
     }
 }
 
@@ -895,28 +835,19 @@ pub fn from_arrow_batch(batch: &RecordBatch, nullable: bool) -> VortexResult<Arr
     from_arrow_struct(&arrow_array::StructArray::from(batch.clone()), nullable)
 }
 
-impl FromArrowArray<RecordBatch> for ArrayRef {
-    fn from_arrow(array: RecordBatch, nullable: bool) -> VortexResult<Self> {
-        from_arrow_batch(&array, nullable)
-    }
-}
-
-impl FromArrowArray<&RecordBatch> for ArrayRef {
-    fn from_arrow(array: &RecordBatch, nullable: bool) -> VortexResult<Self> {
-        from_arrow_batch(array, nullable)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::ops::Range;
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use arrow_array::Array as ArrowArray;
     use arrow_array::BinaryArray;
     use arrow_array::BooleanArray;
     use arrow_array::Date32Array;
     use arrow_array::Date64Array;
+    use arrow_array::Decimal128Array;
+    use arrow_array::Decimal256Array;
     use arrow_array::FixedSizeListArray as ArrowFixedSizeListArray;
     use arrow_array::Float32Array;
     use arrow_array::Float64Array;
@@ -958,6 +889,7 @@ mod tests {
     use arrow_array::types::Float16Type;
     use arrow_buffer::BooleanBuffer;
     use arrow_buffer::Buffer as ArrowBuffer;
+    use arrow_buffer::NullBuffer;
     use arrow_buffer::OffsetBuffer;
     use arrow_buffer::ScalarBuffer;
     use arrow_schema::DataType;
@@ -965,15 +897,24 @@ mod tests {
     use arrow_schema::Fields;
     use arrow_schema::Schema;
     use rstest::rstest;
-    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute as _;
-    use vortex_array::array_session;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Decimal;
+    use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::FixedSizeList;
+    use vortex_array::arrays::FixedSizeListArray as VortexFixedSizeListArray;
     use vortex_array::arrays::List;
+    use vortex_array::arrays::ListArray;
     use vortex_array::arrays::ListView;
+    use vortex_array::arrays::ListViewArray;
+    use vortex_array::arrays::NullArray as VortexNullArray;
     use vortex_array::arrays::Primitive;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::Struct;
+    use vortex_array::arrays::StructArray as VortexStructArray;
+    use vortex_array::arrays::TemporalArray;
+    use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::VarBinView;
     use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
     use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
@@ -982,16 +923,25 @@ mod tests {
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::DecimalType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::i256;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::Timestamp;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
-    use crate::FromArrowArray as _;
     use crate::IntoVortexArray as _;
     use crate::convert::from_arrow_batch;
     use crate::convert::from_arrow_dyn;
+    use crate::convert::from_arrow_temporal;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case::i8(
@@ -1049,12 +999,71 @@ mod tests {
         #[case] non_nullable: Arc<dyn ArrowArray>,
         #[case] expected_ptype: PType,
     ) {
-        let v_null = ArrayRef::from_arrow(nullable.as_ref(), true).unwrap();
-        let v_non_null = ArrayRef::from_arrow(non_nullable.as_ref(), false).unwrap();
+        let v_null = from_arrow_dyn(nullable.as_ref(), true).unwrap();
+        let v_non_null = from_arrow_dyn(non_nullable.as_ref(), false).unwrap();
         assert_eq!(v_null.len(), 4);
         assert_eq!(v_non_null.len(), 4);
         assert_eq!(v_null.as_::<Primitive>().ptype(), expected_ptype);
         assert_eq!(v_non_null.as_::<Primitive>().ptype(), expected_ptype);
+        let (expected_nullable, expected_non_nullable) = match expected_ptype {
+            PType::I8 => (
+                PrimitiveArray::from_option_iter([Some(1i8), None, Some(3), Some(4)]),
+                PrimitiveArray::from_iter([1i8, 2, 3, 4]),
+            ),
+            PType::I16 => (
+                PrimitiveArray::from_option_iter([Some(100i16), None, Some(300), Some(400)]),
+                PrimitiveArray::from_iter([100i16, 200, 300, 400]),
+            ),
+            PType::I32 => (
+                PrimitiveArray::from_option_iter([Some(1000i32), None, Some(3000), Some(4000)]),
+                PrimitiveArray::from_iter([1000i32, 2000, 3000, 4000]),
+            ),
+            PType::I64 => (
+                PrimitiveArray::from_option_iter([Some(10000i64), None, Some(30000), Some(40000)]),
+                PrimitiveArray::from_iter([10000i64, 20000, 30000, 40000]),
+            ),
+            PType::U8 => (
+                PrimitiveArray::from_option_iter([Some(1u8), None, Some(3), Some(4)]),
+                PrimitiveArray::from_iter([1u8, 2, 3, 4]),
+            ),
+            PType::U16 => (
+                PrimitiveArray::from_option_iter([Some(100u16), None, Some(300), Some(400)]),
+                PrimitiveArray::from_iter([100u16, 200, 300, 400]),
+            ),
+            PType::U32 => (
+                PrimitiveArray::from_option_iter([Some(1000u32), None, Some(3000), Some(4000)]),
+                PrimitiveArray::from_iter([1000u32, 2000, 3000, 4000]),
+            ),
+            PType::U64 => (
+                PrimitiveArray::from_option_iter([Some(10000u64), None, Some(30000), Some(40000)]),
+                PrimitiveArray::from_iter([10000u64, 20000, 30000, 40000]),
+            ),
+            PType::F32 => (
+                PrimitiveArray::from_option_iter([Some(1.5f32), None, Some(3.5), Some(4.5)]),
+                PrimitiveArray::from_iter([1.5f32, 2.5, 3.5, 4.5]),
+            ),
+            PType::F64 => (
+                PrimitiveArray::from_option_iter([Some(1.5f64), None, Some(3.5), Some(4.5)]),
+                PrimitiveArray::from_iter([1.5f64, 2.5, 3.5, 4.5]),
+            ),
+            _ => unreachable!(),
+        };
+        assert_arrays_eq!(
+            v_null,
+            expected_nullable,
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_arrays_eq!(
+            v_non_null,
+            expected_non_nullable,
+            &mut SESSION.create_execution_ctx()
+        );
+    }
+
+    #[test]
+    fn test_reject_timestamp_array_invalid_timezone() {
+        let array = TimestampSecondArray::from(vec![0]).with_timezone("Not/A/Timezone");
+        assert!(from_arrow_temporal(&array, false).is_err());
     }
 
     #[test]
@@ -1065,7 +1074,7 @@ mod tests {
             Some(<Float16Type as ArrowPrimitiveType>::Native::from_f32(3.5)),
         ];
         let arrow_array = arrow_array::PrimitiveArray::<Float16Type>::from(values);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
+        let vortex_array = from_arrow_dyn(&arrow_array, true).unwrap();
 
         let non_null_values = vec![
             <Float16Type as ArrowPrimitiveType>::Native::from_f32(1.5),
@@ -1073,7 +1082,7 @@ mod tests {
         ];
         let arrow_array_non_null =
             arrow_array::PrimitiveArray::<Float16Type>::from(non_null_values);
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
+        let vortex_array_non_null = from_arrow_dyn(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 3);
         assert_eq!(vortex_array_non_null.len(), 2);
@@ -1084,6 +1093,23 @@ mod tests {
 
         let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
         assert_eq!(primitive_array_non_null.ptype(), PType::F16);
+        assert_arrays_eq!(
+            vortex_array,
+            PrimitiveArray::from_option_iter([
+                Some(<Float16Type as ArrowPrimitiveType>::Native::from_f32(1.5)),
+                None,
+                Some(<Float16Type as ArrowPrimitiveType>::Native::from_f32(3.5))
+            ]),
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_arrays_eq!(
+            vortex_array_non_null,
+            PrimitiveArray::from_iter([
+                <Float16Type as ArrowPrimitiveType>::Native::from_f32(1.5),
+                <Float16Type as ArrowPrimitiveType>::Native::from_f32(2.5)
+            ]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     // Test decimal array conversions
@@ -1096,7 +1122,7 @@ mod tests {
         builder.append_value(11111);
         let decimal_array = builder.finish().with_precision_and_scale(10, 2).unwrap();
 
-        let vortex_array = ArrayRef::from_arrow(&decimal_array, true).unwrap();
+        let vortex_array = from_arrow_dyn(&decimal_array, true).unwrap();
         assert_eq!(vortex_array.len(), 4);
 
         let mut builder_non_null = Decimal128Builder::with_capacity(3);
@@ -1108,13 +1134,14 @@ mod tests {
             .with_precision_and_scale(10, 2)
             .unwrap();
 
-        let vortex_array_non_null = ArrayRef::from_arrow(&decimal_array_non_null, false).unwrap();
+        let vortex_array_non_null = from_arrow_dyn(&decimal_array_non_null, false).unwrap();
         assert_eq!(vortex_array_non_null.len(), 3);
 
-        // Verify metadata - should be DecimalArray with correct precision and scale
+        // Verify metadata: a DecimalArray with the precision, scale and canonical width
         let decimal_vortex_array = vortex_array.as_::<Decimal>();
         assert_eq!(decimal_vortex_array.decimal_dtype().precision(), 10);
         assert_eq!(decimal_vortex_array.decimal_dtype().scale(), 2);
+        assert_eq!(decimal_vortex_array.values_type(), DecimalType::I64);
 
         let decimal_vortex_array_non_null = vortex_array_non_null.as_::<Decimal>();
         assert_eq!(
@@ -1122,6 +1149,23 @@ mod tests {
             10
         );
         assert_eq!(decimal_vortex_array_non_null.decimal_dtype().scale(), 2);
+        assert_eq!(
+            decimal_vortex_array_non_null.values_type(),
+            DecimalType::I64
+        );
+        assert_arrays_eq!(
+            vortex_array,
+            DecimalArray::from_option_iter(
+                [Some(12345i64), None, Some(67890i64), Some(11111i64)],
+                DecimalDType::new(10, 2)
+            ),
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_arrays_eq!(
+            vortex_array_non_null,
+            DecimalArray::from_iter([12345i64, 67890i64, 11111i64], DecimalDType::new(10, 2)),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -1133,7 +1177,7 @@ mod tests {
         builder.append_value(arrow_buffer::i256::from_i128(11111));
         let decimal_array = builder.finish().with_precision_and_scale(38, 10).unwrap();
 
-        let vortex_array = ArrayRef::from_arrow(&decimal_array, true).unwrap();
+        let vortex_array = from_arrow_dyn(&decimal_array, true).unwrap();
         assert_eq!(vortex_array.len(), 4);
 
         let mut builder_non_null = Decimal256Builder::with_capacity(3);
@@ -1145,13 +1189,14 @@ mod tests {
             .with_precision_and_scale(38, 10)
             .unwrap();
 
-        let vortex_array_non_null = ArrayRef::from_arrow(&decimal_array_non_null, false).unwrap();
+        let vortex_array_non_null = from_arrow_dyn(&decimal_array_non_null, false).unwrap();
         assert_eq!(vortex_array_non_null.len(), 3);
 
-        // Verify metadata - should be DecimalArray with correct precision and scale
+        // Verify metadata: a DecimalArray with the precision, scale and canonical width
         let decimal_vortex_array = vortex_array.as_::<Decimal>();
         assert_eq!(decimal_vortex_array.decimal_dtype().precision(), 38);
         assert_eq!(decimal_vortex_array.decimal_dtype().scale(), 10);
+        assert_eq!(decimal_vortex_array.values_type(), DecimalType::I128);
 
         let decimal_vortex_array_non_null = vortex_array_non_null.as_::<Decimal>();
         assert_eq!(
@@ -1159,6 +1204,145 @@ mod tests {
             38
         );
         assert_eq!(decimal_vortex_array_non_null.decimal_dtype().scale(), 10);
+        assert_eq!(
+            decimal_vortex_array_non_null.values_type(),
+            DecimalType::I128
+        );
+        assert_arrays_eq!(
+            vortex_array,
+            DecimalArray::from_option_iter(
+                [Some(12345i128), None, Some(67890i128), Some(11111i128)],
+                DecimalDType::new(38, 10)
+            ),
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_arrays_eq!(
+            vortex_array_non_null,
+            DecimalArray::from_iter([12345i128, 67890i128, 11111i128], DecimalDType::new(38, 10)),
+            &mut SESSION.create_execution_ctx()
+        );
+    }
+
+    #[rstest]
+    #[case::decimal32_p4(DataType::Decimal32(4, 2), DecimalType::I16, false)]
+    #[case::decimal64_p9(DataType::Decimal64(9, 2), DecimalType::I32, false)]
+    #[case::decimal128_p5(DataType::Decimal128(5, 2), DecimalType::I32, false)]
+    #[case::decimal128_p18(DataType::Decimal128(18, 2), DecimalType::I64, false)]
+    #[case::decimal128_p38(DataType::Decimal128(38, 2), DecimalType::I128, true)]
+    #[case::decimal256_p38(DataType::Decimal256(38, 2), DecimalType::I128, false)]
+    #[case::decimal256_p40(DataType::Decimal256(40, 2), DecimalType::I256, true)]
+    fn test_decimal_import_canonical_width(
+        #[case] data_type: DataType,
+        #[case] values_type: DecimalType,
+        #[case] zero_copy: bool,
+    ) -> VortexResult<()> {
+        let (precision, scale) = match data_type {
+            DataType::Decimal32(precision, scale)
+            | DataType::Decimal64(precision, scale)
+            | DataType::Decimal128(precision, scale)
+            | DataType::Decimal256(precision, scale) => (precision, scale),
+            _ => unreachable!("every case is an Arrow decimal type, got {data_type}"),
+        };
+
+        // The largest and smallest values of the precision, around a null and a zero.
+        let max = i256::from_i128(10).wrapping_pow(u32::from(precision)) - i256::ONE;
+        let values = [Some(-max), None, Some(i256::ZERO), Some(max)];
+        let arrow_values = values.map(|value| value.map(arrow_buffer::i256::from));
+        let bounds =
+            Decimal256Array::from_iter(arrow_values).with_precision_and_scale(precision, scale)?;
+        let arrow = arrow_cast::cast(&bounds, &data_type)?;
+
+        let imported = from_arrow_dyn(arrow.as_ref(), true)?;
+        let decimal = imported.as_::<Decimal>();
+        assert_eq!(decimal.values_type(), values_type);
+        if zero_copy {
+            assert_eq!(
+                decimal.buffer_handle().as_host().as_ptr(),
+                arrow.to_data().buffers()[0].as_ptr()
+            );
+        }
+
+        assert_arrays_eq!(
+            imported,
+            DecimalArray::from_option_iter(values, DecimalDType::new(precision, scale)),
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    /// The null slot holds 10^30, which is outside both precisions and does not fit `i32`.
+    #[rstest]
+    #[case::narrowing(5, false)]
+    #[case::equal_width(20, true)]
+    fn test_decimal_import_ignores_null_slots(
+        #[case] precision: u8,
+        #[case] zero_copy: bool,
+    ) -> VortexResult<()> {
+        let arrow = Decimal128Array::new(
+            ScalarBuffer::from(vec![12_345, 10i128.pow(30), -12_345]),
+            Some(NullBuffer::from(vec![true, false, true])),
+        )
+        .with_precision_and_scale(precision, 2)?;
+
+        let imported = from_arrow_dyn(&arrow, true)?;
+        let decimal = imported.as_::<Decimal>();
+        if zero_copy {
+            assert_eq!(
+                decimal.buffer_handle().as_host().as_ptr(),
+                arrow.to_data().buffers()[0].as_ptr()
+            );
+        } else {
+            // A narrowing copy writes zeros into the null slots.
+            assert_eq!(decimal.values_type(), DecimalType::I32);
+            assert_eq!(decimal.buffer::<i32>().as_slice(), &[12_345, 0, -12_345]);
+        }
+
+        assert_arrays_eq!(
+            imported,
+            DecimalArray::from_option_iter(
+                [Some(12_345i128), None, Some(-12_345)],
+                DecimalDType::new(precision, 2)
+            ),
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_decimal_import_rejects_value_outside_precision() -> VortexResult<()> {
+        let arrow =
+            Decimal128Array::from(vec![12_345, 1_000_000]).with_precision_and_scale(5, 2)?;
+
+        let err = from_arrow_dyn(&arrow, true)
+            .expect_err("a valid value outside the precision must fail the import");
+        let message = err.to_string();
+        assert!(message.contains("row 1"), "{message}");
+        assert!(message.contains("null_if_overflow_precision"), "{message}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_decimal_import_zero_copy_rejects_value_outside_precision() -> VortexResult<()> {
+        let arrow =
+            Decimal128Array::from(vec![12_345, 10i128.pow(20)]).with_precision_and_scale(20, 2)?;
+
+        let err = from_arrow_dyn(&arrow, true)
+            .expect_err("a valid value outside the precision must fail the import");
+        let message = err.to_string();
+        assert!(message.contains("row 1"), "{message}");
+        assert!(message.contains("null_if_overflow_precision"), "{message}");
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::precision_zero(DataType::Decimal128(0, 0))]
+    #[case::precision_above_max(DataType::Decimal128(77, 0))]
+    #[case::scale_above_precision(DataType::Decimal128(5, 6))]
+    fn test_decimal_import_rejects_invalid_precision(#[case] data_type: DataType) {
+        // `with_data_type` does not validate the precision or scale, as an FFI import would not.
+        let arrow = Decimal128Array::from(vec![1]).with_data_type(data_type);
+
+        assert!(from_arrow_dyn(&arrow, true).is_err());
     }
 
     // Test temporal array conversions
@@ -1209,10 +1393,89 @@ mod tests {
         #[case] nullable: Arc<dyn ArrowArray>,
         #[case] non_nullable: Arc<dyn ArrowArray>,
     ) {
-        let v_null = ArrayRef::from_arrow(nullable.as_ref(), true).unwrap();
-        let v_non_null = ArrayRef::from_arrow(non_nullable.as_ref(), false).unwrap();
+        let v_null = from_arrow_dyn(nullable.as_ref(), true).unwrap();
+        let v_non_null = from_arrow_dyn(non_nullable.as_ref(), false).unwrap();
         assert_eq!(v_null.len(), 4);
         assert_eq!(v_non_null.len(), 4);
+        let expected = |nullable: bool| {
+            let i32_values = if nullable {
+                PrimitiveArray::from_option_iter([Some(1000i32), None, Some(3000), Some(4000)])
+            } else {
+                PrimitiveArray::from_iter([1000i32, 2000, 3000, 4000])
+            }
+            .into_array();
+            let i64_values = if nullable {
+                PrimitiveArray::from_option_iter([Some(1000i64), None, Some(3000), Some(4000)])
+            } else {
+                PrimitiveArray::from_iter([1000i64, 2000, 3000, 4000])
+            }
+            .into_array();
+            match non_nullable.data_type() {
+                DataType::Timestamp(unit, _) => {
+                    let unit = match unit {
+                        arrow_schema::TimeUnit::Second => TimeUnit::Seconds,
+                        arrow_schema::TimeUnit::Millisecond => TimeUnit::Milliseconds,
+                        arrow_schema::TimeUnit::Microsecond => TimeUnit::Microseconds,
+                        arrow_schema::TimeUnit::Nanosecond => TimeUnit::Nanoseconds,
+                    };
+                    TemporalArray::new_timestamp(i64_values, unit, None).into_array()
+                }
+                DataType::Time32(arrow_schema::TimeUnit::Second) => {
+                    TemporalArray::new_time(i32_values, TimeUnit::Seconds).into_array()
+                }
+                DataType::Time32(arrow_schema::TimeUnit::Millisecond) => {
+                    TemporalArray::new_time(i32_values, TimeUnit::Milliseconds).into_array()
+                }
+                DataType::Time64(arrow_schema::TimeUnit::Microsecond) => {
+                    TemporalArray::new_time(i64_values, TimeUnit::Microseconds).into_array()
+                }
+                DataType::Time64(arrow_schema::TimeUnit::Nanosecond) => {
+                    TemporalArray::new_time(i64_values, TimeUnit::Nanoseconds).into_array()
+                }
+                DataType::Date32 => TemporalArray::new_date(
+                    if nullable {
+                        PrimitiveArray::from_option_iter([
+                            Some(18000i32),
+                            None,
+                            Some(18002),
+                            Some(18003),
+                        ])
+                    } else {
+                        PrimitiveArray::from_iter([18000i32, 18001, 18002, 18003])
+                    }
+                    .into_array(),
+                    TimeUnit::Days,
+                )
+                .into_array(),
+                DataType::Date64 => TemporalArray::new_date(
+                    if nullable {
+                        PrimitiveArray::from_option_iter([
+                            Some(1555200000000i64),
+                            None,
+                            Some(1555286400000),
+                            Some(1555372800000),
+                        ])
+                    } else {
+                        PrimitiveArray::from_iter([
+                            1555200000000i64,
+                            1555213600000,
+                            1555286400000,
+                            1555372800000,
+                        ])
+                    }
+                    .into_array(),
+                    TimeUnit::Milliseconds,
+                )
+                .into_array(),
+                _ => unreachable!(),
+            }
+        };
+        assert_arrays_eq!(v_null, expected(true), &mut SESSION.create_execution_ctx());
+        assert_arrays_eq!(
+            v_non_null,
+            expected(false),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -1220,11 +1483,11 @@ mod tests {
         let arrow_array =
             TimestampMicrosecondArray::from(vec![Some(1000), None, Some(3000), Some(4000)])
                 .with_timezone("UTC");
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
+        let vortex_array = from_arrow_dyn(&arrow_array, true).unwrap();
 
         let arrow_array_non_null =
             TimestampMicrosecondArray::from(vec![1000_i64, 2000, 3000, 4000]).with_timezone("UTC");
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
+        let vortex_array_non_null = from_arrow_dyn(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(
@@ -1249,6 +1512,25 @@ mod tests {
                 )
                 .erased()
             )
+        );
+        assert_arrays_eq!(
+            vortex_array,
+            TemporalArray::new_timestamp(
+                PrimitiveArray::from_option_iter([Some(1000i64), None, Some(3000), Some(4000)])
+                    .into_array(),
+                TimeUnit::Microseconds,
+                Some("UTC".into())
+            ),
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_arrays_eq!(
+            vortex_array_non_null,
+            TemporalArray::new_timestamp(
+                buffer![1000i64, 2000, 3000, 4000].into_array(),
+                TimeUnit::Microseconds,
+                Some("UTC".into())
+            ),
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -1287,12 +1569,28 @@ mod tests {
         #[case] non_nullable: Arc<dyn ArrowArray>,
         #[case] expected_non_nullable_dtype: DType,
     ) {
-        let v_null = ArrayRef::from_arrow(nullable.as_ref(), true).unwrap();
-        let v_non_null = ArrayRef::from_arrow(non_nullable.as_ref(), false).unwrap();
+        let v_null = from_arrow_dyn(nullable.as_ref(), true).unwrap();
+        let v_non_null = from_arrow_dyn(non_nullable.as_ref(), false).unwrap();
         assert_eq!(v_null.len(), 4);
         assert_eq!(v_non_null.len(), 4);
         assert_eq!(v_null.dtype(), &expected_non_nullable_dtype.as_nullable());
         assert_eq!(v_non_null.dtype(), &expected_non_nullable_dtype);
+        assert_arrays_eq!(
+            v_null,
+            VarBinArray::from_iter(
+                [Some("hello"), None, Some("world"), Some("test")],
+                expected_non_nullable_dtype.as_nullable()
+            ),
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_arrays_eq!(
+            v_non_null,
+            VarBinArray::from_iter_nonnull(
+                ["hello", "world", "test", "vortex"],
+                expected_non_nullable_dtype
+            ),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -1303,7 +1601,7 @@ mod tests {
         builder.append_value("world");
         builder.append_value("test");
         let arrow_array = builder.finish();
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
+        let vortex_array = from_arrow_dyn(&arrow_array, true).unwrap();
 
         let mut builder_non_null = StringViewBuilder::new();
         builder_non_null.append_value("hello");
@@ -1311,7 +1609,7 @@ mod tests {
         builder_non_null.append_value("test");
         builder_non_null.append_value("vortex");
         let arrow_array_non_null = builder_non_null.finish();
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
+        let vortex_array_non_null = from_arrow_dyn(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1333,6 +1631,22 @@ mod tests {
             varbin_view_array_non_null.dtype(),
             &DType::Utf8(false.into())
         );
+        assert_arrays_eq!(
+            vortex_array,
+            VarBinArray::from_iter(
+                [Some("hello"), None, Some("world"), Some("test")],
+                DType::Utf8(Nullability::NonNullable).as_nullable()
+            ),
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_arrays_eq!(
+            vortex_array_non_null,
+            VarBinArray::from_iter_nonnull(
+                ["hello", "world", "test", "vortex"],
+                DType::Utf8(Nullability::NonNullable)
+            ),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -1343,7 +1657,7 @@ mod tests {
         builder.append_value(b"world");
         builder.append_value(b"test");
         let arrow_array = builder.finish();
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
+        let vortex_array = from_arrow_dyn(&arrow_array, true).unwrap();
 
         let mut builder_non_null = BinaryViewBuilder::new();
         builder_non_null.append_value(b"hello");
@@ -1351,7 +1665,7 @@ mod tests {
         builder_non_null.append_value(b"test");
         builder_non_null.append_value(b"vortex");
         let arrow_array_non_null = builder_non_null.finish();
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
+        let vortex_array_non_null = from_arrow_dyn(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1373,19 +1687,45 @@ mod tests {
             varbin_view_array_non_null.dtype(),
             &DType::Binary(false.into())
         );
+        assert_arrays_eq!(
+            vortex_array,
+            VarBinArray::from_iter(
+                [Some("hello"), None, Some("world"), Some("test")],
+                DType::Binary(Nullability::NonNullable).as_nullable()
+            ),
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_arrays_eq!(
+            vortex_array_non_null,
+            VarBinArray::from_iter_nonnull(
+                ["hello", "world", "test", "vortex"],
+                DType::Binary(Nullability::NonNullable)
+            ),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     // Test boolean array conversions
     #[test]
     fn test_boolean_array_conversion() {
         let arrow_array = BooleanArray::from(vec![Some(true), None, Some(false), Some(true)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
+        let vortex_array = from_arrow_dyn(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = BooleanArray::from(vec![true, false, true, false]);
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
+        let vortex_array_non_null = from_arrow_dyn(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
+        assert_arrays_eq!(
+            vortex_array,
+            BoolArray::from_iter([Some(true), None, Some(false), Some(true)]),
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_arrays_eq!(
+            vortex_array_non_null,
+            BoolArray::from_iter([true, false, true, false]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     // Test struct array conversions
@@ -1406,7 +1746,7 @@ mod tests {
             None,
         );
 
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, false).unwrap();
+        let vortex_array = from_arrow_dyn(&arrow_array, false).unwrap();
         assert_eq!(vortex_array.len(), 3);
 
         // Verify metadata - should be StructArray with correct field names
@@ -1422,12 +1762,12 @@ mod tests {
                 Arc::new(Int32Array::from(vec![Some(1), None, Some(3)])),
                 Arc::new(StringArray::from(vec!["a", "b", "c"])),
             ],
-            Some(arrow_buffer::NullBuffer::new(BooleanBuffer::from(vec![
+            Some(NullBuffer::new(BooleanBuffer::from(vec![
                 true, false, true,
             ]))),
         );
 
-        let vortex_nullable_array = ArrayRef::from_arrow(&nullable_array, true).unwrap();
+        let vortex_nullable_array = from_arrow_dyn(&nullable_array, true).unwrap();
         assert_eq!(vortex_nullable_array.len(), 3);
 
         // Verify metadata for nullable struct
@@ -1435,18 +1775,44 @@ mod tests {
         assert_eq!(struct_vortex_nullable_array.names().len(), 2);
         assert_eq!(struct_vortex_nullable_array.names()[0], "field1");
         assert_eq!(struct_vortex_nullable_array.names()[1], "field2");
+        let expected = |validity| {
+            VortexStructArray::new(
+                ["field1", "field2"].into(),
+                vec![
+                    PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
+                    VarBinArray::from_iter_nonnull(
+                        ["a", "b", "c"],
+                        DType::Utf8(Nullability::NonNullable),
+                    )
+                    .into_array(),
+                ],
+                3,
+                validity,
+            )
+        };
+        assert_arrays_eq!(
+            vortex_array,
+            expected(Validity::NonNullable),
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_arrays_eq!(
+            vortex_nullable_array,
+            expected(Validity::from_iter([true, false, true])),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     // Test list array conversions
     #[test]
     fn test_list_array_conversion() {
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = ListBuilder::new(Int32Builder::new());
         builder.append_value([Some(1), None, Some(3)]);
         builder.append_null();
         builder.append_value([Some(4), Some(5)]);
         let arrow_array = builder.finish();
 
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
+        let vortex_array = from_arrow_dyn(&arrow_array, true).unwrap();
         assert_eq!(vortex_array.len(), 3);
 
         // Verify metadata - should be ListArray with correct offsets
@@ -1461,7 +1827,7 @@ mod tests {
         builder_non_null.append_value([Some(4), Some(5)]);
         let arrow_array_non_null = builder_non_null.finish();
 
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
+        let vortex_array_non_null = from_arrow_dyn(&arrow_array_non_null, false).unwrap();
         assert_eq!(vortex_array_non_null.len(), 2);
 
         // Verify metadata for non-nullable list
@@ -1469,6 +1835,28 @@ mod tests {
         let offsets_array_non_null = list_vortex_array_non_null.offsets().as_::<Primitive>();
         assert_eq!(offsets_array_non_null.len(), 3); // n+1 offsets for n lists
         assert_eq!(offsets_array_non_null.ptype(), PType::I32);
+
+        let expected_elements =
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), Some(5)])
+                .into_array();
+        let expected = ListArray::new(
+            expected_elements.clone(),
+            buffer![0u32, 3, 3, 5].into_array(),
+            Validity::from_iter([true, false, true]),
+            &mut ctx,
+        );
+        assert_arrays_eq!(vortex_array, expected, &mut SESSION.create_execution_ctx());
+        let expected = ListArray::new(
+            expected_elements,
+            buffer![0u32, 3, 5].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        );
+        assert_arrays_eq!(
+            vortex_array_non_null,
+            expected,
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -1483,30 +1871,44 @@ mod tests {
             }
             builder.finish()
         };
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         // A slice keeps its parent's whole child; the import must not.
-        let sliced = ArrayRef::from_arrow(&strings(0..1000).slice(500, 2), false)?;
-        let fresh = ArrayRef::from_arrow(&strings(500..502), false)?;
+        let sliced = from_arrow_dyn(&strings(0..1000).slice(500, 2), false)?;
+        let fresh = from_arrow_dyn(&strings(500..502), false)?;
         assert_eq!(sliced.nbytes(), fresh.nbytes());
-        assert_arrays_eq!(sliced, fresh, &mut ctx);
+        let expected = VarBinArray::from_iter_nonnull(
+            ["value-500", "value-501"],
+            DType::Utf8(Nullability::NonNullable),
+        );
+        assert_arrays_eq!(sliced, expected, &mut ctx);
+        assert_arrays_eq!(fresh, expected, &mut ctx);
 
-        let sliced = ArrayRef::from_arrow(&lists(0..1000).slice(500, 2), false)?;
-        let fresh = ArrayRef::from_arrow(&lists(500..502), false)?;
+        let sliced = from_arrow_dyn(&lists(0..1000).slice(500, 2), false)?;
+        let fresh = from_arrow_dyn(&lists(500..502), false)?;
         assert_eq!(sliced.nbytes(), fresh.nbytes());
-        assert_arrays_eq!(sliced, fresh, &mut ctx);
+        let expected = ListArray::new(
+            PrimitiveArray::from_option_iter([Some(500i64), Some(501), Some(501), Some(502)])
+                .into_array(),
+            buffer![0u32, 2, 4].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        );
+        assert_arrays_eq!(sliced, expected, &mut ctx);
+        assert_arrays_eq!(fresh, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_large_list_array_conversion() {
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = LargeListBuilder::new(Int32Builder::new());
         builder.append_value([Some(1), None, Some(3)]);
         builder.append_null();
         builder.append_value([Some(4), Some(5)]);
         let arrow_array = builder.finish();
 
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
+        let vortex_array = from_arrow_dyn(&arrow_array, true).unwrap();
         assert_eq!(vortex_array.len(), 3);
 
         // Verify metadata - should be ListArray with correct offsets (I64 for large lists)
@@ -1521,7 +1923,7 @@ mod tests {
         builder_non_null.append_value([Some(4), Some(5)]);
         let arrow_array_non_null = builder_non_null.finish();
 
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
+        let vortex_array_non_null = from_arrow_dyn(&arrow_array_non_null, false).unwrap();
         assert_eq!(vortex_array_non_null.len(), 2);
 
         // Verify metadata for non-nullable large list
@@ -1529,6 +1931,28 @@ mod tests {
         let offsets_array_non_null = list_vortex_array_non_null.offsets().as_::<Primitive>();
         assert_eq!(offsets_array_non_null.len(), 3); // n+1 offsets for n lists
         assert_eq!(offsets_array_non_null.ptype(), PType::I64); // Large lists use I64 offsets
+
+        let expected_elements =
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), Some(5)])
+                .into_array();
+        let expected = ListArray::new(
+            expected_elements.clone(),
+            buffer![0u32, 3, 3, 5].into_array(),
+            Validity::from_iter([true, false, true]),
+            &mut ctx,
+        );
+        assert_arrays_eq!(vortex_array, expected, &mut SESSION.create_execution_ctx());
+        let expected = ListArray::new(
+            expected_elements,
+            buffer![0u32, 3, 5].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        );
+        assert_arrays_eq!(
+            vortex_array_non_null,
+            expected,
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -1554,7 +1978,7 @@ mod tests {
         let arrow_array =
             ArrowFixedSizeListArray::try_new(Arc::clone(&field), 3, Arc::new(values), None)
                 .unwrap();
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, false).unwrap();
+        let vortex_array = from_arrow_dyn(&arrow_array, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
 
@@ -1577,8 +2001,7 @@ mod tests {
         ]);
 
         // Create nulls buffer - second list is null
-        let null_buffer =
-            arrow_buffer::NullBuffer::new(BooleanBuffer::from(vec![true, false, true]));
+        let null_buffer = NullBuffer::new(BooleanBuffer::from(vec![true, false, true]));
 
         let arrow_array_nullable = ArrowFixedSizeListArray::try_new(
             field,
@@ -1587,7 +2010,7 @@ mod tests {
             Some(null_buffer),
         )
         .unwrap();
-        let vortex_array_nullable = ArrayRef::from_arrow(&arrow_array_nullable, true).unwrap();
+        let vortex_array_nullable = from_arrow_dyn(&arrow_array_nullable, true).unwrap();
 
         assert_eq!(vortex_array_nullable.len(), 3);
 
@@ -1595,10 +2018,56 @@ mod tests {
         let fsl_vortex_array_nullable = vortex_array_nullable.as_::<FixedSizeList>();
         assert_eq!(fsl_vortex_array_nullable.list_size(), 3);
         assert_eq!(fsl_vortex_array_nullable.elements().len(), 9); // 3 lists * 3 elements
+        assert_arrays_eq!(
+            vortex_array,
+            VortexFixedSizeListArray::new(
+                PrimitiveArray::from_option_iter([
+                    Some(1i32),
+                    Some(2),
+                    Some(3),
+                    Some(4),
+                    None,
+                    Some(6),
+                    Some(7),
+                    Some(8),
+                    Some(9),
+                    Some(10),
+                    Some(11),
+                    Some(12)
+                ])
+                .into_array(),
+                3,
+                Validity::NonNullable,
+                4
+            ),
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_arrays_eq!(
+            vortex_array_nullable,
+            VortexFixedSizeListArray::new(
+                PrimitiveArray::from_option_iter([
+                    Some(1i32),
+                    Some(2),
+                    Some(3),
+                    Some(4),
+                    None,
+                    Some(6),
+                    Some(7),
+                    Some(8),
+                    Some(9)
+                ])
+                .into_array(),
+                3,
+                Validity::from_iter([true, false, true]),
+                3
+            ),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
     fn test_list_view_array_conversion() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Create values array for the lists
         let values = Int32Array::from(vec![
             Some(1),
@@ -1627,7 +2096,7 @@ mod tests {
         )
         .unwrap();
 
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, false).unwrap();
+        let vortex_array = from_arrow_dyn(&arrow_array, false).unwrap();
         assert_eq!(vortex_array.len(), 4);
 
         // Verify metadata - should be ListViewArray with correct offsets and sizes
@@ -1641,8 +2110,7 @@ mod tests {
         assert_eq!(sizes_array.ptype(), PType::I32);
 
         // Test nullable ListView
-        let null_buffer =
-            arrow_buffer::NullBuffer::new(BooleanBuffer::from(vec![true, false, true, true]));
+        let null_buffer = NullBuffer::new(BooleanBuffer::from(vec![true, false, true, true]));
 
         let arrow_array_nullable = GenericListViewArray::try_new(
             Arc::clone(&field),
@@ -1653,7 +2121,7 @@ mod tests {
         )
         .unwrap();
 
-        let vortex_array_nullable = ArrayRef::from_arrow(&arrow_array_nullable, true).unwrap();
+        let vortex_array_nullable = from_arrow_dyn(&arrow_array_nullable, true).unwrap();
         assert_eq!(vortex_array_nullable.len(), 4);
 
         // Test LargeListView (i64 offsets and sizes)
@@ -1669,7 +2137,7 @@ mod tests {
         )
         .unwrap();
 
-        let large_vortex_array = ArrayRef::from_arrow(&large_arrow_array, false).unwrap();
+        let large_vortex_array = from_arrow_dyn(&large_arrow_array, false).unwrap();
         assert_eq!(large_vortex_array.len(), 4);
 
         // Verify metadata for large ListView
@@ -1681,14 +2149,43 @@ mod tests {
         assert_eq!(large_offsets_array.ptype(), PType::I64); // Large ListView uses I64 offsets
         assert_eq!(large_sizes_array.len(), 4);
         assert_eq!(large_sizes_array.ptype(), PType::I64); // Large ListView uses I64 sizes
+        let mut expected = |validity| {
+            ListViewArray::new(
+                PrimitiveArray::from_option_iter((1i32..=10).map(Some)).into_array(),
+                buffer![0u32, 3, 5, 6].into_array(),
+                buffer![3u32, 2, 1, 4].into_array(),
+                validity,
+                &mut ctx,
+            )
+        };
+        assert_arrays_eq!(
+            vortex_array,
+            expected(Validity::NonNullable),
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_arrays_eq!(
+            vortex_array_nullable,
+            expected(Validity::from_iter([true, false, true, true])),
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_arrays_eq!(
+            large_vortex_array,
+            expected(Validity::NonNullable),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     // Test null array conversions
     #[test]
     fn test_null_array_conversion() {
         let arrow_array = NullArray::new(5);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
+        let vortex_array = from_arrow_dyn(&arrow_array, true).unwrap();
         assert_eq!(vortex_array.len(), 5);
+        assert_arrays_eq!(
+            vortex_array,
+            VortexNullArray::new(5),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     // Test buffer conversions
@@ -1698,6 +2195,11 @@ mod tests {
         let arrow_buffer = ArrowBuffer::from_vec(data);
         let vortex_array = arrow_buffer.into_array();
         assert_eq!(vortex_array.len(), 5);
+        assert_arrays_eq!(
+            vortex_array,
+            buffer![1u8, 2, 3, 4, 5].into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -1706,6 +2208,11 @@ mod tests {
         let boolean_buffer = BooleanBuffer::from(data);
         let vortex_array = boolean_buffer.into_array();
         assert_eq!(vortex_array.len(), 5);
+        assert_arrays_eq!(
+            vortex_array,
+            BoolArray::from_iter([true, false, true, false, true]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -1714,6 +2221,11 @@ mod tests {
         let scalar_buffer = ScalarBuffer::from(data);
         let vortex_array = scalar_buffer.into_array();
         assert_eq!(vortex_array.len(), 5);
+        assert_arrays_eq!(
+            vortex_array,
+            buffer![1i32, 2, 3, 4, 5].into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -1722,6 +2234,11 @@ mod tests {
         let offset_buffer = OffsetBuffer::new(ScalarBuffer::from(data));
         let vortex_array = offset_buffer.into_array();
         assert_eq!(vortex_array.len(), 5);
+        assert_arrays_eq!(
+            vortex_array,
+            buffer![0i32, 2, 5, 8, 10].into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     // Test RecordBatch conversions
@@ -1737,8 +2254,21 @@ mod tests {
 
         let record_batch = RecordBatch::try_new(schema, vec![field1_data, field2_data]).unwrap();
 
-        let vortex_array = ArrayRef::from_arrow(record_batch, false).unwrap();
-        assert_eq!(vortex_array.len(), 4);
+        let vortex_array = from_arrow_batch(&record_batch, false).unwrap();
+        let expected = VortexStructArray::new(
+            ["field1", "field2"].into(),
+            vec![
+                buffer![1i32, 2, 3, 4].into_array(),
+                VarBinArray::from_iter_nonnull(
+                    ["a", "b", "c", "d"],
+                    DType::Utf8(Nullability::NonNullable),
+                )
+                .into_array(),
+            ],
+            4,
+            Validity::NonNullable,
+        );
+        assert_arrays_eq!(vortex_array, expected, &mut SESSION.create_execution_ctx());
 
         // Test with reference
         let schema = Arc::new(Schema::new(vec![
@@ -1751,8 +2281,21 @@ mod tests {
 
         let record_batch = RecordBatch::try_new(schema, vec![field1_data, field2_data]).unwrap();
 
-        let vortex_array = ArrayRef::from_arrow(&record_batch, false).unwrap();
-        assert_eq!(vortex_array.len(), 4);
+        let vortex_array = from_arrow_batch(&record_batch, false).unwrap();
+        let expected = VortexStructArray::new(
+            ["field1", "field2"].into(),
+            vec![
+                buffer![1i32, 2, 3, 4].into_array(),
+                VarBinArray::from_iter_nonnull(
+                    ["a", "b", "c", "d"],
+                    DType::Utf8(Nullability::NonNullable),
+                )
+                .into_array(),
+            ],
+            4,
+            Validity::NonNullable,
+        );
+        assert_arrays_eq!(vortex_array, expected, &mut SESSION.create_execution_ctx());
     }
 
     // Test dynamic dispatch conversion
@@ -1760,18 +2303,30 @@ mod tests {
     fn test_dyn_array_conversion() {
         let int_array = Int32Array::from(vec![1, 2, 3, 4]);
         let dyn_array: &dyn ArrowArray = &int_array;
-        let vortex_array = ArrayRef::from_arrow(dyn_array, false).unwrap();
-        assert_eq!(vortex_array.len(), 4);
+        let vortex_array = from_arrow_dyn(dyn_array, false).unwrap();
+        assert_arrays_eq!(
+            vortex_array,
+            buffer![1i32, 2, 3, 4].into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
 
         let string_array = StringArray::from(vec!["a", "b", "c"]);
         let dyn_array: &dyn ArrowArray = &string_array;
-        let vortex_array = ArrayRef::from_arrow(dyn_array, false).unwrap();
-        assert_eq!(vortex_array.len(), 3);
+        let vortex_array = from_arrow_dyn(dyn_array, false).unwrap();
+        assert_arrays_eq!(
+            vortex_array,
+            VarBinArray::from_iter_nonnull(["a", "b", "c"], DType::Utf8(Nullability::NonNullable)),
+            &mut SESSION.create_execution_ctx()
+        );
 
         let bool_array = BooleanArray::from(vec![true, false, true]);
         let dyn_array: &dyn ArrowArray = &bool_array;
-        let vortex_array = ArrayRef::from_arrow(dyn_array, false).unwrap();
-        assert_eq!(vortex_array.len(), 3);
+        let vortex_array = from_arrow_dyn(dyn_array, false).unwrap();
+        assert_arrays_eq!(
+            vortex_array,
+            BoolArray::from_iter([true, false, true]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     // Existing tests
@@ -1785,7 +2340,18 @@ mod tests {
             )])),
             1,
         );
-        ArrayRef::from_arrow(null_struct_array_with_non_nullable_field.as_ref(), true).unwrap();
+        let actual =
+            from_arrow_dyn(null_struct_array_with_non_nullable_field.as_ref(), true).unwrap();
+        assert_arrays_eq!(
+            actual,
+            VortexStructArray::new(
+                ["non_nullable_inner"].into(),
+                vec![buffer![0i32].into_array()],
+                1,
+                Validity::AllInvalid
+            ),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -1802,7 +2368,26 @@ mod tests {
             )])),
             1,
         );
-        ArrayRef::from_arrow(null_struct_array_with_non_nullable_field.as_ref(), true).unwrap();
+        let actual =
+            from_arrow_dyn(null_struct_array_with_non_nullable_field.as_ref(), true).unwrap();
+        assert_arrays_eq!(
+            actual,
+            VortexStructArray::new(
+                ["non_nullable_inner"].into(),
+                vec![
+                    VortexStructArray::new(
+                        ["non_nullable_deeper_inner"].into(),
+                        vec![buffer![0i32].into_array()],
+                        1,
+                        Validity::NonNullable
+                    )
+                    .into_array()
+                ],
+                1,
+                Validity::AllInvalid
+            ),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -1822,7 +2407,8 @@ mod tests {
         )?;
 
         // Dispatching on the Arrow data type must cover maps...
-        assert_eq!(from_arrow_dyn(&arrow, true)?.dtype(), &expected);
+        let direct = from_arrow_dyn(&arrow, true)?;
+        assert_eq!(direct.dtype(), &expected);
 
         // ...including maps reached by recursing into a container.
         let batch = RecordBatch::try_from_iter_with_nullable([(
@@ -1836,6 +2422,22 @@ mod tests {
             &expected
         );
 
+        let row = Scalar::try_map(
+            expected.clone(),
+            [(
+                Scalar::utf8("joe", Nullability::NonNullable),
+                Scalar::primitive(1i32, Nullability::Nullable),
+            )],
+        )?;
+        let mut ctx = SESSION.create_execution_ctx();
+        for actual in [&direct, imported.as_::<Struct>().unmasked_field(0)] {
+            assert_eq!(actual.len(), 2);
+            assert_eq!(actual.execute_scalar(0, &mut ctx)?, row);
+            assert_eq!(
+                actual.execute_scalar(1, &mut ctx)?,
+                Scalar::null(expected.clone())
+            );
+        }
         Ok(())
     }
 
@@ -1844,7 +2446,7 @@ mod tests {
         // Requesting `nullable = false` on an Arrow array that physically contains nulls is a
         // contradiction and must surface as an error, not a panic.
         let arrow_array = Int32Array::from(vec![Some(1), None, Some(3)]);
-        assert!(ArrayRef::from_arrow(&arrow_array, false).is_err());
+        assert!(from_arrow_dyn(&arrow_array, false).is_err());
     }
 
     #[test]
@@ -1852,7 +2454,7 @@ mod tests {
         // An Arrow NullArray is entirely null, so it cannot be converted to a non-nullable
         // Vortex array.
         let arrow_array = NullArray::new(5);
-        assert!(ArrayRef::from_arrow(&arrow_array, false).is_err());
+        assert!(from_arrow_dyn(&arrow_array, false).is_err());
     }
 
     #[test]
@@ -1863,7 +2465,7 @@ mod tests {
             &DataType::Struct(Fields::from(vec![Field::new("a", DataType::Int32, true)])),
             3,
         );
-        assert!(ArrayRef::from_arrow(struct_array.as_ref(), false).is_err());
+        assert!(from_arrow_dyn(struct_array.as_ref(), false).is_err());
     }
 
     #[test]
@@ -1874,7 +2476,7 @@ mod tests {
         builder.append_value([Some(1), Some(2)]);
         builder.append_null();
         let list = builder.finish();
-        assert!(ArrayRef::from_arrow(&list, false).is_err());
+        assert!(from_arrow_dyn(&list, false).is_err());
     }
 
     #[test]
@@ -1891,8 +2493,6 @@ mod tests {
             1,
         );
 
-        assert!(
-            ArrayRef::from_arrow(null_struct_array_with_non_nullable_field.as_ref(), true).is_err()
-        );
+        assert!(from_arrow_dyn(null_struct_array_with_non_nullable_field.as_ref(), true).is_err());
     }
 }

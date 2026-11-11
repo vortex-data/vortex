@@ -1,0 +1,124 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query IR
+SELECT ss_customer_sk,
+       sum(act_sales) sumsales
+FROM
+  (SELECT ss_item_sk,
+          ss_ticket_number,
+          ss_customer_sk,
+          CASE
+              WHEN sr_return_quantity IS NOT NULL THEN (ss_quantity-sr_return_quantity)*ss_sales_price
+              ELSE (ss_quantity*ss_sales_price)
+          END act_sales
+   FROM store_sales
+   LEFT OUTER JOIN store_returns ON (sr_item_sk = ss_item_sk
+                                     AND sr_ticket_number = ss_ticket_number) ,reason
+   WHERE sr_reason_sk = r_reason_sk
+     AND r_reason_desc = 'reason 28') t
+GROUP BY ss_customer_sk
+ORDER BY sumsales NULLS FIRST,
+         ss_customer_sk NULLS FIRST
+LIMIT 100;
+----
+461 NULL
+1646 NULL
+2057 NULL
+3453 NULL
+4922 NULL
+5549 NULL
+5667 NULL
+7708 NULL
+7812 NULL
+8226 NULL
+378 0
+2423 0
+2934 0
+3787 0
+3873 0
+4585 0
+4704 0
+5799 0
+6700 0
+7998 0
+8996 0
+8988 1.5
+7814 5.44
+3539 7.4
+4687 9
+3285 9.55
+2657 10.27
+7805 12.87
+5879 13.44
+5788 14.07
+4066 16.82
+9209 17.7
+5011 19.21
+8210 22.99
+2924 26.68
+3177 33.46
+8197 37.38
+5257 39.06
+2593 39.52
+5624 40.74
+2755 43.52
+6425 47.04
+8481 47.52
+189 48.76
+7744 49.5
+7366 50.58
+7767 51.82
+8247 51.84
+1600 55
+3852 55.12
+6258 58.68
+7048 59.35
+3535 59.85
+7218 64.86
+5634 68.09
+7166 68.97
+5434 69.1
+471 69.35
+4673 70.5
+743 71.38
+5975 73.28
+3140 75.6
+2049 79.2
+9059 80.63
+9352 83.48
+6787 88.5
+2873 91.87
+6286 92.85
+2880 96.93
+3064 101.42
+5947 104.84
+9898 105
+2096 109.08
+983 110.88
+8627 112.49
+2380 121.5
+8001 125.7
+4291 131.13
+4336 137.73
+2898 142.92
+6436 147.7
+8187 148.07
+8113 150.08
+8277 152.46
+6832 155.73
+6114 157.44
+2613 167.16
+1130 167.58
+6310 189.6
+496 191.17
+5557 195.96
+2181 197.96
+4799 199.12
+5992 202.24
+7944 202.77
+787 213.92
+9159 217.26
+5125 225.9
+4654 226
+4911 228.6

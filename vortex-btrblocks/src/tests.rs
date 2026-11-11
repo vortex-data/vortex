@@ -21,6 +21,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -32,6 +33,8 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
+use vortex_datetime_parts::DateTimeParts;
 #[cfg(feature = "zstd")]
 use vortex_edition::EDITION_DECLARATIONS;
 #[cfg(feature = "zstd")]
@@ -44,6 +47,8 @@ use vortex_edition::EditionSessionExt;
 use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
 use vortex_fastlanes::Delta;
+use vortex_session::VortexSession;
+use vortex_sparse::Sparse;
 
 use crate::BtrBlocksCompressor;
 use crate::BtrBlocksCompressorBuilder;
@@ -60,6 +65,7 @@ fn assert_roundtrip(compressor: &BtrBlocksCompressor, input: &ArrayRef) -> Vorte
 
 #[test]
 fn test_default_compressor_roundtrip() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let integers = PrimitiveArray::from_option_iter(
         (0..2048i32).map(|i| (i % 7 != 0).then_some(1_000_000 + (i * 37) % 100)),
     );
@@ -96,6 +102,7 @@ fn test_default_compressor_roundtrip() -> VortexResult<()> {
         elements.into_array(),
         offsets.into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )?
     .into_array();
 
@@ -104,6 +111,30 @@ fn test_default_compressor_roundtrip() -> VortexResult<()> {
         .build();
     let compressed = assert_roundtrip(&compressor, &input)?;
     assert!(compressed.nbytes() < input.nbytes());
+
+    Ok(())
+}
+
+#[rstest]
+#[case::seconds(TimeUnit::Seconds)]
+#[case::milliseconds(TimeUnit::Milliseconds)]
+fn test_extreme_timestamps_roundtrip(#[case] unit: TimeUnit) -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let input = TemporalArray::new_timestamp(
+        PrimitiveArray::from_iter((0..2048i64).map(|i| match i % 3 {
+            0 => i64::MAX - i,
+            1 => i64::MIN + i,
+            _ => 1_700_000_000 + i,
+        }))
+        .into_array(),
+        unit,
+        None,
+    )
+    .into_array();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+    assert!(compressed.is::<DateTimeParts>());
 
     Ok(())
 }
@@ -135,6 +166,48 @@ fn test_delta_unaligned_roundtrip(#[case] input: PrimitiveArray) -> VortexResult
     Ok(())
 }
 
+/// Fixed-size lists of random bytes, like UUIDs, with the rows `is_valid` picks valid. The null
+/// rows hold zeros, as Arrow's fixed-size binary arrays do.
+fn random_byte_lists(rows: usize, is_valid: impl Fn(usize) -> bool) -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(42);
+    let elements = (0..rows * 16)
+        .map(|i| {
+            if is_valid(i / 16) {
+                rng.next_u32().to_le_bytes()[0]
+            } else {
+                0
+            }
+        })
+        .collect::<Buffer<u8>>();
+    let validity = Validity::from_iter((0..rows).map(&is_valid));
+    FixedSizeListArray::new(elements.into_array(), 16, validity, rows).into_array()
+}
+
+#[rstest]
+#[case::mostly_null(|row| row % 20 == 0, true)]
+#[case::half_null(|row| row % 2 == 0, true)]
+// Dropping one row in twenty saves less than storing the valid rows' positions costs.
+#[case::few_nulls(|row| row % 20 != 0, false)]
+#[case::all_valid(|_| true, false)]
+fn test_fixed_size_list_drops_null_rows(
+    #[case] is_valid: fn(usize) -> bool,
+    #[case] sparse: bool,
+) -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let input = random_byte_lists(8_000, is_valid);
+    let compressed = assert_roundtrip(&compressor, &input)?;
+    assert_eq!(
+        compressed.is::<Sparse>(),
+        sparse,
+        "{}",
+        compressed.display_tree()
+    );
+
+    Ok(())
+}
+
 #[cfg(feature = "zstd")]
 #[rstest]
 #[case::array_level(CORE_2026_08_3, vortex_zstd::Zstd.id())]
@@ -154,7 +227,7 @@ fn test_cuda_binary_zstd_follows_editions(
     let input = VarBinViewArray::from_iter_bin(values.iter().map(Vec::as_slice)).into_array();
 
     // The CUDA preset enables both Zstd schemes; the edition filter must choose between them.
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     vortex_zstd::initialize(&session);
     for family in EDITION_FAMILIES {
         session.editions().declare_family(family)?;

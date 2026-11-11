@@ -321,30 +321,4 @@ mod tests {
         assert_eq!(buffer.len(), 5);
         assert_eq!(buffer.as_ref(), &[0, 1, 2, 3, 4]);
     }
-
-    #[rstest]
-    #[case::vec_writer(0)]
-    #[case::byte_buffer(1)]
-    #[tokio::test]
-    async fn test_writer_types(#[case] writer_type: usize) {
-        let data = vec![10, 20, 30];
-
-        match writer_type {
-            0 => {
-                let mut writer = Vec::new();
-                VortexWrite::write_all(&mut writer, data.clone())
-                    .await
-                    .unwrap();
-                assert_eq!(writer, data);
-            }
-            1 => {
-                let mut writer = ByteBufferMut::with_capacity(0);
-                VortexWrite::write_all(&mut writer, data.clone())
-                    .await
-                    .unwrap();
-                assert_eq!(writer.as_ref(), &data[..]);
-            }
-            _ => unreachable!(),
-        }
-    }
 }

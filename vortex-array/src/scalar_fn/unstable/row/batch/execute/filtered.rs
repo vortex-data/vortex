@@ -30,8 +30,9 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::builtins::ArrayBuiltins;
+use crate::optimizer::ArrayOptimizer;
 
-impl RowFnExecutionArgs {
+impl RowFnExecutionArgs<'_> {
     /// Filter the batch to valid rows, then execute the kernel into the original row domain.
     pub(super) fn execute_filtered(
         &self,
@@ -47,16 +48,17 @@ impl RowFnExecutionArgs {
         let filter_mask = Mask::Values(MaskValuesRef::clone(valid));
 
         let filtered_inputs: SmallVec<[ArrayRef; 4]> = self
+            .batch
             .inputs
             .iter()
-            .map(|input| input.filter(filter_mask.clone()))
+            .map(|input| input.filter(filter_mask.clone())?.optimize_ctx(ctx))
             .collect::<VortexResult<_>>()?;
 
         let filtered_args = self.execution_args(&filtered_inputs, filtered_len);
         let values = execute_filtered_rows(filtered_args, MaskValuesRef::clone(valid), ctx)?;
-        let values = self.validate_kernel_output(values, self.row_count, ctx)?;
+        let values = self.validate_kernel_output(values, self.batch.probe.row_count, ctx)?;
 
         let mask = valid.as_ref().into_array();
-        self.finalize_output(values.mask(mask)?, self.row_count)
+        self.finalize_output(values.mask(mask)?, self.batch.probe.row_count)
     }
 }

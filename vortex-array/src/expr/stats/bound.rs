@@ -260,7 +260,6 @@ mod tests {
         assert_eq!(ub, 10);
         assert!(ub > 9);
         assert!(ub <= 10);
-        assert!(ub <= 10);
 
         let ub = UpperBound(Precision::inexact(10i32));
 

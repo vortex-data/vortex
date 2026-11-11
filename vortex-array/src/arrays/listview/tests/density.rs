@@ -4,9 +4,12 @@
 //! Tests for `compute_referenced_elements_mask`, `compute_density`, and
 //! `estimate_density` on `ListViewArray`.
 
+use std::sync::LazyLock;
+
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use super::common::create_basic_listview;
 use super::common::create_empty_lists_listview;
@@ -25,11 +28,12 @@ use crate::expr::stats::Stat;
 use crate::scalar::ScalarValue;
 use crate::validity::Validity;
 
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
 const EPS: f32 = 1e-6;
 
 fn test_execution_ctx() -> ExecutionCtx {
-    let session = crate::array_session();
-    session.create_execution_ctx()
+    SESSION.create_execution_ctx()
 }
 
 #[test]
@@ -171,7 +175,7 @@ fn referenced_bounds_non_zero_copy() -> VortexResult<()> {
     let elements = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
     let offsets = buffer![5u32, 2].into_array();
     let sizes = buffer![2u32, 2].into_array();
-    let lv = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
+    let lv = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx);
     assert!(!lv.is_zero_copy_to_list());
     assert_eq!(lv.referenced_element_bounds(&mut ctx)?, (2, 7));
     Ok(())

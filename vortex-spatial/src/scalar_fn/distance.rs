@@ -71,6 +71,8 @@ impl RowFn for SpatialDistance {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::ExecutionCtx;
@@ -87,12 +89,15 @@ mod tests {
     use vortex_array::scalar_fn::ScalarFnVTable;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::SpatialDistance;
     use crate::test_harness::nullable_multipolygon_column;
     use crate::test_harness::nullable_point_column;
     use crate::test_harness::point_column;
     use crate::test_harness::polygon_column;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// A constant `Point` column of length `len`, every row at `(x, y)`.
     fn point_constant(
@@ -105,41 +110,34 @@ mod tests {
         Ok(ConstantArray::new(single, len).into_array())
     }
 
-    /// Execute a `SpatialDistance` array and read back its per-row `f64` distances.
-    fn distances(distance: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<f64>> {
-        Ok(distance
-            .execute::<Canonical>(ctx)?
-            .into_primitive()
-            .as_slice::<f64>()
-            .to_vec())
-    }
-
     /// `SpatialDistance` returns the per-row distance between a point column and a constant query point
     /// (3–4–5 triangles), computed via the external `geo` crate.
     #[test]
     fn distance_over_points() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let a = point_column(vec![0.0, 3.0, 0.0, 3.0], vec![0.0, 0.0, 4.0, 4.0])?;
         let b = point_constant(0.0, 0.0, 4, &mut ctx)?;
         let distance = SpatialDistance::try_new(a, b)?.into_array();
 
-        assert_eq!(distances(distance, &mut ctx)?, vec![0.0, 3.0, 4.0, 5.0]);
+        assert_arrays_eq!(
+            distance,
+            PrimitiveArray::from_iter([0.0, 3.0, 4.0, 5.0]),
+            &mut ctx
+        );
         Ok(())
     }
 
     /// Column-to-column distance pairs corresponding rows of the two columns.
     #[test]
     fn distance_between_columns() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let a = point_column(vec![0.0, 1.0], vec![0.0, 1.0])?;
         let b = point_column(vec![3.0, 1.0], vec![4.0, 1.0])?;
         let distance = SpatialDistance::try_new(a, b)?.into_array();
 
-        assert_eq!(distances(distance, &mut ctx)?, vec![5.0, 0.0]);
+        assert_arrays_eq!(distance, PrimitiveArray::from_iter([5.0, 0.0]), &mut ctx);
         Ok(())
     }
 
@@ -147,8 +145,7 @@ mod tests {
     /// bounding rect still gets its true distance, alongside an inside point at distance zero.
     #[test]
     fn distance_to_constant_polygon_is_exact() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let ring = vec![(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0), (0.0, 0.0)];
         let single = polygon_column(vec![vec![ring]])?.execute_scalar(0, &mut ctx)?;
@@ -156,35 +153,41 @@ mod tests {
         let points = point_column(vec![7.0, 2.0], vec![2.0, 2.0])?;
         let distance = SpatialDistance::try_new(points, square)?.into_array();
 
-        assert_eq!(distances(distance, &mut ctx)?, vec![3.0, 0.0]);
+        assert_arrays_eq!(distance, PrimitiveArray::from_iter([3.0, 0.0]), &mut ctx);
         Ok(())
     }
 
     /// The constant query point may be either operand; distance is symmetric.
     #[test]
     fn distance_with_constant_first_operand() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let a = point_constant(0.0, 0.0, 4, &mut ctx)?;
         let b = point_column(vec![0.0, 3.0, 0.0, 3.0], vec![0.0, 0.0, 4.0, 4.0])?;
         let distance = SpatialDistance::try_new(a, b)?.into_array();
 
-        assert_eq!(distances(distance, &mut ctx)?, vec![0.0, 3.0, 4.0, 5.0]);
+        assert_arrays_eq!(
+            distance,
+            PrimitiveArray::from_iter([0.0, 3.0, 4.0, 5.0]),
+            &mut ctx
+        );
         Ok(())
     }
 
     /// Two constant operands: every row has the same distance.
     #[test]
     fn distance_between_two_constants() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let a = point_constant(0.0, 0.0, 3, &mut ctx)?;
         let b = point_constant(3.0, 4.0, 3, &mut ctx)?;
         let distance = SpatialDistance::try_new(a, b)?.into_array();
 
-        assert_eq!(distances(distance, &mut ctx)?, vec![5.0, 5.0, 5.0]);
+        assert_arrays_eq!(
+            distance,
+            PrimitiveArray::from_iter([5.0, 5.0, 5.0]),
+            &mut ctx
+        );
         Ok(())
     }
 
@@ -195,18 +198,23 @@ mod tests {
         let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
         let non_nullable =
             SpatialDistance.return_dtype(&EmptyOptions, &[dtype.clone(), dtype.clone()])?;
-        assert!(!non_nullable.is_nullable());
+        assert_eq!(
+            non_nullable,
+            DType::Primitive(PType::F64, Nullability::NonNullable)
+        );
         let nullable =
             SpatialDistance.return_dtype(&EmptyOptions, &[dtype.as_nullable(), dtype])?;
-        assert!(nullable.is_nullable());
+        assert_eq!(
+            nullable,
+            DType::Primitive(PType::F64, Nullability::Nullable)
+        );
         Ok(())
     }
 
     /// A null row in a geometry operand yields a null result; valid rows are unaffected.
     #[test]
     fn distance_propagates_null_rows() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let a = nullable_point_column(vec![Some((0.0, 0.0)), None, Some((3.0, 4.0))])?;
         let b = point_constant(0.0, 0.0, 3, &mut ctx)?;
@@ -225,8 +233,7 @@ mod tests {
     /// valid rows get exact distances, with the null row's storage never decoded.
     #[test]
     fn distance_propagates_nulls_for_multipolygon() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let near = vec![vec![vec![
             (0.0, 0.0),
@@ -258,8 +265,7 @@ mod tests {
     /// Both operands nullable: a row is null if either operand is null there.
     #[test]
     fn distance_propagates_column_pair_nulls() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let a = nullable_point_column(vec![Some((0.0, 0.0)), None, Some((0.0, 0.0))])?;
         let b = nullable_point_column(vec![Some((3.0, 4.0)), Some((1.0, 1.0)), None])?;
@@ -277,8 +283,7 @@ mod tests {
     /// A constant-null operand produces an all-null output.
     #[test]
     fn distance_constant_null_is_all_null() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let point_dtype = point_column(vec![0.0], vec![0.0])?.dtype().as_nullable();
         let null_const = ConstantArray::new(Scalar::null(point_dtype), 3).into_array();
@@ -293,8 +298,7 @@ mod tests {
     /// An entirely-null geometry column yields an all-null output.
     #[test]
     fn distance_all_null_column_is_all_null() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let a = nullable_point_column(vec![None, None])?;
         let b = point_constant(0.0, 0.0, 2, &mut ctx)?;
@@ -309,8 +313,7 @@ mod tests {
     /// is all null.
     #[test]
     fn distance_column_pair_all_null() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let a = nullable_point_column(vec![Some((0.0, 0.0)), None])?;
         let b = nullable_point_column(vec![None, Some((1.0, 1.0))])?;
@@ -326,8 +329,7 @@ mod tests {
     /// to nullable (which would trip the result-dtype assertion against `return_dtype`).
     #[test]
     fn distance_empty_non_nullable_keeps_dtype() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let a = point_column(vec![], vec![])?;
         let b = point_column(vec![], vec![])?;

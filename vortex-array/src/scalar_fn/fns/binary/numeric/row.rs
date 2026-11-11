@@ -131,5 +131,5 @@ where
 #[cold]
 #[inline(never)]
 fn numeric_error(message: &'static str) -> VortexError {
-    vortex_err!(InvalidArgument: "{message}")
+    vortex_err!("{message}")
 }

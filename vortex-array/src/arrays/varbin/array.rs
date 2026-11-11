@@ -18,7 +18,6 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
-use crate::VortexSessionExecute;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
@@ -33,7 +32,6 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::OffsetBuilderPType;
-use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 
@@ -102,8 +100,14 @@ impl VarBinData {
     ///
     /// Panics if the provided components do not satisfy the invariants documented
     /// in `VarBinArray::new_unchecked`.
-    pub fn build(offsets: ArrayRef, bytes: ByteBuffer, dtype: DType, validity: Validity) -> Self {
-        Self::try_build(offsets, bytes, dtype, validity).vortex_expect("VarBinArray new")
+    pub fn build(
+        offsets: ArrayRef,
+        bytes: ByteBuffer,
+        dtype: DType,
+        validity: Validity,
+        ctx: &mut ExecutionCtx,
+    ) -> Self {
+        Self::try_build(offsets, bytes, dtype, validity, ctx).vortex_expect("VarBinArray new")
     }
 
     /// Creates a new `VarBinArray`.
@@ -117,8 +121,10 @@ impl VarBinData {
         bytes: BufferHandle,
         dtype: DType,
         validity: Validity,
+        ctx: &mut ExecutionCtx,
     ) -> Self {
-        Self::try_build_from_handle(offset, bytes, dtype, validity).vortex_expect("VarBinArray new")
+        Self::try_build_from_handle(offset, bytes, dtype, validity, ctx)
+            .vortex_expect("VarBinArray new")
     }
 
     pub(crate) fn make_slots(offsets: ArrayRef, validity: &Validity, len: usize) -> ArraySlots {
@@ -142,9 +148,10 @@ impl VarBinData {
         bytes: ByteBuffer,
         dtype: DType,
         validity: Validity,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
         let bytes = BufferHandle::new_host(bytes);
-        Self::validate(&offsets, &bytes, &dtype, &validity)?;
+        Self::validate(&offsets, &bytes, &dtype, &validity, ctx)?;
 
         // SAFETY: validate ensures all invariants are met.
         Ok(unsafe { Self::new_unchecked_from_handle(bytes) })
@@ -164,8 +171,9 @@ impl VarBinData {
         bytes: BufferHandle,
         dtype: DType,
         validity: Validity,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        Self::validate(&offsets, &bytes, &dtype, &validity)?;
+        Self::validate(&offsets, &bytes, &dtype, &validity, ctx)?;
 
         // SAFETY: validate ensures all invariants are met.
         Ok(unsafe { Self::new_unchecked_from_handle(bytes) })
@@ -218,29 +226,31 @@ impl VarBinData {
     /// Validates the components that would be used to create a `VarBinArray`.
     ///
     /// This function checks all the invariants required by `VarBinArray::new_unchecked`.
-    #[allow(clippy::disallowed_methods)]
     pub fn validate(
         offsets: &ArrayRef,
         bytes: &BufferHandle,
         dtype: &DType,
         validity: &Validity,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         // Check offsets are non-nullable integer
         vortex_ensure!(
             offsets.dtype().is_int() && !offsets.dtype().is_nullable(),
-            MismatchedTypes: "non nullable int", offsets.dtype()
+            "expected type: non nullable int but instead got {}",
+            offsets.dtype()
         );
 
         // Check dtype is Binary or Utf8
         vortex_ensure!(
             matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
-            MismatchedTypes: "utf8 or binary", dtype
+            "expected type: utf8 or binary but instead got {}",
+            dtype
         );
 
         // Check nullability matches
         vortex_ensure!(
             dtype.is_nullable() != matches!(validity, Validity::NonNullable),
-            InvalidArgument: "incorrect validity {:?} for dtype {}",
+            "incorrect validity {:?} for dtype {}",
             validity,
             dtype
         );
@@ -248,7 +258,7 @@ impl VarBinData {
         // Check offsets has at least one element
         vortex_ensure!(
             !offsets.is_empty(),
-            InvalidArgument: "Offsets must have at least one element"
+            "Offsets must have at least one element"
         );
 
         // Check validity length
@@ -267,10 +277,9 @@ impl VarBinData {
             && matches!(dtype, DType::Utf8(_))
             && let Some(bytes) = bytes.as_host_opt()
         {
-            Self::validate_utf8(offsets, bytes.as_ref(), validity)?;
+            Self::validate_utf8(offsets, bytes.as_ref(), validity, ctx)?;
         } else if offsets.is_host() {
-            let mut ctx = legacy_session().create_execution_ctx();
-            Self::validate_offsets(offsets, bytes.len(), &mut ctx)?;
+            Self::validate_offsets(offsets, bytes.len(), ctx)?;
         }
 
         Ok(())
@@ -284,15 +293,15 @@ impl VarBinData {
     ) -> VortexResult<()> {
         // Offsets must be sorted (but not strictly sorted, empty values are allowed)
         let Some(is_sorted) = offsets.statistics().compute_is_sorted(ctx) else {
-            vortex_bail!(InvalidArgument: "offsets must report is_sorted statistic");
+            vortex_bail!("offsets must report is_sorted statistic");
         };
-        vortex_ensure!(is_sorted, InvalidArgument: "offsets must be sorted");
+        vortex_ensure!(is_sorted, "offsets must be sorted");
 
         // Validate that offsets min is non-negative, and max does not exceed the length of
         // the bytes buffer.
         let Some(min_max) = min_max(offsets, ctx, NumericalAggregateOpts::default())? else {
             vortex_bail!(
-                InvalidArgument: "offsets array with encoding {} must support min_max compute function",
+                "offsets array with encoding {} must support min_max compute function",
                 offsets.encoding_id()
             );
         };
@@ -313,13 +322,13 @@ impl VarBinData {
 
                 vortex_ensure!(
                     min >= 0,
-                    InvalidArgument: "offsets minimum {min} outside valid range [0, {max}]"
+                    "offsets minimum {min} outside valid range [0, {max}]"
                 );
 
                 // An offset type too narrow for the bytes length cannot exceed it.
                 vortex_ensure!(
                     P::try_from(bytes_len).ok().is_none_or(|len| max <= len),
-                    InvalidArgument: "Max offset {max} is beyond the length of the bytes buffer {bytes_len}"
+                    "Max offset {max} is beyond the length of the bytes buffer {bytes_len}"
                 );
             }
         });
@@ -328,12 +337,16 @@ impl VarBinData {
     }
 
     /// Validates that every non-null value is valid UTF-8.
-    #[allow(clippy::disallowed_methods)]
-    fn validate_utf8(offsets: &ArrayRef, bytes: &[u8], validity: &Validity) -> VortexResult<()> {
+    fn validate_utf8(
+        offsets: &ArrayRef,
+        bytes: &[u8],
+        validity: &Validity,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         let validate_at = |i: usize, start: usize, end: usize| -> VortexResult<()> {
             let string_bytes = bytes.get(start..end).ok_or_else(|| {
                 vortex_err!(
-                    InvalidArgument: "offsets {start}..{end} at index {i} are out of order or out of bounds for bytes of length {}",
+                    "offsets {start}..{end} at index {i} are out of order or out of bounds for bytes of length {}",
                     bytes.len()
                 )
             })?;
@@ -346,16 +359,15 @@ impl VarBinData {
             Ok(())
         };
 
-        let mut ctx = legacy_session().create_execution_ctx();
         // TODO(joe): update the created VarBin with this decompressed Array.
-        let primitive_offsets = offsets.clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let primitive_offsets = offsets.clone().execute::<PrimitiveArray>(ctx)?;
 
         // Array-backed validity is the only variant that needs an execution context: execute it into
         // a mask once. The constant variants resolve null-ness without one. Resolving this before
         // the per-type dispatch keeps the dtype loop simple.
         let mask = match validity {
             Validity::Array(_) => {
-                Some(validity.execute_mask(primitive_offsets.len().saturating_sub(1), &mut ctx)?)
+                Some(validity.execute_mask(primitive_offsets.len().saturating_sub(1), ctx)?)
             }
             _ => None,
         };
@@ -367,7 +379,7 @@ impl VarBinData {
             let last_offset: usize = offsets_slice[offsets_slice.len() - 1].as_();
             vortex_ensure!(
                 last_offset <= bytes.len(),
-                InvalidArgument: "Last offset {} exceeds bytes length {}",
+                "Last offset {} exceeds bytes length {}",
                 last_offset,
                 bytes.len()
             );
@@ -378,7 +390,7 @@ impl VarBinData {
 
             // The fast path proves the offsets are valid. The per-string check below skips null
             // rows, so it cannot find bad offsets at those rows.
-            Self::validate_offsets(offsets, bytes.len(), &mut ctx)?;
+            Self::validate_offsets(offsets, bytes.len(), ctx)?;
 
             // Invalid bytes at a null row fail the check above, so check valid strings one by one.
             for (i, (start, end)) in offsets_slice
@@ -438,8 +450,7 @@ pub trait VarBinArrayExt: VarBinArraySlotsExt {
         )
     }
 
-    #[allow(clippy::disallowed_methods)]
-    fn offset_at(&self, index: usize) -> usize {
+    fn offset_at(&self, index: usize, ctx: &mut ExecutionCtx) -> usize {
         assert!(
             index <= self.len(),
             "Index {index} out of bounds 0..={}",
@@ -448,21 +459,21 @@ pub trait VarBinArrayExt: VarBinArraySlotsExt {
 
         (&self
             .offsets()
-            .execute_scalar(index, &mut legacy_session().create_execution_ctx())
+            .execute_scalar(index, ctx)
             .vortex_expect("offsets must support execute_scalar"))
             .try_into()
             .vortex_expect("Failed to convert offset to usize")
     }
 
-    fn bytes_at(&self, index: usize) -> ByteBuffer {
-        let start = self.offset_at(index);
-        let end = self.offset_at(index + 1);
+    fn bytes_at(&self, index: usize, ctx: &mut ExecutionCtx) -> ByteBuffer {
+        let start = self.offset_at(index, ctx);
+        let end = self.offset_at(index + 1, ctx);
         self.bytes().slice(start..end)
     }
 
-    fn sliced_bytes(&self) -> ByteBuffer {
-        let first_offset: usize = self.offset_at(0);
-        let last_offset = self.offset_at(self.len());
+    fn sliced_bytes(&self, ctx: &mut ExecutionCtx) -> ByteBuffer {
+        let first_offset: usize = self.offset_at(0, ctx);
+        let last_offset = self.offset_at(self.len(), ctx);
         self.bytes().slice(first_offset..last_offset)
     }
 }
@@ -567,7 +578,13 @@ impl Array<VarBin> {
 
 impl Array<VarBin> {
     /// Creates a new `VarBinArray`.
-    pub fn new(offsets: ArrayRef, bytes: ByteBuffer, dtype: DType, validity: Validity) -> Self {
+    pub fn new(
+        offsets: ArrayRef,
+        bytes: ByteBuffer,
+        dtype: DType,
+        validity: Validity,
+        ctx: &mut ExecutionCtx,
+    ) -> Self {
         let len = offsets.len().saturating_sub(1);
         let slots = VarBinData::make_slots(offsets, &validity, len);
         let data = VarBinData::build(
@@ -578,6 +595,7 @@ impl Array<VarBin> {
             bytes,
             dtype.clone(),
             validity,
+            ctx,
         );
         unsafe { Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data, slots)) }
     }
@@ -616,16 +634,18 @@ impl Array<VarBin> {
         unsafe { Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data, slots)) }
     }
 
-    /// Constructs a new `VarBinArray`.
+    /// Constructs a new `VarBinArray`, using `ctx` to validate the offsets and, for UTF-8 arrays,
+    /// the string data.
     pub fn try_new(
         offsets: ArrayRef,
         bytes: ByteBuffer,
         dtype: DType,
         validity: Validity,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
         let len = offsets.len() - 1;
         let bytes = BufferHandle::new_host(bytes);
-        VarBinData::validate(&offsets, &bytes, &dtype, &validity)?;
+        VarBinData::validate(&offsets, &bytes, &dtype, &validity, ctx)?;
         let slots = VarBinData::make_slots(offsets, &validity, len);
         // SAFETY: validate ensures all invariants are met.
         let data = unsafe { VarBinData::new_unchecked_from_handle(bytes) };

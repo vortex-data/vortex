@@ -7,7 +7,7 @@ include ./setup.slt.no
 
 # Create a file with float data
 query I
-COPY (SELECT * FROM (VALUES (1.5), (-2.5), (0.0), (42.42)) AS t(val)) TO '${WORK_DIR}/floats.vortex';
+COPY (SELECT CAST(val AS DOUBLE) AS val FROM (VALUES (1.5), (-2.5), (0.0), (42.42)) AS t(val)) TO '${WORK_DIR}/floats.vortex';
 ----
 4
 

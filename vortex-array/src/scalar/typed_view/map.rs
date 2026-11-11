@@ -239,8 +239,25 @@ mod tests {
 
         let map = scalar.as_map();
         assert_eq!(map.len(), 2);
-        assert_eq!(map.keys().count(), 2);
-        assert_eq!(map.values().count(), 2);
+        let keys = map.keys().collect::<Vec<_>>();
+        assert_eq!(keys, [Scalar::from(1i32), Scalar::from(2i32)]);
+        for key in &keys {
+            assert_eq!(
+                key.dtype(),
+                &DType::Primitive(PType::I32, Nullability::NonNullable)
+            );
+        }
+        let values = map.values().collect::<Vec<_>>();
+        assert_eq!(
+            values,
+            [
+                Scalar::from(Some("one")),
+                Scalar::null(DType::Utf8(Nullability::Nullable))
+            ]
+        );
+        for value in &values {
+            assert_eq!(value.dtype(), &DType::Utf8(Nullability::Nullable));
+        }
         assert_eq!(
             map.entry(0).unwrap().0,
             Scalar::primitive(1i32, Nullability::NonNullable)

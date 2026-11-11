@@ -106,5 +106,6 @@ mod tests {
         let mut builder = NullBuilder::new();
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
+        assert_eq!(array.dtype(), &DType::Null);
     }
 }

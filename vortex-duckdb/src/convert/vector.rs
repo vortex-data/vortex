@@ -12,6 +12,9 @@ use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
+use vortex::array::arrays::decimal::check_precision;
+use vortex::array::arrays::decimal::copy_to_canonical_width;
+use vortex::array::buffer::BufferHandle;
 use vortex::array::builders::ArrayBuilder;
 use vortex::array::builders::VarBinViewBuilder;
 use vortex::array::dtype::extension::ExtDType;
@@ -25,6 +28,7 @@ use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::DecimalType;
 use vortex::dtype::FieldNames;
+use vortex::dtype::NativeDecimalType;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::encodings::uuid::Uuid;
@@ -89,6 +93,24 @@ fn vector_i128_values(vector: &VectorRef, len: usize) -> impl TrustedLen<Item = 
     // In batch copy, columns are 8 byte aligned, so reading vector's values
     // as &[i128] is UB. Read data unaligned specifically
     (0..len).map(move |i| unsafe { base.add(i).read_unaligned() })
+}
+
+/// Copies the values of a DuckDB decimal vector into the canonical width of `decimal_dtype`, and
+/// checks that every valid value is within its precision.
+///
+/// DuckDB stores precision 1 to 4 as `i16`, so precision 1 to 2 narrows into `i8`, and
+/// [`copy_to_canonical_width`] checks that copy. Every other DuckDB width is the canonical width,
+/// where the copy checks nothing, so [`check_precision`] checks the values first.
+fn copy_decimal_values<T: NativeDecimalType>(
+    values: &[T],
+    validity: &Mask,
+    decimal_dtype: DecimalDType,
+) -> VortexResult<BufferHandle> {
+    if T::DECIMAL_TYPE == decimal_dtype.canonical_values_type() {
+        check_precision(values, validity, decimal_dtype)?;
+    }
+
+    copy_to_canonical_width(values, validity, decimal_dtype)
 }
 
 fn vector_mapped<T, P: NativePType, F: Fn(&T) -> P>(
@@ -274,7 +296,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
                 vector_as_string_blob(vector, len, DType::Binary(Nullability::Nullable));
             let crs = logical_type.geometry_crs().map(|crs| crs.to_string());
             let wkb_type = ExtDType::<WellKnownBinary>::try_new(
-                SpatialMetadata { crs },
+                SpatialMetadata::new(crs),
                 DType::Binary(Nullability::Nullable),
             )?
             .erased();
@@ -305,36 +327,46 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             let (precision, scale) = logical_type.as_decimal();
             let decimal_dtype = DecimalDType::try_new(precision, scale.try_into()?)?;
             let mask = vector.validity_ref(len).execute_mask();
-            let validity = Validity::from_mask(mask, Nullability::Nullable);
 
             // https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals
-            match precision_to_duckdb_storage_size(&decimal_dtype)? {
+            let values = match precision_to_duckdb_storage_size(&decimal_dtype)? {
                 DecimalType::I16 => {
                     let data = vector.as_slice_with_len::<i16>(len);
-                    if DecimalType::smallest_decimal_value_type(&decimal_dtype) == DecimalType::I8 {
-                        // Lossy conversion is defined behavior in Rust so this is fine
-                        let buf =
-                            Buffer::<i8>::from_trusted_len_iter(data.iter().map(|&v| v.as_()));
-                        DecimalArray::try_new(buf, decimal_dtype, validity)
-                    } else {
-                        DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
-                    }
+                    copy_decimal_values(data, &mask, decimal_dtype)?
                 }
                 DecimalType::I32 => {
                     let data = vector.as_slice_with_len::<i32>(len);
-                    DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
+                    copy_decimal_values(data, &mask, decimal_dtype)?
                 }
                 DecimalType::I64 => {
                     let data = vector.as_slice_with_len::<i64>(len);
-                    DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
+                    copy_decimal_values(data, &mask, decimal_dtype)?
                 }
                 DecimalType::I128 => {
+                    // DuckDB columns can be misaligned for `i128`, so `vector_i128_values` reads
+                    // them into a new buffer, which already has the canonical width of precision
+                    // 19 to 38.
                     let data = Buffer::from_iter(vector_i128_values(vector, len));
-                    DecimalArray::try_new(data, decimal_dtype, validity)
+                    check_precision(data.as_slice(), &mask, decimal_dtype)?;
+                    BufferHandle::new_host(data.into_byte_buffer())
                 }
                 _ => vortex_bail!("Unsupported decimal precision: {precision}"),
-            }
-            .map(|a| a.into_array())
+            };
+            let validity = Validity::from_mask(mask, Nullability::Nullable);
+
+            // SAFETY: `copy_decimal_values` and the `I128` arm checked that every valid value is
+            // within the precision of `decimal_dtype`. The values have the canonical width, and
+            // they hold `len` values, as the validity does.
+            let array = unsafe {
+                DecimalArray::new_unchecked_handle(
+                    values,
+                    decimal_dtype.canonical_values_type(),
+                    decimal_dtype,
+                    validity,
+                )
+            };
+
+            Ok(array.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_UUID => {
             let mut bytes = BufferMut::<u8>::with_capacity(len * 16);
@@ -381,13 +413,18 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             let child_data =
                 flat_vector_to_vortex(vector.list_vector_get_child(), child_min_length)?;
 
-            ListViewArray::try_new(
-                child_data,
-                offsets.into_array(),
-                sizes.into_array(),
-                Validity::from_mask(validity, Nullability::Nullable),
-            )
-            .map(|a| a.into_array())
+            // SAFETY: the offsets and sizes are both `i64`, and the child is converted with the
+            // largest `offset + size`, so every list lies within it. The validity has one entry
+            // per list.
+            Ok(unsafe {
+                ListViewArray::new_unchecked(
+                    child_data,
+                    offsets.into_array(),
+                    sizes.into_array(),
+                    Validity::from_mask(validity, Nullability::Nullable),
+                )
+            }
+            .into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => {
             let logical_type = vector.logical_type();
@@ -401,7 +438,9 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             StructArray::try_new(names, children, len, vector.validity_ref(len).to_validity())
                 .map(|a| a.into_array())
         }
-        type_id => vortex_bail!("{type_id:?} flat Vector to Vortex array not supported"),
+        type_id => {
+            vortex_bail!("{type_id:?} flat Vector to Vortex array not supported")
+        }
     }
 }
 
@@ -414,7 +453,7 @@ pub fn data_chunk_to_vortex(
     let columns = (0..chunk.column_count())
         .map(|i| {
             let vector = chunk.get_vector(i);
-            vector.flatten(len);
+            vector.flatten();
             flat_vector_to_vortex(vector, len.as_())
         })
         .collect::<VortexResult<Vec<_>>>()?;
@@ -430,10 +469,13 @@ pub fn data_chunk_to_vortex(
 #[cfg(test)]
 mod tests {
     use std::ffi::CString;
+    use std::sync::LazyLock;
 
     use geo_types::point;
+    use rstest::rstest;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
+    use vortex::array::arrays::Decimal;
     use vortex::array::arrays::Extension;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
@@ -441,9 +483,10 @@ mod tests {
     use vortex::array::arrays::listview::ListViewArraySlotsExt;
     use vortex::array::arrays::struct_::StructArrayExt;
     use vortex::array::assert_arrays_eq;
+    use vortex::dtype::BigCast;
     use vortex::error::VortexExpect;
     use vortex::mask::Mask;
-    use vortex_array::array_session;
+    use vortex::session::VortexSession;
     use vortex_spatial::extension::WellKnownBinaryData;
     use wkb::writer::WriteOptions;
     use wkb::writer::write_point;
@@ -454,9 +497,44 @@ mod tests {
     use crate::duckdb::LogicalType;
     use crate::duckdb::Vector;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    /// Builds a DuckDB decimal vector of `precision` and scale 0 that holds `slots`, and marks
+    /// `null_rows` as null. Each slot is written at the DuckDB storage width of `precision`.
+    fn decimal_vector(precision: u8, slots: &[i128], null_rows: &[usize]) -> VortexResult<Vector> {
+        let len = slots.len();
+        let logical_type = LogicalType::decimal_type(precision, 0)?;
+        let mut vector = Vector::with_capacity(&logical_type, len);
+
+        match precision_to_duckdb_storage_size(&DecimalDType::try_new(precision, 0)?)? {
+            DecimalType::I16 => write_decimal_slots::<i16>(&mut vector, slots),
+            DecimalType::I32 => write_decimal_slots::<i32>(&mut vector, slots),
+            DecimalType::I64 => write_decimal_slots::<i64>(&mut vector, slots),
+            DecimalType::I128 => write_decimal_slots::<i128>(&mut vector, slots),
+            storage => unreachable!("DuckDB stores decimals in 16 to 128 bits, got {storage}"),
+        }
+
+        // SAFETY: Vector was created with this length.
+        let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
+        for &row in null_rows {
+            validity_slice.set(row, false);
+        }
+
+        Ok(vector)
+    }
+
+    fn write_decimal_slots<T: NativeDecimalType>(vector: &mut Vector, slots: &[i128]) {
+        // SAFETY: Vector was created with a capacity of `slots.len()`.
+        let storage = unsafe { vector.as_slice_mut::<T>(slots.len()) };
+        for (storage, &slot) in storage.iter_mut().zip(slots) {
+            *storage = <T as BigCast>::from(slot)
+                .vortex_expect("test slot must fit the DuckDB storage width");
+        }
+    }
+
     #[test]
     fn test_integer_vector_conversion() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![1i32, 2, 3, 4, 5];
         let len = values.len();
 
@@ -477,36 +555,8 @@ mod tests {
     }
 
     #[test]
-    fn test_timestamp_vector_conversion() {
-        let mut ctx = array_session().create_execution_ctx();
-        let values = vec![1_703_980_800_000_000_i64, 0i64, -86_400_000_000_i64]; // microseconds
-        let len = values.len();
-
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
-        let mut vector = Vector::with_capacity(&logical_type, len);
-
-        // Populate with data
-        unsafe {
-            let slice = vector.as_slice_mut::<i64>(len);
-            slice.copy_from_slice(&values);
-        }
-
-        // Test conversion
-        let result = flat_vector_to_vortex(&vector, len).unwrap();
-        let vortex_array = TemporalArray::try_from(result).unwrap();
-        let vortex_values = vortex_array
-            .temporal_values()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-        let values_slice = vortex_values.as_slice::<i64>();
-
-        assert_eq!(values_slice, values);
-    }
-
-    #[test]
     fn test_timestamp_seconds_vector_conversion() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![1_703_980_800_i64, 0i64, -86_400_i64]; // seconds
         let len = values.len();
 
@@ -521,20 +571,17 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
-        let vortex_array = TemporalArray::try_from(result).unwrap();
-        let vortex_values = vortex_array
-            .temporal_values()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-        let values_slice = vortex_values.as_slice::<i64>();
-
-        assert_eq!(values_slice, values);
+        let expected = TemporalArray::new_timestamp(
+            PrimitiveArray::from_option_iter(values.into_iter().map(Some)).into_array(),
+            TimeUnit::Seconds,
+            None,
+        );
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_timestamp_milliseconds_vector_conversion() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![1_703_980_800_000_i64, 0i64, -86_400_000_i64]; // milliseconds
         let len = values.len();
 
@@ -549,20 +596,17 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
-        let vortex_array = TemporalArray::try_from(result).unwrap();
-        let vortex_values = vortex_array
-            .temporal_values()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-        let values_slice = vortex_values.as_slice::<i64>();
-
-        assert_eq!(values_slice, values);
+        let expected = TemporalArray::new_timestamp(
+            PrimitiveArray::from_option_iter(values.into_iter().map(Some)).into_array(),
+            TimeUnit::Milliseconds,
+            None,
+        );
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_timestamp_with_nulls_conversion() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![1_703_980_800_000_000_i64, 0i64, -86_400_000_000_i64];
         let len = values.len();
 
@@ -582,24 +626,17 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
-        let vortex_array = TemporalArray::try_from(result).unwrap();
-        let vortex_values = vortex_array
-            .temporal_values()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-        let values_slice = vortex_values.as_slice::<i64>();
-
-        assert_eq!(values_slice, values);
-        assert_eq!(
-            vortex_values
-                .as_ref()
-                .validity()
-                .unwrap()
-                .execute_mask(vortex_values.as_ref().len(), &mut ctx)
-                .unwrap(),
-            Mask::from_indices(3, vec![0, 2])
+        let expected = TemporalArray::new_timestamp(
+            PrimitiveArray::from_option_iter([
+                Some(1_703_980_800_000_000_i64),
+                None,
+                Some(-86_400_000_000_i64),
+            ])
+            .into_array(),
+            TimeUnit::Microseconds,
+            None,
         );
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
@@ -625,21 +662,18 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
-        let vortex_array = TemporalArray::try_from(result).unwrap();
-        let mut ctx = array_session().create_execution_ctx();
-        let vortex_values = vortex_array
-            .temporal_values()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-        let values_slice = vortex_values.as_slice::<i64>();
-
-        assert_eq!(values_slice, values);
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = TemporalArray::new_timestamp(
+            PrimitiveArray::from_option_iter(values.into_iter().map(Some)).into_array(),
+            TimeUnit::Microseconds,
+            None,
+        );
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_timestamp_single_value() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![1_703_980_800_000_000_i64]; // Single microsecond timestamp
         let len = values.len();
 
@@ -654,20 +688,17 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
-        let vortex_array = TemporalArray::try_from(result).unwrap();
-        let vortex_values = vortex_array
-            .temporal_values()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-        let values_slice = vortex_values.as_slice::<i64>();
-
-        assert_eq!(values_slice, values);
+        let expected = TemporalArray::new_timestamp(
+            PrimitiveArray::from_option_iter(values.into_iter().map(Some)).into_array(),
+            TimeUnit::Microseconds,
+            None,
+        );
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_boolean_vector_conversion() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![true, false, true, false];
         let len = values.len();
 
@@ -682,14 +713,13 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
-        let vortex_array = result.execute::<BoolArray>(&mut ctx).unwrap();
         let expected = BoolArray::new(BitBuffer::from(values), Validity::AllValid);
-        assert_arrays_eq!(vortex_array, expected, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_vector_with_nulls() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![1i32, 2, 3];
         let len = values.len();
 
@@ -709,19 +739,8 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
-        let vortex_array = result.execute::<PrimitiveArray>(&mut ctx).unwrap();
-        let vortex_slice = vortex_array.as_slice::<i32>();
-
-        assert_eq!(vortex_slice, values);
-        assert_eq!(
-            vortex_array
-                .as_ref()
-                .validity()
-                .unwrap()
-                .execute_mask(vortex_array.as_ref().len(), &mut ctx)
-                .unwrap(),
-            Mask::from_indices(3, vec![0, 2])
-        );
+        let expected = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
@@ -748,20 +767,29 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let vortex_array = result.execute::<ListViewArray>(&mut ctx).unwrap();
 
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
-            vortex_array.list_elements_at(0).unwrap(),
+            vortex_array.list_elements_at(0, &mut ctx).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)]),
             &mut ctx
+        );
+        assert_eq!(
+            vortex_array
+                .as_ref()
+                .validity()
+                .unwrap()
+                .execute_mask(len, &mut ctx)
+                .unwrap(),
+            Mask::AllTrue(len)
         );
     }
 
     #[test]
     fn test_fixed_sized_list() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![1i32, 2, 3, 4];
         let len = 1;
 
@@ -787,11 +815,20 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)]),
             &mut ctx
         );
+        assert_eq!(
+            vortex_array
+                .as_ref()
+                .validity()
+                .unwrap()
+                .execute_mask(len, &mut ctx)
+                .unwrap(),
+            Mask::AllTrue(len)
+        );
     }
 
     #[test]
     fn test_empty_struct() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let len = 4;
         let logical_type = LogicalType::struct_type([], [])
             .vortex_expect("LogicalTypeRef creation should succeed for test data");
@@ -803,11 +840,20 @@ mod tests {
 
         assert_eq!(vortex_array.len(), len);
         assert_eq!(vortex_array.struct_fields().nfields(), 0);
+        assert_eq!(
+            vortex_array
+                .as_ref()
+                .validity()
+                .unwrap()
+                .execute_mask(len, &mut ctx)
+                .unwrap(),
+            Mask::AllTrue(len)
+        );
     }
 
     #[test]
     fn test_struct() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values1 = vec![1i32, 2, 3, 4];
         let values2 = vec![5i32, 6, 7, 8];
         let len = values1.len();
@@ -849,11 +895,29 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(5i32), Some(6), Some(7), Some(8)]),
             &mut ctx
         );
+        assert_eq!(
+            vortex_array
+                .as_ref()
+                .validity()
+                .unwrap()
+                .execute_mask(len, &mut ctx)
+                .unwrap(),
+            Mask::AllTrue(len)
+        );
+        assert_eq!(
+            vortex_array
+                .struct_fields()
+                .names()
+                .iter()
+                .map(|name| name.as_ref())
+                .collect::<Vec<&str>>(),
+            ["a", "b"]
+        );
     }
 
     #[test]
     fn test_list_with_trailing_null() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Regression test: when the last list entry is null, its offset/length may be 0/0,
         // so we can't use the last entry to compute child vector length.
         let child_values = vec![1i32, 2, 3, 4];
@@ -891,7 +955,7 @@ mod tests {
 
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
-            vortex_array.list_elements_at(0).unwrap(),
+            vortex_array.list_elements_at(0, &mut ctx).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)]),
             &mut ctx
         );
@@ -908,7 +972,7 @@ mod tests {
 
     #[test]
     fn test_list_out_of_order() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Regression test: list views can be out of order in DuckDB. The child vector length
         // must be computed as the maximum end offset, not just the last entry's end offset.
         let child_values = vec![1i32, 2, 3, 4];
@@ -943,12 +1007,12 @@ mod tests {
 
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
-            vortex_array.list_elements_at(0).unwrap(),
+            vortex_array.list_elements_at(0, &mut ctx).unwrap(),
             PrimitiveArray::from_option_iter([Some(3i32), Some(4)]),
             &mut ctx
         );
         assert_arrays_eq!(
-            vortex_array.list_elements_at(1).unwrap(),
+            vortex_array.list_elements_at(1, &mut ctx).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2)]),
             &mut ctx
         );
@@ -956,7 +1020,7 @@ mod tests {
 
     #[test]
     fn test_list_null_garbage_data() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Test that null list entries with garbage offset/size values don't cause issues.
         // DuckDB doesn't guarantee valid offset/size for null list views, so we must check
         // validity before reading the offset/size values.
@@ -1003,12 +1067,12 @@ mod tests {
 
         // Valid entries should work correctly.
         assert_arrays_eq!(
-            vortex_array.list_elements_at(0).unwrap(),
+            vortex_array.list_elements_at(0, &mut ctx).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2)]),
             &mut ctx
         );
         assert_arrays_eq!(
-            vortex_array.list_elements_at(2).unwrap(),
+            vortex_array.list_elements_at(2, &mut ctx).unwrap(),
             PrimitiveArray::from_option_iter([Some(3i32), Some(4)]),
             &mut ctx
         );
@@ -1040,7 +1104,7 @@ mod tests {
 
     #[test]
     fn test_geometry_vector_conversion() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let mut wkb_a: Vec<u8> = Vec::new();
         write_point(
@@ -1088,15 +1152,9 @@ mod tests {
             .into_owned();
         let wkb_data = WellKnownBinaryData::try_from(extension)?;
 
-        assert_eq!(
-            wkb_data.spatial_metadata().crs.as_deref(),
-            Some("EPSG:4326")
-        );
+        assert_eq!(wkb_data.spatial_metadata().get_crs(), Some("EPSG:4326"));
 
-        let storage = wkb_data
-            .wkb_values()
-            .clone()
-            .execute::<VarBinViewArray>(&mut ctx)?;
+        let storage = wkb_data.wkb_values();
         let expected = VarBinViewArray::from_iter_nullable_bin([
             Some(wkb_a.as_slice()),
             None,
@@ -1104,6 +1162,75 @@ mod tests {
         ]);
         assert_arrays_eq!(storage, expected, &mut ctx);
 
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::p2(2, DecimalType::I8)]
+    #[case::p4(4, DecimalType::I16)]
+    #[case::p9(9, DecimalType::I32)]
+    #[case::p18(18, DecimalType::I64)]
+    #[case::p38(38, DecimalType::I128)]
+    fn test_decimal_vector_conversion(
+        #[case] precision: u8,
+        #[case] values_type: DecimalType,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        // The largest and smallest values of the precision, around a null and a zero.
+        let max = 10i128.pow(precision.into()) - 1;
+        let vector = decimal_vector(precision, &[-max, 0, 0, max], &[1])?;
+
+        let result = flat_vector_to_vortex(&vector, 4)?;
+        assert_eq!(result.as_::<Decimal>().values_type(), values_type);
+
+        let expected = DecimalArray::from_option_iter(
+            [Some(-max), None, Some(0), Some(max)],
+            DecimalDType::new(precision, 0),
+        );
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_decimal_vector_null_slot_garbage() -> VortexResult<()> {
+        // 300 fits neither precision 2 nor `i8`, but the import must not check a null slot.
+        let vector = decimal_vector(2, &[42, 300, -42], &[1])?;
+
+        let result = flat_vector_to_vortex(&vector, 3)?;
+        let decimal = result.as_::<Decimal>();
+        assert_eq!(decimal.values_type(), DecimalType::I8);
+        assert_eq!(decimal.buffer::<i8>().as_slice(), &[42, 0, -42]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_decimal_vector_value_outside_precision() -> VortexResult<()> {
+        // Precision 2 narrows the DuckDB `i16` storage into `i8`.
+        let vector = decimal_vector(2, &[42, 150], &[])?;
+
+        let err = flat_vector_to_vortex(&vector, 2)
+            .expect_err("a valid value outside the precision must fail the import");
+        let message = err.to_string();
+        assert!(message.contains("row 1"), "{message}");
+        Ok(())
+    }
+
+    /// Each precision keeps the DuckDB storage width, and `outside` fits that width but not the
+    /// precision.
+    #[rstest]
+    #[case::p4_i16(4, 10_000)]
+    #[case::p20_i128(20, 10i128.pow(20))]
+    fn test_decimal_vector_equal_width_outside_precision(
+        #[case] precision: u8,
+        #[case] outside: i128,
+    ) -> VortexResult<()> {
+        let vector = decimal_vector(precision, &[42, outside], &[])?;
+
+        let err = flat_vector_to_vortex(&vector, 2)
+            .expect_err("a valid value outside the precision must fail the import");
+        let message = err.to_string();
+        assert!(message.contains("row 1"), "{message}");
         Ok(())
     }
 }

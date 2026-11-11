@@ -17,7 +17,6 @@ use std::time::Duration;
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
-use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
 use mimalloc::MiMalloc;
 use vortex::array::ExecutionCtx;
@@ -28,8 +27,11 @@ use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArray;
+use vortex_array::test_harness::mark_optimized;
+use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
+use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
@@ -81,6 +83,7 @@ where
             let mut cuda_ctx =
                 CudaSession::create_execution_ctx(&vortex_cuda::cuda_session()).unwrap();
             let runend_array = make_runend_array_typed::<T>(len, run_len, cuda_ctx.execution_ctx());
+            mark_optimized(runend_array.as_array(), &vortex_cuda::cuda_session()).unwrap();
 
             group.bench_with_input(
                 BenchmarkId::new(format!("cuda/runend/{type_name}_runlen_{run_len}"), len_str),
@@ -93,6 +96,7 @@ where
                         let mut cuda_ctx =
                             CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
                                 .unwrap()
+                                .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
                                 .with_launch_strategy(Arc::new(timed));
 
                         for _ in 0..iters {

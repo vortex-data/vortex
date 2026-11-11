@@ -13,6 +13,7 @@ use vortex_error::vortex_ensure_eq;
 
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
+use super::super::InterleaveSlots;
 use crate::array::Array;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
@@ -33,10 +34,11 @@ pub(super) fn execute(
 
     // Drive both selectors and every value to canonical encodings so we can operate on raw bits.
     let mut array = array;
-    array = require_child!(array, array.array_indices(), 0 => Primitive);
-    array = require_child!(array, array.row_indices(), 1 => Primitive);
+    array =
+        require_child!(array, array.array_indices(), InterleaveSlots::ARRAY_INDICES => Primitive);
+    array = require_child!(array, array.row_indices(), InterleaveSlots::ROW_INDICES => Primitive);
     for i in 0..num_values {
-        array = require_child!(array, array.value(i), i + 2 => Bool);
+        array = require_child!(array, array.value(i), InterleaveSlots::VALUES_OFFSET + i => Bool);
     }
 
     // Materialize each value's bits; the selectors gather one bit per output below.

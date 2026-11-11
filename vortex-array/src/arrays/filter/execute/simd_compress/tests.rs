@@ -8,7 +8,6 @@ use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
-use super::super::slice;
 use super::*;
 
 fn filter_slice_by_bitmap<T: Copy>(values: &[T], mask: &MaskValues) -> Option<Buffer<T>> {
@@ -43,12 +42,19 @@ fn patterns() -> [Pattern; 4] {
     ]
 }
 
+fn expected_values<T: Copy>(values: &[T], mask: &MaskValues) -> Vec<T> {
+    values
+        .iter()
+        .zip(mask.bit_buffer().iter())
+        .filter_map(|(&value, selected)| selected.then_some(value))
+        .collect()
+}
+
 fn check<T: Copy + PartialEq + std::fmt::Debug>(values: &[T], mask: &Mask) {
     let Some(mask) = mask_values(mask) else {
         return;
     };
-    let expected =
-        slice::filter_slice_by_bitmap(values, mask, &BufferAllocatorRef::statically_allocated());
+    let expected = expected_values(values, mask);
 
     if let Some(actual) = filter_slice_by_bitmap(values, mask) {
         assert_eq!(actual.as_slice(), expected.as_slice());
@@ -78,9 +84,27 @@ fn simd_matches_scalar(#[values(0, 5)] offset: usize, #[values(64, 151)] len: us
 }
 
 #[cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(miri)))]
+fn check_engagement<T: Copy + PartialEq + std::fmt::Debug>(
+    values: &[T],
+    mask: &MaskValues,
+    expected: bool,
+) {
+    let actual = filter_slice_by_bitmap(values, mask);
+    assert_eq!(actual.is_some(), expected);
+    if let Some(actual) = actual {
+        assert_eq!(actual.as_slice(), expected_values(values, mask));
+    }
+    let mut compacted = values.to_vec();
+    let written = filter_slice_mut_by_bitmap(&mut compacted, mask);
+    assert_eq!(written.is_some(), expected);
+    if let Some(written) = written {
+        assert_eq!(&compacted[..written], expected_values(values, mask));
+    }
+}
+
+#[cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(miri)))]
 #[test]
 fn engages_on_supported_cpus() {
-    let values: Vec<u32> = (0..256).collect();
     let mask = make_mask(256, 0, |i| i % 2 == 0);
     let mask = mask_values(&mask).expect("alternating mask is mixed");
 
@@ -89,7 +113,14 @@ fn engages_on_supported_cpus() {
     #[cfg(target_arch = "aarch64")]
     let expected = true;
 
-    assert_eq!(filter_slice_by_bitmap(&values, mask).is_some(), expected);
+    check_engagement(
+        &(0..256).map(|i| i as u8).collect::<Vec<_>>(),
+        mask,
+        expected,
+    );
+    check_engagement(&(0u16..256).collect::<Vec<_>>(), mask, expected);
+    check_engagement(&(0u32..256).collect::<Vec<_>>(), mask, expected);
+    check_engagement(&(0u64..256).collect::<Vec<_>>(), mask, expected);
 }
 
 #[test]
@@ -119,11 +150,7 @@ fn avx2_kernels_match_scalar() {
         values: &[T],
         mask: &MaskValues,
     ) {
-        let expected = slice::filter_slice_by_bitmap(
-            values,
-            mask,
-            &BufferAllocatorRef::statically_allocated(),
-        );
+        let expected = expected_values(values, mask);
 
         let mut out = vec![T::default(); mask.true_count() + SLACK_BYTES / size_of::<T>()];
         // SAFETY: AVX2 and POPCNT were detected above and the output has a vector of slack.

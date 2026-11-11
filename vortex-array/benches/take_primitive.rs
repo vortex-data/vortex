@@ -17,9 +17,11 @@ use rand_distr::Zipf;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -40,7 +42,11 @@ const GT_NUM_INDICES: &[usize] = &[1_000_000];
 /// Size of the source vector / dictionary values.
 const VECTOR_SIZE: &[usize] = &[16, 256, 2048, 8192];
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 #[divan::bench(sample_count = 200)]
 fn primitive_take_u32(bencher: Bencher) {
@@ -50,6 +56,8 @@ fn primitive_take_u32(bencher: Bencher) {
     let values = PrimitiveArray::from_iter(0u32..256).into_array();
     let indices =
         PrimitiveArray::from_iter((0..NUM_INDICES).map(|index| index as u32 & 255)).into_array();
+    mark_optimized(&values, &SESSION).unwrap();
+    mark_optimized(&indices, &SESSION).unwrap();
 
     bencher
         .counter(ItemsCount::new(NUM_INDICES))
@@ -74,6 +82,7 @@ fn dict_canonicalize_uniform<const NUM_VALUES: usize>(bencher: Bencher, num_indi
     let codes = PrimitiveArray::from_iter(rng.sample_iter(range).take(num_indices));
 
     let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
+    mark_optimized(dict.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
@@ -93,6 +102,7 @@ fn dict_canonicalize_zipfian<const NUM_VALUES: usize>(bencher: Bencher, num_indi
     );
 
     let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
+    mark_optimized(dict.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
@@ -117,6 +127,7 @@ fn dict_canonicalize_gt_u8(bencher: Bencher, num_indices: usize) {
             }),
     );
     let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
+    mark_optimized(dict.as_array(), &SESSION).unwrap();
 
     bencher
         .counter(ItemsCount::new(num_indices))

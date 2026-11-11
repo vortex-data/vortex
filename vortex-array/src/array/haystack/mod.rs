@@ -7,6 +7,7 @@ use std::hash::BuildHasher;
 
 use num_traits::ToPrimitive;
 use num_traits::WrappingSub;
+use rustc_hash::FxBuildHasher;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
@@ -18,7 +19,6 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashTable;
 use vortex_utils::aliases::hash_map::HashTableEntry;
-use vortex_utils::aliases::hash_map::RandomState;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -31,7 +31,6 @@ use crate::arrays::decimal::converted_buffer;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
-use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
@@ -116,7 +115,7 @@ fn new_state(elements: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Box<dyn
             })
         }
         DType::Decimal(decimal, _) => {
-            let values_type = DecimalType::smallest_decimal_value_type(decimal);
+            let values_type = decimal.canonical_values_type();
             let elements = elements.execute::<DecimalArray>(ctx)?;
             let all_valid = Mask::new_true(elements.len());
             match_each_decimal_value_type!(values_type, |T| {
@@ -230,7 +229,7 @@ impl<T: NativeDecimalType + SetInteger> HaystackState for DecimalSet<T> {
 /// removed: it helped short needles by about a tenth and cost long needles that share a prefix,
 /// whose heads collide, up to a quarter.
 struct BytesSet {
-    hasher: RandomState,
+    hasher: FxBuildHasher,
     /// The distinct whole views of the elements of at most 12 bytes.
     short: HashTable<u128>,
     /// The elements, for the bytes of the long ones.
@@ -241,7 +240,7 @@ struct BytesSet {
 
 impl BytesSet {
     fn new(elements: VarBinViewArray) -> Self {
-        let hasher = RandomState::default();
+        let hasher = FxBuildHasher;
         let views = elements.views();
         let buffers = data_buffers(&elements);
 

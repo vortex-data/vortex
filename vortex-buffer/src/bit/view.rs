@@ -519,13 +519,16 @@ mod tests {
 
     #[test]
     fn view_slice_preserves_offset() {
-        let buffer = BitBuffer::new_set(20);
-        let sliced = buffer.slice(5..17);
+        let buffer = BitBuffer::collect_bool(20, |i| i % 3 == 0);
         let view = buffer.as_view().slice(5..17);
+        let expected = BitBuffer::from_iter([
+            false, true, false, false, true, false, false, true, false, false, true, false,
+        ]);
 
-        assert_eq!(view.len(), sliced.len());
-        assert_eq!(view.true_count(), sliced.true_count());
-        assert_eq!(view.to_bit_buffer(), sliced);
+        assert_eq!(view.offset(), 5);
+        assert_eq!(view.len(), 12);
+        assert_eq!(view.true_count(), 4);
+        assert_eq!(view.to_bit_buffer(), expected);
     }
 
     #[test]

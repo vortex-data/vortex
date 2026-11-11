@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use rstest::rstest;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
@@ -20,6 +22,8 @@ use crate::compute::conformance::filter::SMALL_SIZE;
 use crate::compute::conformance::filter::test_filter_conformance;
 use crate::dtype::Nullability;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 // Consolidated parameterized test for degenerate (list_size=0) cases.
 #[rstest]
@@ -53,7 +57,7 @@ fn test_filter_degenerate_list_size_zero(
     #[case] mask_values: Vec<bool>,
     #[case] expected_len: usize,
 ) {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let new_validity = if matches!(validity, Validity::NonNullable) {
         Validity::NonNullable
     } else {
@@ -82,7 +86,7 @@ fn test_filter_degenerate_list_size_zero(
 
 #[test]
 fn test_filter_with_nulls() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let elements =
         PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(4), Some(5), Some(6)]);
     let validity = Validity::from_iter([true, false, true]);
@@ -110,7 +114,7 @@ fn test_filter_with_nulls() {
 
 #[test]
 fn test_filter_all_null_array() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // Create an array where all elements are null.
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let validity = Validity::AllInvalid;
@@ -127,7 +131,7 @@ fn test_filter_all_null_array() {
 
 #[test]
 fn test_filter_nested_fixed_size_lists() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // Create nested fixed-size lists: FSL<FSL<i32>>.
     // Inner lists are of size 2, outer lists are of size 3.
     // So we have 2 outer lists, each containing 3 inner lists, each containing 2 i32s.
@@ -182,7 +186,7 @@ fn test_filter_nested_fixed_size_lists() {
 #[case(create_fsl_single_element())]
 #[case(create_fsl_empty())]
 fn test_filter_fsl_conformance(#[case] array: ArrayRef) {
-    test_filter_conformance(&array, &mut array_session().create_execution_ctx());
+    test_filter_conformance(&array, &mut SESSION.create_execution_ctx());
 }
 
 // Helper functions for creating test arrays.
@@ -253,7 +257,7 @@ fn create_fsl_empty() -> ArrayRef {
 
 #[test]
 fn test_filter_all_null_various_list_sizes() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // Test filtering with all-null arrays of different list sizes.
     // The implementation returns ConstantArray only when validity_mask() is Mask::AllFalse.
 
@@ -292,7 +296,7 @@ fn test_filter_all_null_various_list_sizes() {
 
 #[test]
 fn test_mask_expansion_threshold_boundary() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // Test with list_size == 8 (the FSL_SPARSE_MASK_LIST_SIZE_THRESHOLD).
     let list_size = 8u32;
     let num_lists = 100;
@@ -369,7 +373,7 @@ fn test_mask_expansion_threshold_boundary() {
 // Test FSL-specific behavior with very large list sizes.
 #[test]
 fn test_filter_large_list_size() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // Test with list_size=100, which is significantly larger than typical use cases.
     let list_size = 100u32;
     let num_lists = 5;

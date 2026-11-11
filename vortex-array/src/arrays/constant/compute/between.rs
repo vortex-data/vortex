@@ -20,7 +20,7 @@ impl BetweenReduce for Constant {
         options: &BetweenOptions,
     ) -> VortexResult<Option<ArrayRef>> {
         // Can reduce if everything is constant
-        if let Some(((constant, lower), upper)) = Some(array.scalar().clone())
+        if let Some(((constant, lower), upper)) = Some(array.scalar())
             .zip(lower.as_constant())
             .zip(upper.as_constant())
         {

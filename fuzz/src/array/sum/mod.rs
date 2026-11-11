@@ -11,7 +11,6 @@ use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::dtype::BigCast;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
-use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::MAX_PRECISION;
 use vortex_array::dtype::Nullability::Nullable;
 use vortex_array::dtype::i256;
@@ -51,7 +50,7 @@ pub fn sum_canonical_array(
             let limit = i256::from_i128(10)
                 .checked_pow(output_dtype.precision().into())
                 .vortex_expect("10^76 fits in i256");
-            let values_type = DecimalType::smallest_decimal_value_type(&output_dtype);
+            let values_type = output_dtype.canonical_values_type();
             match_each_decimal_value_type!(values_type, |I| {
                 let limit = <I as BigCast>::from(limit)
                     .vortex_expect("precision limit fits native accumulator");

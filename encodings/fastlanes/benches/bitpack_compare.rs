@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Compare an already-packed `BitPackedArray` against a constant value. Compares the
-//! out-of-range fast path (constant outside `[0, 2^bit_width - 1]`) against an explicit
-//! "decompress, then compare" baseline.
+//! Compare an already-packed `BitPackedArray` against a constant outside
+//! `[0, 2^bit_width - 1]`, which the bit width alone decides without unpacking.
 //!
 //! Sized to finish quickly. Run with `cargo bench -p vortex-fastlanes --bench bitpack_compare`.
 
@@ -13,17 +12,21 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
-use divan::counter::ItemsCount;
 use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::BufferMut;
@@ -37,17 +40,22 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>();
     vortex_fastlanes::initialize(&session);
     session
 });
 
-const LENS: &[usize] = &[1024, 64 * 1024];
-const BIT_WIDTHS: &[u8] = &[4, 16];
+const LEN: usize = 64 * 1024;
+const BW: u8 = 16;
 
 /// Rebuild the array with its packed buffer copied to a page-aligned allocation.
 ///
@@ -76,9 +84,9 @@ fn page_aligned(array: BitPackedArray) -> BitPackedArray {
 
 /// Build a packed array of varied in-range values, plus an out-of-range constant RHS for
 /// the fast-path benches.
-fn build_inputs<const BW: u8>(len: usize) -> (ArrayRef, ArrayRef, ExecutionCtx) {
+fn build_inputs() -> (ArrayRef, ArrayRef, ExecutionCtx) {
     let mut ctx = SESSION.create_execution_ctx();
-    let buf: BufferMut<u32> = (0..len).map(|i| (i as u32) % (1 << BW)).collect();
+    let buf: BufferMut<u32> = (0..LEN).map(|i| (i as u32) % (1 << BW)).collect();
     let array = page_aligned(
         BitPackedData::encode(
             &PrimitiveArray::new(buf.freeze(), Validity::NonNullable).into_array(),
@@ -90,14 +98,17 @@ fn build_inputs<const BW: u8>(len: usize) -> (ArrayRef, ArrayRef, ExecutionCtx) 
     .into_array();
     // 1 << BW is just past the packable range, so the out-of-range fast path fires.
     let constant = 1u32 << BW;
-    let rhs = ConstantArray::new(constant, len).into_array();
+    let rhs = ConstantArray::new(constant, LEN).into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+    mark_optimized(&rhs, &SESSION).unwrap();
+
     (array, rhs, ctx)
 }
 
-#[divan::bench(args = LENS, consts = BIT_WIDTHS)]
-fn fast_eq_out_of_range<const BW: u8>(bencher: Bencher, len: usize) {
-    let (array, rhs, mut ctx) = build_inputs::<BW>(len);
-    bencher.counter(ItemsCount::new(len)).bench_local(|| {
+#[divan::bench]
+fn fast_eq_out_of_range(bencher: Bencher) {
+    let (array, rhs, mut ctx) = build_inputs();
+    bencher.bench_local(|| {
         array
             .clone()
             .binary(rhs.clone(), Operator::Eq)
@@ -107,42 +118,12 @@ fn fast_eq_out_of_range<const BW: u8>(bencher: Bencher, len: usize) {
     });
 }
 
-#[divan::bench(args = LENS, consts = BIT_WIDTHS)]
-fn baseline_eq<const BW: u8>(bencher: Bencher, len: usize) {
-    let (array, rhs, mut ctx) = build_inputs::<BW>(len);
-    bencher.counter(ItemsCount::new(len)).bench_local(|| {
-        // What the fallback would do: materialize the unpacked primitive, then run Arrow
-        // compare on it.
-        let primitive = array.clone().execute::<PrimitiveArray>(&mut ctx).unwrap();
-        primitive
-            .into_array()
-            .binary(rhs.clone(), Operator::Eq)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap()
-    });
-}
-
-#[divan::bench(args = LENS, consts = BIT_WIDTHS)]
-fn fast_lt_out_of_range<const BW: u8>(bencher: Bencher, len: usize) {
-    let (array, rhs, mut ctx) = build_inputs::<BW>(len);
-    bencher.counter(ItemsCount::new(len)).bench_local(|| {
+#[divan::bench]
+fn fast_lt_out_of_range(bencher: Bencher) {
+    let (array, rhs, mut ctx) = build_inputs();
+    bencher.bench_local(|| {
         array
             .clone()
-            .binary(rhs.clone(), Operator::Lt)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap()
-    });
-}
-
-#[divan::bench(args = LENS, consts = BIT_WIDTHS)]
-fn baseline_lt<const BW: u8>(bencher: Bencher, len: usize) {
-    let (array, rhs, mut ctx) = build_inputs::<BW>(len);
-    bencher.counter(ItemsCount::new(len)).bench_local(|| {
-        let primitive = array.clone().execute::<PrimitiveArray>(&mut ctx).unwrap();
-        primitive
-            .into_array()
             .binary(rhs.clone(), Operator::Lt)
             .unwrap()
             .execute::<BoolArray>(&mut ctx)

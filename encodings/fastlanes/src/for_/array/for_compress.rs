@@ -282,7 +282,6 @@ mod test {
 
     use itertools::Itertools;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
@@ -299,7 +298,7 @@ mod test {
     use crate::for_::tests::global;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -388,7 +387,7 @@ mod test {
         let expected_unsigned = PrimitiveArray::from_iter(unsigned);
         assert_eq!(encoded.as_slice::<u8>(), expected_unsigned.as_slice::<u8>());
 
-        let decompressed = decompress(&compressed, &mut ctx)?;
+        let decompressed = decompress(compressed.clone(), &mut ctx)?;
         array
             .as_slice::<i8>()
             .iter()

@@ -11,12 +11,14 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -27,7 +29,11 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 // Sized to keep CodSpeed simulation under 1ms per benchmark.
 const LEN: usize = 2_048;
@@ -46,6 +52,7 @@ fn varbinview_fill_null_outlined(bencher: Bencher) {
 
 fn bench_fill_null(bencher: Bencher, fill: &str) {
     let array = fixture(LEN);
+    mark_optimized(&array, &SESSION).unwrap();
     let fill = Scalar::utf8(fill, Nullability::NonNullable);
 
     bencher

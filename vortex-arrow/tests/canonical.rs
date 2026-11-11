@@ -28,11 +28,12 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::StructArray;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_buffer::buffer;
 use vortex_session::VortexSession;
 
 /// A shared session for these canonical tests, used to create execution contexts.
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 #[test]
 fn test_canonicalize_nested_struct() {
@@ -56,9 +57,9 @@ fn test_canonicalize_nested_struct() {
     ])
     .unwrap();
 
-    let arrow_struct = SESSION
-        .arrow()
-        .execute_arrow(nested_struct_array.into_array(), None, &mut ctx)
+    let arrow_struct = nested_struct_array
+        .into_array()
+        .execute_arrow(None, &mut ctx)
         .unwrap()
         .as_any()
         .downcast_ref::<ArrowStructArray>()
@@ -89,6 +90,24 @@ fn test_canonicalize_nested_struct() {
         inner_a.cloned().unwrap(),
         ArrowPrimitiveArray::from_iter([100i64])
     );
+    let inner_fields = vec![Field::new("inner_a", DataType::Int64, false)];
+    let expected = ArrowStructArray::new(
+        vec![
+            Field::new("a", DataType::UInt64, false),
+            Field::new("b", DataType::Struct(inner_fields.clone().into()), false),
+        ]
+        .into(),
+        vec![
+            Arc::new(ArrowPrimitiveArray::<UInt64Type>::from(vec![1])),
+            Arc::new(ArrowStructArray::new(
+                inner_fields.into(),
+                vec![Arc::new(ArrowPrimitiveArray::<Int64Type>::from(vec![100]))],
+                None,
+            )),
+        ],
+        None,
+    );
+    assert_eq!(arrow_struct, expected);
 }
 
 #[test]
@@ -129,10 +148,7 @@ fn roundtrip_struct() {
         .arrow()
         .from_arrow_array(Arc::clone(&arrow_struct), true)
         .unwrap();
-    let vortex_struct = SESSION
-        .arrow()
-        .execute_arrow(vortex_struct, None, &mut ctx)
-        .unwrap();
+    let vortex_struct = vortex_struct.execute_arrow(None, &mut ctx).unwrap();
     assert_eq!(&arrow_struct, &vortex_struct);
 }
 
@@ -159,9 +175,8 @@ fn roundtrip_list() {
         .from_arrow_array(Arc::clone(&arrow_list), true)
         .unwrap();
 
-    let rt_arrow_list = SESSION
-        .arrow()
-        .execute_arrow(vortex_list, Some(&list_field), &mut ctx)
+    let rt_arrow_list = vortex_list
+        .execute_arrow(Some(&list_field), &mut ctx)
         .unwrap();
 
     assert_eq!(&arrow_list, &rt_arrow_list);

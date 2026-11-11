@@ -67,9 +67,10 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::optimizer::ArrayOptimizer;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_cast_dict_to_wider_type() {
@@ -86,8 +87,7 @@ mod tests {
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
 
-        let decoded = casted.into_array().execute::<PrimitiveArray>(ctx).unwrap();
-        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([1i64, 2, 3, 2, 1]), ctx);
+        assert_arrays_eq!(casted, PrimitiveArray::from_iter([1i64, 2, 3, 2, 1]), ctx);
     }
 
     #[test]
@@ -103,6 +103,11 @@ mod tests {
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_option_iter([Some(10i64), None, Some(20), Some(10), None]),
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -122,9 +127,10 @@ mod tests {
 
         // Cast to NonNullable (should be identity since already NonNullable)
         let non_nullable = dict
-            .clone()
             .into_array()
             .cast(DType::Primitive(PType::I32, Nullability::NonNullable))
+            .unwrap()
+            .optimize_ctx(&SESSION)
             .unwrap();
         assert_eq!(
             non_nullable.dtype(),
@@ -145,6 +151,8 @@ mod tests {
         // Cast to Nullable
         let nullable = non_nullable
             .cast(DType::Primitive(PType::I32, Nullability::Nullable))
+            .unwrap()
+            .optimize_ctx(&SESSION)
             .unwrap();
         assert_eq!(
             nullable.dtype(),
@@ -165,17 +173,16 @@ mod tests {
         // Cast back to NonNullable
         let back_to_non_nullable = nullable
             .cast(DType::Primitive(PType::I32, Nullability::NonNullable))
+            .unwrap()
+            .optimize_ctx(&SESSION)
             .unwrap();
         assert_eq!(
             back_to_non_nullable.dtype(),
             &DType::Primitive(PType::I32, Nullability::NonNullable)
         );
 
-        // Verify values are unchanged
-        let original_values = dict.into_array().execute::<PrimitiveArray>(ctx).unwrap();
-
-        let final_values = back_to_non_nullable.execute::<PrimitiveArray>(ctx).unwrap();
-        assert_arrays_eq!(original_values, final_values, ctx);
+        let expected = PrimitiveArray::from_iter([10i32, 20, 30, 40]);
+        assert_arrays_eq!(back_to_non_nullable, expected, ctx);
     }
 
     #[rstest]

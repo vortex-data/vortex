@@ -10,6 +10,11 @@ Key files:
 - `vortex-cuda/src/arrow/canonical.rs`: canonical-array export to `ArrowDeviceArray`.
 - `vortex-test/e2e-cuda/src/lib.rs`: cuDF interop harness.
 
+## CUDA file scans
+
+Local pooled file reads use fixed 8 MiB chunks with concurrency 32. These are physical
+file-read/H2D chunks, independent of logical row ranges or scan batch sizes.
+
 ## Building cuDF for Arrow Device interop
 
 The `cudf-test-harness` repository provides prebuilt cuDF binaries for Arrow Device interop testing on

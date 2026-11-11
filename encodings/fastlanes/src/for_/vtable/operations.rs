@@ -73,12 +73,13 @@ mod test {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::scalar::Scalar;
     use vortex_session::VortexSession;
 
     use crate::FoRData;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -93,5 +94,11 @@ mod test {
         .unwrap();
         let expected = PrimitiveArray::from_iter([-100, 1100, 1500, 1900]);
         assert_arrays_eq!(for_arr, expected, &mut ctx);
+        for (index, value) in [-100i32, 1100, 1500, 1900].into_iter().enumerate() {
+            let scalar = for_arr.execute_scalar(index, &mut ctx).unwrap();
+            let expected = Scalar::from(value);
+            assert_eq!(scalar.dtype(), expected.dtype());
+            assert_eq!(scalar, expected);
+        }
     }
 }

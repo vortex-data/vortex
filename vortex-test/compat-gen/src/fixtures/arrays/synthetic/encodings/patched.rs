@@ -36,6 +36,7 @@ impl FlatLayoutFixture for PatchedFixture {
             PrimitiveArray::from_iter([0u32, 1024, 1025, 1026]).into_array(),
             PrimitiveArray::from_option_iter([Some(1u64), Some(2), Some(3), Some(4)]).into_array(),
             None,
+            ctx,
         )?;
 
         Ok(Patched::from_array_and_patches(array, &patches, ctx)?.into_array())

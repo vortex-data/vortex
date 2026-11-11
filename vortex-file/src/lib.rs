@@ -76,7 +76,7 @@
 //! │                            │  and array/layout/compression/encryption specs
 //! ├────────────────────────────┤
 //! │         Postscript         │  locators for the footer and user-metadata segments;
-//! │                            │  at most 65528 bytes
+//! │                            │  at most 65527 bytes
 //! ├────────────────────────────┤
 //! │     8-byte End of File     │  u16 version, u16 postscript length,
 //! │                            │  4 magic bytes 'VTXF'
@@ -113,6 +113,7 @@ mod pruning;
 mod read;
 /// Segment sources, caches, and sinks used by file readers and writers.
 pub mod segments;
+mod source;
 mod strategy;
 #[cfg(test)]
 mod tests;
@@ -129,7 +130,6 @@ pub use strategy::*;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
-use vortex_pco::Pco;
 use vortex_session::VortexSession;
 pub use writer::*;
 
@@ -143,12 +143,31 @@ mod forever_constant {
     /// The extension for Vortex files
     pub const VORTEX_FILE_EXTENSION: &str = "vortex";
 
-    /// The maximum length of a Vortex postscript in bytes
+    /// The maximum length of a Vortex postscript in bytes.
+    ///
+    /// The file ends with the postscript followed by the 8-byte EOF footer. Their combined
+    /// length must fit in a `u16`, so the postscript is limited to `u16::MAX - EOF_SIZE` bytes.
+    /// The footer flatbuffer precedes this tail and is outside this limit.
+    ///
+    /// ```text
+    /// +----------------+-------------+--------------------+----------------+
+    /// | Postscript (P) | Version (2) | Postscript len (2) | Magic VTXF (4) |
+    /// +----------------+-------------+--------------------+----------------+
+    ///                  |<------------ EOF_SIZE = 8 ---------------------->|
+    /// |<-------------------- P + 8 <= u16::MAX (65535) ------------------->|
+    ///
+    /// Version and postscript length are little-endian u16 fields.
+    /// The postscript length field stores P, excluding the EOF footer.
+    /// ```
     pub const MAX_POSTSCRIPT_SIZE: u16 = u16::MAX - 8;
     /// The magic bytes for a Vortex file
     pub const MAGIC_BYTES: [u8; 4] = *b"VTXF";
+    /// The size of the version field in bytes
+    pub const VERSION_BYTES: usize = 2;
+    /// The size of the postscript length field in bytes
+    pub const POSTSCRIPT_LEN_BYTES: usize = 2;
     /// The size of the EOF marker in bytes
-    pub const EOF_SIZE: usize = 8;
+    pub const EOF_SIZE: usize = VERSION_BYTES + POSTSCRIPT_LEN_BYTES + MAGIC_BYTES.len();
 
     #[cfg(test)]
     mod test {
@@ -159,6 +178,8 @@ mod forever_constant {
             assert_eq!(V1_FOOTER_FBS_SIZE, 32);
             assert_eq!(MAX_POSTSCRIPT_SIZE, 65527);
             assert_eq!(MAGIC_BYTES, *b"VTXF");
+            assert_eq!(VERSION_BYTES, 2);
+            assert_eq!(POSTSCRIPT_LEN_BYTES, 2);
             assert_eq!(EOF_SIZE, 8);
         }
     }
@@ -176,19 +197,15 @@ pub fn register_default_encodings(session: &VortexSession) {
     #[cfg(feature = "zstd")]
     vortex_zstd::initialize(session);
 
-    {
-        let arrays = session.arrays();
-        arrays.register(Pco);
-        if use_experimental_patches() {
-            arrays.register(Patched);
-        }
+    vortex_pco::initialize(session);
+    if use_experimental_patches() {
+        session.arrays().register(Patched);
     }
 
     vortex_alp::initialize(session);
     vortex_datetime_parts::initialize(session);
     vortex_decimal_byte_parts::initialize(session);
     vortex_fastlanes::initialize(session);
-    vortex_runend::initialize(session);
     vortex_sequence::initialize(session);
     vortex_sparse::initialize(session);
 
@@ -205,7 +222,6 @@ pub(crate) fn enable_all_registered_array_encodings(session: &VortexSession) {
     use vortex_edition::EditionInclusion;
     use vortex_edition::EditionSessionExt;
     use vortex_error::VortexExpect;
-    use vortex_error::vortex_err;
     use vortex_layout::session::LayoutSessionExt;
 
     const TEST_EDITION: EditionId = EditionId::new("test", 2026, 7, 0);
@@ -214,9 +230,9 @@ pub(crate) fn enable_all_registered_array_encodings(session: &VortexSession) {
     editions
         .declare_edition(Edition {
             id: TEST_EDITION,
+            immutable: true,
             min_library_version: None,
         })
-        .map_err(|error| vortex_err!("{error}"))
         .vortex_expect("test edition is valid");
     let component_ids = [
         (
@@ -245,7 +261,6 @@ pub(crate) fn enable_all_registered_array_encodings(session: &VortexSession) {
         for id in ids {
             editions
                 .declare_inclusion(EditionInclusion::new(kind, &id, TEST_EDITION))
-                .map_err(|error| vortex_err!("{error}"))
                 .vortex_expect("registered component has one test-edition inclusion");
         }
     }
@@ -263,30 +278,28 @@ pub(crate) fn enable_all_registered_array_encodings(session: &VortexSession) {
                 id,
                 TEST_EDITION,
             ))
-            .map_err(|error| vortex_err!("{error}"))
             .vortex_expect("default aggregate has one test-edition inclusion");
     }
     session
         .enable_edition(TEST_EDITION)
-        .map_err(|error| vortex_err!("{error}"))
         .vortex_expect("test edition is registered");
 }
 
 #[cfg(test)]
 mod default_encoding_tests {
     use vortex_array::VTable as _;
-    use vortex_array::array_session;
     use vortex_array::arrays::Filter;
     use vortex_array::optimizer::kernels::ArrayKernelsExt as _;
     use vortex_array::session::ArraySessionExt as _;
     use vortex_fsst::FSST;
     use vortex_onpair::OnPair;
+    use vortex_session::VortexSession;
 
     use crate::register_default_encodings;
 
     #[test]
     fn register_default_encodings_registers_external_execute_parent_kernels() {
-        let session = array_session();
+        let session = VortexSession::empty();
 
         assert!(!session.arrays().registry().contains_key(&FSST.id()));
         assert!(!session.kernels().has_execute_parent(Filter.id(), FSST.id()));

@@ -28,17 +28,20 @@ pub mod selection;
 pub mod strict_sorted_buffer;
 
 use std::any::Any;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use selection::Selection;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
+use vortex_array::scalar::Scalar;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
@@ -121,6 +124,24 @@ pub trait DataSource: 'static + Send + Sync {
 
     /// Returns the statistics for a given field.
     async fn field_statistics(&self, field_path: &FieldPath) -> VortexResult<StatsSet>;
+
+    /// Returns a stored aggregate partial over the unfiltered source field.
+    ///
+    /// The scalar has the aggregate's `partial_dtype`; callers merge partials and finalize
+    /// through the requested aggregate. Identity includes bound options. Missing partials,
+    /// incomplete coverage, and incompatible aggregates return [`Precision::Absent`], as
+    /// does the default implementation. Finalized legacy statistics are not partials.
+    ///
+    /// Lookup must not scan payloads. Precision describes the partial state; consumers must
+    /// respect the aggregate's approximation contract. Later scan filters and limits do not
+    /// change this source-level partial. A stored null partial is distinct from absence.
+    async fn field_statistic(
+        &self,
+        _field_path: &FieldPath,
+        _aggregate_fn: &AggregateFnRef,
+    ) -> VortexResult<Precision<Scalar>> {
+        Ok(Precision::Absent)
+    }
 }
 
 /// A request to scan a data source.
@@ -150,6 +171,13 @@ pub struct ScanRequest {
     /// order is completion order, so each partition applies the limit locally and the caller must
     /// trim the concatenated result.
     pub limit: Option<u64>,
+    /// The most splits of each partition to decode at once, in all.
+    ///
+    /// `None` keeps the reader's default, which scales with the machine's cores. Each split being
+    /// decoded holds the decoded chunks of every column it overlaps, so a scan that runs alongside
+    /// others, such as one task of several on a machine, can set this to bound its memory. It does
+    /// not bound I/O: segment reads for later splits may still be coalesced ahead of them.
+    pub split_concurrency: Option<NonZeroUsize>,
 }
 
 impl Default for ScanRequest {
@@ -163,6 +191,7 @@ impl Default for ScanRequest {
             ordered: false,
             limit: None,
             partition_range: None,
+            split_concurrency: None,
         }
     }
 }

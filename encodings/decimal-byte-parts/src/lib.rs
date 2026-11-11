@@ -3,6 +3,7 @@
 
 mod decimal_byte_parts;
 
+use decimal_byte_parts::compute::aggregate::DecimalBytePartsAggregateKernel;
 use decimal_byte_parts::compute::is_constant::DecimalBytePartsIsConstantKernel;
 /// This encoding allow compression of decimals using integer compression schemes.
 /// Decimals can be compressed by narrowing the signed decimal value into the smallest signed value,
@@ -16,6 +17,11 @@ pub use decimal_byte_parts::*;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
+use vortex_array::aggregate_fn::fns::min_max::MinMax;
+use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
@@ -26,6 +32,14 @@ pub fn initialize(session: &VortexSession) {
     // one that fits the array. Which of them a writer may emit is decided by its editions.
     session.arrays().register(DecimalBytePartsPlugin);
     compute::kernel::initialize(session);
+
+    for aggregate_id in [MinMax.id(), Min.id(), Max.id(), IsSorted.id(), Sum.id()] {
+        session.aggregate_fns().register_aggregate_kernel(
+            DecimalByteParts.id(),
+            Some(aggregate_id),
+            &DecimalBytePartsAggregateKernel,
+        );
+    }
 
     session.aggregate_fns().register_aggregate_kernel(
         DecimalByteParts.id(),

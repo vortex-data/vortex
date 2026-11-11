@@ -12,18 +12,17 @@ mod timed_launch_strategy;
 use std::mem::size_of;
 use std::ops::Add;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
-use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
 use mimalloc::MiMalloc;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
-use vortex::array::array_session;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
@@ -34,14 +33,19 @@ use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArray;
 use vortex::error::VortexExpect;
 use vortex::scalar::Scalar;
+use vortex::session::VortexSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
+use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
 use crate::bench_config::BENCH_SIZES;
 use crate::timed_launch_strategy::TimedLaunchStrategy;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_cuda::cuda_session);
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -62,7 +66,7 @@ where
         PrimitiveArray::new(Buffer::from(data), Validity::NonNullable).into_array();
 
     if bp && T::PTYPE != PType::U8 {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let child =
             BitPackedData::encode(&primitive_array, 8, &mut ctx).vortex_expect("failed to bitpack");
         FoR::try_new(child.into_array(), reference.into())
@@ -84,6 +88,7 @@ where
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
         let for_array = make_for_array_typed::<T>(len, false);
+        mark_optimized(for_array.as_array(), &vortex_cuda::cuda_session()).unwrap();
 
         group.bench_with_input(
             BenchmarkId::new(format!("cuda/for/{type_name}"), len_str),
@@ -124,6 +129,7 @@ where
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
         let for_array = make_for_array_typed::<T>(len, true);
+        mark_optimized(for_array.as_array(), &vortex_cuda::cuda_session()).unwrap();
 
         group.bench_with_input(
             BenchmarkId::new(format!("cuda/ffor/{type_name}"), len_str),
@@ -176,7 +182,11 @@ criterion::criterion_group! {
 }
 
 #[cuda_available]
-criterion::criterion_main!(benches);
+fn main() {
+    LazyLock::force(&SESSION);
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}
 
 #[cuda_not_available]
 fn main() {}

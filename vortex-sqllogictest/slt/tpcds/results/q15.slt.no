@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TR
+SELECT ca_zip,
+       sum(cs_sales_price)
+FROM catalog_sales,
+     customer,
+     customer_address,
+     date_dim
+WHERE cs_bill_customer_sk = c_customer_sk
+  AND c_current_addr_sk = ca_address_sk
+  AND (SUBSTRING(ca_zip, 1, 5) IN ('85669',
+                                '86197',
+                                '88274',
+                                '83405',
+                                '86475',
+                                '85392',
+                                '85460',
+                                '80348',
+                                '81792')
+       OR ca_state IN ('CA',
+                       'WA',
+                       'GA')
+       OR cs_sales_price > 500)
+  AND cs_sold_date_sk = d_date_sk
+  AND d_qoy = 2
+  AND d_year = 2001
+GROUP BY ca_zip
+ORDER BY ca_zip NULLS FIRST
+LIMIT 100;
+----
+30069 740.79
+30150 271.03
+30162 515.17
+30411 667.65
+31289 374.7
+31711 86.95
+33003 598.24
+34289 320.67
+35804 103.09
+36060 429.34
+36867 247.69
+36871 47.94
+37838 1227.05
+38048 607.43
+38222 345.75
+38252 546.9
+38883 364.14
+39101 196.62
+39583 394.73
+85669 623.22
+92724 580.11
+94167 690.17
+94642 435.13
+96534 566.81
+98579 423.56
+98877 645.99
+98883 217.28
+99237 1240.1

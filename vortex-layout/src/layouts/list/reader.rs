@@ -47,8 +47,20 @@ type OptionalArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 /// and above which we evaluate the expression over all rows and intersect afterward.
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
-/// Maximum number of outer-row scan ranges contributed by one list layout.
-const MAX_LIST_SPLIT_COUNT: u64 = 64;
+/// Minimum size of the outer-row split grid, so lists in small files still fan out.
+const MIN_LIST_SPLIT_COUNT: u64 = 64;
+
+/// Outer rows per grid cell that the grid grows to stay under for large files.
+const TARGET_LIST_SPLIT_ROWS: u64 = 8192;
+
+/// Number of cells in the outer-row split grid: at least [`MIN_LIST_SPLIT_COUNT`], and enough
+/// that a cell covers at most about [`TARGET_LIST_SPLIT_ROWS`] outer rows.
+fn list_split_grid_size(outer_row_count: u64) -> u64 {
+    outer_row_count
+        .div_ceil(TARGET_LIST_SPLIT_ROWS)
+        .next_power_of_two()
+        .max(MIN_LIST_SPLIT_COUNT)
+}
 
 /// Reader for [`ListLayout`].
 #[derive(Clone)]
@@ -376,13 +388,14 @@ impl LayoutReader for ListReader {
             )?;
 
             let row_range = split_range.row_range();
+            let grid_size = list_split_grid_size(self.layout.row_count());
             let mut last_split = None;
             for element_split in element_splits.into_sorted_deduped() {
                 let Some(split) = map_element_split_to_outer_grid(
                     element_split,
                     element_row_count,
                     self.layout.row_count(),
-                    MAX_LIST_SPLIT_COUNT,
+                    grid_size,
                 ) else {
                     continue;
                 };
@@ -603,13 +616,14 @@ fn apply_lengths_validity(
 #[cfg(test)]
 mod tests {
     use std::ops::Range;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
 
     use rstest::rstest;
     use vortex_array::ArrayContext;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::ListViewArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::Expression;
@@ -622,6 +636,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::LayoutRef;
@@ -632,7 +647,7 @@ mod tests {
     use crate::layouts::repartition::RepartitionStrategy;
     use crate::layouts::repartition::RepartitionWriterOptions;
     use crate::scan::split_by::SplitBy;
-    use crate::segments::SegmentFuture;
+    use crate::segments::CountingSegmentSource;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -837,7 +852,7 @@ mod tests {
     }
 
     fn layout_test_session() -> VortexSession {
-        vortex_array::array_session()
+        VortexSession::empty()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
     }
@@ -873,6 +888,7 @@ mod tests {
     }
 
     fn create_basic_list_array(nullable: bool) -> ArrayRef {
+        let mut ctx = SESSION.create_execution_ctx();
         let validity = if nullable {
             Validity::Array(BoolArray::from_iter([true, false, true]).into_array())
         } else {
@@ -883,12 +899,14 @@ mod tests {
             buffer![1i32, 2, 3, 4, 5].into_array(),
             buffer![0u32, 2, 4, 5].into_array(),
             validity,
+            &mut ctx,
         )
         .expect("array is valid")
         .into_array()
     }
 
     fn create_six_list_array() -> ArrayRef {
+        let mut ctx = SESSION.create_execution_ctx();
         let validity = Validity::Array(
             BoolArray::from_iter([true, false, true, false, true, true]).into_array(),
         );
@@ -897,6 +915,7 @@ mod tests {
             buffer![1i32, 2, 3, 4, 5, 6].into_array(),
             buffer![0u32, 1, 2, 3, 4, 5, 6].into_array(),
             validity,
+            &mut ctx,
         )
         .expect("array is valid")
         .into_array()
@@ -972,6 +991,7 @@ mod tests {
 
     /// Build a list with 5 rows and lengths [2, 3, 0, 3, 2].
     fn create_wider_list_array(nullable: bool) -> ArrayRef {
+        let mut ctx = SESSION.create_execution_ctx();
         let validity = if nullable {
             Validity::Array(BoolArray::from_iter([true, true, false, true, true]).into_array())
         } else {
@@ -981,6 +1001,7 @@ mod tests {
             buffer![10i32, 11, 20, 21, 22, 30, 31, 32, 40, 41].into_array(),
             buffer![0u32, 2, 5, 5, 8, 10].into_array(),
             validity,
+            &mut ctx,
         )
         .expect("array is valid")
         .into_array()
@@ -1048,29 +1069,43 @@ mod tests {
 
         let mut splits = (1..1_000)
             .filter_map(|split| {
-                map_element_split_to_outer_grid(split, 1_000, 100_000, MAX_LIST_SPLIT_COUNT)
+                map_element_split_to_outer_grid(split, 1_000, 100_000, MIN_LIST_SPLIT_COUNT)
             })
             .collect::<Vec<_>>();
         splits.dedup();
 
-        let expected = (1..MAX_LIST_SPLIT_COUNT)
-            .map(|grid_index| grid_index * 100_000 / MAX_LIST_SPLIT_COUNT)
+        let expected = (1..MIN_LIST_SPLIT_COUNT)
+            .map(|grid_index| grid_index * 100_000 / MIN_LIST_SPLIT_COUNT)
             .collect::<Vec<_>>();
         assert_eq!(splits, expected);
     }
 
+    #[rstest]
+    #[case::empty(0, 64)]
+    #[case::small(100_000, 64)]
+    #[case::floor_boundary(64 * 8192, 64)]
+    #[case::past_floor(64 * 8192 + 1, 128)]
+    #[case::million(1_000_000, 128)]
+    #[case::ten_million(10_000_000, 2048)]
+    fn split_grid_grows_with_row_count(#[case] outer_row_count: u64, #[case] expected: u64) {
+        assert_eq!(list_split_grid_size(outer_row_count), expected);
+    }
+
     #[tokio::test]
     async fn nested_list_propagates_element_splits() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let inner = ListArray::try_new(
             PrimitiveArray::from_iter(0..128_i32).into_array(),
             PrimitiveArray::from_iter((0..=8_u32).map(|idx| idx * 16)).into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )?
         .into_array();
         let outer = ListArray::try_new(
             inner,
             buffer![0u32, 2, 4, 6, 8].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )?
         .into_array();
 
@@ -1104,18 +1139,6 @@ mod tests {
         ))
     }
 
-    struct CountingSegmentSource {
-        inner: Arc<dyn SegmentSource>,
-        request_count: Arc<AtomicUsize>,
-    }
-
-    impl SegmentSource for CountingSegmentSource {
-        fn request(&self, id: crate::segments::SegmentId) -> SegmentFuture {
-            self.request_count.fetch_add(1, Ordering::Relaxed);
-            self.inner.request(id)
-        }
-    }
-
     /// The chunked-elements strategy must actually produce a chunked `elements` layout, otherwise
     /// the reader would silently take the whole-chunk path and the bounded read would be untested.
     #[tokio::test]
@@ -1140,12 +1163,8 @@ mod tests {
         let ctx = LayoutReaderContext::new();
         let (segments, layout, session) =
             write_layout(&chunked_elements_list_strategy(), list.clone()).await?;
-        let request_count = Arc::new(AtomicUsize::new(0));
-        let source = Arc::new(CountingSegmentSource {
-            inner: segments,
-            request_count: Arc::clone(&request_count),
-        });
-        let reader = layout.new_reader("".into(), source, &session, &ctx)?;
+        let source = Arc::new(CountingSegmentSource::new(segments));
+        let reader = layout.new_reader("".into(), Arc::clone(&source) as _, &session, &ctx)?;
 
         let mask = Mask::from_iter([true, false, false, false, false]);
         let expr = root().bind(reader.dtype())?;
@@ -1156,7 +1175,7 @@ mod tests {
         let expected = list.filter(mask)?;
         let mut exec_ctx = session.create_execution_ctx();
         assert_arrays_eq!(result, expected, &mut exec_ctx);
-        assert_eq!(request_count.load(Ordering::Relaxed), 2);
+        assert_eq!(source.requests(), 2);
         Ok(())
     }
 
@@ -1199,5 +1218,115 @@ mod tests {
         let mut exec_ctx = session.create_execution_ctx();
         assert_arrays_eq!(result, expected, &mut exec_ctx);
         Ok(())
+    }
+
+    /// Lists `[0, 1, 2]`, `[]`, `[3, 4, 5]`, `[6, 7]`, `[8, 9]`. When nullable, the third is null
+    /// and keeps its elements.
+    fn create_ten_element_list_array(nullable: bool) -> ArrayRef {
+        let mut ctx = SESSION.create_execution_ctx();
+        let validity = if nullable {
+            Validity::Array(BoolArray::from_iter([true, true, false, true, true]).into_array())
+        } else {
+            Validity::NonNullable
+        };
+        ListArray::try_new(
+            PrimitiveArray::from_iter(0..10i32).into_array(),
+            buffer![0u32, 3, 3, 6, 8, 10].into_array(),
+            validity,
+            &mut ctx,
+        )
+        .expect("array is valid")
+        .into_array()
+    }
+
+    /// Slices of one list share its whole `elements`, so every chunk but the first starts at a
+    /// nonzero offset and every chunk but the last leaves trailing elements unreferenced.
+    fn sliced_chunks(array: &ArrayRef, cuts: &[usize]) -> VortexResult<Vec<ArrayRef>> {
+        let mut bounds = vec![0];
+        bounds.extend_from_slice(cuts);
+        bounds.push(array.len());
+        bounds
+            .windows(2)
+            .map(|range| array.slice(range[0]..range[1]))
+            .collect()
+    }
+
+    fn chunked_flat() -> Arc<dyn LayoutStrategy> {
+        Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()))
+    }
+
+    /// A list strategy that keeps every chunk, so a multi-chunk stream reaches the list writer.
+    fn chunked_list_strategy() -> ListLayoutStrategy {
+        ListLayoutStrategy::default()
+            .with_elements(chunked_flat())
+            .with_offsets(chunked_flat())
+            .with_validity(chunked_flat())
+    }
+
+    async fn assert_round_trips<S: LayoutStrategy>(
+        strategy: &S,
+        chunks: Vec<ArrayRef>,
+        expected: ArrayRef,
+    ) -> VortexResult<()> {
+        let chunked = ChunkedArray::try_new(chunks, expected.dtype().clone())?.into_array();
+        let (segments, layout, session) = write_layout(strategy, chunked).await?;
+        let reader =
+            layout.new_reader("".into(), segments, &session, &LayoutReaderContext::new())?;
+
+        let len = expected.len();
+        let expr = root().bind(reader.dtype())?;
+        let result = reader
+            .projection_evaluation(&(0..len as u64), &expr, MaskFuture::new_true(len))?
+            .await?;
+        let mut exec_ctx = session.create_execution_ctx();
+        assert_arrays_eq!(result, expected, &mut exec_ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::one_cut(&[2], false, false)]
+    #[case::two_cuts(&[1, 3], false, false)]
+    #[case::null_and_empty_at_cuts(&[1, 3], true, false)]
+    #[case::list_view_chunks(&[1, 3], true, true)]
+    #[case::non_nullable_list_view_chunks(&[1, 3], false, true)]
+    #[tokio::test]
+    async fn sliced_list_chunks_round_trip(
+        #[case] cuts: &[usize],
+        #[case] nullable: bool,
+        #[case] as_list_view: bool,
+    ) -> VortexResult<()> {
+        let list = create_ten_element_list_array(nullable);
+        let source = if as_list_view {
+            let mut ctx = SESSION.create_execution_ctx();
+            list.clone()
+                .execute::<ListViewArray>(&mut ctx)?
+                .into_array()
+        } else {
+            list.clone()
+        };
+        let chunks = sliced_chunks(&source, cuts)?;
+        assert_round_trips(&chunked_list_strategy(), chunks, list).await
+    }
+
+    #[tokio::test]
+    async fn sliced_nested_list_chunks_round_trip() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let inner = ListArray::try_new(
+            PrimitiveArray::from_iter(0..12i32).into_array(),
+            buffer![0u32, 2, 2, 5, 7, 9, 12].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+        let outer = ListArray::try_new(
+            inner,
+            buffer![0u32, 2, 3, 5, 6].into_array(),
+            Validity::Array(BoolArray::from_iter([true, false, true, true]).into_array()),
+            &mut ctx,
+        )?
+        .into_array();
+
+        let strategy = chunked_list_strategy().with_elements(Arc::new(chunked_list_strategy()));
+        assert_round_trips(&strategy, sliced_chunks(&outer, &[1, 2])?, outer).await
     }
 }

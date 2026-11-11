@@ -88,10 +88,7 @@ pub(crate) fn decimal_numeric_result_dtype(
             let result_precision =
                 <i16 as From<u8>>::from(input.precision()) + <i16 as From<i8>>::from(result_scale);
             let result_precision = u8::try_from(result_precision).map_err(|_| {
-                vortex_err!(
-                    InvalidArgument:
-                    "decimal division result precision {result_precision} is invalid"
-                )
+                vortex_err!("decimal division result precision {result_precision} is invalid")
             })?;
             DecimalDType::try_new(result_precision.min(MAX_PRECISION), result_scale)
         }
@@ -109,7 +106,7 @@ pub(crate) fn checked_decimal_numeric(
     op: NumericOperator,
 ) -> Option<DecimalValue> {
     let work = decimal_numeric_work_dtype(input, result, op);
-    match_each_decimal_value_type!(DecimalType::smallest_decimal_value_type(&work), |W| {
+    match_each_decimal_value_type!(work.canonical_values_type(), |W| {
         let value = checked_at_width::<W>(lhs.cast::<W>()?, rhs.cast::<W>()?, result.scale(), op)?;
         DecimalValue::from(value).normalize(result)
     })

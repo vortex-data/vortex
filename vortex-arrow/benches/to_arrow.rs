@@ -18,7 +18,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::DictArray;
@@ -33,15 +33,16 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::session::ArraySession;
 use vortex_array::session::ArraySessionExt;
-#[expect(
-    deprecated,
-    reason = "benchmark comparing deprecated method with new one"
-)]
-use vortex_arrow::ArrowArrayExecutor;
+use vortex_array::test_harness::mark_optimized;
+use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSessionExt;
-#[allow(deprecated)]
-use vortex_arrow::dtype::ToArrowType as _;
+use vortex_arrow::ExecuteArrowExt;
+use vortex_buffer::Buffer;
+use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_onpair::DEFAULT_CONFIG;
@@ -58,10 +59,20 @@ fn main() {
 }
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = array_session();
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>();
+    vortex_decimal_byte_parts::initialize(&session);
     vortex_fsst::initialize(&session);
     vortex_onpair::initialize(&session);
     session.arrays().register(Zstd);
+
+    // The Arrow session is otherwise created on its first use, which would be inside the first
+    // benchmark that exports to Arrow, and so part of its measurement.
+    session.arrow();
+
     session
 });
 
@@ -87,7 +98,7 @@ fn schema() -> DType {
 }
 
 fn array() -> ArrayRef {
-    StructArray::from_fields(&[
+    let array = StructArray::from_fields(&[
         (
             "primitive",
             PrimitiveArray::from_iter(0i16..1024).into_array(),
@@ -107,15 +118,10 @@ fn array() -> ArrayRef {
         ),
     ])
     .unwrap()
-    .into_array()
-}
+    .into_array();
+    mark_optimized(&array, &SESSION).unwrap();
 
-#[divan::bench]
-fn to_arrow_dtype(bencher: Bencher) {
-    bencher.with_inputs(schema).bench_values(|dtype| {
-        #[expect(deprecated, reason = "benchmarking deprecated code path")]
-        dtype.to_arrow_dtype().unwrap()
-    });
+    array
 }
 
 #[allow(non_snake_case)]
@@ -257,6 +263,7 @@ const ARROW_STRING_LAYOUTS: &[ArrowStringLayout] =
 const STRING_ROWS: usize = 100_000;
 const STRING_CHUNKS: usize = 4;
 const DICTIONARY_SIZE: usize = 2_048;
+const SPARSE_DICTIONARY_ROWS: usize = 1_024;
 
 fn string_cases() -> Vec<StringCase> {
     iproduct!(
@@ -356,6 +363,20 @@ fn dictionary_strings(
         .into_array()
 }
 
+fn sparse_dictionary_strings(
+    encoding: StringEncoding,
+    validity: StringValidity,
+    ctx: &mut ExecutionCtx,
+) -> ArrayRef {
+    let values = encode_strings(structured_strings(STRING_ROWS, validity), encoding, ctx);
+    let stride = STRING_ROWS / SPARSE_DICTIONARY_ROWS;
+    let codes = PrimitiveArray::from_iter(
+        (0..SPARSE_DICTIONARY_ROWS).map(|index| u32::try_from(index * stride).unwrap()),
+    )
+    .into_array();
+    DictArray::try_new(codes, values).unwrap().into_array()
+}
+
 fn chunked_strings(
     encoding: StringEncoding,
     validity: StringValidity,
@@ -378,7 +399,7 @@ fn chunked_strings(
 
 fn string_array(case: StringCase) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
-    match case.structure {
+    let array = match case.structure {
         StringStructure::Flat => encode_strings(
             structured_strings(STRING_ROWS, case.validity),
             case.encoding,
@@ -386,7 +407,10 @@ fn string_array(case: StringCase) -> ArrayRef {
         ),
         StringStructure::Dict => dictionary_strings(case.encoding, case.validity, &mut ctx),
         StringStructure::Chunked => chunked_strings(case.encoding, case.validity, &mut ctx),
-    }
+    };
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 /// Measures export to Arrow offset arrays and Arrow view arrays.
@@ -401,18 +425,42 @@ fn string_export(bencher: Bencher, case: StringExportCase) {
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .input_counter(|(array, _)| ItemsCount::new(array.len()))
-        .bench_values(|(array, mut ctx)| {
-            SESSION
-                .arrow()
-                .execute_arrow(array, Some(&field), &mut ctx)
-                .unwrap()
-        });
+        .bench_values(|(array, mut ctx)| array.execute_arrow(Some(&field), &mut ctx).unwrap());
 }
 
 /// Measures a direct append to an offset builder.
 #[divan::bench(args = string_cases())]
 fn append_to_varbin_builder(bencher: Bencher, case: StringCase) {
     let array = string_array(case);
+
+    bencher
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
+        .input_counter(|(array, _)| ItemsCount::new(array.len()))
+        .bench_values(|(array, mut ctx)| {
+            let mut builder = VarBinBuilder::<i32>::with_capacity_in(
+                array.dtype().clone(),
+                array.len(),
+                ctx.allocator(),
+            );
+            array.append_to_builder(&mut builder, &mut ctx).unwrap();
+            builder.finish_into_varbin()
+        });
+}
+
+/// Value encodings with a take kernel that a sparse dictionary append can reach.
+const SPARSE_DICTIONARY_ENCODINGS: &[StringEncoding] = &[
+    StringEncoding::Offset,
+    StringEncoding::Fsst,
+    StringEncoding::OnPair,
+];
+
+/// Measures an append to an offset builder of a dictionary that selects far fewer rows than it
+/// holds, so the append takes the selected values instead of decoding every value.
+#[divan::bench(args = SPARSE_DICTIONARY_ENCODINGS)]
+fn append_sparse_dict_to_varbin_builder(bencher: Bencher, encoding: StringEncoding) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = sparse_dictionary_strings(encoding, StringValidity::Nullable, &mut ctx);
+    mark_optimized(&array, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
@@ -447,14 +495,135 @@ fn append_to_view_builder(bencher: Bencher, case: StringCase) {
         });
 }
 
-#[divan::bench]
-fn to_arrow_array(bencher: Bencher) {
+#[derive(Clone, Copy)]
+enum DecimalExportCase {
+    CanonicalI64P18,
+    /// The values of `CanonicalI64P18` under a dtype whose canonical width is `i128`.
+    CanonicalI128P38,
+    MspI32P18,
+    /// `MspI32P18` with every third row null and zeros in the null slots.
+    MspI32P18Nullable,
+    /// Every value fits an `i16` but needs precision 5, above the precision 4 that `i16` holds.
+    GapMspI16P10,
+}
+
+impl DecimalExportCase {
+    fn decimal_dtype(self) -> DecimalDType {
+        match self {
+            Self::CanonicalI64P18 | Self::MspI32P18 | Self::MspI32P18Nullable => {
+                DecimalDType::new(18, 2)
+            }
+            Self::CanonicalI128P38 => DecimalDType::new(38, 2),
+            Self::GapMspI16P10 => DecimalDType::new(10, 2),
+        }
+    }
+
+    fn array(self) -> ArrayRef {
+        let decimal_dtype = self.decimal_dtype();
+        match self {
+            Self::CanonicalI64P18 => DecimalArray::new(
+                spread_values::<i64>(-MAX_P18, MAX_P18),
+                decimal_dtype,
+                Validity::NonNullable,
+            )
+            .into_array(),
+            Self::CanonicalI128P38 => DecimalArray::new(
+                spread_values::<i128>(-MAX_P18, MAX_P18),
+                decimal_dtype,
+                Validity::NonNullable,
+            )
+            .into_array(),
+            Self::MspI32P18 => decimal_byte_parts(
+                PrimitiveArray::new(
+                    spread_values::<i32>(-999_999_999, 999_999_999),
+                    Validity::NonNullable,
+                ),
+                decimal_dtype,
+            ),
+            Self::MspI32P18Nullable => {
+                let validity = Validity::from_iter((0..DECIMAL_ROWS).map(|index| index % 3 != 0));
+                let values: Buffer<i32> = spread_values::<i32>(-999_999_999, 999_999_999)
+                    .iter()
+                    .enumerate()
+                    .map(|(index, &value)| if index % 3 == 0 { 0 } else { value })
+                    .collect();
+                decimal_byte_parts(PrimitiveArray::new(values, validity), decimal_dtype)
+            }
+            Self::GapMspI16P10 => decimal_byte_parts(
+                PrimitiveArray::new(
+                    spread_values::<i16>(10_000, i64::from(i16::MAX)),
+                    Validity::NonNullable,
+                ),
+                decimal_dtype,
+            ),
+        }
+    }
+}
+
+impl Display for DecimalExportCase {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::CanonicalI64P18 => "canonical_i64_p18",
+            Self::CanonicalI128P38 => "canonical_i128_p38",
+            Self::MspI32P18 => "msp_i32_p18",
+            Self::MspI32P18Nullable => "msp_i32_p18_nullable",
+            Self::GapMspI16P10 => "gap_msp_i16_p10",
+        })
+    }
+}
+
+const DECIMAL_EXPORT_CASES: &[DecimalExportCase] = &[
+    DecimalExportCase::CanonicalI64P18,
+    DecimalExportCase::CanonicalI128P38,
+    DecimalExportCase::MspI32P18,
+    DecimalExportCase::MspI32P18Nullable,
+    DecimalExportCase::GapMspI16P10,
+];
+
+const DECIMAL_ROWS: usize = 100_000;
+
+/// The largest magnitude of a `Decimal(18, _)` value.
+const MAX_P18: i64 = 999_999_999_999_999_999;
+
+/// `DECIMAL_ROWS` values spread across `min..=max` in an unsorted, fixed order.
+///
+/// Row `i` holds `min + (i * STEP) % (max - min + 1)`. `STEP` is the prime `2^61 - 1`, so it is
+/// coprime to every range size below it: consecutive rows land far apart, and the values repeat
+/// only after every value of the range appears.
+fn spread_values<T: TryFrom<i64>>(min: i64, max: i64) -> Buffer<T> {
+    const STEP: i128 = (1 << 61) - 1;
+    let count = i128::from(max) - i128::from(min) + 1;
+    (0..DECIMAL_ROWS)
+        .map(|index| {
+            let offset = (i128::try_from(index).unwrap() * STEP) % count;
+            let value = i64::try_from(i128::from(min) + offset).unwrap();
+            T::try_from(value).ok().unwrap()
+        })
+        .collect()
+}
+
+fn decimal_byte_parts(msp: PrimitiveArray, decimal_dtype: DecimalDType) -> ArrayRef {
+    DecimalByteParts::try_new(msp.into_array(), decimal_dtype)
+        .unwrap()
+        .into_array()
+}
+
+/// Measures export of one decimal array to an Arrow `Decimal128` array.
+#[divan::bench(args = DECIMAL_EXPORT_CASES)]
+fn decimal_export(bencher: Bencher, case: DecimalExportCase) {
+    let array = case.array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    let decimal_dtype = case.decimal_dtype();
+    let field = Field::new(
+        "value",
+        DataType::Decimal128(decimal_dtype.precision(), decimal_dtype.scale()),
+        array.dtype().is_nullable(),
+    );
     bencher
-        .with_inputs(|| (array(), SESSION.create_execution_ctx()))
-        .bench_values(|(array, mut ctx)| {
-            #[expect(deprecated, reason = "benchmarking deprecated code path")]
-            array.execute_arrow(None, &mut ctx).unwrap()
-        });
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
+        .input_counter(|(array, _)| ItemsCount::new(array.len()))
+        .bench_values(|(array, mut ctx)| array.execute_arrow(Some(&field), &mut ctx).unwrap());
 }
 
 #[allow(non_snake_case)]
@@ -462,10 +631,5 @@ fn to_arrow_array(bencher: Bencher) {
 fn ArrowExportVTable_execute_arrow(bencher: Bencher) {
     bencher
         .with_inputs(|| (array(), SESSION.create_execution_ctx()))
-        .bench_values(|(array, mut ctx)| {
-            SESSION
-                .arrow()
-                .execute_arrow(array, None, &mut ctx)
-                .unwrap()
-        })
+        .bench_values(|(array, mut ctx)| array.execute_arrow(None, &mut ctx).unwrap())
 }

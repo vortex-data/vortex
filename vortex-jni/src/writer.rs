@@ -15,6 +15,7 @@ use arrow_array::RecordBatch;
 use arrow_array::StructArray;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::FFI_ArrowSchema;
+use arrow_schema::DataType;
 use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use async_fs::File;
@@ -34,17 +35,11 @@ use jni::sys::jobject;
 use object_store::ObjectStore;
 use object_store::path::Path as ObjectStorePath;
 use vortex::array::ArrayRef;
-use vortex::array::scalar::PValue;
-use vortex::array::scalar::Scalar;
-use vortex::array::scalar::ScalarValue;
-use vortex::array::stats::StatsSet;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::expr::stats::Stat;
-use vortex::expr::stats::StatsProvider;
 use vortex::file::CountingVortexWrite;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
@@ -61,6 +56,8 @@ use vortex::utils::aliases::hash_map::HashMap;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::RUNTIME;
+use crate::buffer::exported_buffer_addresses;
+use crate::buffer::import_buffers;
 use crate::errors::JNIError;
 use crate::errors::try_or_throw;
 use crate::file::extract_metadata;
@@ -68,6 +65,9 @@ use crate::file::extract_properties;
 use crate::io::JavaWrite;
 use crate::object_store::make_object_store;
 use crate::session::session_ref;
+use crate::statistics::checked_jlong;
+use crate::statistics::column_statistics_to_java;
+use crate::statistics::footer_column_statistics;
 
 /// Capacity of the in-flight write queue. Small on purpose so that back-pressure from
 /// the writer is felt on the Java thread producing batches.
@@ -177,167 +177,12 @@ impl NativeWriter {
     }
 }
 
-fn checked_jlong(value: u64, name: &str) -> VortexResult<jlong> {
-    jlong::try_from(value).map_err(|_| vortex_err!("{name} exceeds Java long range: {value}"))
-}
-
-fn exact_count_jlong(
-    stats: Option<&StatsSet>,
-    dtype: Option<&DType>,
-    stat: Stat,
-) -> VortexResult<jlong> {
-    stats
-        .zip(dtype.and_then(|dt| stat.dtype(dt)))
-        .and_then(|(stats, dt)| stats.get_as::<u64>(stat, &dt).as_exact())
-        .map(|value| checked_jlong(value, stat.name()))
-        .transpose()
-        .map(|value| value.unwrap_or(-1))
-}
-
-fn big_integer<'local>(
-    env: &mut Env<'local>,
-    value: impl ToString,
-) -> Result<JObject<'local>, JNIError> {
-    let string = env.new_string(value.to_string())?;
-    Ok(env.new_object(
-        jni::jni_str!("java/math/BigInteger"),
-        jni::jni_sig!("(Ljava/lang/String;)V"),
-        &[JValue::Object(string.as_ref())],
-    )?)
-}
-
-fn scalar_to_java<'local>(
-    env: &mut Env<'local>,
-    scalar: Scalar,
-) -> Result<JObject<'local>, JNIError> {
-    if scalar.is_null() {
-        return Ok(JObject::null());
-    }
-    if scalar.dtype().is_extension() {
-        return scalar_to_java(env, scalar.as_extension().to_storage_scalar());
-    }
-
-    let Some(value) = scalar.value() else {
-        return Ok(JObject::null());
-    };
-    match value {
-        ScalarValue::Bool(value) => Ok(env.new_object(
-            jni::jni_str!("java/lang/Boolean"),
-            jni::jni_sig!("(Z)V"),
-            &[JValue::Bool(if *value { JNI_TRUE } else { JNI_FALSE })],
-        )?),
-        ScalarValue::Primitive(value) => match value {
-            PValue::U8(_) | PValue::U16(_) | PValue::I8(_) | PValue::I16(_) | PValue::I32(_) => {
-                Ok(env.new_object(
-                    jni::jni_str!("java/lang/Integer"),
-                    jni::jni_sig!("(I)V"),
-                    &[JValue::Int(value.cast::<i32>()?)],
-                )?)
-            }
-            PValue::U32(_) | PValue::I64(_) => Ok(env.new_object(
-                jni::jni_str!("java/lang/Long"),
-                jni::jni_sig!("(J)V"),
-                &[JValue::Long(value.cast::<i64>()?)],
-            )?),
-            PValue::U64(value) => big_integer(env, value),
-            PValue::F16(_) | PValue::F32(_) => Ok(env.new_object(
-                jni::jni_str!("java/lang/Float"),
-                jni::jni_sig!("(F)V"),
-                &[JValue::Float(value.cast::<f32>()?)],
-            )?),
-            PValue::F64(value) => Ok(env.new_object(
-                jni::jni_str!("java/lang/Double"),
-                jni::jni_sig!("(D)V"),
-                &[JValue::Double(*value)],
-            )?),
-        },
-        ScalarValue::Decimal(value) => {
-            let DType::Decimal(decimal_dtype, _) = scalar.dtype() else {
-                return Err(JNIError::Vortex(vortex_err!(
-                    "decimal statistic has non-decimal dtype {}",
-                    scalar.dtype()
-                )));
-            };
-            let unscaled = big_integer(env, value.as_i256())?;
-            Ok(env.new_object(
-                jni::jni_str!("java/math/BigDecimal"),
-                jni::jni_sig!("(Ljava/math/BigInteger;I)V"),
-                &[
-                    JValue::Object(&unscaled),
-                    JValue::Int(i32::from(decimal_dtype.scale())),
-                ],
-            )?)
-        }
-        ScalarValue::Utf8(value) => Ok(env.new_string(value.as_str())?.into()),
-        ScalarValue::Binary(value) => Ok(env.byte_array_from_slice(value.as_slice())?.into()),
-        ScalarValue::Tuple(_) | ScalarValue::Union(_) | ScalarValue::Variant(_) => {
-            Err(JNIError::Vortex(vortex_err!(
-                "cannot return nested scalar write statistic with dtype {} to Java",
-                scalar.dtype()
-            )))
-        }
-    }
-}
-
 fn write_summary_to_java<'local>(
     env: &mut Env<'local>,
     summary: &WriteSummary,
 ) -> Result<JObject<'local>, JNIError> {
-    let column_sizes = summary.compressed_column_sizes()?;
-    let file_stats = summary.footer().statistics();
-    let columns = env.new_object_array(
-        i32::try_from(column_sizes.len())
-            .map_err(|_| vortex_err!("column count exceeds Java array range"))?,
-        jni::jni_str!("dev/vortex/api/VortexColumnStatistics"),
-        JObject::null(),
-    )?;
-
-    for (column_index, compressed_size) in column_sizes.into_iter().enumerate() {
-        let (stats, dtype) = file_stats
-            .and_then(|all_stats| {
-                all_stats
-                    .stats_sets()
-                    .get(column_index)
-                    .zip(all_stats.dtypes().get(column_index))
-            })
-            .map_or((None, None), |(stats, dtype)| (Some(stats), Some(dtype)));
-        let null_count = exact_count_jlong(stats, dtype, Stat::NullCount)?;
-        let nan_count = exact_count_jlong(stats, dtype, Stat::NaNCount)?;
-        let lower_bound = stats
-            .zip(dtype)
-            .and_then(|(stats, dtype)| stats.as_typed_ref(dtype).get(Stat::Min).into_inner());
-        let upper_bound = stats
-            .zip(dtype)
-            .and_then(|(stats, dtype)| stats.as_typed_ref(dtype).get(Stat::Max).into_inner());
-        let column = env.with_local_frame_returning_local::<_, JObject, JNIError>(16, |env| {
-            let lower_bound = match lower_bound {
-                Some(value) => scalar_to_java(env, value)?,
-                None => JObject::null(),
-            };
-            let upper_bound = match upper_bound {
-                Some(value) => scalar_to_java(env, value)?,
-                None => JObject::null(),
-            };
-            Ok(env.new_object(
-                jni::jni_str!("dev/vortex/api/VortexColumnStatistics"),
-                jni::jni_sig!("(IJJJJLjava/lang/Object;Ljava/lang/Object;)V"),
-                &[
-                    JValue::Int(
-                        i32::try_from(column_index)
-                            .map_err(|_| vortex_err!("column index exceeds Java int range"))?,
-                    ),
-                    JValue::Long(checked_jlong(compressed_size, "compressed column size")?),
-                    JValue::Long(checked_jlong(summary.row_count(), "row count")?),
-                    JValue::Long(null_count),
-                    JValue::Long(nan_count),
-                    JValue::Object(&lower_bound),
-                    JValue::Object(&upper_bound),
-                ],
-            )?)
-        })?;
-        columns.set_element(env, column_index, &column)?;
-        env.delete_local_ref(column);
-    }
+    let statistics = footer_column_statistics(summary.footer());
+    let columns = column_statistics_to_java(env, summary.footer(), statistics)?;
 
     Ok(env.new_object(
         jni::jni_str!("dev/vortex/api/VortexWriteSummary"),
@@ -369,8 +214,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
         }
         let session = unsafe { session_ref(session_ptr) };
 
-        let ffi_schema = unsafe { &*(arrow_schema_addr as *const FFI_ArrowSchema) };
-        let arrow_schema = Arc::new(Schema::try_from(ffi_schema)?);
+        // Owned, so dropping it releases the exporter's copy as the C data interface requires.
+        let ffi_schema =
+            unsafe { FFI_ArrowSchema::from_raw(arrow_schema_addr as *mut FFI_ArrowSchema) };
+        let arrow_schema = Arc::new(Schema::try_from(&ffi_schema)?);
         let write_schema = session.arrow().from_arrow_schema(arrow_schema.as_ref())?;
 
         let file_path: String = uri.try_to_string(env)?;
@@ -456,8 +303,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
         }
         let session = unsafe { session_ref(session_ptr) };
 
-        let ffi_schema = unsafe { &*(arrow_schema_addr as *const FFI_ArrowSchema) };
-        let arrow_schema = Arc::new(Schema::try_from(ffi_schema)?);
+        // Owned, so dropping it releases the exporter's copy as the C data interface requires.
+        let ffi_schema =
+            unsafe { FFI_ArrowSchema::from_raw(arrow_schema_addr as *mut FFI_ArrowSchema) };
+        let arrow_schema = Arc::new(Schema::try_from(&ffi_schema)?);
         let write_schema = session.arrow().from_arrow_schema(arrow_schema.as_ref())?;
 
         let metadata = extract_metadata(env, &metadata)?;
@@ -509,13 +358,45 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_writeBatch(
 
         let ffi_array =
             unsafe { FFI_ArrowArray::from_raw(arrow_array_addr as *mut FFI_ArrowArray) };
-        let ffi_schema = unsafe { &*(arrow_schema_addr as *const FFI_ArrowSchema) };
+        // Take the schema as well as the array. As the consumer, native code must release both, and dropping the
+        // owned schema does that; borrowing it would leak the exporter's copy on every batch.
+        let ffi_schema =
+            unsafe { FFI_ArrowSchema::from_raw(arrow_schema_addr as *mut FFI_ArrowSchema) };
 
-        let array_data = unsafe { arrow_array::ffi::from_ffi(ffi_array, ffi_schema) }
+        let array_data = unsafe { arrow_array::ffi::from_ffi(ffi_array, &ffi_schema) }
             .map_err(|e| JNIError::Vortex(vortex_err!("failed to import Arrow FFI data: {e}")))?;
 
         let batch = RecordBatch::from(StructArray::from(array_data));
         writer.write_record_batch(batch)?;
+        Ok(JNI_TRUE)
+    })
+}
+
+/// Import a Java Arrow batch with per-allocation ownership instead of a shared batch owner.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeWriter_writeBatchBuffers(
+    mut env: EnvUnowned,
+    _class: JClass,
+    writer_ptr: jlong,
+    arrow_array_addr: jlong,
+    buffers: JObject,
+) -> jboolean {
+    if writer_ptr <= 0 {
+        return JNI_FALSE;
+    }
+    try_or_throw(&mut env, |env| {
+        // SAFETY: Java validates the root schema against the writer's schema and holds the
+        // writer monitor for this call. Moving the array clears its release callback.
+        let writer = unsafe { NativeWriter::from_ptr(writer_ptr) };
+        let array = unsafe { FFI_ArrowArray::from_raw(arrow_array_addr as *mut FFI_ArrowArray) };
+        let exported_addresses = exported_buffer_addresses(&array);
+        let dtype = DataType::Struct(writer.arrow_schema.fields().clone());
+        // SAFETY: the Java export keeps all buffers alive through the import, and the
+        // caller validated its schema before exporting the array.
+        let data = unsafe { arrow_array::ffi::from_ffi_and_data_type(array, dtype) }
+            .map_err(|e| JNIError::Vortex(vortex_err!("failed to import Arrow FFI data: {e}")))?;
+        let data = import_buffers(env, data, &exported_addresses, buffers)?;
+        writer.write_record_batch(RecordBatch::from(StructArray::from(data)))?;
         Ok(JNI_TRUE)
     })
 }

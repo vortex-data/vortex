@@ -20,12 +20,16 @@ fn build_with_validity(
     new_dtype: DType,
     new_validity: Validity,
 ) -> VortexResult<ArrayRef> {
-    Ok(VarBinArray::try_new(
-        array.offsets().clone(),
-        array.bytes().clone(),
-        new_dtype,
-        new_validity,
-    )?
+    // SAFETY: the offsets and bytes are unchanged from a valid array, and the validity was cast
+    // from the array's own validity, so it has the same length.
+    Ok(unsafe {
+        VarBinArray::new_unchecked_from_handle(
+            array.offsets().clone(),
+            array.bytes_handle().clone(),
+            new_dtype,
+            new_validity,
+        )
+    }
     .into_array())
 }
 
@@ -77,12 +81,14 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::VarBinArray;
+    use crate::arrays::VarBinViewArray;
+    use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case(
@@ -105,7 +111,11 @@ mod tests {
         let varbin = VarBinArray::from_iter(vec![Some("a"), Some("b"), Some("c")], source);
 
         let res = varbin.into_array().cast(target.clone());
-        assert_eq!(res.unwrap().dtype(), &target);
+        assert_arrays_eq!(
+            res.unwrap(),
+            VarBinViewArray::from_iter([Some("a"), Some("b"), Some("c")], target),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[rstest]

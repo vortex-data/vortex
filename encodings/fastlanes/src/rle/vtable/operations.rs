@@ -41,6 +41,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -52,7 +53,7 @@ mod tests {
     use crate::RLEData;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -120,8 +121,6 @@ mod tests {
 
     #[test]
     fn test_scalar_at() {
-        use vortex_array::assert_arrays_eq;
-
         let array = fixture::rle_array();
         let expected = PrimitiveArray::from_iter([10u32, 10, 20, 20, 20, 30, 10]);
         assert_arrays_eq!(
@@ -129,12 +128,18 @@ mod tests {
             expected,
             &mut SESSION.create_execution_ctx()
         );
+        for (index, value) in [10u32, 10, 20, 20, 20, 30, 10].into_iter().enumerate() {
+            let scalar = array
+                .execute_scalar(index, &mut SESSION.create_execution_ctx())
+                .unwrap();
+            let expected = Scalar::from(value);
+            assert_eq!(scalar.dtype(), expected.dtype());
+            assert_eq!(scalar, expected);
+        }
     }
 
     #[test]
     fn test_scalar_at_with_nulls() {
-        use vortex_array::assert_arrays_eq;
-
         let array = fixture::rle_array_with_nulls();
         let expected = PrimitiveArray::from_option_iter([
             Some(10u32),
@@ -150,30 +155,64 @@ mod tests {
             expected,
             &mut SESSION.create_execution_ctx()
         );
+        for (index, value) in [
+            Some(10u32),
+            None,
+            Some(20),
+            Some(20),
+            None,
+            Some(30),
+            Some(10),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let scalar = array
+                .execute_scalar(index, &mut SESSION.create_execution_ctx())
+                .unwrap();
+            let expected = Scalar::from(value);
+            assert_eq!(scalar.dtype(), expected.dtype());
+            assert_eq!(scalar, expected);
+        }
     }
 
     #[test]
     fn test_scalar_at_slice() {
-        use vortex_array::assert_arrays_eq;
-
         let array = fixture::rle_array();
         let sliced = array.slice(2..6).unwrap(); // [20, 20, 20, 30]
 
         assert_eq!(sliced.len(), 4);
         let expected = PrimitiveArray::from_iter([20u32, 20, 20, 30]);
         assert_arrays_eq!(sliced, expected, &mut SESSION.create_execution_ctx());
+        for (index, value) in [20u32, 20, 20, 30].into_iter().enumerate() {
+            let scalar = sliced
+                .execute_scalar(index, &mut SESSION.create_execution_ctx())
+                .unwrap();
+            let expected = Scalar::from(value);
+            assert_eq!(scalar.dtype(), expected.dtype());
+            assert_eq!(scalar, expected);
+        }
     }
 
     #[test]
     fn test_scalar_at_slice_with_nulls() {
-        use vortex_array::assert_arrays_eq;
-
         let array = fixture::rle_array_with_nulls();
         let sliced = array.slice(2..6).unwrap(); // [20, 20, null, 30]
 
         assert_eq!(sliced.len(), 4);
         let expected = PrimitiveArray::from_option_iter([Some(20u32), Some(20), None, Some(30)]);
         assert_arrays_eq!(sliced, expected, &mut SESSION.create_execution_ctx());
+        for (index, value) in [Some(20u32), Some(20), None, Some(30)]
+            .into_iter()
+            .enumerate()
+        {
+            let scalar = sliced
+                .execute_scalar(index, &mut SESSION.create_execution_ctx())
+                .unwrap();
+            let expected = Scalar::from(value);
+            assert_eq!(scalar.dtype(), expected.dtype());
+            assert_eq!(scalar, expected);
+        }
     }
 
     #[test]
@@ -284,22 +323,10 @@ mod tests {
     fn test_slice_decode_with_nulls() {
         let mut ctx = SESSION.create_execution_ctx();
         let array = fixture::rle_array_with_nulls();
-        let sliced = array
-            .slice(1..4)
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap(); // [null, 20, 20]
+        let sliced = array.slice(1..4).unwrap(); // [null, 20, 20]
 
         let expected = PrimitiveArray::from_option_iter([Option::<u32>::None, Some(20), Some(20)]);
         assert_arrays_eq!(sliced.into_array(), expected.into_array(), &mut ctx);
-    }
-
-    #[test]
-    fn test_slice_preserves_dtype() {
-        let array = fixture::rle_array();
-        let sliced = array.slice(1..4).unwrap();
-
-        assert_eq!(array.dtype(), sliced.dtype());
     }
 
     #[test]

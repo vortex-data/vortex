@@ -76,7 +76,7 @@ namespace {
 const vx_struct_fields *struct_fields_or_throw(const vx_dtype *dtype) {
     const vx_struct_fields *fields = vx_dtype_struct_dtype(dtype);
     if (fields == nullptr) {
-        throw VortexException("dtype is not a struct", ErrorCode::MismatchedTypes);
+        throw VortexException("dtype is not a struct");
     }
     return fields;
 }
@@ -92,12 +92,11 @@ std::vector<StructField> DataType::fields() const {
     for (uint64_t idx = 0; idx < fields_size; ++idx) {
         const vx_view name = vx_struct_fields_field_name(fields.get(), idx);
         if (name.ptr == nullptr) {
-            throw VortexException("error getting field name at index "s + std::to_string(idx),
-                                  ErrorCode::Other);
+            throw VortexException("error getting field name at index "s + std::to_string(idx));
         }
         const vx_dtype *dtype = vx_struct_fields_field_dtype(fields.get(), idx);
         if (dtype == nullptr) {
-            throw VortexException("error getting dtype at index "s + std::to_string(idx), ErrorCode::Other);
+            throw VortexException("error getting dtype at index "s + std::to_string(idx));
         }
         out.push_back(StructField {{name.ptr, name.len}, DataType(dtype)});
     }
@@ -107,7 +106,7 @@ std::vector<StructField> DataType::fields() const {
 DataType DataType::list_element() const {
     const vx_dtype *element = vx_dtype_list_element(handle_.get());
     if (element == nullptr) {
-        throw VortexException("dtype is not a list", ErrorCode::MismatchedTypes);
+        throw VortexException("dtype is not a list");
     }
     return DataType(element);
 }
@@ -115,7 +114,7 @@ DataType DataType::list_element() const {
 DataType DataType::fixed_size_list_element() const {
     const vx_dtype *element = vx_dtype_fixed_size_list_element(handle_.get());
     if (element == nullptr) {
-        throw VortexException("dtype is not a fixed-size list", ErrorCode::MismatchedTypes);
+        throw VortexException("dtype is not a fixed-size list");
     }
     return DataType(element);
 }

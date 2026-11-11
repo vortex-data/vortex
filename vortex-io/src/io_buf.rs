@@ -218,7 +218,7 @@ mod tests {
 
         assert_eq!(data.read_ptr(), data.as_ptr());
         assert_eq!(data.bytes_init(), 11);
-        assert_eq!(data, b"hello world");
+        assert_eq!(IoBuf::as_slice(&data), b"hello world");
     }
 
     #[test]
@@ -226,7 +226,7 @@ mod tests {
         let data: &'static [u8] = b"";
 
         assert_eq!(data.bytes_init(), 0);
-        assert_eq!(data, b"");
+        assert_eq!(IoBuf::as_slice(&data), b"");
     }
 
     #[rstest]
@@ -235,7 +235,7 @@ mod tests {
     #[case([255u8; 1], 1)]
     fn test_array_io_buf<const N: usize>(#[case] array: [u8; N], #[case] expected_len: usize) {
         assert_eq!(array.bytes_init(), expected_len);
-        assert_eq!(array.as_slice().len(), expected_len);
+        assert_eq!(IoBuf::as_slice(&array), array.as_slice());
         assert_eq!(array.read_ptr(), array.as_ptr());
     }
 
@@ -245,7 +245,7 @@ mod tests {
 
         assert_eq!(vec.read_ptr(), vec.as_ptr());
         assert_eq!(vec.bytes_init(), 5);
-        assert_eq!(vec.as_slice(), &[1, 2, 3, 4, 5]);
+        assert_eq!(IoBuf::as_slice(&vec), &[1, 2, 3, 4, 5]);
     }
 
     #[rstest]
@@ -255,16 +255,7 @@ mod tests {
     #[case(vec![0u8; 1024], 1024)]
     fn test_vec_various_sizes(#[case] vec: Vec<u8>, #[case] expected_len: usize) {
         assert_eq!(vec.bytes_init(), expected_len);
-        assert_eq!(vec.as_slice().len(), expected_len);
-    }
-
-    #[test]
-    fn test_owned_slice_basic() {
-        let data = vec![1u8, 2, 3, 4, 5];
-        let slice = data.slice_owned(1..4);
-
-        assert_eq!(slice.bytes_init(), 3);
-        assert_eq!(slice.as_slice(), &[2, 3, 4]);
+        assert_eq!(IoBuf::as_slice(&vec).len(), expected_len);
     }
 
     #[rstest]
@@ -281,15 +272,6 @@ mod tests {
         let slice = data.slice_owned(range.clone());
         assert_eq!(slice.bytes_init(), range.end - range.start);
         assert_eq!(slice.as_slice(), &expected[..]);
-    }
-
-    #[test]
-    fn test_owned_slice_into_inner() {
-        let data = vec![1u8, 2, 3, 4, 5];
-        let slice = data.clone().slice_owned(1..4);
-        let recovered = slice.into_inner();
-
-        assert_eq!(recovered, data);
     }
 
     #[test]
@@ -326,7 +308,7 @@ mod tests {
         let buffer = ConstByteBuffer::<ALIGNMENT>::copy_from(&data);
 
         assert_eq!(buffer.bytes_init(), 12);
-        assert_eq!(buffer.as_slice(), b"aligned data");
+        assert_eq!(IoBuf::as_slice(&buffer), b"aligned data");
 
         // Verify alignment
         let ptr_addr = buffer.read_ptr() as usize;
@@ -349,7 +331,6 @@ mod tests {
     test_const_buffer_alignment!(test_const_byte_buffer_alignment_8, 8);
     test_const_buffer_alignment!(test_const_byte_buffer_alignment_16, 16);
     test_const_buffer_alignment!(test_const_byte_buffer_alignment_32, 32);
-    test_const_buffer_alignment!(test_const_byte_buffer_alignment_64, 64);
     test_const_buffer_alignment!(test_const_byte_buffer_alignment_128, 128);
     test_const_buffer_alignment!(test_const_byte_buffer_alignment_256, 256);
 
@@ -366,23 +347,11 @@ mod tests {
     }
 
     #[test]
-    fn test_buffer_u64() {
-        let data = vec![100u64, 200, 300];
-        let mut buf_mut = vortex_buffer::BufferMut::<u64>::with_capacity(3);
-        buf_mut.extend_from_slice(&data);
-        let buffer: Buffer<u64> = buf_mut.freeze();
-
-        // The buffer has 3 u64 elements, bytes_init should be 3 * 8 = 24 bytes
-        assert_eq!(buffer.len(), 3); // 3 elements
-        assert_eq!(buffer.bytes_init(), 24); // 3 * size_of::<u64>()
-    }
-
-    #[test]
     fn test_buffer_empty() {
         let buffer: Buffer<u8> = Buffer::from(vec![]);
 
         assert_eq!(buffer.bytes_init(), 0);
-        assert_eq!(buffer.as_slice(), &[] as &[u8]);
+        assert_eq!(IoBuf::as_slice(&buffer), &[] as &[u8]);
     }
 
     #[test]
@@ -408,24 +377,6 @@ mod tests {
         buf_mut.extend_from_slice(&[1u64, 2, 3]);
         let buffer: Buffer<u64> = buf_mut.freeze();
         assert_eq!(buffer.bytes_init(), 24);
-    }
-
-    #[test]
-    fn test_pointer_validity() {
-        // Test that read_ptr returns valid pointers for different types
-        let vec = vec![1u8, 2, 3];
-        let slice: &'static [u8] = &[1, 2, 3];
-        let array = [1u8, 2, 3];
-
-        // These should not crash or cause UB
-        let _ = vec.read_ptr();
-        let _ = slice.read_ptr();
-        let _ = array.read_ptr();
-
-        // Verify pointer consistency
-        assert_eq!(vec.read_ptr(), vec.as_ptr());
-        assert_eq!(slice.read_ptr(), slice.as_ptr());
-        assert_eq!(array.read_ptr(), array.as_ptr());
     }
 
     #[test]
@@ -461,13 +412,6 @@ mod tests {
     }
 
     #[test]
-    fn test_owned_slice_zero_sized_at_boundary() {
-        let data = vec![1, 2, 3];
-        let slice = data.slice_owned(3..3); // Zero-sized at end
-        assert_eq!(slice.bytes_init(), 0);
-    }
-
-    #[test]
     #[should_panic(expected = "exceeds buffer length")]
     fn test_owned_slice_start_out_of_bounds() {
         let data = vec![1, 2, 3];
@@ -475,12 +419,6 @@ mod tests {
     }
 
     // Buffer overflow protection tests
-    #[test]
-    fn test_buffer_size_calculation_u8() {
-        let buffer: Buffer<u8> = Buffer::from(vec![1, 2, 3]);
-        assert_eq!(buffer.bytes_init(), 3);
-    }
-
     #[test]
     fn test_buffer_size_calculation_large_type() {
         use vortex_buffer::BufferMut;

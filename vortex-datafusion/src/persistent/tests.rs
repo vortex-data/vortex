@@ -2,36 +2,61 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use anyhow::anyhow;
-use arrow_schema::Field;
-use arrow_schema::Schema;
+use datafusion::arrow::array::Array;
+use datafusion::arrow::array::DictionaryArray;
 use datafusion::arrow::array::Int32Array;
+use datafusion::arrow::array::ListArray;
 use datafusion::arrow::array::RecordBatch;
+use datafusion::arrow::array::RunArray;
+use datafusion::arrow::array::StringArray;
+use datafusion::arrow::array::UInt32Array;
 use datafusion::arrow::datatypes::DataType;
-use datafusion::arrow::util::display::array_value_to_string;
+use datafusion::arrow::datatypes::Field;
+use datafusion::arrow::datatypes::Int32Type;
+use datafusion::arrow::datatypes::Schema;
+use datafusion::arrow::datatypes::UInt32Type;
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
 use datafusion_common::GetExt;
+use datafusion_common::Result as DFResult;
+use datafusion_common::arrow::compute::cast;
 use datafusion_common::arrow::compute::concat_batches;
+use datafusion_datasource::file_scan_config::FileScanConfig;
+use datafusion_datasource::source::DataSourceExec;
+use datafusion_physical_expr::PhysicalExprRef;
+use datafusion_physical_expr::projection::ProjectionExprs;
+use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
+use datafusion_physical_plan::filter::FilterExec;
 use insta::assert_snapshot;
 use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
 use object_store::memory::InMemory;
 use rstest::rstest;
 use vortex::VortexSessionDefault;
 use vortex::array::IntoArray;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::ExtensionArray;
+use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
+use vortex::array::assert_arrays_eq;
+use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::buffer::buffer;
+use vortex::dtype::extension::ExtDType;
 use vortex::editions::CORE_2026_08_3;
 use vortex::editions::EditionSessionExt;
+use vortex::expr::Expression;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::VortexWrite;
@@ -43,15 +68,29 @@ use vortex::layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex::layout::layouts::table::TableStrategy;
 use vortex::session::VortexSession;
+use vortex_tensor::fixed_shape_tensor::FixedShapeTensor;
+use vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata;
+use vortex_tensor::vector::ARROW_VECTOR_EXTENSION_NAME;
+use vortex_tensor::vector::Vector;
 
 use crate::VortexFormatFactory;
+use crate::VortexSource;
 use crate::common_tests::TestSessionContext;
+use crate::convert::exprs::DefaultExpressionConverter;
+use crate::convert::exprs::ExpressionConverter;
+use crate::convert::exprs::ProcessedProjection;
 
 fn make_session(
     object_store: Arc<dyn ObjectStore>,
     repartition_file_scans: bool,
+    scan_v2: bool,
 ) -> SessionContext {
-    let factory = Arc::new(VortexFormatFactory::new());
+    let factory = Arc::new(
+        VortexFormatFactory::new().with_options(crate::VortexTableOptions {
+            scan_v2,
+            ..Default::default()
+        }),
+    );
 
     let config = SessionConfig::new()
         .with_target_partitions(4)
@@ -141,15 +180,32 @@ async fn test_query_file(#[values(Some(1), None)] limit: Option<usize>) -> anyho
 
     assert_eq!(summary.row_count(), 8);
 
-    let read_row_count = ctx
+    let batches = ctx
         .session
         .sql("SELECT * from '/test.vortex'")
         .await?
         .limit(0, limit)?
-        .count()
+        .collect()
         .await?;
 
-    assert_eq!(read_row_count, limit.unwrap_or(8));
+    let mut seen = std::collections::BTreeSet::new();
+    for batch in &batches {
+        assert_eq!(batch.num_columns(), 2);
+        for row in 0..batch.num_rows() {
+            let number = datafusion_common::ScalarValue::try_from_array(batch.column(1), row)?;
+            let datafusion_common::ScalarValue::UInt32(Some(number)) = number else {
+                panic!("expected non-null UInt32");
+            };
+            assert!((1..=8).contains(&number));
+            assert!(seen.insert(number), "duplicate row {number}");
+            let expected = ["ab", "foo", "bar", "baz"][(number as usize - 1) % 4];
+            assert_eq!(
+                datafusion_common::ScalarValue::try_from_array(batch.column(0), row)?,
+                datafusion_common::ScalarValue::Utf8View(Some(expected.to_owned()))
+            );
+        }
+    }
+    assert_eq!(seen.len(), limit.unwrap_or(8));
 
     Ok(())
 }
@@ -239,11 +295,43 @@ async fn test_octet_length_pushdown() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Lambda parameters are indexed past the projection's input columns, so splitting a projection
-/// that contains lambdas must not reshape the scan output.
+/// The default converter, counting the projections it leaves wholly to DataFusion.
+#[derive(Default)]
+struct FallbackCounter {
+    inner: DefaultExpressionConverter,
+    fallbacks: AtomicUsize,
+}
+
+impl ExpressionConverter for FallbackCounter {
+    fn try_convert(&self, expr: &PhysicalExprRef, schema: &Schema) -> DFResult<Option<Expression>> {
+        self.inner.try_convert(expr, schema)
+    }
+
+    fn no_pushdown_projection(
+        &self,
+        source_projection: ProjectionExprs,
+        input_schema: &Schema,
+    ) -> DFResult<ProcessedProjection> {
+        self.fallbacks.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .no_pushdown_projection(source_projection, input_schema)
+    }
+}
+
+/// Lambdas that read only their parameter are pushed into the scan. A lambda that reads a column
+/// keeps the whole projection in DataFusion, over the raw columns: lambda parameters are numbered
+/// after the projection's input columns, so a reshaped scan output would break them (#10215).
 #[tokio::test]
 async fn test_lambda_projection_with_pushdown() -> anyhow::Result<()> {
-    let ctx = TestSessionContext::new(true);
+    let converter = Arc::new(FallbackCounter::default());
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new()
+            .with_options(crate::VortexTableOptions {
+                projection_pushdown: true,
+                ..Default::default()
+            })
+            .with_expression_converter(Arc::<FallbackCounter>::clone(&converter)),
+    ));
     datafusion_functions_nested::register_all(&mut *ctx.session.state_ref().write())?;
 
     ctx.session
@@ -293,7 +381,96 @@ async fn test_lambda_projection_with_pushdown() -> anyhow::Result<()> {
         | 2  | 2.0     | 0.0   | [1, 1]      |
         +----+---------+-------+-------------+
         ");
+    assert_eq!(converter.fallbacks.load(Ordering::Relaxed), 0);
 
+    // A lambda that reads a column stays in DataFusion, and so does the rest of the projection.
+    let result = ctx
+        .session
+        .sql(
+            "SELECT id, \
+                    array_sum(xs) AS total, \
+                    array_transform(xs, lambda x: x + id) AS shifted \
+             FROM written_lists \
+             ORDER BY id",
+        )
+        .await?
+        .collect()
+        .await?;
+
+    assert_snapshot!(pretty_format_batches(&result)?, @r"
+        +----+-------+----------+
+        | id | total | shifted  |
+        +----+-------+----------+
+        | 1  | 3.0   | [2, , 3] |
+        | 2  | 0.0   | [2, 2]   |
+        +----+-------+----------+
+        ");
+    assert!(converter.fallbacks.load(Ordering::Relaxed) > 0);
+
+    Ok(())
+}
+
+/// A filter on `array_transform` is evaluated by the Vortex scan when predicates are pushed down.
+#[rstest]
+#[tokio::test]
+async fn test_lambda_filter(
+    #[values(false, true)] pushdown: bool,
+    #[values(false, true)] scan_v2: bool,
+) -> anyhow::Result<()> {
+    let options = crate::VortexTableOptions {
+        scan_v2,
+        projection_pushdown: pushdown,
+        predicate_pushdown: pushdown,
+        ..Default::default()
+    };
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new().with_options(options),
+    ));
+    datafusion_functions_nested::register_all(&mut *ctx.session.state_ref().write())?;
+    ctx.session
+        .sql("SET datafusion.sql_parser.dialect = 'duckdb'")
+        .await?
+        .collect()
+        .await?;
+    let lists = ListArray::from_iter_primitive::<Int32Type, _, _>([
+        Some(vec![Some(1), None, Some(2)]),
+        Some(vec![Some(0), Some(0)]),
+        None,
+        Some(vec![]),
+    ]);
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+        Field::new("xs", lists.data_type().clone(), true),
+    ]));
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![
+            Arc::new(Int32Array::from_iter_values(0..4)),
+            Arc::new(lists),
+        ],
+    )?;
+    ctx.write_arrow_batch("lists.vortex", &batch).await?;
+    let table = ctx
+        .table_provider("lists", "/lists.vortex", schema.as_ref().clone())
+        .await?;
+    ctx.session.register_table("lists", table)?;
+
+    let df = ctx
+        .session
+        .sql(
+            "SELECT id FROM lists \
+             WHERE array_sum(array_transform(xs, lambda x: x + 1)) > 3 \
+             ORDER BY id",
+        )
+        .await?;
+    let plan = df.clone().create_physical_plan().await?;
+    assert_eq!(
+        filter_placement(plan.as_ref()).0,
+        !pushdown,
+        "{}",
+        DisplayableExecutionPlan::new(plan.as_ref()).indent(true)
+    );
+    assert_eq!(batch_values(&df.collect().await?), [0]);
     Ok(())
 }
 
@@ -443,9 +620,11 @@ async fn doc_example() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[rstest]
 #[tokio::test]
-async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits() -> anyhow::Result<()>
-{
+async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits(
+    #[values(false, true)] scan_v2: bool,
+) -> anyhow::Result<()> {
     let store = Arc::new(InMemory::new()) as _;
     let session = VortexSession::default();
     let path = object_store::path::Path::parse("/split-aligned-repartition.vortex")?;
@@ -516,8 +695,8 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits() -
             .any(|window| window[0] != window[1])
     );
 
-    let serial_ctx = make_session(Arc::clone(&store), false);
-    let repartitioned_ctx = make_session(Arc::clone(&store), true);
+    let serial_ctx = make_session(Arc::clone(&store), false, scan_v2);
+    let repartitioned_ctx = make_session(Arc::clone(&store), true, scan_v2);
     let repartitioned_partitions = count_query_partitions(
         &repartitioned_ctx,
         "SELECT value FROM '/split-aligned-repartition.vortex'",
@@ -542,6 +721,74 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits() -
 
     assert_eq!(serial_values, expected);
     assert_eq!(repartitioned_values, serial_values);
+
+    Ok(())
+}
+
+/// With a scan concurrency of 0, a V2 scan runs every chunk on its own run as another root. Each
+/// root needs an IO session of its own: the run clears a root's session when the root retires, so
+/// a shared session left the remaining chunks waiting for reads that were never issued.
+#[tokio::test]
+async fn v2_inline_chunks_read_through_their_own_sessions() -> anyhow::Result<()> {
+    let store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+    let session = VortexSession::default();
+    let path = object_store::path::Path::parse("/inline-chunks.vortex")?;
+
+    let chunk_len = 1_000_i32;
+    let chunk_count = 4;
+    let chunks = (0..chunk_count).map(|chunk| {
+        let start = chunk * chunk_len;
+        StructArray::try_new(
+            ["value"].into(),
+            vec![Buffer::from_iter(start..start + chunk_len).into_array()],
+            usize::try_from(chunk_len).expect("chunk length is positive"),
+            Validity::NonNullable,
+        )
+        .expect("chunk is a valid struct")
+        .into_array()
+    });
+    let table = ChunkedArray::from_iter(chunks).into_array();
+    let strategy: Arc<dyn LayoutStrategy> = Arc::new(TableStrategy::new(
+        Arc::new(FlatLayoutStrategy::default()),
+        Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())),
+    ));
+    let mut writer = ObjectStoreWrite::new(Arc::clone(&store), &path).await?;
+    session
+        .write_options()
+        .with_strategy(strategy)
+        .write(&mut writer, table.to_array_stream())
+        .await?;
+    writer.shutdown().await?;
+
+    let factory = Arc::new(
+        VortexFormatFactory::new().with_options(crate::VortexTableOptions {
+            scan_v2: true,
+            scan_concurrency: Some(0),
+            ..Default::default()
+        }),
+    );
+    let mut state = SessionStateBuilder::new()
+        .with_config(SessionConfig::new().with_target_partitions(1))
+        .with_default_features()
+        .with_object_store(&url::Url::try_from("file://")?, store);
+    if let Some(file_formats) = state.file_formats() {
+        file_formats.push(factory as _);
+    }
+    let ctx = SessionContext::new_with_state(state.build()).enable_url_table();
+
+    let batches = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        ctx.sql("SELECT value FROM '/inline-chunks.vortex' ORDER BY value")
+            .await?
+            .collect()
+            .await
+    })
+    .await
+    .map_err(|_| anyhow!("inline V2 scan did not finish"))??;
+
+    assert_eq!(
+        batch_values(&batches),
+        (0..chunk_count * chunk_len).collect::<Vec<_>>()
+    );
 
     Ok(())
 }
@@ -683,6 +930,103 @@ async fn arrow_uuid_extension_roundtrip_nested_struct() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `Vector` is an extension type over `FixedSizeList` storage, so the physical schema must look
+/// through the extension type to its storage.
+#[tokio::test]
+async fn test_scan_vector_column() -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    vortex_tensor::initialize(&session);
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new_with_session(session.clone()),
+    ));
+
+    let elements = buffer![
+        1.0f32, 2.0, 3.0, //
+        4.0, 5.0, 6.0, //
+    ]
+    .into_array();
+    let storage = FixedSizeListArray::try_new(elements, 3, Validity::NonNullable, 2)?;
+    let vectors = Vector::try_new_vector_array(storage.into_array())?;
+    let array = StructArray::from_fields(&[("embedding", vectors)])?.into_array();
+
+    let mut writer =
+        ObjectStoreWrite::new(Arc::clone(&ctx.store), &"vectors.vortex".into()).await?;
+    session
+        .write_options()
+        .write(&mut writer, array.to_array_stream())
+        .await?;
+    writer.shutdown().await?;
+
+    let result = ctx
+        .session
+        .sql("SELECT * FROM '/vectors.vortex'")
+        .await?
+        .collect()
+        .await?;
+
+    assert_eq!(
+        result[0].schema().field(0).extension_type_name(),
+        Some(ARROW_VECTOR_EXTENSION_NAME)
+    );
+    assert_snapshot!(pretty_format_batches(&result)?, @r"
+    +-----------------+
+    | embedding       |
+    +-----------------+
+    | [1.0, 2.0, 3.0] |
+    | [4.0, 5.0, 6.0] |
+    +-----------------+
+    ");
+
+    Ok(())
+}
+
+/// `FixedShapeTensor` has no Arrow plugin. A `COPY` still keeps its type, because the scan exports
+/// its storage plus Arrow extension metadata, and the write uses that metadata to rebuild the type.
+#[tokio::test]
+async fn test_copy_fixed_shape_tensor_column() -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    vortex_tensor::initialize(&session);
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new_with_session(session.clone()),
+    ));
+
+    let elements = buffer![
+        1.0f32, 2.0, 3.0, 4.0, //
+        5.0, 6.0, 7.0, 8.0, //
+    ]
+    .into_array();
+    let storage = FixedSizeListArray::try_new(elements, 4, Validity::NonNullable, 2)?.into_array();
+    let metadata = FixedShapeTensorMetadata::new(vec![2, 2]);
+    let ext_dtype = ExtDType::<FixedShapeTensor>::try_new(metadata, storage.dtype().clone())?;
+    let tensors = ExtensionArray::try_new(ext_dtype.erased(), storage)?.into_array();
+    let table = StructArray::from_fields(&[("tensor", tensors)])?.into_array();
+
+    let mut writer = ObjectStoreWrite::new(Arc::clone(&ctx.store), &"src.vortex".into()).await?;
+    session
+        .write_options()
+        .write(&mut writer, table.to_array_stream())
+        .await?;
+    writer.shutdown().await?;
+
+    ctx.session
+        .sql("COPY (SELECT * FROM '/src.vortex') TO '/dst.vortex' STORED AS vortex")
+        .await?
+        .collect()
+        .await?;
+
+    let buffer = ctx.store.get(&"dst.vortex".into()).await?.bytes().await?;
+    let copied = session
+        .open_options()
+        .open_buffer(buffer)?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    assert_arrays_eq!(copied, table, &mut session.create_execution_ctx());
+
+    Ok(())
+}
+
 #[rstest]
 #[case::modulo("id, a", "CAST(a % 2 AS BIGINT) = 0")]
 #[case::in_list("id, a IN (1, 4, 5, 6, 7, NULL) AS member", "TRUE")]
@@ -716,8 +1060,10 @@ async fn test_predicate_memtable_oracle(
     #[case] projection: &str,
     #[case] predicate: &str,
     #[values(false, true)] pushdown: bool,
+    #[values(false, true)] scan_v2: bool,
 ) -> anyhow::Result<()> {
     let options = crate::VortexTableOptions {
+        scan_v2,
         projection_pushdown: pushdown,
         predicate_pushdown: pushdown,
         ..Default::default()
@@ -781,115 +1127,180 @@ async fn test_predicate_memtable_oracle(
     Ok(())
 }
 
-/// Writes `files` Vortex files of a nullable `a` column under `/dyn/` and registers them as `t`.
+/// Returns whether `plan` filters rows in DataFusion and whether a Vortex scan accepted a
+/// predicate.
+fn filter_placement(plan: &dyn ExecutionPlan) -> (bool, bool) {
+    let mut in_datafusion = plan.downcast_ref::<FilterExec>().is_some();
+    let mut in_scan = plan
+        .downcast_ref::<DataSourceExec>()
+        .and_then(|exec| exec.data_source().downcast_ref::<FileScanConfig>())
+        .and_then(|config| config.file_source.downcast_ref::<VortexSource>())
+        .is_some_and(|source| source.predicate().is_some());
+    for child in plan.children() {
+        let (child_in_datafusion, child_in_scan) = filter_placement(child.as_ref());
+        in_datafusion |= child_in_datafusion;
+        in_scan |= child_in_scan;
+    }
+    (in_datafusion, in_scan)
+}
+
+/// Plans string functions over plain and dictionary-encoded label columns in SQL, as DataFusion
+/// coerces them, and checks where the filter runs and that the rows match an in-memory oracle.
 ///
-/// File `f` holds `f * 100 + i` for `i` in `0..100`, with nulls wherever `i % 17 == 0`.
-async fn register_dynamic_filter_table(ctx: &TestSessionContext, files: i32) -> anyhow::Result<()> {
-    let schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, true)]));
-    for file in 0..files {
-        let values = (0..100).map(|i| (i % 17 != 0).then_some(file * 100 + i));
-        let batch = RecordBatch::try_new(
-            Arc::clone(&schema),
-            vec![Arc::new(Int32Array::from_iter(values))],
-        )?;
-        ctx.write_arrow_batch(format!("dyn/{file}.vortex"), &batch)
-            .await?;
-    }
-    ctx.session
-        .sql("CREATE EXTERNAL TABLE t (a INT) STORED AS vortex LOCATION '/dyn/'")
-        .await?;
-    Ok(())
-}
-
-/// Runs `sql` and renders its single output column as comma-separated values.
-async fn query_values(ctx: &TestSessionContext, sql: &str) -> anyhow::Result<String> {
-    let batches = ctx.session.sql(sql).await?.collect().await?;
-    let mut values = vec![];
-    for batch in &batches {
-        let column = batch.column(0);
-        for row in 0..column.len() {
-            values.push(if column.is_null(row) {
-                "NULL".to_owned()
-            } else {
-                array_value_to_string(column, row)?
-            });
-        }
-    }
-    Ok(values.join(", "))
-}
-
-/// The scan accepts TopK dynamic filters and still returns the right rows, including nulls.
+/// DataFusion casts a plain dictionary argument of `contains`, `strpos`, `ends_with`, and the
+/// `LIKE` that constant `starts_with` becomes, to `Utf8`. That cast can overflow, so the filter
+/// stays in DataFusion, also when the dictionary comes from `lower`, which keeps the encoding.
+/// REE columns are cast to `Utf8View`, which cannot overflow, so their filters are pushed down.
 #[rstest]
-#[case("ORDER BY a DESC NULLS LAST LIMIT 3", "499, 498, 497")]
-#[case("ORDER BY a ASC NULLS LAST LIMIT 3", "1, 2, 3")]
-#[case("ORDER BY a DESC NULLS FIRST LIMIT 3", "NULL, NULL, NULL")]
-#[case("ORDER BY a ASC NULLS FIRST OFFSET 29 LIMIT 3", "NULL, 1, 2")]
+#[case::lower_eq("lower(labels) = 'comm_0'", true)]
+#[case::lower_unicode("lower(labels) = 'ος_1'", true)]
+#[case::contains("contains(labels, 'omm_')", false)]
+#[case::contains_lower("contains(lower(labels), 'comm_')", false)]
+#[case::contains_negated("NOT contains(labels, 'omm_')", false)]
+#[case::strpos("strpos(labels, 'm_1') > 0", false)]
+#[case::strpos_lower("strpos(lower(labels), 'm_1') > 0", false)]
+#[case::ends_with("ends_with(labels, '_1')", false)]
+#[case::starts_with("starts_with(labels, 'Comm')", false)]
 #[tokio::test]
-async fn topk_dynamic_filter_pushdown(
-    #[case] order: &str,
-    #[case] expected: &str,
+async fn test_string_function_filter_pushdown(
+    #[case] predicate: &str,
+    #[case] pushed_on_dictionary: bool,
+    #[values("utf8", "view", "dictionary", "runs")] encoding: &str,
+    #[values(false, true)] pushdown: bool,
 ) -> anyhow::Result<()> {
-    let ctx = TestSessionContext::default();
-    register_dynamic_filter_table(&ctx, 5).await?;
-
-    let query = format!("SELECT a FROM t {order}");
-    let plan = ctx
-        .session
-        .sql(&query)
-        .await?
-        .create_physical_plan()
+    let options = crate::VortexTableOptions {
+        predicate_pushdown: pushdown,
+        ..Default::default()
+    };
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new().with_options(options),
+    ));
+    let labels = DictionaryArray::<UInt32Type>::try_new(
+        UInt32Array::from(vec![
+            Some(0),
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            None,
+            Some(5),
+        ]),
+        Arc::new(StringArray::from(vec![
+            "comm_0", "Comm_1", "COMM_0", "other", "ΟΣ_1", "comm_1", "unused",
+        ])),
+    )?;
+    let runs =
+        RunArray::<Int32Type>::try_new(&Int32Array::from(vec![2, 5, 6, 8, 11, 13, 14]), &labels)?;
+    let labels = cast(&runs, labels.data_type())?;
+    let labels: Arc<dyn Array> = match encoding {
+        "utf8" => cast(&labels, &DataType::Utf8)?,
+        "view" => cast(&labels, &DataType::Utf8View)?,
+        "dictionary" => labels,
+        "runs" => Arc::new(runs),
+        _ => unreachable!(),
+    };
+    let len = labels.len();
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+        Field::new("labels", labels.data_type().clone(), true),
+    ]));
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![
+            Arc::new(Int32Array::from_iter_values(0..i32::try_from(len)?)),
+            labels,
+        ],
+    )?;
+    ctx.write_arrow_batch("labels.vortex", &batch).await?;
+    let actual_table = ctx
+        .table_provider("actual", "/labels.vortex", schema.as_ref().clone())
         .await?;
-    let plan_str = DisplayableExecutionPlan::new(plan.as_ref())
-        .indent(true)
-        .to_string();
-    assert!(
-        plan_str.contains("predicate: DynamicFilter"),
-        "expected the scan to accept the dynamic filter:\n{plan_str}"
+    ctx.session.register_table("actual", actual_table)?;
+    ctx.session.register_table(
+        "oracle",
+        Arc::new(datafusion::datasource::MemTable::try_new(
+            schema,
+            vec![vec![batch]],
+        )?),
+    )?;
+
+    let query = |table: &str| format!("SELECT id FROM {table} WHERE {predicate} ORDER BY id");
+    let actual = ctx.session.sql(&query("actual")).await?;
+    let plan = actual.clone().create_physical_plan().await?;
+    let pushed = pushdown && (encoding != "dictionary" || pushed_on_dictionary);
+    assert_eq!(
+        filter_placement(plan.as_ref()),
+        (!pushed, pushed),
+        "{}",
+        DisplayableExecutionPlan::new(plan.as_ref()).indent(true)
     );
-
-    assert_eq!(query_values(&ctx, &query).await?, expected);
+    let actual = batch_values(&actual.collect().await?);
+    let expected = batch_values(&ctx.session.sql(&query("oracle")).await?.collect().await?);
+    assert!(!expected.is_empty());
+    assert!(expected.len() < len);
+    assert_eq!(actual, expected);
     Ok(())
 }
 
-/// Hash join dynamic filters on the probe side keep the join result correct, whether or not
-/// their bounds are selective enough to be applied.
+/// Regression test for #10634: string comparisons on `REE<Dict<Utf8>>` columns are pushed into
+/// the scan and return the same rows as DataFusion.
 #[rstest]
-// 151 and 17 are null in the table, and the bounds [17, 352] span most files.
-#[case("(150), (151), (352), (17)", "150, 352")]
-// Bounds [150, 152] skip all but one file's worth of values, so they are applied.
-#[case("(150), (152)", "150, 152")]
+#[case::eq("ree_dict = 'x'")]
+#[case::not_eq("ree_dict <> 'x'")]
+#[case::or("ree_dict = 'x' OR ree_dict = 'y'")]
+#[case::in_list("ree_dict IN ('y', 'unused')")]
+#[case::and("ree_dict = 'x' AND id > 1")]
 #[tokio::test]
-async fn hash_join_dynamic_filter_pushdown(
-    #[case] build_values: &str,
-    #[case] expected: &str,
+async fn test_ree_dict_predicate_memtable_oracle(
+    #[case] predicate: &str,
+    #[values(false, true)] pushdown: bool,
 ) -> anyhow::Result<()> {
-    let ctx = TestSessionContext::default();
-    register_dynamic_filter_table(&ctx, 5).await?;
-
-    let query =
-        format!("SELECT t.a FROM t JOIN (VALUES {build_values}) AS b(x) ON t.a = b.x ORDER BY t.a");
-    assert_eq!(query_values(&ctx, &query).await?, expected);
-    Ok(())
-}
-
-/// When the file's type differs from the table's, the expression adapter wraps the dynamic
-/// filter's columns in casts. The filter must still be handled rather than rejected by the scan.
-#[rstest]
-#[case("ORDER BY a DESC LIMIT 3", "499, 498, 497")]
-#[case("ORDER BY a ASC LIMIT 3", "1, 2, 3")]
-#[tokio::test]
-async fn topk_dynamic_filter_with_cast_column(
-    #[case] order: &str,
-    #[case] expected: &str,
-) -> anyhow::Result<()> {
-    let ctx = TestSessionContext::default();
-    // Files store `a` as INT while this table declares BIGINT.
-    register_dynamic_filter_table(&ctx, 5).await?;
-    ctx.session
-        .sql("CREATE EXTERNAL TABLE t_wide (a BIGINT) STORED AS vortex LOCATION '/dyn/'")
+    let options = crate::VortexTableOptions {
+        projection_pushdown: pushdown,
+        predicate_pushdown: pushdown,
+        ..Default::default()
+    };
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new().with_options(options),
+    ));
+    // Rows: x, x, NULL, y, y, x. The dictionary also holds a value no key references.
+    let values = DictionaryArray::<UInt32Type>::try_new(
+        UInt32Array::from(vec![Some(0), None, Some(1), Some(0)]),
+        Arc::new(StringArray::from(vec!["x", "y", "unused"])),
+    )?;
+    let ree = RunArray::<Int32Type>::try_new(&Int32Array::from(vec![2, 3, 5, 6]), &values)?;
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+        Field::new("ree_dict", ree.data_type().clone(), true),
+    ]));
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![Arc::new(Int32Array::from_iter_values(0..6)), Arc::new(ree)],
+    )?;
+    ctx.write_arrow_batch("ree_dict.vortex", &batch).await?;
+    let actual_table = ctx
+        .table_provider("actual", "/ree_dict.vortex", schema.as_ref().clone())
         .await?;
+    ctx.session.register_table("actual", actual_table)?;
+    ctx.session.register_table(
+        "oracle",
+        Arc::new(datafusion::datasource::MemTable::try_new(
+            schema,
+            vec![vec![batch]],
+        )?),
+    )?;
 
-    let query = format!("SELECT a FROM t_wide WHERE a IS NOT NULL {order}");
-    assert_eq!(query_values(&ctx, &query).await?, expected);
+    let query = |table: &str| format!("SELECT id FROM {table} WHERE {predicate} ORDER BY id");
+    let actual = ctx.session.sql(&query("actual")).await?;
+    let plan = actual.clone().create_physical_plan().await?;
+    assert_eq!(
+        filter_placement(plan.as_ref()),
+        (!pushdown, pushdown),
+        "{}",
+        DisplayableExecutionPlan::new(plan.as_ref()).indent(true)
+    );
+    let actual = actual.collect().await?;
+    let expected = ctx.session.sql(&query("oracle")).await?.collect().await?;
+    assert_eq!(batch_values(&actual), batch_values(&expected));
     Ok(())
 }

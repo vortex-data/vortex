@@ -12,18 +12,17 @@ mod timed_launch_strategy;
 use std::mem::size_of;
 use std::ops::Add;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
-use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
 use mimalloc::MiMalloc;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
-use vortex::array::array_session;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
@@ -32,13 +31,18 @@ use vortex::encodings::fastlanes::BitPackedArray;
 use vortex::encodings::fastlanes::BitPackedData;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked;
 use vortex::error::VortexExpect;
+use vortex::session::VortexSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
+use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
 use crate::timed_launch_strategy::TimedLaunchStrategy;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_cuda::cuda_session);
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -61,7 +65,7 @@ where
         .collect();
 
     let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable);
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     BitPackedData::encode(&primitive_array.into_array(), bit_width, &mut ctx)
         .vortex_expect("failed to create BitPacked array")
 }
@@ -102,7 +106,7 @@ where
         .collect();
 
     let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     BitPackedData::encode(&primitive_array, bit_width, &mut ctx)
         .vortex_expect("failed to create BitPacked array with patches")
 }
@@ -117,6 +121,8 @@ where
 
     for &(n_rows, size_str) in bench_config::BENCH_SIZES {
         let array = make_bitpacked_array::<T>(bit_width, n_rows);
+        mark_optimized(array.as_array(), &vortex_cuda::cuda_session()).unwrap();
+
         let nbytes = n_rows * size_of::<T>();
 
         group.throughput(Throughput::Bytes(nbytes as u64));
@@ -172,6 +178,7 @@ where
 
         for &(patch_freq, patch_label) in PATCH_FREQUENCIES {
             let array = make_bitpacked_array_with_patches::<T>(n_rows, patch_freq);
+            mark_optimized(array.as_array(), &vortex_cuda::cuda_session()).unwrap();
 
             group.bench_with_input(
                 BenchmarkId::new(
@@ -222,7 +229,11 @@ criterion::criterion_group! {
 }
 
 #[cuda_available]
-criterion::criterion_main!(benches);
+fn main() {
+    LazyLock::force(&SESSION);
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}
 
 #[cuda_not_available]
 fn main() {}

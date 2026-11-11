@@ -184,7 +184,7 @@ mod tests {
     use crate::rle::array::RLEArraySlotsExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -198,12 +198,8 @@ mod tests {
             PrimitiveArray::new(array_u8, Validity::NonNullable).as_view(),
             &mut ctx,
         )?;
-        let decoded_u8 = encoded_u8
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_u8 = PrimitiveArray::from_iter(vec![1u8, 1, 2, 2, 3, 3]);
-        assert_arrays_eq!(decoded_u8, expected_u8, &mut ctx);
+        assert_arrays_eq!(encoded_u8, expected_u8, &mut ctx);
 
         // u16
         let array_u16: Buffer<u16> = buffer![100, 100, 200, 200];
@@ -211,12 +207,8 @@ mod tests {
             PrimitiveArray::new(array_u16, Validity::NonNullable).as_view(),
             &mut ctx,
         )?;
-        let decoded_u16 = encoded_u16
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_u16 = PrimitiveArray::from_iter(vec![100u16, 100, 200, 200]);
-        assert_arrays_eq!(decoded_u16, expected_u16, &mut ctx);
+        assert_arrays_eq!(encoded_u16, expected_u16, &mut ctx);
 
         // u64
         let array_u64: Buffer<u64> = buffer![1000, 1000, 2000];
@@ -224,12 +216,8 @@ mod tests {
             PrimitiveArray::new(array_u64, Validity::NonNullable).as_view(),
             &mut ctx,
         )?;
-        let decoded_u64 = encoded_u64
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_u64 = PrimitiveArray::from_iter(vec![1000u64, 1000, 2000]);
-        assert_arrays_eq!(decoded_u64, expected_u64, &mut ctx);
+        assert_arrays_eq!(encoded_u64, expected_u64, &mut ctx);
         Ok(())
     }
 
@@ -270,12 +258,8 @@ mod tests {
         )?;
         assert_eq!(encoded.values().len(), 2); // 2 chunks, each storing value 42
 
-        let decoded = encoded
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?; // Verify round-trip
         let expected = PrimitiveArray::from_iter(vec![42u16; 2000]);
-        assert_arrays_eq!(decoded, expected, &mut ctx);
+        assert_arrays_eq!(encoded, expected, &mut ctx);
         Ok(())
     }
 
@@ -290,12 +274,8 @@ mod tests {
         )?;
         assert_eq!(encoded.values().len(), 256);
 
-        let decoded = encoded
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?; // Verify round-trip
         let expected = PrimitiveArray::from_iter((0u8..=255).collect::<Vec<_>>());
-        assert_arrays_eq!(decoded, expected, &mut ctx);
+        assert_arrays_eq!(encoded, expected, &mut ctx);
         Ok(())
     }
 
@@ -349,12 +329,8 @@ mod tests {
             .into_array()
             .execute::<PrimitiveArray>(&mut ctx)?;
         let result = RLEData::encode(primitive.as_view(), &mut ctx)?;
-        let decoded = result
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
         let expected = PrimitiveArray::new(values, primitive.validity()?);
-        assert_arrays_eq!(decoded, expected, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 
@@ -372,6 +348,7 @@ mod tests {
         let masked_indices = MaskedArray::try_new(
             ConstantArray::new(1u16, indices_prim.len()).into_array(),
             indices_prim.validity()?,
+            ctx,
         )?
         .into_array();
         RLE::try_new(
@@ -565,8 +542,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::from_iter(values);
         let rle = RLEData::encode(primitive.as_view(), &mut ctx)?;
-        let decoded = rle.as_array().clone().execute::<PrimitiveArray>(&mut ctx)?;
-        assert_arrays_eq!(primitive, decoded, &mut ctx);
+        assert_arrays_eq!(rle, primitive, &mut ctx);
         Ok(())
     }
 }

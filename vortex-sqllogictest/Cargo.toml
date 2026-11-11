@@ -22,7 +22,7 @@ sqllogictest = "0.29.1"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex = { workspace = true, features = ["tokio"] }
-vortex-duckdb = { workspace = true }
+vortex-duckdb = { workspace = true, features = ["static-extensions"] }
 
 [dev-dependencies]
 datafusion = { workspace = true, features = ["parquet"] }

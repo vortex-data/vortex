@@ -33,7 +33,6 @@ use num_traits::Float;
 use num_traits::Num;
 use num_traits::Signed;
 use vortex_error::VortexExpect;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
@@ -97,122 +96,10 @@ fn test_binary_numeric_conformance<T: NativePType + Num + Copy>(
     Scalar: From<T>,
 {
     // First test with the standard scalar value of 1
-    test_standard_binary_numeric::<T>(array, ctx);
+    test_binary_numeric_with_scalar(array, T::one(), &[true, false], ctx);
 
     // Then test edge cases
     test_binary_numeric_edge_cases(array, ctx);
-}
-
-fn test_standard_binary_numeric<T: NativePType + Num + Copy>(
-    array: &ArrayRef,
-    ctx: &mut ExecutionCtx,
-) where
-    Scalar: From<T>,
-{
-    let canonicalized_array = array
-        .clone()
-        .execute::<Canonical>(ctx)
-        .vortex_expect("Must be able to canonicalise")
-        .into_array();
-    let original_values = to_vec_of_scalar(&canonicalized_array, ctx);
-
-    let one = T::from(1)
-        .ok_or_else(|| vortex_err!("could not convert 1 into array native type"))
-        .vortex_expect("operation should succeed in conformance test");
-    let scalar_one = Scalar::from(one)
-        .cast(array.dtype())
-        .vortex_expect("operation should succeed in conformance test");
-
-    let operators: [NumericOperator; 4] = [
-        NumericOperator::Add,
-        NumericOperator::Sub,
-        NumericOperator::Mul,
-        NumericOperator::Div,
-    ];
-
-    for operator in operators {
-        let op = operator;
-        let rhs_const = ConstantArray::new(scalar_one.clone(), array.len()).into_array();
-
-        // Test array operator scalar (e.g., array + 1)
-        let result = array
-            .binary(rhs_const.clone(), op.into())
-            .vortex_expect("apply shouldn't fail")
-            .execute::<RecursiveCanonical>(ctx)
-            .map(|c| c.0.into_array());
-
-        // Skip this operator if the entire operation fails
-        // This can happen for some edge cases in specific encodings
-        let Ok(result) = result else {
-            continue;
-        };
-
-        let actual_values = to_vec_of_scalar(&result, ctx);
-
-        // Check each element for overflow/underflow
-        let expected_results: Vec<Option<Scalar>> = original_values
-            .iter()
-            .map(|x| {
-                x.as_primitive()
-                    .checked_binary_numeric(&scalar_one.as_primitive(), op)
-                    .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
-            })
-            .collect();
-
-        // For elements that didn't overflow, check they match
-        for (idx, (actual, expected)) in actual_values.iter().zip(&expected_results).enumerate() {
-            if let Some(expected_value) = expected {
-                assert_eq!(
-                    actual,
-                    expected_value,
-                    "Binary numeric operation failed for encoding {} at index {}: \
-                     ({array:?})[{idx}] {operator:?} {scalar_one} \
-                     expected {expected_value:?}, got {actual:?}",
-                    array.encoding_id(),
-                    idx,
-                );
-            }
-        }
-
-        // Test scalar operator array (e.g., 1 + array)
-        let result = rhs_const.binary(array.clone(), op.into()).and_then(|a| {
-            a.execute::<RecursiveCanonical>(ctx)
-                .map(|c| c.0.into_array())
-        });
-
-        // Skip this operator if the entire operation fails
-        let Ok(result) = result else {
-            continue;
-        };
-
-        let actual_values = to_vec_of_scalar(&result, ctx);
-
-        // Check each element for overflow/underflow
-        let expected_results: Vec<Option<Scalar>> = original_values
-            .iter()
-            .map(|x| {
-                scalar_one
-                    .as_primitive()
-                    .checked_binary_numeric(&x.as_primitive(), op)
-                    .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
-            })
-            .collect();
-
-        // For elements that didn't overflow, check they match
-        for (idx, (actual, expected)) in actual_values.iter().zip(&expected_results).enumerate() {
-            if let Some(expected_value) = expected {
-                assert_eq!(
-                    actual,
-                    expected_value,
-                    "Binary numeric operation failed for encoding {} at index {}: \
-                     {scalar_one} {operator:?} ({array:?})[{idx}] \
-                     expected {expected_value:?}, got {actual:?}",
-                    array.encoding_id(),
-                    idx,
-                );
-            }
-        }
-    }
 }
 
 /// Entry point for binary numeric conformance testing for any array type.
@@ -440,12 +327,14 @@ fn assert_decimal_results(
 
     let result = result.unwrap_or_else(|err| {
         vortex_panic!(
+            err,
             "Decimal binary numeric operation unexpectedly failed for encoding {}: \
-             {operator:?} {scalar} (lhs_is_array: {lhs_is_array}): {err}",
+             {operator:?} {scalar} (lhs_is_array: {lhs_is_array})",
             array.encoding_id(),
         )
     });
 
+    assert_eq!(result.len(), expected_results.len());
     let actual_values = to_vec_of_scalar(&result, ctx);
     for (idx, (actual, expected)) in actual_values.iter().zip(expected_results).enumerate() {
         let expected_value = expected
@@ -499,16 +388,16 @@ where
     Scalar: From<T>,
 {
     // Test with zero
-    test_binary_numeric_with_scalar(array, T::zero(), ctx);
+    test_binary_numeric_with_scalar(array, T::zero(), &[true], ctx);
 
     // Test with -1
-    test_binary_numeric_with_scalar(array, -T::one(), ctx);
+    test_binary_numeric_with_scalar(array, -T::one(), &[true], ctx);
 
     // Test with max value
-    test_binary_numeric_with_scalar(array, T::max_value(), ctx);
+    test_binary_numeric_with_scalar(array, T::max_value(), &[true], ctx);
 
     // Test with min value
-    test_binary_numeric_with_scalar(array, T::min_value(), ctx);
+    test_binary_numeric_with_scalar(array, T::min_value(), &[true], ctx);
 }
 
 fn test_binary_numeric_edge_cases_unsigned<T>(array: &ArrayRef, ctx: &mut ExecutionCtx)
@@ -517,10 +406,10 @@ where
     Scalar: From<T>,
 {
     // Test with zero
-    test_binary_numeric_with_scalar(array, T::zero(), ctx);
+    test_binary_numeric_with_scalar(array, T::zero(), &[true], ctx);
 
     // Test with max value
-    test_binary_numeric_with_scalar(array, T::max_value(), ctx);
+    test_binary_numeric_with_scalar(array, T::max_value(), &[true], ctx);
 }
 
 fn test_binary_numeric_edge_cases_float<T>(array: &ArrayRef, ctx: &mut ExecutionCtx)
@@ -529,31 +418,35 @@ where
     Scalar: From<T>,
 {
     // Test with zero
-    test_binary_numeric_with_scalar(array, T::zero(), ctx);
+    test_binary_numeric_with_scalar(array, T::zero(), &[true], ctx);
 
     // Test with -1
-    test_binary_numeric_with_scalar(array, -T::one(), ctx);
+    test_binary_numeric_with_scalar(array, -T::one(), &[true], ctx);
 
     // Test with max value
-    test_binary_numeric_with_scalar(array, T::max_value(), ctx);
+    test_binary_numeric_with_scalar(array, T::max_value(), &[true], ctx);
 
     // Test with min value
-    test_binary_numeric_with_scalar(array, T::min_value(), ctx);
+    test_binary_numeric_with_scalar(array, T::min_value(), &[true], ctx);
 
     // Test with small positive value
-    test_binary_numeric_with_scalar(array, T::epsilon(), ctx);
+    test_binary_numeric_with_scalar(array, T::epsilon(), &[true], ctx);
 
     // Test with min positive value (subnormal)
-    test_binary_numeric_with_scalar(array, T::min_positive_value(), ctx);
+    test_binary_numeric_with_scalar(array, T::min_positive_value(), &[true], ctx);
 
     // Test with special float values (NaN, Infinity)
-    test_binary_numeric_with_scalar(array, T::nan(), ctx);
-    test_binary_numeric_with_scalar(array, T::infinity(), ctx);
-    test_binary_numeric_with_scalar(array, T::neg_infinity(), ctx);
+    test_binary_numeric_with_scalar(array, T::nan(), &[true], ctx);
+    test_binary_numeric_with_scalar(array, T::infinity(), &[true], ctx);
+    test_binary_numeric_with_scalar(array, T::neg_infinity(), &[true], ctx);
 }
 
-fn test_binary_numeric_with_scalar<T>(array: &ArrayRef, scalar_value: T, ctx: &mut ExecutionCtx)
-where
+fn test_binary_numeric_with_scalar<T>(
+    array: &ArrayRef,
+    scalar_value: T,
+    directions: &[bool],
+    ctx: &mut ExecutionCtx,
+) where
     T: NativePType + Num + Copy + Debug,
     Scalar: From<T>,
 {
@@ -563,71 +456,68 @@ where
         .vortex_expect("Must be able to canonicalise")
         .into_array();
     let original_values = to_vec_of_scalar(&canonicalized_array, ctx);
-
     let scalar = Scalar::from(scalar_value)
         .cast(array.dtype())
-        .vortex_expect("operation should succeed in conformance test");
+        .vortex_expect("constant must fit the array dtype");
 
-    // Only test operators that make sense for the given scalar
-    let operators = if scalar_value == T::zero() {
-        // Skip division by zero
-        vec![
-            NumericOperator::Add,
-            NumericOperator::Sub,
-            NumericOperator::Mul,
-        ]
-    } else {
-        vec![
-            NumericOperator::Add,
-            NumericOperator::Sub,
-            NumericOperator::Mul,
-            NumericOperator::Div,
-        ]
-    };
-
-    for operator in operators {
-        let op = operator;
-        let rhs_const = ConstantArray::new(scalar.clone(), array.len()).into_array();
-
-        // Test array operator scalar
-        let result = array
-            .binary(rhs_const, op.into())
-            .vortex_expect("apply failed")
-            .execute::<RecursiveCanonical>(ctx)
-            .map(|x| x.0.into_array());
-
-        // Skip if the entire operation fails
-        // TODO(joe): this is odd.
-        if result.is_err() {
+    for operator in [
+        NumericOperator::Add,
+        NumericOperator::Sub,
+        NumericOperator::Mul,
+        NumericOperator::Div,
+    ] {
+        if operator == NumericOperator::Div && scalar_value == T::zero() {
             continue;
         }
-
-        let result = result.vortex_expect("operation should succeed in conformance test");
-        let actual_values = to_vec_of_scalar(&result, ctx);
-
-        // Check each element for overflow/underflow
-        let expected_results: Vec<Option<Scalar>> = original_values
-            .iter()
-            .map(|x| {
-                x.as_primitive()
-                    .checked_binary_numeric(&scalar.as_primitive(), op)
-                    .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
-            })
-            .collect();
-
-        // For elements that didn't overflow, check they match
-        for (idx, (actual, expected)) in actual_values.iter().zip(&expected_results).enumerate() {
-            if let Some(expected_value) = expected {
-                assert_eq!(
-                    actual,
-                    expected_value,
-                    "Binary numeric operation failed for encoding {} at index {} with scalar {:?}: \
-                     ({array:?})[{idx}] {operator:?} {scalar} \
-                     expected {expected_value:?}, got {actual:?}",
-                    array.encoding_id(),
-                    idx,
-                    scalar_value,
-                );
+        for &lhs_is_array in directions {
+            let expected_results: Vec<Option<Scalar>> = original_values
+                .iter()
+                .map(|value| {
+                    let (lhs, rhs) = if lhs_is_array {
+                        (value.as_primitive(), scalar.as_primitive())
+                    } else {
+                        (scalar.as_primitive(), value.as_primitive())
+                    };
+                    lhs.checked_binary_numeric(&rhs, operator)
+                        .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
+                })
+                .collect();
+            let constant = ConstantArray::new(scalar.clone(), array.len()).into_array();
+            let (lhs, rhs) = if lhs_is_array {
+                (array.clone(), constant)
+            } else {
+                (constant, array.clone())
+            };
+            let result = lhs
+                .binary(rhs, operator.into())
+                .vortex_expect("binary numeric construction must succeed")
+                .execute::<RecursiveCanonical>(ctx);
+            let result = match result {
+                Ok(result) => result.0.into_array(),
+                Err(err) => {
+                    assert!(
+                        expected_results.iter().any(Option::is_none),
+                        "Binary numeric operation unexpectedly failed for encoding {}: \
+                         {operator:?} {scalar} (lhs_is_array: {lhs_is_array}): {err}",
+                        array.encoding_id(),
+                    );
+                    continue;
+                }
+            };
+            assert_eq!(result.len(), expected_results.len());
+            assert_eq!(result.dtype(), array.dtype());
+            let actual_values = to_vec_of_scalar(&result, ctx);
+            for (idx, (actual, expected)) in actual_values.iter().zip(&expected_results).enumerate()
+            {
+                if let Some(expected) = expected {
+                    assert_eq!(
+                        actual,
+                        expected,
+                        "Binary numeric operation failed for encoding {} at index {idx}: \
+                         {operator:?} {scalar} (lhs_is_array: {lhs_is_array})",
+                        array.encoding_id(),
+                    );
+                }
             }
         }
     }

@@ -70,11 +70,13 @@ Output:
 
 ### `check --dir <DIR> --mode <MODE> [--exclude <CSV>]`
 
-For each `.vortex` file in the directory:
+For each known fixture:
 
-1. Run `setup()` + `build()` to reconstruct expected arrays from current code
-2. Read the file bytes and decode via `adapter::read_file()`
-3. Combine chunks into `ChunkedArray` and compare with `assert_arrays_eq!`
+1. Write a fresh file into a temporary directory with `write_expected()`.
+   This builds the expected arrays from the current code. For a synthetic
+   fixture, it writes the result of `build()`.
+2. Read the stored file and the fresh file with `adapter::read_file()`.
+3. Compare the two arrays with `assert_arrays_eq!`.
 
 JSON result to stdout:
 ```json

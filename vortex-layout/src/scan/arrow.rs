@@ -14,7 +14,7 @@ use futures::TryStreamExt;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
-use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
 
@@ -64,13 +64,12 @@ impl ScanBuilder<ArrayRef> {
     }
 }
 
-fn to_record_batch(
+pub(super) fn to_record_batch(
     chunk: ArrayRef,
     data_type: &Field,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<RecordBatch> {
-    let session = ctx.session().clone();
-    let arrow = session.arrow().execute_arrow(chunk, Some(data_type), ctx)?;
+    let arrow = chunk.execute_arrow(Some(data_type), ctx)?;
     Ok(RecordBatch::from(arrow.as_struct().clone()))
 }
 
@@ -215,7 +214,7 @@ mod tests {
             ],
         )?;
 
-        let iter = vec![Ok(batch1), Ok(batch2)].into_iter();
+        let iter = vec![Ok(batch1.clone()), Ok(batch2.clone())].into_iter();
         let mut adapter = RecordBatchIteratorAdapter {
             iter,
             schema: Arc::clone(&schema),
@@ -226,10 +225,10 @@ mod tests {
 
         // Test Iterator trait
         let first = adapter.next().unwrap()?;
-        assert_eq!(first.num_rows(), 2);
+        assert_eq!(first, batch1);
 
         let second = adapter.next().unwrap()?;
-        assert_eq!(second.num_rows(), 2);
+        assert_eq!(second, batch2);
 
         assert!(adapter.next().is_none());
 
@@ -267,19 +266,22 @@ mod tests {
 
         let error = ArrowError::ComputeError("test error".to_string());
 
-        let iter = vec![Ok(batch.clone()), Err(error), Ok(batch)].into_iter();
+        let iter = vec![Ok(batch.clone()), Err(error), Ok(batch.clone())].into_iter();
         let mut adapter = RecordBatchIteratorAdapter { iter, schema };
 
         // First batch succeeds
         let first = adapter.next().unwrap();
-        assert!(first.is_ok());
+        assert_eq!(first.unwrap(), batch);
 
         // Second batch errors
         let second = adapter.next().unwrap();
-        assert!(second.is_err());
+        assert!(
+            matches!(second, Err(ArrowError::ComputeError(message)) if message == "test error")
+        );
 
         // Third batch succeeds
         let third = adapter.next().unwrap();
-        assert!(third.is_ok());
+        assert_eq!(third.unwrap(), batch);
+        assert!(adapter.next().is_none());
     }
 }

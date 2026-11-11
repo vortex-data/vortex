@@ -80,7 +80,7 @@ impl LikeKernel for FSST {
 mod tests {
     use std::sync::LazyLock;
 
-    use vortex_array::Canonical;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
@@ -101,7 +101,7 @@ mod tests {
     use crate::fsst_train_compressor;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -114,17 +114,14 @@ mod tests {
         fsst_compress(&array, &compressor, &mut ctx).unwrap()
     }
 
-    fn run_like(array: FSSTArray, pattern: &str, opts: LikeOptions) -> VortexResult<BoolArray> {
+    fn run_like(array: FSSTArray, pattern: &str, opts: LikeOptions) -> VortexResult<ArrayRef> {
         let len = array.len();
         let arr = array.into_array();
         let pattern = ConstantArray::new(pattern, len).into_array();
-        let result = Like::try_new(arr, pattern, opts)?
-            .into_array()
-            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?;
-        Ok(result.into_bool())
+        Ok(Like::try_new(arr, pattern, opts)?.into_array())
     }
 
-    fn like(array: FSSTArray, pattern: &str) -> VortexResult<BoolArray> {
+    fn like(array: FSSTArray, pattern: &str) -> VortexResult<ArrayRef> {
         run_like(array, pattern, LikeOptions::default())
     }
 

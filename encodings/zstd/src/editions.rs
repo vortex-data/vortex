@@ -27,6 +27,7 @@ pub const ZSTD_2026_02: EditionId = EditionId::new("zstd", 2026, 2, 0);
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: ZSTD_2026_02,
+        immutable: true,
         min_library_version: None,
     },
     added: &[EditionMember::array(&"vortex.zstd_buffers")],
@@ -34,22 +35,29 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_edition::EditionSessionExt;
     use vortex_edition::test_harness::validate_edition;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::*;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
+
     #[test]
     fn zstd_edition_is_valid() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        crate::initialize(&session);
-        validate_edition(&session.editions(), &ZSTD_2026_02)
+        validate_edition(&SESSION.editions(), &ZSTD_2026_02)
     }
 
     #[test]
     fn initialize_does_not_enable_zstd_edition() {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         assert!(
             !session

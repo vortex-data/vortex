@@ -13,7 +13,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
-use crate::ArrowExporter;
+use crate::ArrowExportOptions;
 use crate::CompactBuffers;
 use crate::dtype::from_arrow_data_type;
 use crate::null_buffer::to_null_buffer;
@@ -53,7 +53,7 @@ pub fn execute_varbinview_to_arrow<T: ByteViewType>(
 
 pub(super) fn to_arrow_byte_view<T: ByteViewType>(
     array: ArrayRef,
-    exporter: &ArrowExporter<'_>,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     // First we cast the array into the desired ByteView type.
@@ -65,7 +65,7 @@ pub(super) fn to_arrow_byte_view<T: ByteViewType>(
 
     let array = array.execute::<ArrayRef>(ctx)?;
     let varbinview = array.execute::<VarBinViewArray>(ctx)?;
-    if exporter.options().get_or_default::<CompactBuffers>().0 {
+    if options.get_or_default::<CompactBuffers>().0 {
         execute_varbinview_to_arrow::<T>(&varbinview, ctx)
     } else {
         canonical_varbinview_to_arrow::<T>(&varbinview, ctx)
@@ -74,16 +74,20 @@ pub(super) fn to_arrow_byte_view<T: ByteViewType>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use arrow_array::types::StringViewType;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
+    use vortex_session::VortexSession;
 
     use super::*;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn empty_views_are_aligned() -> VortexResult<()> {
         let array = VarBinViewArray::from_iter_str(std::iter::empty::<&str>());
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let arrow = canonical_varbinview_to_arrow::<StringViewType>(&array, &mut ctx)?;
 

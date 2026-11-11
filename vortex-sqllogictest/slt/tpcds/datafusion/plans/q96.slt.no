@@ -30,11 +30,11 @@ logical_plan
 09)----------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
 10)------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
 11)------------------Projection: household_demographics.hd_demo_sk
-12)--------------------Filter: household_demographics.hd_dep_count = Int64(7)
-13)----------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count], partial_filters=[household_demographics.hd_dep_count = Int64(7)]
+12)--------------------Filter: household_demographics.hd_dep_count = Int32(7)
+13)----------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count], partial_filters=[household_demographics.hd_dep_count = Int32(7)]
 14)--------------Projection: time_dim.t_time_sk
-15)----------------Filter: time_dim.t_hour = Int64(20) AND time_dim.t_minute >= Int64(30)
-16)------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(20), time_dim.t_minute >= Int64(30)]
+15)----------------Filter: time_dim.t_hour = Int32(20) AND time_dim.t_minute >= Int32(30)
+16)------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int32(20), time_dim.t_minute >= Int32(30)]
 17)----------Projection: store.s_store_sk
 18)------------Filter: store.s_store_name = Utf8View("ese")
 19)--------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]

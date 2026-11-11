@@ -60,7 +60,8 @@ void duckdb_vx_reusable_dict_set_vector(duckdb_vx_reusable_dict reusable, duckdb
 /// Creates a dictionary vector using a reusable dictionary and a selection vector.
 void duckdb_vx_vector_dictionary_reusable(duckdb_vector vector,
                                           duckdb_vx_reusable_dict reusable,
-                                          duckdb_selection_vector sel_vec);
+                                          duckdb_selection_vector sel_vec,
+                                          idx_t sel_count);
 
 // Create a null value with a reference to a logical type.
 duckdb_value duckdb_vx_value_create_null(duckdb_logical_type ty);
@@ -72,6 +73,13 @@ duckdb_value duckdb_vx_value_create_geometry(const uint8_t *wkb, idx_t len, cons
 /// The returned `data` pointer must be freed with `duckdb_free`. Returns `{nullptr, 0}`
 /// if `value` is null or not a GEOMETRY value.
 duckdb_blob duckdb_vx_value_get_geometry(duckdb_value value);
+
+/// Returns the number of elements of an ARRAY value, or 0 if `value` is null or not an ARRAY.
+idx_t duckdb_vx_value_get_array_size(duckdb_value value);
+
+/// Returns a copy of the element at `index` of an ARRAY value, or nullptr if `value` is null, not
+/// an ARRAY, or `index` is out of bounds. The result must be destroyed with `duckdb_destroy_value`.
+duckdb_value duckdb_vx_value_get_array_child(duckdb_value value, idx_t index);
 
 #ifdef __cplusplus
 }

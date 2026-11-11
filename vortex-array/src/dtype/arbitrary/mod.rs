@@ -150,13 +150,19 @@ mod tests {
 
     #[test]
     fn random_map_dtype_never_asserts_sorted_keys() {
+        let mut generated = 0;
         for byte in 0..=u8::MAX {
             let bytes = [byte; 128];
             let mut u = Unstructured::new(&bytes);
             let Ok(DType::Map(map_dtype, _)) = random_map_dtype(&mut u, 0) else {
                 continue;
             };
+            generated += 1;
             assert!(!map_dtype.keys_sorted());
         }
+        assert!(
+            generated > 0,
+            "fixtures must produce at least one map dtype"
+        );
     }
 }

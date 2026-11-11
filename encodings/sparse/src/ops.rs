@@ -39,7 +39,7 @@ mod tests {
     use crate::Sparse;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -50,12 +50,11 @@ mod tests {
         let values = buffer![0u64].into_array();
         let indices = buffer![0u8].into_array();
 
-        let sparse = Sparse::try_new(indices, values, 1000, 999u64.into()).unwrap();
+        let sparse = Sparse::try_new(indices, values, 1000, 999u64.into(), &mut ctx).unwrap();
         let sliced = sparse.slice(0..1000).unwrap();
         let mut expected = vec![999u64; 1000];
         expected[0] = 0;
 
-        let values = sliced.execute::<PrimitiveArray>(&mut ctx).unwrap();
-        assert_arrays_eq!(values, PrimitiveArray::from_iter(expected), &mut ctx);
+        assert_arrays_eq!(sliced, PrimitiveArray::from_iter(expected), &mut ctx);
     }
 }

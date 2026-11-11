@@ -19,8 +19,13 @@ use vortex_alp::decompress_into_array;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
@@ -30,33 +35,49 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
-const BENCH_ARGS: &[(usize, f64, f64)] = &[
-    // length, fraction_patch, fraction_valid
-    (1_000, 0.0, 0.25),
-    (1_000, 0.01, 0.25),
-    (1_000, 0.1, 0.25),
-    (1_000, 0.0, 0.95),
-    (1_000, 0.01, 0.95),
-    (1_000, 0.1, 0.95),
-    (1_000, 0.0, 1.0),
-    (1_000, 0.01, 1.0),
-    (1_000, 0.1, 1.0),
-    (10_000, 0.0, 0.25),
-    (10_000, 0.01, 0.25),
-    (10_000, 0.1, 0.25),
-    (10_000, 0.0, 0.95),
-    (10_000, 0.01, 0.95),
-    (10_000, 0.1, 0.95),
-    (10_000, 0.0, 1.0),
-    (10_000, 0.01, 1.0),
-    (10_000, 0.1, 1.0),
-];
+const BENCH_ARGS: &[(usize, f64, f64)] = if cfg!(codspeed) {
+    &[
+        // length, fraction_patch, fraction_valid
+        (1_000, 0.01, 1.0),
+        (10_000, 0.0, 1.0),
+        (10_000, 0.01, 1.0),
+        (10_000, 0.1, 1.0),
+        (10_000, 0.01, 0.95),
+    ]
+} else {
+    &[
+        // length, fraction_patch, fraction_valid
+        (1_000, 0.0, 0.25),
+        (1_000, 0.01, 0.25),
+        (1_000, 0.1, 0.25),
+        (1_000, 0.0, 0.95),
+        (1_000, 0.01, 0.95),
+        (1_000, 0.1, 0.95),
+        (1_000, 0.0, 1.0),
+        (1_000, 0.01, 1.0),
+        (1_000, 0.1, 1.0),
+        (10_000, 0.0, 0.25),
+        (10_000, 0.01, 0.25),
+        (10_000, 0.1, 0.25),
+        (10_000, 0.0, 0.95),
+        (10_000, 0.01, 0.95),
+        (10_000, 0.1, 0.95),
+        (10_000, 0.0, 1.0),
+        (10_000, 0.01, 1.0),
+        (10_000, 0.1, 1.0),
+    ]
+};
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>();
     vortex_alp::initialize(&session);
     session
 });
@@ -80,6 +101,7 @@ fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, 
     };
     let values = values.freeze();
     let array = PrimitiveArray::new(values, validity);
+    mark_optimized(array.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
@@ -106,38 +128,49 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
     let values = values.freeze();
     bencher
         .with_inputs(|| {
-            (
-                alp_encode(
-                    PrimitiveArray::new(Buffer::copy_from(&values), validity.clone()).as_view(),
-                    None,
-                    &mut SESSION.create_execution_ctx(),
-                )
-                .unwrap(),
-                SESSION.create_execution_ctx(),
+            let encoded = alp_encode(
+                PrimitiveArray::new(Buffer::copy_from(&values), validity.clone()).as_view(),
+                None,
+                &mut SESSION.create_execution_ctx(),
             )
+            .unwrap();
+            mark_optimized(encoded.as_array(), &SESSION).unwrap();
+
+            (encoded, SESSION.create_execution_ctx())
         })
         .bench_values(|(v, mut ctx)| decompress_into_array(v, &mut ctx));
 }
 
-const RD_BENCH_ARGS: &[(usize, f64)] = &[
-    // length, fraction_patch
-    (2_000, 0.0),
-    (2_000, 0.01),
-    (2_000, 0.1),
-    (10_000, 0.0),
-    (10_000, 0.01),
-    (10_000, 0.1),
-];
+const RD_BENCH_ARGS: &[(usize, f64)] = if cfg!(codspeed) {
+    &[
+        // length, fraction_patch
+        (2_000, 0.01),
+        (10_000, 0.0),
+        (10_000, 0.01),
+        (10_000, 0.1),
+    ]
+} else {
+    &[
+        // length, fraction_patch
+        (2_000, 0.0),
+        (2_000, 0.01),
+        (2_000, 0.1),
+        (10_000, 0.0),
+        (10_000, 0.01),
+        (10_000, 0.1),
+    ]
+};
 
 fn make_rd_array<T: ALPRDFloat + NativePType>(n: usize, fraction_patch: f64) -> PrimitiveArray {
     let base_val = T::from(1.23).unwrap();
     let mut rng = StdRng::seed_from_u64(42);
     let mut values = buffer![base_val; n].into_mut();
     if fraction_patch > 0.0 {
-        let outlier = T::from(1000.0).unwrap();
         for index in 0..values.len() {
             if rng.random_bool(fraction_patch) {
-                values[index] = outlier;
+                let outlier =
+                    (1000.0 + index as f64) * 10f64.powi(i32::try_from(index % 24).unwrap());
+                values[index] = T::from(outlier).unwrap();
             }
         }
     }
@@ -148,6 +181,8 @@ fn make_rd_array<T: ALPRDFloat + NativePType>(n: usize, fraction_patch: f64) -> 
 fn compress_rd<T: ALPRDFloat + NativePType>(bencher: Bencher, args: (usize, f64)) {
     let (n, fraction_patch) = args;
     let primitive = make_rd_array::<T>(n, fraction_patch);
+    mark_optimized(primitive.as_array(), &SESSION).unwrap();
+
     let encoder = RDEncoder::new(primitive.as_slice::<T>());
 
     bencher
@@ -161,6 +196,7 @@ fn decompress_rd<T: ALPRDFloat + NativePType>(bencher: Bencher, args: (usize, f6
     let primitive = make_rd_array::<T>(n, fraction_patch);
     let encoder = RDEncoder::new(primitive.as_slice::<T>());
     let encoded = encoder.encode(primitive.as_view());
+    mark_optimized(encoded.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&encoded, SESSION.create_execution_ctx()))

@@ -149,7 +149,7 @@ mod tests {
     use crate::sequence_encode;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -160,11 +160,7 @@ mod tests {
         let primitive_array = PrimitiveArray::from_iter([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let encoded = sequence_encode(primitive_array.as_view(), &mut ctx).unwrap();
         assert!(encoded.is_some());
-        let decoded = encoded
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-        assert_arrays_eq!(decoded, primitive_array, &mut ctx);
+        assert_arrays_eq!(encoded.unwrap(), primitive_array, &mut ctx);
     }
 
     #[test]
@@ -173,11 +169,7 @@ mod tests {
         let primitive_array = PrimitiveArray::from_iter([0]);
         let encoded = sequence_encode(primitive_array.as_view(), &mut ctx).unwrap();
         assert!(encoded.is_some());
-        let decoded = encoded
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-        assert_arrays_eq!(decoded, primitive_array, &mut ctx);
+        assert_arrays_eq!(encoded.unwrap(), primitive_array, &mut ctx);
     }
 
     #[test]
@@ -190,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn test_encode_array_fail_oob() {
+    fn test_encode_constant_array_is_not_sequence_encoded() {
         let mut ctx = SESSION.create_execution_ctx();
         let primitive_array = PrimitiveArray::from_iter(vec![100i8; 1000]);
 
@@ -204,10 +196,6 @@ mod tests {
         let primitive_array = PrimitiveArray::from_iter(0u8..=255);
         let encoded = sequence_encode(primitive_array.as_view(), &mut ctx).unwrap();
         assert!(encoded.is_some());
-        let decoded = encoded
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-        assert_arrays_eq!(decoded, primitive_array, &mut ctx);
+        assert_arrays_eq!(encoded.unwrap(), primitive_array, &mut ctx);
     }
 }

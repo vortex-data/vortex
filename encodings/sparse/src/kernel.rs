@@ -16,6 +16,8 @@ use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_array::scalar_fn::fns::fill_null::FillNull;
 use vortex_array::scalar_fn::fns::fill_null::FillNullExecuteAdaptor;
+use vortex_array::scalar_fn::fns::like::Like;
+use vortex_array::scalar_fn::fns::like::LikeExecuteAdaptor;
 use vortex_session::VortexSession;
 
 use crate::Sparse;
@@ -25,6 +27,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(Between.id(), Sparse, BetweenExecuteAdaptor(Sparse));
     kernels.register_execute_parent_kernel(Binary.id(), Sparse, CompareExecuteAdaptor(Sparse));
     kernels.register_execute_parent_kernel(FillNull.id(), Sparse, FillNullExecuteAdaptor(Sparse));
+    kernels.register_execute_parent_kernel(Like.id(), Sparse, LikeExecuteAdaptor(Sparse));
     kernels.register_execute_parent_kernel(Filter.id(), Sparse, FilterExecuteAdaptor(Sparse));
     kernels.register_execute_parent_kernel(Slice.id(), Sparse, SliceExecuteAdaptor(Sparse));
     kernels.register_execute_parent_kernel(Dict.id(), Sparse, TakeExecuteAdaptor(Sparse));

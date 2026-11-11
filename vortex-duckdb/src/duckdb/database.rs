@@ -21,9 +21,42 @@ lifetime_wrapper!(
     cpp::duckdb_close
 );
 
+/// Static duckdb lib for Windows doesn't register builtin extensions. This
+/// means you can't use INSTALL which we require in vortex-sqllogictest.
+#[cfg(all(windows, feature = "static-extensions"))]
+fn register_windows_builtin_extensions() {
+    use std::ffi::c_void;
+    use std::sync::Once;
+    type Describe = unsafe extern "C" fn(*mut c_void) -> i32;
+    unsafe extern "C" {
+        fn duckdb_register_static_extension(describe: Describe) -> i32;
+        fn duckdb_extension_core_functions_describe(descriptor: *mut c_void) -> i32;
+        fn duckdb_extension_icu_describe(descriptor: *mut c_void) -> i32;
+        fn duckdb_extension_httplib_describe(descriptor: *mut c_void) -> i32;
+        fn duckdb_extension_loadable_extensions_describe(descriptor: *mut c_void) -> i32;
+    }
+
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let describes: [Describe; 4] = [
+            duckdb_extension_core_functions_describe,
+            duckdb_extension_icu_describe,
+            duckdb_extension_httplib_describe,
+            duckdb_extension_loadable_extensions_describe,
+        ];
+        for describe in describes {
+            unsafe {
+                duckdb_register_static_extension(describe);
+            }
+        }
+    });
+}
+
 impl Database {
     /// Creates a new DuckDB database instance in memory.
     pub fn open_in_memory() -> VortexResult<Self> {
+        #[cfg(all(windows, feature = "static-extensions"))]
+        register_windows_builtin_extensions();
         let mut ptr: duckdb_database = ptr::null_mut();
         duckdb_try!(
             unsafe { cpp::duckdb_open(ptr::null(), &raw mut ptr) },
@@ -43,6 +76,8 @@ impl Database {
         let path_cstr = CString::new(path_str)
             .map_err(|_| vortex_err!("Invalid path: path contains null bytes"))?;
 
+        #[cfg(all(windows, feature = "static-extensions"))]
+        register_windows_builtin_extensions();
         let mut ptr: duckdb_database = ptr::null_mut();
         duckdb_try!(
             unsafe { cpp::duckdb_open(path_cstr.as_ptr(), &raw mut ptr) },

@@ -159,17 +159,30 @@ logical_opt [
         "name": "PROJECTION",
         "children": [
             {
-                "name": "READ_VORTEX",
-                "children": [],
+                "name": "PROJECTION",
+                "children": [
+                    {
+                        "name": "READ_VORTEX",
+                        "children": [],
+                        "extra_info": {
+                            "Filters": "",
+                            "Function": "Vortex Scan",
+                            "Aggregations": [
+                                "sum(AdvEngineID)",
+                                "count(*)",
+                                "sum(ResolutionWidth)"
+                            ],
+                            "Estimated Cardinality": "1000000"
+                        }
+                    }
+                ],
                 "extra_info": {
-                    "Filters": "",
-                    "Function": "Vortex Scan",
-                    "Aggregations": [
-                        "sum(AdvEngineID)",
-                        "count(*)",
-                        "mean(ResolutionWidth)"
+                    "Expressions": [
+                        "#0",
+                        "#1",
+                        "\"/\"(CAST(#2 AS DOUBLE), CAST(#1 AS DOUBLE))"
                     ],
-                    "Estimated Cardinality": "1000000"
+                    "Estimated Cardinality": "1"
                 }
             }
         ],
@@ -185,17 +198,30 @@ logical_opt [
 ]
 physical_plan [
     {
-        "name": "READ_VORTEX",
-        "children": [],
+        "name": "PROJECTION",
+        "children": [
+            {
+                "name": "READ_VORTEX",
+                "children": [],
+                "extra_info": {
+                    "Function": "Vortex Scan",
+                    "Aggregations": [
+                        "sum(AdvEngineID)",
+                        "count(*)",
+                        "sum(ResolutionWidth)"
+                    ],
+                    "Projections": "",
+                    "Estimated Cardinality": "1000000"
+                }
+            }
+        ],
         "extra_info": {
-            "Function": "Vortex Scan",
-            "Aggregations": [
-                "sum(AdvEngineID)",
-                "count(*)",
-                "mean(ResolutionWidth)"
+            "Projections": [
+                "#0",
+                "#1",
+                "\"/\"(CAST(#2 AS DOUBLE), CAST(#1 AS DOUBLE))"
             ],
-            "Projections": "",
-            "Estimated Cardinality": "1000000"
+            "Estimated Cardinality": "1"
         }
     }
 ]

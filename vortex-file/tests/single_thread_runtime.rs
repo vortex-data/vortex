@@ -11,9 +11,11 @@
 use futures::TryStreamExt;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
 use vortex_buffer::ByteBufferMut;
@@ -26,6 +28,7 @@ use vortex_io::runtime::single::SingleThreadRuntime;
 use vortex_io::session::RuntimeSession;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::session::LayoutSession;
+use vortex_session::VortexSession;
 
 mod common;
 
@@ -49,18 +52,19 @@ fn test_array() -> ArrayRef {
 fn roundtrip_on_single_thread_runtime() -> VortexResult<()> {
     let runtime = SingleThreadRuntime::default();
 
-    let session = vortex_array::array_session()
+    let session = VortexSession::empty()
         .with::<LayoutSession>()
         .with::<RuntimeSession>()
         .with_handle(runtime.handle());
     vortex_file::register_default_encodings(&session);
     enable_all_registered_array_encodings(&session);
 
+    let expected = test_array();
     let buffer = runtime.block_on(async {
         let mut buffer = ByteBufferMut::empty();
         session
             .write_options()
-            .write(&mut buffer, test_array().to_array_stream())
+            .write(&mut buffer, expected.to_array_stream())
             .await?;
         Ok::<_, VortexError>(buffer.freeze())
     })?;
@@ -77,10 +81,8 @@ fn roundtrip_on_single_thread_runtime() -> VortexResult<()> {
             .await
     })?;
 
-    assert_eq!(
-        chunks.iter().map(|chunk| chunk.len()).sum::<usize>(),
-        2 * ROWS
-    );
+    let result = ChunkedArray::try_new(chunks, expected.dtype().clone())?;
+    assert_arrays_eq!(result, expected, &mut session.create_execution_ctx());
 
     Ok(())
 }

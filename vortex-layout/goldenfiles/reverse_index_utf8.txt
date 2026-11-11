@@ -1,0 +1,1 @@
+[{key: "alpha", postings: "3a 30 0 0 1 0 0 0 0 0 1 0 10 0 0 0 0 0 9 0"}, {key: "beta", postings: "3a 30 0 0 0 0 0 0"}, {key: "gamma", postings: "3a 30 0 0 2 0 0 0 0 0 1 0 1 0 0 0 18 0 0 0 1c 0 0 0 3 0 4 0 a0 86"}]

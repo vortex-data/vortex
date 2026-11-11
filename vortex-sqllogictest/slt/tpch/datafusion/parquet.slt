@@ -7,5 +7,5 @@ let FILE_FORMAT
 SELECT 'parquet';
 
 include ./create.slt.no
-include ./results/*.slt.no
+include ../results/*.slt.no
 include ./drop.slt.no

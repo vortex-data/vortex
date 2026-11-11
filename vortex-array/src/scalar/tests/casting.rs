@@ -8,9 +8,9 @@ mod tests {
     use std::f32;
     use std::sync::Arc;
 
+    use rstest::rstest;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_bail;
 
     use crate::dtype::DType;
     use crate::dtype::FieldDType;
@@ -84,31 +84,55 @@ mod tests {
         let expected_dtype = &ext_dtype;
         let actual = ext_scalar.cast(expected_dtype).unwrap();
         assert_eq!(actual.dtype(), expected_dtype);
+        assert_eq!(
+            actual.value(),
+            Some(&ScalarValue::Primitive(PValue::U16(1000)))
+        );
 
         // to nullable self
         let expected_dtype = &ext_dtype.as_nullable();
         let actual = ext_scalar.cast(expected_dtype).unwrap();
         assert_eq!(actual.dtype(), expected_dtype);
+        assert_eq!(
+            actual.value(),
+            Some(&ScalarValue::Primitive(PValue::U16(1000)))
+        );
 
         // cast to the storage type
         let expected_dtype = apples.storage_dtype();
         let actual = ext_scalar.cast(expected_dtype).unwrap();
         assert_eq!(actual.dtype(), expected_dtype);
+        assert_eq!(
+            actual.value(),
+            Some(&ScalarValue::Primitive(PValue::U16(1000)))
+        );
 
         // cast to the storage type, nullable
         let expected_dtype = &apples.storage_dtype().as_nullable();
         let actual = ext_scalar.cast(expected_dtype).unwrap();
         assert_eq!(actual.dtype(), expected_dtype);
+        assert_eq!(
+            actual.value(),
+            Some(&ScalarValue::Primitive(PValue::U16(1000)))
+        );
 
         // cast from storage type to extension
         let expected_dtype = &ext_dtype;
         let actual = storage_scalar.cast(expected_dtype).unwrap();
         assert_eq!(actual.dtype(), expected_dtype);
+        assert_eq!(
+            actual.value(),
+            Some(&ScalarValue::Primitive(PValue::U16(1000)))
+        );
 
         // cast from storage type to extension, nullable
         let expected_dtype = &ext_dtype.as_nullable();
         let actual = storage_scalar.cast(expected_dtype).unwrap();
         assert_eq!(actual.dtype(), expected_dtype);
+        assert_eq!(
+            actual.value(),
+            Some(&ScalarValue::Primitive(PValue::U16(1000)))
+        );
 
         // cast from *incompatible* storage type to extension
         let apples_u8 =
@@ -125,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn test_struct_field_coercion() {
+    fn test_struct_field_values() {
         let f16_value = f16::from_f32(0.42);
         let f32_value = f32::consts::PI;
 
@@ -149,9 +173,7 @@ mod tests {
 
         let field_values = vec![
             Some(ScalarValue::Primitive(PValue::U32(42))),
-            Some(ScalarValue::Primitive(PValue::U64(
-                f16_value.to_bits() as u64
-            ))),
+            Some(ScalarValue::Primitive(PValue::F16(f16_value))),
             Some(ScalarValue::Primitive(PValue::F32(f32_value))),
         ];
 
@@ -165,7 +187,6 @@ mod tests {
         // Check first field (no coercion needed)
         assert_eq!(fields[0].as_primitive().pvalue().unwrap(), PValue::U32(42));
 
-        // Check second field (f16 coerced from u64)
         assert_eq!(
             fields[1].as_primitive().pvalue().unwrap(),
             PValue::F16(f16_value)
@@ -176,6 +197,27 @@ mod tests {
             fields[2].as_primitive().pvalue().unwrap(),
             PValue::F32(f32_value)
         );
+    }
+
+    #[rstest]
+    #[case::u8(PType::U8)]
+    #[case::i32(PType::I32)]
+    #[case::u64(PType::U64)]
+    #[case::f16(PType::F16)]
+    #[case::f64(PType::F64)]
+    fn cast_bool_to_primitive(#[case] ptype: PType) -> VortexResult<()> {
+        let target = DType::Primitive(ptype, Nullability::Nullable);
+        for (value, expected) in [(true, 1u8), (false, 0)] {
+            assert_eq!(
+                Scalar::bool(value, Nullability::NonNullable).cast(&target)?,
+                Scalar::primitive(expected, Nullability::NonNullable).cast(&target)?
+            );
+        }
+        assert_eq!(
+            Scalar::null(DType::Bool(Nullability::Nullable)).cast(&target)?,
+            Scalar::null(target)
+        );
+        Ok(())
     }
 
     #[test]
@@ -194,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn test_list_element_coercion() {
+    fn test_list_element_values() {
         let f16_value1 = f16::from_f32(1.0);
         let f16_value2 = f16::from_f32(2.0);
 
@@ -204,12 +246,8 @@ mod tests {
         );
 
         let elements = vec![
-            Some(ScalarValue::Primitive(PValue::U64(
-                f16_value1.to_bits() as u64
-            ))),
-            Some(ScalarValue::Primitive(PValue::U64(
-                f16_value2.to_bits() as u64
-            ))),
+            Some(ScalarValue::Primitive(PValue::F16(f16_value1))),
+            Some(ScalarValue::Primitive(PValue::F16(f16_value2))),
         ];
 
         let scalar = Scalar::new(list_dtype, Some(ScalarValue::Tuple(elements)));
@@ -225,68 +263,68 @@ mod tests {
         }
     }
 
-    #[test]
-    #[should_panic]
-    fn test_coercion_with_overflow_protection() {
-        // Test that values too large for target type are not coerced.
-        let large_u64 = u64::MAX;
+    #[rstest]
+    #[case::zero(0x0000)]
+    #[case::negative_zero(0x8000)]
+    #[case::one(0x3c00)]
+    #[case::nan(0x7e00)]
+    fn test_f16_construction_normalizes_legacy_bits(#[case] bits: u16) -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::F16, Nullability::NonNullable);
+        let value = ScalarValue::Primitive(PValue::U64(u64::from(bits)));
+        let expected = ScalarValue::Primitive(PValue::F16(f16::from_bits(bits)));
+        let scalar = Scalar::try_new(dtype.clone(), Some(value.clone()))?;
 
-        // This should NOT be coerced to F16 because it's too large.
-        let scalar = Scalar::new(
-            DType::Primitive(PType::F16, Nullability::NonNullable),
-            Some(ScalarValue::Primitive(PValue::U64(large_u64))),
-        );
+        assert_eq!(scalar.value(), Some(&expected));
+        assert!(Scalar::validate(&dtype, Some(&value)).is_err());
 
-        let _ = scalar.as_primitive(); // Should panic
+        Ok(())
     }
 
     #[test]
-    fn test_extension_dtype_coercion() {
-        // Create an extension type with f16 storage
-        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-        struct F16Ext;
-        impl ExtVTable for F16Ext {
-            type Metadata = usize;
-            type NativeValue<'a> = &'a str;
+    fn test_f16_construction_rejects_bit_overflow() {
+        let error = Scalar::try_new(
+            DType::Primitive(PType::F16, Nullability::NonNullable),
+            Some(ScalarValue::Primitive(PValue::U64(u64::MAX))),
+        )
+        .unwrap_err();
 
-            #[expect(clippy::disallowed_methods, reason = "test-only id")]
-            fn id(&self) -> ExtId {
-                ExtId::new("f16_ext")
-            }
+        assert!(
+            error
+                .to_string()
+                .contains("f16 bit representation must fit in 16 bits")
+        );
+    }
 
-            fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-                vortex_bail!("not implemented")
-            }
+    #[test]
+    fn test_nested_f16_requires_canonical_values() {
+        let dtype = DType::list(
+            DType::Primitive(PType::F16, Nullability::NonNullable),
+            Nullability::NonNullable,
+        );
+        let value = ScalarValue::Tuple(vec![Some(ScalarValue::Primitive(PValue::U64(0x3c00)))]);
 
-            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
-                vortex_bail!("not implemented")
-            }
+        assert!(Scalar::try_new(dtype, Some(value)).is_err());
+    }
 
-            fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-                Ok(())
-            }
-
-            fn unpack_native<'a>(
-                _ext_dtype: &'a ExtDType<Self>,
-                _storage_value: &'a ScalarValue,
-            ) -> VortexResult<Self::NativeValue<'a>> {
-                Ok("")
-            }
-        }
-
+    #[test]
+    fn test_extension_dtype_requires_canonical_storage() -> VortexResult<()> {
         let storage_dtype = DType::Primitive(PType::F16, Nullability::NonNullable);
-        let ext_dtype = ExtDType::<F16Ext>::try_new(0, storage_dtype).unwrap();
+        let ext_dtype = ExtDType::<Apples>::try_new(0, storage_dtype)?;
 
-        // Test f16 value stored as u64 gets coerced through extension type
         let f16_value = f16::from_f32(0.42);
-        let u64_bits = f16_value.to_bits() as u64;
-
-        let scalar = Scalar::new(
-            DType::Extension(ext_dtype.erased()),
-            Some(ScalarValue::Primitive(PValue::U64(u64_bits))),
+        let dtype = DType::Extension(ext_dtype.erased());
+        assert!(
+            Scalar::try_new(
+                dtype.clone(),
+                Some(ScalarValue::Primitive(PValue::U64(u64::from(
+                    f16_value.to_bits()
+                )))),
+            )
+            .is_err()
         );
 
-        // Verify the value was coerced to f16
+        let scalar = Scalar::try_new(dtype, Some(ScalarValue::Primitive(PValue::F16(f16_value))))?;
+
         assert_eq!(
             scalar
                 .as_extension()
@@ -296,42 +334,12 @@ mod tests {
                 .unwrap(),
             PValue::F16(f16_value)
         );
+
+        Ok(())
     }
 
     #[test]
-    fn test_extension_dtype_nested_struct_coercion() {
-        // Create an extension type with struct storage that contains f16 field
-        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-        struct StructExt;
-        impl ExtVTable for StructExt {
-            type Metadata = usize;
-            type NativeValue<'a> = &'a str;
-
-            #[expect(clippy::disallowed_methods, reason = "test-only id")]
-            fn id(&self) -> ExtId {
-                ExtId::new("struct_ext")
-            }
-
-            fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-                vortex_bail!("not implemented")
-            }
-
-            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
-                vortex_bail!("not implemented")
-            }
-
-            fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-                Ok(())
-            }
-
-            fn unpack_native<'a>(
-                _ext_dtype: &'a ExtDType<Self>,
-                _storage_value: &'a ScalarValue,
-            ) -> VortexResult<Self::NativeValue<'a>> {
-                Ok("")
-            }
-        }
-
+    fn test_extension_dtype_nested_struct_values() -> VortexResult<()> {
         let struct_dtype = DType::Struct(
             StructFields::from_iter([
                 (
@@ -345,38 +353,33 @@ mod tests {
             ]),
             Nullability::NonNullable,
         );
-        let ext_dtype = ExtDType::<StructExt>::try_new(0, struct_dtype).unwrap();
+        let ext_dtype = ExtDType::<Apples>::try_new(0, struct_dtype)?;
 
-        // Create struct value with f16 stored as u64
         let f16_value = f16::from_f32(1.5);
         let field_values = vec![
             Some(ScalarValue::Primitive(PValue::U32(123))),
-            Some(ScalarValue::Primitive(PValue::U64(
-                f16_value.to_bits() as u64
-            ))),
+            Some(ScalarValue::Primitive(PValue::F16(f16_value))),
         ];
 
-        let scalar = Scalar::new(
+        let scalar = Scalar::try_new(
             DType::Extension(ext_dtype.erased()),
             Some(ScalarValue::Tuple(field_values)),
-        );
+        )?;
 
-        // Verify the struct field was coerced
-        let list_elems = scalar
+        let fields = scalar
             .as_extension()
             .to_storage_scalar()
             .as_struct()
             .fields_iter()
             .vortex_expect("non null")
             .collect::<Vec<_>>();
+        assert_eq!(fields[0].as_primitive().pvalue().unwrap(), PValue::U32(123));
         assert_eq!(
-            list_elems[0].as_primitive().pvalue().unwrap(),
-            PValue::U32(123)
-        );
-        assert_eq!(
-            list_elems[1].as_primitive().pvalue().unwrap(),
+            fields[1].as_primitive().pvalue().unwrap(),
             PValue::F16(f16_value)
         );
+
+        Ok(())
     }
 
     #[test]
@@ -433,6 +436,14 @@ mod tests {
             Some(DType::Utf8(Nullability::Nullable))
         );
 
+        assert_eq!(
+            unchanged_child.as_union().child(),
+            Some(Scalar::primitive(42i32, Nullability::NonNullable))
+        );
+        assert_eq!(
+            changed_child.as_union().child(),
+            Some(Scalar::utf8("hello", Nullability::Nullable))
+        );
         Ok(())
     }
 
@@ -610,6 +621,10 @@ mod tests {
             Some(DType::Primitive(PType::I32, Nullability::NonNullable))
         );
 
+        assert_eq!(
+            nullable.as_union().child(),
+            Some(Scalar::primitive(42i32, Nullability::NonNullable))
+        );
         Ok(())
     }
 }

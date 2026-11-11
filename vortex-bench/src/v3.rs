@@ -9,9 +9,9 @@
 //! plus `git show`, computes the internal `measurement_id`, and upserts them
 //! directly into the database.
 //!
-//! When changing a shape, update `benchmarks-website/CONTRACT.md`,
-//! `benchmarks-website/web/lib/schema-version.ts`, and
-//! `scripts/post-ingest.py` in the same logical change.
+//! When changing a shape, update `bench/CONTRACT.md` and
+//! `bench/web/lib/schema-version.ts` in the vortex-data/vortex.dev repository,
+//! and `scripts/post-ingest.py` here, in the same logical change.
 //!
 //! ## Producer mapping
 //!
@@ -276,7 +276,8 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 /// |---|---|---|---|---|
 /// | `TpcH { scale_factor }`     | `tpch`         | `None`              | TPC SF as string (`"1"`, `"10"`, `"100"`, `"1000"`) | Run through `canonical_tpc_scale_factor` so `"1.0"` and `"1"` collapse. |
 /// | `TpcDS { scale_factor }`    | `tpcds`        | `None`              | TPC SF as string                                    | Same canonicalization as TPC-H. |
-/// | `ClickBench { flavor: _ }`  | `clickbench`   | `None`              | `None`                                              | Migrate path drops flavor; live emitter matches so historical and live merge. |
+/// | `TpcHNested { scale_factor, shape }` | `tpch-nested` | shape name (`list`) | TPC SF as string                      | Same canonicalization as TPC-H; the shape keeps future nestings apart. |
+/// | `ClickBench { files, .. }`  | `clickbench`   | `files=N` or `None` | `None`                                              | Migrate path drops flavor; live emitter matches so historical and live merge. Only subsets set `files`. |
 /// | `ClickBenchSorted`          | `clickbench-sorted` | `None`          | `None`                                              | New live-only suite; keep separate from unsorted ClickBench history. |
 /// | `StatPopGen { n_rows: _ }`  | `statpopgen`   | `None`              | `None`                                              | Migrate path carries no SF for this suite; live drops it for the same reason. |
 /// | `PolarSignals { n_rows: _ }`| `polarsignals` | `None`              | `None`                                              | Same as StatPopGen. |
@@ -299,11 +300,23 @@ pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, 
             None,
             Some(canonical_tpc_scale_factor(scale_factor)),
         ),
+        BenchmarkDataset::TpcHNested {
+            scale_factor,
+            shape,
+        } => (
+            "tpch-nested".to_string(),
+            Some(shape.name().to_string()),
+            Some(canonical_tpc_scale_factor(scale_factor)),
+        ),
         // ClickBench: the migrate path leaves `dataset_variant` NULL because
         // v2 record names did not encode flavor, so the live emitter does the
         // same to keep historical and live records in one `clickbench` group.
         // Flavor is fixed per CI matrix entry and recoverable from there.
-        BenchmarkDataset::ClickBench { .. } => ("clickbench".to_string(), None, None),
+        BenchmarkDataset::ClickBench { files, .. } => (
+            "clickbench".to_string(),
+            files.map(|files| format!("files={files}")),
+            None,
+        ),
         BenchmarkDataset::ClickBenchSorted => ("clickbench-sorted".to_string(), None, None),
         BenchmarkDataset::PublicBi { name } => ("public-bi".to_string(), Some(name.clone()), None),
         // StatPopGen / PolarSignals: the migrate path (v2 → v3 backfill) does
@@ -608,6 +621,7 @@ mod tests {
             target: Target::new(Engine::DuckDB, Format::Parquet),
             benchmark_dataset: BenchmarkDataset::ClickBench {
                 flavor: Flavor::Partitioned,
+                files: None,
             },
             benchmark_runner: "ci-runner".to_string(),
             storage: "s3".to_string(),
@@ -718,12 +732,14 @@ mod tests {
             (
                 BenchmarkDataset::ClickBench {
                     flavor: Flavor::Partitioned,
+                    files: None,
                 },
                 "clickbench",
             ),
             (
                 BenchmarkDataset::ClickBench {
                     flavor: Flavor::Single,
+                    files: None,
                 },
                 "clickbench",
             ),
@@ -745,6 +761,32 @@ mod tests {
             assert_eq!(variant, None, "dataset_variant for {case:?}");
             assert_eq!(sf, None, "scale_factor for {case:?}");
         }
+    }
+
+    #[test]
+    fn clickbench_subsets_are_distinct_from_the_complete_dataset() -> anyhow::Result<()> {
+        let subset = BenchmarkDataset::ClickBench {
+            flavor: Flavor::Partitioned,
+            files: Some(10),
+        };
+        assert_eq!(
+            benchmark_dataset_dims(&subset),
+            ("clickbench".to_string(), Some("files=10".to_string()), None)
+        );
+
+        let full = BenchmarkDataset::ClickBench {
+            flavor: Flavor::Partitioned,
+            files: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&full)?,
+            r#"{"clickbench":{"flavor":"Partitioned"}}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<BenchmarkDataset>(r#"{"clickbench":{"flavor":"Partitioned"}}"#)?,
+            full
+        );
+        Ok(())
     }
 
     #[test]
@@ -791,6 +833,17 @@ mod tests {
     }
 
     #[test]
+    fn nested_tpch_dims_carry_shape_and_scale_factor() {
+        let (ds, variant, sf) = benchmark_dataset_dims(&BenchmarkDataset::TpcHNested {
+            scale_factor: "1.0".to_string(),
+            shape: crate::tpch_nested::Shape::List,
+        });
+        assert_eq!(ds, "tpch-nested");
+        assert_eq!(variant.as_deref(), Some("list"));
+        assert_eq!(sf.as_deref(), Some("1"));
+    }
+
+    #[test]
     fn tpc_scale_factors_are_canonicalized_for_query_dims() {
         // Bench-orchestrator passes raw TPC scale factors like `"1.0"` and `"100.0"`,
         // but the v2 → v3 migrate path canonicalizes integer-valued scale factors
@@ -827,15 +880,25 @@ mod tests {
 
     #[test]
     fn jsonl_round_trips_one_record_per_line() -> anyhow::Result<()> {
-        let record = compression_size_record("taxi", None, Format::Parquet, 100, 1_000);
+        let records = [
+            compression_size_record("taxi", None, Format::Parquet, 100, 1_000),
+            compression_size_record("other", Some("variant"), Format::Lance, 200, 2_000),
+        ];
         let mut buf: Vec<u8> = Vec::new();
-        write_jsonl(&mut buf, &[record.clone(), record])?;
+        write_jsonl(&mut buf, &records)?;
         let s = String::from_utf8(buf)?;
-        assert_eq!(s.lines().count(), 2);
-        for line in s.lines() {
-            let v: serde_json::Value = serde_json::from_str(line)?;
-            assert_eq!(v["kind"], "compression_size");
-        }
+        assert!(s.ends_with('\n'));
+        let actual = s
+            .lines()
+            .map(serde_json::from_str::<serde_json::Value>)
+            .collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(
+            actual,
+            [
+                serde_json::json!({"kind":"compression_size", "commit_sha":GIT_COMMIT_ID.as_str(), "dataset":"taxi", "format":"parquet", "value_bytes":100, "uncompressed_bytes":1000}),
+                serde_json::json!({"kind":"compression_size", "commit_sha":GIT_COMMIT_ID.as_str(), "dataset":"other", "dataset_variant":"variant", "format":"lance", "value_bytes":200, "uncompressed_bytes":2000}),
+            ]
+        );
         Ok(())
     }
 }

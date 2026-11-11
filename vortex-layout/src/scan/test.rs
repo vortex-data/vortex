@@ -13,7 +13,6 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
@@ -36,8 +35,10 @@ use crate::RowSplits;
 use crate::SplitRange;
 use crate::session::LayoutSession;
 
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
 pub fn new_session() -> VortexSession {
-    array_session()
+    VortexSession::empty()
         .with::<LayoutSession>()
         .with::<RuntimeSession>()
 }
@@ -66,8 +67,21 @@ pub struct TestLayoutReader {
     fail_first_projection: bool,
     fail_projection: bool,
     projection_masks: Option<Arc<Mutex<Vec<usize>>>>,
-    filter_evaluations: Option<Arc<AtomicUsize>>,
     filter_exprs: Option<Arc<Mutex<Vec<BoundExpression>>>>,
+    in_flight: Option<Arc<InFlight>>,
+}
+
+/// Counts projections running at once, and the most that ever were.
+#[derive(Debug, Default)]
+pub struct InFlight {
+    now: AtomicUsize,
+    peak: AtomicUsize,
+}
+
+impl InFlight {
+    pub fn peak(&self) -> usize {
+        self.peak.load(Ordering::SeqCst)
+    }
 }
 
 impl TestLayoutReader {
@@ -83,8 +97,8 @@ impl TestLayoutReader {
             fail_first_projection: false,
             fail_projection: false,
             projection_masks: None,
-            filter_evaluations: None,
             filter_exprs: None,
+            in_flight: None,
         }
     }
 
@@ -114,9 +128,10 @@ impl TestLayoutReader {
         self
     }
 
-    /// Counts every filter evaluation into `filter_evaluations`.
-    pub fn with_filter_evaluations(mut self, filter_evaluations: Arc<AtomicUsize>) -> Self {
-        self.filter_evaluations = Some(filter_evaluations);
+    /// Records into `in_flight` how many projections are running at once. Each projection yields
+    /// once before finishing, so others that the scan has started get to run alongside it.
+    pub fn with_in_flight(mut self, in_flight: Arc<InFlight>) -> Self {
+        self.in_flight = Some(in_flight);
         self
     }
 
@@ -187,9 +202,6 @@ impl LayoutReader for TestLayoutReader {
         expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
-        if let Some(filter_evaluations) = &self.filter_evaluations {
-            filter_evaluations.fetch_add(1, Ordering::Relaxed);
-        }
         if let Some(filter_exprs) = &self.filter_exprs {
             filter_exprs.lock().push(expr.clone());
         }
@@ -225,8 +237,15 @@ impl LayoutReader for TestLayoutReader {
         let base = self.base;
         let projection_masks = self.projection_masks.clone();
         let fail = self.fail_projection || (self.fail_first_projection && row_range.start == 0);
+        let in_flight = self.in_flight.clone();
 
         Ok(Box::pin(async move {
+            if let Some(in_flight) = &in_flight {
+                let now = in_flight.now.fetch_add(1, Ordering::SeqCst) + 1;
+                in_flight.peak.fetch_max(now, Ordering::SeqCst);
+                tokio::task::yield_now().await;
+                in_flight.now.fetch_sub(1, Ordering::SeqCst);
+            }
             let mask = mask.await?;
             if let Some(projection_masks) = projection_masks {
                 projection_masks.lock().push(mask.true_count());
@@ -262,7 +281,7 @@ pub fn collect_scan_values<I>(iter: I) -> VortexResult<Vec<i32>>
 where
     I: IntoIterator<Item = VortexResult<ArrayRef>>,
 {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let mut values = Vec::new();
     for chunk in iter {
         let primitive = chunk?.execute::<PrimitiveArray>(&mut ctx)?;

@@ -12,8 +12,6 @@
     allow(clippy::unwrap_used, clippy::expect_used, clippy::unwrap_in_result)
 )]
 
-use std::sync::Arc;
-
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
@@ -21,7 +19,6 @@ use vortex_array::session::ArraySessionExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_edition::EditionSessionExt;
 use vortex_error::VortexExpect;
-use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::scalar_fns::cosine_similarity::CosineSimilarity;
@@ -57,8 +54,7 @@ pub fn initialize(session: &VortexSession) {
     session.dtypes().register(FixedShapeTensor);
 
     let arrow_session = session.arrow();
-    arrow_session.register_exporter(Arc::new(Vector));
-    arrow_session.register_importer(Arc::new(Vector));
+    arrow_session.register_extension(Vector);
 
     let session_fns = session.scalar_fns();
 
@@ -84,16 +80,13 @@ pub fn initialize(session: &VortexSession) {
         session
             .editions()
             .declare_family(&editions::FAMILY)
-            .map_err(|error| vortex_err!("{error}"))
             .vortex_expect("tensor edition family is valid");
         session
             .register_edition(&editions::DECLARATION)
-            .map_err(|error| vortex_err!("{error}"))
             .vortex_expect("tensor edition declaration is valid");
     }
     session
         .enable_edition(editions::TENSOR_2026_04)
-        .map_err(|error| vortex_err!("{error}"))
         .vortex_expect("tensor edition is registered");
 }
 
@@ -104,7 +97,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });

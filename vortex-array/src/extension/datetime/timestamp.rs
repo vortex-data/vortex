@@ -6,7 +6,6 @@
 use std::fmt;
 use std::sync::Arc;
 
-use jiff::Span;
 use jiff::fmt::temporal::DateTimeParser;
 use jiff::tz::TimeZone;
 use vortex_error::VortexExpect;
@@ -26,22 +25,33 @@ use crate::dtype::extension::ExtVTable;
 use crate::extension::datetime::TimeUnit;
 use crate::scalar::ScalarValue;
 
-/// Timestamp DType.
+/// A timestamp stored as an `i64` count of seconds, milliseconds, microseconds, or nanoseconds.
+///
+/// Every storage value is valid. Formatting falls back to the raw count when jiff cannot format it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Timestamp;
 
 impl Timestamp {
-    /// Creates a new Timestamp extension =dtype with the given time unit and nullability.
+    /// Creates a timestamp dtype with the given time unit and nullability.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `time_unit` is [`TimeUnit::Days`].
     pub fn new(time_unit: TimeUnit, nullability: Nullability) -> ExtDType<Self> {
         Self::new_with_tz(time_unit, None, nullability)
     }
 
-    /// Creates a new Timestamp extension dtype with the given time unit, timezone, and nullability.
-    pub fn new_with_tz(
+    /// Creates a timestamp dtype with the given time unit, time zone, and nullability.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for [`TimeUnit::Days`] or an unresolved time zone. IANA names and fixed
+    /// UTC offsets are accepted.
+    pub fn try_new_with_tz(
         time_unit: TimeUnit,
         timezone: Option<Arc<str>>,
         nullability: Nullability,
-    ) -> ExtDType<Self> {
+    ) -> VortexResult<ExtDType<Self>> {
         ExtDType::try_new(
             TimestampOptions {
                 unit: time_unit,
@@ -49,13 +59,29 @@ impl Timestamp {
             },
             DType::Primitive(PType::I64, nullability),
         )
-        .vortex_expect("failed to create timestamp dtype")
     }
 
-    /// Creates a new `Timestamp` extension dtype with the given options and nullability.
+    /// Creates a timestamp dtype with the given time unit, time zone, and nullability.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`Self::try_new_with_tz`] rejects the unit or time zone.
+    pub fn new_with_tz(
+        time_unit: TimeUnit,
+        timezone: Option<Arc<str>>,
+        nullability: Nullability,
+    ) -> ExtDType<Self> {
+        Self::try_new_with_tz(time_unit, timezone, nullability)
+            .vortex_expect("timestamp unit and time zone must be valid")
+    }
+
+    /// Creates a timestamp dtype with the given options and nullability.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`Self::try_new_with_tz`] rejects the unit or time zone.
     pub fn new_with_options(options: TimestampOptions, nullability: Nullability) -> ExtDType<Self> {
-        ExtDType::try_new(options, DType::Primitive(PType::I64, nullability))
-            .vortex_expect("failed to create timestamp dtype")
+        Self::new_with_tz(options.unit, options.tz, nullability)
     }
 }
 
@@ -104,13 +130,20 @@ pub enum TimestampValue<'a> {
 
 impl fmt::Display for TimestampValue<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (span, tz) = match self {
-            TimestampValue::Seconds(v, tz) => (Span::new().seconds(*v), *tz),
-            TimestampValue::Milliseconds(v, tz) => (Span::new().milliseconds(*v), *tz),
-            TimestampValue::Microseconds(v, tz) => (Span::new().microseconds(*v), *tz),
-            TimestampValue::Nanoseconds(v, tz) => (Span::new().nanoseconds(*v), *tz),
+        let (unit, value, tz) = match *self {
+            TimestampValue::Seconds(v, tz) => (TimeUnit::Seconds, v, tz),
+            TimestampValue::Milliseconds(v, tz) => (TimeUnit::Milliseconds, v, tz),
+            TimestampValue::Microseconds(v, tz) => (TimeUnit::Microseconds, v, tz),
+            TimestampValue::Nanoseconds(v, tz) => (TimeUnit::Nanoseconds, v, tz),
         };
-        let ts = jiff::Timestamp::UNIX_EPOCH + span;
+
+        // jiff cannot format every storage value, including the last 26 hours of year 9999.
+        let Ok(ts) = unit
+            .to_jiff_span(value)
+            .and_then(|span| Ok(jiff::Timestamp::UNIX_EPOCH.checked_add(span)?))
+        else {
+            return write!(f, "{value}{unit}");
+        };
 
         match tz {
             None => write!(f, "{ts}"),
@@ -200,6 +233,13 @@ impl ExtVTable for Timestamp {
             matches!(ext_dtype.storage_dtype(), DType::Primitive(PType::I64, _)),
             "Timestamp storage dtype must be i64"
         );
+        vortex_ensure!(
+            ext_dtype.metadata().unit != TimeUnit::Days,
+            "Timestamp time unit must be finer than days, got {:?}",
+            ext_dtype.metadata().unit
+        );
+        resolve_time_zone(ext_dtype.metadata().tz.as_deref())?;
+
         Ok(())
     }
 
@@ -211,37 +251,13 @@ impl ExtVTable for Timestamp {
         let ts_value = storage_value.as_primitive().cast::<i64>()?;
         let tz = metadata.tz.as_ref();
 
-        let (span, value) = match metadata.unit {
-            TimeUnit::Nanoseconds => (
-                Span::new().nanoseconds(ts_value),
-                TimestampValue::Nanoseconds(ts_value, tz),
-            ),
-            TimeUnit::Microseconds => (
-                Span::new().microseconds(ts_value),
-                TimestampValue::Microseconds(ts_value, tz),
-            ),
-            TimeUnit::Milliseconds => (
-                Span::new().milliseconds(ts_value),
-                TimestampValue::Milliseconds(ts_value, tz),
-            ),
-            TimeUnit::Seconds => (
-                Span::new().seconds(ts_value),
-                TimestampValue::Seconds(ts_value, tz),
-            ),
+        Ok(match metadata.unit {
+            TimeUnit::Nanoseconds => TimestampValue::Nanoseconds(ts_value, tz),
+            TimeUnit::Microseconds => TimestampValue::Microseconds(ts_value, tz),
+            TimeUnit::Milliseconds => TimestampValue::Milliseconds(ts_value, tz),
+            TimeUnit::Seconds => TimestampValue::Seconds(ts_value, tz),
             TimeUnit::Days => vortex_bail!("Timestamp does not support Days time unit"),
-        };
-
-        // Validate the storage value is within the valid range for Timestamp.
-        jiff::Timestamp::UNIX_EPOCH
-            .checked_add(span)
-            .map_err(|e| vortex_err!("Invalid timestamp scalar: {}", e))?;
-
-        if let Some(tz) = tz {
-            resolve_time_zone(Some(tz))
-                .map_err(|e| vortex_err!("Invalid timezone for timestamp scalar: {}", e))?;
-        }
-
-        Ok(value)
+        })
     }
 }
 
@@ -270,6 +286,28 @@ mod tests {
 
     #[cfg_attr(miri, ignore)]
     #[rstest]
+    #[case::end_of_9999(
+        TimeUnit::Microseconds,
+        253_402_214_400_000_000,
+        "253402214400000000µs"
+    )]
+    #[case::start_of_neg_9999(TimeUnit::Seconds, -377_705_116_800, "-377705116800s")]
+    #[case::max(TimeUnit::Microseconds, i64::MAX, "9223372036854775807µs")]
+    fn test_accept_timestamp_beyond_jiff_range(
+        #[case] unit: TimeUnit,
+        #[case] value: i64,
+        #[case] expected: &str,
+        #[values(None, Some(Arc::from("UTC")))] timezone: Option<Arc<str>>,
+    ) -> VortexResult<()> {
+        let dtype = DType::Extension(Timestamp::new_with_tz(unit, timezone, Nullable).erased());
+        let scalar = Scalar::try_new(dtype, Some(ScalarValue::from(value)))?;
+        assert_eq!(scalar.as_extension().to_string(), expected);
+
+        Ok(())
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[rstest]
     #[case("+01:00", "1970-01-01T01:00:00+01:00[+01:00]")]
     #[case("-05:30", "1969-12-31T18:30:00-05:30[-05:30]")]
     fn display_fixed_offset_timestamp(
@@ -287,16 +325,34 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     #[test]
     fn reject_timestamp_with_invalid_timezone() {
-        let dtype = DType::Extension(
-            Timestamp::new_with_tz(
+        assert!(
+            Timestamp::try_new_with_tz(
                 TimeUnit::Seconds,
                 Some(Arc::from("Not/A/Timezone")),
                 Nullable,
             )
-            .erased(),
+            .is_err()
         );
-        let result = Scalar::try_new(dtype, Some(ScalarValue::Primitive(PValue::I64(0))));
-        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_reject_timestamp_days() {
+        assert!(Timestamp::try_new_with_tz(TimeUnit::Days, None, Nullable).is_err());
+    }
+
+    #[rstest]
+    #[case::seconds(TimeUnit::Seconds, i64::MAX)]
+    #[case::milliseconds(TimeUnit::Milliseconds, i64::MAX)]
+    #[case::microseconds(TimeUnit::Microseconds, i64::MAX)]
+    #[case::nanoseconds(TimeUnit::Nanoseconds, i64::MIN)]
+    fn test_accept_timestamp_storage_extremes(
+        #[case] unit: TimeUnit,
+        #[case] value: i64,
+    ) -> VortexResult<()> {
+        let dtype = DType::Extension(Timestamp::new(unit, Nullable).erased());
+        Scalar::try_new(dtype, Some(ScalarValue::from(value)))?;
+
+        Ok(())
     }
 
     #[cfg_attr(miri, ignore)]

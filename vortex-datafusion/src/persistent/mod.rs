@@ -28,6 +28,7 @@ mod format;
 pub mod metrics;
 mod opener;
 pub mod reader;
+mod scan_v2;
 mod sink;
 mod source;
 mod stream;

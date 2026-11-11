@@ -133,7 +133,7 @@ mod tests {
     use crate::decimal_byte_parts::testing::i128_parts;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -182,12 +182,8 @@ mod tests {
         let upper = bound(400, decimal_dtype, parts.len());
         let options = opts(lower_strict, upper_strict);
 
-        let expected = canonical
-            .between(lower.clone(), upper.clone(), options.clone())?
-            .execute::<BoolArray>(&mut ctx)?;
-        let actual = parts
-            .between(lower, upper, options)?
-            .execute::<BoolArray>(&mut ctx)?;
+        let expected = canonical.between(lower.clone(), upper.clone(), options.clone())?;
+        let actual = parts.between(lower, upper, options)?;
         assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
@@ -211,13 +207,11 @@ mod tests {
             DecimalByteParts::try_new(buffer![100i32, 200, 400].into_array(), decimal_dtype)?
                 .into_array();
 
-        let actual = parts
-            .between(
-                bound(lower, decimal_dtype, 3),
-                bound(upper, decimal_dtype, 3),
-                opts(StrictComparison::NonStrict, StrictComparison::NonStrict),
-            )?
-            .execute::<BoolArray>(&mut ctx)?;
+        let actual = parts.between(
+            bound(lower, decimal_dtype, 3),
+            bound(upper, decimal_dtype, 3),
+            opts(StrictComparison::NonStrict, StrictComparison::NonStrict),
+        )?;
         assert_arrays_eq!(actual, BoolArray::from_iter(expected), &mut ctx);
         Ok(())
     }
@@ -232,13 +226,11 @@ mod tests {
         )?
         .into_array();
 
-        let actual = parts
-            .between(
-                bound(i32::MAX as i128 + 1, decimal_dtype, 3),
-                bound(i32::MAX as i128 + 2, decimal_dtype, 3),
-                opts(StrictComparison::NonStrict, StrictComparison::NonStrict),
-            )?
-            .execute::<BoolArray>(&mut ctx)?;
+        let actual = parts.between(
+            bound(i32::MAX as i128 + 1, decimal_dtype, 3),
+            bound(i32::MAX as i128 + 2, decimal_dtype, 3),
+            opts(StrictComparison::NonStrict, StrictComparison::NonStrict),
+        )?;
         let expected = BoolArray::from_iter([Some(false), None, Some(false)]);
         assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
@@ -251,13 +243,11 @@ mod tests {
         let parts = i128_parts(values, Validity::NonNullable).into_array();
         let decimal_dtype = *parts.dtype().as_decimal_opt().unwrap();
 
-        let actual = parts
-            .between(
-                bound(5, decimal_dtype, 4),
-                bound(1i128 << 70, decimal_dtype, 4),
-                opts(StrictComparison::NonStrict, StrictComparison::Strict),
-            )?
-            .execute::<BoolArray>(&mut ctx)?;
+        let actual = parts.between(
+            bound(5, decimal_dtype, 4),
+            bound(1i128 << 70, decimal_dtype, 4),
+            opts(StrictComparison::NonStrict, StrictComparison::Strict),
+        )?;
         let expected = BoolArray::from_iter([false, false, true, false]);
         assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())

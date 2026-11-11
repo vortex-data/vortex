@@ -46,6 +46,7 @@ use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -154,7 +155,7 @@ fn json_strings_to_variant(
 ) -> VortexResult<ArrayRef> {
     let nullable = parent.dtype().is_nullable();
     let session = ctx.session().clone();
-    let arrow_strings = session.arrow().execute_arrow(strings, None, ctx)?;
+    let arrow_strings = strings.execute_arrow(None, ctx)?;
     // Any row that fails to parse as JSON fails the whole conversion.
     let arrow_variant = parquet_variant_compute::json_to_variant(&arrow_strings)?;
 
@@ -327,6 +328,7 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::expr::root;
     use vortex_array::expr::variant_get;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar_fn::fns::variant_get::VariantPath;
     use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
     use vortex_array::validity::Validity;
@@ -343,7 +345,7 @@ mod tests {
     use crate::ParquetVariantArraySlotsExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         vortex_uuid::initialize(&session);
         session
@@ -543,6 +545,7 @@ mod tests {
             let expected = $expected;
             let expected_rows = [$($expected_idx),*];
             assert_eq!(actual.len(), expected_rows.len());
+            assert_eq!(actual.dtype(), expected.dtype());
 
             let mut ctx = SESSION.create_execution_ctx();
             for (actual_idx, expected_idx) in expected_rows.into_iter().enumerate() {
@@ -587,6 +590,7 @@ mod tests {
         let sliced = arr.slice(0..3)?;
 
         assert_nulls!(&sliced, [false, true, false]);
+        assert_rows_eq!(&sliced, &arr, [0, 1, 2]);
         Ok(())
     }
 
@@ -608,6 +612,7 @@ mod tests {
         let filtered = arr.filter(mask)?;
 
         assert_nulls!(&filtered, [false, true, true]);
+        assert_rows_eq!(&filtered, &arr, [0, 1, 3]);
         Ok(())
     }
 
@@ -629,6 +634,7 @@ mod tests {
         let taken = arr.take(indices.into_array())?;
 
         assert_nulls!(&taken, [false, true, true, false]);
+        assert_rows_eq!(&taken, &arr, [0, 1, 3, 2]);
         Ok(())
     }
 
@@ -990,13 +996,13 @@ mod tests {
         expected: impl IntoIterator<Item = Option<i32>>,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let executed = array.clone().execute::<ArrayRef>(&mut ctx)?;
-        let typed_value = executed
-            .as_::<ParquetVariant>()
+        let executed = array
+            .optimize_ctx(&SESSION)?
+            .execute::<ArrayRef>(&mut ctx)?;
+        let executed_variant = executed.as_::<ParquetVariant>();
+        let typed_value = executed_variant
             .typed_value()
-            .ok_or_else(|| vortex_err!("expected typed_value child"))?
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
+            .ok_or_else(|| vortex_err!("expected typed_value child"))?;
 
         assert_arrays_eq!(
             typed_value,

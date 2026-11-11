@@ -18,13 +18,16 @@ use crate::PrecisionExt;
 use crate::convert::TryToDataFusion;
 
 /// Convert a stats set for an array with the given dtype.
+///
+/// The uncompressed size is left out of `byte_size`. DataFusion's join selection picks
+/// `CollectLeft` below `hash_join_single_partition_threshold` (1 MiB) when a byte size is known
+/// and below `hash_join_single_partition_threshold_rows` (128 Ki rows) otherwise, so known sizes
+/// turn small build sides into partitioned joins. DataFusion's `project_statistics` also keeps
+/// the whole table's size for any projection with a variable-width column.
 pub(crate) fn stats_set_to_df(
     stats_set: &StatsSet,
     dtype: &DType,
 ) -> VortexResult<ColumnStatistics> {
-    // Update the total size in bytes.
-    let column_size = stats_set.get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into());
-
     let null_count = stats_set
         .get_as::<usize>(Stat::NullCount, &PType::U64.into())
         .to_df();
@@ -39,23 +42,33 @@ pub(crate) fn stats_set_to_df(
         max_value,
         sum_value: scalar_stat_to_df(stats_set, Stat::Sum, dtype).to_df(),
         distinct_count,
-        byte_size: column_size.to_df(),
+        byte_size: Precision::Absent,
     })
 }
 
-/// Read one scalar-valued statistic and convert it to DataFusion, or `Absent` if it does not apply
-/// to `dtype` or cannot be represented.
+/// Read one NaN-skipping statistic (min, max or sum) and convert it to DataFusion, or `Absent` if it
+/// does not apply to `dtype`, cannot be represented, or the column may hold NaN.
 fn scalar_stat_to_df(
     stats_set: &StatsSet,
     stat: Stat,
     dtype: &DType,
 ) -> VortexPrecision<ScalarValue> {
+    if !is_nan_free(stats_set, dtype) {
+        return VortexPrecision::Absent;
+    }
+
     stats_set.get(stat).and_then(|stat_value| {
         Scalar::try_new(stat.dtype(dtype)?, Some(stat_value))
             .ok()?
             .try_to_df()
             .ok()
     })
+}
+
+/// Whether `stats_set` proves the column holds no NaN.
+pub(crate) fn is_nan_free(stats_set: &StatsSet, dtype: &DType) -> bool {
+    !dtype.is_float()
+        || stats_set.get_as::<u64>(Stat::NaNCount, &PType::U64.into()) == VortexPrecision::Exact(0)
 }
 
 /// Infer a singleton from exact bounds, excluding nulls and, for floats, NaNs.
@@ -90,9 +103,7 @@ pub(crate) fn constant_distinct_count(
     }
 
     // Float extrema skip NaNs, so equal extrema alone cannot prove a constant.
-    if dtype.is_float()
-        && stats_set.get_as::<u64>(Stat::NaNCount, &PType::U64.into()) != VortexPrecision::Exact(0)
-    {
+    if !is_nan_free(stats_set, dtype) {
         return Precision::Absent;
     }
 

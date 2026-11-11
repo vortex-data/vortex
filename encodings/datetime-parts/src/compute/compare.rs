@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Compares encoded timestamp parts with timestamp constants.
+//!
+//! The kernel splits a timestamp constant into days, seconds, and subseconds, then compares the
+//! encoded children without decoding the column. The result retains the timestamp array's validity.
+
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -16,6 +23,8 @@ use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_mask::AllOr;
 
 use crate::array::DateTimeParts;
 use crate::array::DateTimePartsArraySlotsExt;
@@ -28,6 +37,13 @@ impl CompareKernel for DateTimeParts {
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        vortex_ensure!(
+            lhs.dtype().eq_ignore_nullability(rhs.dtype()),
+            "Comparison requires equal dtypes ignoring nullability, got {} and {}",
+            lhs.dtype(),
+            rhs.dtype()
+        );
+
         let Some(rhs_const) = rhs.as_constant() else {
             return Ok(None);
         };
@@ -49,6 +65,7 @@ impl CompareKernel for DateTimeParts {
         let Some(options) = ext_dtype.metadata_opt::<Timestamp>() else {
             return Ok(None);
         };
+
         let ts_parts = timestamp::split(timestamp, options.unit)?;
 
         let result = match operator {
@@ -87,30 +104,32 @@ fn compare_eq(
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let mut comparison = compare_dtp(lhs.days(), ts_parts.days, CompareOperator::Eq, nullability)?;
-    if comparison.statistics().compute_max::<bool>(ctx) == Some(false) {
-        return Ok(comparison);
+    let mut comparison = compare_dtp(lhs.days(), ts_parts.days, CompareOperator::Eq, nullability)?
+        .execute::<BoolArray>(ctx)?;
+    if valid_rows_all(&comparison, false, ctx)? {
+        return Ok(comparison.into_array());
     }
 
     comparison = compare_dtp(
         lhs.seconds(),
-        ts_parts.seconds,
+        i64::from(ts_parts.seconds),
         CompareOperator::Eq,
         nullability,
     )?
-    .binary(comparison, Operator::And)?;
+    .binary(comparison.into_array(), Operator::And)?
+    .execute::<BoolArray>(ctx)?;
 
-    if comparison.statistics().compute_max::<bool>(ctx) == Some(false) {
-        return Ok(comparison);
+    if valid_rows_all(&comparison, false, ctx)? {
+        return Ok(comparison.into_array());
     }
 
     compare_dtp(
         lhs.subseconds(),
-        ts_parts.subseconds,
+        i64::from(ts_parts.subseconds),
         CompareOperator::Eq,
         nullability,
     )?
-    .binary(comparison, Operator::And)
+    .binary(comparison.into_array(), Operator::And)
 }
 
 fn compare_ne(
@@ -124,30 +143,32 @@ fn compare_ne(
         ts_parts.days,
         CompareOperator::NotEq,
         nullability,
-    )?;
-    if comparison.statistics().compute_min::<bool>(ctx) == Some(true) {
-        return Ok(comparison);
+    )?
+    .execute::<BoolArray>(ctx)?;
+    if valid_rows_all(&comparison, true, ctx)? {
+        return Ok(comparison.into_array());
     }
 
     comparison = compare_dtp(
         lhs.seconds(),
-        ts_parts.seconds,
+        i64::from(ts_parts.seconds),
         CompareOperator::NotEq,
         nullability,
     )?
-    .binary(comparison, Operator::Or)?;
+    .binary(comparison.into_array(), Operator::Or)?
+    .execute::<BoolArray>(ctx)?;
 
-    if comparison.statistics().compute_min::<bool>(ctx) == Some(true) {
-        return Ok(comparison);
+    if valid_rows_all(&comparison, true, ctx)? {
+        return Ok(comparison.into_array());
     }
 
     compare_dtp(
         lhs.subseconds(),
-        ts_parts.subseconds,
+        i64::from(ts_parts.subseconds),
         CompareOperator::NotEq,
         nullability,
     )?
-    .binary(comparison, Operator::Or)
+    .binary(comparison.into_array(), Operator::Or)
 }
 
 /// Orders timestamps by their parts.
@@ -170,32 +191,74 @@ fn compare_ordered(
         }
     };
 
-    let days_strict = compare_dtp(lhs.days(), ts_parts.days, strict, nullability)?;
-    if days_strict.statistics().compute_min::<bool>(ctx) == Some(true) {
-        return Ok(days_strict);
+    let days_strict =
+        compare_dtp(lhs.days(), ts_parts.days, strict, nullability)?.execute::<BoolArray>(ctx)?;
+    if valid_rows_all(&days_strict, true, ctx)? {
+        return Ok(days_strict.into_array());
     }
-    let days_eq = compare_dtp(lhs.days(), ts_parts.days, CompareOperator::Eq, nullability)?;
-    if days_eq.statistics().compute_max::<bool>(ctx) == Some(false) {
-        return Ok(days_strict);
+    let days_eq = compare_dtp(lhs.days(), ts_parts.days, CompareOperator::Eq, nullability)?
+        .execute::<BoolArray>(ctx)?;
+    if valid_rows_all(&days_eq, false, ctx)? {
+        return Ok(days_strict.into_array());
     }
+    let (days_strict, days_eq) = (days_strict.into_array(), days_eq.into_array());
 
-    let seconds_strict = compare_dtp(lhs.seconds(), ts_parts.seconds, strict, nullability)?;
+    let seconds_strict = compare_dtp(
+        lhs.seconds(),
+        i64::from(ts_parts.seconds),
+        strict,
+        nullability,
+    )?;
     let seconds_eq = compare_dtp(
         lhs.seconds(),
-        ts_parts.seconds,
+        i64::from(ts_parts.seconds),
         CompareOperator::Eq,
         nullability,
     )?;
-    let subseconds = compare_dtp(lhs.subseconds(), ts_parts.subseconds, operator, nullability)?;
+    let subseconds = compare_dtp(
+        lhs.subseconds(),
+        i64::from(ts_parts.subseconds),
+        operator,
+        nullability,
+    )?;
 
     let within_day =
         seconds_strict.binary(seconds_eq.binary(subseconds, Operator::And)?, Operator::Or)?;
     days_strict.binary(days_eq.binary(within_day, Operator::And)?, Operator::Or)
 }
 
+/// Whether every valid row of `comparison` is `value`. This is `false` when no row is valid, as the
+/// min and max statistics of such an array are unknown.
+///
+/// The comparison is already evaluated, so a population count answers this, where the min and max
+/// statistics of a lazy comparison would evaluate it again.
+fn valid_rows_all(
+    comparison: &BoolArray,
+    value: bool,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
+    let bits = comparison.to_bit_buffer();
+    let valid = comparison.validity()?.execute_mask(comparison.len(), ctx)?;
+    let (valid_count, true_count) = match valid.bit_buffer() {
+        AllOr::All => (bits.len(), bits.true_count()),
+        AllOr::None => return Ok(false),
+        AllOr::Some(valid_bits) => (valid.true_count(), (&bits & valid_bits).true_count()),
+    };
+
+    if valid_count == 0 {
+        return Ok(false);
+    }
+
+    Ok(if value {
+        true_count == valid_count
+    } else {
+        true_count == 0
+    })
+}
+
 fn compare_dtp(
     lhs: &ArrayRef,
-    rhs: i32,
+    rhs: i64,
     operator: CompareOperator,
     nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
@@ -245,13 +308,14 @@ fn compare_dtp(
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::ExecutionCtx;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::sum::sum;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -265,10 +329,17 @@ mod test {
     use vortex_array::scalar_fn::fns::binary::CompareKernel;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::DateTimeParts;
     use crate::DateTimePartsArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     fn dtp_array_from_timestamp<T: IntegerPType>(
         value: T,
@@ -280,7 +351,7 @@ mod test {
                 TimeUnit::Seconds,
                 Some("UTC".into()),
             ),
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .expect("Failed to construct DateTimePartsArray from TemporalArray")
     }
@@ -300,7 +371,7 @@ mod test {
     #[case(Validity::AllValid, Validity::NonNullable)]
     #[case(Validity::AllValid, Validity::AllValid)]
     fn compare_date_time_parts_eq(#[case] lhs_validity: Validity, #[case] rhs_validity: Validity) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = dtp_array_from_timestamp(86400i64, lhs_validity); // January 2, 1970, 00:00:00 UTC
         let rhs = dtp_array_from_timestamp(86400i64, rhs_validity.clone()); // January 2, 1970, 00:00:00 UTC
         let comparison = lhs
@@ -324,7 +395,7 @@ mod test {
     #[case(Validity::AllValid, Validity::NonNullable)]
     #[case(Validity::AllValid, Validity::AllValid)]
     fn compare_date_time_parts_ne(#[case] lhs_validity: Validity, #[case] rhs_validity: Validity) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = dtp_array_from_timestamp(86400i64, lhs_validity); // January 2, 1970, 00:00:00 UTC
         let rhs = dtp_array_from_timestamp(86401i64, rhs_validity.clone()); // January 2, 1970, 00:00:01 UTC
         let comparison = lhs
@@ -348,7 +419,7 @@ mod test {
     #[case(Validity::AllValid, Validity::NonNullable)]
     #[case(Validity::AllValid, Validity::AllValid)]
     fn compare_date_time_parts_lt(#[case] lhs_validity: Validity, #[case] rhs_validity: Validity) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = dtp_array_from_timestamp(0i64, lhs_validity); // January 1, 1970, 01:00:00 UTC
         let rhs = dtp_array_from_timestamp(86400i64, rhs_validity); // January 2, 1970, 00:00:00 UTC
 
@@ -365,7 +436,7 @@ mod test {
     #[case(Validity::AllValid, Validity::NonNullable)]
     #[case(Validity::AllValid, Validity::AllValid)]
     fn compare_date_time_parts_gt(#[case] lhs_validity: Validity, #[case] rhs_validity: Validity) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = dtp_array_from_timestamp(86400i64, lhs_validity); // January 2, 1970, 02:00:00 UTC
         let rhs = dtp_array_from_timestamp(0i64, rhs_validity); // January 1, 1970, 01:00:00 UTC
 
@@ -385,7 +456,7 @@ mod test {
         #[case] lhs_validity: Validity,
         #[case] rhs_validity: Validity,
     ) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let temporal_array = TemporalArray::new_timestamp(
             PrimitiveArray::new(buffer![0i64], lhs_validity.clone()).into_array(),
             TimeUnit::Seconds,
@@ -434,11 +505,47 @@ mod test {
         // being larger. Therefore, these cases are not covered by unit tests.
     }
 
+    #[rstest]
+    #[case::eq(CompareOperator::Eq, false)]
+    #[case::not_eq(CompareOperator::NotEq, true)]
+    #[case::lt(CompareOperator::Lt, true)]
+    #[case::lte(CompareOperator::Lte, true)]
+    #[case::gt(CompareOperator::Gt, false)]
+    #[case::gte(CompareOperator::Gte, false)]
+    fn compare_date_time_parts_extreme_days_constant(
+        #[case] operator: CompareOperator,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        let mut ctx = session.create_execution_ctx();
+        let timestamp = Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: TimeUnit::Seconds,
+                tz: Some("UTC".into()),
+            },
+            i64::MAX.into(),
+        );
+        let rhs = ConstantArray::new(timestamp, 1).into_array();
+        let lhs = DateTimeParts::try_new(
+            rhs.dtype().clone(),
+            buffer![0i32].into_array(),
+            buffer![0u32].into_array(),
+            buffer![0i64].into_array(),
+        )?;
+
+        let comparison = DateTimeParts::compare(lhs.as_view(), &rhs, operator, &mut ctx)?
+            .expect("constant timestamps use the DateTimeParts comparison kernel");
+        assert_arrays_eq!(comparison, BoolArray::from_iter([expected]), &mut ctx);
+
+        Ok(())
+    }
+
     #[test]
     fn compare_date_time_parts_eq_out_of_range_seconds_constant() -> VortexResult<()> {
         const QUERY_TIMESTAMP_MS: i64 = 1_786_576_785_621;
 
-        let session = array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         let mut ctx = session.create_execution_ctx();
         let timestamp = Scalar::extension::<Timestamp>(
@@ -469,7 +576,7 @@ mod test {
         // 1969-12-31, which splits to a day of `-1`: below the minimum of an unsigned days array.
         const BEFORE_EPOCH_MS: i64 = -86_400_000;
 
-        let session = array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         let mut ctx = session.create_execution_ctx();
         let timestamp = Scalar::extension::<Timestamp>(
@@ -506,7 +613,7 @@ mod test {
         #[case] days_validity: Validity,
         #[case] expected: [Option<bool>; 2],
     ) -> VortexResult<()> {
-        let session = array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         let mut ctx = session.create_execution_ctx();
         // 1969-12-31, a day of `-1`: below the minimum of an unsigned days array.
@@ -564,7 +671,7 @@ mod test {
         unit: TimeUnit,
         constants: impl IntoIterator<Item = i64>,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let temporal =
             TemporalArray::new_timestamp(timestamps.into_array(), unit, Some("UTC".into()));
         let array = DateTimeParts::try_from_temporal(temporal.clone(), &mut ctx)?;
@@ -640,9 +747,65 @@ mod test {
         assert_matches_temporal(nullable, unit, constants)
     }
 
+    #[rstest]
+    #[case::seconds(TimeUnit::Seconds)]
+    #[case::milliseconds(TimeUnit::Milliseconds)]
+    #[case::microseconds(TimeUnit::Microseconds)]
+    #[case::nanoseconds(TimeUnit::Nanoseconds)]
+    fn test_storage_extremes_match_temporal(#[case] unit: TimeUnit) -> VortexResult<()> {
+        let values = [
+            i64::MIN,     // Smallest storage value.
+            i64::MIN + 1, // Same day as the minimum.
+            -1,           // Before the epoch.
+            0,            // Unix epoch.
+            1,            // After the epoch.
+            i64::MAX - 1, // Same day as the maximum.
+            i64::MAX,     // Largest storage value.
+        ];
+        assert_matches_temporal(PrimitiveArray::from_iter(values), unit, values)?;
+        let nullable = PrimitiveArray::from_option_iter(
+            values
+                .into_iter()
+                .enumerate()
+                .map(|(i, value)| (i != 3).then_some(value)),
+        );
+        assert_matches_temporal(nullable, unit, values)
+    }
+
+    #[rstest]
+    #[case::storage(Scalar::from(1500i64))]
+    #[case::different_unit(Scalar::extension::<Timestamp>(
+        TimestampOptions { unit: TimeUnit::Nanoseconds, tz: None },
+        Scalar::from(1_500_000_000i64),
+    ))]
+    fn test_comparison_rejects_mismatched_constant_dtype(
+        #[case] scalar: Scalar,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let temporal = TemporalArray::new_timestamp(
+            buffer![1600i64, 1400].into_array(),
+            TimeUnit::Milliseconds,
+            None,
+        );
+        let array = DateTimeParts::try_from_temporal(temporal, &mut ctx)?;
+        let rhs = ConstantArray::new(scalar, array.len()).into_array();
+
+        assert!(
+            <DateTimeParts as CompareKernel>::compare(
+                array.as_view(),
+                &rhs,
+                CompareOperator::Lt,
+                &mut ctx,
+            )
+            .is_err()
+        );
+
+        Ok(())
+    }
+
     #[test]
     fn null_rows_stay_null_when_parts_differ() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Row 1 is null and its stored seconds differ from the constant's.
         let values = PrimitiveArray::new(
             buffer![86_400i64 + 5, 86_400i64 + 7, 86_400i64 + 5],

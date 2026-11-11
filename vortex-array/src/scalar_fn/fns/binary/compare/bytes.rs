@@ -76,7 +76,9 @@ fn constant_bytes(scalar: &Scalar) -> VortexResult<Vec<u8>> {
             .value()
             .map(|s| s.as_str().as_bytes().to_vec()),
         DType::Binary(_) => scalar.as_binary().value().map(|b| b.to_vec()),
-        _ => vortex_bail!("expected utf8 or binary scalar, got {}", scalar.dtype()),
+        _ => {
+            vortex_bail!("expected utf8 or binary scalar, got {}", scalar.dtype())
+        }
     };
     value.ok_or_else(|| vortex_err!("null constant handled by execute_compare"))
 }

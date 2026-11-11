@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use object_store::ClientConfigKey;
 use rstest::rstest;
 use url::Url;
 
@@ -337,15 +338,23 @@ fn test_from_env_matches_url_resolution() -> Result<(), Box<dyn std::error::Erro
     let (from_url, _path) = url_to_config(&url, env(vars))?;
     let direct = HfConfig::from_env_lookup(HfRepoType::Dataset, "org/name", None, env(vars));
 
-    assert_eq!(from_url.token, direct.token);
-    assert_eq!(from_url.endpoint, direct.endpoint);
-    assert_eq!(from_url.resolve_prefix(), direct.resolve_prefix());
+    for config in [from_url, direct] {
+        assert_eq!(config.repo_type, HfRepoType::Dataset);
+        assert_eq!(config.repo_id, "org/name");
+        assert_eq!(config.revision, "main");
+        assert_eq!(config.token.as_deref(), Some("hf_shared"));
+        assert_eq!(config.endpoint, "https://hub.example.com");
+        assert_eq!(
+            config.resolve_prefix(),
+            "https://hub.example.com/datasets/org/name/resolve/main"
+        );
+    }
     Ok(())
 }
 
 /// `ALLOW_HTTP` must reach the client options, since that is how every other scheme is told plain
-/// HTTP is acceptable and a self-hosted or stubbed Hub endpoint needs the same door. `ClientOptions`
-/// exposes no getter, so the observable assertion is an actual plain-HTTP read; that lives in
+/// HTTP is acceptable and a self-hosted or stubbed Hub endpoint needs the same door. An actual
+/// plain-HTTP read also exercises these options in
 /// `vortex-python/test/test_hf_datasets.py::test_hf_store_reads_a_repository_relative_path`.
 #[test]
 fn test_allow_http_is_configured_from_env() {
@@ -357,9 +366,19 @@ fn test_allow_http_is_configured_from_env() {
     );
     let denied = HfConfig::from_env_lookup(HfRepoType::Dataset, "org/name", None, env(&[]));
 
-    assert_ne!(
-        format!("{:?}", allowed.client_options),
-        format!("{:?}", denied.client_options)
+    assert_eq!(
+        allowed
+            .client_options
+            .get_config_value(&ClientConfigKey::AllowHttp)
+            .as_deref(),
+        Some("true")
+    );
+    assert_eq!(
+        denied
+            .client_options
+            .get_config_value(&ClientConfigKey::AllowHttp)
+            .as_deref(),
+        Some("false")
     );
 }
 

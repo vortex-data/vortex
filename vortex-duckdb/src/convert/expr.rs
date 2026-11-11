@@ -4,7 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result;
-use std::sync::Arc;
+use std::str::FromStr;
 
 use tracing::debug;
 use vortex::aggregate_fn::Accumulator;
@@ -18,7 +18,6 @@ use vortex::aggregate_fn::fns::max::Max;
 use vortex::aggregate_fn::fns::mean::Mean;
 use vortex::aggregate_fn::fns::min::Min;
 use vortex::aggregate_fn::fns::sum_v2::SumV2;
-use vortex::arrow::ArrowSessionExt;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -33,7 +32,7 @@ use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::col;
 use vortex::expr::get_item;
-use vortex::expr::in_list;
+use vortex::expr::in_list_of;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_length;
@@ -67,6 +66,7 @@ use vortex_spatial::scalar_fn::intersects::SpatialIntersects;
 
 use crate::SESSION;
 use crate::convert::dtype::FromLogicalType;
+use crate::convert::table_filter::dynamic_filter_expr;
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb;
@@ -80,21 +80,58 @@ use crate::duckdb::ExpressionClass::BoundComparison;
 use crate::duckdb::ExpressionClass::BoundConjunction;
 use crate::duckdb::ExpressionClass::BoundConstant;
 use crate::duckdb::ExpressionClass::BoundRef;
+use crate::duckdb::ExpressionRef;
+use crate::duckdb::ExtractedValue;
 use crate::projection::DuckdbField;
 
-fn from_bound_str(value: &duckdb::ExpressionRef) -> VortexResult<String> {
-    match value.as_class().vortex_expect("unknown class") {
-        BoundConstant(constant) => Ok(constant.value.as_string().as_str().to_owned()),
-        _ => vortex_bail!("Expected string expression, got {:?}", value.as_class_id()),
+fn from_bound_str(value: &ExpressionRef) -> Option<String> {
+    let BoundConstant(constant) = value.as_class()? else {
+        return None;
+    };
+    match constant.value.extract() {
+        ExtractedValue::Varchar(string) => Some(string.as_str().to_owned()),
+        _ => None,
     }
 }
 
+/// The constant pattern of a `contains`/`prefix`/`suffix` call over a string.
+fn string_matcher_pattern(children: &[&ExpressionRef]) -> Option<String> {
+    match children {
+        [value, pattern]
+            if value.return_type().as_type_id() == DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR =>
+        {
+            from_bound_str(pattern)
+        }
+        _ => None,
+    }
+}
+
+/// Escape each of `chars` in `pattern` with `\`, the escape character of Vortex LIKE.
+fn escape_like(pattern: &str, chars: &[char]) -> String {
+    let mut escaped = String::with_capacity(pattern.len());
+    for c in pattern.chars() {
+        if chars.contains(&c) {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    escaped
+}
+
 /// Whether the expression's return type is a `LIST` or fixed-size `ARRAY`.
-fn returns_a_list(expr: &duckdb::ExpressionRef) -> bool {
+fn returns_a_list(expr: &ExpressionRef) -> bool {
     matches!(
         expr.return_type().as_type_id(),
         DUCKDB_TYPE::DUCKDB_TYPE_LIST | DUCKDB_TYPE::DUCKDB_TYPE_ARRAY
     )
+}
+
+/// Struct field table filters skip `can_push_expression`, so fail rather than drop them.
+fn unsupported_struct_access(ctx: ConvertCtx<'_>, what: &str) -> VortexResult<Option<Expression>> {
+    if ctx.col_sub.is_some() {
+        vortex_bail!("{what} is not supported");
+    }
+    Ok(None)
 }
 
 /// Wrap `expr` in `list_length`. Since vortex `list_length` returns u64 but duckdb equivalents
@@ -104,7 +141,7 @@ fn build_list_length(expr: Expression, nullability: Nullability) -> Expression {
 }
 
 /// Read an `f64` from a constant expression (the `ST_DWithin` radius); `None` for non-constants.
-fn from_bound_f64(value: &duckdb::ExpressionRef) -> VortexResult<Option<f64>> {
+fn from_bound_f64(value: &ExpressionRef) -> VortexResult<Option<f64>> {
     match value.as_class().vortex_expect("unknown class") {
         BoundConstant(constant) => Ok(Some(f64::try_from(&Scalar::try_from(constant.value)?)?)),
         _ => Ok(None),
@@ -143,10 +180,7 @@ fn is_native_spatial_column(fields: Option<&[DuckdbField]>, name: &str) -> bool 
 
 /// Lower a spatial operand: a `GEOMETRY` literal arrives as WKB, decoded once to its native type so the
 /// pushed `SpatialDistance` stays native; a column must be native geometry. `None` skips the push.
-fn spatial_operand(
-    value: &duckdb::ExpressionRef,
-    ctx: ConvertCtx<'_>,
-) -> VortexResult<Option<Expression>> {
+fn spatial_operand(value: &ExpressionRef, ctx: ConvertCtx<'_>) -> VortexResult<Option<Expression>> {
     match value.as_class() {
         Some(BoundConstant(constant)) => {
             let scalar = Scalar::try_from(constant.value)?;
@@ -160,7 +194,7 @@ fn spatial_operand(
             let Some(buf) = storage.as_binary_opt().and_then(|b| b.value()) else {
                 return Ok(None);
             };
-            Ok(native_geometry_scalar_from_wkb(buf.as_slice(), &SESSION.arrow())?.map(lit))
+            Ok(native_geometry_scalar_from_wkb(buf.as_slice(), &SESSION)?.map(lit))
         }
         Some(BoundColumnRef(col_ref))
             if is_native_spatial_column(ctx.fields, col_ref.name.as_ref()) =>
@@ -174,7 +208,7 @@ fn spatial_operand(
 /// Lower all geometry operands of a spatial function. Returns `None`, skipping the push, when any
 /// operand is neither a constant geometry nor a native geometry column.
 fn spatial_operands(
-    children: &[&duckdb::ExpressionRef],
+    children: &[&ExpressionRef],
     ctx: ConvertCtx<'_>,
 ) -> VortexResult<Option<Vec<Expression>>> {
     children
@@ -248,6 +282,19 @@ fn try_from_bound_function(
     func: &BoundFunction,
     ctx: ConvertCtx<'_>,
 ) -> VortexResult<Option<Expression>> {
+    if let Some(child) = func.optional() {
+        return try_from_expression_inner(child, ctx).or_else(|_| Ok(None));
+    };
+    if let Some(dynamic) = func.dynamic() {
+        let children: Vec<_> = func.children().collect();
+        vortex_ensure_eq!(children.len(), 1);
+        let dtype = DType::from_logical_type(children[0].return_type(), Nullability::Nullable)?;
+        let Some(child) = try_from_expression_inner(children[0], ctx)? else {
+            return Ok(None);
+        };
+        return Ok(Some(dynamic_filter_expr(dynamic, dtype, child)?));
+    }
+
     let expr = match func.scalar_function.name() {
         "strlen" => {
             let children: Vec<_> = func.children().collect();
@@ -268,31 +315,36 @@ fn try_from_bound_function(
             let Some(child) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
-            let field = from_bound_str(children[1])?;
+            let Some(field) = from_bound_str(children[1]) else {
+                return unsupported_struct_access(ctx, "struct_extract with a non-string key");
+            };
             get_item(field, child)
         }
+        "struct_extract_at" => return unsupported_struct_access(ctx, "struct_extract_at"),
         like @ ("~~" | "!~~") => {
             let children: Vec<_> = func.children().collect();
             vortex_ensure_eq!(children.len(), 2);
-            let Some(string) = try_from_expression_inner(children[0], ctx)? else {
+            let Some(pattern) = from_bound_str(children[1]) else {
                 return Ok(None);
             };
-            let Some(target) = try_from_expression_inner(children[1], ctx)? else {
+            let Some(string) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
             let opts = LikeOptions {
                 negated: like == "!~~",
                 case_insensitive: false,
             };
-            Like.new_expr(opts, [string, target])
+            Like.new_expr(opts, [string, lit(escape_like(&pattern, &['\\']))])
         }
         matchers @ ("contains" | "prefix" | "suffix") => {
             let children: Vec<_> = func.children().collect();
-            vortex_ensure_eq!(children.len(), 2);
+            let Some(pattern) = string_matcher_pattern(&children) else {
+                return Ok(None);
+            };
             let Some(value) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
-            let pattern = from_bound_str(children[1])?;
+            let pattern = escape_like(&pattern, &['%', '_', '\\']);
             let pattern = match matchers {
                 "contains" => format!("%{pattern}%"),
                 "prefix" => format!("{pattern}%"),
@@ -332,7 +384,6 @@ fn try_from_bound_function(
                 return Ok(None);
             }
         }
-        // Spatial UDFs are handled here; non-spatial names return `None` inside.
         name => return try_from_spatial_function(name, func, ctx),
     };
 
@@ -340,7 +391,7 @@ fn try_from_bound_function(
 }
 
 pub fn try_from_bound_expression(
-    value: &duckdb::ExpressionRef,
+    value: &ExpressionRef,
     fields: &[DuckdbField],
 ) -> VortexResult<Option<Expression>> {
     try_from_expression_inner(
@@ -353,7 +404,7 @@ pub fn try_from_bound_expression(
 }
 
 pub(super) fn try_from_bound_expression_with_col_sub(
-    value: &duckdb::ExpressionRef,
+    value: &ExpressionRef,
     col_sub: &Expression,
 ) -> VortexResult<Option<Expression>> {
     // No fields: scan-time table filters never carry spatial functions, because
@@ -385,20 +436,22 @@ fn can_push_cast(cast: &duckdb::BoundCast<'_>, target: &duckdb::LogicalTypeRef) 
     !cast.is_try && target.is_primitive_integer() && cast.child.return_type().is_primitive_integer()
 }
 
-// Called before pushdown_complex_filter or a table filter expression call.
+// Called before DuckDB turns a filter that pushdown_complex_filter declined into a
+// table filter. Comparisons of a column or struct field with a constant are pushed
+// without this check.
 // As we support complex filter pushdown, Duckdb pushes expressions to Vortex.
 // However, it doesn't know what type of expressions we can handle. Here we list
-// all expressions that are quaranteed to be converted to Vortex expressions.
+// all expressions that are guaranteed to be converted to Vortex expressions.
 //
-// If we return true here, and expression is in the list for
-// pushdown_complex_filter, we must handle it, or query engine will break.
+// Returning true removes the filter from DuckDB's plan, so try_from_table_filter
+// must convert it.
 //
 // Example: we don't support substr() expression so we tell Duckdb we can't
 // push it.
 // Example: we support CAST but not TRY_CAST.
 // Example: optional filters may fail to parse on our side (we return
 // Ok(None)), so we don't allow pushing these.
-pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
+pub fn can_push_expression(value: &ExpressionRef) -> bool {
     let Some(class) = value.as_class() else {
         return false;
     };
@@ -417,19 +470,20 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
         }
         BoundConjunction(conj) => conj.children().all(can_push_expression),
         ExpressionClass::BoundFunction(func) => {
-            let name = func.scalar_function.name();
-            name == "struct_extract"
-                || name == "contains"
-                || name == "prefix"
-                || name == "suffix"
-                || name == "~~"
-                || name == "!~~"
-                || name == "strlen"
-                || name == "array_length"
-                || (matches!(name, "len" | "length") && is_supported_length_alias(&func))
-            // Spatial functions are absent on purpose: they push only via
-            // `pushdown_complex_filter`, which has the scan's fields to verify the geometry
-            // columns are native.
+            let children: Vec<_> = func.children().collect();
+            let supported = match func.scalar_function.name() {
+                "~~" | "!~~" => children.len() == 2 && from_bound_str(children[1]).is_some(),
+                "strlen" => true,
+                "struct_extract" => children.len() == 2 && from_bound_str(children[1]).is_some(),
+                "contains" | "prefix" | "suffix" => string_matcher_pattern(&children).is_some(),
+                "array_length" => children.len() == 1,
+                "len" | "length" => is_supported_length_alias(&func),
+                // Spatial functions are absent on purpose: they push only via
+                // `pushdown_complex_filter`, which has the scan's fields to verify the geometry
+                // columns are native.
+                _ => false,
+            };
+            supported && children.into_iter().all(can_push_expression)
         }
         ExpressionClass::BoundOperator(op) => {
             if matches!(
@@ -463,7 +517,7 @@ fn list_length_on_field(field: &DuckdbField) -> Expression {
 }
 
 pub fn try_from_projection_expression(
-    value: &duckdb::ExpressionRef,
+    value: &ExpressionRef,
     field: &DuckdbField,
 ) -> VortexResult<Option<Expression>> {
     let Some(class) = value.as_class() else {
@@ -531,6 +585,22 @@ impl Display for PushedAggregate {
     }
 }
 
+impl FromStr for PushedAggregate {
+    type Err = VortexError;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(match s {
+            "min" => PushedAggregate::Min,
+            "max" => PushedAggregate::Max,
+            "sum" => PushedAggregate::Sum,
+            "mean" => PushedAggregate::Mean,
+            "first" => PushedAggregate::First,
+            "count" => PushedAggregate::Count,
+            _ => vortex_bail!("unknown pushed aggregate: {s}"),
+        })
+    }
+}
+
 impl PushedAggregate {
     pub fn build(self, dtype: DType) -> VortexResult<Box<dyn DynAccumulator>> {
         let opts = if dtype.is_float() {
@@ -556,7 +626,7 @@ impl PushedAggregate {
 
 /// Check if this is an aggregate function we can handle in Vortex
 pub fn try_from_projection_aggregate(
-    expr: &duckdb::ExpressionRef,
+    expr: &ExpressionRef,
 ) -> VortexResult<Option<PushedAggregate>> {
     let Some(expr) = expr.as_class() else {
         return Ok(None);
@@ -578,7 +648,7 @@ pub fn try_from_projection_aggregate(
 // If you want to add support for other expressions, also change
 // can_push_expression
 fn try_from_expression_inner(
-    value: &duckdb::ExpressionRef,
+    value: &ExpressionRef,
     ctx: ConvertCtx<'_>,
 ) -> VortexResult<Option<Expression>> {
     let Some(class) = value.as_class() else {
@@ -709,7 +779,9 @@ fn try_from_expression_inner(
                 DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_CONJUNCTION_OR => {
                     or_collect(children).vortex_expect("cannot be empty")
                 }
-                _ => vortex_bail!("unexpected operator {:?} in bound conjunction", conj.op),
+                _ => {
+                    vortex_bail!("unexpected operator {:?} in bound conjunction", conj.op)
+                }
             }
         }
         ExpressionClass::BoundAggregate(_) => return Ok(None),
@@ -741,14 +813,8 @@ fn try_from_compare_in(
     else {
         return Ok(None);
     };
-    // The IN list itself is never null. Null values are elements, and in_list handles them.
-    let list = Scalar::list(
-        Arc::new(list_elements[0].dtype().clone()),
-        list_elements,
-        Nullability::NonNullable,
-    );
-
-    let expr = in_list(element, lit(list));
+    let element_dtype = list_elements[0].dtype().clone();
+    let expr = in_list_of(element, element_dtype, list_elements)?;
     Ok(Some(if not_in { not(expr) } else { expr }))
 }
 
@@ -757,7 +823,9 @@ impl TryFrom<DUCKDB_VX_EXPR_TYPE> for Operator {
 
     fn try_from(value: DUCKDB_VX_EXPR_TYPE) -> VortexResult<Self> {
         Ok(match value {
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID => vortex_bail!("invalid expression"),
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID => {
+                vortex_bail!("invalid expression")
+            }
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_EQUAL => Operator::Eq,
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOTEQUAL => Operator::NotEq,
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHAN => Operator::Lt,

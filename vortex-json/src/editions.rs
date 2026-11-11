@@ -32,6 +32,7 @@ pub const JSON_2026_08: EditionId = EditionId::new("json", 2026, 8, 0);
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: JSON_2026_08,
+        immutable: true,
         min_library_version: None,
     },
     added: &[EditionMember::dtype(&"vortex.json")],
@@ -43,11 +44,12 @@ mod tests {
     use vortex_edition::EditionSessionExt;
     use vortex_edition::test_harness::validate_edition;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::*;
 
-    fn json_session() -> vortex_session::VortexSession {
-        let session = vortex_array::array_session();
+    fn json_session() -> VortexSession {
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     }

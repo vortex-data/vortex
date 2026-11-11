@@ -182,7 +182,7 @@ impl PreparedSetData {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         if let Some(needle) = needles.as_constant() {
-            let result = self.contains_scalar(&needle, options, ctx)?;
+            let result = self.contains_scalar(needle, options, ctx)?;
             return Ok(ConstantArray::new(result, needles.len()).into_array());
         }
 

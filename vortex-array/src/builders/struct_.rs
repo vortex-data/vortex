@@ -231,11 +231,13 @@ impl ArrayBuilder for StructBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::BufferAllocatorRef;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
@@ -248,6 +250,8 @@ mod tests {
     use crate::dtype::StructFields;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_struct_builder() {
@@ -267,6 +271,12 @@ mod tests {
         let struct_ = builder.finish();
         assert_eq!(struct_.len(), 1);
         assert_eq!(struct_.dtype(), &dtype);
+        assert_eq!(
+            struct_
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
+                .unwrap(),
+            Scalar::struct_(dtype, vec![1i32.into(), 2i32.into()])
+        );
     }
 
     #[test]
@@ -291,15 +301,28 @@ mod tests {
         assert_eq!(struct_.dtype(), &dtype);
         assert_eq!(
             struct_
-                .valid_count(&mut array_session().create_execution_ctx())
+                .valid_count(&mut SESSION.create_execution_ctx())
                 .unwrap(),
             1
+        );
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(
+            struct_.execute_scalar(0, &mut ctx).unwrap(),
+            Scalar::struct_(dtype.clone(), vec![1i32.into(), 2i32.into()])
+        );
+        assert_eq!(
+            struct_.execute_scalar(1, &mut ctx).unwrap(),
+            Scalar::null(dtype.clone())
+        );
+        assert_eq!(
+            struct_.execute_scalar(2, &mut ctx).unwrap(),
+            Scalar::null(dtype)
         );
     }
 
     #[test]
     fn test_append_scalar() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         use crate::scalar::Scalar;
 
         let dtype = DType::Struct(

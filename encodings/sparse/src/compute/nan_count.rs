@@ -86,24 +86,24 @@ mod tests {
     use crate::initialize;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         initialize(&session);
         session
     });
 
     static CANONICAL_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         session.arrays().register(Sparse);
         session
     });
 
     #[rstest]
     // NaN fill value → all unpatched positions are NaN
-    #[case(Sparse::try_new(buffer![1u64, 3].into_array(), buffer![1.0f32, 2.0].into_array(), 6, Scalar::from(f32::NAN)).unwrap())]
+    #[case(Sparse::try_new(buffer![1u64, 3].into_array(), buffer![1.0f32, 2.0].into_array(), 6, Scalar::from(f32::NAN), &mut SESSION.create_execution_ctx()).unwrap())]
     // NaN patch values, finite fill
-    #[case(Sparse::try_new(buffer![1u64, 3].into_array(), buffer![f32::NAN, 2.0].into_array(), 6, Scalar::from(0.0f32)).unwrap())]
+    #[case(Sparse::try_new(buffer![1u64, 3].into_array(), buffer![f32::NAN, 2.0].into_array(), 6, Scalar::from(0.0f32), &mut SESSION.create_execution_ctx()).unwrap())]
     // no NaNs anywhere
-    #[case(Sparse::try_new(buffer![1u64, 3].into_array(), buffer![1.0f32, 2.0].into_array(), 6, Scalar::from(0.0f32)).unwrap())]
+    #[case(Sparse::try_new(buffer![1u64, 3].into_array(), buffer![1.0f32, 2.0].into_array(), 6, Scalar::from(0.0f32), &mut SESSION.create_execution_ctx()).unwrap())]
     fn nan_count_matches_canonical(#[case] array: SparseArray) {
         let arr = array.into_array();
         let kernel = nan_count(&arr, &mut SESSION.create_execution_ctx()).unwrap();

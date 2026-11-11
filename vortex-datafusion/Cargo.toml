@@ -13,7 +13,6 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-arc-swap = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 async-trait = { workspace = true }
@@ -49,6 +48,8 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "fs"] }
 url = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-json = { workspace = true }
+vortex-tensor = { workspace = true }
 
 [lints]
 workspace = true

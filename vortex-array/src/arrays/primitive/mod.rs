@@ -19,6 +19,7 @@ pub use vtable::Primitive;
 
 pub(crate) fn initialize(session: &VortexSession) {
     vtable::initialize(session);
+    compute::rules::register_parent_rules(session);
 }
 
 mod native_value;

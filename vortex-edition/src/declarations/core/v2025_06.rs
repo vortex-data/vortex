@@ -15,6 +15,7 @@ pub const CORE_2025_06_0: EditionId = EditionId::new("core", 2025, 6, 0);
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: CORE_2025_06_0,
+        immutable: true,
         min_library_version: Some("0.40.0"),
     },
     added: &[

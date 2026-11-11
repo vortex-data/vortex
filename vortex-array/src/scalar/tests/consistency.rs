@@ -6,6 +6,8 @@
 #[cfg(test)]
 mod tests {
 
+    use std::cmp::Ordering;
+
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
 
@@ -32,7 +34,7 @@ mod tests {
 
         // Bool scalars should now check dtype compatibility but ignore nullability
         // So they should still compare as they have the same base type
-        assert!(bool1.partial_cmp(&bool2).is_some()); // Same base type, different nullability -> Some
+        assert_eq!(bool1.partial_cmp(&bool2), Some(Ordering::Equal)); // Same base type, different nullability -> Some
     }
 
     // Demonstrates that equality checking doesn't always consider nullability

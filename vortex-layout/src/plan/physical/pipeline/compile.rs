@@ -6,8 +6,6 @@
 
 use std::ops::Range;
 
-use rustc_hash::FxHashMap;
-use smallvec::SmallVec;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -16,15 +14,13 @@ use super::DEFAULT_CAPACITY;
 use super::port::PortId;
 use super::port::SourceEnd;
 use super::scan::Core;
+use super::values::ValueCache;
 use crate::plan::physical::ConcatPlan;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScanPlan;
 use crate::plan::physical::operator::Operator;
 use crate::plan::physical::operator::Source;
-use crate::plan::physical::operators::ConcatSource;
 use crate::plan::physical::operators::ScanSource;
-use crate::plan::physical::operators::SelectStage;
-use crate::segments::SegmentId;
 
 /// A pipeline under construction: a source and the stages after it, not yet given outlets, so a
 /// parent plan can add stages before it becomes a pipeline.
@@ -45,14 +41,6 @@ impl Chain {
     }
 
     /// A chain passing the batches of `port` through.
-    pub(crate) fn port(port: PortId) -> Self {
-        Self {
-            source: Box::new(ConcatSource::new(1)),
-            stages: Vec::new(),
-            inlets: vec![port],
-        }
-    }
-
     /// This chain with `stage` after its last stage.
     pub fn with(mut self, stage: impl Operator + 'static) -> Self {
         self.stages.push(Box::new(stage));
@@ -137,6 +125,11 @@ impl Compiler<'_> {
         &self.core.session
     }
 
+    /// Whole values kept between the scans of the split compiling.
+    pub(crate) fn values(&self) -> &ValueCache {
+        &self.core.values
+    }
+
     /// The rows `rows` of `scan`'s segment, filtered by `filter`, read by the split compiling.
     /// A segment several readers read is decoded once and shared.
     pub(crate) fn scan(
@@ -155,223 +148,13 @@ impl Compiler<'_> {
         } else {
             Some(usize::try_from(rows.start)?..usize::try_from(rows.end)?)
         };
-        let split = self.core.split;
-        Ok(Some(match self.claim(scan, split) {
-            None => Chain::new(ScanSource::new(scan.clone(), slice, filter)),
-            Some(port) => {
-                let chain = Chain::port(port);
-                if slice.is_none() && filter.is_none() {
-                    chain
-                } else {
-                    chain.with(SelectStage::new(slice, filter))
-                }
-            }
-        }))
+        self.core.segments.push(scan.segment_id());
+        Ok(Some(Chain::new(ScanSource::new(
+            scan.clone(),
+            slice,
+            filter,
+        ))))
     }
-
-    /// Claims split `split`'s port for `scan`'s segment when the segment is shared, building
-    /// the pipeline that decodes it for the first claimant with one port per reader in every
-    /// split not yet finished, or `None` when this split's reader is its only one.
-    fn claim(&mut self, scan: &SegmentScanPlan, split: usize) -> Option<PortId> {
-        if split == usize::MAX {
-            return None;
-        }
-        let segment = scan.segment_id();
-        let shares = &mut self.core.shares;
-        let ports = &mut shares.ports[split];
-        if let Some(waiting) = ports.get_mut(&segment) {
-            let port = waiting.pop();
-            if waiting.is_empty() {
-                ports.remove(&segment);
-            }
-            return port;
-        }
-        let ranges = std::mem::take(shares.reaches.get_mut(*segment as usize)?);
-        let mut claimants: SmallVec<[usize; 4]> = SmallVec::new();
-        for rows in &ranges {
-            claimants.extend(
-                shares
-                    .overlapping(rows)
-                    .filter(|&split| !shares.finished[split] && shares.overlaps(split, rows)),
-            );
-        }
-        if claimants.len() <= 1 {
-            return None;
-        }
-        let mut outlets: SmallVec<[PortId; 1]> = SmallVec::with_capacity(claimants.len());
-        let mut mine = None;
-        for claimant in claimants {
-            let port = self
-                .core
-                .arena
-                .create(usize::MAX, None, SourceEnd::Unclaimed);
-            outlets.push(port);
-            if claimant == split && mine.is_none() {
-                mine = Some(port);
-            } else {
-                self.core.shares.ports[claimant]
-                    .entry(segment)
-                    .or_default()
-                    .push(port);
-            }
-        }
-        self.core.add_pipeline(
-            Chain::new(ScanSource::new(scan.clone(), None, None)),
-            outlets,
-        );
-        mine
-    }
-}
-
-/// Where each segment read more than once is read from, and the ports of the segments whose
-/// decoding pipeline is built.
-#[derive(Default)]
-pub(crate) struct Shares {
-    /// The splits' row ranges, in split order.
-    splits: Vec<Range<u64>>,
-    /// Whether the splits are sorted and disjoint, so the splits overlapping a range are found
-    /// by binary search.
-    ordered: bool,
-    /// Splits that have finished, and so will claim nothing.
-    finished: Vec<bool>,
-    /// By segment id, which a file numbers densely: for each segment more than one reader will
-    /// read and whose decoding pipeline is not built yet, the range of plan rows each of its
-    /// readers reads it for. Every split overlapping a range reads it once for that range.
-    reaches: Vec<SmallVec<[Range<u64>; 1]>>,
-    /// By split: the unclaimed ports of each shared segment the split reads.
-    ports: Vec<FxHashMap<SegmentId, SmallVec<[PortId; 1]>>>,
-}
-
-impl Shares {
-    pub(crate) fn new(splits: Vec<Range<u64>>) -> Self {
-        let ordered = splits.windows(2).all(|pair| pair[0].end <= pair[1].start);
-        Self {
-            finished: vec![false; splits.len()],
-            ports: (0..splits.len()).map(|_| FxHashMap::default()).collect(),
-            splits,
-            ordered,
-            reaches: Vec::new(),
-        }
-    }
-
-    /// The splits overlapping `rows`.
-    fn overlapping(&self, rows: &Range<u64>) -> Range<usize> {
-        if self.ordered {
-            let first = self.splits.partition_point(|split| split.end <= rows.start);
-            let end = self.splits.partition_point(|split| split.start < rows.end);
-            return first..end.max(first);
-        }
-        let mut overlapping = self
-            .splits
-            .iter()
-            .enumerate()
-            .filter(|(_, split)| split.start < rows.end && rows.start < split.end)
-            .map(|(index, _)| index);
-        match overlapping.next() {
-            Some(first) => first..overlapping.next_back().unwrap_or(first) + 1,
-            None => 0..0,
-        }
-    }
-
-    fn overlaps(&self, split: usize, rows: &Range<u64>) -> bool {
-        let split = &self.splits[split];
-        split.start < rows.end && rows.start < split.end
-    }
-
-    /// Records the ranges `plan` reads each of its segments for, read over `rows` by every
-    /// split overlapping them. Call once per plan a split stage runs, before the scan starts,
-    /// then [`retain_shared`](Self::retain_shared).
-    pub(crate) fn add(&mut self, plan: &PlanRef, rows: Range<u64>) -> VortexResult<()> {
-        let reaches = &mut self.reaches;
-        plan.reach(rows, &Reach::Offset(0), &mut |segment, rows| {
-            record(reaches, segment, rows)
-        })
-    }
-
-    /// Keeps only the segments more than one reader reads. The rest are read by the one
-    /// pipeline that needs them.
-    pub(crate) fn retain_shared(&mut self) {
-        let mut reaches = std::mem::take(&mut self.reaches);
-        for ranges in &mut reaches {
-            let shared = match ranges.as_slice() {
-                [] => false,
-                // One reader per split overlapping the range: shared when the range crosses a
-                // split boundary.
-                [rows] => self
-                    .overlapping(rows)
-                    .filter(|&split| self.overlaps(split, rows))
-                    .nth(1)
-                    .is_some(),
-                _ => true,
-            };
-            if !shared {
-                *ranges = SmallVec::new();
-            }
-        }
-        self.reaches = reaches;
-    }
-
-    /// Every port made for a reader that has not claimed it yet.
-    #[cfg(debug_assertions)]
-    pub(crate) fn waiting(&self) -> impl Iterator<Item = PortId> + '_ {
-        self.ports
-            .iter()
-            .flat_map(|ports| ports.values().flatten().copied())
-    }
-
-    /// Marks split `split` finished and returns the ports it never claimed: those of its
-    /// readers that never came, as a chunk its mask ruled out or a stage it never ran. Each is
-    /// still an outlet of the pipeline that shares it, which must stop pushing into it: a port
-    /// has a consumer until it is closed and drained, so the caller detaches each port from
-    /// its sink before discarding it. See [`Core::finish_split`].
-    pub(crate) fn finish(&mut self, split: usize) -> SmallVec<[PortId; 4]> {
-        self.finished[split] = true;
-        std::mem::take(&mut self.ports[split])
-            .into_values()
-            .flatten()
-            .collect()
-    }
-}
-
-/// How a plan's rows map to the rows of the plan a scan's splits range over.
-#[derive(Clone, Debug)]
-pub enum Reach {
-    /// Row `r` is scanned row `r + offset`.
-    Offset(u64),
-    /// Every row is read for these scanned rows, as a dictionary's values are for its codes.
-    Fixed(Range<u64>),
-}
-
-impl Reach {
-    /// The scanned rows `rows` are read for.
-    pub fn root(&self, rows: &Range<u64>) -> Range<u64> {
-        match self {
-            Reach::Offset(offset) => rows.start + offset..rows.end + offset,
-            Reach::Fixed(root) => root.clone(),
-        }
-    }
-
-    /// The mapping of a child whose row zero is this plan's row `by`.
-    pub fn shift(&self, by: u64) -> Self {
-        match self {
-            Reach::Offset(offset) => Reach::Offset(offset + by),
-            Reach::Fixed(root) => Reach::Fixed(root.clone()),
-        }
-    }
-
-    /// The mapping of a child read whole for `rows` of this plan, as dictionary values are.
-    pub fn fixed(&self, rows: &Range<u64>) -> Self {
-        Reach::Fixed(self.root(rows))
-    }
-}
-
-/// Adds a reader of `segment` reading it for `rows`.
-fn record(reaches: &mut Vec<SmallVec<[Range<u64>; 1]>>, segment: SegmentId, rows: Range<u64>) {
-    let index = *segment as usize;
-    if index >= reaches.len() {
-        reaches.resize_with(index + 1, SmallVec::new);
-    }
-    reaches[index].push(rows);
 }
 
 /// The chunks of `concat` overlapping `rows`: each chunk's index, where it starts, and the rows
@@ -396,16 +179,4 @@ pub(crate) fn overlapping<'a>(
         let local = rows.start.max(start)..rows.end.min(chunk_end);
         (local.start < local.end).then_some((index, start, local))
     })
-}
-
-/// Unclaimed shared ports, for tests.
-#[cfg(test)]
-impl Shares {
-    pub(crate) fn pending(&self) -> usize {
-        self.ports
-            .iter()
-            .flat_map(|ports| ports.values())
-            .map(SmallVec::len)
-            .sum()
-    }
 }

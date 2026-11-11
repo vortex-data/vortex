@@ -11,7 +11,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
-use crate::optimizer::ArrayOptimizer;
+use crate::expr::expression::unbound_variable;
 use crate::scalar_fn::fns::literal::Literal;
 
 impl ArrayRef {
@@ -36,9 +36,7 @@ impl ArrayRef {
             .map(|child| self.clone().apply_bound(child))
             .collect::<VortexResult<SmallVec<[ArrayRef; 4]>>>()?;
 
-        let array = ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, len)?.into_array();
-
-        array.optimize()
+        Ok(ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, len)?.into_array())
     }
 
     /// Apply the expression to this array, producing a new array in constant time.
@@ -46,6 +44,9 @@ impl ArrayRef {
         // If the expression is a root, return self.
         if expr.is_root() {
             return Ok(self);
+        }
+        if let Expression::Variable(name) = expr {
+            return Err(unbound_variable(name));
         }
 
         // Manually convert literals to ConstantArray.
@@ -64,10 +65,7 @@ impl ArrayRef {
         // And wrap the scalar function up in an array.
         let scalar_fn = expr
             .as_scalar()
-            .vortex_expect("root and literal were handled above, so this is a scalar node");
-        let array = ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, len)?.into_array();
-
-        // Optimize the resulting array's root.
-        array.optimize()
+            .vortex_expect("leaves and literals were handled above, so this is a scalar node");
+        Ok(ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, len)?.into_array())
     }
 }

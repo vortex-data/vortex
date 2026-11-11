@@ -414,7 +414,7 @@ mod tests {
         let field_names = FieldNames::from(["field1", "field2", "field3"]);
 
         // FieldNames == &FieldNames
-        let field_names_ref = &field_names;
+        let field_names_ref = &FieldNames::from(["field1", "field2", "field3"]);
         assert_eq!(field_names, field_names_ref);
 
         // FieldNames == &[&str]
@@ -440,6 +440,10 @@ mod tests {
         assert_eq!(&field_names, field_name_slice);
 
         // Test inequality cases
+        assert_ne!(
+            field_names,
+            FieldNames::from(["different", "fields", "here"])
+        );
         assert_ne!(field_names, &["field1", "field2"][..]);
         assert_ne!(field_names, ["different", "fields", "here"]);
         assert_ne!(field_names, &["field1", "field2", "field3", "extra"][..]);

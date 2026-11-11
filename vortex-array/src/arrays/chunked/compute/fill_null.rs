@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -18,31 +19,40 @@ impl FillNullReduce for Chunked {
         array: ArrayView<'_, Chunked>,
         fill_value: &Scalar,
     ) -> VortexResult<Option<ArrayRef>> {
-        let new_chunks = array
-            .iter_chunks()
-            .map(|c| c.fill_null(fill_value.clone()))
-            .collect::<VortexResult<Vec<_>>>()?;
-
-        // SAFETY: wrapping each chunk in ScalarFnArray preserves the same DType across all chunks.
-        Ok(Some(
-            unsafe { ChunkedArray::new_unchecked(new_chunks, fill_value.dtype().clone()) }
-                .into_array(),
-        ))
+        let chunks = array.iter_chunks().map(|c| c.fill_null(fill_value.clone()));
+        chunks.process_results(|chunks| {
+            // SAFETY: filling nulls gives every chunk the fill value's dtype.
+            Some(unsafe {
+                ChunkedArray::new_unchecked_sized(
+                    chunks,
+                    fill_value.dtype().clone(),
+                    array.nchunks(),
+                )
+                .into_array()
+            })
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::BitBuffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
+    use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn fill_null_chunks() {
@@ -56,6 +66,12 @@ mod tests {
         .unwrap();
 
         let filled = chunked.into_array().fill_null(Scalar::from(false)).unwrap();
-        assert_eq!(*filled.dtype(), DType::Bool(Nullability::NonNullable));
+        assert_arrays_eq!(
+            filled,
+            BoolArray::from_iter([
+                false, false, false, false, false, true, true, true, true, true
+            ]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 }

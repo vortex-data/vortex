@@ -59,9 +59,8 @@ fn native_point_file() -> NamedTempFile {
         let storage = StructArray::from_fields(&[("x", xs), ("y", ys)])
             .unwrap()
             .into_array();
-        let dtype =
-            ExtDType::<Point>::try_new(SpatialMetadata { crs: None }, storage.dtype().clone())
-                .unwrap();
+        let dtype = ExtDType::<Point>::try_new(SpatialMetadata::default(), storage.dtype().clone())
+            .unwrap();
         let points = ExtensionArray::new(dtype.erased(), storage).into_array();
 
         let file = NamedTempFile::with_suffix(".vortex").unwrap();

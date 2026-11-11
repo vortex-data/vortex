@@ -40,11 +40,11 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowExport;
 use vortex_arrow::ArrowExportOptions;
-use vortex_arrow::ArrowExportVTable;
+use vortex_arrow::ArrowExtVTable;
 use vortex_arrow::ArrowImport;
-use vortex_arrow::ArrowImportVTable;
+use vortex_arrow::ArrowMetadataPolicy;
 use vortex_arrow::ArrowSession;
-use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -184,8 +184,7 @@ fn box_type(spatial_metadata: &SpatialMetadata, dimension: Dimension) -> BoxType
 /// Build a geoarrow `RectArray` from a `Rect`'s box `Struct` storage.
 fn rect_array(storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<RectArray> {
     let box_type = box_type(&SpatialMetadata::default(), box_dimension(storage.dtype())?);
-    let session = ctx.session().clone();
-    let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
+    let arrow = storage.clone().execute_arrow(None, ctx)?;
     RectArray::try_from((arrow.as_ref(), box_type))
         .map_err(|e| vortex_err!("failed to construct RectArray: {e}"))
 }
@@ -206,26 +205,25 @@ pub(crate) fn rect_geometries(
         .collect()
 }
 
-impl ArrowExportVTable for Rect {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_BOX
+impl ArrowExtVTable for Rect {
+    fn metadata_policy() -> ArrowMetadataPolicy {
+        ArrowMetadataPolicy::ArrowNative
     }
 
-    fn vortex_id(&self) -> Id {
-        self.id()
+    fn arrow_ext_id(&self) -> Id {
+        *ARROW_BOX
     }
 
     fn to_arrow_field(
         &self,
         name: &str,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
-        let ext_type = dtype.as_extension();
-        let spatial_metadata = ext_type.metadata::<Rect>();
-        let dimension = box_dimension(ext_type.storage_dtype())?;
+        let spatial_metadata = ext_dtype.metadata();
+        let dimension = box_dimension(ext_dtype.storage_dtype())?;
 
-        let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
+        let mut field = session.to_arrow_field(name, ext_dtype.storage_dtype())?;
         field.try_with_extension_type(box_type(spatial_metadata, dimension))?;
 
         Ok(Some(field))
@@ -238,15 +236,6 @@ impl ArrowExportVTable for Rect {
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
-        let is_box = array
-            .dtype()
-            .as_extension_opt()
-            .map(|ext| ext.is::<Rect>())
-            .unwrap_or(false);
-        if !is_box {
-            return Ok(ArrowExport::Unsupported(array));
-        }
-
         let Ok(box_meta) = target.try_extension_type::<BoxType>() else {
             return Ok(ArrowExport::Unsupported(array));
         };
@@ -259,12 +248,8 @@ impl ArrowExportVTable for Rect {
             target.data_type().clone(),
             target.is_nullable(),
         );
-        let session = ctx.session().clone();
         let arrow_storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(&storage_field), ctx)?;
+            storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
         // Round-trip through GeoArrow's rect array; `into_arrow` is concrete, so wrap in `Arc`.
         let rects = RectArray::try_from((arrow_storage.as_ref(), box_meta))
@@ -272,21 +257,11 @@ impl ArrowExportVTable for Rect {
 
         Ok(ArrowExport::Exported(Arc::new(rects.into_arrow())))
     }
-}
 
-impl ArrowImportVTable for Rect {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_BOX
-    }
-
-    /// Import a `geoarrow.box` field as the [`Rect`] dtype. Keyed off the standard GeoArrow name,
-    /// so any producer resolves here. Accepts the full `BoxType` extension, or — for a
-    /// metadata-less literal — the name alone, inferring the dimension from the field names.
     fn from_arrow_field(
-        &self,
         field: &Field,
         session: &ArrowSession,
-    ) -> VortexResult<Option<DType>> {
+    ) -> VortexResult<Option<ExtDType<Self>>> {
         let (dimension, metadata) = if let Ok(box_meta) = field.try_extension_type::<BoxType>() {
             (
                 box_meta.dimension().into(),
@@ -310,23 +285,20 @@ impl ArrowImportVTable for Rect {
         };
 
         let storage_dtype = box_storage_dtype(dimension, field.is_nullable().into());
-        Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(Rect, metadata, storage_dtype)?.erased(),
-        )))
+        Ok(Some(ExtDType::try_with_vtable(
+            Rect,
+            metadata,
+            storage_dtype,
+        )?))
     }
 
     fn from_arrow_array(
-        &self,
         array: ArrowArrayRef,
         field: &Field,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let Some(ext_dtype) = dtype.as_extension_opt() else {
-            return Ok(ArrowImport::Unsupported(array));
-        };
-        if !ext_dtype.is::<Rect>()
-            || field.try_extension_type::<BoxType>().is_err()
+        if field.try_extension_type::<BoxType>().is_err()
             || !matches!(array.data_type(), DataType::Struct(_))
         {
             return Ok(ArrowImport::Unsupported(array));
@@ -334,13 +306,15 @@ impl ArrowImportVTable for Rect {
 
         let storage = session.from_arrow_array(array, field.is_nullable())?;
         Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(ext_dtype.clone(), storage)?.into_array(),
+            ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array(),
         ))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use geo_types::Geometry;
     use rstest::rstest;
     use vortex_array::VortexSessionExecute;
@@ -351,6 +325,7 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDType;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::Rect;
     use super::box_dimension;
@@ -358,6 +333,8 @@ mod tests {
     use super::rect_geometries;
     use crate::extension::SpatialMetadata;
     use crate::extension::coordinate::Dimension;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn spatial_meta() -> SpatialMetadata {
         SpatialMetadata {
@@ -405,8 +382,7 @@ mod tests {
     /// A `Rect` column decodes to 2D `geo_types` rectangles.
     #[test]
     fn box_decodes_to_geo_types_rect() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let rects = crate::test_harness::rect_column(vec![(0.0, 0.0, 2.0, 3.0)])?;
         let storage = rects
@@ -415,7 +391,10 @@ mod tests {
             .clone();
 
         let geometries = rect_geometries(&storage, &mut ctx)?;
-        assert!(matches!(geometries.as_slice(), [Geometry::Rect(_)]));
+        assert_eq!(
+            geometries,
+            vec![Geometry::Rect(geo_types::Rect::new((0.0, 0.0), (2.0, 3.0)))]
+        );
         Ok(())
     }
 }

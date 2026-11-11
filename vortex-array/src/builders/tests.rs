@@ -4,6 +4,7 @@
 use std::alloc::Layout;
 use std::ptr::NonNull;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -17,6 +18,7 @@ use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -24,7 +26,6 @@ use crate::ExecutionCtx;
 use crate::RecursiveCanonical;
 use crate::VortexSessionExecute;
 use crate::array::IntoArray;
-use crate::array_session;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::Constant;
@@ -62,6 +63,8 @@ use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 #[derive(Debug)]
 struct CountingAllocator {
@@ -243,12 +246,16 @@ fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
     // Compare each element.
     for i in 0..num_elements {
         let scalar_zeros = array_zeros
-            .execute_scalar(i, &mut array_session().create_execution_ctx())
+            .execute_scalar(i, &mut SESSION.create_execution_ctx())
             .unwrap();
         let scalar_manual = array_manual
-            .execute_scalar(i, &mut array_session().create_execution_ctx())
+            .execute_scalar(i, &mut SESSION.create_execution_ctx())
             .unwrap();
 
+        assert_eq!(scalar_zeros.dtype(), &dtype);
+        assert_eq!(scalar_manual.dtype(), &dtype);
+        assert_eq!(scalar_zeros, default_scalar);
+        assert_eq!(scalar_manual, default_scalar);
         assert_eq!(
             scalar_zeros, scalar_manual,
             "Element at index {} should be equal",
@@ -345,7 +352,7 @@ fn test_append_defaults_behavior(#[case] dtype: DType, #[case] should_be_null: b
 
     for i in 0..3 {
         let scalar = array
-            .execute_scalar(i, &mut array_session().create_execution_ctx())
+            .execute_scalar(i, &mut SESSION.create_execution_ctx())
             .unwrap();
         if should_be_null {
             assert!(scalar.is_null(), "Element at index {} should be null", i);
@@ -371,8 +378,12 @@ fn test_append_defaults_behavior(#[case] dtype: DType, #[case] should_be_null: b
 
 /// Helper function that fills two builders with the same values and compares the results
 /// of `to_canonical()` vs `finish().to_canonical()`.
-fn compare_to_canonical_methods<F>(dtype: &DType, ctx: &mut ExecutionCtx, mut fill_builder: F)
-where
+fn compare_to_canonical_methods<F>(
+    dtype: &DType,
+    expected: &[Scalar],
+    ctx: &mut ExecutionCtx,
+    mut fill_builder: F,
+) where
     F: FnMut(&mut dyn ArrayBuilder),
 {
     // Create two identical builders.
@@ -394,27 +405,26 @@ where
     let array_direct = canonical_direct.into_array();
     let array_indirect = canonical_indirect.into_array();
 
-    // Verify they have the same length.
-    assert_eq!(array_direct.len(), array_indirect.len());
+    assert_eq!(array_direct.dtype(), dtype);
+    assert_eq!(array_indirect.dtype(), dtype);
+    assert_eq!(array_direct.len(), expected.len());
+    assert_eq!(array_indirect.len(), expected.len());
 
     // Compare each element.
     for i in 0..array_direct.len() {
         let scalar_direct = array_direct.execute_scalar(i, ctx).unwrap();
         let scalar_indirect = array_indirect.execute_scalar(i, ctx).unwrap();
-
-        assert_eq!(
-            scalar_direct, scalar_indirect,
-            "Element at index {} should be equal for dtype {:?}",
-            i, dtype
-        );
+        assert_eq!(scalar_direct, expected[i]);
+        assert_eq!(scalar_indirect, expected[i]);
     }
 }
 
 #[test]
 fn test_to_canonical_bool() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DType::Bool(Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
+    let expected = [true, false, true, false, true].map(Scalar::from).to_vec();
+    compare_to_canonical_methods(&dtype, &expected, &mut ctx, |builder| {
         for i in 0..5 {
             let value = Scalar::bool(i % 2 == 0, Nullability::NonNullable);
             builder.append_scalar(&value).unwrap();
@@ -424,9 +434,19 @@ fn test_to_canonical_bool() {
 
 #[test]
 fn test_to_canonical_bool_nullable() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DType::Bool(Nullability::Nullable);
-    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
+    let expected = [
+        Some(true),
+        Some(false),
+        Some(true),
+        Some(false),
+        Some(true),
+        None,
+    ]
+    .map(Scalar::from)
+    .to_vec();
+    compare_to_canonical_methods(&dtype, &expected, &mut ctx, |builder| {
         for i in 0..5 {
             let value = Scalar::bool(i % 2 == 0, Nullability::Nullable);
             builder.append_scalar(&value).unwrap();
@@ -437,9 +457,10 @@ fn test_to_canonical_bool_nullable() {
 
 #[test]
 fn test_to_canonical_i32() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
+    let expected = [0i32, 1, 2, 3, 4].map(Scalar::from).to_vec();
+    compare_to_canonical_methods(&dtype, &expected, &mut ctx, |builder| {
         for i in 0..5 {
             let value = Scalar::primitive(i, Nullability::NonNullable);
             builder.append_scalar(&value).unwrap();
@@ -449,9 +470,12 @@ fn test_to_canonical_i32() {
 
 #[test]
 fn test_to_canonical_i32_nullable() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
-    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
+    let expected = [Some(0i32), Some(1), Some(2), Some(3), Some(4), None]
+        .map(Scalar::from)
+        .to_vec();
+    compare_to_canonical_methods(&dtype, &expected, &mut ctx, |builder| {
         for i in 0..5 {
             let value = Scalar::primitive(i, Nullability::Nullable);
             builder.append_scalar(&value).unwrap();
@@ -462,9 +486,10 @@ fn test_to_canonical_i32_nullable() {
 
 #[test]
 fn test_to_canonical_f64() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
+    let expected = [0.0f64, 1.0, 2.0, 3.0, 4.0].map(Scalar::from).to_vec();
+    compare_to_canonical_methods(&dtype, &expected, &mut ctx, |builder| {
         for i in 0..5 {
             let value = Scalar::primitive(i as f64, Nullability::NonNullable);
             builder.append_scalar(&value).unwrap();
@@ -474,9 +499,12 @@ fn test_to_canonical_f64() {
 
 #[test]
 fn test_to_canonical_utf8() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DType::Utf8(Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
+    let expected = ["hello", "world", "test", "data", "vortex"]
+        .map(Scalar::from)
+        .to_vec();
+    compare_to_canonical_methods(&dtype, &expected, &mut ctx, |builder| {
         let values = ["hello", "world", "test", "data", "vortex"];
         for value in &values {
             let scalar = Scalar::utf8(*value, Nullability::NonNullable);
@@ -487,9 +515,17 @@ fn test_to_canonical_utf8() {
 
 #[test]
 fn test_to_canonical_utf8_nullable() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DType::Utf8(Nullability::Nullable);
-    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
+    let expected = [Some("hello"), Some("world"), Some("test"), None]
+        .map(|value| {
+            value.map_or_else(
+                || Scalar::null(dtype.clone()),
+                |value| Scalar::utf8(value, Nullability::Nullable),
+            )
+        })
+        .to_vec();
+    compare_to_canonical_methods(&dtype, &expected, &mut ctx, |builder| {
         let values = ["hello", "world", "test"];
         for value in &values {
             let scalar = Scalar::utf8(*value, Nullability::Nullable);
@@ -501,9 +537,12 @@ fn test_to_canonical_utf8_nullable() {
 
 #[test]
 fn test_to_canonical_binary() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DType::Binary(Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
+    let expected = [b"hello", b"world", b"vortx", b"bytes", b"tests"]
+        .map(|value| Scalar::binary(value.to_vec(), Nullability::NonNullable))
+        .to_vec();
+    compare_to_canonical_methods(&dtype, &expected, &mut ctx, |builder| {
         let values = [b"hello", b"world", b"vortx", b"bytes", b"tests"];
         for value in &values {
             let scalar = Scalar::binary(value.to_vec(), Nullability::NonNullable);
@@ -514,7 +553,7 @@ fn test_to_canonical_binary() {
 
 #[test]
 fn test_to_canonical_struct() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DType::Struct(
         StructFields::from_iter([
             ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
@@ -522,7 +561,9 @@ fn test_to_canonical_struct() {
         ]),
         Nullability::NonNullable,
     );
-    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
+    let expected =
+        vec![Scalar::struct_(dtype.clone(), vec![Scalar::from(0i32), Scalar::from("")]); 3];
+    compare_to_canonical_methods(&dtype, &expected, &mut ctx, |builder| {
         for _ in 0..3 {
             let value = Scalar::default_value(&dtype);
             builder.append_scalar(&value).unwrap();
@@ -532,10 +573,18 @@ fn test_to_canonical_struct() {
 
 #[test]
 fn test_to_canonical_extension() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype =
         DType::Extension(Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased());
-    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
+    let expected = [0i64, 1, 2, 3, 4]
+        .map(|value| {
+            Scalar::extension_ref(
+                Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased(),
+                Scalar::from(value),
+            )
+        })
+        .to_vec();
+    compare_to_canonical_methods(&dtype, &expected, &mut ctx, |builder| {
         let ext_dtype = match &dtype {
             DType::Extension(ext) => ext.clone(),
             _ => unreachable!(),
@@ -550,18 +599,27 @@ fn test_to_canonical_extension() {
 
 #[test]
 fn test_to_canonical_null() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DType::Null;
-    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
+    let expected = vec![Scalar::null(DType::Null); 5];
+    compare_to_canonical_methods(&dtype, &expected, &mut ctx, |builder| {
         builder.append_nulls(5);
     });
 }
 
 #[test]
 fn test_to_canonical_decimal() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
+    let expected = vec![
+        Scalar::decimal(
+            crate::scalar::DecimalValue::I128(0),
+            DecimalDType::new(10, 2),
+            Nullability::NonNullable
+        );
+        5
+    ];
+    compare_to_canonical_methods(&dtype, &expected, &mut ctx, |builder| {
         for _ in 0..5 {
             let value = Scalar::default_value(&dtype);
             builder.append_scalar(&value).unwrap();
@@ -571,9 +629,10 @@ fn test_to_canonical_decimal() {
 
 #[test]
 fn test_to_canonical_i8() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DType::Primitive(PType::I8, Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
+    let expected = [0i8, 1, 2, 3, 4].map(Scalar::from).to_vec();
+    compare_to_canonical_methods(&dtype, &expected, &mut ctx, |builder| {
         for i in 0..5i8 {
             let value = Scalar::primitive(i, Nullability::NonNullable);
             builder.append_scalar(&value).unwrap();
@@ -583,9 +642,10 @@ fn test_to_canonical_i8() {
 
 #[test]
 fn test_to_canonical_u64() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
+    let expected = [0u64, 1, 2, 3, 4].map(Scalar::from).to_vec();
+    compare_to_canonical_methods(&dtype, &expected, &mut ctx, |builder| {
         for i in 0..5 {
             let value = Scalar::primitive(i as u64, Nullability::NonNullable);
             builder.append_scalar(&value).unwrap();
@@ -595,9 +655,10 @@ fn test_to_canonical_u64() {
 
 #[test]
 fn test_to_canonical_f32() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
+    let expected = [0.0f32, 1.0, 2.0, 3.0, 4.0].map(Scalar::from).to_vec();
+    compare_to_canonical_methods(&dtype, &expected, &mut ctx, |builder| {
         for i in 0..5 {
             let value = Scalar::primitive(i as f32, Nullability::NonNullable);
             builder.append_scalar(&value).unwrap();
@@ -706,7 +767,7 @@ fn test_append_scalar_comprehensive(#[case] dtype: DType) {
     // Verify each scalar matches.
     for (i, expected_scalar) in scalars.iter().enumerate() {
         let actual_scalar = array
-            .execute_scalar(i, &mut array_session().create_execution_ctx())
+            .execute_scalar(i, &mut SESSION.create_execution_ctx())
             .unwrap();
         assert_scalars_equal(&actual_scalar, expected_scalar, &dtype, i);
     }
@@ -714,7 +775,7 @@ fn test_append_scalar_comprehensive(#[case] dtype: DType) {
     // If nullable, verify the last element is null.
     if dtype.is_nullable() {
         let null_scalar = array
-            .execute_scalar(num_elements, &mut array_session().create_execution_ctx())
+            .execute_scalar(num_elements, &mut SESSION.create_execution_ctx())
             .unwrap();
         assert!(
             null_scalar.is_null(),
@@ -820,23 +881,10 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
 
 /// Helper function to compare scalars, handling special cases like lists.
 fn assert_scalars_equal(actual: &Scalar, expected: &Scalar, dtype: &DType, index: usize) {
-    // For lists, we need special handling due to known issues.
-    if matches!(dtype, DType::List(..)) {
-        // Just check nullability matches.
-        assert_eq!(
-            actual.is_null(),
-            expected.is_null(),
-            "Null status mismatch at index {}",
-            index
-        );
-        // Skip detailed comparison for lists due to known bugs.
-        return;
-    }
-
+    assert_eq!(actual.dtype(), dtype);
     assert_eq!(
         actual, expected,
-        "Scalar mismatch at index {} for dtype {:?}",
-        index, dtype
+        "Scalar mismatch at index {index} for dtype {dtype:?}"
     );
 }
 
@@ -867,31 +915,31 @@ fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
     // Check the pattern.
     assert!(
         !array
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap()
             .is_null()
     );
     assert!(
         array
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap()
             .is_null()
     );
     assert!(
         !array
-            .execute_scalar(2, &mut array_session().create_execution_ctx())
+            .execute_scalar(2, &mut SESSION.create_execution_ctx())
             .unwrap()
             .is_null()
     );
     assert!(
         array
-            .execute_scalar(3, &mut array_session().create_execution_ctx())
+            .execute_scalar(3, &mut SESSION.create_execution_ctx())
             .unwrap()
             .is_null()
     );
     assert!(
         !array
-            .execute_scalar(4, &mut array_session().create_execution_ctx())
+            .execute_scalar(4, &mut SESSION.create_execution_ctx())
             .unwrap()
             .is_null()
     );
@@ -899,7 +947,7 @@ fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
     // Verify non-null values match.
     assert_scalars_equal(
         &array
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap(),
         &test_scalars[0],
         &dtype,
@@ -907,7 +955,7 @@ fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
     );
     assert_scalars_equal(
         &array
-            .execute_scalar(2, &mut array_session().create_execution_ctx())
+            .execute_scalar(2, &mut SESSION.create_execution_ctx())
             .unwrap(),
         &test_scalars[1],
         &dtype,
@@ -915,7 +963,7 @@ fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
     );
     assert_scalars_equal(
         &array
-            .execute_scalar(4, &mut array_session().create_execution_ctx())
+            .execute_scalar(4, &mut SESSION.create_execution_ctx())
             .unwrap(),
         &test_scalars[2],
         &dtype,
@@ -983,7 +1031,7 @@ fn test_append_scalar_repeated_same_instance() {
     // All values should be 42.
     for i in 0..5 {
         let actual = array
-            .execute_scalar(i, &mut array_session().create_execution_ctx())
+            .execute_scalar(i, &mut SESSION.create_execution_ctx())
             .unwrap();
         assert_eq!(
             actual.as_primitive().typed_value::<i32>(),
@@ -1012,6 +1060,7 @@ fn test_append_scalar_repeated_same_instance() {
         (0..CHUNK_LEN as u64).collect::<Buffer<_>>().into_array(),
         Buffer::full(1u64, CHUNK_LEN).into_array(),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     )
     .into_array(),
     |array: &ArrayRef| array.as_::<ListView>().elements().clone()
@@ -1042,7 +1091,7 @@ fn test_children_are_not_canonicalized(
     #[case] array: ArrayRef,
     #[case] child_of: fn(&ArrayRef) -> ArrayRef,
 ) -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     let mut builder = builder_with_capacity_in(array.dtype(), 0, BufferAllocatorRef::static_ref());
     array.append_to_builder(builder.as_mut(), &mut ctx)?;
@@ -1061,6 +1110,14 @@ fn test_children_are_not_canonicalized(
         "the constant-encoded child was decoded by the builder",
     );
 
+    assert_eq!(built.dtype(), array.dtype());
+    assert_eq!(built.len(), 2 * array.len());
+    for index in 0..built.len() {
+        assert_eq!(
+            built.execute_scalar(index, &mut ctx)?,
+            array.execute_scalar(index % array.len(), &mut ctx)?
+        );
+    }
     let expected = ChunkedArray::try_new(vec![array.clone(), array], built.dtype().clone())?;
     assert_arrays_eq!(&built, &expected, &mut ctx);
 
@@ -1071,7 +1128,7 @@ fn test_children_are_not_canonicalized(
 /// scalars instead is what asks the builder to copy the values into one canonical child.
 #[test]
 fn test_children_are_chunked_on_the_boundaries_they_are_appended_on() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     let elements = ConstantArray::new(1i32, 2).into_array();
     let array = FixedSizeListArray::new(elements, 2, Validity::NonNullable, 1).into_array();
@@ -1107,15 +1164,22 @@ fn test_children_are_chunked_on_the_boundaries_they_are_appended_on() -> VortexR
             .elements()
             .is::<Primitive>()
     );
-    assert_arrays_eq!(&built_from_scalars, &built, &mut ctx);
 
+    let expected = FixedSizeListArray::new(
+        buffer![1i32; 2 * CHUNK_LEN].into_array(),
+        2,
+        Validity::NonNullable,
+        CHUNK_LEN,
+    );
+    assert_arrays_eq!(built, &expected, &mut ctx);
+    assert_arrays_eq!(built_from_scalars, expected, &mut ctx);
     Ok(())
 }
 
 /// A builder that mixes appended arrays with scalar appends must keep the two in order.
 #[test]
 fn test_struct_builder_interleaves_arrays_and_scalars() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     let array = StructArray::try_from_iter([("a", constant_i32())])?.into_array();
     let scalar = Scalar::struct_(
@@ -1129,17 +1193,13 @@ fn test_struct_builder_interleaves_arrays_and_scalars() -> VortexResult<()> {
     builder.append_scalar(&scalar)?;
     let built = builder.finish();
 
-    let scalar_array = StructArray::try_from_iter([(
-        "a",
-        PrimitiveArray::new(buffer![1i32], Validity::NonNullable),
-    )])?
-    .into_array();
-    let expected = ChunkedArray::try_new(
-        vec![scalar_array.clone(), array, scalar_array],
-        built.dtype().clone(),
-    )?;
-    assert_arrays_eq!(&built, &expected, &mut ctx);
-
+    let values: PrimitiveArray = [1i32]
+        .into_iter()
+        .chain(std::iter::repeat_n(0i32, CHUNK_LEN))
+        .chain([1i32])
+        .collect();
+    let independent = StructArray::try_from_iter([("a", values)])?;
+    assert_arrays_eq!(built, independent, &mut ctx);
     Ok(())
 }
 
@@ -1151,7 +1211,7 @@ const CHUNK_LEN: usize = 64;
 /// array's validity is kept as it arrived rather than executed into a mask and copied bit by bit.
 #[test]
 fn test_appended_validity_is_not_materialized() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     let array = StructArray::try_from_iter_with_validity(
         [("a", iota(CHUNK_LEN))],
@@ -1172,6 +1232,14 @@ fn test_appended_validity_is_not_materialized() -> VortexResult<()> {
         "the two appended validities should have been concatenated, not copied into one buffer",
     );
 
+    assert_eq!(built.dtype(), array.dtype());
+    assert_eq!(built.len(), 2 * array.len());
+    for index in 0..built.len() {
+        assert_eq!(
+            built.execute_scalar(index, &mut ctx)?,
+            array.execute_scalar(index % array.len(), &mut ctx)?
+        );
+    }
     let expected = ChunkedArray::try_new(vec![array.clone(), array], built.dtype().clone())?;
     assert_arrays_eq!(&built, &expected, &mut ctx);
 
@@ -1185,11 +1253,13 @@ fn constant_i32() -> ArrayRef {
 
 /// Two lists of [`CHUNK_LEN`] elements each, so that appending them chunks the elements.
 fn two_lists_of_chunk_len() -> ListViewArray {
+    let mut ctx = SESSION.create_execution_ctx();
     ListViewArray::new(
         iota(2 * CHUNK_LEN),
         u64s([0, CHUNK_LEN]),
         u64s([CHUNK_LEN, CHUNK_LEN]),
         Validity::NonNullable,
+        &mut ctx,
     )
 }
 
@@ -1222,13 +1292,14 @@ fn u64s(values: impl IntoIterator<Item = usize>) -> ArrayRef {
         iota(2 * CHUNK_LEN),
         u64s([0, CHUNK_LEN, 2 * CHUNK_LEN]),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     )
     .into_array()
 )]
 fn test_list_offsets_are_rebased_across_element_chunks(
     #[case] lists: ArrayRef,
 ) -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     let mut builder = builder_with_capacity_in(
         &DType::List(
@@ -1247,9 +1318,16 @@ fn test_list_offsets_are_rebased_across_element_chunks(
         "the elements should have been kept as chunks",
     );
 
-    let expected = ChunkedArray::try_new(vec![lists.clone(), lists], built.dtype().clone())?;
-    assert_arrays_eq!(&built, &expected, &mut ctx);
-
+    let independent = ListArray::new(
+        (0..128i32)
+            .chain(0..128i32)
+            .collect::<Buffer<_>>()
+            .into_array(),
+        buffer![0u32, 64, 128, 192, 256].into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    );
+    assert_arrays_eq!(built, independent, &mut ctx);
     Ok(())
 }
 
@@ -1257,7 +1335,7 @@ fn test_list_offsets_are_rebased_across_element_chunks(
 /// elements builder through `append_array_as_list` rather than a bulk append.
 #[test]
 fn test_list_builder_offsets_are_rebased_across_element_chunks() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
 
     let mut builder = ListBuilder::<u64>::with_capacity_in(
@@ -1282,6 +1360,7 @@ fn test_list_builder_offsets_are_rebased_across_element_chunks() -> VortexResult
             .into_array(),
         u64s((0..=3).map(|i| i * CHUNK_LEN)),
         Validity::NonNullable,
+        &mut ctx,
     );
     assert_arrays_eq!(&built, &expected, &mut ctx);
 
@@ -1314,7 +1393,7 @@ fn test_validity_survives_chunked_children(
     #[case] array: ArrayRef,
     #[case] child_of: fn(&ArrayRef) -> ArrayRef,
 ) -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     let mut builder = builder_with_capacity_in(array.dtype(), 0, BufferAllocatorRef::static_ref());
     array.append_to_builder(builder.as_mut(), &mut ctx)?;
@@ -1324,6 +1403,20 @@ fn test_validity_survives_chunked_children(
 
     assert!(child_of(&built).is::<Chunked>());
 
+    assert_eq!(built.dtype(), array.dtype());
+    assert_eq!(built.len(), 2 * array.len() + 1);
+    assert_eq!(
+        built.execute_scalar(array.len(), &mut ctx)?,
+        Scalar::null(array.dtype().clone())
+    );
+    for index in 0..array.len() {
+        let expected = array.execute_scalar(index, &mut ctx)?;
+        assert_eq!(built.execute_scalar(index, &mut ctx)?, expected);
+        assert_eq!(
+            built.execute_scalar(array.len() + 1 + index, &mut ctx)?,
+            expected
+        );
+    }
     let mut null = builder_with_capacity_in(array.dtype(), 1, BufferAllocatorRef::static_ref());
     null.append_nulls(1);
     let expected = ChunkedArray::try_new(
@@ -1338,7 +1431,7 @@ fn test_validity_survives_chunked_children(
 /// Consumers that genuinely need a fully-decoded tree ask for it, and must still get one.
 #[test]
 fn test_chunked_children_canonicalize_recursively() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     let array = StructArray::try_from_iter([("a", constant_i32())])?.into_array();
     let mut builder = builder_with_capacity_in(array.dtype(), 0, BufferAllocatorRef::static_ref());
@@ -1346,7 +1439,7 @@ fn test_chunked_children_canonicalize_recursively() -> VortexResult<()> {
     array.append_to_builder(builder.as_mut(), &mut ctx)?;
     let built = builder.finish();
 
-    let recursive = built.clone().execute::<RecursiveCanonical>(&mut ctx)?.0;
+    let recursive = built.execute::<RecursiveCanonical>(&mut ctx)?.0;
     assert!(
         recursive
             .clone()
@@ -1355,7 +1448,9 @@ fn test_chunked_children_canonicalize_recursively() -> VortexResult<()> {
             .unmasked_field(0)
             .is::<Primitive>()
     );
-    assert_arrays_eq!(&recursive.into_array(), &built, &mut ctx);
+    let independent =
+        StructArray::try_from_iter([("a", buffer![0i32; 2 * CHUNK_LEN].into_array())])?;
+    assert_arrays_eq!(&recursive.into_array(), &independent, &mut ctx);
 
     Ok(())
 }

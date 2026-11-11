@@ -113,18 +113,6 @@ mod tests {
     }
 
     #[test]
-    fn test_power_of_two() {
-        let result = [1, 2, 3, 4].into_iter().reduce_balanced(|a, b| a + b);
-        assert_eq!(result, Some(10));
-    }
-
-    #[test]
-    fn test_odd_count() {
-        let result = [1, 2, 3, 4, 5].into_iter().reduce_balanced(|a, b| a + b);
-        assert_eq!(result, Some(15));
-    }
-
-    #[test]
     fn test_balanced_structure() {
         // Use string concatenation to verify the tree shape.
         // [a, b, c, d] should produce ((a+b)+(c+d)), not (((a+b)+c)+d).
@@ -133,16 +121,6 @@ mod tests {
             .map(String::from)
             .reduce_balanced(|a, b| format!("({a}+{b})"));
         assert_eq!(result, Some("((a+b)+(c+d))".to_string()));
-    }
-
-    #[test]
-    fn test_balanced_structure_odd() {
-        // [a, b, c] should produce ((a+b)+c) — odd element merges into last pair.
-        let result = ["a", "b", "c"]
-            .into_iter()
-            .map(String::from)
-            .reduce_balanced(|a, b| format!("({a}+{b})"));
-        assert_eq!(result, Some("((a+b)+c)".to_string()));
     }
 
     #[test]

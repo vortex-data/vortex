@@ -7,23 +7,19 @@ use std::ops::Range;
 use vortex_array::EmptyMetadata;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::plan::physical::Plan;
-use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanId;
 use crate::plan::physical::PlanParts;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::PlanSlots;
 use crate::plan::physical::PlanVTable;
 use crate::plan::physical::SegmentScan;
-use crate::plan::physical::check_child_count;
 use crate::plan::physical::operators::MaskStage;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
-use crate::plan::physical::pipeline::Reach;
-use crate::segments::SegmentId;
 
 /// Keeps only the selected rows of its child.
 ///
@@ -47,7 +43,7 @@ impl FilterPlan {
             vtable: Filter,
             dtype: child.dtype().clone(),
             row_count: child.row_count(),
-            children: vec![child].into(),
+            slots: [child].into(),
             data: FilterData,
         }
         .into_typed()
@@ -55,7 +51,7 @@ impl FilterPlan {
 
     /// Returns the plan whose rows are filtered.
     pub fn child_plan(&self) -> VortexResult<PlanRef> {
-        self.child_required(0)
+        self.slot_required(0)
     }
 }
 
@@ -72,26 +68,24 @@ impl PlanVTable for Filter {
         Some(EmptyMetadata)
     }
 
-    fn with_children(
+    fn with_slots(
         plan: &Plan<Self>,
-        children: &PlanChildren,
+        slots: &PlanSlots,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        check_child_count("Filter", children, 1)?;
-        let child = children
-            .get(0)?
-            .ok_or_else(|| vortex_err!("Filter child is absent"))?;
+        slots.check_len("Filter", 1)?;
+        let child = slots.required(0)?;
         if child.dtype() != plan.dtype() || child.row_count() != plan.row_count() {
             vortex_bail!("Filter child does not match the filter's dtype and row count");
         }
         Ok(())
     }
 
-    fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
+    fn slot_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
         if index == 0 {
             Cow::Borrowed("child")
         } else {
-            Cow::Owned(format!("child[{index}]"))
+            Cow::Owned(format!("slot[{index}]"))
         }
     }
 
@@ -103,12 +97,12 @@ impl PlanVTable for Filter {
         mask: &Mask,
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
+        if mask.all_false() {
+            return Ok(None);
+        }
         let child = plan.child_plan()?;
         if let Some(scan) = child.as_opt::<SegmentScan>() {
             return compiler.scan(scan, rows, Some(mask.clone()));
-        }
-        if mask.all_false() {
-            return Ok(None);
         }
         let len = usize::try_from(rows.end - rows.start)?;
         let predicate = plan.dtype().is_boolean();
@@ -120,14 +114,5 @@ impl PlanVTable for Filter {
                 chain.with(MaskStage::new(mask.clone(), predicate))
             }
         }))
-    }
-
-    fn reach(
-        plan: &Plan<Self>,
-        rows: Range<u64>,
-        at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
-    ) -> VortexResult<()> {
-        plan.child_plan()?.reach(rows, at, visit)
     }
 }

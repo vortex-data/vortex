@@ -276,9 +276,12 @@ mod tests {
             let vx_dtype_ptr = vx_dtype::new(dtype.clone());
             let mut error = ptr::null_mut();
             let sink = vx_array_sink_open_file(session, path, vx_dtype_ptr, &raw mut error);
+            assert_no_error(error);
             let array = vx_array::new(struct_array.clone().into_array());
             vx_array_sink_push(sink, array, &raw mut error);
+            assert_no_error(error);
             vx_array_sink_close(sink, &raw mut error);
+            assert_no_error(error);
             vx_array_free(array);
             vx_dtype_free(vx_dtype_ptr);
         }

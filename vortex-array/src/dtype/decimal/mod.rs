@@ -100,6 +100,22 @@ impl DecimalDType {
         self.scale
     }
 
+    /// The width of the values buffer of a canonical decimal array with this precision.
+    ///
+    /// This is the narrowest [`DecimalType`] that holds every unscaled value of the precision, so
+    /// each decimal dtype has exactly one canonical values type. The precision is always between 1
+    /// and [`MAX_PRECISION`], so the last arm covers precision 39 to 76.
+    pub const fn canonical_values_type(&self) -> DecimalType {
+        match self.precision.get() {
+            1..=2 => DecimalType::I8,
+            3..=4 => DecimalType::I16,
+            5..=9 => DecimalType::I32,
+            10..=18 => DecimalType::I64,
+            19..=38 => DecimalType::I128,
+            _ => DecimalType::I256,
+        }
+    }
+
     /// Return the max number of bits required to fit a decimal with `precision` in.
     pub fn required_bit_width(&self) -> usize {
         (self.precision.get() as f32 * 10.0f32.log(2.0))
@@ -137,19 +153,14 @@ impl TryFrom<DType> for DecimalDType {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 
     #[test]
     fn test_decimal_valid_construction() {
-        let decimal = DecimalDType::try_new(10, 2).unwrap();
-        assert_eq!(decimal.precision(), 10);
-        assert_eq!(decimal.scale(), 2);
-    }
-
-    #[test]
-    fn test_decimal_new_deprecated() {
         let decimal = DecimalDType::try_new(10, 2).unwrap();
         assert_eq!(decimal.precision(), 10);
         assert_eq!(decimal.scale(), 2);
@@ -263,28 +274,50 @@ mod tests {
     fn test_required_bit_width() {
         // Test common decimal precisions
         let decimal_9 = DecimalDType::new(9, 2);
-        assert!(decimal_9.required_bit_width() <= 32); // fits in 32 bits
+        assert_eq!(decimal_9.required_bit_width(), 30);
 
         let decimal_18 = DecimalDType::new(18, 4);
-        assert!(decimal_18.required_bit_width() <= 64); // fits in 64 bits
+        assert_eq!(decimal_18.required_bit_width(), 60);
 
         let decimal_38 = DecimalDType::new(38, 10);
-        assert!(decimal_38.required_bit_width() <= 128); // fits in 128 bits
+        assert_eq!(decimal_38.required_bit_width(), 127);
 
         let decimal_76 = DecimalDType::new(76, 20);
-        assert!(decimal_76.required_bit_width() <= 256); // fits in 256 bits
+        assert_eq!(decimal_76.required_bit_width(), 253);
     }
 
     #[test]
     fn test_required_bit_width_edge_cases() {
         // Precision 1 should require at least 4 bits (to store 0-9)
         let decimal_1 = DecimalDType::new(1, 0);
-        assert!(decimal_1.required_bit_width() >= 4);
+        assert_eq!(decimal_1.required_bit_width(), 4);
 
         // Maximum precision
         let decimal_max = DecimalDType::new(MAX_PRECISION, 0);
         let bits = decimal_max.required_bit_width();
-        assert!(bits > 0 && bits <= 256);
+        assert_eq!(bits, 253);
+    }
+
+    #[rstest]
+    #[case::p1(1, DecimalType::I8)]
+    #[case::p2(2, DecimalType::I8)]
+    #[case::p3(3, DecimalType::I16)]
+    #[case::p4(4, DecimalType::I16)]
+    #[case::p5(5, DecimalType::I32)]
+    #[case::p9(9, DecimalType::I32)]
+    #[case::p10(10, DecimalType::I64)]
+    #[case::p18(18, DecimalType::I64)]
+    #[case::p19(19, DecimalType::I128)]
+    #[case::p38(38, DecimalType::I128)]
+    #[case::p39(39, DecimalType::I256)]
+    #[case::p76(76, DecimalType::I256)]
+    fn test_values_type_boundaries(
+        #[case] precision: u8,
+        #[case] expected: DecimalType,
+    ) -> VortexResult<()> {
+        let decimal = DecimalDType::try_new(precision, 0)?;
+        assert_eq!(decimal.canonical_values_type(), expected);
+        Ok(())
     }
 
     #[test]

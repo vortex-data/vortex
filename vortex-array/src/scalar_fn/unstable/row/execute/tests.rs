@@ -13,6 +13,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_mask::MaskValuesRef;
+use vortex_session::VortexSession;
 
 use super::DenseAttempt;
 use super::execute_bool_dense_attempt;
@@ -30,7 +31,6 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::Bool;
 use crate::arrays::ConstantArray;
 use crate::arrays::FixedSizeList;
@@ -153,7 +153,7 @@ fn owned_payload_uses_context_allocator(
     let valid = selected_rows();
     let (session_allocator, session_tracker) = tracking_allocator();
     let (allocator, tracker) = tracking_allocator();
-    let mut ctx = array_session()
+    let mut ctx = VortexSession::empty()
         .with_allocator(session_allocator)
         .create_execution_ctx()
         .with_allocator(allocator);
@@ -185,7 +185,7 @@ fn packed_boolean_payload_uses_allocator(
 ) -> VortexResult<()> {
     let args = canonical_args(Traversal::Infallible, false);
     let (allocator, tracker) = tracking_allocator();
-    let mut ctx = array_session()
+    let mut ctx = VortexSession::empty()
         .create_execution_ctx()
         .with_allocator(allocator);
 
@@ -289,7 +289,7 @@ fn sink_payloads_use_allocator(#[case] traversal: Traversal) -> VortexResult<()>
     let args = canonical_args(traversal, false);
     let valid = selected_rows();
     let (allocator, tracker) = tracking_allocator();
-    let mut ctx = array_session()
+    let mut ctx = VortexSession::empty()
         .create_execution_ctx()
         .with_allocator(allocator);
 
@@ -332,6 +332,7 @@ fn primitive_finish_reuses_allocation() {
     // SAFETY: all three slots were initialized above.
     let output = unsafe { values.finish(3, &allocator) };
     assert_eq!(output.as_::<Primitive>().as_slice::<i64>().as_ptr(), ptr);
+    assert_eq!(output.as_::<Primitive>().as_slice::<i64>(), &[1, 2, 3]);
     tracker.assert_owns(output.as_::<Primitive>().as_slice::<i64>());
 }
 
@@ -340,7 +341,7 @@ fn empty_outputs_and_zero_width_rows_do_not_allocate_payloads() -> VortexResult<
     let empty = PrimitiveArray::from_iter(std::iter::empty::<i64>()).into_array();
     let args = VecExecutionArgs::new(vec![empty], 0);
     let (allocator, tracker) = tracking_allocator();
-    let mut ctx = array_session()
+    let mut ctx = VortexSession::empty()
         .create_execution_ctx()
         .with_allocator(allocator);
 
@@ -384,7 +385,7 @@ fn empty_outputs_and_zero_width_rows_do_not_allocate_payloads() -> VortexResult<
 fn boolean_sinks_allocate_packed_payloads_with_context_allocator() -> VortexResult<()> {
     let args = canonical_args(Traversal::Infallible, false);
     let (allocator, tracker) = tracking_allocator();
-    let mut ctx = array_session()
+    let mut ctx = VortexSession::empty()
         .create_execution_ctx()
         .with_allocator(allocator);
 
@@ -484,7 +485,7 @@ fn zero_sized_output_uses_its_own_storage(#[case] traversal: Traversal) -> Vorte
     let valid = selected_rows();
     let expected = PrimitiveArray::from_iter([1_i64; 3]).into_array();
     let (allocator, tracker) = tracking_allocator();
-    let mut ctx = array_session()
+    let mut ctx = VortexSession::empty()
         .create_execution_ctx()
         .with_allocator(allocator);
 

@@ -597,6 +597,18 @@ async fn test_dictionary_column_type_preservation(
         .await?;
 
     assert!(!result.is_empty(), "Expected results from query");
+    assert_batches_eq!(
+        [
+            "+----------+-------------+",
+            "| producer | sample_type |",
+            "+----------+-------------+",
+            "| agent    | samples     |",
+            "| agent    | samples     |",
+            "| agent    | samples     |",
+            "+----------+-------------+",
+        ],
+        &result
+    );
 
     // Check that the result schema preserves Dictionary types
     let result_schema = result[0].schema();
@@ -675,6 +687,18 @@ async fn test_nested_struct_dictionary_type_preservation(
         .await?;
 
     assert!(!result.is_empty(), "Expected results from query");
+    assert_batches_eq!(
+        [
+            "+-------+--------+",
+            "| value | comm   |",
+            "+-------+--------+",
+            "| 100   | proc_a |",
+            "| 200   | proc_b |",
+            "| 300   | proc_a |",
+            "+-------+--------+",
+        ],
+        &result
+    );
 
     // The nested dictionary field should preserve its type
     let result_schema = result[0].schema();

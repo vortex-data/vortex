@@ -222,17 +222,20 @@ mod tests {
 
     #[test]
     fn key_rejects_paths_outside_the_data_dir() -> Result<()> {
-        assert!(
-            remote("s3://bucket/prefix/")?
-                .key(Path::new("/tmp/taxi.vortex"))
-                .is_err()
+        let err = remote("s3://bucket/prefix/")?
+            .key(Path::new("/tmp/taxi.vortex"))
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "/tmp/taxi.vortex is not inside the benchmark data directory"
         );
         Ok(())
     }
 
     #[test]
     fn unsupported_scheme_is_rejected() -> Result<()> {
-        assert!(RemoteDataDir::try_new(Url::parse("gs://bucket/prefix/")?).is_err());
+        let err = RemoteDataDir::try_new(Url::parse("gs://bucket/prefix/")?).unwrap_err();
+        assert_eq!(err.to_string(), "unsupported remote data dir scheme: gs");
         Ok(())
     }
 

@@ -27,7 +27,7 @@ pub(super) fn check_listview_constant(
         return Ok(false);
     }
 
-    let first_size = l.size_at(0);
+    let first_size = l.size_at(0, ctx);
     if first_size == 0 {
         return Ok(true);
     }
@@ -38,9 +38,9 @@ pub(super) fn check_listview_constant(
     }
 
     // Check each list individually, this can be expensive.
-    let first_elements = l.list_elements_at(0)?;
+    let first_elements = l.list_elements_at(0, ctx)?;
     for i in 1..l.len() {
-        let current_elements = l.list_elements_at(i)?;
+        let current_elements = l.list_elements_at(i, ctx)?;
         if !arrays_value_equal(&first_elements, &current_elements, ctx)? {
             return Ok(false);
         }

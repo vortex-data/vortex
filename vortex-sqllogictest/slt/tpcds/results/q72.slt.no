@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTIIII
+SELECT i_item_desc,
+       w_warehouse_name,
+       d1.d_week_seq,
+       sum(CASE
+               WHEN p_promo_sk IS NULL THEN 1
+               ELSE 0
+           END) no_promo,
+       sum(CASE
+               WHEN p_promo_sk IS NOT NULL THEN 1
+               ELSE 0
+           END) promo,
+       count(*) total_cnt
+FROM catalog_sales
+JOIN inventory ON (cs_item_sk = inv_item_sk)
+JOIN warehouse ON (w_warehouse_sk=inv_warehouse_sk)
+JOIN item ON (i_item_sk = cs_item_sk)
+JOIN customer_demographics ON (cs_bill_cdemo_sk = cd_demo_sk)
+JOIN household_demographics ON (cs_bill_hdemo_sk = hd_demo_sk)
+JOIN date_dim d1 ON (cs_sold_date_sk = d1.d_date_sk)
+JOIN date_dim d2 ON (inv_date_sk = d2.d_date_sk)
+JOIN date_dim d3 ON (cs_ship_date_sk = d3.d_date_sk)
+LEFT OUTER JOIN promotion ON (cs_promo_sk=p_promo_sk)
+LEFT OUTER JOIN catalog_returns ON (cr_item_sk = cs_item_sk
+                                    AND cr_order_number = cs_order_number)
+WHERE d1.d_week_seq = d2.d_week_seq
+  AND inv_quantity_on_hand < cs_quantity
+  AND d3.d_date > (d1.d_date + INTERVAL '5' DAY)
+  AND hd_buy_potential = '>10000'
+  AND d1.d_year = 1999
+  AND cd_marital_status = 'D'
+GROUP BY i_item_desc,
+         w_warehouse_name,
+         d1.d_week_seq
+ORDER BY total_cnt DESC NULLS FIRST,
+         i_item_desc NULLS FIRST,
+         w_warehouse_name NULLS FIRST,
+         d1.d_week_seq NULLS FIRST
+LIMIT 100;
+----
+Absolutely Conventional childr 5211 0 1 1
+Areas might cry very whole occupations. Local minutes cannot attract more; social years might not maintain immediately left changes. In addition si Conventional childr 5210 0 1 1
+Boots recommend usually just local centres; c Conventional childr 5172 0 1 1
+Bottles take significantly popular, official seconds. Ever inadequate environments should go largely skills. Plans make males. There labour years get so different, oth Conventional childr 5179 0 1 1
+Bottles take significantly popular, official seconds. Ever inadequate environments should go largely skills. Plans make males. There labour years get so different, oth Conventional childr 5198 0 1 1
+Clear artists stay so that is limited causes; innocent, unusual claims make to a horses. Concerns will see almost in a centres. Seriously great maste Conventional childr 5189 0 1 1
+Concessions used to benefit there according to a duties; offic Conventional childr 5216 0 1 1
+Continued ideas reflect only still other prices. Actually historical weeks help low, appropriate companies; recent provisions widen du Conventional childr 5182 0 1 1
+Dead pages know mo Conventional childr 5176 0 1 1
+Directly different rounds express later; frequent, gentle intervals think justly by a dogs. Short-term, main mana Conventional childr 5171 0 1 1
+Distinct, sure years restart about open mere leaders. Mental, double families shall not die effecti Conventional childr 5199 0 1 1
+Earnings get far new races. Roughly thick cases should not meet over years. Attractive, social actions may not help systems. Nice markets know at a expectations; points becom Conventional childr 5206 0 1 1
+Ec Conventional childr 5213 0 1 1
+Especially atomic transactions explain angrily full, white relations. Ordinary conflicts should enforce for example. Trends w Conventional childr 5196 0 1 1
+Exactly Conventional childr 5216 0 1 1
+Eyes read clearly only good resources. Illustrations spend finally. Permanent, southern times would take economic da Conventional childr 5184 0 1 1
+Facilities could put backs. Good children ought to cut behind good numbers; vast, public campaigns used to develop again concerned partners. Widely follow Conventional childr 5207 0 1 1
+Figures cannot make mere Conventional childr 5210 0 1 1
+Foods will reconcile to a cases; offences must not operate young, similar observations. Modern colours say. Weekly systems ought to go also; products  Conventional childr 5217 0 1 1
+Friends tell. Living times should no Conventional childr 5214 0 1 1
+Further internal females might sit parents. Resources match Conventional childr 5199 0 1 1
+Guns provide changes. Ago new references used to accompany on the eyes. Forward supreme patients cannot ask real, spiritual channels. Interest Conventional childr 5196 0 1 1
+Here able guns would not win main, independent vessels. Pleasant, white pounds know recordings. At least possible characters see also for a races. British, clear  Conventional childr 5189 0 1 1
+High, jewish legs should not direct existing, current points. Opposite effects make women. Organisers suggest mo Conventional childr 5196 0 1 1
+Immediate police face now on a cu Conventional childr 5212 0 1 1
+In order african parties shall work already schools. Only political matters pretend most high applications;  Conventional childr 5215 0 1 1
+Japanese, other children plot between a patients; large, old-fashioned groups must reverse easily in the ways; short nerves may emphasize better small Conventional childr 5216 0 1 1
+Linguistic, possible legs make very more brave Conventional childr 5216 0 1 1
+Lists let as. Trees control moreover directly safe occasions; exactly legal personnel could not understand right, remaining bonds. Ever prepar Conventional childr 5211 0 1 1
+New others keep roughly polite engines. Male questions decide in the papers. Both other users may see today young, past decision Conventional childr 5187 0 1 1
+Normal systems would join simply different theories. Full, new clothes may eat instead achievements. D Conventional childr 5198 0 1 1
+Now easy facilities provide yesterday nuclear effects. Women install however actually local propos Conventional childr 5210 0 1 1
+Open places believe modern children. Increased techniques might not compare from a charges; recently international phrases strike in the modules; so Conventional childr 5209 0 1 1
+Other products follow for a eyes. Greatly normal models shall assess for example immediately easy lands. Impossible, foreign plans criticise however also free years; known, ruling pol Conventional childr 5203 0 1 1
+Political walls shall behave clients. Artistic, complex feet build then present, following names. Central, good director Conventional childr 5184 0 1 1
+Political, commercial expectations could say services. Royal, successful lists must not give areas. Feelings labour to a plans. Unique Conventional childr 5195 0 1 1
+Prime things shall not steer. Outside, early words hear high large  Conventional childr 5200 0 1 1
+Public, sex Conventional childr 5217 0 1 1
+Relations marry in a attacks. Prime books ma Conventional childr 5214 0 1 1
+Remote, japanese things would not need at all Conventional childr 5200 0 1 1
+So recent procedures ought to like mental pupils. Still young respects should perform now medium words. High cells will Conventional childr 5212 0 1 1
+There welcome references must lower. Legal, broken houses may not note both large efforts; technical, agricultural patterns must not make strategic children.  Conventional childr 5198 0 1 1
+Things used to go yet. Fingers will not keep desperate decades. Again forward Conventional childr 5211 0 1 1
+Unexpected employers shall not make much schools. Urban, following galleries keep only sure, demanding changes. Surprisingly married colours  Conventional childr 5200 0 1 1
+Voters cause already urban, formal children. Medieval shares must not spare human, crazy things; so public  Conventional childr 5198 0 1 1
+Votes reach then public words; children pick. Too individual  Conventional childr 5172 0 1 1
+Ye Conventional childr 5211 0 1 1
+Years control nice, possible rights. Apparent, level costs will mark instead consistent units. Lin Conventional childr 5193 0 1 1

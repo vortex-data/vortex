@@ -18,7 +18,6 @@ use std::time::Duration;
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
-use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
 use mimalloc::MiMalloc;
 use vortex::array::IntoArray;
@@ -28,9 +27,11 @@ use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::error::VortexExpect;
+use vortex_array::test_harness::mark_optimized;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
+use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
@@ -84,6 +85,7 @@ where
         group.throughput(Throughput::Bytes((len * size_of::<V>()) as u64));
 
         let dict_array = make_dict_array_typed::<V, C>(*len, config.dict_size);
+        mark_optimized(dict_array.as_array(), &vortex_cuda::cuda_session()).unwrap();
 
         group.bench_with_input(
             BenchmarkId::new(

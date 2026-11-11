@@ -424,10 +424,35 @@ mod tests {
     fn test_label_cardinality() {
         let ls = generate_sorted_label_sets();
 
+        assert_eq!(ls.sets.len(), 1000);
+        assert!(ls.sets.windows(2).all(|rows| rows[0] <= rows[1]));
+        assert_eq!(
+            ls.field_indices.iter().copied().collect::<HashSet<_>>(),
+            (0..LABELS.len()).collect()
+        );
+        assert!(ls.field_indices.windows(2).all(|pair| {
+            let (left_name, _, left_cardinality) = LABELS[pair[0]];
+            let (right_name, _, right_cardinality) = LABELS[pair[1]];
+            (left_cardinality, left_name) <= (right_cardinality, right_name)
+        }));
+
         // field_indices maps cardinality-order position → LABELS field index.
         for (pos, &field_idx) in ls.field_indices.iter().enumerate() {
             let (name, fill, distinct) = LABELS[field_idx];
             let unique_values: HashSet<Option<usize>> = ls.sets.iter().map(|s| s[pos]).collect();
+            let expected_filled = match name {
+                "action" | "instance" => 0,
+                "app" | "k8s_app" => 10,
+                "comm" => 990,
+                "container" | "namespace" => 970,
+                "cpu" | "node" | "thread_name" => 1000,
+                _ => panic!("add the new label's fill-rate contract"),
+            };
+            assert_eq!(
+                ls.sets.iter().filter(|s| s[pos].is_some()).count(),
+                expected_filled,
+                "{name} fill rate"
+            );
 
             if distinct == 0 {
                 assert_eq!(
@@ -449,16 +474,16 @@ mod tests {
 
     #[test]
     fn test_set_for_row_covers_all_sets() {
-        let n_rows: usize = 5000;
-        let mut seen = HashSet::new();
-        for i in 0..n_rows {
-            seen.insert(set_for_row(i, n_rows));
+        for n_rows in [5000, 5003, 3] {
+            let assignments = (0..n_rows)
+                .map(|row| set_for_row(row, n_rows))
+                .collect::<Vec<_>>();
+            let expected = (0..1000)
+                .flat_map(|set| {
+                    std::iter::repeat_n(set, n_rows / 1000 + usize::from(set < n_rows % 1000))
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(assignments, expected, "{n_rows} rows");
         }
-        assert_eq!(
-            seen.len(),
-            NUM_LABEL_SETS,
-            "not all label sets are used: got {} of {NUM_LABEL_SETS}",
-            seen.len()
-        );
     }
 }

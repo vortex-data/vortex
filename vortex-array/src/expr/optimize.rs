@@ -122,10 +122,19 @@ impl BoundExpression {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
+    use crate::arrays::StructArray;
+    use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
     use crate::dtype::Nullability;
@@ -143,10 +152,11 @@ mod tests {
     use crate::expr::pack;
     use crate::expr::root;
     use crate::expr::select;
-    use crate::expr::transform::replace;
     use crate::expr::zip_expr;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::literal::Literal;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn optimize_or_chain_correctness() -> VortexResult<()> {
@@ -163,10 +173,14 @@ mod tests {
         );
         let optimized = expr.bind(&scope)?.optimize_recursive()?;
 
-        let s = optimized.to_string();
-        assert!(s.contains("$.x"), "expected $.x in {s}");
-        assert!(s.contains("1i32") || s.contains('1'), "expected 1 in {s}");
-        assert!(s.contains("2i32") || s.contains('2'), "expected 2 in {s}");
+        let data =
+            StructArray::from_fields(&[("x", buffer![0i32, 1, 2, 3].into_array())])?.into_array();
+        let actual = data.apply_bound(&optimized)?;
+        assert_arrays_eq!(
+            actual,
+            BoolArray::from_iter([false, true, true, false]),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -242,6 +256,13 @@ mod tests {
         );
         let scope = DType::Struct(fields, Nullability::NonNullable);
 
+        let root_pack = pack(
+            field_names
+                .iter()
+                .map(|name| (name.clone(), get_item(name.clone(), root())))
+                .collect::<Vec<_>>(),
+            Nullability::NonNullable,
+        );
         let expr = select(
             field_names
                 .iter()
@@ -249,7 +270,7 @@ mod tests {
                 .chain(["input_row_idx".into(), "input_file_idx".into()])
                 .collect::<Vec<_>>(),
             merge([
-                root(),
+                root_pack,
                 pack(
                     [
                         ("input_row_idx", lit(0_u64)),
@@ -259,14 +280,6 @@ mod tests {
                 ),
             ]),
         );
-        let root_pack = pack(
-            field_names
-                .iter()
-                .map(|name| (name.clone(), get_item(name.clone(), root())))
-                .collect::<Vec<_>>(),
-            Nullability::NonNullable,
-        );
-        let expr = replace(expr, &root(), root_pack);
 
         let expected = pack(
             field_names

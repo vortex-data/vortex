@@ -7,16 +7,19 @@
 #include "vortex_duckdb.h"
 #include "table_function.h"
 #include "vortex.h"
+#include "duckdb/catalog/catalog.hpp"
 #include "duckdb/common/types/column/column_data_collection.hpp"
+#include "duckdb/logging/logger.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/connection.hpp"
-#include "duckdb/parser/keyword_helper.hpp"
+#include "duckdb/parallel/task_executor.hpp"
+#include "duckdb/parallel/task_scheduler.hpp"
 #include "duckdb/parser/parsed_data/create_copy_function_info.hpp"
 
 unique_ptr<FunctionData> copy_to_bind(ClientContext &,
                                       CopyFunctionBindInput &,
-                                      const vector<string> &names,
+                                      const vector<Identifier> &names,
                                       const vector<LogicalType> &types) {
     vector<const char *> ffi_names(names.size());
     for (size_t i = 0; i < names.size(); ++i) {
@@ -40,11 +43,11 @@ unique_ptr<FunctionData> copy_to_bind(ClientContext &,
         throw BinderException(IntoErrString(error_out));
     }
     auto cdata = unique_ptr<CData>(reinterpret_cast<CData *>(ffi_bind_data));
-    return make_uniq<VortexCopyBindData>(std::move(cdata), names);
+    return make_uniq<VortexCopyBindData>(std::move(cdata));
 }
 
 unique_ptr<GlobalFunctionData>
-copy_to_initialize_global(ClientContext &, FunctionData &bind_data, const string &file_path) {
+copy_to_initialize_global(ClientContext &context, FunctionData &bind_data, const string &file_path) {
     const VortexCopyBindData &bind = bind_data.Cast<VortexCopyBindData>();
     const void *const ffi_bind = bind.ffi_bind->DataPtr();
 
@@ -56,7 +59,9 @@ copy_to_initialize_global(ClientContext &, FunctionData &bind_data, const string
     }
 
     auto cdata = unique_ptr<CData>(reinterpret_cast<CData *>(ffi_global));
-    return make_uniq<VortexCopyGlobalState>(std::move(cdata));
+
+    auto executor = make_uniq<TaskExecutor>(context);
+    return make_uniq<VortexCopyGlobalState>(std::move(cdata), std::move(executor));
 }
 
 void copy_to_sink(ExecutionContext &,
@@ -86,11 +91,13 @@ void copy_to_get_written_statistics(ClientContext &,
     gstate.Cast<VortexCopyGlobalState>().written_stats = &statistics;
 }
 
-void copy_to_finalize(ClientContext &, FunctionData &bind_data, GlobalFunctionData &gstate) {
+void copy_to_finalize(ClientContext &, FunctionData &, GlobalFunctionData &gstate) {
     auto &global = gstate.Cast<VortexCopyGlobalState>();
     void *const ffi_global = global.ffi_global->DataPtr();
+
     duckdb_vx_error error_out = nullptr;
     duckdb_copy_function_copy_to_finalize(ffi_global, &error_out);
+    global.executor->CancelAndDrain();
     if (error_out) {
         throw ExecutorException(IntoErrString(error_out));
     }
@@ -98,25 +105,14 @@ void copy_to_finalize(ClientContext &, FunctionData &bind_data, GlobalFunctionDa
     if (!global.written_stats) {
         return;
     }
-    auto &names = bind_data.Cast<VortexCopyBindData>().column_names;
     duckdb_vx_written_file_statistics file_stats;
     if (!duckdb_copy_function_get_written_file_statistics(ffi_global, &file_stats)) {
-        // Statistics were requested (written_stats is set) but the finished write produced none;
-        // that is an internal inconsistency, not a silently empty result.
         throw InternalException("vortex COPY: written statistics were requested but not produced");
-    }
-    if (file_stats.num_columns != names.size()) {
-        throw InternalException("vortex COPY: %llu statistics columns for %llu written columns",
-                                file_stats.num_columns,
-                                names.size());
     }
     D_ASSERT(global.written_stats != nullptr);
     global.written_stats->row_count = file_stats.row_count;
     global.written_stats->file_size_bytes = file_stats.file_size_bytes;
     global.written_stats->footer_size_bytes = Value::UBIGINT(file_stats.footer_size_bytes);
-    // Keyed by top-level column name only. The vortex footer reports one statistics set per
-    // top-level field, so nested struct/list leaf columns get no statistics here (unlike parquet,
-    // which recurses to leaf paths). Flat tables are fully covered.
     for (idx_t i = 0; i < file_stats.num_columns; i++) {
         duckdb_vx_written_column_statistics col_stats {};
         duckdb_vx_error col_error = nullptr;
@@ -145,18 +141,18 @@ void copy_to_finalize(ClientContext &, FunctionData &bind_data, GlobalFunctionDa
         if (col_stats.has_nan_stat) {
             column["has_nan"] = Value::BOOLEAN(col_stats.contains_nan);
         }
-        // DuckLake keys column statistics by a quoted, dot-separated path (see
-        // DuckLakeUtil::ParseQuotedList); match the parquet writer, which quotes each name.
-        global.written_stats->column_statistics.emplace(KeywordHelper::WriteQuoted(names[i], '"'),
-                                                        std::move(column));
+        auto column_key = reinterpret_cast<Value *>(col_stats.column_key)->ToString();
+        duckdb_destroy_value(&col_stats.column_key);
+        global.written_stats->column_statistics.emplace(std::move(column_key), std::move(column));
     }
 }
 
 unique_ptr<PreparedBatchData> copy_to_prepare_batch(ClientContext &,
                                                     FunctionData &bind_data,
-                                                    GlobalFunctionData &,
+                                                    GlobalFunctionData &gstate,
                                                     unique_ptr<ColumnDataCollection> collection) {
     const VortexCopyBindData &bind = bind_data.Cast<VortexCopyBindData>();
+    const VortexCopyGlobalState &global = gstate.Cast<VortexCopyGlobalState>();
 
     const void *const ffi_bind = bind.ffi_bind->DataPtr();
     auto ffi_batch = unique_ptr<CData>(reinterpret_cast<CData *>(duckdb_copy_function_prepare_batch_new()));
@@ -164,7 +160,11 @@ unique_ptr<PreparedBatchData> copy_to_prepare_batch(ClientContext &,
 
     for (DataChunk &chunk : collection->Chunks()) {
         duckdb_data_chunk ffi_chunk = reinterpret_cast<duckdb_data_chunk>(&chunk);
-        duckdb_copy_function_prepare_batch_push(ffi_bind, ffi_batch->DataPtr(), ffi_chunk, &error_out);
+        duckdb_copy_function_prepare_batch_push(ffi_bind,
+                                                global.ffi_global->DataPtr(),
+                                                ffi_batch->DataPtr(),
+                                                ffi_chunk,
+                                                &error_out);
         if (error_out) {
             throw ExecutorException(IntoErrString(error_out));
         }
@@ -172,17 +172,40 @@ unique_ptr<PreparedBatchData> copy_to_prepare_batch(ClientContext &,
     return make_uniq<VortexCopyPreparedBatchData>(std::move(ffi_batch));
 }
 
-void copy_to_flush_batch(ClientContext &,
+struct VortexFlushTask final : public BaseExecutorTask {
+    VortexFlushTask(TaskExecutor &executor, const void *ffi_global)
+        : BaseExecutorTask(executor), ffi_global(ffi_global) {
+    }
+
+    void ExecuteTask() override {
+        duckdb_copy_function_run_tasks(ffi_global);
+    }
+
+    string TaskType() const override {
+        return "VortexFlushTask";
+    }
+
+    const void *const ffi_global;
+};
+
+void copy_to_flush_batch(ClientContext &context,
                          FunctionData &,
                          GlobalFunctionData &gstate,
                          PreparedBatchData &batch_data) {
-    const VortexCopyGlobalState &global = gstate.Cast<VortexCopyGlobalState>();
+    VortexCopyGlobalState &global = gstate.Cast<VortexCopyGlobalState>();
     const VortexCopyPreparedBatchData &batch = batch_data.Cast<VortexCopyPreparedBatchData>();
 
     const void *const ffi_global = global.ffi_global->DataPtr();
     const void *const ffi_batch = batch.ffi_copy_prepared->DataPtr();
     duckdb_vx_error error_out = nullptr;
+
+    const idx_t want = TaskScheduler::GetScheduler(context).NumberOfThreads() - 1;
+    const idx_t need = duckdb_copy_function_request_tasks(ffi_global, want);
+    for (idx_t i = 0; i < need; i++) {
+        global.executor->ScheduleTask(make_uniq<VortexFlushTask>(*global.executor, ffi_global));
+    }
     duckdb_copy_function_flush_batch(ffi_global, ffi_batch, &error_out);
+
     if (error_out) {
         throw ExecutorException(IntoErrString(error_out));
     }

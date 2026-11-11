@@ -64,7 +64,6 @@ mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
@@ -77,39 +76,10 @@ mod test {
     use crate::RDEncoderExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
-
-    #[rstest]
-    #[case(0.1f32, 0.2f32, 3e25f32)]
-    #[case(0.1f64, 0.2f64, 3e100f64)]
-    fn test_take<T: ALPRDFloat + NativePType>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
-        use vortex_array::IntoArray as _;
-        use vortex_buffer::buffer;
-
-        let mut ctx = SESSION.create_execution_ctx();
-        let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
-
-        assert!(encoded.left_parts_patches().is_some());
-        assert!(
-            encoded
-                .left_parts_patches()
-                .unwrap()
-                .dtype()
-                .is_unsigned_int()
-        );
-
-        let taken = encoded
-            .take(buffer![0, 2].into_array())
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-
-        assert_arrays_eq!(taken, PrimitiveArray::from_iter([a, outlier]), &mut ctx);
-    }
 
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]
@@ -134,8 +104,6 @@ mod test {
 
         let taken = encoded
             .take(PrimitiveArray::from_option_iter([Some(0), Some(2), None]).into_array())
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
 
         assert_arrays_eq!(

@@ -87,6 +87,18 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Release Vortex's cached file mappings that no open scan uses.
+ *
+ * Scans keep their files mapped so later scans of the same file reuse filled page tables.
+ * On Linux, both `posix_fadvise(POSIX_FADV_DONTNEED)` and `/proc/sys/vm/drop_caches`
+ * skip pages mapped into a process, although memory pressure can still reclaim them.
+ * Call this before using either to evict file pages, for example before a cold-cache
+ * measurement. Mappings still used by open streams stay mapped until those streams
+ * are released.
+ */
+void vx_cuda_release_file_mappings(void);
+
+/**
  * Create a CUDA Vortex session.
  *
  * Returns an owned handle with reusable CUDA state, or null and an optional `vx_error` on failure.
@@ -96,6 +108,22 @@ extern "C" {
  * If `error_out` is non-null, it must be valid for writing one error pointer.
  */
 vx_session *vx_cuda_session_new(vx_error **error_out);
+
+/**
+ * Borrow the session's existing CUDA memory pool as a `CUmemoryPool` / `cudaMemPool_t`.
+ *
+ * Hosts may allocate from this pool to share Vortex's reserve of device memory. Null means
+ * Vortex is using the device allocator fallback. Errors also return null and set `error_out`;
+ * a successful call clears `error_out`.
+ *
+ * # Safety
+ *
+ * `session` must be a live borrowed `vortex-ffi` handle. Keep it alive until all host allocations
+ * from the pool have been freed and their GPU work, including asynchronous frees, has completed.
+ * The returned pool is borrowed and must not be destroyed by the caller. Non-null `error_out`
+ * must be writable for one error pointer.
+ */
+void *vx_cuda_session_mem_pool(const vx_session *session, vx_error **error_out);
 
 /**
  * Open a Vortex file sink configured to produce CUDA-readable files.
@@ -116,8 +144,8 @@ vx_array_sink *vx_cuda_array_sink_open_file(const vx_session *session,
 /**
  * Open a CUDA-readable Vortex file sink with a fixed row block size.
  *
- * Zero `block_rows` uses default writer sizing. Nonzero values disable byte-size coalescing and
- * outer layout dictionaries, but retain per-block dictionary compression.
+ * Zero `block_rows` selects the GPU default of 8,388,608 rows. Blocks are not byte-size coalesced
+ * and have no outer layout dictionaries, but retain per-block dictionary compression.
  * Write sizing is independent of scan `batch_rows`; see `vx_cuda_scan_options`.
  *
  * # Safety

@@ -35,6 +35,21 @@ currently enables `core2026.08.3`. Calling `enable_edition` replaces the enabled
 same family. Set the selection before starting the write, because that is when the writer captures
 the permitted wire IDs.
 
+The Java and Python bindings select an edition by its name. In Java, enable the edition on the
+session before you open a writer:
+
+```java
+Session session = Session.create();
+session.enableEdition("core2025.10.0");
+```
+
+In Python, set the edition on the write options, or pass it to `write`:
+
+```python
+options = vortex.io.VortexWriteOptions.default().with_edition("core2025.10.0")
+vortex.io.write(array, "data.vortex", edition="core2025.10.0")
+```
+
 An edition declaration describes permitted formats, but registering it does not install the code to
 read or write those formats. When constructing a session without the defaults, register the required
 implementations and declarations, then enable the target editions. See
@@ -102,6 +117,8 @@ array and a layout can share the same ID string while describing different forma
   required optional module.
 - For a draft edition, obtain a build that implements the component from the producer. A draft does
   not promise support in a published release.
+- For an unstable format, obtain the matching implementation from the producer. The same ID in
+  another build may describe a different contract.
 - For a component absent from the registry, obtain its implementation from the producer and register
   it with the session.
 

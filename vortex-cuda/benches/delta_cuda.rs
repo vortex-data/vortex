@@ -14,18 +14,17 @@ mod timed_launch_strategy;
 
 use std::mem::size_of;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
-use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
 use mimalloc::MiMalloc;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
-use vortex::array::array_session;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
@@ -33,14 +32,19 @@ use vortex::dtype::NativePType;
 use vortex::encodings::fastlanes::Delta;
 use vortex::encodings::fastlanes::DeltaArray;
 use vortex::error::VortexExpect;
+use vortex::session::VortexSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
+use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
 use crate::bench_config::BENCH_SIZES;
 use crate::timed_launch_strategy::TimedLaunchStrategy;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_cuda::cuda_session);
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -56,7 +60,7 @@ where
         .collect();
     let primitive = PrimitiveArray::new(Buffer::from(data), Validity::NonNullable);
 
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     Delta::try_from_primitive_array(&primitive, &mut ctx).vortex_expect("failed to delta encode")
 }
 
@@ -70,6 +74,7 @@ where
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
         let delta = make_delta_array::<T>(len);
+        mark_optimized(delta.as_array(), &vortex_cuda::cuda_session()).unwrap();
 
         group.bench_with_input(
             BenchmarkId::new(format!("cuda/delta/{type_name}"), len_str),
@@ -112,7 +117,11 @@ criterion::criterion_group! {
 }
 
 #[cuda_available]
-criterion::criterion_main!(benches);
+fn main() {
+    LazyLock::force(&SESSION);
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}
 
 #[cuda_not_available]
 fn main() {}

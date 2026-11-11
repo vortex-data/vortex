@@ -16,6 +16,7 @@ use vortex_array::arrays::filter::filter_chunked;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
@@ -53,7 +54,7 @@ impl FilterKernel for BitPacked {
         let ptype = array.dtype().as_ptype();
         let validity = array.validity()?.filter(mask)?;
         let buffer = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |U| {
-            filter_values::<U>(array.data(), bit_width, values).into_byte_buffer()
+            filter_values::<U>(array.data(), bit_width, values, ctx.allocator()).into_byte_buffer()
         });
         let primitive = PrimitiveArray::from_byte_buffer(buffer, ptype, validity);
 
@@ -78,6 +79,7 @@ fn filter_values<T: NativePType + BitPacking>(
     array: &BitPackedData,
     bit_width: u8,
     mask: &MaskValues,
+    allocator: &BufferAllocatorRef,
 ) -> Buffer<T> {
     let bit_width = bit_width as usize;
     let chunks = PackedChunks {
@@ -85,7 +87,7 @@ fn filter_values<T: NativePType + BitPacking>(
         bit_width,
         packed_chunk_len: FL_CHUNK_SIZE * bit_width / (8 * size_of::<T>()),
     };
-    filter_chunked(&chunks, array.offset() as usize, mask)
+    filter_chunked(&chunks, array.offset() as usize, mask, allocator)
 }
 
 /// The packed FastLanes chunks of a bit-packed array.
@@ -148,9 +150,11 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::dtype::NativePType;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
+    use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
@@ -162,7 +166,7 @@ mod tests {
     use crate::bitpacking::array::BitPackedArrayExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -214,7 +218,13 @@ mod tests {
                 unreachable!("the indices select some but not all values")
             };
             assert_eq!(
-                filter_values::<T>(packed.data(), bit_width, &mask).as_slice(),
+                filter_values::<T>(
+                    packed.data(),
+                    bit_width,
+                    &mask,
+                    BufferAllocatorRef::static_ref()
+                )
+                .as_slice(),
                 expected
             );
         }
@@ -236,7 +246,8 @@ mod tests {
             unreachable!("the indices select some but not all values")
         };
         assert_eq!(
-            filter_values::<u32>(packed.data(), 0, &mask).as_slice(),
+            filter_values::<u32>(packed.data(), 0, &mask, BufferAllocatorRef::static_ref())
+                .as_slice(),
             &[0; 5]
         );
         Ok(())
@@ -283,9 +294,8 @@ mod tests {
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6, &mut ctx).unwrap();
         let filtered = bitpacked.filter(Mask::from_indices(4096, 0..1024)).unwrap();
-        let filtered_prim = filtered.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
-            filtered_prim,
+            filtered,
             PrimitiveArray::from_iter((0..1024).map(|i| (i % 63) as u8)),
             &mut ctx
         );
@@ -299,8 +309,6 @@ mod tests {
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 9, &mut ctx).unwrap();
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), 0..250))
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
 
         assert_arrays_eq!(
@@ -350,8 +358,6 @@ mod tests {
         // Filter to include some patched and some non-patched values.
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), vec![0, 2, 5, 9]))
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
 
         assert_arrays_eq!(
@@ -389,8 +395,6 @@ mod tests {
         let indices: Vec<usize> = (0..20).collect();
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), indices))
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
 
         let expected: Vec<i32> = values[0..20].to_vec();
@@ -504,7 +508,8 @@ mod tests {
             PrimitiveArray::from_iter((0..5000u32).map(|i| <T as From<u8>>::from((i % 100) as u8)));
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7, &mut ctx)?
             .into_array()
-            .slice(range.clone())?;
+            .slice(range.clone())?
+            .optimize_ctx(&SESSION)?;
         let bitpacked = bitpacked.as_::<BitPacked>();
 
         let bits = selection(pattern, range.len());
@@ -517,7 +522,8 @@ mod tests {
             unreachable!("patterns select some but not all values")
         };
         assert_eq!(
-            filter_values::<T>(bitpacked.data(), 7, &mask).as_slice(),
+            filter_values::<T>(bitpacked.data(), 7, &mask, BufferAllocatorRef::static_ref())
+                .as_slice(),
             expected
         );
         Ok(())

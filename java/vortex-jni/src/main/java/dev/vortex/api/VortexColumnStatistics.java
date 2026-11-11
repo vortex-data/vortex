@@ -6,7 +6,7 @@ package dev.vortex.api;
 import java.util.Optional;
 import java.util.OptionalLong;
 
-/** Statistics and physical size reported for one top-level column after a Vortex write. */
+/** Statistics and physical size of one top-level column of a Vortex file, as stored in the file footer. */
 public final class VortexColumnStatistics {
     private final int columnIndex;
     private final long compressedSize;
@@ -17,10 +17,11 @@ public final class VortexColumnStatistics {
     private final Object upperBound;
 
     /**
-     * Construct native write statistics.
+     * Construct native column statistics.
      *
      * <p>This constructor is public so the JNI implementation can instantiate the value without reflective access.
-     * Applications should obtain instances from {@link VortexWriteSummary#columnStatistics()}.
+     * Applications should obtain instances from {@link VortexWriteSummary#columnStatistics()} or
+     * {@link dev.vortex.jni.NativeFiles#readStatistics(Session, String, java.util.Map)}.
      */
     public VortexColumnStatistics(
             int columnIndex,

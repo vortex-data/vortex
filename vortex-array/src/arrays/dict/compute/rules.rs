@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayEq;
 use crate::ArrayRef;
@@ -15,36 +16,79 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
+use crate::arrays::Filter;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::Slice;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
+use crate::arrays::dict::compute::slice::slice_constant_code;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
-use crate::optimizer::ArrayOptimizer;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::optimizer::rules::ArrayReduceRule;
+use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeReduceAdaptor;
+use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&FilterReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&CastReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&LikeReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&DictionaryChunkedValuesPullUpRule),
-    ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
-    ParentRuleSet::lift(&DictionaryScalarFnCodesPullUpRule),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Dict)),
-]);
+pub(crate) const RULES: ReduceRuleSet<Dict> = ReduceRuleSet::new(&[&DictConstantCodesRule]);
+
+/// Keep only the referenced value when every code is the same.
+///
+/// Lazy codes, such as a filter or a slice of the codes, can reduce to a constant code only after
+/// the dictionary is built, so the filter and slice kernels cannot see it.
+#[derive(Debug)]
+struct DictConstantCodesRule;
+
+impl ArrayReduceRule<Dict> for DictConstantCodesRule {
+    fn reduce(&self, array: ArrayView<'_, Dict>) -> VortexResult<Option<ArrayRef>> {
+        let Some(code) = array.codes().as_opt::<Constant>() else {
+            return Ok(None);
+        };
+
+        // A single value is the reduced form, so stop here to reach a fixpoint.
+        if array.values().len() <= 1 {
+            return Ok(None);
+        }
+
+        slice_constant_code(array, code.scalar(), array.len())
+    }
+}
+
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Filter, Dict, const { &FilterReduceAdaptor(Dict) });
+    kernels.register_reduce_parent_rule(Cast, Dict, const { &CastReduceAdaptor(Dict) });
+    kernels.register_reduce_parent_rule(MaskFn, Dict, const { &MaskReduceAdaptor(Dict) });
+    kernels.register_reduce_parent_rule(Like, Dict, const { &LikeReduceAdaptor(Dict) });
+    kernels.register_reduce_parent_rule(
+        Chunked,
+        Dict,
+        const { &DictionaryChunkedValuesPullUpRule },
+    );
+    kernels.register_reduce_parent_rule(
+        AnyScalarFn,
+        Dict,
+        const { &DictionaryScalarFnValuesPushDownRule },
+    );
+    kernels.register_reduce_parent_rule(
+        AnyScalarFn,
+        Dict,
+        const { &DictionaryScalarFnCodesPullUpRule },
+    );
+    kernels.register_reduce_parent_rule(Slice, Dict, const { &SliceReduceAdaptor(Dict) });
+}
 
 /// Pull a common dictionary values array above chunked dictionary codes.
 ///
@@ -64,7 +108,6 @@ impl ArrayParentReduceRule<Dict> for DictionaryChunkedValuesPullUpRule {
     ) -> VortexResult<Option<ArrayRef>> {
         let values = array.values();
         let codes_dtype = array.codes().dtype().clone();
-        let mut code_chunks = Vec::with_capacity(parent.nchunks());
         let mut all_values_referenced = array.has_all_values_referenced();
 
         for chunk in parent.iter_chunks() {
@@ -78,9 +121,11 @@ impl ArrayParentReduceRule<Dict> for DictionaryChunkedValuesPullUpRule {
                 return Ok(None);
             }
             all_values_referenced |= dict.has_all_values_referenced();
-            code_chunks.push(dict.codes().clone());
         }
 
+        let code_chunks = parent
+            .iter_chunks()
+            .map(|chunk| chunk.as_::<Dict>().codes().clone());
         let codes = ChunkedArray::try_new(code_chunks, codes_dtype)?.into_array();
         let dict = DictArray::try_new(codes, values.clone())?;
         let dict = if all_values_referenced {
@@ -174,9 +219,8 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
             }
         }
 
-        let transformed_values = ScalarFnArray::try_new(scalar_fn.clone(), value_children)?
-            .into_array()
-            .optimize()?;
+        let transformed_values =
+            ScalarFnArray::try_new(scalar_fn.clone(), value_children)?.into_array();
 
         // A non-strict function reaches this point only when the codes are all valid, but their
         // dtype may still be nullable. Remove that declared nullability while rebuilding the
@@ -252,9 +296,8 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
             }
         }
 
-        let new_values = ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?
-            .into_array()
-            .optimize()?;
+        let new_values =
+            ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?.into_array();
 
         let new_dict =
             unsafe { DictArray::new_unchecked(array.codes().clone(), new_values) }.into_array();
@@ -265,12 +308,14 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
@@ -290,6 +335,8 @@ mod tests {
     use crate::scalar_fn::fns::not::Not;
     use crate::scalar_fn::fns::operators::Operator;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     #[allow(clippy::disallowed_methods)]
     fn chunked_dict_with_shared_values_pulls_values_up() -> VortexResult<()> {
@@ -300,13 +347,13 @@ mod tests {
         let array =
             ChunkedArray::try_new(vec![chunk0, chunk1], values.dtype().clone())?.into_array();
 
-        let optimized = array.optimize()?;
+        let optimized = array.optimize_ctx(&SESSION)?;
         let dict = optimized.as_::<Dict>();
         let codes = dict.codes().as_::<Chunked>();
 
         assert!(ArrayRef::ptr_eq(dict.values(), &values));
         assert_eq!(codes.nchunks(), 2);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             optimized,
             PrimitiveArray::from_iter([10u32, 20, 30, 10, 20]),
@@ -327,10 +374,10 @@ mod tests {
         let array =
             ChunkedArray::try_new(vec![chunk0, chunk1], values0.dtype().clone())?.into_array();
 
-        let optimized = array.optimize()?;
+        let optimized = array.optimize_ctx(&SESSION)?;
 
         assert!(optimized.is::<Chunked>());
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             optimized,
             PrimitiveArray::from_iter([10u32, 20, 30, 10, 20]),
@@ -351,10 +398,15 @@ mod tests {
         }
         .into_array();
 
-        let result = Not::try_new(dict)?.into_array().optimize()?;
+        let result = Not::try_new(dict)?.into_array().optimize_ctx(&SESSION)?;
         let result = result.as_::<Dict>();
 
         assert!(result.has_all_values_referenced());
+        assert_arrays_eq!(
+            result.array(),
+            BoolArray::from_iter([false, true, false, true]),
+            &mut SESSION.create_execution_ctx()
+        );
 
         Ok(())
     }
@@ -368,10 +420,10 @@ mod tests {
             ConstantArray::new(Scalar::bool(false, Nullability::NonNullable), 3).into_array();
         let expr = Binary::try_new(dict, const_false, Operator::And)?.into_array();
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Kleene AND: null AND false == false
-        let expected = BoolArray::from_iter([false, false, false]).into_array();
-        let optimized = expr.optimize()?;
+        let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
+        let optimized = expr.optimize_ctx(&SESSION)?;
         assert_arrays_eq!(optimized, expected, &mut ctx);
         Ok(())
     }
@@ -385,10 +437,10 @@ mod tests {
             ConstantArray::new(Scalar::bool(true, Nullability::NonNullable), 3).into_array();
         let expr = Binary::try_new(dict, const_true, Operator::Or)?.into_array();
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Kleene OR: null OR true == true
-        let expected = BoolArray::from_iter([true, true, true]).into_array();
-        let optimized = expr.optimize()?;
+        let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
+        let optimized = expr.optimize_ctx(&SESSION)?;
         assert_arrays_eq!(optimized, expected, &mut ctx);
         Ok(())
     }

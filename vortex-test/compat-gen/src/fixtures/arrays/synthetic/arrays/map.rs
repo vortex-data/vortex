@@ -38,7 +38,7 @@ impl FlatLayoutFixture for MapFixture {
         vec![Map.id()]
     }
 
-    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // map<i32, utf8?> with keys_sorted = false:
         //   [{1: "one", 2: null}, {}, {1: "dup-old", 1: "dup-new"}, {5: "five"}]
         //
@@ -74,6 +74,7 @@ impl FlatLayoutFixture for MapFixture {
                 PrimitiveArray::new(buffer![0u32, 2, 2, 4], Validity::NonNullable).into_array(),
                 PrimitiveArray::new(buffer![2u32, 0, 2, 1], Validity::NonNullable).into_array(),
                 Validity::NonNullable,
+                ctx,
             )?,
         )?;
 
@@ -113,6 +114,7 @@ impl FlatLayoutFixture for MapFixture {
                 PrimitiveArray::new(buffer![0u32, 2, 3, 3], Validity::NonNullable).into_array(),
                 PrimitiveArray::new(buffer![2u32, 1, 0, 3], Validity::NonNullable).into_array(),
                 Validity::NonNullable,
+                ctx,
             )?,
         )?;
 
@@ -142,6 +144,7 @@ impl FlatLayoutFixture for MapFixture {
                 PrimitiveArray::new(buffer![0u32, 0, 0, 1], Validity::NonNullable).into_array(),
                 PrimitiveArray::new(buffer![0u32, 0, 1, 1], Validity::NonNullable).into_array(),
                 Validity::from_iter([false, true, true, true]),
+                ctx,
             )?,
         )?;
 

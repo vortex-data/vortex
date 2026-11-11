@@ -78,26 +78,26 @@ mod tests {
     use crate::initialize;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         initialize(&session);
         session
     });
 
     static CANONICAL_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         session.arrays().register(Sparse);
         session
     });
 
     #[rstest]
     // fill below all patches
-    #[case(Sparse::try_new(buffer![1u64, 3, 5].into_array(), buffer![10i32, 20, 30].into_array(), 8, Scalar::from(1i32)).unwrap())]
+    #[case(Sparse::try_new(buffer![1u64, 3, 5].into_array(), buffer![10i32, 20, 30].into_array(), 8, Scalar::from(1i32), &mut SESSION.create_execution_ctx()).unwrap())]
     // fill above all patches
-    #[case(Sparse::try_new(buffer![1u64, 3, 5].into_array(), buffer![10i32, 20, 30].into_array(), 8, Scalar::from(99i32)).unwrap())]
+    #[case(Sparse::try_new(buffer![1u64, 3, 5].into_array(), buffer![10i32, 20, 30].into_array(), 8, Scalar::from(99i32), &mut SESSION.create_execution_ctx()).unwrap())]
     // fill in the middle
-    #[case(Sparse::try_new(buffer![1u64, 3, 5].into_array(), buffer![10i32, 20, 30].into_array(), 8, Scalar::from(15i32)).unwrap())]
+    #[case(Sparse::try_new(buffer![1u64, 3, 5].into_array(), buffer![10i32, 20, 30].into_array(), 8, Scalar::from(15i32), &mut SESSION.create_execution_ctx()).unwrap())]
     // every position patched (fill unreachable)
-    #[case(Sparse::try_new(buffer![0u64, 1, 2].into_array(), buffer![7i32, 3, 9].into_array(), 3, Scalar::from(99i32)).unwrap())]
+    #[case(Sparse::try_new(buffer![0u64, 1, 2].into_array(), buffer![7i32, 3, 9].into_array(), 3, Scalar::from(99i32), &mut SESSION.create_execution_ctx()).unwrap())]
     fn min_max_matches_canonical(#[case] array: SparseArray) {
         let arr = array.into_array();
         let kernel: Option<MinMaxResult> = min_max(

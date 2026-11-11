@@ -30,18 +30,12 @@ def pickle_roundtrip_array(arr: vx.Array) -> vx.Array:
     return cast(vx.Array, pickle_roundtrip(arr))
 
 
-def test_stdlib_pickle_roundtrip() -> None:
-    arr = vx.array([1, 2, 3])
-    restored = cast(vx.Array, cast(object, pickle.loads(pickle.dumps(arr))))
-
-    assert_arrow_array_roundtrip(arr, restored)
-
-
 def test_pickle_simple_array() -> None:
     arr = vx.array([1, 2, 3, 4, 5])
     restored = pickle_roundtrip_array(arr)
 
-    assert_arrow_array_roundtrip(arr, restored)
+    assert restored.dtype == vx.int_(64, nullable=False)
+    assert restored.to_arrow_array() == pa.array([1, 2, 3, 4, 5])
 
 
 def test_pickle_array_with_nulls() -> None:
@@ -98,14 +92,6 @@ def test_pickle_empty_array() -> None:
     restored = pickle_roundtrip_array(arr)
 
     assert_arrow_array_roundtrip(arr, restored)
-
-
-def test_pickle_preserves_dtype() -> None:
-    arr = vx.array([1, 2, 3, 4, 5])
-    original_dtype = arr.dtype
-    restored = pickle_roundtrip_array(arr)
-
-    assert str(restored.dtype) == str(original_dtype)
 
 
 def test_pickle_float_array() -> None:

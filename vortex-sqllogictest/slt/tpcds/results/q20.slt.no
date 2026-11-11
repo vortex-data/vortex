@@ -1,0 +1,132 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTTRRR
+SELECT i_item_id ,
+       i_item_desc,
+       i_category,
+       i_class,
+       i_current_price ,
+       sum(cs_ext_sales_price) AS itemrevenue,
+       sum(cs_ext_sales_price)*100.0000/sum(sum(cs_ext_sales_price)) OVER (PARTITION BY i_class) AS revenueratio
+FROM catalog_sales ,
+     item,
+     date_dim
+WHERE cs_item_sk = i_item_sk
+  AND i_category IN ('Sports',
+                     'Books',
+                     'Home')
+  AND cs_sold_date_sk = d_date_sk
+  AND d_date BETWEEN cast('1999-02-22' AS date) AND cast('1999-03-24' AS date)
+GROUP BY i_item_id ,
+         i_item_desc,
+         i_category ,
+         i_class ,
+         i_current_price
+ORDER BY i_category NULLS FIRST,
+         i_class NULLS FIRST,
+         i_item_id NULLS FIRST,
+         i_item_desc NULLS FIRST,
+         revenueratio NULLS FIRST
+LIMIT 100;
+----
+AAAAAAAACKEAAAAA Legs appear eventually soci Books arts 35.27 13377.26 50.992207419933
+AAAAAAAAKGBAAAAA Light moments cannot date following sy Books arts 5.6 8033.76 30.623547444092
+AAAAAAAAMFFAAAAA Communities used to relocate clearly strange, new walls; european, rich championships make current depths. Sure studies may reflect only instinctively old forces. Foreign, diverse Books arts 8.22 4382.81 16.706646697616
+AAAAAAAANIBAAAAA Beneath decent wives write t Books arts 2.72 440.1 1.677598438358
+AAAAAAAAADFAAAAA Satisfactory, technical shadows get. Lexical structures would not blame. Only hard  Books business 78.25 12599.78 31.651909334286
+AAAAAAAAEICAAAAA Cases include proudly without a columns. Solid, pre Books business 2.42 477.8 1.200281455702
+AAAAAAAAIKEAAAAA All  Books business 9.44 629.98 1.582572857813
+AAAAAAAAKMAAAAAA Plans consult interested, light boys. Selective, other problems create scientific, young parties. Sufficient speakers might not kiss too social, basic interests. Dual, other times s Books business 0.19 12117.83 30.441202662927
+AAAAAAAALDFAAAAA Hands may not allow only in a lands; linear, other pubs say; social, precise women identify for a patients. Preferences develop alone now rich motives. Ever good tas Books business 3.68 8010.1 20.122173479105
+AAAAAAAAMKHAAAAA Unions shall see enough over true attitudes; of course full variable Books business 8.9 5971.84 15.001860210167
+AAAAAAAAEMHAAAAA Boots recommend usually just local centres; c Books computers 7.56 16570.95 30.144971353914
+AAAAAAAAFEEAAAAA Capital, united feelings paint only things. Greatly financial economies should not pay somewhere soviet necessary armies; educational concepts mus Books computers 3.83 9347.25 17.00400903315
+AAAAAAAAMJEAAAAA Local pro Books computers 1.04 6317.6 11.49263446124
+AAAAAAAAOGFAAAAA Real kids give rather lips. Pure, hungry sides might not resolve both impressive attacks; over large friends refuse. Guilty, sp Books computers 99.41 391.44 0.712086367213
+AAAAAAAAOMDAAAAA Together hot rights  Books computers 4.99 22343.62 40.646298784483
+AAAAAAAAGOCAAAAA Historical, economic lights shall stand much big, odd proposals. Rather grateful branches ought to take. Northern, high miles must ask increasingly. Once chronic Books cooking 4.37 8743.62 61.919795366861
+AAAAAAAAJHGAAAAA Recent tools should spee Books cooking 20.16 5339.52 37.812940836548
+AAAAAAAALIGAAAAA There superb accidents may strike individual results. Quiet, only forests drop as little unlikely towns. Observations can discern with a points. Substantial banks dest Books cooking 0.88 37.74 0.267263796591
+AAAAAAAAKDEAAAAA Yet national bodies could answer on behalf of a hours. Features use later workers. Fortunes placa Books entertainments 6.46 6766.28 56.880861970841
+AAAAAAAAMKDAAAAA Too big interests ought to go annually old real classes; little edges entail still electoral matters. Sure bonds make wonderful, central provisions. Internation Books entertainments 1.52 2493.16 20.958797127997
+AAAAAAAAOOEAAAAA Companies reveal national reforms; kinds initiate in a languages. Positive miles ought to hesitate thick priorities. Large, cons Books entertainments 1.45 2636.09 22.160340901162
+AAAAAAAABGAAAAAA Quite different services promote all the same. Private, marginal colleagues play of course similar, different girls. French, local girls reap here. Bad movies shorten relatively. Terms Books fiction 57.09 487.96 3.792852840015
+AAAAAAAACEFAAAAA Important years participate indeed. Hands make so. Great, environmental lives ought to exist so national, free Books fiction 4.25 1441.02 11.200870562173
+AAAAAAAAMLAAAAAA Central, principal men a Books fiction 0.47 101.2 0.786615106586
+AAAAAAAANDDAAAAA Plants should manage slowly on a managers. Trials could stop never also obvious awards; true, attractive controls determine psychiatric, bad relations. Keys follow. Positions coul Books fiction 2.73 530.1 4.120401857717
+AAAAAAAAOCGAAAAA Well different problems must not disrupt Books fiction 8.69 7947.21 61.772682225375
+AAAAAAAAOHHAAAAA Private children used to stop really national, mate Books fiction 2.82 530.64 4.124599211053
+AAAAAAAAPMBAAAAA Exactly financial games may find effective, delight Books fiction 8.79 1827.12 14.201978197081
+AAAAAAAAAJFAAAAA Normal cases call into a rates. Easy royal police cannot assert long records. Young, scottish exceptions kill more ce Books history 2.5 5597.24 13.435461183576
+AAAAAAAAAMEAAAAA Very, true women eat. Left institutions may agree towards the kids; national, other terms open there then different prices; others settle however. Apparently normal  Books history 9.64 1385.64 3.326052203302
+AAAAAAAACIBAAAAA Surely specific clubs must remember necessary, big duties. There final words learn practically standard lands. Private, clear companies must see Books history 4.94 3225.38 7.742113576027
+AAAAAAAAIIHAAAAA Expensive services ensur Books history 2.88 13613.86 32.678335677697
+AAAAAAAAJGEAAAAA Fully powerful qualities pinpoint thus movements. Domestic officers continue in a cases. Teachers shall introduce indeed other, good Books history 0.65 17240.77 41.384270838834
+AAAAAAAALAFAAAAA New plants bring however on a years. Economic, british needs go of course. Children shall not benefit. Dangerous, whole patients ought to let. Camps shall not seek merely modest hearts. Hands like Books history 5.91 597.31 1.433766520564
+AAAAAAAAEIBAAAAA Then human details Books home repair 0.82 507.45 2.217382584032
+AAAAAAAAFDFAAAAA All right used men must demand. Visual companies take entirely inhabitants; forward common hands hear here local customers. So traditional questions shal Books home repair 7.18 8946.48 39.093051414698
+AAAAAAAAGBEAAAAA Later wonderful authorities must get famous terms. Articles shall vary to a shoulders. Exhibitions replace far good councillors. Feet can increase rarely later high sales. Open c Books home repair 2.1 6517.65 28.479896736259
+AAAAAAAAMBGAAAAA Regulatory, financial words would obtain yet at a relatives. Also main lines should bel Books home repair 3.33 6913.51 30.209669265011
+AAAAAAAAADCAAAAA Nice knees help be Books mystery 1.55 10222.92 23.332014910879
+AAAAAAAACECAAAAA Human, possible rumours buy then both following sides; continuous hands use again in the writers; distinctive others increase afterwards wild s Books mystery 4.92 8505.02 19.411210638186
+AAAAAAAACLBAAAAA Common, logical babies must take somehow general months. Costs drag. Big, british areas give dramatic, effective clot Books mystery 3 2511.75 5.732627121449
+AAAAAAAAIGAAAAAA Rapidly difficult films realize. Deep electronic parents calculate remaining affairs Books mystery 2.33 15919.83 36.334208908869
+AAAAAAAAMABAAAAA Small designs may not guide sure single things Books mystery 3.73 2405.76 5.490723608518
+AAAAAAAAOFBAAAAA Real, correct drinks deny carefully. Good subjects shall not contribute home highly mediterranean ideas; whole workers should affect by a dishes. Eyes can believe productive, total eyes. Databa Books mystery 3.1 4249.71 9.6992148121
+AAAAAAAAGFCAAAAA Departmen Books parenting 2.09 9507.08 18.8668888391
+AAAAAAAAIHFAAAAA Significantly small suggestions will not come more new blue terms. Fundamentally previous soldiers understand alone huge contracts. Religious, professional miles must ap Books parenting 4.64 19006.57 37.718715252482
+AAAAAAAAJDHAAAAA Continued ideas reflect only still other prices. Actually historical weeks help low, appropriate companies; recent provisions widen du Books parenting 2.16 11182.32 22.191418227599
+AAAAAAAAKHAAAAAA Generally french beds will ask amounts. Difficult, difficult workers would come once again in a resources. So inc Books parenting 2.62 9855.88 19.559085688929
+AAAAAAAAPMHAAAAA Right social years would fit indirectly creatures. Very suspicious words should not write particular, typical views. Rarely evident hours wish more lucky others. So racial loans imitate a Books parenting 6.39 838.44 1.66389199189
+AAAAAAAAAODAAAAA Secondary, economic pupils loo Books reference 3.68 1027.42 2.974764504807
+AAAAAAAABLHAAAAA Perhaps old sources disappear. Small, bright enterprises used to take by a systems. Local proteins could not try then. Blank, special colleges appear. Books reference 7.38 1095.15 3.17086814296
+AAAAAAAACLGAAAAA Rather suitable weapons could prosecute ago labour, large users. Affairs use normally at the unions; emotions can say; armed, Books reference 2.23 2866.2 8.29871914473
+AAAAAAAAEPBAAAAA Potential materials form Books reference 6.28 11507.76 33.319261818769
+AAAAAAAAHFBAAAAA Old places avoid certain, typical hands; here original arms see in a ideas. Good Books reference 38.26 13235.7 38.322293274685
+AAAAAAAAHMGAAAAA Words bear international, expected countries. Apparent, misleading years get ever rich grounds. Over atomic feet could forgive ultimate, educational bishops; current, vas Books reference 4.95 604.38 1.749905755597
+AAAAAAAALIDAAAAA Largely substantial contracts facilitate. Yet full values can advise extremely plants. Men classify empty contacts. Private, common events can want more just central patients. Enti Books reference 1.55 184.72 0.534833368367
+AAAAAAAANJAAAAAA Young, white workers may not wreck british, statistical explanations. New complaints leave no longer only wide doors; shops beat new restrictions. Horses must not test by now anonym Books reference 2.21 4016.53 11.629353990085
+AAAAAAAABOBAAAAA Old, revolutionary eyes may not serve fully by Books romance 2.38 1958.22 6.507593055935
+AAAAAAAAFCDAAAAA Live, late activities feel principles. In Books romance 4.5 350.66 1.16531982157
+AAAAAAAAMOAAAAAA Sympathetically scottish things should take regularly on a programmes. Suitable, high stars could find above in a gains; wrong orders see for the speakers. English, grand groups shall not m Books romance 0.75 2027.7 6.738490281746
+AAAAAAAAMPEAAAAA Relations marry in a attacks. Prime books ma Books romance 2.81 7686.35 25.543421007593
+AAAAAAAANPDAAAAA Years teach then at once right heads. Agencies will say by a suppliers. Most permanent blacks should not promote as other, legal eyes. Courses get so double, light flowers. Eastern, british times c Books romance 2.9 4270.41 14.191505786887
+AAAAAAAAOFHAAAAA Simple, ideal images ought to stand accid Books romance 7.19 13797.97 45.853670046269
+AAAAAAAACDFAAAAA Asleep, philos Books science 4.18 3643.15 9.856188893401
+AAAAAAAACPCAAAAA Only, s Books science 0.31 808.04 2.186073829906
+AAAAAAAADAHAAAAA Forces require more new examples. Also narrow students take files. Native, important objectives ought to release still legs. Difficulties might say mainly. Years Books science 2.33 7542.2 20.404690411267
+AAAAAAAADPEAAAAA Catholic years st Books science 0.45 11671.66 31.576543831451
+AAAAAAAAMAEAAAAA Civil sites overlap conditions. More high interests send. Real, human cases provide straight enquiries. Months collect again just specifi Books science 7.92 13298.02 35.976503033974
+AAAAAAAAEMGAAAAA Decent times will exist increasingly. Hospitals stand medical tears; families cover years. Foreign firms would Books self-help 27.81 11528.61 38.936207507387
+AAAAAAAAKGEAAAAA There possible efforts might bring yet brief, kind days. Oddly white dangers could like maximum things. Hours might  Books self-help 9.23 5590.56 18.881305226085
+AAAAAAAAMPBAAAAA Able, strong pictures understand especially. Similar years feed sometimes close, bri Books self-help 2.94 12489.8 42.182487266528
+AAAAAAAAAHDAAAAA New others keep roughly polite engines. Male questions decide in the papers. Both other users may see today young, past decision Books travel 4.02 7795.22 26.960383016856
+AAAAAAAADJEAAAAA Specific, temporary goals take. Ideas might reduce economic authorities. Fundamentally external prayers matter really Books travel 84.79 1805.65 6.244982899057
+AAAAAAAAKPAAAAAA Effects ought Books travel 4.16 8336.47 28.832338818985
+AAAAAAAALCAAAAAA Thus present women should hear for a shares; leaders must come early; immediate men will want exactly young groups. Insects may ask narrow variations. New leaders should deal  Books travel 6.08 4191.36 14.49614904538
+AAAAAAAALFGAAAAA Bc able groups shall vote  Books travel 3.95 98.7 0.341361732416
+AAAAAAAAPCCAAAAA Tall relationships may not determine upon a relations. Again popular children would base cold, old boundaries; Books travel 3.3 6686.21 23.124784487305
+AAAAAAAAABDAAAAA Goods mean so correct, legal systems. Just alternative banks tend then more concrete edges. Close, united chapters get only rus Home accent 1.06 5353.22 20.945772516269
+AAAAAAAACFHAAAAA Asleep, regular month Home accent 0.91 450.38 1.762221060572
+AAAAAAAAEAGAAAAA Dynamic, available memories may go abstract years; presumably high members stay faster industries. Offices give thus. Carers ought to pay well fields. Obvious Home accent 9.45 3323.94 13.005721994935
+AAAAAAAAGHBAAAAA Doubts could not think. Acres shall live tired ways. Obvious interests pay seldom severe images. Quick officials should no Home accent 8.82 11692.18 45.748492028961
+AAAAAAAAGPFAAAAA Small, bare solicitors may take for  Home accent 3.2 455.65 1.782841214641
+AAAAAAAAOLDAAAAA Sales know in a meanings. International, professional figures may get in a statement Home accent 0.48 4282.15 16.754951184622
+AAAAAAAAAOGAAAAA Foreign, good things must get eyes. Low, thin members must rest. International looks allow. Senses should not touch. Limited, single backs would not walk opportunities; high Home bedding 3.51 5759.22 28.503835918411
+AAAAAAAAHHCAAAAA Old, cultural workers ought to take both now everyday budgets. Nearer interesting hours could not assure very centuries Home bedding 1.65 14258.6 70.56941648804
+AAAAAAAAMPFAAAAA Clear artists stay so that is limited causes; innocent, unusual claims make to a horses. Concerns will see almost in a centres. Seriously great maste Home bedding 79.19 187.25 0.92674759355
+AAAAAAAACAFAAAAA Catholic, favorite interests may decide agents. Extraordinary office Home blinds/shades 29.09 556.35 1.61368869774
+AAAAAAAAEJGAAAAA Careful houses put right odds. Open, unchanged examples must light well things. Once great days enter even weakly medium routes. Old-fashioned, economic implications try. Ever left courts decide dev Home blinds/shades 5.49 6876.04 19.943898684656
+AAAAAAAAGHDAAAAA In common academic pupils know highly joint sites. Twin, safe methods introduce most possible others; times fall most effects. Highest parliamentary performances used  Home blinds/shades 6.97 11803.58 34.236188799982
+AAAAAAAAIJFAAAAA Nice things would coincide still satisfactory students. Now oth Home blinds/shades 1.08 8054.91 23.363201632629
+AAAAAAAAPOCAAAAA Bishops could confirm; rates rot very pp.. Prisoners will want old countries. Too po Home blinds/shades 3.71 7186.03 20.843022184993
+AAAAAAAAACAAAAAA Different numbers might not visit; rights used to remember. Labour students must put as slowly possible children. Never Home curtains/drapes 1.77 11548.12 18.664584512855
+AAAAAAAAAGEAAAAA Foreign conditions could not think scientists. Big, applicable jobs could not perform social, high profits. Even young orde Home curtains/drapes 7.02 2163 3.495936680716
+AAAAAAAAAIAAAAAA Wrong limits could not accompany now perhaps lonely customers. Anxious, neighbouring principles might arise molecules. Useful, short nerves think advantages. Angry, parental prices fly t Home curtains/drapes 4.06 10201.31 16.487810365396
+AAAAAAAACMFAAAAA However remote members talk indeed no longer local costs. Irish plans shou Home curtains/drapes 42.98 426.3 0.689004996296
+AAAAAAAAIAGAAAAA Social wor Home curtains/drapes 0.79 4520.88 7.306847074024
+AAAAAAAAINFAAAAA Much trying boys play really seconds. Clear cases cannot stop only so social types. Areas see  Home curtains/drapes 5.48 8049.92 13.010638282398
+AAAAAAAAMMBAAAAA Boys might not work yet then fast clothes. Simply large elements think in a factors. Royal charges happen at least on a children. Holy prospects think individu Home curtains/drapes 8.88 4623.16 7.472156553314
+AAAAAAAAOPFAAAAA Enough labour days watch to a shops. Residents sharpen now scottish, complete expressions; time and again painful others shall not reduce for a enemies. Images visit bef Home curtains/drapes 4.92 20339.14 32.873021535002
+AAAAAAAABJGAAAAA Radical degrees may hear just. Christian terms disguise quickly rows. Bad, semantic companies want. Clear, perfect dogs please years. Cells sho Home decor 2.87 5849.2 11.38591581757
