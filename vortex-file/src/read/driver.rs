@@ -36,6 +36,8 @@ pin_project! {
         coalesce_window: Option<CoalesceConfig>,
         // Maximum physical reads returned by one stream item.
         batch_size: usize,
+        // EXPERIMENT: free read slots the driver reports before each poll, when adaptive.
+        free_slots: Option<std::sync::Arc<std::sync::atomic::AtomicUsize>>,
         state: State,
     }
 }
@@ -59,8 +61,18 @@ impl<S> IoRequestStream<S> {
             inner_done: false,
             coalesce_window,
             batch_size,
+            free_slots: None,
             state: State::new(metrics, coalesced_buffer_alignment),
         }
+    }
+
+    /// EXPERIMENT: emit only as many reads as `free_slots` allows, coalescing only under backlog.
+    pub(crate) fn with_free_slots(
+        mut self,
+        free_slots: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    ) -> Self {
+        self.free_slots = Some(free_slots);
+        self
     }
 }
 
@@ -92,11 +104,31 @@ where
 
         // Emit a partial batch immediately so the downstream driver can fill free I/O slots.
         let mut batch = Vec::with_capacity(*this.batch_size);
-        while batch.len() < *this.batch_size {
-            let Some(request) = this.state.next(this.coalesce_window.as_ref()) else {
-                break;
-            };
-            batch.push(request);
+        if let Some(free_slots) = this.free_slots.as_ref() {
+            // EXPERIMENT: fill only the free slots, and merge a read with its neighbours only
+            // while more polled requests wait than slots remain.
+            let budget =
+                (*this.batch_size).min(free_slots.load(std::sync::atomic::Ordering::Relaxed));
+            while batch.len() < budget {
+                let remaining = budget - batch.len();
+                let window = if this.state.polled_requests.len() > remaining {
+                    this.coalesce_window.as_ref()
+                } else {
+                    None
+                };
+                let Some(request) = this.state.next(window) else {
+                    break;
+                };
+                batch.push(request);
+            }
+            free_slots.fetch_sub(batch.len(), std::sync::atomic::Ordering::Relaxed);
+        } else {
+            while batch.len() < *this.batch_size {
+                let Some(request) = this.state.next(this.coalesce_window.as_ref()) else {
+                    break;
+                };
+                batch.push(request);
+            }
         }
         if !batch.is_empty() {
             return Poll::Ready(Some(batch));

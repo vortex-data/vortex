@@ -181,6 +181,8 @@ struct ReadDriver<R> {
     pending: VecDeque<IoRequest>,
     // EXPERIMENT: when each pending read was queued.
     queued: VecDeque<std::time::Instant>,
+    // EXPERIMENT: free slots reported to the request stream before it is polled.
+    free_slots: Option<Arc<AtomicUsize>>,
     reads: SelectAll<ReadRangeResults>,
     num_active: usize,
     batches_done: bool,
@@ -200,6 +202,7 @@ impl<R: VortexReadAt> ReadDriver<R> {
             batches: batches.fuse(),
             pending: VecDeque::new(),
             queued: VecDeque::new(),
+            free_slots: None,
             reads: SelectAll::new(),
             num_active: 0,
             batches_done: false,
@@ -258,6 +261,13 @@ impl<R: VortexReadAt> Stream for ReadDriver<R> {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.as_mut().get_mut();
 
+        if let Some(free) = &this.free_slots {
+            free.store(
+                this.concurrency
+                    .saturating_sub(this.num_active + this.pending.len()),
+                Ordering::Relaxed,
+            );
+        }
         // Observe every batch already available so submission can fill all free slots at once.
         if !this.batches_done {
             loop {
@@ -349,10 +359,19 @@ impl FileSegmentSource {
             max_alignment,
             concurrency,
             metrics.clone(),
-        )
-        .boxed();
+        );
+        // EXPERIMENT: `adapt` lets the driver report its free slots to the request stream.
+        let free_slots = vortex_io::xp::knobs()
+            .adapt
+            .then(|| Arc::new(AtomicUsize::new(concurrency)));
+        let stream = match &free_slots {
+            Some(free) => stream.with_free_slots(Arc::clone(free)).boxed(),
+            None => stream.boxed(),
+        };
 
-        let drive_fut = ReadDriver::new(reader, stream, concurrency, metrics).collect::<()>();
+        let mut driver = ReadDriver::new(reader, stream, concurrency, metrics);
+        driver.free_slots = free_slots;
+        let drive_fut = driver.collect::<()>();
 
         // Spawn the driver so the runtime makes I/O progress independently of any reader. Readers
         // join it (below) only to surface a panic raised while driving reads.

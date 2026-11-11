@@ -27,6 +27,9 @@ pub struct Knobs {
     pub batch: Option<usize>,
     /// Cap the chunks a scan runs at once.
     pub inflight: Option<usize>,
+    /// Hand the read driver only as many reads as it has free slots, and coalesce a read only
+    /// when more requests wait than there are slots left.
+    pub adapt: bool,
 }
 
 pub fn knobs() -> &'static Knobs {
@@ -41,6 +44,8 @@ pub fn knobs() -> &'static Knobs {
             let num = |p: &str| p.parse::<u64>().ok();
             if part == "dev" {
                 k.dev = true;
+            } else if part == "adapt" {
+                k.adapt = true;
             } else if let Some(n) = part.strip_prefix("conc").and_then(num) {
                 k.conc = Some(n as usize);
             } else if part == "nocoal" {
