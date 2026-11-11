@@ -100,6 +100,22 @@ impl DecimalDType {
         self.scale
     }
 
+    /// The width of the values buffer of a canonical decimal array with this precision.
+    ///
+    /// This is the narrowest [`DecimalType`] that holds every unscaled value of the precision, so
+    /// each decimal dtype has exactly one canonical values type. The precision is always between 1
+    /// and [`MAX_PRECISION`], so the last arm covers precision 39 to 76.
+    pub const fn canonical_values_type(&self) -> DecimalType {
+        match self.precision.get() {
+            1..=2 => DecimalType::I8,
+            3..=4 => DecimalType::I16,
+            5..=9 => DecimalType::I32,
+            10..=18 => DecimalType::I64,
+            19..=38 => DecimalType::I128,
+            _ => DecimalType::I256,
+        }
+    }
+
     /// Return the max number of bits required to fit a decimal with `precision` in.
     pub fn required_bit_width(&self) -> usize {
         (self.precision.get() as f32 * 10.0f32.log(2.0))
@@ -137,6 +153,8 @@ impl TryFrom<DType> for DecimalDType {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -278,6 +296,28 @@ mod tests {
         let decimal_max = DecimalDType::new(MAX_PRECISION, 0);
         let bits = decimal_max.required_bit_width();
         assert_eq!(bits, 253);
+    }
+
+    #[rstest]
+    #[case::p1(1, DecimalType::I8)]
+    #[case::p2(2, DecimalType::I8)]
+    #[case::p3(3, DecimalType::I16)]
+    #[case::p4(4, DecimalType::I16)]
+    #[case::p5(5, DecimalType::I32)]
+    #[case::p9(9, DecimalType::I32)]
+    #[case::p10(10, DecimalType::I64)]
+    #[case::p18(18, DecimalType::I64)]
+    #[case::p19(19, DecimalType::I128)]
+    #[case::p38(38, DecimalType::I128)]
+    #[case::p39(39, DecimalType::I256)]
+    #[case::p76(76, DecimalType::I256)]
+    fn test_values_type_boundaries(
+        #[case] precision: u8,
+        #[case] expected: DecimalType,
+    ) -> VortexResult<()> {
+        let decimal = DecimalDType::try_new(precision, 0)?;
+        assert_eq!(decimal.canonical_values_type(), expected);
+        Ok(())
     }
 
     #[test]

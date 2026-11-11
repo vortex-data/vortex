@@ -6,7 +6,6 @@
 //! Uses an adaptive strategy that pre-fills the buffer with the majority value
 //! (0s or 1s) and only fills the minority runs, minimizing work for skewed distributions.
 
-use itertools::Itertools;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
@@ -19,7 +18,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolArrayExt;
-use crate::arrays::runend::iter::trimmed_ends_iter;
+use crate::arrays::runend::iter::slice_relative_ends;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::match_each_unsigned_integer_ptype;
@@ -31,6 +30,10 @@ use crate::validity::Validity;
 const PREFILL_RUN_THRESHOLD: usize = 32;
 
 /// Decodes run-end encoded boolean values into a flat `BoolArray`.
+///
+/// # Panics
+///
+/// Panics if `ends` and `values` have different lengths.
 pub fn runend_decode_bools(
     ends: PrimitiveArray,
     values: BoolArray,
@@ -38,6 +41,16 @@ pub fn runend_decode_bools(
     length: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
+    // NB: The decode loops pair run ends with values through `zip`, which stops at the shorter
+    // input, so this check must stay. Do not switch the loops to `itertools::zip_eq`: `ZipEq::next`
+    // has no `#[inline]`, so rustc can place it in another codegen unit, and the loop then calls it
+    // out of line once per run.
+    assert_eq!(
+        ends.len(),
+        values.len(),
+        "run ends and values must have the same length"
+    );
+
     let validity = values
         .as_ref()
         .validity()?
@@ -61,7 +74,7 @@ pub fn runend_decode_bools(
 
     Ok(match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
         runend_decode_typed_bool(
-            trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
+            slice_relative_ends(ends.as_slice::<E>(), offset, length),
             &values_buf,
             validity,
             nullability,
@@ -99,7 +112,7 @@ pub fn runend_decode_typed_bool(
 }
 
 /// Fast path for few runs with no offset. Uses direct slice access to minimize overhead.
-/// This avoids the `trimmed_ends_iter` iterator chain which adds significant overhead
+/// This avoids the `slice_relative_ends` iterator chain which adds significant overhead
 /// for small numbers of runs.
 #[allow(clippy::inline_always)]
 #[inline(always)]
@@ -171,7 +184,7 @@ fn decode_bool_non_nullable(
     let mut decoded = BitBufferMut::full(prefill, length);
     let mut current_pos = 0usize;
 
-    for (end, value) in run_ends.zip_eq(values.iter()) {
+    for (end, value) in run_ends.zip(values.iter()) {
         if end > current_pos && value != prefill {
             // SAFETY: current_pos < end <= length == decoded.len()
             unsafe { decoded.fill_range_unchecked(current_pos, end, value) };
@@ -203,7 +216,7 @@ fn decode_bool_nullable(
     let mut decoded_validity = BitBufferMut::full(prefill_valid, length);
     let mut current_pos = 0usize;
 
-    for (end, (value, is_valid)) in run_ends.zip_eq(values.iter().zip(validity_mask.iter())) {
+    for (end, (value, is_valid)) in run_ends.zip(values.iter().zip(validity_mask.iter())) {
         if end > current_pos {
             // SAFETY: current_pos < end <= length == decoded.len() == decoded_validity.len()
             if is_valid != prefill_valid {

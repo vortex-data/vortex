@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import decimal
+
 import pyarrow as pa
 import pytest
 
@@ -24,6 +26,14 @@ def test_chunked_array_with_nulls_round_trip() -> None:
     arr = vortex.array(a)
     assert isinstance(arr, vortex.ChunkedArray)
     assert arr.to_arrow_array() == a
+
+
+def test_decimal_array() -> None:
+    a = pa.array([decimal.Decimal("1.23"), None], type=pa.decimal128(10, 2))
+    arr = vortex.array(a)
+    assert isinstance(arr, vortex.DecimalArray)
+    assert arr.precision == 10
+    assert arr.scale == 2
 
 
 def test_varbin_array_round_trip() -> None:

@@ -101,12 +101,13 @@ impl ExtVTable for Time {
         let ptype = time_ptype(metadata)
             .ok_or_else(|| vortex_err!("Time type does not support time unit {}", metadata))?;
 
-        vortex_ensure_eq!(
-            ext_dtype.storage_dtype().as_ptype(),
-            ptype,
-            "Time storage dtype for {} has the wrong ptype",
-            metadata
-        );
+        let DType::Primitive(storage_ptype, _) = ext_dtype.storage_dtype() else {
+            vortex_bail!(
+                "Time storage dtype must be primitive, got {}",
+                ext_dtype.storage_dtype()
+            );
+        };
+        vortex_ensure_eq!(*storage_ptype, ptype);
 
         Ok(())
     }
@@ -121,19 +122,19 @@ impl ExtVTable for Time {
             TimeUnit::Seconds => {
                 let v = i32::try_from(length_of_time)
                     .map_err(|e| vortex_err!("Time seconds value out of i32 range: {e}"))?;
-                (Span::new().seconds(v), TimeValue::Seconds(v))
+                (Span::new().try_seconds(v)?, TimeValue::Seconds(v))
             }
             TimeUnit::Milliseconds => {
                 let v = i32::try_from(length_of_time)
                     .map_err(|e| vortex_err!("Time milliseconds value out of i32 range: {e}"))?;
-                (Span::new().milliseconds(v), TimeValue::Milliseconds(v))
+                (Span::new().try_milliseconds(v)?, TimeValue::Milliseconds(v))
             }
             TimeUnit::Microseconds => (
-                Span::new().microseconds(length_of_time),
+                Span::new().try_microseconds(length_of_time)?,
                 TimeValue::Microseconds(length_of_time),
             ),
             TimeUnit::Nanoseconds => (
-                Span::new().nanoseconds(length_of_time),
+                Span::new().try_nanoseconds(length_of_time)?,
                 TimeValue::Nanoseconds(length_of_time),
             ),
             d @ TimeUnit::Days => {
@@ -152,15 +153,30 @@ impl ExtVTable for Time {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_error::VortexResult;
 
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
+    use crate::dtype::extension::ExtDType;
     use crate::extension::datetime::Time;
     use crate::extension::datetime::TimeUnit;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+
+    #[rstest]
+    #[case::microseconds(TimeUnit::Microseconds, i64::MAX)]
+    #[case::nanoseconds(TimeUnit::Nanoseconds, i64::MIN)]
+    fn test_reject_time_span_out_of_range(#[case] unit: TimeUnit, #[case] value: i64) {
+        let dtype = DType::Extension(Time::new(unit, Nullable).erased());
+        assert!(Scalar::try_new(dtype, Some(ScalarValue::from(value))).is_err());
+    }
+
+    #[test]
+    fn test_reject_non_primitive_storage() {
+        assert!(ExtDType::<Time>::try_new(TimeUnit::Seconds, DType::Utf8(Nullable),).is_err());
+    }
 
     #[test]
     fn validate_time_scalar() -> VortexResult<()> {

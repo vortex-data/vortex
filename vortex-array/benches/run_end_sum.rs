@@ -16,9 +16,10 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::runend::RunEnd;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
-const LEN: usize = 2_048;
+const LEN: usize = 65_536;
 const RUN_LENGTH: usize = 64;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -55,6 +56,8 @@ fn runend_with_null_runs() -> ArrayRef {
 #[divan::bench]
 fn whole_array_sum_partially_valid(bencher: Bencher) {
     let array = runend_with_null_runs();
+    mark_optimized(&array, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| sum_v2(&array, ctx).unwrap());

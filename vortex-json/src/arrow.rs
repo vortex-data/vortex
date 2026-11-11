@@ -15,14 +15,13 @@ use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
-use vortex_array::dtype::extension::ExtVTable;
 use vortex_arrow::ArrowExport;
 use vortex_arrow::ArrowExportOptions;
-use vortex_arrow::ArrowExportVTable;
+use vortex_arrow::ArrowExtVTable;
 use vortex_arrow::ArrowImport;
-use vortex_arrow::ArrowImportVTable;
+use vortex_arrow::ArrowMetadataPolicy;
 use vortex_arrow::ArrowSession;
-use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::registry::CachedId;
@@ -39,28 +38,21 @@ fn has_valid_json_extension(field: &Field) -> bool {
         && ArrowJson::try_new_from_field_metadata(field.data_type(), field.metadata()).is_ok()
 }
 
-impl ArrowExportVTable for Json {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_JSON
+impl ArrowExtVTable for Json {
+    fn metadata_policy() -> ArrowMetadataPolicy {
+        ArrowMetadataPolicy::ArrowNative
     }
 
-    fn vortex_id(&self) -> Id {
-        Json.id()
+    fn arrow_ext_id(&self) -> Id {
+        *ARROW_JSON
     }
 
     fn to_arrow_field(
         &self,
         name: &str,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
-        let DType::Extension(ext_dtype) = dtype else {
-            return Ok(None);
-        };
-        if !ext_dtype.is::<Json>() {
-            return Ok(None);
-        }
-
         let mut field = session.to_arrow_field(name, ext_dtype.storage_dtype())?;
         field
             .try_with_extension_type(ArrowJson::default())
@@ -75,15 +67,6 @@ impl ArrowExportVTable for Json {
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
-        let is_json = array
-            .dtype()
-            .as_extension_opt()
-            .map(|ext_dtype| ext_dtype.is::<Json>())
-            .unwrap_or(false);
-        if !is_json {
-            return Ok(ArrowExport::Unsupported(array));
-        }
-
         ArrowJson::try_new_from_field_metadata(target.data_type(), target.metadata())?;
 
         let executed = array.execute::<ExtensionArray>(ctx)?;
@@ -93,62 +76,45 @@ impl ArrowExportVTable for Json {
             target.data_type().clone(),
             target.is_nullable(),
         );
-        let session = ctx.session().clone();
 
-        let storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(&storage_field), ctx)?;
+        let storage = storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
         Ok(ArrowExport::Exported(storage))
     }
-}
-
-impl ArrowImportVTable for Json {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_JSON
-    }
 
     fn from_arrow_field(
-        &self,
         field: &Field,
         _session: &ArrowSession,
-    ) -> VortexResult<Option<DType>> {
+    ) -> VortexResult<Option<ExtDType<Self>>> {
         if !has_valid_json_extension(field) {
             return Ok(None);
         }
 
-        Ok(Some(DType::Extension(
-            ExtDType::<Json>::try_new(EmptyMetadata, DType::Utf8(field.is_nullable().into()))?
-                .erased(),
-        )))
+        Ok(Some(ExtDType::<Json>::try_new(
+            EmptyMetadata,
+            DType::Utf8(field.is_nullable().into()),
+        )?))
     }
 
     fn from_arrow_array(
-        &self,
         array: ArrowArrayRef,
         field: &Field,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let DType::Extension(ext_dtype) = dtype else {
-            return Ok(ArrowImport::Unsupported(array));
-        };
-        if !ext_dtype.is::<Json>() || !has_valid_json_extension(field) {
+        if !has_valid_json_extension(field) {
             return Ok(ArrowImport::Unsupported(array));
         }
 
         let storage = session.from_arrow_array(array, field.is_nullable())?;
         Ok(ArrowImport::Imported(
-            ExtensionArray::new(ext_dtype.clone(), storage).into_array(),
+            ExtensionArray::new(ext_dtype.clone().erased(), storage).into_array(),
         ))
     }
 }
 
 #[cfg(test)]
 mod tests {
-
     use std::sync::Arc;
     use std::sync::LazyLock;
 
@@ -172,6 +138,7 @@ mod tests {
     use vortex_arrow::ArrowExportOptions;
     use vortex_arrow::ArrowSessionExt;
     use vortex_arrow::CompactBuffers;
+    use vortex_arrow::ExecuteArrowExt;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -203,11 +170,7 @@ mod tests {
         assert!(!field.is_nullable());
         ArrowJson::try_new_from_field_metadata(field.data_type(), field.metadata())?;
 
-        let exported = SESSION.arrow().execute_arrow(
-            array,
-            Some(&field),
-            &mut SESSION.create_execution_ctx(),
-        )?;
+        let exported = array.execute_arrow(Some(&field), &mut SESSION.create_execution_ctx())?;
 
         assert!(exported.data_type().is_string());
 
@@ -237,11 +200,7 @@ mod tests {
             &vortex_array::dtype::DType::Utf8(Nullability::NonNullable)
         );
 
-        let exported = SESSION.arrow().execute_arrow(
-            imported,
-            Some(&field),
-            &mut SESSION.create_execution_ctx(),
-        )?;
+        let exported = imported.execute_arrow(Some(&field), &mut SESSION.create_execution_ctx())?;
         let strings = exported.as_string::<i32>();
         assert_eq!(
             strings.iter().collect::<Vec<_>>(),
@@ -268,11 +227,9 @@ mod tests {
         let retains_backing = |options: &ArrowExportOptions,
                                ctx: &mut vortex_array::ExecutionCtx|
          -> VortexResult<bool> {
-            let exported = SESSION.arrow().exporter(options).execute_arrow(
-                array.clone(),
-                Some(&field),
-                ctx,
-            )?;
+            let exported = array
+                .clone()
+                .execute_arrow_with_options(Some(&field), options, ctx)?;
             assert_eq!(
                 exported
                     .as_string_view()

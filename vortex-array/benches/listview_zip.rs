@@ -16,6 +16,7 @@ use vortex_array::arrays::ListViewArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_mask::Mask;
@@ -58,13 +59,19 @@ fn nullable(bencher: Bencher) {
 }
 
 fn run(bencher: Bencher, if_true: ArrayRef, if_false: ArrayRef) {
+    mark_optimized(&if_true, &SESSION).unwrap();
+    mark_optimized(&if_false, &SESSION).unwrap();
+
     let mask = mask();
     bencher
         .with_inputs(|| {
+            let mask = mask.clone().into_array();
+            mark_optimized(&mask, &SESSION).unwrap();
+
             (
                 if_true.clone(),
                 if_false.clone(),
-                mask.clone().into_array(),
+                mask,
                 SESSION.create_execution_ctx(),
             )
         })

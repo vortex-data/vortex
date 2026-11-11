@@ -24,6 +24,7 @@ workspace = true
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
+arc-swap = { workspace = true }
 arcref = { workspace = true }
 arrow-buffer = { workspace = true }
 bytes = { workspace = true }
@@ -117,6 +118,10 @@ harness = false
 
 [[bench]]
 name = "cast_decimal"
+harness = false
+
+[[bench]]
+name = "copy_to_canonical_width"
 harness = false
 
 [[bench]]
@@ -331,6 +336,14 @@ harness = false
 
 [[bench]]
 name = "probe"
+harness = false
+
+[[bench]]
+name = "widen"
+harness = false
+
+[[bench]]
+name = "widen_decimal"
 harness = false
 
 [[bench]]

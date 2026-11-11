@@ -61,7 +61,6 @@ pub enum vx_dtype_variant {
     DTYPE_FIXED_SIZE_LIST = 9,
 }
 
-// TODO(connor)[Union]
 impl From<&DType> for vx_dtype_variant {
     fn from(value: &DType) -> Self {
         match value {

@@ -26,6 +26,7 @@
 
 use std::any::Any;
 use std::collections::VecDeque;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -341,6 +342,7 @@ struct BoundScanRequest {
     partition_range: Option<Range<u64>>,
     ordered: bool,
     limit: Option<u64>,
+    split_concurrency: Option<NonZeroUsize>,
 }
 
 impl BoundScanRequest {
@@ -354,6 +356,7 @@ impl BoundScanRequest {
             partition_range,
             ordered,
             limit,
+            split_concurrency,
         } = request;
 
         Ok(Self {
@@ -368,6 +371,7 @@ impl BoundScanRequest {
             partition_range,
             ordered,
             limit,
+            split_concurrency,
         })
     }
 }
@@ -599,7 +603,8 @@ impl Partition for MultiLayoutPartition {
             .with_selection(request.selection)
             .with_projection(request.projection)
             .with_some_filter(filter)
-            .with_ordered(request.ordered);
+            .with_ordered(request.ordered)
+            .with_some_max_splits_in_flight(request.split_concurrency);
         builder = match self.row_limit {
             Some(row_limit) => builder.with_shared_limit(row_limit),
             None => builder.with_some_limit(request.limit),
@@ -637,6 +642,7 @@ mod tests {
     use vortex_scan::ScanRequest;
 
     use super::*;
+    use crate::scan::test::InFlight;
     use crate::scan::test::TestLayoutReader;
     use crate::scan::test::collect_scan_values;
     use crate::scan::test::new_session;
@@ -732,6 +738,64 @@ mod tests {
 
         // Three of the four rows, whichever partition reserved them first.
         assert_eq!(values.len(), 3);
+        Ok(())
+    }
+
+    /// Scans 64 one-row splits, returning the rows and the most splits read at once.
+    fn scan_with_split_concurrency(
+        split_concurrency: Option<NonZeroUsize>,
+    ) -> VortexResult<(Vec<i32>, usize)> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let in_flight = Arc::new(InFlight::default());
+        let reader: LayoutReaderRef = Arc::new(
+            TestLayoutReader::new(64)
+                .with_split_size(1)
+                .with_in_flight(Arc::clone(&in_flight)),
+        );
+        let source = MultiLayoutDataSource::new_with_first(reader, vec![], vec![], &session);
+
+        let scan = runtime.block_on(source.scan(ScanRequest {
+            ordered: true,
+            split_concurrency,
+            ..Default::default()
+        }))?;
+        let mut values = Vec::new();
+        for partition in runtime.block_on(scan.partitions().try_collect::<Vec<_>>())? {
+            values.extend(collect_scan_values(
+                runtime.block_on_stream(partition.execute()?),
+            )?);
+        }
+        Ok((values, in_flight.peak()))
+    }
+
+    /// A per-worker concurrency set after the bound leaves the bound in place.
+    #[test]
+    fn a_later_per_worker_concurrency_keeps_the_bound() {
+        let reader: LayoutReaderRef = Arc::new(TestLayoutReader::new(1));
+        let builder = ScanBuilder::new(new_session(), reader)
+            .with_some_max_splits_in_flight(NonZeroUsize::new(2))
+            .with_concurrency(8);
+
+        assert_eq!(builder.concurrency(), 8);
+        assert_eq!(builder.max_splits_in_flight(), NonZeroUsize::new(2));
+    }
+
+    /// The scan reads at most `split_concurrency` splits at once, however many cores there are.
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    fn split_concurrency_bounds_the_splits_read_at_once(#[case] max: usize) -> VortexResult<()> {
+        let (values, peak) = scan_with_split_concurrency(NonZeroUsize::new(max))?;
+        let (default_values, default_peak) = scan_with_split_concurrency(None)?;
+
+        assert_eq!(values, (0..64).collect::<Vec<_>>());
+        assert_eq!(values, default_values);
+        assert_eq!(peak, max, "splits read at once");
+        assert!(
+            default_peak > max,
+            "the default read {default_peak} at once"
+        );
         Ok(())
     }
 }

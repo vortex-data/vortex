@@ -19,6 +19,7 @@ use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::arrays::FilterArray;
 use crate::arrays::List;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
@@ -26,6 +27,7 @@ use crate::builders::ListBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType::I32;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
@@ -483,7 +485,12 @@ fn test_offset_to_0() {
             .as_list(),
         )
         .vortex_expect("operation should succeed in test");
-    let list = builder.finish().slice(2..4).unwrap();
+    let list = builder
+        .finish()
+        .slice(2..4)
+        .unwrap()
+        .optimize_ctx(&SESSION)
+        .unwrap();
 
     // The sliced list should be a ListArray since we built it with ListBuilder
     // and slice doesn't change the encoding
@@ -707,7 +714,11 @@ fn test_list_of_lists() {
     assert_eq!(list_scalar.len(), 2);
 
     // Test slicing.
-    let sliced = list_of_lists.slice(1..3).unwrap();
+    let sliced = list_of_lists
+        .slice(1..3)
+        .unwrap()
+        .optimize_ctx(&SESSION)
+        .unwrap();
     let sliced_list = sliced.as_::<List>();
     assert_eq!(sliced_list.len(), 2);
 
@@ -993,7 +1004,11 @@ fn test_recursive_compact_list_of_lists() {
 
     let original = create_list_of_lists_nullable(nested_data);
     // Slice to remove prefix - creates wasted space since offsets no longer reference early elements
-    let sliced = original.slice(1..3).unwrap();
+    let sliced = original
+        .slice(1..3)
+        .unwrap()
+        .optimize_ctx(&SESSION)
+        .unwrap();
     let sliced_list = sliced.as_::<List>();
 
     // Test non-recursive compaction: only resets outer list offsets
@@ -1033,6 +1048,24 @@ fn test_recursive_compact_list_of_lists() {
     );
     assert_arrays_eq!(non_recursive_array, sliced, &mut ctx);
     assert_arrays_eq!(recursive_array, sliced, &mut ctx);
+}
+
+#[test]
+fn test_reset_offsets_zero_first_offset_keeps_offsets() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let list = ListArray::try_new(
+        buffer![1i32, 2, 3, 4].into_array(),
+        buffer![0u32, 1, 4].into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?;
+
+    let reset = list.reset_offsets(false, &mut ctx)?;
+
+    // The offsets already start at zero, so they are reused instead of wrapped in a subtraction.
+    assert!(reset.offsets().is::<Primitive>());
+    assert_arrays_eq!(reset.into_array(), list.into_array(), &mut ctx);
+    Ok(())
 }
 
 #[test]
@@ -1175,6 +1208,7 @@ fn test_compact_sliced(
     )?
     .into_array()
     .slice(range)?
+    .optimize_ctx(&SESSION)?
     .as_::<List>()
     .into_owned();
     let rebuilt = list.compact(&mut ctx)?;

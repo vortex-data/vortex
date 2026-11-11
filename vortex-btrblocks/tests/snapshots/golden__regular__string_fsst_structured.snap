@@ -3,8 +3,8 @@ source: vortex-btrblocks/tests/golden.rs
 expression: rendered
 ---
 input: utf8, len=16384, nbytes=653785
-root: vortex.fsst(utf8, len=16384) nbytes=151382
-  metadata: len: 16384, nsymbols: 223
+root: vortex.fsst(utf8, len=16384) nbytes=151313
+  metadata: len: 16384, nsymbols: 216
   uncompressed_lengths: vortex.sparse(u8, len=16384) nbytes=3154
     metadata: fill_value: 24u8
     patch_indices: vortex.primitive(u16, len=1575) nbytes=3150

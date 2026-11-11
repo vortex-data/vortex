@@ -13,16 +13,24 @@ use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::Accumulator;
+use vortex_array::aggregate_fn::DynAccumulator;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::smallvec::smallvec;
 use vortex_buffer::Buffer;
+use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -139,14 +147,20 @@ fn consistency(#[case] arrays: VortexResult<(FoRArray, PrimitiveArray)>) -> Vort
 fn slice_keeps_chunk_alignment(#[case] start: usize, #[case] end: usize) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let (array, expected) = unsigned()?;
-    let sliced = array.into_array().slice(start..end)?;
+    let sliced = array
+        .into_array()
+        .slice(start..end)?
+        .optimize_ctx(&*SESSION)?;
     assert_arrays_eq!(sliced, expected.into_array().slice(start..end)?, &mut ctx);
 
     if let Some(sliced) = sliced.as_opt::<FoR>() {
         assert_eq!(usize::from(sliced.offset()), start % FL_CHUNK_SIZE);
         // Slicing a slice composes offsets.
         let len = end - start;
-        let inner: ArrayRef = sliced.array().slice(len / 3..len)?;
+        let inner: ArrayRef = sliced
+            .array()
+            .slice(len / 3..len)?
+            .optimize_ctx(&*SESSION)?;
         let expected = unsigned()?.1.into_array().slice(start + len / 3..end)?;
         assert_arrays_eq!(inner, expected, &mut ctx);
     }
@@ -161,7 +175,10 @@ fn global_reference_survives_slicing() -> VortexResult<()> {
     )?;
     assert_eq!(global(&array)?, 7u32.into());
     assert!(array.blocked_references().is_none());
-    let sliced = array.into_array().slice(1500..1600)?;
+    let sliced = array
+        .into_array()
+        .slice(1500..1600)?
+        .optimize_ctx(&SESSION)?;
     assert_eq!(global(&sliced.as_::<FoR>().into_owned())?, 7u32.into());
     Ok(())
 }
@@ -328,7 +345,10 @@ fn fused_decode_sliced(
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let (array, expected) = fused(bit_width, signed)?;
-    let sliced = array.into_array().slice(start..end)?;
+    let sliced = array
+        .into_array()
+        .slice(start..end)?
+        .optimize_ctx(&SESSION)?;
     let sliced_for = sliced.as_::<FoR>();
     // A BitPacked child with patches slices lazily, which takes the unfused path.
     assert_eq!(sliced_for.encoded().is::<BitPacked>(), bit_width == 3);
@@ -452,5 +472,22 @@ where
         expected.into_array().slice(start..end)?,
         &mut ctx
     );
+    Ok(())
+}
+
+#[test]
+fn empty_for_leaves_constant_partial_empty() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let empty = FoR::try_new(Buffer::<u32>::empty().into_array(), 7u32.into())?.into_array();
+    let mut acc = Accumulator::try_new(IsConstant, EmptyOptions, empty.dtype().clone())?;
+    acc.accumulate(&empty, &mut ctx)?;
+
+    assert!(acc.partial_scalar()?.is_null());
+    assert!(!is_constant(&empty, &mut ctx)?);
+
+    acc.accumulate(&buffer![1u32, 1].into_array(), &mut ctx)?;
+    acc.accumulate(&empty, &mut ctx)?;
+
+    assert_eq!(acc.finish()?, Scalar::bool(true, Nullability::NonNullable));
     Ok(())
 }

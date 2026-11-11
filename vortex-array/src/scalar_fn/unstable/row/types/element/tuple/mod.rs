@@ -8,7 +8,7 @@
 
 mod element_tuple;
 pub use element_tuple::ElementTuple;
-pub use element_tuple::batch_const;
+pub(in crate::scalar_fn::unstable::row) use element_tuple::is_batch_const;
 
 mod indexed;
 pub use indexed::IndexedElementTuple;

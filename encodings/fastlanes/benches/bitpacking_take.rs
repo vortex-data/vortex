@@ -21,13 +21,13 @@ use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PiecewiseSequenceArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::assert_arrays_eq;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -81,11 +81,22 @@ fn threshold_fixture(selected_per_chunk: usize) -> (ArrayRef, ArrayRef) {
             .map(move |index| (chunk * CHUNK_SIZE + index * CHUNK_SIZE / selected_per_chunk) as u32)
     }))
     .into_array();
+    mark_optimized(&packed, &SESSION).unwrap();
+    mark_optimized(&indices, &SESSION).unwrap();
+
     (packed, indices)
 }
 
-#[vortex_bench_support::cpu_features]
-#[divan::bench(args = [8, 64, 80])]
+// Batch short iterations to reduce variation in the fastest walltime sample.
+// The NEON cases still vary on unchanged code, so keep those measurements local.
+// AVX2 with 80 selections still varies with batching. Retain its 64-selection case in CI.
+#[vortex_bench_support::cpu_features(exclude = ["neon"])]
+#[divan::bench(
+    args = [64, 80].into_iter().filter(|&count| {
+        env!("VORTEX_BENCH_VARIANT") != "avx2" || count != 80
+    }),
+    sample_size = 16,
+)]
 fn threshold(bencher: Bencher, selected_per_chunk: usize) {
     let (packed, indices) = threshold_fixture(selected_per_chunk);
 
@@ -108,6 +119,8 @@ fn take_10_stratified(bencher: Bencher) {
     let packed =
         bitpack_to_best_bit_width(&uncompressed, &mut SESSION.create_execution_ctx()).unwrap();
     let indices = PrimitiveArray::from_iter((0..10).map(|i| i * 6_553));
+    mark_optimized(packed.as_array(), &SESSION).unwrap();
+    mark_optimized(indices.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&packed, &indices, SESSION.create_execution_ctx()))
@@ -127,6 +140,8 @@ fn take_10_contiguous(bencher: Bencher) {
     let packed =
         bitpack_to_best_bit_width(&uncompressed, &mut SESSION.create_execution_ctx()).unwrap();
     let indices = buffer![0..10].into_array();
+    mark_optimized(packed.as_array(), &SESSION).unwrap();
+    mark_optimized(&indices, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&packed, &indices, SESSION.create_execution_ctx()))
@@ -149,6 +164,8 @@ fn take_10k_random(bencher: Bencher) {
 
     let rng = StdRng::seed_from_u64(0);
     let indices = PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
+    mark_optimized(packed.as_array(), &SESSION).unwrap();
+    mark_optimized(indices.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&packed, &indices, SESSION.create_execution_ctx()))
@@ -168,6 +185,8 @@ fn take_10k_contiguous(bencher: Bencher) {
     let packed =
         bitpack_to_best_bit_width(&uncompressed, &mut SESSION.create_execution_ctx()).unwrap();
     let indices = PrimitiveArray::from_iter(0..10_000);
+    mark_optimized(packed.as_array(), &SESSION).unwrap();
+    mark_optimized(indices.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&packed, &indices, SESSION.create_execution_ctx()))
@@ -187,6 +206,8 @@ fn take_10k_dispersed(bencher: Bencher) {
     let packed =
         bitpack_to_best_bit_width(&uncompressed, &mut SESSION.create_execution_ctx()).unwrap();
     let indices = PrimitiveArray::from_iter((0..10_000).map(|i| (i * 42) % values.len() as u64));
+    mark_optimized(packed.as_array(), &SESSION).unwrap();
+    mark_optimized(indices.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&packed, &indices, SESSION.create_execution_ctx()))
@@ -206,6 +227,8 @@ fn take_10k_first_chunk_only(bencher: Bencher) {
     let packed =
         bitpack_to_best_bit_width(&uncompressed, &mut SESSION.create_execution_ctx()).unwrap();
     let indices = PrimitiveArray::from_iter((0..10_000).map(|i| ((i * 42) % 1024) as u64));
+    mark_optimized(packed.as_array(), &SESSION).unwrap();
+    mark_optimized(indices.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&packed, &indices, SESSION.create_execution_ctx()))
@@ -252,6 +275,8 @@ fn patched_take_10_stratified(bencher: Bencher) {
     );
 
     let indices = PrimitiveArray::from_iter((0..10).map(|i| i * 6_653));
+    mark_optimized(packed.as_array(), &SESSION).unwrap();
+    mark_optimized(indices.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&packed, &indices, SESSION.create_execution_ctx()))
@@ -278,6 +303,8 @@ fn patched_take_10_contiguous(bencher: Bencher) {
     );
 
     let indices = buffer![0..10].into_array();
+    mark_optimized(packed.as_array(), &SESSION).unwrap();
+    mark_optimized(&indices, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&packed, &indices, SESSION.create_execution_ctx()))
@@ -300,6 +327,8 @@ fn patched_take_10k_random(bencher: Bencher) {
     let rng = StdRng::seed_from_u64(0);
     let range = Uniform::new(0, values.len()).unwrap();
     let indices = PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
+    mark_optimized(packed.as_array(), &SESSION).unwrap();
+    mark_optimized(indices.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&packed, &indices, SESSION.create_execution_ctx()))
@@ -319,6 +348,8 @@ fn patched_take_10k_contiguous_not_patches(bencher: Bencher) {
     let packed =
         bitpack_to_best_bit_width(&uncompressed, &mut SESSION.create_execution_ctx()).unwrap();
     let indices = PrimitiveArray::from_iter((0u32..NUM_EXCEPTIONS).cycle().take(10000));
+    mark_optimized(packed.as_array(), &SESSION).unwrap();
+    mark_optimized(indices.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&packed, &indices, SESSION.create_execution_ctx()))
@@ -346,6 +377,8 @@ fn patched_take_10k_contiguous_patches(bencher: Bencher) {
 
     let indices =
         PrimitiveArray::from_iter((BIG_BASE2..BIG_BASE2 + NUM_EXCEPTIONS).cycle().take(10000));
+    mark_optimized(packed.as_array(), &SESSION).unwrap();
+    mark_optimized(indices.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&packed, &indices, SESSION.create_execution_ctx()))
@@ -365,6 +398,8 @@ fn patched_take_10k_dispersed(bencher: Bencher) {
     let packed =
         bitpack_to_best_bit_width(&uncompressed, &mut SESSION.create_execution_ctx()).unwrap();
     let indices = PrimitiveArray::from_iter((0..10_000).map(|i| (i * 42) % values.len() as u64));
+    mark_optimized(packed.as_array(), &SESSION).unwrap();
+    mark_optimized(indices.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&packed, &indices, SESSION.create_execution_ctx()))
@@ -384,6 +419,8 @@ fn patched_take_10k_first_chunk_only(bencher: Bencher) {
     let packed =
         bitpack_to_best_bit_width(&uncompressed, &mut SESSION.create_execution_ctx()).unwrap();
     let indices = PrimitiveArray::from_iter((0..10_000).map(|i| ((i * 42) % 1024) as u64));
+    mark_optimized(packed.as_array(), &SESSION).unwrap();
+    mark_optimized(indices.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&packed, &indices, SESSION.create_execution_ctx()))
@@ -410,6 +447,8 @@ fn patched_take_10k_adversarial(bencher: Bencher) {
             .flat_map(|base_idx| base_idx..(base_idx + per_chunk_count))
             .take(10000),
     );
+    mark_optimized(packed.as_array(), &SESSION).unwrap();
+    mark_optimized(indices.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&packed, &indices, SESSION.create_execution_ctx()))
@@ -422,10 +461,9 @@ fn patched_take_10k_adversarial(bencher: Bencher) {
         })
 }
 
-// These are the element runs emitted by a sparse FSL gather. The baseline materializes those
-// runs inside the measured operation, reproducing the previous BitPacked take path.
+// These are the element runs emitted by a sparse FSL gather.
 fn embedding_runs_fixture(dimension: usize, ptype: PType, bit_width: u8) -> (ArrayRef, ArrayRef) {
-    const ROWS: usize = 4096;
+    const ROWS: usize = 512;
     const SELECTED: usize = 16;
     let mut ctx = SESSION.create_execution_ctx();
     let values = fixture(ROWS * dimension, usize::from(bit_width))
@@ -457,25 +495,13 @@ fn embedding_runs_fixture(dimension: usize, ptype: PType, bit_width: u8) -> (Arr
 #[divan::bench(args = [768, 1024, 1536])]
 fn embedding_runs(bencher: Bencher, dimension: usize) {
     let (packed, indices) = embedding_runs_fixture(dimension, PType::U32, 16);
-    bench_piecewise_take(bencher, packed, indices, false);
-}
-
-#[divan::bench(args = [768, 1024, 1536])]
-fn embedding_runs_expanded_baseline(bencher: Bencher, dimension: usize) {
-    let (packed, indices) = embedding_runs_fixture(dimension, PType::U32, 16);
-    bench_piecewise_take(bencher, packed, indices, true);
+    bench_piecewise_take(bencher, packed, indices);
 }
 
 #[divan::bench(args = [512, 1024, 2048, 4096])]
 fn embedding_code_runs(bencher: Bencher, dimension: usize) {
     let (packed, indices) = embedding_runs_fixture(dimension, PType::U8, 4);
-    bench_piecewise_take(bencher, packed, indices, false);
-}
-
-#[divan::bench(args = [512, 1024, 2048, 4096])]
-fn embedding_code_runs_expanded_baseline(bencher: Bencher, dimension: usize) {
-    let (packed, indices) = embedding_runs_fixture(dimension, PType::U8, 4);
-    bench_piecewise_take(bencher, packed, indices, true);
+    bench_piecewise_take(bencher, packed, indices);
 }
 
 // Short runs share chunks; long runs visit distant chunks. Neither crosses the full-decode
@@ -507,22 +533,15 @@ fn fragmented_runs_fixture(run_length: usize) -> (ArrayRef, ArrayRef) {
 #[divan::bench(args = [1, 2, 7, 8, 64, 512, 1024])]
 fn fragmented_runs(bencher: Bencher, run_length: usize) {
     let (packed, indices) = fragmented_runs_fixture(run_length);
-    bench_piecewise_take(bencher, packed, indices, false);
-}
-
-#[divan::bench(args = [1, 2, 7, 8, 64, 512, 1024])]
-fn fragmented_runs_expanded_baseline(bencher: Bencher, run_length: usize) {
-    let (packed, indices) = fragmented_runs_fixture(run_length);
-    bench_piecewise_take(bencher, packed, indices, true);
+    bench_piecewise_take(bencher, packed, indices);
 }
 
 // Isolated runs cannot amortize a whole-chunk decode across neighboring runs. Offsets near
 // a chunk boundary also exercise sparse fragments of runs above the full-decode threshold.
 #[divan::bench(
-    types = [u8, u16, u32, u64],
+    types = [u8, u64],
     args = [
-        (8, 0), (16, 0), (32, 0), (64, 0), (128, 0), (160, 0), (161, 0),
-        (256, 0), (512, 0), (161, 944), (256, 1020), (256, 896),
+        (8, 0), (64, 0), (161, 0), (512, 0), (161, 944), (256, 1020),
     ],
 )]
 fn isolated_runs<T: NativePType>(bencher: Bencher, (run_length, offset): (usize, usize)) {
@@ -559,37 +578,19 @@ fn isolated_runs<T: NativePType>(bencher: Bencher, (run_length, offset): (usize,
     )
     .unwrap()
     .into_array();
-    bench_piecewise_take(bencher, packed, indices, false);
+    bench_piecewise_take(bencher, packed, indices);
 }
 
-fn bench_piecewise_take(
-    bencher: Bencher,
-    packed: ArrayRef,
-    indices: ArrayRef,
-    expanded_baseline: bool,
-) {
-    let mut ctx = SESSION.create_execution_ctx();
-    let canonical = packed.clone().execute::<PrimitiveArray>(&mut ctx).unwrap();
-    assert_arrays_eq!(
-        packed.take(indices.clone()).unwrap(),
-        canonical.take(indices.clone()).unwrap(),
-        &mut ctx
-    );
+fn bench_piecewise_take(bencher: Bencher, packed: ArrayRef, indices: ArrayRef) {
+    mark_optimized(&packed, &SESSION).unwrap();
+    mark_optimized(&indices, &SESSION).unwrap();
+
     bencher
         .counter(ItemsCount::new(indices.len()))
         .with_inputs(|| (indices.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(indices, ctx)| {
-            let indices = if expanded_baseline {
-                indices
-                    .clone()
-                    .execute::<PrimitiveArray>(ctx)
-                    .unwrap()
-                    .into_array()
-            } else {
-                indices.clone()
-            };
             packed
-                .take(indices)
+                .take(indices.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()

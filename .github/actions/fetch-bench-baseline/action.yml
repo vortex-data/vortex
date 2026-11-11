@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: "Fetch benchmark baseline"
+description: >-
+  Write the develop baseline for a PR benchmark run, read from the benchmarks Postgres: assume the
+  read-only benchmarks role over OIDC and sign in as bench_ci_read with an RDS IAM token. If the
+  baseline cannot be read, it writes no baseline file and the report says the baseline could not be
+  read. The calling job needs `id-token: write`. Composite actions cannot read `vars`, so callers
+  pass the repository variables in.
+
+inputs:
+  pr-records:
+    description: "The PR run's --ingest-jsonl output"
+    default: results.ingest.jsonl
+  output:
+    description: "Where to write the baseline records"
+    default: base.ingest.jsonl
+  role-arn:
+    description: "The read-only benchmarks role (vars.GH_BENCH_READ_ROLE_ARN)"
+    required: true
+  region:
+    description: "AWS region of the benchmarks RDS instance (vars.RDS_BENCH_REGION)"
+    required: true
+  endpoint:
+    description: "Hostname of the benchmarks RDS instance (vars.RDS_BENCH_INSTANCE_ENDPOINT)"
+    required: true
+  database:
+    description: "Name of the benchmarks database (vars.RDS_BENCH_DB_NAME)"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    # The credentials stay in step outputs so the job's existing AWS credentials, which later
+    # steps such as the S3 cleanup still use, are not replaced.
+    - name: Configure AWS credentials for the benchmarks database (OIDC)
+      id: aws
+      if: inputs.role-arn != ''
+      continue-on-error: true
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+      with:
+        role-to-assume: ${{ inputs.role-arn }}
+        aws-region: ${{ inputs.region }}
+        retry-max-attempts: 1
+        output-credentials: true
+        output-env-credentials: false
+    - name: Fetch baseline
+      shell: bash
+      env:
+        PR_RECORDS: ${{ inputs.pr-records }}
+        OUTPUT: ${{ inputs.output }}
+        AWS_OUTCOME: ${{ steps.aws.outcome }}
+        AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
+        AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
+        AWS_REGION: ${{ inputs.region }}
+        RDS_BENCH_INSTANCE_ENDPOINT: ${{ inputs.endpoint }}
+        RDS_BENCH_DB_NAME: ${{ inputs.database }}
+      run: |
+        set -Eeu -o pipefail
+        if [[ "$AWS_OUTCOME" != "success" ]]; then
+          # No baseline file tells the report that the baseline could not be read.
+          echo "::warning::Could not assume the read-only benchmarks role; reporting without a baseline."
+          exit 0
+        fi
+        curl -fsSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+          -o "${RUNNER_TEMP}/rds-global-bundle.pem"
+        DSN="postgresql://bench_ci_read@${RDS_BENCH_INSTANCE_ENDPOINT}:5432/${RDS_BENCH_DB_NAME}?sslmode=verify-full&sslrootcert=${RUNNER_TEMP}/rds-global-bundle.pem"
+        if ! uv run --no-project scripts/fetch-benchmark-baseline.py "$PR_RECORDS" "$OUTPUT" \
+            --postgres "$DSN" --region "$AWS_REGION"; then
+          echo "::warning::Could not read the baseline from the benchmarks database; reporting without a baseline."
+          rm -f "$OUTPUT"
+        fi

@@ -48,11 +48,11 @@ pub fn scalar_at_canonical_array(
         }
         Canonical::Decimal(array) => {
             match_each_decimal_value_type!(array.values_type(), |D| {
-                Scalar::decimal(
+                Scalar::try_decimal(
                     DecimalValue::from(array.buffer::<D>()[index]),
                     array.decimal_dtype(),
                     array.dtype().nullability(),
-                )
+                )?
             })
         }
         Canonical::VarBinView(array) => varbin_scalar(array.bytes_at(index), array.dtype()),

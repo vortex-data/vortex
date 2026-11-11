@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Spatial extension types and metadata shared by their Arrow plugins.
+//!
+//! Geometry types derive their coordinate dimension from storage and carry an optional coordinate
+//! reference system in [`SpatialMetadata`]. Shared metadata handling keeps these properties
+//! consistent across the GeoArrow fields used to import and export each geometry.
+
 pub(crate) mod coordinate;
 mod linestring;
 mod multilinestring;
@@ -347,11 +353,28 @@ pub(crate) fn spatial_metadata_from_arrow(metadata: &Metadata) -> SpatialMetadat
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::LazyLock;
 
     use prost::Message;
+    use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ExtensionArray;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builders::builder_with_capacity_in;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtVTable;
+    use vortex_array::dtype::proto::dtype as pb;
+    use vortex_array::dtype::proto::dtype::d_type::DtypeType;
+    use vortex_array::validity::Validity;
+    use vortex_arrow::ArrowSessionExt;
+    use vortex_arrow::ExecuteArrowExt;
+    use vortex_buffer::BufferAllocatorRef;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
@@ -359,9 +382,62 @@ mod tests {
     use super::LineString;
     use super::MultiLineString;
     use super::MultiPoint;
+    use super::MultiPolygon;
     use super::Point;
     use super::Polygon;
     use crate::extension::SpatialMetadata;
+    use crate::extension::coordinate::Dimension;
+    use crate::extension::coordinate::coordinate_storage_dtype;
+    use crate::test_harness::spatial_session;
+
+    #[track_caller]
+    fn check_nested_arrow_round_trip(
+        vtable: impl ExtVTable<Metadata = SpatialMetadata>,
+        depth: usize,
+        nullable: bool,
+        fixed: bool,
+    ) -> VortexResult<()> {
+        let session = spatial_session();
+        let mut ctx = session.create_execution_ctx();
+        let mut storage = coordinate_storage_dtype(Dimension::Xy, Nullability::NonNullable);
+        for _ in 0..depth {
+            storage = DType::List(Arc::new(storage), Nullability::NonNullable);
+        }
+
+        storage = storage.with_nullability(nullable.into());
+        let dtype = ExtDType::try_with_vtable(
+            vtable,
+            SpatialMetadata::new(Some("EPSG:4326".into())),
+            storage,
+        )?
+        .erased();
+        let mut builder =
+            builder_with_capacity_in(dtype.storage_dtype(), 2, BufferAllocatorRef::static_ref());
+        builder.append_zeros(2);
+        let array = ExtensionArray::try_new(dtype, builder.finish())?.into_array();
+        let array = if fixed {
+            FixedSizeListArray::try_new(array, 1, Validity::NonNullable, 2)?.into_array()
+        } else {
+            ListArray::try_new(
+                array,
+                PrimitiveArray::from_iter([0u32, 1, 2]).into_array(),
+                Validity::NonNullable,
+                &mut ctx,
+            )?
+            .into_array()
+        };
+
+        let arrow = session.arrow();
+        let field = arrow.to_arrow_field("geometry", array.dtype())?;
+        assert_eq!(arrow.from_arrow_field(&field)?, *array.dtype());
+        let exported = array.clone().execute_arrow(Some(&field), &mut ctx)?;
+        assert_eq!(exported.data_type(), field.data_type());
+        exported.to_data().validate_full()?;
+        let imported = arrow.from_arrow_array(exported, &field)?;
+        vortex_array::assert_arrays_eq!(imported, array, &mut ctx);
+
+        Ok(())
+    }
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -545,5 +621,73 @@ mod tests {
         assert_eq!(actual_storage.dtype(), expected_storage.dtype());
         assert_eq!(actual_storage, expected_storage);
         Ok(())
+    }
+
+    /// A non-nullable `List` of `element`.
+    fn list(element: DType) -> DType {
+        DType::List(Arc::new(element), Nullability::NonNullable)
+    }
+
+    /// The non-nullable 2D coordinate `Struct`.
+    fn xy() -> DType {
+        coordinate_storage_dtype(Dimension::Xy, Nullability::NonNullable)
+    }
+
+    /// The list-based geometry types reject storage with a nullable inner `List` or coordinate
+    /// `Struct`, and the error reports the rejected storage.
+    #[rstest]
+    #[case::linestring_coordinates(     LineString,      list(xy().as_nullable()))]
+    #[case::multipoint_coordinates(     MultiPoint,      list(xy().as_nullable()))]
+    #[case::polygon_rings(              Polygon,         list(list(xy()).as_nullable()))]
+    #[case::polygon_coordinates(        Polygon,         list(list(xy().as_nullable())))]
+    #[case::multilinestring_lines(      MultiLineString, list(list(xy()).as_nullable()))]
+    #[case::multilinestring_coordinates(MultiLineString, list(list(xy().as_nullable())))]
+    #[case::multipolygon_polygons(      MultiPolygon,    list(list(list(xy())).as_nullable()))]
+    #[case::multipolygon_rings(         MultiPolygon,    list(list(list(xy()).as_nullable())))]
+    #[case::multipolygon_coordinates(   MultiPolygon,    list(list(list(xy().as_nullable()))))]
+    fn nullable_nested_level_is_rejected(
+        #[case] vtable: impl ExtVTable<Metadata = SpatialMetadata>,
+        #[case] storage: DType,
+    ) {
+        let result = ExtDType::try_with_vtable(vtable, SpatialMetadata::default(), storage.clone());
+        assert!(result.is_err_and(|error| error.to_string().contains(&format!("left: {storage}"))));
+    }
+
+    /// A serialized `vortex.st.linestring` dtype with a nullable coordinate `Struct` fails to read,
+    /// with an error that names the expected storage. [`LineString`] rejects that storage at
+    /// construction, so the test builds the serialized extension dtype by hand.
+    #[test]
+    fn nullable_nested_level_fails_to_read() -> VortexResult<()> {
+        let serialized = pb::DType {
+            dtype_type: Some(DtypeType::Extension(Box::new(pb::Extension {
+                id: "vortex.st.linestring".to_string(),
+                storage_dtype: Some(Box::new(pb::DType::try_from(&list(xy().as_nullable()))?)),
+                metadata: None,
+            }))),
+        };
+
+        let result = DType::from_proto(&serialized, &spatial_session());
+        assert!(result.is_err_and(|error| error.to_string().contains(
+            "linestring storage can be nullable only at its outer List\n  left: list({x=f64, y=f64}?)\n right: list({x=f64, y=f64})"
+        )));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::line(LineString, 1, false, false)]
+    #[case::points(MultiPoint, 1, false, false)]
+    #[case::polygon(Polygon, 2, false, false)]
+    #[case::multiline(MultiLineString, 2, false, false)]
+    #[case::multipolygon(MultiPolygon, 3, false, false)]
+    #[case::nullable(LineString, 1, true, false)]
+    #[case::fixed_size_list(LineString, 1, false, true)]
+    #[case::nullable_fixed_list(LineString, 1, true, true)]
+    fn nested_arrow_round_trip(
+        #[case] vtable: impl ExtVTable<Metadata = SpatialMetadata>,
+        #[case] depth: usize,
+        #[case] nullable: bool,
+        #[case] fixed: bool,
+    ) -> VortexResult<()> {
+        check_nested_arrow_round_trip(vtable, depth, nullable, fixed)
     }
 }

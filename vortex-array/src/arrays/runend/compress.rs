@@ -5,6 +5,7 @@ use itertools::Itertools;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
@@ -24,7 +25,7 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::decimal::DecimalArrayExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
-use crate::arrays::runend::iter::trimmed_ends_iter;
+use crate::arrays::runend::iter::slice_relative_ends;
 use crate::buffer::BufferHandle;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -203,11 +204,12 @@ pub fn runend_decode_primitive(
     Ok(match_each_native_ptype!(values.ptype(), |P| {
         match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
             runend_decode_typed_primitive(
-                trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
+                slice_relative_ends(ends.as_slice::<E>(), offset, length),
                 values.as_slice::<P>(),
                 validity_mask,
                 values.dtype().nullability(),
                 length,
+                ctx.allocator(),
             )
             .into_array()
         })
@@ -223,10 +225,11 @@ fn runend_decode_slice<T: Copy + Default>(
     values_validity: Mask,
     values_nullability: Nullability,
     length: usize,
+    allocator: &BufferAllocatorRef,
 ) -> (Buffer<T>, Validity) {
     match values_validity {
         Mask::AllTrue(_) => {
-            let mut decoded = RunWriter::new(length);
+            let mut decoded = RunWriter::new(length, allocator);
             for (end, &value) in run_ends.zip_eq(values) {
                 decoded.write_run(value, end);
             }
@@ -236,7 +239,7 @@ fn runend_decode_slice<T: Copy + Default>(
         Mask::Values(mask) => {
             // Nulls are usually rare and clustered, so start from all-valid and clear each
             // maximal streak of null runs once, rather than appending validity per run.
-            let mut decoded = RunWriter::new(length);
+            let mut decoded = RunWriter::new(length, allocator);
             let mut decoded_validity = BitBufferMut::full(true, length);
             let mut null_start = None;
             for (end, (&value, is_valid)) in
@@ -289,9 +292,9 @@ impl<T: Copy> RunWriter<T> {
         BLOCK_BYTES / size_of::<T>()
     };
 
-    fn new(length: usize) -> Self {
+    fn new(length: usize, allocator: &BufferAllocatorRef) -> Self {
         Self {
-            buffer: BufferMut::with_capacity(length + Self::BLOCK),
+            buffer: BufferMut::with_capacity_in(length + Self::BLOCK, allocator.clone()),
             len: 0,
             length,
         }
@@ -344,6 +347,7 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
     values_validity: Mask,
     values_nullability: Nullability,
     length: usize,
+    allocator: &BufferAllocatorRef,
 ) -> PrimitiveArray {
     let (decoded, validity) = runend_decode_slice(
         run_ends,
@@ -351,6 +355,7 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
         values_validity,
         values_nullability,
         length,
+        allocator,
     );
     PrimitiveArray::new(decoded, validity)
 }
@@ -376,11 +381,12 @@ pub fn runend_decode_decimal(
     Ok(match_each_decimal_value_type!(values.values_type(), |D| {
         let (decoded, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
             runend_decode_slice(
-                trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
+                slice_relative_ends(ends.as_slice::<E>(), offset, length),
                 values.buffer::<D>().as_slice(),
                 validity_mask,
                 values.dtype().nullability(),
                 length,
+                ctx.allocator(),
             )
         });
         DecimalArray::new(decoded, values.decimal_dtype(), validity).into_array()
@@ -408,11 +414,12 @@ pub fn runend_decode_varbinview(
 
     let (decoded_views, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
         runend_decode_slice(
-            trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
+            slice_relative_ends(ends.as_slice::<E>(), offset, length),
             views,
             validity_mask,
             values.dtype().nullability(),
             length,
+            ctx.allocator(),
         )
     });
 

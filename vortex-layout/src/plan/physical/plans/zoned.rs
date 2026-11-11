@@ -36,12 +36,11 @@ use vortex_session::registry::CachedId;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::plan::physical::Eval;
 use crate::plan::physical::Plan;
-use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanId;
 use crate::plan::physical::PlanParts;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::PlanSlots;
 use crate::plan::physical::PlanVTable;
-use crate::plan::physical::check_child_count;
 use crate::plan::physical::operators::OnceSource;
 use crate::plan::physical::operators::UNBOUNDED;
 use crate::plan::physical::operators::WholeSource;
@@ -152,8 +151,8 @@ pub struct ZonedData {
 /// Its zone table has the aggregate schema of `vortex.zoned` layouts; legacy `vortex.stats`
 /// layouts reach it through [`LegacyStats`](crate::plan::physical::LegacyStats), which converts
 /// their tables. An expression containing abstract statistic functions can rewrite it into a
-/// pruning plan that retains only the zone-statistics child; a plan that reads the data is
-/// optimized to its data child alone.
+/// pruning plan whose data slot is absent, retaining only the zone-statistics child; a plan that
+/// reads the data is optimized to its data child alone. Its slots are always `[data, zones]`.
 #[derive(Clone, Debug)]
 pub struct Zoned;
 
@@ -161,10 +160,10 @@ pub struct Zoned;
 pub type ZonedPlan = Plan<Zoned>;
 
 impl ZonedPlan {
-    pub(crate) fn from_children(
+    pub(crate) fn from_slots(
         dtype: DType,
         row_count: u64,
-        children: PlanChildren,
+        slots: PlanSlots,
         zone_len: u64,
         aggregate_fns: Arc<[AggregateFnRef]>,
     ) -> Self {
@@ -172,7 +171,7 @@ impl ZonedPlan {
             vtable: Zoned,
             dtype,
             row_count,
-            children,
+            slots,
             data: ZonedData {
                 zone_len,
                 aggregate_fns,
@@ -192,10 +191,10 @@ impl ZonedPlan {
     ) -> Self {
         let dtype = data.dtype().clone();
         let row_count = data.row_count();
-        Self::from_children(
+        Self::from_slots(
             dtype,
             row_count,
-            vec![data, zones].into(),
+            [data, zones].into(),
             zone_len,
             aggregate_fns,
         )
@@ -229,16 +228,12 @@ impl ZonedPlan {
 
     /// Returns the plan producing the summarised data, unless this is a pruning plan.
     pub fn data_plan(&self) -> VortexResult<Option<PlanRef>> {
-        if self.is_pruning() {
-            return Ok(None);
-        }
-        self.child(DATA)
+        self.slot(DATA)
     }
 
     /// Returns the plan producing the zone statistics.
     pub fn zones_plan(&self) -> VortexResult<PlanRef> {
-        let index = if self.is_pruning() { 0 } else { ZONES };
-        self.child_required(index)
+        self.slot_required(ZONES)
     }
 
     /// Returns whether this plan represents a zone-backed pruning proof.
@@ -266,7 +261,7 @@ impl ZonedPlan {
                 vtable: Zoned,
                 dtype: expression.dtype().clone(),
                 row_count: self.row_count(),
-                children: vec![self.zones_plan()?].into(),
+                slots: [None, self.slots()[ZONES].clone()].into_iter().collect(),
                 data,
             }
             .into_typed(),
@@ -294,13 +289,19 @@ impl PlanVTable for Zoned {
         None
     }
 
-    fn with_children(
+    fn with_slots(
         plan: &Plan<Self>,
-        children: &PlanChildren,
+        slots: &PlanSlots,
         data: &mut Self::PlanData,
     ) -> VortexResult<()> {
+        slots.check_len("Zoned", ZONES + 1)?;
+        if slots[ZONES].is_none() {
+            vortex_bail!("Zoned plan has no zones child");
+        }
         if plan.is_pruning() {
-            check_child_count("Zoned pruning", children, 1)?;
+            if slots[DATA].is_some() {
+                vortex_bail!("Zoned pruning plan has a data child");
+            }
             // New zones may prove different zones, so the proof of the old ones is not kept.
             if let Some(state) = &mut data.pruning {
                 state.pruned_zones = Arc::new(PrunedZones::new(&state.expression));
@@ -308,28 +309,18 @@ impl PlanVTable for Zoned {
             return Ok(());
         }
 
-        check_child_count("Zoned", children, 2)?;
-        let data = children
-            .get(DATA)?
-            .ok_or_else(|| vortex_error::vortex_err!("Zoned data child is absent"))?;
+        let data = slots.required(DATA)?;
         if data.dtype() != plan.dtype() || data.row_count() != plan.row_count() {
-            vortex_error::vortex_bail!("Zoned data child shape does not match the plan output");
+            vortex_bail!("Zoned data child shape does not match the plan output");
         }
         Ok(())
     }
 
-    fn child_name(plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
-        if plan.is_pruning() {
-            return if index == 0 {
-                Cow::Borrowed("zones")
-            } else {
-                Cow::Owned(format!("child[{index}]"))
-            };
-        }
-        match index {
+    fn slot_name(_plan: &Plan<Self>, slot: usize) -> Cow<'_, str> {
+        match slot {
             DATA => Cow::Borrowed("data"),
             ZONES => Cow::Borrowed("zones"),
-            _ => Cow::Owned(format!("child[{index}]")),
+            _ => Cow::Owned(format!("slot[{slot}]")),
         }
     }
 

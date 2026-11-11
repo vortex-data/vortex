@@ -23,7 +23,7 @@ use vortex_session::VortexSession;
 
 use crate::FileStatistics;
 
-pub(crate) fn can_prune_file_stats(
+pub(crate) fn is_falsified_by_file_stats(
     expr: &BoundExpression,
     row_count: u64,
     file_stats: &FileStatistics,
@@ -33,6 +33,27 @@ pub(crate) fn can_prune_file_stats(
         return Ok(false);
     };
 
+    evaluate_file_stats_proof(pruning_expr, row_count, file_stats, session)
+}
+
+pub(crate) fn is_satisfied_by_file_stats(
+    expr: &BoundExpression,
+    row_count: u64,
+    file_stats: &FileStatistics,
+    session: &VortexSession,
+) -> VortexResult<bool> {
+    let Some(proof) = expr.satisfy(session)? else {
+        return Ok(false);
+    };
+    evaluate_file_stats_proof(proof, row_count, file_stats, session)
+}
+
+fn evaluate_file_stats_proof(
+    pruning_expr: BoundExpression,
+    row_count: u64,
+    file_stats: &FileStatistics,
+    session: &VortexSession,
+) -> VortexResult<bool> {
     let binder = FileStatsBinder { file_stats };
     let pruning_expr = bind_stats(pruning_expr, &binder)?;
 

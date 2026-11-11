@@ -376,6 +376,29 @@ mod tests {
             .await
     }
 
+    // Segment allocation follows task scheduling; normalize IDs while preserving aliases.
+    fn display_tree_with_canonical_segments(layout: &LayoutRef) -> String {
+        let tree = layout.display_tree().to_string();
+        let mut segments = Vec::new();
+        tree.lines()
+            .map(|line| {
+                let Some((prefix, segment)) = line.rsplit_once("segment: ") else {
+                    return line.to_owned();
+                };
+                let index = segments
+                    .iter()
+                    .position(|id| *id == segment)
+                    .unwrap_or_else(|| {
+                        let index = segments.len();
+                        segments.push(segment);
+                        index
+                    });
+                format!("{prefix}segment: {index}")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     /// A plain table dispatcher with no overrides. `flat` here is both the validity and leaf
     /// strategy.
     fn flat_table() -> TableStrategy {
@@ -500,7 +523,7 @@ mod tests {
         )
         .with_list_layout();
         let layout = write(&dispatcher, chunked).await?;
-        insta::assert_snapshot!(layout.display_tree(), @r"
+        insta::assert_snapshot!(display_tree_with_canonical_segments(&layout), @r"
         vortex.list, dtype: list(i32), children: 2
         ├── elements: vortex.chunked, dtype: i32, children: 2
         │   ├── [0]: vortex.flat, dtype: i32, segment: 0
@@ -601,7 +624,7 @@ mod tests {
         let chunked = ChunkedArray::try_new(vec![c0, c1], dtype)?.into_array();
 
         let layout = write(&dispatcher, chunked).await?;
-        insta::assert_snapshot!(layout.display_tree(), @r"
+        insta::assert_snapshot!(display_tree_with_canonical_segments(&layout), @r"
         vortex.struct, dtype: {a=i32, b=i32}, children: 2
         ├── a: vortex.chunked, dtype: i32, children: 2
         │   ├── [0]: vortex.flat, dtype: i32, segment: 0

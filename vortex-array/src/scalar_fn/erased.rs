@@ -25,6 +25,7 @@ use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ExpressionReduceNode;
 use crate::scalar_fn::ReduceNodeValidity;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::options::ScalarFnOptions;
@@ -151,6 +152,17 @@ impl ScalarFnRef {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         self.0.execute(args, ctx)
+    }
+
+    /// Perform a single step of execution given the input arguments.
+    ///
+    /// See [`ScalarFnVTable::execute_step`].
+    pub fn execute_step(
+        &self,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        self.0.execute_step(args, ctx)
     }
 
     /// Perform abstract reduction on this scalar function node in an expression tree.

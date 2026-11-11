@@ -70,6 +70,9 @@ typedef struct {
     bool has_null;
     // owned column type
     duckdb_logical_type type;
+    // TODO(myrrc) remove after https://github.com/duckdb/duckdb/pull/28099
+    // is merged
+    uint64_t row_count;
 } duckdb_column_statistics;
 
 // File-level statistics of a written Vortex file, for the DuckLake
@@ -104,6 +107,8 @@ duckdb_state duckdb_vx_register_version_function(duckdb_database ffi_db, const c
 typedef struct duckdb_vx_agg_input_ *duckdb_vx_agg_input;
 idx_t duckdb_vx_aggregate_len(duckdb_vx_agg_input ffi);
 duckdb_vx_expr duckdb_vx_aggregate_at(duckdb_vx_agg_input ffi, idx_t index, idx_t *proj_idx);
+duckdb_vx_table_filter_set duckdb_vx_aggregate_table_filters(duckdb_vx_agg_input ffi);
+idx_t duckdb_vx_aggregate_column_id(duckdb_vx_agg_input ffi, idx_t scan_index);
 
 #ifdef __cplusplus
 }

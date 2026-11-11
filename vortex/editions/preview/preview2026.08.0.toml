@@ -14,7 +14,9 @@ origin = "vortex"
 arrays = []
 layouts = []
 dtypes = []
-aggregates = []
+aggregates = [
+    "vortex.uncompressed_size_in_bytes",
+]
 
 # The edition's full membership: the members above, plus every member of earlier
 # editions of the family.
@@ -22,4 +24,6 @@ aggregates = []
 arrays = []
 layouts = []
 dtypes = []
-aggregates = []
+aggregates = [
+    "vortex.uncompressed_size_in_bytes",
+]

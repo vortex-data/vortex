@@ -143,7 +143,7 @@ fn random_array_chunk(
         },
         d @ DType::Decimal(decimal, n) => {
             let elem_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
-            match_each_decimal_value_type!(DecimalType::smallest_decimal_value_type(decimal), |D| {
+            match_each_decimal_value_type!(decimal.canonical_values_type(), |D| {
                 let mut builder = DecimalBuilder::new_in::<D>(
                     *decimal,
                     *n,

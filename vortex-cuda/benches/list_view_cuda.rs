@@ -25,6 +25,7 @@ use vortex::array::validity::Validity;
 use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex_array::test_harness::mark_optimized;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;
@@ -112,6 +113,8 @@ fn benchmark_list_view_export(c: &mut Criterion) {
                             .with_launch_strategy(Arc::new(timed));
                     let array = block_on(contiguous_list_view(len, &mut cuda_ctx))
                         .vortex_expect("failed to create list-view fixture");
+                    mark_optimized(&array, &vortex_cuda::cuda_session())
+                        .vortex_expect("optimize the benchmark input");
 
                     for _ in 0..iters {
                         let mut exported =
@@ -143,6 +146,8 @@ fn benchmark_list_view_export(c: &mut Criterion) {
                             .with_launch_strategy(Arc::new(timed));
                     let array = block_on(non_contiguous_primitive_list_view(len, &mut cuda_ctx))
                         .vortex_expect("failed to create list-view fixture");
+                    mark_optimized(&array, &vortex_cuda::cuda_session())
+                        .vortex_expect("optimize the benchmark input");
 
                     for _ in 0..iters {
                         let mut exported =

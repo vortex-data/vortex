@@ -26,8 +26,7 @@ pub(super) fn accumulate_primitive(
     let skip_nans = args.options.skip_nans;
     match_each_native_ptype!(p.ptype(), |T| {
         let local = compute_min_max_with_validity::<T>(p, ctx, skip_nans)?;
-        partial.merge(args, local);
-        Ok(())
+        partial.merge(args, local)
     })
 }
 

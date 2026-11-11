@@ -28,6 +28,7 @@ vortex-edition = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-fsst = { workspace = true }
+vortex-mask = { workspace = true }
 vortex-onpair = { workspace = true }
 vortex-pco = { workspace = true, optional = true }
 vortex-sequence = { workspace = true }
@@ -39,6 +40,7 @@ vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 divan = { workspace = true }
+enum-iterator = { workspace = true }
 insta = { workspace = true }
 mimalloc = { workspace = true }
 rstest = { workspace = true }
@@ -58,5 +60,10 @@ test = false
 
 [[bench]]
 name = "compress_listview"
+harness = false
+test = false
+
+[[bench]]
+name = "string_dict_selection"
 harness = false
 test = false
