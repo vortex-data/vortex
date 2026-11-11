@@ -36,7 +36,8 @@ use crate::utils::file::temp_download_filepath;
 
 /// Benchmark and local data directory name for ClickBench sorted by event time.
 pub const CLICKBENCH_SORTED_NAME: &str = "clickbench-sorted";
-const CLICKBENCH_PARTITIONED_NAME: &str = "clickbench_partitioned";
+/// Local data directory name for the partitioned ClickBench dataset.
+pub const CLICKBENCH_PARTITIONED_NAME: &str = "clickbench_partitioned";
 /// The number of files in the partitioned ClickBench dataset.
 pub const CLICKBENCH_FILES: u32 = 100;
 const SORTED_SHARD_COUNT: usize = 100;
