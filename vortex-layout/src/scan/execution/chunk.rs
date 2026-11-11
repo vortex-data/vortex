@@ -25,15 +25,15 @@ use super::selection::plan_selection;
 
 /// The row grid every chunk boundary lies on.
 pub(crate) const ROW_BLOCK_SIZE: usize = 8192;
-/// The rows of a projection chunk.
-pub(crate) const MAX_ROWS_PER_CHUNK: usize = 8 * ROW_BLOCK_SIZE;
+/// Projection chunks stream stored batches, amortizing planning without concatenating them.
+pub(crate) const MAX_ROWS_PER_CHUNK: usize = 128 * ROW_BLOCK_SIZE;
 /// The rows of a filtered chunk, balancing conjunct setup against parallelism.
 pub(crate) const FILTERED_ROWS_PER_CHUNK: usize = 16 * ROW_BLOCK_SIZE;
 const TARGET_BYTES_PER_CHUNK: u64 = 8 * 1024 * 1024;
 
 /// Limit estimated bytes per chunk without changing the writer-aligned row granularity.
 pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> usize {
-    if row_count <= MAX_ROWS_PER_CHUNK as u64 {
+    if row_count <= ROW_BLOCK_SIZE as u64 {
         return MAX_ROWS_PER_CHUNK;
     }
     let bytes: u64 = locations
@@ -42,7 +42,10 @@ pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> u
         .sum();
     let bytes_per_row = bytes.div_ceil(row_count).max(1);
     let blocks = TARGET_BYTES_PER_CHUNK / bytes_per_row / ROW_BLOCK_SIZE as u64;
-    blocks.clamp(1, 8) as usize * ROW_BLOCK_SIZE
+    usize::try_from(blocks)
+        .unwrap_or(usize::MAX)
+        .clamp(1, MAX_ROWS_PER_CHUNK / ROW_BLOCK_SIZE)
+        * ROW_BLOCK_SIZE
 }
 
 /// Fixed boundaries in the file's row domain, clipped to the requested range.

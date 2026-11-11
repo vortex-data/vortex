@@ -13,10 +13,11 @@
 //! Import this module's [`ScanBuilder`] to prepare a V2 scan. It accepts a [`ScanFile`] directly
 //! and supports projection, filters, row ranges, and selections. Unsupported layouts return an
 //! error when the plan is prepared; limits are not part of this builder's API. Work is cut into
-//! chunks of up to 65,536 rows, or 131,072 rows for filtered scans. Filtered scans reading only
+//! chunks of up to 1,048,576 rows, or 131,072 rows for filtered scans. Filtered scans reading only
 //! one primitive or boolean field use 1,048,576 rows to amortize setup, independently of the stored
-//! layout's chunk boundaries. Full-file projections use smaller 8,192-row multiples when
-//! serialized bytes per row are high.
+//! layout's chunk boundaries. Unfiltered projections stream stored batches without concatenating
+//! them. Full-file projections use smaller 8,192-row multiples when serialized bytes per row are
+//! high.
 //!
 //! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and pruned
 //! zones, segment index, dictionary values, and recently read segments with every other scan of
@@ -229,7 +230,11 @@ impl ScanBuilder {
             }
         };
         let chunk_rows = if let Some(rows) = filtered_chunk_rows {
-            rows
+            if identity {
+                rows.min(rows_per_chunk(row_count, &file.locations))
+            } else {
+                rows
+            }
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
         } else {

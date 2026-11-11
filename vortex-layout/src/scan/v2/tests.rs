@@ -55,7 +55,6 @@ use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
 use super::ChunkPlanner;
-use super::MAX_ROWS_PER_CHUNK;
 use super::PreparedScan;
 use super::PrunePlanner;
 use super::ROW_BLOCK_SIZE;
@@ -538,10 +537,11 @@ fn scans_join_short_edge_chunks(
 }
 
 #[rstest]
-#[case::empty(0, 0, 65_536)]
-#[case::single_chunk(1000, 100_000_000, 65_536)]
-#[case::no_bytes(100_000, 0, 65_536)]
-#[case::small_rows(1_000_000, 64_000_000, 65_536)]
+#[case::empty(0, 0, 1_048_576)]
+#[case::single_chunk(1000, 100_000_000, 1_048_576)]
+#[case::no_bytes(100_000, 0, 1_048_576)]
+#[case::small_rows(1_000_000, 64_000_000, 131_072)]
+#[case::wide_small_file(65_536, 128_000_000, 8192)]
 #[case::large_rows(1_000_000, 384_000_000, 16_384)]
 #[case::minimum(1_000_000, 2_000_000_000, 8192)]
 fn chunk_byte_budget(#[case] rows: u64, #[case] bytes: u32, #[case] expected: usize) {
@@ -596,11 +596,14 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
     let mut file = scan_file(&segments, &layout)?;
     // Without retained segments, so a chunk reads every codes chunk it overlaps.
     file.cache = Some(ScanCache::with_retained_bytes(0));
-    let scan = Arc::new(ScanBuilder::new(session.clone(), file).prepare()?);
+    let mut scan = ScanBuilder::new(session.clone(), file).prepare()?;
+    // Exercise reuse across work chunks even when the default work chunk holds the whole file.
+    scan.chunk_rows = 8 * ROW_BLOCK_SIZE;
+    let scan = Arc::new(scan);
     let chunks = row_chunks(scan.rows().clone(), scan.chunk_rows);
     assert_eq!(
         chunks.len(),
-        (STORED_CHUNKS * STORED_CHUNK_ROWS).div_ceil(MAX_ROWS_PER_CHUNK)
+        (STORED_CHUNKS * STORED_CHUNK_ROWS).div_ceil(scan.chunk_rows)
     );
     for (index, rows) in chunks.into_iter().enumerate() {
         let before = counted.requests();
@@ -717,10 +720,10 @@ async fn primitive_column() -> VortexResult<()> {
     Ok(())
 }
 
-/// Stored chunk boundaries do not subdivide a fixed work chunk.
+/// Stored batches stream within one work chunk without being concatenated for Arrow conversion.
 #[rstest]
 #[tokio::test]
-async fn work_chunks_ignore_layout_boundaries(
+async fn stored_batches_share_one_work_chunk(
     #[values(Strategy::Flat, Strategy::Table, Strategy::ZonedTable)] strategy: Strategy,
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
@@ -730,9 +733,53 @@ async fn work_chunks_ignore_layout_boundaries(
         row_chunks(scan.rows().clone(), scan.chunk_rows),
         vec![0..(CHUNKS * CHUNK_ROWS) as u64]
     );
-    let arrays = run_rows(&scan, scan.rows().clone()).await?;
-    assert_eq!(arrays.len(), 1);
-    assert_eq!(arrays[0].len(), CHUNKS * CHUNK_ROWS);
+    let batches = run_batches(&scan, scan.rows().clone()).await?;
+    assert_eq!(batches.len(), CHUNKS);
+    assert!(batches.iter().all(|batch| batch.scope.rows == *scan.rows()));
+    let arrays = batches
+        .into_iter()
+        .map(|batch| batch.array)
+        .collect::<Vec<_>>();
+    let expected = (0..CHUNKS)
+        .map(|chunk| table_chunk(chunk * CHUNK_ROWS))
+        .collect::<VortexResult<Vec<_>>>()?;
+    assert_arrays_eq!(
+        ChunkedArray::try_new(arrays, layout.dtype().clone())?,
+        ChunkedArray::try_new(expected, layout.dtype().clone())?,
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn large_stored_batch_is_not_subdivided_for_projection() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let segments = Arc::new(TestSegments::default());
+    let (mut sequence, eof) = SequenceId::root().split();
+    let expected = PrimitiveArray::from_iter(0..150_000i32).into_array();
+    let layout = FlatLayoutStrategy::default()
+        .write_stream(
+            ArrayContext::empty().into(),
+            Arc::<TestSegments>::clone(&segments),
+            SequentialStreamAdapter::new(
+                expected.dtype().clone(),
+                stream::iter([Ok((sequence.advance(), expected.clone()))]),
+            )
+            .sendable(),
+            eof,
+            &session,
+        )
+        .await?;
+    let segments = segments as Arc<dyn SegmentSource>;
+    let scan = Arc::new(builder(&session, &segments, &layout)?.prepare()?);
+    let batches = run_batches(&scan, scan.rows().clone()).await?;
+    assert_eq!(batches.len(), 1);
+    assert_eq!(batches[0].scope.rows, 0..150_000);
+    assert_arrays_eq!(
+        batches[0].array,
+        expected,
+        &mut session.create_execution_ctx()
+    );
     Ok(())
 }
 
