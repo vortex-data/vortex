@@ -327,17 +327,21 @@ mod tests {
     use arrow_schema::Field;
     use parquet_variant::Variant as PqVariant;
     use parquet_variant::VariantBuilder;
+    use parquet_variant_compute::ShreddedSchemaBuilder;
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use parquet_variant_compute::VariantArrayBuilder;
     use parquet_variant_compute::json_to_variant;
+    use parquet_variant_compute::shred_variant;
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray as VortexStructArray;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::Variant;
     use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::struct_::StructArrayExt;
@@ -1126,6 +1130,81 @@ mod tests {
             result,
             PrimitiveArray::from_option_iter([Some(10), Some(30), None]),
             &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    /// Events shredded as `kind` and `commit.collection`, canonicalized. Only some events have a
+    /// `commit`, and `commit.rev` stays in the residual value of `commit`.
+    fn make_nested_shredded_events() -> VortexResult<ArrayRef> {
+        let json: ArrowArrayRef = Arc::new(StringArray::from(vec![
+            r#"{"kind":"commit","commit":{"collection":"post","rev":1}}"#,
+            r#"{"kind":"identity"}"#,
+            r#"{"kind":"commit","commit":{"collection":"like","rev":2}}"#,
+        ]));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("kind", &DataType::Utf8)?
+            .with_path("commit.collection", &DataType::Utf8)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let parquet_array = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let Canonical::Variant(canonical) = parquet_array.execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+        Ok(canonical.into_array())
+    }
+
+    /// The shapes in which a scan hands a Variant column to `variant_get`.
+    #[derive(Clone, Copy, Debug)]
+    enum Input {
+        Canonical,
+        Chunked,
+        Filtered,
+    }
+
+    #[rstest]
+    #[case::canonical(Input::Canonical, &[0, 1, 2])]
+    #[case::chunked(Input::Chunked, &[0, 1, 2])]
+    #[case::filtered(Input::Filtered, &[0, 2])]
+    fn test_variant_get_nested_shredded_path(
+        #[case] input: Input,
+        #[case] rows: &[usize],
+    ) -> VortexResult<()> {
+        let events = make_nested_shredded_events()?;
+        let array = match input {
+            Input::Canonical => events,
+            Input::Chunked => ChunkedArray::try_new(
+                [events.slice(0..2)?, events.slice(2..3)?],
+                events.dtype().clone(),
+            )?
+            .into_array(),
+            Input::Filtered => events.filter(Mask::from_iter([true, false, true]))?,
+        };
+        let mut ctx = SESSION.create_execution_ctx();
+
+        // `commit` is a partially shredded object, which holds the rest of the path.
+        let collection = [Some("post"), None, Some("like")];
+        assert_arrays_eq!(
+            execute_variant_get(
+                array.clone(),
+                "$.commit.collection",
+                Some(VortexDType::Utf8(Nullability::Nullable)),
+            )?,
+            VarBinViewArray::from_iter_nullable_str(rows.iter().map(|&row| collection[row])),
+            &mut ctx
+        );
+
+        // A field that is not shredded comes from the residual value of `commit`.
+        let rev = [Some(1i64), None, Some(2)];
+        assert_arrays_eq!(
+            execute_variant_get(
+                array,
+                "$.commit.rev",
+                Some(VortexDType::Primitive(PType::I64, Nullability::Nullable)),
+            )?,
+            PrimitiveArray::from_option_iter(rows.iter().map(|&row| rev[row])),
+            &mut ctx
         );
         Ok(())
     }
