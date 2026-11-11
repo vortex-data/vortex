@@ -361,6 +361,21 @@ async fn bm25_top_k_matches_scoring_every_row(#[case] query: &str) -> VortexResu
     Ok(())
 }
 
+/// A `k` far past the number of matching rows returns every match, and the same results as a
+/// `k` that fits, so it neither allocates for `k` nor leaves scores behind for the next search.
+#[tokio::test]
+async fn bm25_with_unbounded_k_returns_every_match() -> VortexResult<()> {
+    let session = session()?;
+    let data = Data::generate(7, ROWS);
+    let file = write_indexed_file(&session, &data).await?;
+    let index = open_in_file_index(InvertedIndex, &file, "text")?.expect("inverted index");
+
+    let every = index.search_bm25("needle echo", ROWS).await?;
+    assert_eq!(index.search_bm25("needle echo", usize::MAX).await?, every);
+    assert_eq!(index.search_bm25("needle echo", ROWS).await?, every);
+    Ok(())
+}
+
 #[tokio::test]
 async fn in_file_ivf_finds_nearest_vectors() -> VortexResult<()> {
     let session = session()?;

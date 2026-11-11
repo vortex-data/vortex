@@ -2821,6 +2821,7 @@ dependencies = [
  "vortex-bench",
  "vortex-datafusion",
  "vortex-metrics",
+ "vortex-table",
 ]
 
 [[package]]
@@ -11832,6 +11833,7 @@ dependencies = [
  "vortex-array",
  "vortex-arrow",
  "vortex-json",
+ "vortex-table",
  "vortex-utils",
 ]
 
@@ -12579,6 +12581,7 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "parking_lot",
+ "prost 0.14.4",
  "rstest",
  "tempfile",
  "tokio",
@@ -12587,10 +12590,12 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-expr",
  "vortex-file",
  "vortex-index",
  "vortex-io",
  "vortex-layout",
+ "vortex-mask",
  "vortex-scan",
  "vortex-session",
  "vortex-utils",

@@ -21,6 +21,7 @@ pub mod footer;
 pub mod index;
 pub mod manifest;
 pub mod scan;
+pub mod stats;
 pub mod storage;
 pub mod writer;
 
@@ -28,6 +29,7 @@ pub use manifest::Manifest;
 pub use manifest::ManifestEntry;
 pub use scan::FileCache;
 pub use scan::TableScan;
+pub use stats::TableStats;
 pub use storage::LocalStorage;
 pub use storage::MemoryStorage;
 pub use storage::TableStorage;
