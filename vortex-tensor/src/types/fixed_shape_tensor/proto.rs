@@ -4,7 +4,6 @@
 //! Protobuf serialization for [`FixedShapeTensorMetadata`].
 
 use prost::Message;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -36,12 +35,12 @@ struct FixedShapeTensorMetadataProto {
 }
 
 /// Serializes [`FixedShapeTensorMetadata`] to protobuf bytes.
-pub(crate) fn serialize(metadata: &FixedShapeTensorMetadata) -> Vec<u8> {
+pub(crate) fn serialize(metadata: &FixedShapeTensorMetadata) -> VortexResult<Vec<u8>> {
     let logical_shape = metadata
         .logical_shape()
         .iter()
-        .map(|&d| u32::try_from(d).vortex_expect("dimension size exceeds u32"))
-        .collect();
+        .map(|&dimension| u32::try_from(dimension))
+        .collect::<Result<Vec<_>, _>>()?;
 
     let dim_names = metadata.dim_names().map(|n| n.to_vec()).unwrap_or_default();
 
@@ -49,9 +48,10 @@ pub(crate) fn serialize(metadata: &FixedShapeTensorMetadata) -> Vec<u8> {
         .permutation()
         .map(|p| {
             p.iter()
-                .map(|&i| u32::try_from(i).vortex_expect("permutation index exceeds u32"))
-                .collect()
+                .map(|&index| u32::try_from(index))
+                .collect::<Result<Vec<_>, _>>()
         })
+        .transpose()?
         .unwrap_or_default();
 
     let proto = FixedShapeTensorMetadataProto {
@@ -59,7 +59,8 @@ pub(crate) fn serialize(metadata: &FixedShapeTensorMetadata) -> Vec<u8> {
         dim_names,
         permutation,
     };
-    proto.encode_to_vec()
+
+    Ok(proto.encode_to_vec())
 }
 
 /// Deserializes [`FixedShapeTensorMetadata`] from protobuf bytes.
