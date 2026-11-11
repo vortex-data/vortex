@@ -24,10 +24,10 @@ Two options select the dataset:
 
 | Shredding | Typed fields |
 | --- | --- |
-| `none` (default) | None |
+| `none` | None |
 | `partial` | `kind`, `did`, `time_us` |
 | `query-fields` | The above plus `commit.collection`, `commit.operation` |
-| `inferred` | None in the Parquet file. The Vortex writer shreds what the documents have in common |
+| `inferred` (default) | None in the Parquet file. The Vortex writer shreds what the documents have in common |
 
 Every option value has its own data directory, `data/jsonbench/<N>m-<shredding>`. The source
 files are shared, in `data/jsonbench/json`.
@@ -112,8 +112,9 @@ the way past it, which is what `inferred` does.
 
 What is left:
 
-1. **Shredding on write is opt-in.** `inferred` enables it for this suite. The schema comes
-   from the first chunk alone, and the shredding runs on the writer's thread.
+1. **Shredding on write is this suite's default, not the writer's.** `inferred` enables it
+   through the suite's unstable edition. The schema comes from the first chunk alone, and the
+   shredding runs on the writer's thread.
 2. **Extractions the in-place reader does not cover.** A path through a list, a value that
    needs a cast, and a target other than a string or a 64-bit integer go through the general
    kernel, at Parquet's speed.
@@ -127,6 +128,6 @@ What is left:
 ```bash
 vx-bench run jsonbench --engine datafusion --format parquet,vortex,vortex-compact
 vx-bench run jsonbench --engine datafusion --format parquet,vortex --opt shredding=query-fields
-vx-bench run jsonbench --engine datafusion --format parquet,vortex --opt shredding=inferred
+vx-bench run jsonbench --engine datafusion --format parquet,vortex --opt shredding=none
 vx-bench run jsonbench --engine duckdb --format parquet,duckdb
 ```

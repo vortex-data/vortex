@@ -49,7 +49,6 @@ fn source_url(number: usize) -> String {
 #[serde(rename_all = "kebab-case")]
 pub enum Shredding {
     /// No shredding: every document is a single binary Variant value.
-    #[default]
     None,
     /// The top-level `kind`, `did`, and `time_us` fields.
     Partial,
@@ -57,6 +56,7 @@ pub enum Shredding {
     QueryFields,
     /// Nothing is shredded in the Parquet file. The Vortex writer shreds the fields that it
     /// finds the documents to have in common.
+    #[default]
     Inferred,
 }
 
