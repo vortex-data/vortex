@@ -214,27 +214,26 @@ pub fn runend_encode_bool(
     }
 
     let bits = array.to_bit_buffer();
+
     let mut ends = BufferMut::<u64>::empty();
-    let mut values = BitBufferMut::empty();
-    let mut cursor = 0;
-    for (start, end) in bits.set_slices() {
-        if start > cursor {
-            ends.push(start as u64);
-            values.append(false);
+    for_each_transition_word(&bits, |base, mut transitions| {
+        while transitions != 0 {
+            ends.push((base + transitions.trailing_zeros() as usize) as u64);
+            transitions &= transitions - 1;
         }
-        ends.push(end as u64);
-        values.append(true);
-        cursor = end;
-    }
-    if cursor < bits.len() {
+    });
+    if !bits.is_empty() {
         ends.push(bits.len() as u64);
-        values.append(false);
     }
+
+    // Runs alternate between `true` and `false`, so the first bit gives all of the values.
+    let first = !bits.is_empty() && bits.value(0);
+    let values = BitBuffer::collect_bool(ends.len(), |run| first ^ (run % 2 == 1));
 
     let ends = PrimitiveArray::new(ends.freeze(), Validity::NonNullable).narrow(ctx)?;
     ends.statistics()
         .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
-    let values = BoolArray::new(values.freeze(), array.dtype().nullability().into()).into_array();
+    let values = BoolArray::new(values, array.dtype().nullability().into()).into_array();
     Ok((ends, values))
 }
 
@@ -244,29 +243,38 @@ pub fn bool_run_count(bits: &BitBuffer) -> usize {
         return 0;
     }
 
+    let mut transitions = 0;
+    for_each_transition_word(bits, |_, word| transitions += word.count_ones() as usize);
+    transitions + 1
+}
+
+/// Calls `f(base, transitions)` for each 64-bit word of `bits`, where bit `j` of `transitions` is
+/// set when bit `base + j` differs from bit `base + j - 1`.
+///
+/// Bit 0 of the bitmap never counts as a transition.
+fn for_each_transition_word(bits: &BitBuffer, mut f: impl FnMut(usize, u64)) {
+    if bits.is_empty() {
+        return;
+    }
+
     let chunks = bits.chunks();
-    let mut changes = 0usize;
-    let mut last: Option<bool> = None;
-    let mut count_word = |word: u64, len: usize| {
-        // Bit `i` of `word ^ (word >> 1)` is set where bits `i` and `i + 1` differ.
-        let pairs = if len >= 64 {
-            u64::MAX >> 1
-        } else {
-            (1u64 << (len - 1)) - 1
-        };
-        changes += ((word ^ (word >> 1)) & pairs).count_ones() as usize;
-        if last.is_some_and(|last| last != (word & 1 == 1)) {
-            changes += 1;
-        }
-        last = Some((word >> (len - 1)) & 1 == 1);
-    };
+
+    // Seed the carry with the first bit, so that bit 0 compares equal to its predecessor.
+    let mut carry = u64::from(bits.value(0));
+    let mut base = 0;
+
     for word in chunks.iter() {
-        count_word(word, 64);
+        f(base, word ^ ((word << 1) | carry));
+        carry = word >> 63;
+        base += 64;
     }
-    if chunks.remainder_len() > 0 {
-        count_word(chunks.remainder_bits(), chunks.remainder_len());
+
+    let remainder_len = chunks.remainder_len();
+    if remainder_len > 0 {
+        let word = chunks.remainder_bits();
+        let mask = u64::MAX >> (64 - remainder_len);
+        f(base, (word ^ ((word << 1) | carry)) & mask);
     }
-    changes + 1
 }
 
 pub fn runend_decode_primitive(
@@ -569,7 +577,12 @@ mod tests {
         for offset in [0, 1].into_iter().filter(|&o| o <= len) {
             let sliced = arr.to_bit_buffer().slice(offset..);
             assert_eq!(bool_run_count(&sliced), runs(&bits[offset..]));
+
+            let sliced = BoolArray::new(sliced, Validity::NonNullable);
+            let encoded = RunEnd::encode(sliced.clone().into_array(), &mut ctx)?;
+            assert_arrays_eq!(encoded, sliced, &mut ctx);
         }
+
         let encoded = RunEnd::encode(arr.clone().into_array(), &mut ctx);
         if valid == Some(false) {
             assert!(encoded.is_err());
