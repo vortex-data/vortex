@@ -101,7 +101,7 @@ pub enum DeferredEstimate {
 pub enum EstimateScore {
     /// A finite compression ratio. Higher means a smaller amount of data, so it is better.
     FiniteCompression(f64),
-    /// Trial compression produced a 0-byte output.
+    /// Trial compression produced a 0-byte output, or sampled only null values.
     ///
     /// This has no finite ratio and is not eligible for scheme selection.
     ///
