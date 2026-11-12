@@ -24,6 +24,7 @@ use crate::aggregate_fn::fns::first::First;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
 use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
+use crate::aggregate_fn::fns::is_sorted::SortDirection;
 use crate::aggregate_fn::fns::last::Last;
 use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min::Min;
@@ -57,8 +58,21 @@ fn aggregates() -> Vec<(AggregateFnRef, bool)> {
         (Min.bind(options), true),
         (Max.bind(options), true),
         (IsConstant.bind(EmptyOptions), true),
-        (IsSorted.bind(IsSortedOptions { strict: false }), true),
-        (IsSorted.bind(IsSortedOptions { strict: true }), true),
+        (IsSorted.bind(IsSortedOptions::default()), true),
+        (
+            IsSorted.bind(IsSortedOptions {
+                strict: true,
+                ..Default::default()
+            }),
+            true,
+        ),
+        (
+            IsSorted.bind(IsSortedOptions {
+                strict: false,
+                direction: SortDirection::Desc,
+            }),
+            true,
+        ),
         (Sum.bind(options), true),
         (Sum.bind(NumericalAggregateOpts { skip_nans: false }), false),
         (SumV2.bind(options), false),
