@@ -113,7 +113,8 @@ pub fn format_to_df_format(format: Format, scan_v2: bool) -> anyhow::Result<Arc<
     })
 }
 
-fn vortex_table_options() -> VortexTableOptions {
+/// The Vortex table options every benchmark registration uses.
+pub fn vortex_table_options() -> VortexTableOptions {
     let mut opts = VortexTableOptions::default();
 
     opts.predicate_pushdown = true;

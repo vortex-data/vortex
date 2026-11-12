@@ -408,36 +408,6 @@ impl SegmentSource for FileSegmentSource {
     }
 }
 
-/// A segment source that reads each segment with its own read, on the task that awaits it.
-///
-/// [`FileSegmentSource`] hands every request to a background driver task, which coalesces nearby
-/// requests and limits how many run at once. For a file whose reads are few and small, such as
-/// an index read on every lookup, that hop costs more than the read. Pair it with a reader that
-/// reads inline, such as [`FileReadAt::with_inline_reads`](vortex_io::std_file::FileReadAt), and
-/// a segment read never leaves the calling task.
-pub struct DirectSegmentSource {
-    segments: Arc<[SegmentSpec]>,
-    reader: Arc<dyn VortexReadAt>,
-}
-
-impl DirectSegmentSource {
-    /// Serve `segments` by reading them from `reader`.
-    pub fn new(segments: Arc<[SegmentSpec]>, reader: Arc<dyn VortexReadAt>) -> Self {
-        Self { segments, reader }
-    }
-}
-
-impl SegmentSource for DirectSegmentSource {
-    fn request(&self, id: SegmentId) -> SegmentFuture {
-        match self.segments.get(*id as usize) {
-            Some(spec) => self
-                .reader
-                .read_at(spec.offset, spec.length as usize, spec.alignment),
-            None => future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed(),
-        }
-    }
-}
-
 /// A future that resolves a read request from a [`FileSegmentSource`].
 ///
 /// See the documentation for [`FileSegmentSource`] for details on coalescing and pre-fetching.

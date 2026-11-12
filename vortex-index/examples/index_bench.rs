@@ -16,17 +16,21 @@
 //! ```text
 //! index_bench build <trigram|fts|ivf> <input.parquet> <column> <outdir> [lists]
 //! index_bench query <trigram|fts|ivf> <outdir> <queries> [--repeat N] [--only I] [--scan]
-//!                   [--index-only] [--top-k-only] [--nprobe N] [--k K]
+//!                   [--index-only] [--top-k-only] [--e2e] [--nprobe N] [--k K]
 //! ```
 //!
 //! `build` writes `<outdir>/data.vortex` holding the column and a standalone index file
-//! `<outdir>/<kind>.vxi` over it, and prints sizes and timings as JSON. `query` prints one JSON
+//! `<outdir>/<kind>.vxi` over it, and prints sizes and timings as JSON. `DATA_ROW_BLOCK=<rows>`
+//! writes the data file in blocks of that many rows instead of the default 8,192. `query` prints one JSON
 //! line per query with its result, the median warm latency, and the exact bytes Vortex read from
 //! each file on a fresh open. `--scan` answers trigram queries without the index, and `--index-only`
 //! probes the trigram index without reading data. `--top-k-only` runs only the BM25 ranking of a
-//! full-text query, skipping its match count. Index files are read directly on the querying
-//! task; `QUEUED_READS=1` sends their reads through the file's coalescing read driver and a
-//! blocking thread instead, as data files are read.
+//! full-text query, skipping its match count. `--e2e` also reads the text of the top-ranked rows
+//! from the data file, as a search that shows its results would.
+//!
+//! `SIM_LATENCY_MS=<ms>` serves every read as an object store would: each request waits that long
+//! for its first byte and then streams at `SIM_MBPS` (default 100) MB/s, and reads coalesce with the
+//! object-store policy. The first, fresh-open run of each query is then timed as `cold_ms`.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -56,6 +60,7 @@ use vortex_error::vortex_err;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::VortexFile;
 use vortex_file::WriteOptionsSessionExt;
+use vortex_file::WriteStrategyBuilder;
 use vortex_index::IndexFile;
 use vortex_index::IndexFileBuilder;
 use vortex_index::InvertedIndex;
@@ -71,6 +76,7 @@ use vortex_io::session::RuntimeSessionExt;
 use vortex_io::std_file::FileReadAt;
 use vortex_layout::scan::v2::ScanBuilder;
 use vortex_scan::selection::Selection;
+use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
 /// Microseconds since the first call, for `TRACE_READ_TIMES`.
@@ -83,7 +89,34 @@ fn trace_clock() -> f64 {
 struct CountingReadAt {
     inner: Arc<dyn VortexReadAt>,
     bytes: Arc<AtomicU64>,
+    requests: Arc<AtomicU64>,
+    sim: Option<SimStore>,
     name: String,
+}
+
+/// The latency and bandwidth of a simulated object store request.
+#[derive(Clone, Copy)]
+struct SimStore {
+    latency_ms: f64,
+    mbps: f64,
+}
+
+impl SimStore {
+    fn from_env() -> Option<Self> {
+        let latency_ms = std::env::var("SIM_LATENCY_MS").ok()?.parse().ok()?;
+        let mbps = std::env::var("SIM_MBPS")
+            .ok()
+            .and_then(|mbps| mbps.parse().ok())
+            .unwrap_or(100.0);
+        Some(Self { latency_ms, mbps })
+    }
+
+    #[expect(clippy::cast_precision_loss, reason = "a simulated delay")]
+    fn delay(&self, length: usize) -> std::time::Duration {
+        std::time::Duration::from_secs_f64(
+            self.latency_ms / 1000.0 + length as f64 / (self.mbps * 1e6),
+        )
+    }
 }
 
 impl VortexReadAt for CountingReadAt {
@@ -92,6 +125,9 @@ impl VortexReadAt for CountingReadAt {
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
         if std::env::var_os("NO_COALESCE").is_some() {
             return None;
+        }
+        if self.sim.is_some() {
+            return Some(CoalesceConfig::object_storage());
         }
         self.inner.coalesce_config()
     }
@@ -111,6 +147,14 @@ impl VortexReadAt for CountingReadAt {
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         self.bytes.fetch_add(length as u64, Ordering::Relaxed);
+        self.requests.fetch_add(1, Ordering::Relaxed);
+        let mut read = self.inner.read_at(offset, length, alignment);
+        if let Some(sim) = self.sim {
+            read = Box::pin(async move {
+                let (result, ()) = futures::join!(read, tokio::time::sleep(sim.delay(length)));
+                result
+            });
+        }
         if std::env::var_os("TRACE_READS").is_some() {
             eprintln!("read {} {offset} {length}", self.name);
         }
@@ -118,7 +162,6 @@ impl VortexReadAt for CountingReadAt {
             let name = self.name.clone();
             let start = trace_clock();
             let thread = format!("{:?}", std::thread::current().id());
-            let read = self.inner.read_at(offset, length, alignment);
             return Box::pin(async move {
                 let result = read.await;
                 eprintln!(
@@ -128,7 +171,7 @@ impl VortexReadAt for CountingReadAt {
                 result
             });
         }
-        self.inner.read_at(offset, length, alignment)
+        read
     }
 }
 
@@ -136,28 +179,37 @@ async fn open(
     session: &VortexSession,
     path: &Path,
     metadata: bool,
-) -> VortexResult<(VortexFile, Arc<AtomicU64>)> {
-    let bytes = Arc::new(AtomicU64::new(0));
-    // Index files are read with a few small reads per lookup, so they skip the coalescing read
-    // driver and the blocking thread pool unless `QUEUED_READS=1`.
-    let direct = metadata && std::env::var_os("QUEUED_READS").is_none();
-    let reader = FileReadAt::open(path, session.handle())?;
+) -> VortexResult<(VortexFile, Counts)> {
+    let counts = Counts::default();
     let source = Arc::new(CountingReadAt {
-        inner: Arc::new(if direct {
-            reader.with_inline_reads()
-        } else {
-            reader
-        }),
-        bytes: Arc::clone(&bytes),
+        inner: Arc::new(FileReadAt::open(path, session.handle())?),
+        bytes: Arc::clone(&counts.bytes),
+        requests: Arc::clone(&counts.requests),
+        sim: SimStore::from_env(),
         name: path.display().to_string(),
     });
     let file = session
         .open_options()
         .with_include_metadata(metadata)
-        .with_direct_reads(direct)
         .open(source)
         .await?;
-    Ok((file, bytes))
+    Ok((file, counts))
+}
+
+/// The bytes and requests a file was asked for.
+#[derive(Clone, Default)]
+struct Counts {
+    bytes: Arc<AtomicU64>,
+    requests: Arc<AtomicU64>,
+}
+
+impl Counts {
+    fn take(&self) -> (u64, u64) {
+        (
+            self.bytes.load(Ordering::Relaxed),
+            self.requests.load(Ordering::Relaxed),
+        )
+    }
 }
 
 fn file_len(path: &Path) -> VortexResult<u64> {
@@ -199,8 +251,18 @@ async fn build(session: &VortexSession, args: &[String]) -> VortexResult<()> {
     let (dtype, chunks) = read_parquet(session, input)?;
     let start = Instant::now();
     let array = ChunkedArray::try_new(chunks, dtype)?.into_array();
-    session
-        .write_options()
+    let mut options = session.write_options();
+    if let Some(rows) = std::env::var("DATA_ROW_BLOCK")
+        .ok()
+        .and_then(|rows| rows.parse().ok())
+    {
+        options = options.with_strategy(
+            WriteStrategyBuilder::from_session(session)
+                .with_row_block_size(rows)
+                .build(),
+        );
+    }
+    options
         .write(
             &mut tokio::fs::File::create(&data_path).await?,
             array.to_array_stream(),
@@ -304,6 +366,7 @@ struct QueryArgs {
     scan: bool,
     index_only: bool,
     top_k_only: bool,
+    e2e: bool,
     nprobe: usize,
     k: usize,
 }
@@ -315,6 +378,7 @@ fn parse_flags(rest: &[String]) -> VortexResult<QueryArgs> {
         scan: false,
         index_only: false,
         top_k_only: false,
+        e2e: false,
         nprobe: 8,
         k: 10,
     };
@@ -334,6 +398,7 @@ fn parse_flags(rest: &[String]) -> VortexResult<QueryArgs> {
             "--scan" => q.scan = true,
             "--index-only" => q.index_only = true,
             "--top-k-only" => q.top_k_only = true,
+            "--e2e" => q.e2e = true,
             other => vortex_bail!("unknown flag {other}"),
         }
     }
@@ -408,23 +473,47 @@ async fn run_trigram(
 }
 
 /// Count the rows holding every query token, unless `top_k_only`, then rank the top `k` by BM25.
+/// With `fetch`, also read the text of the top `k` rows from the data file.
 async fn run_fts(
+    data: &VortexFile,
     index: &IndexFile<InvertedIndex>,
     query: &str,
     k: usize,
     top_k_only: bool,
+    fetch: bool,
 ) -> VortexResult<Answer> {
-    let mut matches = 0;
-    if !top_k_only
-        && let Some((_, selections)) = index.locate_files(&text_match(root(), query)).await?
-    {
-        matches = selections
-            .iter()
-            .map(|s| s.selection.row_count(u64::MAX))
-            .sum::<u64>();
+    let (hits, matches) = if top_k_only {
+        (index.rows().search_bm25(query, k).await?, 0)
+    } else if std::env::var_os("LOCATE_COUNT").is_some() {
+        // The count through the generic index planner, as a table scan's filter would get it.
+        let mut matches = 0;
+        if let Some((_, selections)) = index.locate_files(&text_match(root(), query)).await? {
+            matches = selections
+                .iter()
+                .map(|s| s.selection.row_count(u64::MAX))
+                .sum::<u64>();
+        }
+        (index.rows().search_bm25(query, k).await?, matches)
+    } else {
+        index.rows().search_bm25_counted(query, k).await?
+    };
+    let mut fetched_bytes = 0u64;
+    if fetch && !hits.is_empty() {
+        let mut rows: Vec<u64> = index.hits_by_file(&hits)?.iter().map(|h| h.row).collect();
+        rows.sort_unstable();
+        let column = index.column().to_string();
+        let texts = collect(
+            ScanBuilder::new(data.session().clone(), data.scan_file())
+                .with_projection(col(column.as_str()).bind(data.dtype())?)
+                .with_selection(Selection::IncludeByIndex(StrictSortedBuffer::try_new(
+                    rows.into_iter().collect(),
+                )?)),
+        )
+        .await?;
+        fetched_bytes = texts.iter().map(|t| t.nbytes()).sum();
     }
-    let hits = index.rows().search_bm25(query, k).await?;
     Ok(serde_json::json!({
+        "fetched_bytes": fetched_bytes,
         "matches": matches,
         "ids": hits.iter().map(|h| h.row).collect::<Vec<_>>(),
     }))
@@ -495,7 +584,8 @@ async fn query(session: &VortexSession, args: &[String]) -> VortexResult<()> {
         }
         let mut times = Vec::new();
         let mut answer = serde_json::Value::Null;
-        let mut bytes = (0, 0);
+        let mut bytes = ((0, 0), (0, 0));
+        let mut cold_ms = 0.0;
         // The first run opens fresh files and counts their bytes; later runs measure warm latency
         // on files that stay open.
         for run in 0..=flags.repeat {
@@ -529,15 +619,23 @@ async fn query(session: &VortexSession, args: &[String]) -> VortexResult<()> {
                             .await?
                     }
                 }
-                Opened::Fts(index) => run_fts(index, &texts[qi], flags.k, flags.top_k_only).await?,
+                Opened::Fts(index) => {
+                    run_fts(
+                        data,
+                        index,
+                        &texts[qi],
+                        flags.k,
+                        flags.top_k_only,
+                        flags.e2e,
+                    )
+                    .await?
+                }
                 Opened::Ivf(index) => run_ivf(index, &vectors[qi], flags.k, flags.nprobe).await?,
             };
             match &fresh {
-                Some(((_, data_bytes), (_, index_bytes))) => {
-                    bytes = (
-                        data_bytes.load(Ordering::Relaxed),
-                        index_bytes.load(Ordering::Relaxed),
-                    );
+                Some(((_, data_counts), (_, index_counts))) => {
+                    cold_ms = start.elapsed().as_secs_f64() * 1000.0;
+                    bytes = (data_counts.take(), index_counts.take());
                 }
                 None => {
                     times.push(start.elapsed().as_secs_f64() * 1000.0);
@@ -553,8 +651,11 @@ async fn query(session: &VortexSession, args: &[String]) -> VortexResult<()> {
                 "q": qi,
                 "answer": answer,
                 "warm_ms": if times.is_empty() { 0.0 } else { median(times) },
-                "data_bytes_read": bytes.0,
-                "index_bytes_read": bytes.1,
+                "cold_ms": cold_ms,
+                "data_bytes_read": bytes.0.0,
+                "data_requests": bytes.0.1,
+                "index_bytes_read": bytes.1.0,
+                "index_requests": bytes.1.1,
             })
         );
     }

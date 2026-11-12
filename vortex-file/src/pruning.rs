@@ -10,6 +10,7 @@ use vortex_array::arrays::NullArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::expr::BoundExpression;
+use vortex_array::expr::Expression;
 use vortex_array::expr::bound::lit;
 use vortex_array::scalar_fn::fns::cast::Cast;
 use vortex_array::scalar_fn::fns::get_item::GetItem;
@@ -22,6 +23,7 @@ use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
 use vortex_session::VortexSession;
 
 use crate::FileStatistics;
+use crate::footer::Footer;
 
 pub(crate) fn is_falsified_by_file_stats(
     expr: &BoundExpression,
@@ -34,6 +36,37 @@ pub(crate) fn is_falsified_by_file_stats(
     };
 
     evaluate_file_stats_proof(pruning_expr, row_count, file_stats, session)
+}
+
+/// Decides whether file-level statistics prove a filter false, for many files of one dtype.
+///
+/// The filter is bound and rewritten into its falsification proof once, so pruning each file
+/// only evaluates that proof against the file's statistics.
+pub struct FileStatsPruner {
+    proof: Option<BoundExpression>,
+    session: VortexSession,
+}
+
+impl FileStatsPruner {
+    /// A pruner for `filter` over files of `dtype`.
+    pub fn try_new(
+        filter: &Expression,
+        dtype: &DType,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
+        Ok(Self {
+            proof: filter.bind(dtype)?.falsify(session)?,
+            session: session.clone(),
+        })
+    }
+
+    /// Returns `true` if `footer`'s statistics prove the filter matches no row of its file.
+    pub fn can_prune(&self, footer: &Footer) -> VortexResult<bool> {
+        let (Some(proof), Some(stats)) = (&self.proof, footer.statistics()) else {
+            return Ok(false);
+        };
+        evaluate_file_stats_proof(proof.clone(), footer.row_count(), stats, &self.session)
+    }
 }
 
 pub(crate) fn is_satisfied_by_file_stats(

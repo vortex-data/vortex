@@ -24,11 +24,15 @@ use datafusion_bench::tracer::set_labels;
 use datafusion_common::TableReference;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::collect;
+use futures::TryStreamExt as _;
+use itertools::Itertools as _;
 use mimalloc::MiMalloc;
 use parking_lot::Mutex;
+use vortex::buffer::ByteBufferMut;
 use vortex::file::multi::MultiFileDataSource;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
+use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::DataSource as _;
 use vortex::scan::DataSourceRef;
@@ -50,8 +54,12 @@ use vortex_bench::runner::SqlBenchmarkRunner;
 use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
 use vortex_bench::v3;
+use vortex_datafusion::VortexFormat;
+use vortex_datafusion::VortexManifestTable;
 use vortex_datafusion::metrics::VortexMetricsFinder;
 use vortex_datafusion::v2::VortexTable;
+use vortex_table::Manifest;
+use vortex_table::ManifestBuilder;
 
 /// Common arguments shared across benchmarks
 #[derive(Parser)]
@@ -256,14 +264,21 @@ fn use_scan_api() -> bool {
     std::env::var("VORTEX_USE_SCAN_API").is_ok_and(|v| v == "1")
 }
 
+/// Whether to register Vortex tables through a `vortex-table` manifest instead of a listing.
+fn use_manifest_table() -> bool {
+    std::env::var("VORTEX_MANIFEST_TABLE").is_ok_and(|v| v == "1")
+}
+
 async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     session: &SessionContext,
     benchmark: &B,
     format: Format,
     scan_v2: bool,
 ) -> anyhow::Result<()> {
-    if !scan_v2 && use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact)
-    {
+    let vortex = matches!(format, Format::OnDiskVortex | Format::VortexCompact);
+    if vortex && use_manifest_table() {
+        register_manifest_tables(session, benchmark, format, scan_v2).await
+    } else if !scan_v2 && use_scan_api() && vortex {
         register_v2_tables(session, benchmark, format).await
     } else {
         let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
@@ -298,6 +313,79 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
 
         Ok(())
     }
+}
+
+/// Register tables as [`VortexManifestTable`]s over a manifest of the files a listing would scan.
+///
+/// The manifest is built here, outside the timed queries, by reading each file's footer once.
+async fn register_manifest_tables<B: Benchmark + ?Sized>(
+    session: &SessionContext,
+    benchmark: &B,
+    format: Format,
+    scan_v2: bool,
+) -> anyhow::Result<()> {
+    let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
+    let mut options = datafusion_bench::vortex_table_options();
+    options.scan_v2 = scan_v2;
+    let vortex_format = Arc::new(VortexFormat::new_with_options(SESSION.clone(), options));
+
+    for table in benchmark.table_specs().iter() {
+        let pattern = benchmark.pattern(table.name, format);
+        let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern.clone())?;
+        let store = session
+            .state()
+            .runtime_env()
+            .object_store(table_url.object_store())?;
+        let prefix = table_url.prefix().clone();
+        let mut objects: Vec<_> = store
+            .list(Some(&prefix))
+            .try_filter(|meta| {
+                let location = meta.location.as_ref();
+                let keep = location.ends_with(&format!(".{}", format.ext()))
+                    && pattern.as_ref().is_none_or(|p| p.matches(location));
+                async move { keep }
+            })
+            .try_collect()
+            .await?;
+        objects.sort_by(|a, b| a.location.cmp(&b.location));
+
+        let mut builder = ManifestBuilder::new(SESSION.clone());
+        for object in &objects {
+            let relative = object
+                .location
+                .prefix_match(&prefix)
+                .map(|parts| parts.map(|part| part.as_ref().to_string()).join("/"))
+                .ok_or_else(|| anyhow::anyhow!("{} is outside {prefix}", object.location))?;
+            let read = ObjectStoreReadAt::new(
+                Arc::clone(&store),
+                object.location.clone(),
+                SESSION.handle(),
+            );
+            builder.add(relative, &read).await?;
+        }
+        // Round-trip the manifest, so the table prunes on the stats it reads back.
+        let mut bytes = ByteBufferMut::empty();
+        builder.finish()?.write(&SESSION, &mut bytes).await?;
+        let manifest = Manifest::read(&SESSION, Arc::new(bytes.freeze())).await?;
+
+        let provider = VortexManifestTable::try_new(
+            Arc::clone(&vortex_format),
+            SESSION.clone(),
+            table_url.object_store(),
+            &prefix,
+            &manifest,
+        )?
+        .with_zone_map_prefetch(prefetch_zone_maps());
+        session.register_table(table.name, Arc::new(provider))?;
+    }
+
+    Ok(())
+}
+
+/// Whether the manifest table reads the kept files' zone maps while planning. On unless
+/// `VORTEX_MANIFEST_ZONE_PREFETCH=0`.
+fn prefetch_zone_maps() -> bool {
+    std::env::var("VORTEX_MANIFEST_ZONE_PREFETCH").map_or(true, |v| v != "0")
 }
 
 /// Register tables using the V2 `VortexTable` + `MultiFileDataSource` path.

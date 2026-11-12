@@ -63,6 +63,7 @@ use crate::initialize;
 use crate::open_in_file_index;
 use crate::rows::collect;
 use crate::text_match;
+use crate::tokenize::tokenize;
 
 const ROWS: usize = 3000;
 const BLOCK_LEN: usize = 64;
@@ -358,6 +359,47 @@ async fn bm25_top_k_matches_scoring_every_row(#[case] query: &str) -> VortexResu
         let expected: Vec<u64> = every[..k].iter().map(|h| h.row).collect();
         assert_eq!(rows, expected, "k = {k}");
     }
+    Ok(())
+}
+
+/// The count read beside the top `k` is the number of rows holding every query term, and the
+/// hits are those of a plain search.
+#[rstest]
+#[case("needle echo")]
+#[case("alpha bravo charlie")]
+#[case("needle zulu")]
+#[tokio::test]
+async fn bm25_count_matches_rows_with_every_term(#[case] query: &str) -> VortexResult<()> {
+    let session = session()?;
+    let data = Data::generate(7, ROWS);
+    let file = write_indexed_file(&session, &data).await?;
+    let index = open_in_file_index(InvertedIndex, &file, "text")?.expect("inverted index");
+
+    let terms: Vec<String> = tokenize(query).collect();
+    let expected = data
+        .rows_where(|text| {
+            let tokens: Vec<String> = tokenize(text).collect();
+            terms.iter().all(|term| tokens.contains(term))
+        })
+        .len() as u64;
+    let (hits, count) = index.search_bm25_counted(query, 5).await?;
+    assert_eq!(count, expected);
+    assert_eq!(hits, index.search_bm25(query, 5).await?);
+    Ok(())
+}
+
+/// A `k` far past the number of matching rows returns every match, and the same results as a
+/// `k` that fits, so it neither allocates for `k` nor leaves scores behind for the next search.
+#[tokio::test]
+async fn bm25_with_unbounded_k_returns_every_match() -> VortexResult<()> {
+    let session = session()?;
+    let data = Data::generate(7, ROWS);
+    let file = write_indexed_file(&session, &data).await?;
+    let index = open_in_file_index(InvertedIndex, &file, "text")?.expect("inverted index");
+
+    let every = index.search_bm25("needle echo", ROWS).await?;
+    assert_eq!(index.search_bm25("needle echo", usize::MAX).await?, every);
+    assert_eq!(index.search_bm25("needle echo", ROWS).await?, every);
     Ok(())
 }
 
@@ -749,5 +791,38 @@ async fn covered_files_keep_catalog_identity() -> VortexResult<()> {
     assert!(covered.matches(50, &covered.fingerprint));
     assert!(!covered.matches(50, &[0; 8]));
     assert!(!covered.matches(51, &covered.fingerprint));
+    Ok(())
+}
+
+/// Many rare terms land in a few large chunks, not one per few hundred terms: each chunk is a
+/// footer entry, and a footer too large for the first read costs an object-store round trip.
+#[tokio::test]
+async fn inverted_index_file_keeps_few_chunks_for_many_terms() -> VortexResult<()> {
+    let session = session()?;
+    let rows = 20_000u64;
+    let texts = VarBinViewArray::from_iter_str((0..rows).map(|row| format!("w{row}")));
+    let mut builder = IndexFileBuilder::new(
+        InvertedIndex,
+        (),
+        "text",
+        DType::Utf8(Nullability::NonNullable),
+        &session,
+    )?;
+    builder.push_file(CoveredFile::new("part.vortex", rows), [texts.into_array()])?;
+    let mut bytes = ByteBufferMut::empty();
+    builder.write(&mut bytes).await?;
+    let file = session
+        .open_options()
+        .include_metadata()
+        .open_buffer(bytes.freeze())?;
+    let segments = file.footer().segment_map().len();
+    assert!(segments <= 8, "{segments} segments for {rows} rare terms");
+
+    let index = IndexFile::open(InvertedIndex, &file)?;
+    let hits = index.rows().search_bm25("w12345", 3).await?;
+    assert_eq!(
+        hits.iter().map(|hit| hit.row).collect::<Vec<_>>(),
+        vec![12345]
+    );
     Ok(())
 }

@@ -15,6 +15,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::expr::col;
 use vortex_array::expr::gt_eq;
@@ -24,6 +25,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_io::VortexReadAt;
 use vortex_io::runtime::tokio::TokioRuntime;
@@ -43,7 +45,7 @@ use crate::MemoryStorage;
 use crate::TableScan;
 use crate::TableStorage;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+pub(crate) static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
 /// Counts the reads of each file, to show which files a scan touched.
 struct CountingStorage {
@@ -123,7 +125,9 @@ async fn data_file(file: u64) -> VortexResult<ByteBuffer> {
 }
 
 /// A table of [`FILES`] files in memory, its manifest round-tripped through a Vortex file.
-async fn table(inline_footers: bool) -> VortexResult<(Arc<MemoryStorage>, Arc<Manifest>)> {
+pub(crate) async fn table(
+    inline_footers: bool,
+) -> VortexResult<(Arc<MemoryStorage>, Arc<Manifest>)> {
     let storage = Arc::new(MemoryStorage::new());
     let mut builder = ManifestBuilder::new(SESSION.clone()).with_inline_footers(inline_footers);
     for file in 0..FILES {
@@ -132,11 +136,27 @@ async fn table(inline_footers: bool) -> VortexResult<(Arc<MemoryStorage>, Arc<Ma
         builder.add(path.clone(), &bytes).await?;
         storage.put(path, bytes);
     }
-    let manifest = builder.finish();
+    let manifest = builder.finish()?;
     let mut buf = ByteBufferMut::empty();
     manifest.write(&SESSION, &mut buf).await?;
     let read = Manifest::read(&SESSION, Arc::new(buf.freeze())).await?;
-    assert_eq!(read, manifest);
+    assert_eq!(read.entries(), manifest.entries());
+    // Every file records where the zone maps of both its columns are.
+    for entry in read.entries() {
+        for column in ["id", "name"] {
+            assert!(
+                entry.zone_segments.iter().any(|s| s.column == column),
+                "{} has no zone segments for {column}",
+                entry.path
+            );
+        }
+    }
+    let (Some(read_stats), Some(stats)) = (read.stats(), manifest.stats()) else {
+        vortex_bail!("the manifest lost its stats");
+    };
+    assert_eq!(read_stats.dtype(), stats.dtype());
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_arrays_eq!(read_stats.table(), stats.table(), &mut ctx);
     Ok((storage, Arc::new(read)))
 }
 

@@ -15,7 +15,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use futures::FutureExt;
-use futures::future;
 use futures::future::BoxFuture;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::memory::BufferAllocatorRef;
@@ -67,8 +66,6 @@ pub struct FileReadAt {
     file: Arc<File>,
     handle: Handle,
     allocator: BufferAllocatorRef,
-    /// Read on the calling task instead of a blocking thread.
-    inline: bool,
 }
 
 impl FileReadAt {
@@ -91,18 +88,7 @@ impl FileReadAt {
             file,
             handle,
             allocator,
-            inline: false,
         })
-    }
-
-    /// Read on the calling task, instead of handing each read to a blocking thread.
-    ///
-    /// For files expected to be in the page cache, such as a small index read on every lookup:
-    /// a read then costs a copy, while the hop to a blocking thread and back costs tens of
-    /// microseconds. A read that has to go to disk blocks the calling task for its duration.
-    pub fn with_inline_reads(mut self) -> Self {
-        self.inline = true;
-        self
     }
 }
 
@@ -135,17 +121,8 @@ impl VortexReadAt for FileReadAt {
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         let file = Arc::clone(&self.file);
-        let allocator = self.allocator.clone();
-        if self.inline {
-            let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
-            // SAFETY: read_exact_at initializes every byte before the buffer is frozen.
-            unsafe { buffer.set_len(length) };
-            let read = read_exact_at(&file, buffer.as_mut_slice(), offset)
-                .map(|()| BufferHandle::new_host(buffer.freeze()))
-                .map_err(Into::into);
-            return future::ready(read).boxed();
-        }
         let handle = self.handle.clone();
+        let allocator = self.allocator.clone();
         async move {
             handle
                 .spawn_blocking(move || {

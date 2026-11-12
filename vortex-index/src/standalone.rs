@@ -233,6 +233,14 @@ pub const DEFAULT_INDEX_CHUNK_ROWS: usize = 256;
 /// codes, get fewer rows per chunk, down to one, so a lookup reads only the rows it matched.
 const INDEX_CHUNK_TARGET_BYTES: u64 = 1 << 20;
 
+/// Uncompressed bytes per chunk of the key column of an index with list rows, such as an
+/// inverted index's terms, which is read whole rather than probed.
+const KEY_CHUNK_TARGET_BYTES: u64 = 1 << 20;
+
+/// Uncompressed bytes per chunk of the other scalar columns of an index with list rows, such as
+/// an inverted index's score bounds, which are read by row.
+const VALUE_CHUNK_TARGET_BYTES: u64 = 64 << 10;
+
 /// Rows per index chunk for rows averaging `row_bytes`.
 fn chunk_rows(row_bytes: u64) -> usize {
     usize::try_from(INDEX_CHUNK_TARGET_BYTES / row_bytes.max(1))
@@ -372,12 +380,19 @@ impl<V: IndexVTable> IndexFileBuilder<V> {
         let rows: u64 = encoded.iter().map(|e| e.len() as u64).sum();
         let bytes: u64 = encoded.iter().map(|e| e.nbytes()).sum();
         let piece = chunk_rows(bytes / rows.max(1));
+        // List rows vary from a few bytes to megabytes, so they are cut by bytes alone: a row
+        // cap would leave thousands of tiny chunks of rare terms, each a footer entry and a read.
+        let slice_rows = if has_list_field(&index_dtype) {
+            usize::MAX
+        } else {
+            piece
+        };
         let mut arrays = Vec::new();
         for encoded in encoded {
             let len = encoded.len();
-            for start in (0..len).step_by(piece) {
+            for start in (0..len).step_by(slice_rows) {
                 split_by_bytes(
-                    encoded.slice(start..(start + piece).min(len))?,
+                    encoded.slice(start..start.saturating_add(slice_rows).min(len))?,
                     &mut arrays,
                     &mut ctx,
                 )?;
@@ -477,6 +492,15 @@ fn compact(slice: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     )
 }
 
+/// Whether index rows of `index_dtype` hold a list, such as an inverted index's postings.
+fn has_list_field(index_dtype: &DType) -> bool {
+    index_dtype.as_struct_fields_opt().is_some_and(|fields| {
+        fields
+            .fields()
+            .any(|dtype| matches!(dtype, DType::List(..)))
+    })
+}
+
 /// The default writer for index rows: small chunks, with binary payload columns (bitmaps, codes)
 /// written as-is in chunks of the same size, and list columns (postings) compressed in the
 /// chunks they arrive in.
@@ -494,7 +518,10 @@ fn default_index_strategy(
         .with_row_block_size(chunk_rows)
         .with_data_block_target_bytes(None);
     if let Some(fields) = index_dtype.as_struct_fields_opt() {
-        for (name, dtype) in fields.names().iter().zip(fields.fields()) {
+        // Beside list rows, scalar columns are chunked by bytes rather than rows: the rows are
+        // many and small, and every chunk costs a footer entry.
+        let has_lists = has_list_field(index_dtype);
+        for (idx, (name, dtype)) in fields.names().iter().zip(fields.fields()).enumerate() {
             if matches!(dtype, DType::Binary(_)) {
                 let payload = RepartitionStrategy::new(
                     ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
@@ -514,6 +541,28 @@ fn default_index_strategy(
                 );
                 builder =
                     builder.with_field_writer(FieldPath::from_name(name.clone()), Arc::new(lists));
+            } else if has_lists {
+                // The key column is read whole, so its chunks are large; other columns are read
+                // by row beside the lists, so theirs stay small.
+                let target = if idx == 0 {
+                    KEY_CHUNK_TARGET_BYTES
+                } else {
+                    VALUE_CHUNK_TARGET_BYTES
+                };
+                let chunked = RepartitionStrategy::new(
+                    CompressingStrategy::new(
+                        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+                        BtrBlocksCompressorBuilder::from_session(session).build(),
+                    ),
+                    RepartitionWriterOptions {
+                        block_size_minimum: target,
+                        block_len_multiple: chunk_rows,
+                        block_size_target: Some(target),
+                        canonicalize: true,
+                    },
+                );
+                builder = builder
+                    .with_field_writer(FieldPath::from_name(name.clone()), Arc::new(chunked));
             }
         }
     }

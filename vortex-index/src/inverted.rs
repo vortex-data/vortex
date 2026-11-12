@@ -53,6 +53,7 @@ use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_layout::layouts::indexed::IndexBuilder;
@@ -116,7 +117,7 @@ pub struct InvertedEntries {
 
 /// One term's postings, decoded.
 struct Posting {
-    rows: Vec<u32>,
+    rows: Buffer<u32>,
     tfs: Buffer<u32>,
     bound: u8,
 }
@@ -158,7 +159,9 @@ impl Corpus {
     #[expect(clippy::cast_precision_loss, reason = "row counts only weight scores")]
     fn weight(&self, df: usize) -> f32 {
         let df = df as f32;
-        (1.0 + (self.docs - df + 0.5) / (df + 0.5)).ln() * (BM25_K1 + 1.0)
+        // `ln_1p`, as `ln(1 + x)` rounds to zero for a term in nearly every row of a large corpus,
+        // and every contribution must be positive.
+        ((self.docs - df + 0.5) / (df + 0.5)).ln_1p() * (BM25_K1 + 1.0)
     }
 
     /// `tf / (tf + norm)`: a term's score in `row` is this times its weight.
@@ -249,12 +252,9 @@ fn decode_posting(
     let postings = lists
         .list_elements_at(idx, ctx)?
         .execute::<StructArray>(ctx)?;
-    let mut rows = u32_field(&postings, GAP_FIELD, ctx)?.to_vec();
-    let mut row = 0u32;
-    for gap in &mut rows {
-        row = row.wrapping_add(*gap);
-        *gap = row;
-    }
+    let mut rows = u32_field(&postings, GAP_FIELD, ctx)?.into_mut();
+    prefix_sum(&mut rows)?;
+    let rows = rows.freeze();
     let tfs = u32_field(&postings, TF_FIELD, ctx)?;
     vortex_ensure_eq!(
         rows.len(),
@@ -262,6 +262,47 @@ fn decode_posting(
         "Inverted index entry has mismatched rows and frequencies"
     );
     Ok(Posting { rows, tfs, bound })
+}
+
+/// Turn gaps into running totals in place, failing if they overflow `u32`.
+///
+/// A single running sum is bound by the latency of each add, so four quarters are summed side by
+/// side, and each quarter after the first then adds the total before it.
+fn prefix_sum(gaps: &mut [u32]) -> VortexResult<()> {
+    let total: u64 = gaps.iter().map(|&gap| u64::from(gap)).sum();
+    vortex_ensure!(
+        total <= u64::from(u32::MAX),
+        "Inverted index rows overflow u32"
+    );
+    let quarter = gaps.len() / 4;
+    let (head, tail) = gaps.split_at_mut(quarter * 4);
+    let mut parts = head.chunks_exact_mut(quarter.max(1));
+    if let (Some(a), Some(b), Some(c), Some(d)) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    {
+        let mut sums = [0u32; 4];
+        for idx in 0..quarter {
+            sums[0] += a[idx];
+            a[idx] = sums[0];
+            sums[1] += b[idx];
+            b[idx] = sums[1];
+            sums[2] += c[idx];
+            c[idx] = sums[2];
+            sums[3] += d[idx];
+            d[idx] = sums[3];
+        }
+        let mut base = sums[0];
+        for (part, sum) in [(b, sums[1]), (c, sums[2]), (d, sums[3])] {
+            part.iter_mut().for_each(|row| *row += base);
+            base += sum;
+        }
+    }
+    let mut row = head.last().copied().unwrap_or(0);
+    for gap in tail {
+        row += *gap;
+        *gap = row;
+    }
+    Ok(())
 }
 
 fn find(
@@ -477,7 +518,7 @@ impl Ord for Ranked {
 
 /// The `k` best scored rows of `touched`, as a heap whose top is the worst of them.
 fn best_k(scores: &[f32], touched: &[u32], k: usize) -> BinaryHeap<Ranked> {
-    let mut heap = BinaryHeap::with_capacity(k + 1);
+    let mut heap = BinaryHeap::with_capacity(k.min(touched.len()).saturating_add(1));
     for &row in touched {
         let score = scores[row as usize];
         if score == 0.0 {
@@ -526,9 +567,36 @@ impl IndexRows<InvertedIndex> {
         query: &str,
         k: usize,
     ) -> VortexResult<IndexStep<Vec<Hit>>> {
-        let terms = query_terms(query);
-        if terms.is_empty() || k == 0 {
+        if k == 0 {
             return Ok(IndexStep::Done(Vec::new()));
+        }
+        self.bm25_steps(query, k, false)?.map(|(hits, _)| Ok(hits))
+    }
+
+    /// [`search_bm25`](Self::search_bm25), and also the number of rows holding every query term,
+    /// as `text_match` would select, from the same read of the postings.
+    pub async fn search_bm25_counted(
+        self: &Arc<Self>,
+        query: &str,
+        k: usize,
+    ) -> VortexResult<(Vec<Hit>, u64)> {
+        self.bm25_steps(query, k, true)?
+            .map(|(hits, count)| Ok((hits, count.unwrap_or(0))))?
+            .run()
+            .await
+    }
+
+    /// The top `k` hits of `query`, and with `count`, how many rows hold every query term.
+    fn bm25_steps(
+        self: &Arc<Self>,
+        query: &str,
+        k: usize,
+        count: bool,
+    ) -> VortexResult<IndexStep<(Vec<Hit>, Option<u64>)>> {
+        let terms = query_terms(query);
+        let empty = (Vec::new(), count.then_some(0));
+        if terms.is_empty() {
+            return Ok(IndexStep::Done(empty));
         }
         let corpus = self.memo_get::<Corpus>();
         let this = Arc::clone(self);
@@ -539,8 +607,10 @@ impl IndexRows<InvertedIndex> {
                 .enumerate()
                 .filter_map(|(idx, term)| column.position(term).map(|row| (row, Some(idx))))
                 .collect();
+            // A row holds every term only if the index holds every term.
+            let all_terms = wanted.len() == terms.len();
             if wanted.is_empty() {
-                return Ok(IndexStep::Done(Vec::new()));
+                return Ok(IndexStep::Done(empty));
             }
             if corpus.is_none() {
                 let row = column
@@ -580,9 +650,30 @@ impl IndexRows<InvertedIndex> {
                         corpus.ok_or_else(|| vortex_err!("Inverted index has no row lengths"))?;
                     let lists = lists
                         .into_iter()
-                        .map(|posting| Scoring::new(posting, &corpus))
-                        .collect();
-                    Ok(IndexStep::Done(bm25_top(lists, k, &corpus)))
+                        .map(|posting| {
+                            vortex_ensure!(
+                                posting
+                                    .rows
+                                    .last()
+                                    .is_none_or(|&row| (row as usize) < corpus.norms.len()),
+                                "Inverted index posting is past the last row with a length"
+                            );
+                            Ok(Scoring::new(posting, &corpus))
+                        })
+                        .collect::<VortexResult<Vec<_>>>()?;
+                    let matches = count.then(|| {
+                        if all_terms {
+                            count_common_rows(lists.iter().map(|list| &list.posting.rows[..]))
+                        } else {
+                            0
+                        }
+                    });
+                    let hits = if k == 0 {
+                        Vec::new()
+                    } else {
+                        bm25_top(lists, k, &corpus)
+                    };
+                    Ok(IndexStep::Done((hits, matches)))
                 }),
             ))
         })
@@ -624,13 +715,28 @@ fn bm25_top(mut lists: Vec<Scoring>, k: usize, corpus: &Corpus) -> Vec<Hit> {
         if scores.len() < corpus.norms.len() {
             scores.resize(corpus.norms.len(), 0.0);
         }
-        let mut touched = Vec::new();
-        let hits = bm25_top_into(&mut lists, k, corpus, scores, &mut touched);
-        for row in touched {
-            scores[row as usize] = 0.0;
-        }
-        hits
+        let mut guard = ResetScores {
+            scores,
+            touched: Vec::new(),
+        };
+        let ResetScores { scores, touched } = &mut guard;
+        bm25_top_into(&mut lists, k, corpus, scores, touched)
     })
+}
+
+/// Zeroes the rows a search touched when it ends, even by a panic, so the next search on the
+/// thread starts from a clean array.
+struct ResetScores<'a> {
+    scores: &'a mut Vec<f32>,
+    touched: Vec<u32>,
+}
+
+impl Drop for ResetScores<'_> {
+    fn drop(&mut self) {
+        for &row in &self.touched {
+            self.scores[row as usize] = 0.0;
+        }
+    }
 }
 
 /// [`bm25_top`], adding scores into `scores` by row, and listing in `touched` every row it sets.
@@ -651,20 +757,21 @@ fn bm25_top_into(
     for idx in (0..lists.len()).rev() {
         remaining[idx] = remaining[idx + 1] + f64::from(lists[idx].max_score);
     }
-    let bound = |idx: usize| remaining[idx] * (1.0 + 1e-5) + 1e-6;
+    // The slack grows with the terms, as f32 rounding of a row's sum does.
+    let slack = 1e-5 * (lists.len() as f64).max(1.0);
+    let bound = |idx: usize| remaining[idx] * (1.0 + slack) + 1e-6;
 
+    // Walk lists until the `k`th best row so far beats everything the lists left could add:
+    // those lists then cannot lift a new row into the top `k`, and add only to rows that can
+    // still reach it.
     let mut walked = 0;
+    let mut floor = None;
     while walked < lists.len() {
-        // The terms left cannot lift a new row into the top `k` once `k` rows already beat
-        // everything those terms could add.
-        let rest = bound(walked);
-        if touched
-            .iter()
-            .filter(|&&row| rest < f64::from(scores[row as usize]))
-            .take(k)
-            .count()
-            == k
+        if walked > 0
+            && let Some(kth) = kth_best(scores, touched, k)
+            && bound(walked) < f64::from(kth)
         {
+            floor = Some(f64::from(kth));
             break;
         }
         for (row, add) in lists[walked].scored(corpus) {
@@ -676,49 +783,84 @@ fn bm25_top_into(
         }
         walked += 1;
     }
-    if walked < lists.len() {
-        // Rows that cannot reach the top `k` drop out, and the terms left only add to the rest.
-        let floor = kth_best(scores, touched, k).map_or(f64::NEG_INFINITY, f64::from);
-        let rest = bound(walked);
-        for &row in touched.iter() {
-            let score = &mut scores[row as usize];
-            if f64::from(*score) + rest < floor {
-                *score = 0.0;
-            }
-        }
-        let mut candidates: Vec<u32> = touched
-            .iter()
-            .copied()
-            .filter(|&row| scores[row as usize] != 0.0)
-            .collect();
-        candidates.sort_unstable();
-        for list in &lists[walked..] {
-            let (rows, tfs) = (&list.posting.rows, &list.posting.tfs);
-            if candidates.len() * 16 < rows.len() {
-                // Few candidates: skip through the list to each of them.
-                let mut at = 0;
-                for &row in &candidates {
-                    at += rows[at..].partition_point(|&r| r < row);
-                    if at == rows.len() {
-                        break;
-                    }
-                    if rows[at] == row {
-                        scores[row as usize] += list.weight * corpus.saturation(tfs[at], row);
-                    }
+    let Some(floor) = floor else {
+        return ranked_hits(best_k(scores, touched, k));
+    };
+    let rest = bound(walked);
+    let mut candidates: Vec<u32> = touched
+        .iter()
+        .copied()
+        .filter(|&row| f64::from(scores[row as usize]) + rest >= floor)
+        .collect();
+    candidates.sort_unstable();
+    for list in &lists[walked..] {
+        let (rows, tfs) = (&list.posting.rows, &list.posting.tfs);
+        if candidates.len() * 16 < rows.len() {
+            // Few candidates: gallop through the list to each of them, as they ascend.
+            let mut at = 0;
+            for &row in &candidates {
+                at = gallop(rows, at, row);
+                if at == rows.len() {
+                    break;
                 }
-            } else {
-                for (&row, &tf) in rows.iter().zip(tfs.iter()) {
-                    let score = &mut scores[row as usize];
-                    if *score != 0.0 {
-                        *score += list.weight * corpus.saturation(tf, row);
-                    }
+                if rows[at] == row {
+                    scores[row as usize] += list.weight * corpus.saturation(tfs[at], row);
+                }
+            }
+        } else {
+            // Rows that are not candidates still gain here, but are never ranked.
+            for (&row, &tf) in rows.iter().zip(tfs.iter()) {
+                let score = &mut scores[row as usize];
+                if *score != 0.0 {
+                    *score += list.weight * corpus.saturation(tf, row);
                 }
             }
         }
     }
+    ranked_hits(best_k(scores, &candidates, k))
+}
 
-    best_k(scores, touched, k)
-        .into_sorted_vec()
+/// How many rows appear in every one of `lists`, each ascending.
+fn count_common_rows<'a>(lists: impl Iterator<Item = &'a [u32]>) -> u64 {
+    let mut lists: Vec<&[u32]> = lists.collect();
+    lists.sort_by_key(|rows| rows.len());
+    let Some((shortest, rest)) = lists.split_first() else {
+        return 0;
+    };
+    let mut at = vec![0; rest.len()];
+    let mut common = 0;
+    'rows: for &row in *shortest {
+        for (rows, at) in rest.iter().zip(&mut at) {
+            *at = gallop(rows, *at, row);
+            if *at == rows.len() {
+                break 'rows;
+            }
+            if rows[*at] != row {
+                continue 'rows;
+            }
+        }
+        common += 1;
+    }
+    common
+}
+
+/// The first position at or after `from` whose row is at least `row`, searching outward from
+/// `from` so that nearby targets cost a few steps.
+fn gallop(rows: &[u32], from: usize, row: u32) -> usize {
+    let mut step = 1;
+    let mut hi = from;
+    while hi < rows.len() && rows[hi] < row {
+        hi = from + step;
+        step *= 2;
+    }
+    let lo = from + step / 4;
+    let hi = hi.min(rows.len());
+    lo.min(hi) + rows[lo.min(hi)..hi].partition_point(|&r| r < row)
+}
+
+/// The rows of `heap`, best first.
+fn ranked_hits(heap: BinaryHeap<Ranked>) -> Vec<Hit> {
+    heap.into_sorted_vec()
         .into_iter()
         .map(|Ranked(score, row)| Hit {
             row: u64::from(row),
@@ -854,5 +996,48 @@ impl IndexBuilder for InvertedBuilder {
             .iter()
             .map(|(term, rows)| (term.len() + rows.len() * 8) as u64)
             .sum()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_error::VortexResult;
+
+    use super::gallop;
+    use super::prefix_sum;
+
+    #[rstest]
+    fn prefix_sum_matches_a_running_total(
+        #[values(0, 1, 3, 4, 5, 8, 11, 1000)] len: u32,
+    ) -> VortexResult<()> {
+        let mut gaps: Vec<u32> = (0..len).map(|idx| idx % 7).collect();
+        let expected: Vec<u32> = gaps
+            .iter()
+            .scan(0, |row, &gap| {
+                *row += gap;
+                Some(*row)
+            })
+            .collect();
+        prefix_sum(&mut gaps)?;
+        assert_eq!(gaps, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn prefix_sum_rejects_overflow() {
+        assert!(prefix_sum(&mut [u32::MAX, 1, 0, 0]).is_err());
+    }
+
+    #[test]
+    fn gallop_finds_the_first_row_at_least_the_target() {
+        let rows: Vec<u32> = (0..100).map(|idx| idx * 3).collect();
+        for from in 0..rows.len() {
+            for target in 0..310 {
+                let expected = from + rows[from..].partition_point(|&row| row < target);
+                assert_eq!(gallop(&rows, from, target), expected, "{from} {target}");
+            }
+        }
+        assert_eq!(gallop(&rows, rows.len(), 5), rows.len());
     }
 }

@@ -25,6 +25,8 @@
 mod access_plan;
 mod cache;
 mod format;
+#[cfg(feature = "table")]
+mod manifest_table;
 pub mod metrics;
 mod opener;
 pub mod reader;
@@ -37,6 +39,8 @@ pub use access_plan::VortexAccessPlan;
 pub use format::VortexFormat;
 pub use format::VortexFormatFactory;
 pub use format::VortexTableOptions;
+#[cfg(feature = "table")]
+pub use manifest_table::VortexManifestTable;
 pub use sink::VortexSink;
 pub use source::VortexSource;
 

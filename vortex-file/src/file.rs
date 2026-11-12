@@ -31,7 +31,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::FileStatistics;
 use crate::footer::Footer;
-use crate::pruning::is_falsified_by_file_stats;
 use crate::source::FileDataSource;
 use crate::v2::FileStatsLayoutReader;
 
@@ -288,16 +287,7 @@ impl VortexFile {
     /// Row-count-aware pruning predicates are evaluated with the file's total
     /// row count as their scope.
     pub fn can_prune(&self, filter: &Expression) -> VortexResult<bool> {
-        let Some(stats) = self.footer.statistics() else {
-            return Ok(false);
-        };
-
-        is_falsified_by_file_stats(
-            &filter.bind(self.footer.dtype())?,
-            self.footer.row_count(),
-            stats,
-            &self.session,
-        )
+        self.footer.can_prune(filter, &self.session)
     }
 
     /// Return the file's natural row splits as root-coordinate ranges.
