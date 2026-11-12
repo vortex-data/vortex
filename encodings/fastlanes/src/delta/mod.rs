@@ -9,6 +9,7 @@ pub use array::DeltaSlots;
 pub use array::delta_compress::delta_compress;
 
 mod compute;
+mod probe;
 
 #[cfg(test)]
 mod tests;
