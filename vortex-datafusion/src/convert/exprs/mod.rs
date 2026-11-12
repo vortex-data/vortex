@@ -37,6 +37,7 @@ use datafusion_physical_expr::ScalarFunctionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_plan::expressions as df_expr;
+use datafusion_physical_plan::joins::HashTableLookupExpr;
 use itertools::Itertools;
 use vortex::VortexSessionDefault;
 use vortex::aggregate_fn::NumericalAggregateOpts;
@@ -132,6 +133,21 @@ pub trait ExpressionConverter: Send + Sync {
         expr: &Arc<dyn PhysicalExpr>,
         schema: &Schema,
     ) -> DFResult<Option<Expression>>;
+
+    /// Convert the root of a positive advisory filter or conjunct.
+    ///
+    /// Overrides must filter conservatively and introduce no new value errors,
+    /// including from values no original row references. They may retain extra rows.
+    /// This is not used recursively
+    /// under NOT or conditional branches. Exact enforcement remains in DataFusion.
+    /// The default accepts only ordinarily converted, infallible expressions.
+    fn try_convert_dynamic(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+    ) -> DFResult<Option<Expression>> {
+        Ok(self.try_convert(expr, schema)?.filter(is_infallible))
+    }
 
     /// Split a projection into Vortex expressions that can be pushed down and leftover
     /// DataFusion projections that need to be evaluated after the scan.
@@ -330,6 +346,10 @@ impl DefaultExpressionConverter {
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
+        if expr.is::<HashTableLookupExpr>() && matches!(self.scope, Scope::Global) {
+            return crate::hash_membership(Arc::clone(expr), schema, &self.session)
+                .map_err(|_| Unconverted::Unsupported);
+        }
         if let Some(binary_expr) = expr.downcast_ref::<df_expr::BinaryExpr>() {
             let operator =
                 try_operator_from_df(binary_expr.op()).ok_or(Unconverted::Unsupported)?;
@@ -865,6 +885,21 @@ impl ExpressionConverter for DefaultExpressionConverter {
             Err(Unconverted::Unsupported) => Ok(None),
             Err(Unconverted::Failed(error)) => Err(error),
         }
+    }
+    fn try_convert_dynamic(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+    ) -> DFResult<Option<Expression>> {
+        if expr.is::<HashTableLookupExpr>() && matches!(self.scope, Scope::Global) {
+            return Ok(crate::hash_membership::advisory_hash_membership(
+                Arc::clone(expr),
+                schema,
+                &self.session,
+            )
+            .ok());
+        }
+        Ok(self.try_convert(expr, schema)?.filter(is_infallible))
     }
 }
 

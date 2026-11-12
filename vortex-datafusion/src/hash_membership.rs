@@ -8,6 +8,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
 
+use arrow_array::BooleanArray;
 use arrow_array::RecordBatch;
 use arrow_array::RecordBatchOptions;
 use arrow_schema::DataType;
@@ -62,6 +63,24 @@ pub fn hash_membership(
     schema: &Schema,
     session: &VortexSession,
 ) -> DFResult<Expression> {
+    hash_membership_with_mode(expression, schema, session, false)
+}
+
+// Only a positive runtime hint may retain extra rows on a DF value error.
+pub(crate) fn advisory_hash_membership(
+    expression: Arc<dyn PhysicalExpr>,
+    schema: &Schema,
+    session: &VortexSession,
+) -> DFResult<Expression> {
+    hash_membership_with_mode(expression, schema, session, true)
+}
+
+fn hash_membership_with_mode(
+    expression: Arc<dyn PhysicalExpr>,
+    schema: &Schema,
+    session: &VortexSession,
+    advisory: bool,
+) -> DFResult<Expression> {
     if !expression.is::<HashTableLookupExpr>()
         || is_volatile(&expression)
         || contains_async(&expression)
@@ -114,6 +133,7 @@ pub fn hash_membership(
             expression,
             schema,
             input_dtypes,
+            advisory,
         },
         inputs,
     ))
@@ -132,12 +152,14 @@ struct Options {
     expression: Arc<dyn PhysicalExpr>,
     schema: SchemaRef,
     input_dtypes: Vec<DType>,
+    advisory: bool,
 }
 impl PartialEq for Options {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.expression, &other.expression)
             && self.schema == other.schema
             && self.input_dtypes == other.input_dtypes
+            && self.advisory == other.advisory
     }
 }
 impl Eq for Options {}
@@ -146,6 +168,7 @@ impl Hash for Options {
         (Arc::as_ptr(&self.expression) as *const ()).hash(state);
         self.schema.hash(state);
         self.input_dtypes.hash(state);
+        self.advisory.hash(state);
     }
 }
 impl fmt::Display for Options {
@@ -185,29 +208,43 @@ impl ScalarFnVTable for HashMembership {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let columns = options
-            .schema
-            .fields()
-            .iter()
-            .enumerate()
-            .map(|(index, field)| args.get(index)?.execute_arrow(Some(field), ctx))
+        let inputs = (0..options.schema.fields().len())
+            .map(|index| args.get(index))
             .collect::<VortexResult<Vec<_>>>()?;
-        let batch = RecordBatch::try_new_with_options(
-            Arc::clone(&options.schema),
-            columns,
-            &RecordBatchOptions::new().with_row_count(Some(args.row_count())),
-        )?;
-        let result = options
-            .expression
-            .evaluate(&batch)
-            .and_then(|value| value.into_array_of_size(args.row_count()))
-            .map_err(VortexError::external)?;
-        vortex_ensure_eq!(result.len(), args.row_count());
-        vortex_ensure_eq!(result.data_type(), &DataType::Boolean);
-        vortex_ensure_eq!(result.null_count(), 0);
+        let result = (|| {
+            let columns = inputs
+                .into_iter()
+                .zip(options.schema.fields())
+                .map(|(array, field)| array.execute_arrow(Some(field), ctx))
+                .collect::<VortexResult<Vec<_>>>()?;
+            let batch = RecordBatch::try_new_with_options(
+                Arc::clone(&options.schema),
+                columns,
+                &RecordBatchOptions::new().with_row_count(Some(args.row_count())),
+            )?;
+            let result = options
+                .expression
+                .evaluate(&batch)
+                .and_then(|value| value.into_array_of_size(args.row_count()))
+                .map_err(VortexError::external)?;
+            vortex_ensure_eq!(result.len(), args.row_count());
+            vortex_ensure_eq!(result.data_type(), &DataType::Boolean);
+            vortex_ensure_eq!(result.null_count(), 0);
+            Ok::<_, VortexError>(result)
+        })();
+        let result = match result {
+            Ok(result) => result,
+            Err(_) if options.advisory => {
+                Arc::new(BooleanArray::from(vec![true; args.row_count()]))
+            }
+            Err(error) => return Err(error),
+        };
         ctx.session()
             .arrow()
             .from_arrow_array(result, &Field::new("membership", DataType::Boolean, false))
+    }
+    fn is_infallible(&self, options: &Options) -> bool {
+        options.advisory
     }
 }
 
@@ -224,8 +261,11 @@ mod tests {
     use datafusion_common::NullEquality;
     use datafusion_common::hash_utils::create_hashes;
     use datafusion_datasource::memory::MemorySourceConfig;
+    use datafusion_physical_expr::expressions::BinaryExpr;
+    use datafusion_physical_expr::expressions::CaseExpr;
     use datafusion_physical_expr::expressions::Column;
     use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
+    use datafusion_physical_expr::expressions::NotExpr;
     use datafusion_physical_expr::expressions::lit;
     use datafusion_physical_expr::split_conjunction;
     use datafusion_physical_expr_common::physical_expr::snapshot_physical_expr;
@@ -242,6 +282,8 @@ mod tests {
     use vortex::array::VortexSessionExecute;
 
     use super::*;
+    use crate::convert::DefaultExpressionConverter;
+    use crate::convert::ExpressionConverter;
 
     #[rstest]
     #[case::single(false)]
@@ -323,7 +365,7 @@ mod tests {
     }
     #[test]
     fn preserves_key_evaluation_errors() -> anyhow::Result<()> {
-        let key = Arc::new(datafusion_physical_expr::expressions::BinaryExpr::new(
+        let key = Arc::new(BinaryExpr::new(
             lit(1_i64),
             datafusion_expr::Operator::Divide,
             Arc::new(Column::new("id", 0)),
@@ -473,6 +515,99 @@ mod tests {
             &(Arc::new(BooleanArray::from(vec![
                 false, true, true, true, false, false
             ])) as ArrowArrayRef)
+        );
+        Ok(())
+    }
+    #[test]
+    fn dynamic_hash_membership_is_positive_and_advisory() -> anyhow::Result<()> {
+        let lookup: Arc<dyn PhysicalExpr> = Arc::new(HashTableLookupExpr::new(
+            vec![Arc::new(BinaryExpr::new(
+                lit(1_i64),
+                datafusion_expr::Operator::Divide,
+                Arc::new(Column::new("id", 0)),
+            ))],
+            SeededRandomState::with_seed(0),
+            Arc::new(Map::HashMap(Box::new(JoinHashMapU32::with_capacity(0)))),
+            "fallible_membership".into(),
+        ));
+        let batch = RecordBatch::try_from_iter(vec![(
+            "id",
+            Arc::new(Int64Array::from(vec![0, 1])) as ArrowArrayRef,
+        )])?;
+        let session = VortexSession::default();
+        let converter = DefaultExpressionConverter::new(session.clone());
+        let exact = converter.try_convert(&lookup, &batch.schema())?.unwrap();
+        assert!(!exact.as_scalar().unwrap().signature().is_infallible());
+        let advisory = converter
+            .try_convert_dynamic(&lookup, &batch.schema())?
+            .unwrap();
+        assert!(advisory.as_scalar().unwrap().signature().is_infallible());
+        let input = session
+            .arrow()
+            .from_arrow_record_batch(batch.clone(), &batch.schema())?;
+        let actual = input.apply(&advisory)?.execute_arrow(
+            Some(&Field::new("result", DataType::Boolean, false)),
+            &mut session.create_execution_ctx(),
+        )?;
+        assert_eq!(
+            &actual,
+            &(Arc::new(BooleanArray::from(vec![true, true])) as ArrowArrayRef)
+        );
+        let negated: Arc<dyn PhysicalExpr> = Arc::new(NotExpr::new(Arc::clone(&lookup)));
+        assert!(
+            converter
+                .try_convert_dynamic(&negated, &batch.schema())?
+                .is_none()
+        );
+        let conditional: Arc<dyn PhysicalExpr> = Arc::new(CaseExpr::try_new(
+            None,
+            vec![(lit(true), lookup)],
+            Some(lit(false)),
+        )?);
+        assert!(
+            converter
+                .try_convert_dynamic(&conditional, &batch.schema())?
+                .is_none()
+        );
+        Ok(())
+    }
+    #[test]
+    fn advisory_hash_membership_tolerates_unused_dictionary_values() -> anyhow::Result<()> {
+        let dictionary = arrow_array::DictionaryArray::<arrow_array::types::Int8Type>::try_new(
+            arrow_array::Int8Array::from(vec![0; 300]),
+            Arc::new(StringArray::from_iter_values(
+                (0..200).map(|value| value.to_string()),
+            )),
+        )?;
+        let batch =
+            RecordBatch::try_from_iter(vec![("id", Arc::new(dictionary) as ArrowArrayRef)])?;
+        let lookup: Arc<dyn PhysicalExpr> = Arc::new(HashTableLookupExpr::new(
+            vec![Arc::new(Column::new("id", 0))],
+            SeededRandomState::with_seed(0),
+            Arc::new(Map::HashMap(Box::new(JoinHashMapU32::with_capacity(0)))),
+            "empty_membership".into(),
+        ));
+        let expected = lookup
+            .evaluate(&batch)?
+            .into_array_of_size(batch.num_rows())?;
+        assert_eq!(
+            &expected,
+            &(Arc::new(BooleanArray::from(vec![false; 300])) as ArrowArrayRef)
+        );
+        let session = VortexSession::default();
+        let expression = advisory_hash_membership(lookup, &batch.schema(), &session)?;
+        let input = session
+            .arrow()
+            .from_arrow_record_batch(batch.clone(), &batch.schema())?;
+        let actual = input.apply(&expression)?.execute_arrow(
+            Some(&Field::new("result", DataType::Boolean, false)),
+            &mut session.create_execution_ctx(),
+        )?;
+        // Speculative dictionary evaluation exports 200 unused values to Int8 keys,
+        // which cannot represent them all. The advisory probe must retain the rows.
+        assert_eq!(
+            &actual,
+            &(Arc::new(BooleanArray::from(vec![true; 300])) as ArrowArrayRef)
         );
         Ok(())
     }

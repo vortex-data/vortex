@@ -19,6 +19,7 @@ use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
 use datafusion_common::arrow::compute::concat_batches;
 use datafusion_common::config::ConfigOptions;
+use datafusion_common::hash_utils::create_hashes;
 use datafusion_common::stats::Precision;
 use datafusion_common::tree_node::TreeNode;
 use datafusion_common::tree_node::TreeNodeRecursion;
@@ -33,6 +34,11 @@ use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::expressions as df_expr;
 use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
+use datafusion_physical_plan::joins::HashTableLookupExpr;
+use datafusion_physical_plan::joins::Map;
+use datafusion_physical_plan::joins::SeededRandomState;
+use datafusion_physical_plan::joins::join_hash_map::JoinHashMapU32;
+use datafusion_physical_plan::joins::utils::JoinHashMapType;
 use futures::TryStreamExt;
 use rstest::rstest;
 use vortex::VortexSessionDefault;
@@ -541,5 +547,54 @@ async fn test_extension_projection_preserves_arrow_type() -> anyhow::Result<()> 
     let actual = concat_batches(&plan_schema, &batches)?;
     assert_eq!(actual.column(0), fixture.batch.column(1));
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn dynamic_hash_membership_refreshes_after_projection() -> anyhow::Result<()> {
+    let source = vortex_source()
+        .await?
+        .try_swapping_with_projection(&ProjectionExprs::from(vec![ProjectionExpr::new(
+            Arc::new(df_expr::Column::new("b", 1)),
+            "value",
+        )]))?
+        .unwrap();
+    let column = Arc::new(df_expr::Column::new("value", 0)) as Arc<dyn PhysicalExpr>;
+    let bound = Arc::new(DynamicFilterPhysicalExpr::new(
+        vec![Arc::clone(&column)],
+        df_expr::lit(true),
+    ));
+    let pushed = source.try_pushdown_filters(
+        vec![Arc::clone(&bound) as Arc<dyn PhysicalExpr>],
+        &ConfigOptions::new(),
+    )?;
+    assert!(matches!(pushed.filters.as_slice(), [PushedDown::No]));
+    let source = pushed.updated_node.unwrap();
+    for (keys, expected) in [(vec![10], vec![10]), (vec![20, 30], vec![30, 20])] {
+        let state = SeededRandomState::with_seed(17);
+        let values = Arc::new(Int32Array::from(keys.clone())) as ArrayRef;
+        let mut hashes = vec![0; keys.len()];
+        create_hashes(&[values], state.random_state(), &mut hashes)?;
+        let mut map = JoinHashMapU32::with_capacity(hashes.len());
+        map.update_from_iter(Box::new(hashes.iter().enumerate()), 0);
+        let predicate: Arc<dyn PhysicalExpr> = Arc::new(HashTableLookupExpr::new(
+            vec![Arc::clone(&column)],
+            state,
+            Arc::new(Map::HashMap(Box::new(map))),
+            "test_membership".into(),
+        ));
+        let stream = source.open(0, SessionContext::new().task_ctx())?;
+        let schema = stream.schema();
+        bound.update(predicate)?;
+        let batch = concat_batches(&schema, &stream.try_collect::<Vec<_>>().await?)?;
+        assert_eq!(
+            batch
+                .column(0)
+                .as_primitive::<Int32Type>()
+                .values()
+                .as_ref(),
+            expected
+        );
+    }
     Ok(())
 }
