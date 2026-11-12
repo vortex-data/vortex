@@ -7643,11 +7643,13 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "onpair"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5362b0df3c0d019c103db2c25eab441ef5b74886e0219764022933c844707e60"
+checksum = "062e0de2ca6b362a03010c8a5749dbcf6b413d5589b90b5b96eafb0598199757"
 dependencies = [
+ "fearless_simd",
  "hashbrown 0.17.1",
+ "memchr",
  "rand 0.10.3",
 ]
 

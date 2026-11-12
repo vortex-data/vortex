@@ -22,6 +22,7 @@ use vortex_onpair::OnPair;
 use vortex_onpair::OnPairArrayExt;
 use vortex_onpair::OnPairArraySlotsExt;
 use vortex_onpair::onpair_compress;
+use vortex_onpair::onpair_token_frequencies;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -44,18 +45,35 @@ use crate::SchemeExt;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct OnPairScheme {
     max_dict_bits: MaxDictBits,
+    token_frequencies: bool,
 }
 
 impl OnPairScheme {
     /// Creates an OnPair scheme whose dictionary holds up to `2^max_dict_bits` tokens, keeping
     /// every other [`DEFAULT_CONFIG`] setting. [`OnPairScheme::default`] uses 12 bits.
     pub const fn new(max_dict_bits: MaxDictBits) -> Self {
-        Self { max_dict_bits }
+        Self {
+            max_dict_bits,
+            token_frequencies: false,
+        }
+    }
+
+    /// Sets whether the scheme stores the token frequencies the OnPair LIKE kernel needs to push
+    /// `%needle%` patterns down: one `u32` per dictionary token, before compression. Off by
+    /// default.
+    pub const fn with_token_frequencies(mut self, token_frequencies: bool) -> Self {
+        self.token_frequencies = token_frequencies;
+        self
     }
 
     /// The dictionary budget this scheme trains with.
     pub const fn max_dict_bits(&self) -> MaxDictBits {
         self.max_dict_bits
+    }
+
+    /// Whether the scheme stores token frequencies.
+    pub const fn token_frequencies(&self) -> bool {
+        self.token_frequencies
     }
 
     fn config(&self) -> Config {
@@ -89,9 +107,10 @@ impl Scheme for OnPairScheme {
     /// `dict_offsets` (u32 → typically `FoR`/`BitPacked`), `codes` (u16 →
     /// usually `FastLanes::BitPacked` after scheme selection),
     /// `codes_offsets` (u32 → `FoR`), `uncompressed_lengths` (i32 → narrow
-    /// + `FoR`). Validity stays untouched.
+    /// and `FoR`), and a fifth, `token_frequencies` (u32, not narrowed), when
+    /// the scheme stores them. Validity stays untouched.
     fn num_children(&self) -> usize {
-        4
+        4 + usize::from(self.token_frequencies)
     }
 
     fn expected_compression_ratio(
@@ -115,6 +134,11 @@ impl Scheme for OnPairScheme {
         let Some(onpair_array) = encoded.as_opt::<OnPair>() else {
             return Ok(encoded);
         };
+        // Counted before the codes are compressed, and only for the array the compressor keeps:
+        // a sample only estimates the ratio.
+        let token_frequencies = (self.token_frequencies && !compress_ctx.is_sample())
+            .then(|| onpair_token_frequencies(onpair_array, exec_ctx))
+            .transpose()?;
 
         let dict_offsets = compress_primitive_child(
             compressor,
@@ -149,7 +173,7 @@ impl Scheme for OnPairScheme {
             exec_ctx,
         )?;
 
-        Ok(OnPair::try_new_with_data(
+        let array = OnPair::try_new_with_data(
             onpair_array.dtype().clone(),
             onpair_array.data().clone(),
             dict_offsets,
@@ -157,8 +181,14 @@ impl Scheme for OnPairScheme {
             codes_offsets,
             uncompressed_lengths,
             onpair_array.array_validity(),
-        )?
-        .into_array())
+        )?;
+        let Some(token_frequencies) = token_frequencies else {
+            return Ok(array.into_array());
+        };
+        // Not narrowed: the array stores them as `u32`.
+        let token_frequencies =
+            compressor.compress_child(&token_frequencies, &compress_ctx, self.id(), 4, exec_ctx)?;
+        Ok(OnPair::with_token_frequencies(array, token_frequencies)?.into_array())
     }
 }
 

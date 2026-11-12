@@ -5,6 +5,8 @@ use std::sync::LazyLock;
 
 use onpair::CompactDictionaryView;
 use prost::Message;
+use rstest::rstest;
+use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
@@ -27,10 +29,14 @@ use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::serde::SerializeOptions;
+use vortex_array::serde::SerializedArray;
 use vortex_array::test_harness::check_metadata;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBufferMut;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::DEFAULT_CONFIG;
 use crate::OnPair;
@@ -38,6 +44,7 @@ use crate::OnPairArrayExt;
 use crate::OnPairArraySlotsExt;
 use crate::OnPairMetadata;
 use crate::compress::onpair_compress;
+use crate::compress::onpair_token_frequencies;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
@@ -160,6 +167,7 @@ fn test_onpair_metadata_golden() {
             dict_offsets_ptype: PType::U32 as i32,
             codes_ptype: PType::U16 as i32,
             codes_offsets_ptype: PType::U32 as i32,
+            indexes: 0,
         }
         .encode_to_vec(),
     );
@@ -439,6 +447,7 @@ fn narrow_codes_offsets(arr: &crate::OnPairArray, target: PType) -> crate::OnPai
             narrowed_array,
             view.uncompressed_lengths().clone(),
             view.array_validity(),
+            view.token_frequencies().cloned(),
         )
     }
 }
@@ -677,5 +686,125 @@ fn test_sparse_dict_over_onpair_appends_to_builder() -> vortex_error::VortexResu
         expected.finish_into_varbin(),
         &mut ctx
     );
+    Ok(())
+}
+
+fn compress_with_token_frequencies(
+    input: &VarBinArray,
+    ctx: &mut vortex_array::ExecutionCtx,
+) -> vortex_error::VortexResult<crate::OnPairArray> {
+    let array = compress_onpair(&input.clone().into_array(), ctx)?;
+    let token_frequencies = onpair_token_frequencies(array.as_view(), ctx)?;
+    OnPair::with_token_frequencies(array, token_frequencies)
+}
+
+fn serde_roundtrip(
+    array: vortex_array::ArrayRef,
+) -> vortex_error::VortexResult<vortex_array::ArrayRef> {
+    let array_ctx = ArrayContext::empty();
+    let mut bytes = ByteBufferMut::empty();
+    for buffer in array.serialize(&array_ctx, &SESSION, &SerializeOptions::default())? {
+        bytes.extend_from_slice(&buffer);
+    }
+    SerializedArray::try_from(bytes.freeze())?.decode(
+        array.dtype(),
+        array.len(),
+        &ReadContext::new(array_ctx.to_ids()),
+        &SESSION,
+    )
+}
+
+/// The token frequencies count every code, and serialization keeps them with or
+/// without a validity child.
+#[cfg_attr(miri, ignore)]
+#[rstest]
+#[case::non_nullable(Nullability::NonNullable, false)]
+#[case::non_nullable_indexed(Nullability::NonNullable, true)]
+#[case::nullable(Nullability::Nullable, false)]
+#[case::nullable_indexed(Nullability::Nullable, true)]
+fn test_token_frequencies_serde_roundtrip(
+    #[case] nullability: Nullability,
+    #[case] indexed: bool,
+) -> vortex_error::VortexResult<()> {
+    let input = VarBinArray::from_iter(
+        (0..500).map(|i| {
+            (nullability == Nullability::NonNullable || i % 7 != 0)
+                .then(|| format!("https://www.example.com/items/{i:04}"))
+        }),
+        DType::Utf8(nullability),
+    );
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = if indexed {
+        compress_with_token_frequencies(&input, &mut ctx)?
+    } else {
+        compress_onpair(&input.clone().into_array(), &mut ctx)?
+    };
+    if let Some(token_frequencies) = array.token_frequencies() {
+        let cumulative = token_frequencies
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        assert_eq!(
+            cumulative.as_slice::<u32>().last().copied(),
+            Some(u32::try_from(array.codes().len())?)
+        );
+    }
+
+    let decoded = serde_roundtrip(array.clone().into_array())?
+        .try_downcast::<OnPair>()
+        .map_err(|_| vortex_error::vortex_err!("decoded array was not OnPair"))?;
+    assert_eq!(decoded.token_frequencies().is_some(), indexed);
+    if let (Some(expected), Some(actual)) = (array.token_frequencies(), decoded.token_frequencies())
+    {
+        assert_arrays_eq!(actual.clone(), expected.clone(), &mut ctx);
+    }
+    assert_arrays_eq!(decoded.into_array(), input, &mut ctx);
+    Ok(())
+}
+
+/// Slice, filter, take and cast keep the token frequencies.
+#[cfg_attr(miri, ignore)]
+#[test]
+fn test_token_frequencies_survive_derived_arrays() -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = compress_with_token_frequencies(&take_input(), &mut ctx)?;
+    let indexed = |derived: vortex_array::ArrayRef| {
+        derived
+            .as_opt::<OnPair>()
+            .is_some_and(|onpair| onpair.token_frequencies().is_some())
+    };
+
+    assert!(indexed(
+        array
+            .clone()
+            .into_array()
+            .slice(10..1_500)?
+            .optimize_ctx(&SESSION)?
+    ));
+    let mask = vortex_mask::Mask::from_iter((0..array.len()).map(|i| i % 3 == 0));
+    let filtered = <OnPair as FilterKernel>::filter(array.as_view(), &mask, &mut ctx)?
+        .expect("OnPair filter must return Some");
+    assert!(indexed(filtered));
+    let indices = PrimitiveArray::from_iter([5u32, 1_999, 7]).into_array();
+    let taken = <OnPair as TakeExecute>::take(array.as_view(), &indices, &mut ctx)?
+        .expect("OnPair take must return Some");
+    assert!(indexed(taken));
+    let cast = array
+        .clone()
+        .into_array()
+        .cast(DType::Utf8(Nullability::Nullable))?;
+    assert!(indexed(cast));
+    Ok(())
+}
+
+#[test]
+fn test_token_frequencies_rejects_malformed_child() -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = compress_onpair(&sample_input().into_array(), &mut ctx)?;
+    let num_offsets = array.dict_offsets().len();
+
+    let short = PrimitiveArray::from_iter(vec![0u32; num_offsets - 1]).into_array();
+    assert!(OnPair::with_token_frequencies(array.clone(), short).is_err());
+    let narrow = PrimitiveArray::from_iter(vec![0u16; num_offsets]).into_array();
+    assert!(OnPair::with_token_frequencies(array, narrow).is_err());
     Ok(())
 }

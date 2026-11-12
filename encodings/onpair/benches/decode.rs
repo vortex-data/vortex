@@ -3,7 +3,7 @@
 //
 //! Decode-path microbenchmarks for the OnPair Vortex array.
 //!
-//! * `decode_into` — the upstream `onpair::decode_into` decoder hot
+//! * `decode_into` — the upstream `onpair::decompress_into` decoder hot
 //!   loop, fed by pre-materialised [`DecodeInputs`]. Measures the inner loop
 //!   only (no child `execute`, no allocation).
 //! * `canonicalize_to_varbinview` — the full Vortex
@@ -52,7 +52,7 @@ use vortex_onpair::OnPairArraySlotsExt;
 use vortex_session::VortexSession;
 
 /// Host-resident decode inputs, materialised once so the decode-loop benchmark
-/// measures only `onpair::decode_into` (not child `execute`/allocation).
+/// measures only `onpair::decompress_into` (not child `execute`/allocation).
 struct DecodeInputs {
     dict_bytes: BufferHandle,
     dict_offsets: Buffer<u32>,
@@ -71,13 +71,10 @@ impl DecodeInputs {
         }
     }
 
-    fn decoded_len(&self) -> usize {
-        onpair::decoded_len(self.codes.as_slice(), self.dict())
-    }
-
-    fn decode_into(&self, out: &mut [MaybeUninit<u8>]) -> usize {
-        // SAFETY: callers allocate `decoded_len + DECODE_PADDING` bytes.
-        unsafe { onpair::decode_into(self.codes.as_slice(), self.dict(), out) }
+    fn decompress_into(&self, out: &mut [MaybeUninit<u8>]) -> usize {
+        onpair::decompress_into(self.codes.as_slice(), self.dict(), out)
+            .expect("callers allocate the decompressed length")
+            .len()
     }
 }
 use vortex_array::optimizer::kernels::KernelSession;
@@ -199,7 +196,10 @@ fn materialise(arr: &OnPairArray, ctx: &mut ExecutionCtx) -> (DecodeInputs, usiz
         dict_offsets,
         codes: widen::<u16>(view.codes(), ctx),
     };
-    let total = inputs.decoded_len();
+    // The decompressed length is the sum of the stored row lengths.
+    let total = widen::<u64>(view.uncompressed_lengths(), ctx)
+        .iter()
+        .sum::<u64>() as usize;
     (inputs, total)
 }
 
@@ -212,7 +212,7 @@ const CASES: &[(Shape, usize)] = &[
 ];
 
 /// Raw decode loop time, excluding child `execute` and the output allocation.
-/// Hits `onpair::decode_into` directly.
+/// Hits `onpair::decompress_into` directly.
 #[divan::bench(args = CASES)]
 fn decode_into_bench(bencher: Bencher, case: (Shape, usize)) {
     let mut ctx = SESSION.create_execution_ctx();
@@ -220,8 +220,8 @@ fn decode_into_bench(bencher: Bencher, case: (Shape, usize)) {
     let arr = compress(n, shape, &mut ctx);
     let (inputs, total) = materialise(&arr, &mut ctx);
     bencher.bench_local(|| {
-        let mut out: Vec<u8> = Vec::with_capacity(total + onpair::DECODE_PADDING);
-        let written = inputs.decode_into(out.spare_capacity_mut());
+        let mut out: Vec<u8> = Vec::with_capacity(total);
+        let written = inputs.decompress_into(out.spare_capacity_mut());
         unsafe { out.set_len(written) };
         divan::black_box(out);
     });

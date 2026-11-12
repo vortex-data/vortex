@@ -5,7 +5,9 @@
 
 use onpair::Config;
 use onpair::Rows;
+use onpair::search::index::TokenFrequencyIndex;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
@@ -20,10 +22,13 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 
 use crate::OnPair;
+use crate::OnPairArraySlotsExt;
 use crate::OnPairData;
+use crate::decode::collect_widened;
 
 /// Compress any [`ArrayRef`] whose canonical form is a string array.
 ///
@@ -106,6 +111,19 @@ pub fn onpair_compress(
         validity,
     )?;
     Ok(encoded.into_array())
+}
+
+/// Count how often each dictionary token occurs in `array`'s codes, as the
+/// prefix sums [`OnPair::with_token_frequencies`] attaches.
+pub fn onpair_token_frequencies(
+    array: ArrayView<'_, OnPair>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let codes = collect_widened::<u16>(array.codes(), ctx)?;
+    let num_tokens = array.dict_offsets().len().saturating_sub(1);
+    let index = TokenFrequencyIndex::build(codes.as_slice(), num_tokens)
+        .map_err(|e| vortex_err!("OnPair token frequencies: {e}"))?;
+    Ok(Buffer::from(index.into_cumulative()).into_array())
 }
 
 /// Reads inline and external values in place, treating null rows as empty.

@@ -30,6 +30,7 @@ fn build_with_validity(
             array.codes_offsets().clone(),
             array.uncompressed_lengths().clone(),
             validity,
+            array.token_frequencies().cloned(),
         )
     }
     .into_array()

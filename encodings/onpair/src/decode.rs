@@ -81,31 +81,39 @@ pub(crate) fn code_boundary_at(
         .ok_or_else(|| vortex_err!("OnPair codes_offsets[{index}] is null, negative, or too large"))
 }
 
-/// A validated, materialised window over an array's `codes`: the widened
-/// per-row `codes_offsets` boundaries plus the codes they bound.
+/// A validated, materialised window over an array's `codes`: the codes of its
+/// rows plus the per-row boundaries in them.
 ///
 /// `slice` keeps the full `codes` child and only narrows `codes_offsets`, so
-/// for a sliced array the window starts at `offsets[0] > 0`; [`row`] resolves
-/// row indices relative to that start. Built once per query by the
-/// compressed-domain compare kernel.
-///
-/// [`row`]: CodesWindow::row
+/// for a sliced array the stored boundaries start at `offsets[0] > 0`. The
+/// window holds only the rows' codes, with the boundaries shifted to start at
+/// zero. Built once per query by the compressed-domain compare and LIKE
+/// kernels.
 pub(crate) struct CodesWindow {
     offsets: Buffer<u64>,
     codes: Buffer<u16>,
-    code_start: usize,
 }
 
 impl CodesWindow {
     /// The codes for row `i`.
     pub(crate) fn row(&self, i: usize) -> &[u16] {
-        &self.codes[self.local(i)..self.local(i + 1)]
+        &self.codes[self.offset(i)..self.offset(i + 1)]
     }
 
-    /// Offset `i` rebased into the window's local `codes` slice. Offsets are
-    /// bounded by `codes.len()` (a `usize`), so the conversion never truncates.
-    fn local(&self, i: usize) -> usize {
-        usize::try_from(self.offsets[i]).vortex_expect("code offset fits usize") - self.code_start
+    /// The codes of every row.
+    pub(crate) fn codes(&self) -> &[u16] {
+        &self.codes
+    }
+
+    /// The row boundaries in [`codes`](Self::codes), one more than the rows.
+    pub(crate) fn row_offsets(&self) -> &[u64] {
+        &self.offsets
+    }
+
+    /// Offsets are bounded by `codes.len()` (a `usize`), so the conversion
+    /// never truncates.
+    fn offset(&self, i: usize) -> usize {
+        usize::try_from(self.offsets[i]).vortex_expect("code offset fits usize")
     }
 }
 
@@ -137,9 +145,13 @@ pub(crate) fn collect_codes_window(
         array.codes().len()
     );
     let codes = collect_widened_range::<u16>(array.codes(), code_start..code_end, ctx)?;
-    Ok(CodesWindow {
-        offsets,
-        codes,
-        code_start,
-    })
+    let offsets = if code_start == 0 {
+        offsets
+    } else {
+        let start = offsets[0];
+        let mut offsets = offsets.into_mut();
+        offsets.iter_mut().for_each(|offset| *offset -= start);
+        offsets.freeze()
+    };
+    Ok(CodesWindow { offsets, codes })
 }
