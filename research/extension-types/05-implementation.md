@@ -47,7 +47,7 @@ check to `try_new`.
 ## Dependency graph
 
 The graph shows every change of the extension type work, grouped by phase, with its state on
-2026-11-04. Green nodes merged, yellow nodes have an open PR, and white nodes have no PR yet. A
+2026-11-12. Green nodes merged, yellow nodes have an open PR, and white nodes have no PR yet. A
 solid arrow is a hard dependency: the later change must not land first. A dashed arrow is an order
 rule or a soft dependency, and a label such as "item 3" names the rule in "Order constraints". A
 dotted line without an arrow links an open PR that changes the same code, so the two need
@@ -55,6 +55,14 @@ coordination. Each node is one PR, and its ID is the ID of that PR in the PR pla
 [#11114](https://github.com/vortex-data/vortex/issues/11114), or of
 [#11115](https://github.com/vortex-data/vortex/issues/11115) for the claims (CL) and the storage
 paths (SP). A gray node was dropped.
+
+A red node waits for a new design of the function declaration. FD
+([#11186](https://github.com/vortex-data/vortex/pull/11186)) closed without a merge on 2026-11-04.
+Its review said: "The extension type vtable should declare its properties, not every function that
+uses it." So `extension_use` (X17), the function categories that it returns (X18, X19), and the
+hardcoded lists (X35) are under review, and the red nodes keep their old content until the
+maintainer settles the new form. Every other node is independent of that design. ST1 needs only
+the order list of FD, and the `Ord` claim of CL2 gives the same answer.
 
 ```mermaid
 flowchart TD
@@ -65,7 +73,9 @@ flowchart TD
         U3["U3 + U6 + U7 storage checks and read errors<br/>#11014"]:::merged
         U2["U2 matching dtypes for compares<br/>#11016"]:::merged
         DF["DF DataFusion extension literals<br/>#11067"]:::merged
-        AX["AX Arrow export with metadata, from phase 7<br/>#11224"]:::open
+        AX["AX Arrow export with metadata, from phase 7<br/>#11224, follow-ups #11300, #11301, #11351, #11304"]:::merged
+        RT["RT Arrow round trip of the types that Vortex owns<br/>#11360 merged, #11361 open"]:::open
+        SF["SF dtype error in a lazily parsed struct field"]
         U1["U1 no storage casts"]
         TS["TS Timestamp accepts every i64, DateTimeParts days<br/>#10953"]:::merged
         V10["V10 Date display fallback<br/>#11187"]:::merged
@@ -78,6 +88,7 @@ flowchart TD
     U2 -->|"item 1, lands together"| DF
     PC --> U1
     AX -.->|"item 2"| U1
+    AX --> RT
     DP --> SN2
     SN2 --> SN3
 
@@ -91,12 +102,12 @@ flowchart TD
     SD --> NU
 
     subgraph PH2["Phase 2"]
-        FD["FD ExtensionUse without Storage, hardcoded lists<br/>#11186"]:::open
-        TY1["TY1 compare and between declare Specific"]
-        TY2["TY2 aggregates declare Specific"]
-        TY3["TY3 structural functions declare Structural"]
-        TY4["TY4 list_contains declares Specific"]
-        TY5["TY5 type-specific functions declare Specific"]
+        FD["FD ExtensionUse without Storage, hardcoded lists<br/>#11186 closed after review"]:::redesign
+        TY1["TY1 compare and between declare Specific"]:::redesign
+        TY2["TY2 aggregates declare Specific"]:::redesign
+        TY3["TY3 structural functions declare Structural"]:::redesign
+        TY4["TY4 list_contains declares Specific"]:::redesign
+        TY5["TY5 type-specific functions declare Specific"]:::redesign
         U9["U9 dropped, SP4 fixes EXT-A3<br/>#11243"]:::dropped
     end
     FD --> TY1
@@ -106,7 +117,7 @@ flowchart TD
     FD --> TY5
 
     subgraph PH3["Phase 3"]
-        TY["TY typing check, with the phase 4 writers and DuckDB pushdown"]
+        TY["TY typing check, with the phase 4 writers and DuckDB pushdown"]:::redesign
     end
     TY1 -->|"item 7"| TY
     TY2 -->|"item 7"| TY
@@ -142,20 +153,22 @@ flowchart TD
     subgraph PH7["Phase 7"]
         BD1["BD1 converters for DuckDB, Python and JNI"]
         BD3["BD3 typed array view and developer guide"]
-        DS["DS DataFusion physical schema for extension dtypes<br/>#11225"]:::open
-        DS2["DS2 reject columns that mix an extension type and plain storage"]
+        AF["AF Arrow fields instead of Arrow data types<br/>issue #11286"]
+        DS["DS DataFusion physical schema for extension dtypes<br/>#11225"]:::merged
+        DS2["DS2 reject columns that mix an extension type and plain storage<br/>#11268"]:::open
     end
     DS --> DS2
+    AX --> AF
 
     subgraph CLAIMS["Claims, #11115"]
         CL1["CL1 Claim, DType::holds, ExtVTable::claims"]
         CL2["CL2 claims of the repository types"]
         CL3["CL3 claim conformance checks and reference types"]
-        SP1["SP1 ExtensionUse::Storage, ResultMapping, Rewrap guard"]
-        SP2["SP2 typing of Storage calls and the generic storage rewrite"]
-        SP3["SP3 compare and between through the claims, with the DateTimeParts rule X32"]
-        SP4["SP4 aggregates through the claims, with DuckDB pushdown"]
-        SP5["SP5 list_contains and the row encoding through the claims"]
+        SP1["SP1 ExtensionUse::Storage, ResultMapping, Rewrap guard"]:::redesign
+        SP2["SP2 typing of Storage calls and the generic storage rewrite"]:::redesign
+        SP3["SP3 compare and between through the claims, with the DateTimeParts rule X32"]:::redesign
+        SP4["SP4 aggregates through the claims, with DuckDB pushdown"]:::redesign
+        SP5["SP5 list_contains and the row encoding through the claims"]:::redesign
         SP6["SP6 statistics and pruning through the claims"]
         SP7["SP7 engine pushdown through the claims"]
     end
@@ -190,24 +203,28 @@ flowchart TD
     subgraph OTHER["Open PRs to coordinate with"]
         AG["vortex-aggregates move<br/>#10769"]:::open
         BB["Spatial bounding boxes in file statistics<br/>#10837"]:::open
-        DI["Duration and Interval<br/>#10467, #10468"]:::open
+        DI["Duration and Interval, closed as stale<br/>#10467, #10468"]:::dropped
         CS["IsCompoundSorted<br/>#10661"]:::open
         PT["Comparisons proven true from statistics<br/>#10686"]:::open
-        OS["optimize only with a session<br/>#10793"]:::open
+        OS["optimize only with a session<br/>#10793, split into #11090, #11091, #11092"]:::merged
+        FN["Scalar functions move to vortex-functions<br/>#10762"]:::open
+        FZ["fill_null and zip kernels for extension arrays<br/>#11415"]:::open
     end
     AG -.- TY2
     AG -.- SP4
     BB -.- FD
-    DI -.- U1
-    DI -.- U2
-    DI -.- RU2
     CS -.- TY2
     PT -.- SP6
     OS -.- RU1
+    FN -.- TY1
+    FN -.- TY3
+    FN -.- SP2
+    FZ -.- TY3
 
     classDef merged fill:#d7f0dc,stroke:#2f7a45,color:#10261a
     classDef open fill:#fbefc7,stroke:#a87c0f,color:#2b2105
     classDef dropped fill:#e6e6e6,stroke:#7a7a7a,color:#333333,stroke-dasharray:4 3
+    classDef redesign fill:#f6d5d5,stroke:#a33a3a,color:#2b0a0a
 ```
 
 ## Order constraints
@@ -226,7 +243,8 @@ breaks something that works today. Those parts must land together, or in a fixed
 2. The Arrow export of phase 7 lands before U1, or together with it. U1 makes a storage-like Arrow
    target type an error, for example `Int64` for a timestamp column in the Python
    `to_arrow_array(arrow_type=...)`. The export with metadata gives those callers a path that loses
-   nothing.
+   nothing. AX ([#11224](https://github.com/vortex-data/vortex/pull/11224)) merged on 2026-11-05,
+   so this order holds, and U1 can start.
 3. Phase 1 builds on U4 and U5. U4 ([#11012](https://github.com/vortex-data/vortex/pull/11012),
    merged as `b9b02f6288`) changed `with_nullability` and the documentation of `validate_dtype`,
    which the storage declaration replaces. U5
@@ -453,8 +471,8 @@ implementations that they change into `vortex-aggregates`.
   a storage-like target type. This part can start at any time.
 - DS: the DataFusion physical schema rejects extension dtypes inside List, FixedSizeList, Map,
   ListView and Utf8 storage (`vortex-datafusion/src/convert/schema.rs`), which probably breaks
-  `Vector` columns. DS fixes it, once a regression test confirms the failure. A regression test
-  confirmed it, and DS is the open draft #11225.
+  `Vector` columns. A regression test confirmed the failure, and DS fixed it. It merged as #11225
+  on 2026-11-05.
 - DS2: the DataFusion physical schema rejects a table column whose files mix an extension type and
   its plain storage. Today such a table labels the plain rows with the extension type, with no
   error. `Json` and `Vector` columns have this bug, and AX adds every type without a plugin. The
