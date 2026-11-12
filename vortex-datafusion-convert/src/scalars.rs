@@ -14,27 +14,27 @@ use arrow_array::StructArray;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use datafusion_common::ScalarValue;
-use vortex::array::VortexSessionExecute;
-use vortex::buffer::ByteBuffer;
-use vortex::dtype::DType;
-use vortex::dtype::DecimalDType;
-use vortex::dtype::NativeDecimalType;
-use vortex::dtype::Nullability;
-use vortex::dtype::PType;
-use vortex::dtype::half::f16;
-use vortex::dtype::i256;
-use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
-use vortex::error::vortex_err;
-use vortex::extension::datetime::AnyTemporal;
-use vortex::extension::datetime::TemporalMetadata;
-use vortex::extension::datetime::TimeUnit;
-use vortex::scalar::DecimalValue;
-use vortex::scalar::Scalar;
-use vortex::session::VortexSession;
+use vortex_array::VortexSessionExecute;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::NativeDecimalType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::half::f16;
+use vortex_array::dtype::i256;
+use vortex_array::extension::datetime::AnyTemporal;
+use vortex_array::extension::datetime::TemporalMetadata;
+use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::scalar::DecimalValue;
+use vortex_array::scalar::Scalar;
 use vortex_arrow::ArrowSessionExt;
+use vortex_buffer::ByteBuffer;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
-use crate::convert::TryToDataFusion;
+use crate::TryToDataFusion;
 
 impl TryToDataFusion<ScalarValue> for Scalar {
     fn try_to_df(&self) -> VortexResult<ScalarValue> {
@@ -247,7 +247,7 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexRes
             let dtype = session
                 .arrow()
                 .from_arrow_datatype(&value.data_type(), Nullability::Nullable)?;
-            Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))?
+            Scalar::try_new(dtype, v.map(vortex_array::scalar::ScalarValue::from))?
         }
         ScalarValue::Date64(v)
         | ScalarValue::Time64Microsecond(v)
@@ -259,7 +259,7 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexRes
             let dtype = session
                 .arrow()
                 .from_arrow_datatype(&value.data_type(), Nullability::Nullable)?;
-            Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))?
+            Scalar::try_new(dtype, v.map(vortex_array::scalar::ScalarValue::from))?
         }
         ScalarValue::Decimal32(decimal, precision, scale) => {
             let decimal_dtype = DecimalDType::new(*precision, *scale);
@@ -395,23 +395,23 @@ mod tests {
     use datafusion_common::arrow::datatypes::i256 as arrow_i256;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
-    use vortex::array::EmptyMetadata;
-    use vortex::buffer::ByteBuffer;
-    use vortex::dtype::DType;
-    use vortex::dtype::DecimalDType;
-    use vortex::dtype::FieldNames;
-    use vortex::dtype::Nullability;
-    use vortex::dtype::PType;
-    use vortex::dtype::StructFields;
-    use vortex::dtype::UnionVariants;
-    use vortex::dtype::extension::ExtDType;
-    use vortex::dtype::i256;
-    use vortex::error::VortexExpect;
-    use vortex::extension::datetime::Date;
-    use vortex::extension::datetime::Time;
-    use vortex::extension::datetime::Timestamp;
-    use vortex::scalar::DecimalValue;
-    use vortex::scalar::Scalar;
+    use vortex_array::EmptyMetadata;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::dtype::UnionVariants;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::i256;
+    use vortex_array::extension::datetime::Date;
+    use vortex_array::extension::datetime::Time;
+    use vortex_array::extension::datetime::Timestamp;
+    use vortex_array::scalar::DecimalValue;
+    use vortex_array::scalar::Scalar;
+    use vortex_buffer::ByteBuffer;
+    use vortex_error::VortexExpect;
     use vortex_json::Json;
 
     use super::*;
@@ -867,7 +867,7 @@ mod tests {
     fn struct_from_df_preserves_extension_child() -> VortexResult<()> {
         use arrow_array::FixedSizeBinaryArray;
         use arrow_schema::extension::Uuid as ArrowUuid;
-        use vortex::encodings::uuid::Uuid;
+        use vortex_uuid::Uuid;
 
         let mut id_field = Field::new("id", DataType::FixedSizeBinary(16), false);
         id_field.try_with_extension_type(ArrowUuid)?;
@@ -991,7 +991,7 @@ mod tests {
         );
         let scalar = Scalar::try_new(
             dtype.clone(),
-            (!null).then(|| vortex::scalar::ScalarValue::from(r#"{"x":1}"#)),
+            (!null).then(|| vortex_array::scalar::ScalarValue::from(r#"{"x":1}"#)),
         )?;
         let scalar = if nested {
             Scalar::struct_(

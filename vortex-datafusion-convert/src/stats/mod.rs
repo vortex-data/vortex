@@ -1,21 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Vortex statistics as DataFusion column statistics.
+
 use datafusion_common::ColumnStatistics;
 use datafusion_common::ScalarValue;
 use datafusion_common::stats::Precision;
-use vortex::array::stats::StatsSet;
-use vortex::dtype::DType;
-use vortex::dtype::Nullability;
-use vortex::dtype::PType;
-use vortex::error::VortexResult;
-use vortex::expr::stats::Precision as VortexPrecision;
-use vortex::expr::stats::Stat;
-use vortex::extension::datetime::AnyTemporal;
-use vortex::scalar::Scalar;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::expr::stats::Precision as VortexPrecision;
+use vortex_array::expr::stats::Stat;
+use vortex_array::extension::datetime::AnyTemporal;
+use vortex_array::scalar::Scalar;
+use vortex_array::stats::StatsSet;
+use vortex_error::VortexResult;
 
 use crate::PrecisionExt;
-use crate::convert::TryToDataFusion;
+use crate::TryToDataFusion;
 
 /// Convert a stats set for an array with the given dtype.
 ///
@@ -24,10 +26,7 @@ use crate::convert::TryToDataFusion;
 /// and below `hash_join_single_partition_threshold_rows` (128 Ki rows) otherwise, so known sizes
 /// turn small build sides into partitioned joins. DataFusion's `project_statistics` also keeps
 /// the whole table's size for any projection with a variable-width column.
-pub(crate) fn stats_set_to_df(
-    stats_set: &StatsSet,
-    dtype: &DType,
-) -> VortexResult<ColumnStatistics> {
+pub fn stats_set_to_df(stats_set: &StatsSet, dtype: &DType) -> VortexResult<ColumnStatistics> {
     let null_count = stats_set
         .get_as::<usize>(Stat::NullCount, &PType::U64.into())
         .to_df();
@@ -66,13 +65,13 @@ fn scalar_stat_to_df(
 }
 
 /// Whether `stats_set` proves the column holds no NaN.
-pub(crate) fn is_nan_free(stats_set: &StatsSet, dtype: &DType) -> bool {
+pub fn is_nan_free(stats_set: &StatsSet, dtype: &DType) -> bool {
     !dtype.is_float()
         || stats_set.get_as::<u64>(Stat::NaNCount, &PType::U64.into()) == VortexPrecision::Exact(0)
 }
 
 /// Infer a singleton from exact bounds, excluding nulls and, for floats, NaNs.
-pub(crate) fn constant_distinct_count(
+pub fn constant_distinct_count(
     stats_set: &StatsSet,
     dtype: &DType,
     null_count: &Precision<usize>,

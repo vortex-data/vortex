@@ -11833,9 +11833,39 @@ dependencies = [
  "vortex",
  "vortex-array",
  "vortex-arrow",
+ "vortex-datafusion-convert",
  "vortex-json",
  "vortex-tensor",
  "vortex-utils",
+]
+
+[[package]]
+name = "vortex-datafusion-convert"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow-array 59.3.2",
+ "arrow-schema 59.3.2",
+ "datafusion 55.2.0",
+ "datafusion-common 55.2.0",
+ "datafusion-expr 55.2.0",
+ "datafusion-functions 55.2.0",
+ "datafusion-functions-nested 55.2.0",
+ "datafusion-physical-expr 55.2.0",
+ "datafusion-physical-plan 55.2.0",
+ "insta",
+ "itertools 0.14.0",
+ "rstest",
+ "tokio",
+ "tracing",
+ "vortex",
+ "vortex-array",
+ "vortex-arrow",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-json",
+ "vortex-session",
+ "vortex-uuid",
 ]
 
 [[package]]

@@ -83,12 +83,8 @@
 //! [`DataSourceRef`]: vortex::scan::DataSourceRef
 //! [`SessionContext`]: https://docs.rs/datafusion/latest/datafusion/prelude/struct.SessionContext.html
 #![deny(missing_docs)]
-use std::fmt::Debug;
 
-use datafusion_common::stats::Precision as DFPrecision;
-use vortex::expr::stats::Precision;
-
-pub mod convert;
+pub use vortex_datafusion_convert as convert;
 mod persistent;
 pub mod v2;
 
@@ -96,32 +92,6 @@ pub mod v2;
 mod tests;
 
 pub use persistent::*;
-
-/// Extension trait to convert our [`Precision`] to DataFusion's
-/// [`DataFusionPrecision`].
-///
-/// [`Precision`]: vortex::expr::stats::Precision
-/// [`DataFusionPrecision`]: datafusion_common::stats::Precision
-trait PrecisionExt<T>
-where
-    T: Debug + Clone + PartialEq + Eq + PartialOrd,
-{
-    /// Convert `Precision` to the datafusion equivalent.
-    fn to_df(self) -> DFPrecision<T>;
-}
-
-impl<T> PrecisionExt<T> for Precision<T>
-where
-    T: Debug + Clone + PartialEq + Eq + PartialOrd,
-{
-    fn to_df(self) -> DFPrecision<T> {
-        match self {
-            Precision::Exact(v) => DFPrecision::Exact(v),
-            Precision::Inexact(v) => DFPrecision::Inexact(v),
-            Precision::Absent => DFPrecision::Absent,
-        }
-    }
-}
 
 #[cfg(test)]
 mod common_tests {

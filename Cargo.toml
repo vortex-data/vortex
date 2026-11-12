@@ -27,6 +27,7 @@ members = [
     "vortex",
     "vortex-bench",
     "vortex-datafusion",
+    "vortex-datafusion-convert",
     "vortex-duckdb",
     "vortex-cuda",
     "vortex-cuda/cub",
@@ -314,6 +315,7 @@ vortex-cloud = { version = "0.1.0", path = "./vortex-cloud", default-features = 
 vortex-compressor = { version = "0.1.0", path = "./vortex-compressor", default-features = false }
 vortex-compute = { version = "0.1.0", path = "./vortex-compute", default-features = false }
 vortex-datafusion = { version = "0.1.0", path = "./vortex-datafusion", default-features = false }
+vortex-datafusion-convert = { version = "0.1.0", path = "./vortex-datafusion-convert", default-features = false }
 vortex-datetime-parts = { version = "0.1.0", path = "./encodings/datetime-parts", default-features = false }
 vortex-decimal-byte-parts = { version = "0.1.0", path = "encodings/decimal-byte-parts", default-features = false }
 vortex-edition = { version = "0.1.0", path = "./vortex-edition", default-features = false }

@@ -727,7 +727,7 @@ mod tests {
     fn create_vortex_opener_preserves_expression_converter() -> anyhow::Result<()> {
         let file_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
         let expression_converter = Arc::new(TrackingExpressionConverter {
-            inner: DefaultExpressionConverter::default(),
+            inner: DefaultExpressionConverter::new(VortexSession::default()),
         }) as Arc<dyn ExpressionConverter>;
 
         let source = VortexSource::new(TableSchema::from(file_schema), VortexSession::default())

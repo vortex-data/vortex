@@ -296,10 +296,18 @@ async fn test_octet_length_pushdown() -> anyhow::Result<()> {
 }
 
 /// The default converter, counting the projections it leaves wholly to DataFusion.
-#[derive(Default)]
 struct FallbackCounter {
     inner: DefaultExpressionConverter,
     fallbacks: AtomicUsize,
+}
+
+impl Default for FallbackCounter {
+    fn default() -> Self {
+        Self {
+            inner: DefaultExpressionConverter::new(VortexSession::default()),
+            fallbacks: AtomicUsize::default(),
+        }
+    }
 }
 
 impl ExpressionConverter for FallbackCounter {
