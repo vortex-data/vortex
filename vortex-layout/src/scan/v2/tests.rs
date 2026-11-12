@@ -258,10 +258,20 @@ fn compose(scan: &Arc<PreparedScan>, rows: Range<u64>) -> Box<dyn Planner> {
 /// Runs `rows` of a prepared scan on one planning run, every spawned chunk admitted to it, and
 /// returns its batches in row order, each with the rows it stands for.
 async fn run_batches(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Vec<Batch>> {
+    run_planner(scan, compose(scan, rows.clone()), rows).await
+}
+
+/// Runs `planner` over `rows` of a prepared scan on one planning run, every spawned chunk
+/// admitted to it, and returns its batches in row order.
+async fn run_planner(
+    scan: &Arc<PreparedScan>,
+    planner: Box<dyn Planner>,
+    rows: Range<u64>,
+) -> VortexResult<Vec<Batch>> {
     let io = scan.io();
     let mut run = Run::new();
     run.admit(
-        compose(scan, rows.clone()),
+        planner,
         WorkScope {
             file_ordinal: 0,
             rows,
@@ -1008,6 +1018,49 @@ async fn small_scans_skip_dynamic_pruning() -> VortexResult<()> {
 
     assert!(prune(&scan, scan.rows().clone()).await?.is_none());
     assert_eq!(counted.requests(), 0);
+    Ok(())
+}
+
+/// A chunk planned after a dynamic conjunct tightened prunes its rows with the new value before
+/// planning them, as a TopK's bound tightens during its scan: a chunk the new value excludes reads
+/// none of its segments, and the rows kept are exactly those of the tightened filter.
+#[tokio::test]
+async fn chunks_prune_again_once_a_dynamic_conjunct_tightens() -> VortexResult<()> {
+    let rows_of = |batches: &[Batch]| batches.iter().map(|batch| batch.array.len()).sum::<usize>();
+
+    // Planned once the bound has its final value: the chunks evaluate it on their rows.
+    let bound = Arc::new(AtomicI32::new(189_999));
+    let (scan, counted) = dynamic_scan(200, &bound).await?;
+    let rows = scan.rows().clone();
+    let planner = ChunkPlanner::new(
+        Arc::clone(&scan),
+        rows.clone(),
+        scan.selection().clone(),
+        None,
+    );
+    let planned_late = run_planner(&scan, Box::new(planner), rows).await?;
+    let late_reads = counted.requests();
+
+    // Planned before the bound tightens: each chunk prunes with the tightened bound first.
+    let bound = Arc::new(AtomicI32::new(-1));
+    let (scan, counted) = dynamic_scan(200, &bound).await?;
+    let rows = scan.rows().clone();
+    let planner = ChunkPlanner::new(
+        Arc::clone(&scan),
+        rows.clone(),
+        scan.selection().clone(),
+        None,
+    );
+    bound.store(189_999, Ordering::Relaxed);
+    let pruned_again = run_planner(&scan, Box::new(planner), rows).await?;
+
+    assert_eq!(rows_of(&planned_late), 10_000);
+    assert_eq!(rows_of(&pruned_again), 10_000);
+    assert!(
+        counted.requests() < late_reads,
+        "pruning again read {} segments, evaluating the bound read {late_reads}",
+        counted.requests()
+    );
     Ok(())
 }
 

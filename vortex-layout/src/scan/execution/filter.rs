@@ -143,6 +143,35 @@ impl FilterPlans {
     }
 }
 
+impl FilterPlans {
+    /// The current dynamic version of every conjunct with a pruning plan, `None` for the others.
+    pub(crate) fn pruning_versions(&self) -> Vec<Option<u64>> {
+        self.pruning
+            .iter()
+            .enumerate()
+            .map(|(idx, plan)| {
+                plan.as_ref()
+                    .and_then(|_| self.expression.dynamic_version(idx))
+            })
+            .collect()
+    }
+
+    /// The pruning plans of the dynamic conjuncts whose values changed since `versions`, from
+    /// [`Self::pruning_versions`], were taken, so pruning with them again can exclude more zones.
+    pub(crate) fn pruning_since(&self, versions: &[Option<u64>]) -> Vec<PlanRef> {
+        self.pruning
+            .iter()
+            .zip(versions)
+            .enumerate()
+            .filter_map(|(idx, (plan, then))| {
+                let plan = plan.as_ref()?;
+                let now = self.expression.dynamic_version(idx)?;
+                (Some(now) != *then && !self.expression.is_switched_off(idx)).then(|| plan.clone())
+            })
+            .collect()
+    }
+}
+
 /// A pruning plan must not fetch data when its requested statistics are unavailable.
 fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
     if plan

@@ -66,12 +66,35 @@ impl PrunePlanner {
             .flat_map(|filter| filter.pruning_over(rows.end - rows.start).cloned())
             .collect();
         let len = usize::try_from(rows.end - rows.start).unwrap_or(usize::MAX);
+        Self::with_plans(scan, rows, pruning, Mask::new_true(len), false, next)
+    }
+
+    /// The planner of `pruning` over the rows of `rows` that `kept` leaves, continuing into
+    /// `next` with what they keep of them.
+    pub(super) fn again(
+        scan: Arc<PreparedScan>,
+        rows: Range<u64>,
+        pruning: Vec<PlanRef>,
+        kept: Mask,
+        next: PruneNext,
+    ) -> Self {
+        Self::with_plans(scan, rows, pruning, kept, true, next)
+    }
+
+    fn with_plans(
+        scan: Arc<PreparedScan>,
+        rows: Range<u64>,
+        pruning: Vec<PlanRef>,
+        mask: Mask,
+        pruned: bool,
+        next: PruneNext,
+    ) -> Self {
         Self {
             scan,
             rows,
             next: Some(next),
-            pruned: false,
-            mask: Mask::new_true(len),
+            pruned,
+            mask,
             pruning: pruning.into_iter(),
             active: None,
             pieces: Vec::new(),
