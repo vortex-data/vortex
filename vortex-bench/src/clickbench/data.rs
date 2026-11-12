@@ -27,7 +27,6 @@ use tracing::info;
 use vortex::error::VortexExpect;
 
 use crate::Format;
-use crate::IdempotentPath;
 // Re-export for use by clickbench_benchmark
 pub use crate::conversions::convert_parquet_directory_to_vortex;
 use crate::datasets::data_downloads::download_data;
@@ -36,17 +35,61 @@ use crate::utils::file::temp_download_filepath;
 
 /// Benchmark and local data directory name for ClickBench sorted by event time.
 pub const CLICKBENCH_SORTED_NAME: &str = "clickbench-sorted";
-const CLICKBENCH_PARTITIONED_NAME: &str = "clickbench_partitioned";
 /// The number of files in the partitioned ClickBench dataset.
 pub const CLICKBENCH_FILES: u32 = 100;
-const SORTED_SHARD_COUNT: usize = 100;
-const SORTED_SHARD_COUNT_U64: u64 = 100;
 const SORTED_SHARD_FILENAME_WIDTH: usize = 3;
 const SORTED_SHARD_PERMUTATION_MULTIPLIER: u64 = 37;
 const SORTED_SHARD_PERMUTATION_OFFSET: u64 = 17;
 
 /// Zero-based ClickBench query IDs that filter by or order/group on `EventDate`/`EventTime`.
 pub const CLICKBENCH_SORTED_QUERY_IDS: &[usize] = &[23, 24, 26, 36, 37, 38, 39, 40, 41, 42];
+
+/// The key the sorted ClickBench variant orders its rows by.
+#[derive(ValueEnum, Default, Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SortKey {
+    /// `ORDER BY "EventTime"`, which suits the `ORDER BY "EventTime" LIMIT` queries.
+    #[default]
+    EventTime,
+    /// `ORDER BY "CounterID", "EventDate", "EventTime"`, a prefix of the ClickHouse primary key,
+    /// which clusters the `"CounterID" = 62` queries into a few zones.
+    Compound,
+}
+
+impl SortKey {
+    /// The columns the rows are sorted by, most significant first.
+    pub fn columns(self) -> &'static [&'static str] {
+        match self {
+            SortKey::EventTime => &["EventTime"],
+            SortKey::Compound => &["CounterID", "EventDate", "EventTime"],
+        }
+    }
+}
+
+impl FromStr for SortKey {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "event-time" => Ok(SortKey::EventTime),
+            "compound" => Ok(SortKey::Compound),
+            _ => anyhow::bail!(
+                "Failed to parse {s}, only valid sort values are `event-time` or `compound`"
+            ),
+        }
+    }
+}
+
+impl Display for SortKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.to_possible_value()
+                .vortex_expect("Invalid sort key value")
+                .get_name()
+        )
+    }
+}
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;
@@ -246,12 +289,17 @@ impl Flavor {
     }
 }
 
-/// Generate sorted ClickBench Parquet shards under `basepath`.
+/// Generate sorted ClickBench Parquet shards under `basepath`, one shard per source file.
 ///
-/// Each shard contains a contiguous `EventTime` range, but the shard filenames are deterministically
-/// shuffled. That makes ordinary file listing order bad for ascending TopK queries, so file sort
-/// pushdown has a visible job to do.
-pub async fn generate_sorted_clickbench(basepath: impl AsRef<Path>) -> anyhow::Result<()> {
+/// Each shard contains a contiguous range of `sort_key`, but the shard filenames are
+/// deterministically shuffled. That makes ordinary file listing order bad for ascending TopK
+/// queries, so file sort pushdown has a visible job to do.
+pub async fn generate_sorted_clickbench(
+    basepath: impl AsRef<Path>,
+    source_basepath: impl AsRef<Path>,
+    files: u32,
+    sort_key: SortKey,
+) -> anyhow::Result<()> {
     let basepath = basepath.as_ref();
     let output_parquet_dir = basepath.join(Format::Parquet.name());
 
@@ -264,15 +312,18 @@ pub async fn generate_sorted_clickbench(basepath: impl AsRef<Path>) -> anyhow::R
         return Ok(());
     }
 
-    let source_base = CLICKBENCH_PARTITIONED_NAME.to_data_path();
-    Flavor::Partitioned
-        .download(&source_base, CLICKBENCH_FILES)
-        .await?;
+    let source_base = source_basepath.as_ref();
+    Flavor::Partitioned.download(source_base, files).await?;
     let source_parquet_dir = source_base.join(Format::Parquet.name());
 
     let temp_root = temp_download_filepath();
-    let result =
-        generate_sorted_clickbench_inner(&source_parquet_dir, &output_parquet_dir, &temp_root);
+    let result = generate_sorted_clickbench_inner(
+        &source_parquet_dir,
+        &output_parquet_dir,
+        &temp_root,
+        u64::from(files),
+        sort_key,
+    );
     if result.is_err() {
         drop(fs::remove_dir_all(&temp_root));
     }
@@ -283,6 +334,8 @@ fn generate_sorted_clickbench_inner(
     source_parquet_dir: &Path,
     output_parquet_dir: &Path,
     temp_root: &Path,
+    shard_count: u64,
+    sort_key: SortKey,
 ) -> anyhow::Result<()> {
     let source_rows = parquet_dir_row_count(source_parquet_dir)?;
     anyhow::ensure!(
@@ -306,6 +359,8 @@ fn generate_sorted_clickbench_inner(
         &temp_output_dir,
         &duckdb_temp_dir,
         source_rows,
+        shard_count,
+        sort_key,
     );
     let db_path = temp_root.join("sort.duckdb");
 
@@ -345,8 +400,8 @@ fn generate_sorted_clickbench_inner(
 
     let output_files = parquet_files(&temp_output_dir)?;
     anyhow::ensure!(
-        output_files.len() == SORTED_SHARD_COUNT,
-        "Expected {SORTED_SHARD_COUNT} sorted ClickBench shards, got {}",
+        u64::try_from(output_files.len())? == shard_count,
+        "Expected {shard_count} sorted ClickBench shards, got {}",
         output_files.len()
     );
 
@@ -377,9 +432,17 @@ fn sorted_clickbench_duckdb_script(
     output_parquet_dir: &Path,
     duckdb_temp_dir: &Path,
     source_rows: u64,
+    shard_count: u64,
+    sort_key: SortKey,
 ) -> String {
     let source_glob = source_parquet_dir.join("hits_*.parquet");
-    let rows_per_shard = source_rows.div_ceil(SORTED_SHARD_COUNT_U64);
+    let rows_per_shard = source_rows.div_ceil(shard_count);
+    let order_by = sort_key
+        .columns()
+        .iter()
+        .map(|column| quote_identifier(column))
+        .collect::<Vec<_>>()
+        .join(", ");
     let columns = HITS_SCHEMA
         .fields()
         .iter()
@@ -393,16 +456,16 @@ PRAGMA temp_directory={temp_dir};
 CREATE TABLE hits_sorted AS
     SELECT *
     FROM read_parquet({source_glob})
-    ORDER BY \"EventTime\";
+    ORDER BY {order_by};
 ",
         temp_dir = sql_string_literal(&duckdb_temp_dir.display().to_string()),
         source_glob = sql_string_literal(&source_glob.display().to_string()),
     );
 
-    for shard_idx in 0..SORTED_SHARD_COUNT_U64 {
+    for shard_idx in 0..shard_count {
         let start = shard_idx * rows_per_shard;
         let end = (start + rows_per_shard).min(source_rows);
-        let output_path = output_parquet_dir.join(sorted_shard_file_name(shard_idx));
+        let output_path = output_parquet_dir.join(sorted_shard_file_name(shard_idx, shard_count));
         script.push_str(&format!(
             "\
 COPY (
@@ -419,19 +482,31 @@ COPY (
     script
 }
 
-fn sorted_shard_file_name(sorted_shard_idx: u64) -> String {
-    debug_assert!(sorted_shard_idx < SORTED_SHARD_COUNT_U64);
-    let listing_shard_idx = sorted_shard_listing_idx(sorted_shard_idx);
+fn sorted_shard_file_name(sorted_shard_idx: u64, shard_count: u64) -> String {
+    let listing_shard_idx = sorted_shard_listing_idx(sorted_shard_idx, shard_count);
     format!(
         "hits_{listing_shard_idx:0width$}.parquet",
         width = SORTED_SHARD_FILENAME_WIDTH
     )
 }
 
-fn sorted_shard_listing_idx(sorted_shard_idx: u64) -> u64 {
-    debug_assert!(sorted_shard_idx < SORTED_SHARD_COUNT_U64);
-    (sorted_shard_idx * SORTED_SHARD_PERMUTATION_MULTIPLIER + SORTED_SHARD_PERMUTATION_OFFSET)
-        % SORTED_SHARD_COUNT_U64
+/// Map a shard's position in sort order to its position in filename order.
+///
+/// `i -> (i * m + offset) % n` is a permutation whenever `m` is coprime with `n`, so the
+/// multiplier is the first value from [`SORTED_SHARD_PERMUTATION_MULTIPLIER`] that is.
+fn sorted_shard_listing_idx(sorted_shard_idx: u64, shard_count: u64) -> u64 {
+    debug_assert!(sorted_shard_idx < shard_count);
+    let multiplier = (SORTED_SHARD_PERMUTATION_MULTIPLIER..)
+        .find(|m| gcd(*m, shard_count) == 1)
+        .vortex_expect("some multiplier is coprime with the shard count");
+    (sorted_shard_idx * multiplier + SORTED_SHARD_PERMUTATION_OFFSET) % shard_count
+}
+
+fn gcd(mut a: u64, mut b: u64) -> u64 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
 }
 
 fn parquet_dir_row_count(parquet_dir: &Path) -> anyhow::Result<u64> {
@@ -493,8 +568,8 @@ mod tests {
 
     #[test]
     fn sorted_clickbench_shard_names_use_deterministic_shuffle() {
-        let names = (0..SORTED_SHARD_COUNT_U64)
-            .map(sorted_shard_file_name)
+        let names = (0..100)
+            .map(|idx| sorted_shard_file_name(idx, 100))
             .collect::<Vec<_>>();
 
         assert_eq!(names[0], "hits_017.parquet");
@@ -503,7 +578,7 @@ mod tests {
         assert_eq!(names[99], "hits_080.parquet");
 
         let unique_names = names.iter().collect::<HashSet<_>>();
-        assert_eq!(unique_names.len(), SORTED_SHARD_COUNT);
+        assert_eq!(unique_names.len(), 100);
 
         let mut sorted_names = names.clone();
         sorted_names.sort();
@@ -521,6 +596,8 @@ mod tests {
             Path::new("out"),
             Path::new("tmp"),
             1000,
+            100,
+            SortKey::EventTime,
         );
 
         assert!(script.contains("ORDER BY \"EventTime\";"));
@@ -537,5 +614,31 @@ mod tests {
 
         assert!(first < second);
         assert!(second < third);
+    }
+
+    #[rstest::rstest]
+    #[case(10)]
+    #[case(37)]
+    #[case(100)]
+    fn sorted_clickbench_shard_names_are_a_permutation(#[case] shard_count: u64) {
+        let unique_names = (0..shard_count)
+            .map(|idx| sorted_shard_file_name(idx, shard_count))
+            .collect::<HashSet<_>>();
+        assert_eq!(unique_names.len(), usize::try_from(shard_count).unwrap());
+    }
+
+    #[test]
+    fn sorted_clickbench_script_sorts_by_compound_key() {
+        let script = sorted_clickbench_duckdb_script(
+            Path::new("source"),
+            Path::new("out"),
+            Path::new("tmp"),
+            1000,
+            10,
+            SortKey::Compound,
+        );
+
+        assert!(script.contains("ORDER BY \"CounterID\", \"EventDate\", \"EventTime\";"));
+        assert_eq!(script.matches("COPY (").count(), 10);
     }
 }

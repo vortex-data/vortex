@@ -16,6 +16,7 @@ use clickbench::CLICKBENCH_FILES;
 use clickbench::ClickBenchBenchmark;
 use clickbench::ClickBenchSortedBenchmark;
 use clickbench::Flavor;
+use clickbench::SortKey;
 use fineweb::FinewebBenchmark;
 use itertools::Itertools;
 use job::JobBenchmark;
@@ -439,8 +440,10 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::ClickBenchSorted => {
+            let files = opts.get_as::<u32>("files").unwrap_or(CLICKBENCH_FILES);
+            let sort_key = opts.get_as::<SortKey>("sort").unwrap_or_default();
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
-            let benchmark = ClickBenchSortedBenchmark::new(remote_data_dir)?;
+            let benchmark = ClickBenchSortedBenchmark::new(files, sort_key, remote_data_dir)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::TpcH => {

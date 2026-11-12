@@ -52,18 +52,31 @@ impl ClickBenchBenchmark {
     }
 }
 
-/// ClickBench sorted by event time, with shard filenames shuffled to exercise sort pushdown.
+/// ClickBench sorted by `sort_key`, with shard filenames shuffled to exercise sort pushdown.
 pub struct ClickBenchSortedBenchmark {
+    /// How many partitioned ClickBench files to sort, from 1 to [`CLICKBENCH_FILES`]. The sorted
+    /// output has one shard per source file.
+    pub files: u32,
+    pub sort_key: SortKey,
     pub queries_file: Option<String>,
     pub data_url: Url,
 }
 
 impl ClickBenchSortedBenchmark {
     /// Create the sorted ClickBench benchmark, optionally using a remote data directory.
-    pub fn new(use_remote_data_dir: Option<String>) -> Result<Self> {
+    pub fn new(files: u32, sort_key: SortKey, use_remote_data_dir: Option<String>) -> Result<Self> {
+        anyhow::ensure!(
+            (1..=CLICKBENCH_FILES).contains(&files),
+            "ClickBench files must be between 1 and {CLICKBENCH_FILES}, got {files}"
+        );
         Ok(Self {
+            files,
+            sort_key,
             queries_file: None,
-            data_url: resolve_data_url(use_remote_data_dir.as_deref(), CLICKBENCH_SORTED_NAME)?,
+            data_url: resolve_data_url(
+                use_remote_data_dir.as_deref(),
+                &sorted_clickbench_data_dir(files, sort_key),
+            )?,
         })
     }
 }
@@ -153,11 +166,17 @@ impl Benchmark for ClickBenchSortedBenchmark {
             return Ok(());
         }
 
-        generate_sorted_clickbench(CLICKBENCH_SORTED_NAME.to_data_path()).await
+        generate_sorted_clickbench(
+            sorted_clickbench_data_dir(self.files, self.sort_key).to_data_path(),
+            clickbench_data_dir(Flavor::Partitioned, self.files).to_data_path(),
+            self.files,
+            self.sort_key,
+        )
+        .await
     }
 
     fn expected_row_counts(&self) -> Option<Vec<usize>> {
-        Some(clickbench_expected_row_counts())
+        (self.files == CLICKBENCH_FILES).then(clickbench_expected_row_counts)
     }
 
     fn dataset(&self) -> BenchmarkDataset {
@@ -169,7 +188,7 @@ impl Benchmark for ClickBenchSortedBenchmark {
     }
 
     fn dataset_display(&self) -> String {
-        CLICKBENCH_SORTED_NAME.to_string()
+        sorted_clickbench_data_dir(self.files, self.sort_key)
     }
 
     fn data_url(&self) -> &Url {
@@ -178,6 +197,13 @@ impl Benchmark for ClickBenchSortedBenchmark {
 
     fn table_specs(&self) -> Vec<TableSpec> {
         vec![TableSpec::new("hits", Some(HITS_SCHEMA.clone()))]
+    }
+
+    fn file_sort_order(&self, table_name: &str) -> &'static [&'static str] {
+        match table_name {
+            "hits" => self.sort_key.columns(),
+            _ => &[],
+        }
     }
 }
 
@@ -191,9 +217,31 @@ fn clickbench_data_dir(flavor: Flavor, files: u32) -> String {
     }
 }
 
+/// The data directory for the sorted variant, e.g. `clickbench-sorted-compound_10`. The full
+/// dataset sorted by event time stays `clickbench-sorted` for backcompat.
+fn sorted_clickbench_data_dir(files: u32, sort_key: SortKey) -> String {
+    let mut dir = CLICKBENCH_SORTED_NAME.to_string();
+    if sort_key != SortKey::EventTime {
+        dir.push_str(&format!("-{sort_key}"));
+    }
+    if files != CLICKBENCH_FILES {
+        dir.push_str(&format!("_{files}"));
+    }
+    dir
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[rstest::rstest]
+    #[case(CLICKBENCH_FILES, SortKey::EventTime, "clickbench-sorted")]
+    #[case(CLICKBENCH_FILES, SortKey::Compound, "clickbench-sorted-compound")]
+    #[case(10, SortKey::EventTime, "clickbench-sorted_10")]
+    #[case(10, SortKey::Compound, "clickbench-sorted-compound_10")]
+    fn sorted_data_dirs(#[case] files: u32, #[case] sort_key: SortKey, #[case] expected: &str) {
+        assert_eq!(sorted_clickbench_data_dir(files, sort_key), expected);
+    }
 
     #[test]
     fn subsets_skip_the_full_dataset_row_counts() -> Result<()> {
