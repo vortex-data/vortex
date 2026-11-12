@@ -43,6 +43,7 @@ mod bitpacking;
 mod delta;
 mod for_;
 mod rle;
+mod take_chunks;
 
 pub const FL_CHUNK_SIZE: usize = 1024;
 
