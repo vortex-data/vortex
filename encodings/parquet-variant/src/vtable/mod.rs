@@ -95,7 +95,7 @@ impl VTable for ParquetVariant {
     ) -> VortexResult<()> {
         vortex_ensure_eq!(slots.len(), ParquetVariantSlots::COUNT);
         let validity = child_to_validity(
-            slots[ParquetVariantSlots::VALIDITY].as_ref(),
+            slots[ParquetVariantSlots::VALIDITY_CHILD].as_ref(),
             dtype.nullability(),
         );
         let metadata = slots[ParquetVariantSlots::METADATA]

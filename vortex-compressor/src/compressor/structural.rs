@@ -80,10 +80,10 @@ impl CascadingCompressor {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Canonical> {
         let (slot, array): (usize, &ArrayRef) = match &canonical {
-            Canonical::Bool(array) => (BoolSlots::VALIDITY, array.as_ref()),
-            Canonical::Primitive(array) => (PrimitiveSlots::VALIDITY, array.as_ref()),
-            Canonical::Decimal(array) => (DecimalSlots::VALIDITY, array.as_ref()),
-            Canonical::VarBinView(array) => (VarBinViewSlots::VALIDITY, array.as_ref()),
+            Canonical::Bool(array) => (BoolSlots::VALIDITY_CHILD, array.as_ref()),
+            Canonical::Primitive(array) => (PrimitiveSlots::VALIDITY_CHILD, array.as_ref()),
+            Canonical::Decimal(array) => (DecimalSlots::VALIDITY_CHILD, array.as_ref()),
+            Canonical::VarBinView(array) => (VarBinViewSlots::VALIDITY_CHILD, array.as_ref()),
             _ => return Ok(canonical),
         };
         let Some(validity) = &array.slots()[slot] else {

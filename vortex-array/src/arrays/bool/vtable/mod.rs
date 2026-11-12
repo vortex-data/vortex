@@ -128,7 +128,7 @@ impl VTable for Bool {
             data.bits.len() * 8
         );
 
-        let validity = child_to_validity(slots[BoolSlots::VALIDITY].as_ref(), *nullability);
+        let validity = child_to_validity(slots[BoolSlots::VALIDITY_CHILD].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure_eq!(
                 validity_len,

@@ -24,9 +24,10 @@ use syn::spanned::Spanned;
 /// Name of the per-field attribute that pins a field to a slot index.
 const SLOT_ATTR: &str = "slot";
 
-/// Method names a slot accessor may not take, because they would shadow the inherent methods of
-/// `ArrayView` (which the by-value accessors take precedence over) or the ext trait's own methods.
-const RESERVED_ACCESSOR_NAMES: &[&str] = &[
+/// Slot field names that are rejected because their generated accessors would shadow the inherent
+/// methods of `ArrayView` (which the by-value accessors take precedence over) or the ext trait's
+/// own methods.
+const RESERVED_FIELD_NAMES: &[&str] = &[
     "array",
     "borrow_slots",
     "data",
@@ -154,18 +155,12 @@ const RESERVED_ACCESSOR_NAMES: &[&str] = &[
 /// The underlying storage is always `ArraySlots` — the field type only
 /// controls whether the macro inserts a `.vortex_expect()` unwrap or not.
 ///
-/// # Accessor names
+/// # Field names
 ///
 /// The ext trait accessor is named after the field. Because the accessors take an `ArrayView`
 /// by value, Rust picks them over `ArrayView`'s own `&self` methods, so a field whose name
-/// matches one of those methods (`validity`, `dtype`, `len`, ...) would hide it. Such names
-/// are rejected; rename the accessor with `#[slot(N, accessor = name)]`, which leaves the field,
-/// the index constant, and the slot name unchanged:
-///
-/// ```ignore
-/// #[slot(0, accessor = validity_slot)]
-/// pub validity: Option<ArrayRef>,
-/// ```
+/// matches one of those methods (`validity`, `dtype`, `len`, ...) would hide it. Such field
+/// names are rejected; a validity slot, for example, is conventionally named `validity_child`.
 ///
 /// # Variadic tail slots
 ///
@@ -542,8 +537,6 @@ struct SlotField {
     index_span: Span,
     expect_message: syn::LitStr,
     struct_ident: Ident,
-    /// Name of the ext trait accessor, the field name unless overridden by `accessor = ..`.
-    accessor_ident: Ident,
     encoding: Path,
 }
 
@@ -592,19 +585,12 @@ impl SlotField {
             field.span(),
         );
 
-        let accessor_ident = annotation
-            .accessor
-            .clone()
-            .unwrap_or_else(|| field_ident.clone());
-        let accessor_name = ident_name(&accessor_ident);
-        if RESERVED_ACCESSOR_NAMES.contains(&accessor_name.as_str()) {
+        if RESERVED_FIELD_NAMES.contains(&field_name.as_str()) {
             return Err(syn::Error::new(
-                accessor_ident.span(),
+                field_ident.span(),
                 format!(
-                    "the slot accessor `{accessor_name}` would shadow `ArrayView::{accessor_name}`; \
-                     name the accessor explicitly, e.g. \
-                     `#[slot({}, accessor = {accessor_name}_slot)]`",
-                    annotation.index
+                    "the slot field `{field_name}` would generate an accessor that shadows \
+                     `ArrayView::{field_name}`; rename the field, e.g. to `{field_name}_child`"
                 ),
             ));
         }
@@ -619,7 +605,6 @@ impl SlotField {
             index_span: annotation.span,
             expect_message,
             struct_ident: struct_ident.clone(),
-            accessor_ident,
             encoding: encoding.clone(),
         })
     }
@@ -735,7 +720,7 @@ impl SlotField {
     }
 
     fn ext_method(&self) -> proc_macro2::TokenStream {
-        let accessor_ident = &self.accessor_ident;
+        let field_ident = &self.field_ident;
         let ty = self.slot_type.view_field_ty();
         let slot_name = &self.slot_name;
         let encoding = &self.encoding;
@@ -746,7 +731,7 @@ impl SlotField {
         quote! {
             #[doc = concat!("Returns the `", #slot_name, "` slot.")]
             #[inline]
-            fn #accessor_ident(self) -> #ty {
+            fn #field_ident(self) -> #ty {
                 #value
             }
         }
@@ -759,8 +744,6 @@ struct SlotIndexAttr {
     /// Whether the trailing `..` was present, marking a variadic tail.
     variadic: bool,
     span: Span,
-    /// An `accessor = name` override for the ext trait accessor's name.
-    accessor: Option<Ident>,
 }
 
 impl SlotIndexAttr {
@@ -800,30 +783,14 @@ impl Parse for SlotIndexAttr {
         if variadic {
             input.parse::<Token![..]>()?;
         }
-
-        let mut accessor = None;
-        if input.peek(Token![,]) {
-            input.parse::<Token![,]>()?;
-            let key: Ident = input.parse()?;
-            if key != "accessor" {
-                return Err(syn::Error::new(
-                    key.span(),
-                    "expected `accessor = name` after the slot index",
-                ));
-            }
-            input.parse::<Token![=]>()?;
-            accessor = Some(input.parse::<Ident>()?);
-        }
         if !input.is_empty() {
-            return Err(input
-                .error("expected `#[slot(N)]`, `#[slot(N..)]`, or `#[slot(N, accessor = name)]`"));
+            return Err(input.error("expected `#[slot(N)]` or `#[slot(N..)]`"));
         }
 
         Ok(Self {
             index,
             variadic,
             span: literal.span(),
-            accessor,
         })
     }
 }

@@ -97,7 +97,7 @@ impl ZstdBuffers {
         let mut slots: Vec<Option<ArrayRef>> =
             serialization.children.into_iter().map(Some).collect();
         let inner_child_count = slots.len();
-        let validity_slot = lift_validity(&array.validity()?, array.len(), &mut slots);
+        let validity_child = lift_validity(&array.validity()?, array.len(), &mut slots);
 
         let data = ZstdBuffersData {
             inner_encoding_id: serialization.serialized_id,
@@ -106,7 +106,7 @@ impl ZstdBuffers {
             uncompressed_sizes,
             buffer_alignments,
             inner_child_count,
-            validity_slot,
+            validity_child,
         };
         let slots: ArraySlots = slots.into();
         let compressed = Array::try_from_parts(ArrayParts::new(
@@ -178,7 +178,7 @@ pub struct ZstdBuffersData {
     /// Slot holding the wrapped array's validity, if it is not implied by the dtype.
     ///
     /// This is either one of the wrapped array's children, or one extra slot after them.
-    validity_slot: Option<usize>,
+    validity_child: Option<usize>,
 }
 
 impl Display for ZstdBuffersData {
@@ -425,7 +425,7 @@ impl ArrayHash for ZstdBuffersData {
         self.uncompressed_sizes.hash(state);
         self.buffer_alignments.hash(state);
         self.inner_child_count.hash(state);
-        self.validity_slot.hash(state);
+        self.validity_child.hash(state);
     }
 }
 
@@ -442,7 +442,7 @@ impl ArrayEq for ZstdBuffersData {
             && self.uncompressed_sizes == other.uncompressed_sizes
             && self.buffer_alignments == other.buffer_alignments
             && self.inner_child_count == other.inner_child_count
-            && self.validity_slot == other.validity_slot
+            && self.validity_child == other.validity_child
     }
 }
 
@@ -471,7 +471,7 @@ impl VTable for ZstdBuffers {
             data.inner_child_count
         );
         let extra_slots = slots.len() - data.inner_child_count;
-        match data.validity_slot {
+        match data.validity_child {
             Some(idx) => {
                 vortex_ensure!(
                     dtype.is_nullable(),
@@ -562,7 +562,7 @@ impl ValidityVTable<ZstdBuffers> for ZstdBuffers {
     fn validity(array: ArrayView<'_, ZstdBuffers>) -> VortexResult<Validity> {
         let child = array
             .data()
-            .validity_slot
+            .validity_child
             .and_then(|idx| array.slots()[idx].as_ref());
         Ok(child_to_validity(child, array.dtype().nullability()))
     }
@@ -747,7 +747,7 @@ mod tests {
             compressed.slots().len(),
             compressed.data().inner_child_count
         );
-        assert!(compressed.data().validity_slot.is_some());
+        assert!(compressed.data().validity_child.is_some());
         Ok(())
     }
 
@@ -759,7 +759,7 @@ mod tests {
 
         let inner_child_count = compressed.data().inner_child_count;
         assert_eq!(compressed.slots().len(), inner_child_count + 1);
-        assert_eq!(compressed.data().validity_slot, Some(inner_child_count));
+        assert_eq!(compressed.data().validity_child, Some(inner_child_count));
 
         let mut ctx = SESSION.create_execution_ctx();
         assert!(compressed.into_array().all_invalid(&mut ctx)?);
@@ -794,7 +794,7 @@ mod tests {
             ),
             &session,
         )?;
-        assert!(decoded.as_::<ZstdBuffers>().data().validity_slot.is_some());
+        assert!(decoded.as_::<ZstdBuffers>().data().validity_child.is_some());
 
         let mut ctx = session.create_execution_ctx();
         for i in 0..input.len() {
