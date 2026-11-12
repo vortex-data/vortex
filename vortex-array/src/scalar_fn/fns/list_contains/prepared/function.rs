@@ -93,7 +93,7 @@ impl ScalarFnVTable for PreparedSet {
     }
 
     fn serialize(&self, set: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(pb::Scalar::from(set.list()).encode_to_vec()))
+        Ok(Some(set.list().to_proto()?.encode_to_vec()))
     }
 
     fn deserialize(&self, metadata: &[u8], session: &VortexSession) -> VortexResult<Self::Options> {
