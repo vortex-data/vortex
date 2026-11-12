@@ -66,6 +66,15 @@ the order list of FD, and the `Ord` claim of CL2 gives the same answer.
 
 ```mermaid
 flowchart TD
+    subgraph KEY["Color key"]
+        direction LR
+        K1["Merged"]:::merged
+        K2["Open PR"]:::open
+        K3["No PR yet"]
+        K4["Waits for a design decision"]:::redesign
+        K5["Dropped or closed without a merge"]:::dropped
+    end
+
     subgraph PH0["Phase 0"]
         PC["PC path-consistency helper<br/>#11013"]:::merged
         U5["U5 temporal dtype and value errors<br/>#11015"]:::merged
