@@ -20,7 +20,8 @@
 //! ```
 //!
 //! `build` writes `<outdir>/data.vortex` holding the column and a standalone index file
-//! `<outdir>/<kind>.vxi` over it, and prints sizes and timings as JSON. `query` prints one JSON
+//! `<outdir>/<kind>.vxi` over it, and prints sizes and timings as JSON. `DATA_ROW_BLOCK=<rows>`
+//! writes the data file in blocks of that many rows instead of the default 8,192. `query` prints one JSON
 //! line per query with its result, the median warm latency, and the exact bytes Vortex read from
 //! each file on a fresh open. `--scan` answers trigram queries without the index, and `--index-only`
 //! probes the trigram index without reading data. `--top-k-only` runs only the BM25 ranking of a
@@ -59,6 +60,7 @@ use vortex_error::vortex_err;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::VortexFile;
 use vortex_file::WriteOptionsSessionExt;
+use vortex_file::WriteStrategyBuilder;
 use vortex_index::IndexFile;
 use vortex_index::IndexFileBuilder;
 use vortex_index::InvertedIndex;
@@ -249,8 +251,18 @@ async fn build(session: &VortexSession, args: &[String]) -> VortexResult<()> {
     let (dtype, chunks) = read_parquet(session, input)?;
     let start = Instant::now();
     let array = ChunkedArray::try_new(chunks, dtype)?.into_array();
-    session
-        .write_options()
+    let mut options = session.write_options();
+    if let Some(rows) = std::env::var("DATA_ROW_BLOCK")
+        .ok()
+        .and_then(|rows| rows.parse().ok())
+    {
+        options = options.with_strategy(
+            WriteStrategyBuilder::from_session(session)
+                .with_row_block_size(rows)
+                .build(),
+        );
+    }
+    options
         .write(
             &mut tokio::fs::File::create(&data_path).await?,
             array.to_array_stream(),
