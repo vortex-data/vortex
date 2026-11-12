@@ -24,7 +24,6 @@
 
 mod cache;
 pub(crate) mod io;
-mod retain;
 #[cfg(test)]
 mod tests;
 
@@ -244,7 +243,7 @@ impl ScanBuilder {
             session: self.session,
             rows: self.row_range.unwrap_or(0..row_count),
             selection: self.selection,
-            segments: cache.retaining(file.segments),
+            segments: file.segments,
             ranges,
             cache,
             locations: file.locations,
