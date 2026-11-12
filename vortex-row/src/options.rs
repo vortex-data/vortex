@@ -171,8 +171,17 @@ pub(crate) fn deserialize_row_encoding_options(
             "RowEncodingOptions metadata must contain a 4-byte length prefix"
         );
     }
-    let n = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
-    let expected = 4 + 2 * n;
+    let n = usize::try_from(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])).map_err(
+        |_| vortex_error::vortex_err!("RowEncodingOptions field count does not fit in usize"),
+    )?;
+    // Use checked arithmetic so that a large declared field count cannot overflow `usize` on
+    // 32-bit targets before the length validation below.
+    let Some(expected) = n.checked_mul(2).and_then(|len| len.checked_add(4)) else {
+        vortex_error::vortex_bail!(
+            "RowEncodingOptions metadata declares too many fields: {}",
+            n
+        );
+    };
     if bytes.len() != expected {
         vortex_error::vortex_bail!(
             "RowEncodingOptions metadata wrong size: got {}, expected {}",
@@ -190,4 +199,45 @@ pub(crate) fn deserialize_row_encoding_options(
         i += 2;
     }
     Ok(RowEncodingOptions { fields })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn row_encoding_options_roundtrip() {
+        let opts = RowEncodingOptions {
+            fields: [
+                RowSortField {
+                    descending: true,
+                    nulls_first: false,
+                },
+                RowSortField {
+                    descending: false,
+                    nulls_first: true,
+                },
+            ]
+            .into_iter()
+            .collect(),
+        };
+        let bytes = serialize_row_encoding_options(&opts);
+        let decoded = deserialize_row_encoding_options(&bytes).unwrap();
+        assert_eq!(decoded.fields.as_slice(), opts.fields.as_slice());
+    }
+
+    #[test]
+    fn row_encoding_options_rejects_huge_field_count() {
+        // A field count with the high bit set would overflow `4 + 2 * n` on 32-bit targets.
+        for n in [0x8000_0000u32, u32::MAX] {
+            let bytes = n.to_le_bytes();
+            assert!(deserialize_row_encoding_options(&bytes).is_err());
+        }
+    }
+
+    #[test]
+    fn row_encoding_options_rejects_truncated_metadata() {
+        assert!(deserialize_row_encoding_options(&[1, 0, 0]).is_err());
+        assert!(deserialize_row_encoding_options(&[1, 0, 0, 0, 1]).is_err());
+    }
 }
