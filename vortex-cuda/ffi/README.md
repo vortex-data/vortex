@@ -39,6 +39,16 @@ Physical encodings and dictionary index widths may differ between batches; impor
 with its own schema. The existing fixed-schema stream API continues to decode dictionaries.
 See `vortex_cuda.h` for ownership, synchronization, and error contracts.
 
+## Late string expansion with cuDF
+
+The optional C++ header `vortex_cudf_dictionary.hpp` combines string dictionary batches before
+expanding them into owned cuDF output. It accepts differing dictionary keys and uses a numeric
+payload fast path for non-null strings with uniform 1/2/4/8-byte widths. Compression and file
+size are unchanged; the Rust FFI does not depend on cuDF.
+
+Callers handle unsupported types separately and retain input buffers until GPU work completes.
+See the header for contracts and `tests/` for standalone C++ tests targeting libcudf 26.06.
+
 ## Generated header
 
 `build.rs` generates `cinclude/vortex_cuda.h` with cbindgen. Edit the Rust declarations in `src/`
