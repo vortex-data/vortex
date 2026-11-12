@@ -301,9 +301,12 @@ impl<'a> GnomADBuilder<'a> {
 
         self.consume_info(header, record.info())?;
 
+        let keys = record.samples().keys();
         for sample in record.samples().iter() {
-            for result in sample.iter(header) {
-                let (field, value) = result?;
+            // A sample may drop trailing fields (a no-call is often just `./.`), which are null.
+            let mut values = sample.iter(header);
+            for field in keys.iter() {
+                let value = values.next().transpose()?.and_then(|(_, value)| value);
                 match field {
                     "GT" => self
                         .GT_builder
