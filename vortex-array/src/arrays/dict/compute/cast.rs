@@ -16,8 +16,20 @@ use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Dict {
     fn cast(array: ArrayView<'_, Dict>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // Can have un-reference null values making the cast of values fail without a possible mask.
-        // TODO(joe): optimize this, could look at accessible values and fill_null not those?
+        // Casting unused entries must not introduce errors that a cast over the rows would skip.
+        if !array.has_all_values_referenced() {
+            let safe_for_unused_values = match (array.dtype(), dtype) {
+                (DType::Primitive(from, _), DType::Primitive(to, _)) => {
+                    from.casts_losslessly_to(*to)
+                }
+                (from, to) => from.as_nullable() == to.as_nullable(),
+            };
+            if !safe_for_unused_values {
+                return Ok(None);
+            }
+        }
+
+        // An unused null entry must not make a cast to a non-nullable dtype fail.
         if !dtype.is_nullable() && !array.values().validity()?.definitely_no_nulls() {
             return Ok(None);
         }
@@ -51,9 +63,11 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::Dict;
@@ -228,5 +242,59 @@ mod tests {
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
         assert_arrays_eq!(casted, PrimitiveArray::from_iter([1.0f64, 3.0, 1.0]), ctx);
+    }
+
+    /// Slicing keeps the whole dictionary, so the value `1000` stays in `values` although no
+    /// remaining row references it. The cast must only consider the rows: `[1, 1, 1]` fits in i8.
+    #[test]
+    fn test_cast_dict_after_slice_ignores_unreferenced_values() -> VortexResult<()> {
+        let ctx = &mut SESSION.create_execution_ctx();
+        let dict = dict_encode(&buffer![1000i64, 1, 1, 1].into_array(), ctx)?;
+        let rows = dict.into_array().slice(1..4)?.optimize_ctx(&SESSION)?;
+
+        let casted = rows
+            .cast(DType::Primitive(PType::I8, Nullability::NonNullable))?
+            .optimize_ctx(&SESSION)?
+            .execute::<Canonical>(ctx)?;
+
+        assert_arrays_eq!(casted, PrimitiveArray::from_iter([1i8, 1, 1]), ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_dict_with_unreferenced_values_preserves_nullability_rewrite() -> VortexResult<()> {
+        let ctx = &mut SESSION.create_execution_ctx();
+        let dict = DictArray::try_new(
+            buffer![1u8, 1, 1].into_array(),
+            buffer![1000i64, 1].into_array(),
+        )?
+        .into_array();
+
+        let nullable = dict
+            .cast(DType::Primitive(PType::I64, Nullability::Nullable))?
+            .optimize_ctx(&SESSION)?;
+        assert!(nullable.is::<Dict>());
+        let non_nullable = nullable
+            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))?
+            .optimize_ctx(&SESSION)?;
+        assert!(non_nullable.is::<Dict>());
+
+        assert_arrays_eq!(non_nullable, PrimitiveArray::from_iter([1i64, 1, 1]), ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_dict_rejects_referenced_out_of_range_value() -> VortexResult<()> {
+        let ctx = &mut SESSION.create_execution_ctx();
+        let dict = dict_encode(&buffer![1000i64, 1, 1, 1].into_array(), ctx)?;
+        let casted = dict
+            .into_array()
+            .cast(DType::Primitive(PType::I8, Nullability::NonNullable))?
+            .optimize_ctx(&SESSION)?;
+
+        assert!(casted.is::<Dict>());
+        let error = casted.execute::<Canonical>(ctx).unwrap_err();
+        assert!(error.to_string().contains("value exceeds target range"));
+        Ok(())
     }
 }
