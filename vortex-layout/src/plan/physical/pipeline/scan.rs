@@ -8,7 +8,6 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::ops::Range;
 
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -91,6 +90,57 @@ pub enum Turn {
     Done,
 }
 
+/// The segments delivered to a pipeline and not yet taken, in order of arrival. A source mostly
+/// reads one segment at a time, so one is held without allocating.
+pub(crate) type Delivered = SmallVec<[(SegmentId, BufferHandle); 1]>;
+
+/// The reads in flight, by id: the pipeline that asked, or `None` once it has finished and the
+/// read is cancelled, and the segment.
+///
+/// Ids are issued in sequence and mostly delivered in order, so each read is kept at its id's
+/// offset from the oldest read still in flight.
+#[derive(Default)]
+struct InFlight {
+    /// The id of the read at the front.
+    first: u64,
+    reads: VecDeque<Option<(Option<PipelineId>, SegmentId)>>,
+    live: usize,
+}
+
+impl InFlight {
+    /// Records read `id`, the next in sequence.
+    fn push(&mut self, id: ReadId, owner: Option<PipelineId>, segment: SegmentId) {
+        debug_assert_eq!(id.0, self.first + self.reads.len() as u64);
+        self.reads.push_back(Some((owner, segment)));
+        self.live += 1;
+    }
+
+    /// Removes read `id`, returning who asked for it and its segment.
+    fn remove(&mut self, id: ReadId) -> Option<(Option<PipelineId>, SegmentId)> {
+        let offset = usize::try_from(id.0.checked_sub(self.first)?).ok()?;
+        let read = self.reads.get_mut(offset)?.take()?;
+        self.live -= 1;
+        while matches!(self.reads.front(), Some(None)) {
+            self.reads.pop_front();
+            self.first += 1;
+        }
+        Some(read)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.live == 0
+    }
+
+    #[cfg(test)]
+    fn iter(&self) -> impl Iterator<Item = &(Option<PipelineId>, SegmentId)> {
+        self.reads.iter().flatten()
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut (Option<PipelineId>, SegmentId)> {
+        self.reads.iter_mut().flatten()
+    }
+}
+
 /// Whether a pipeline can run, and if not, what it waits for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
@@ -108,7 +158,7 @@ pub(crate) struct Pipeline {
     inlets: Vec<PortId>,
     outlets: SmallVec<[PortId; 1]>,
     /// The segments it asked for that have arrived, in order of arrival.
-    bytes: VecDeque<(SegmentId, BufferHandle)>,
+    bytes: Delivered,
     /// Reads it asked for that have not arrived, so retiring it cancels them only when any
     /// are left.
     pending: usize,
@@ -282,7 +332,7 @@ pub(crate) struct Core {
     ready: Vec<PipelineId>,
     /// Reads in flight: the pipeline that asked, or `None` once that pipeline has finished and
     /// the read is cancelled, and the segment.
-    reads: FxHashMap<ReadId, (Option<PipelineId>, SegmentId)>,
+    reads: InFlight,
     next_read: u64,
     new_reads: VecDeque<ReadRequest>,
     /// Split slots whose stage output has something new, with a flag per slot so a slot is
@@ -309,7 +359,7 @@ impl Core {
             pipelines: Slab::default(),
             free_pipelines: Vec::new(),
             ready: Vec::new(),
-            reads: FxHashMap::default(),
+            reads: InFlight::default(),
             next_read: 0,
             new_reads: VecDeque::new(),
             dirty: Vec::new(),
@@ -341,7 +391,7 @@ impl Core {
             stages: chain.stages,
             inlets: chain.inlets,
             outlets,
-            bytes: VecDeque::new(),
+            bytes: Delivered::new(),
             pending: 0,
             finishing: None,
             touched,
@@ -521,7 +571,7 @@ impl Core {
     /// Cancels the reads pipeline `id` waits for: they become reads for no pipeline, whose
     /// bytes are dropped on arrival.
     fn cancel_reads(&mut self, id: PipelineId) {
-        for (owner, _) in self.reads.values_mut() {
+        for (owner, _) in self.reads.iter_mut() {
             if *owner == Some(id) {
                 *owner = None;
             }
@@ -540,12 +590,12 @@ impl Core {
     fn deliver(&mut self, read: ReadId, bytes: BufferHandle) -> VortexResult<()> {
         let (owner, segment) = self
             .reads
-            .remove(&read)
+            .remove(read)
             .ok_or_else(|| vortex_err!("Unknown read {read:?}"))?;
         if let Some(id) = owner {
             let pipe = self.pipeline_mut(id);
             pipe.pending -= 1;
-            pipe.bytes.push_back((segment, bytes));
+            pipe.bytes.push((segment, bytes));
             self.make_runnable(id);
         }
         Ok(())
@@ -555,7 +605,7 @@ impl Core {
     fn read(&mut self, owner: PipelineId, segment_id: SegmentId) {
         let read = ReadId(self.next_read);
         self.next_read += 1;
-        self.reads.insert(read, (Some(owner), segment_id));
+        self.reads.push(read, Some(owner), segment_id);
         self.new_reads.push_back(ReadRequest {
             id: read,
             segment_id,
@@ -821,7 +871,7 @@ impl Scan {
     pub(crate) fn awaited_reads(&self) -> usize {
         self.core
             .reads
-            .values()
+            .iter()
             .filter(|(owner, _)| owner.is_some())
             .count()
     }

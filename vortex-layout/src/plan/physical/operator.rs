@@ -3,8 +3,6 @@
 
 //! Contracts and execution context for pipeline sources and operators.
 
-use std::collections::VecDeque;
-
 use smallvec::SmallVec;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -13,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use super::pipeline::Arena;
+use super::pipeline::Delivered;
 use super::pipeline::Inlet;
 use super::pipeline::PortId;
 use crate::segments::SegmentId;
@@ -151,7 +150,7 @@ impl InletSet {
 pub struct Cx<'a> {
     pub(super) arena: &'a mut Arena,
     pub(super) inlets: &'a [PortId],
-    pub(super) bytes: &'a mut VecDeque<(SegmentId, BufferHandle)>,
+    pub(super) bytes: &'a mut Delivered,
     pub(super) reads: &'a mut SmallVec<[SegmentId; 1]>,
     pub(super) session: &'a VortexSession,
     pub(super) exec: &'a mut ExecutionCtx,
@@ -188,7 +187,7 @@ impl Cx<'_> {
 
     /// Takes an arrived segment's ID and bytes, oldest arrival first.
     pub fn take_segment(&mut self) -> Option<(SegmentId, BufferHandle)> {
-        self.bytes.pop_front()
+        (!self.bytes.is_empty()).then(|| self.bytes.remove(0))
     }
 
     /// The session used for decoding and evaluation.

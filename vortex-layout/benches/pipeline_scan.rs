@@ -12,17 +12,24 @@ use divan::Bencher;
 use mimalloc::MiMalloc;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::serde::SerializeOptions;
+use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySession;
+use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBufferMut;
 use vortex_layout::plan::physical::PackPlan;
 use vortex_layout::plan::physical::PlanRef;
+use vortex_layout::plan::physical::SegmentScan;
 use vortex_layout::plan::physical::SegmentScanPlan;
 use vortex_layout::plan::physical::pipeline::Scan;
 use vortex_layout::plan::physical::pipeline::Split;
@@ -136,5 +143,46 @@ fn scan(bencher: Bencher, columns: u32) {
                 Turn::Done => break,
             }
         }
+    });
+}
+
+/// The array work a `scan` does without the pipeline: decoding every column's segment, packing
+/// the columns into a struct, and optimizing it as the scan optimizes its output. `scan` less this
+/// is what the operators and the pipeline driver cost.
+#[divan::bench(args = [1, 100, 1000])]
+fn array_work(bencher: Bencher, columns: u32) {
+    let fixture = Fixture::new(columns);
+    let dtype = fixture.plan.dtype().clone();
+    let DType::Struct(fields, _) = &dtype else {
+        unreachable!("the plan packs a struct");
+    };
+    let fields = fields.clone();
+    let context = fixture
+        .plan
+        .children()
+        .next()
+        .unwrap()
+        .unwrap()
+        .as_opt::<SegmentScan>()
+        .unwrap()
+        .array_ctx()
+        .clone();
+    let field_dtype = fields.field_by_index(0).unwrap();
+    let exec = fixture.session.create_execution_ctx();
+    let rows = usize::try_from(ROWS).unwrap();
+    bencher.bench_local(|| {
+        let arrays = (0..columns)
+            .map(|_| {
+                SerializedArray::try_from(fixture.segment.clone())
+                    .unwrap()
+                    .decode(&field_dtype, rows, &context, &fixture.session)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let array =
+            StructArray::try_new_with_dtype(arrays, fields.clone(), rows, Validity::NonNullable)
+                .unwrap()
+                .into_array();
+        black_box(array.optimize_ctx(&exec).unwrap())
     });
 }

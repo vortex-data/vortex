@@ -4,7 +4,6 @@
 // Fixtures use a 20-row domain and name columns after their struct fields.
 #![allow(clippy::cast_possible_truncation, clippy::many_single_char_names)]
 
-use std::collections::VecDeque;
 use std::ops::Range;
 
 use rstest::rstest;
@@ -848,7 +847,7 @@ fn pack_readiness_tracks_changes_and_consumption(
         arena.create(8, None, SourceEnd::Unclaimed),
         arena.create(8, None, SourceEnd::Unclaimed),
     ];
-    let mut bytes = VecDeque::new();
+    let mut bytes = Delivered::new();
     let mut reads = Default::default();
     let mut exec = SESSION.create_execution_ctx();
     let mut touched = InletSet::new(2);
