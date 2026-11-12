@@ -444,7 +444,7 @@ jobs:
           || 'windows-latest' }}
     env:
       NEXTEST_WINDOWS_ARGS: >-
-        --cargo-profile ci --locked --workspace --all-features --lib --bins --tests
+        --cargo-profile ci --locked --workspace --all-features --tests
         --exclude vortex-bench
         --exclude vortex-python
         --exclude vortex-fuzz --exclude vortex-cuda --exclude vortex-cuda-ffi
@@ -603,10 +603,10 @@ jobs:
           enable-sccache: "true"
       - name: Rust Tests
         run: |
-          cargo nextest run --cargo-profile ci --locked --workspace --all-features --lib --bins --tests --no-fail-fast --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest
+          cargo nextest run --cargo-profile ci --locked --workspace --all-features --tests --no-fail-fast --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest
       - uses: ./.github/actions/check-rebuild
         with:
-          command: "cargo test --profile ci --locked --workspace --all-features --lib --bins --tests --no-run --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest"
+          command: "cargo test --profile ci --locked --workspace --all-features --tests --no-run --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest"
 
       - name: Alert incident.io
         if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/develop'

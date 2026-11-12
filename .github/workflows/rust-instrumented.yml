@@ -102,7 +102,7 @@ jobs:
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         run: |
-          cargo nextest run --locked --workspace --all-features --lib --bins --tests --no-fail-fast --exclude vortex-python-cuda
+          cargo nextest run --locked --workspace --all-features --tests --no-fail-fast --exclude vortex-python-cuda
       - name: Generate coverage report
         run: |
           RUST_SYSROOT="$(rustc --print sysroot)"
