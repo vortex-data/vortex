@@ -47,6 +47,7 @@ mod rle;
 pub const FL_CHUNK_SIZE: usize = 1024;
 
 use bitpacking::compute::is_constant::BitPackedIsConstantKernel;
+use delta::compute::is_constant::DeltaIsConstantKernel;
 use for_::compute::is_constant::FoRIsConstantKernel;
 use for_::compute::is_sorted::FoRIsSortedKernel;
 use vortex_array::ArrayVTable;
@@ -80,6 +81,11 @@ pub fn initialize(session: &VortexSession) {
         BitPacked.id(),
         Some(IsConstant.id()),
         &BitPackedIsConstantKernel,
+    );
+    session.aggregate_fns().register_aggregate_kernel(
+        Delta.id(),
+        Some(IsConstant.id()),
+        &DeltaIsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
         FoR.id(),
