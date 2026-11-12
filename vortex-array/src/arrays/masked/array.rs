@@ -25,7 +25,7 @@ pub struct MaskedSlots {
     #[slot(0)]
     pub child: ArrayRef,
     /// The validity bitmap defining which elements are non-null.
-    #[slot(1)]
+    #[slot(1, accessor = validity_slot)]
     pub validity: Option<ArrayRef>,
 }
 
@@ -38,7 +38,7 @@ impl Display for MaskedData {
     }
 }
 
-pub trait MaskedArrayExt: TypedArrayRef<Masked> + MaskedArraySlotsExt {
+pub trait MaskedArrayExt: TypedArrayRef<Masked> {
     fn masked_validity(&self) -> Validity {
         child_to_validity(
             self.slots()[MaskedSlots::VALIDITY].as_ref(),

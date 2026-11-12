@@ -51,7 +51,7 @@ use crate::ParquetVariantArray;
 #[array_slots(ParquetVariant)]
 pub struct ParquetVariantSlots {
     /// The validity bitmap indicating which elements are non-null.
-    #[slot(0)]
+    #[slot(0, accessor = validity_slot)]
     pub validity: Option<ArrayRef>,
     /// The metadata array for the Parquet variant values.
     #[slot(1)]
@@ -432,9 +432,7 @@ fn parquet_shredded_field_from_logical(
 }
 
 /// Non-slot accessors and Arrow conversion for Parquet Variant storage arrays.
-pub trait ParquetVariantArrayExt:
-    TypedArrayRef<ParquetVariant> + ParquetVariantArraySlotsExt
-{
+pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
     /// Returns the outer row validity for the Variant values.
     fn parquet_variant_validity(&self) -> Validity {
         child_to_validity(

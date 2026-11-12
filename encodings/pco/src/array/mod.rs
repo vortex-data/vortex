@@ -298,12 +298,12 @@ impl Pco {
 #[array_slots(Pco)]
 pub struct PcoSlots {
     /// The validity bitmap indicating which elements are non-null.
-    #[slot(0)]
+    #[slot(0, accessor = validity_slot)]
     pub validity: Option<ArrayRef>,
 }
 
 /// Additional typed accessors for Pco arrays.
-pub trait PcoArrayExt: PcoArraySlotsExt {
+pub trait PcoArrayExt: TypedArrayRef<Pco> {
     /// Reconstruct the unsliced [`Validity`] from the validity slot.
     fn unsliced_validity(&self) -> Validity {
         child_to_validity(

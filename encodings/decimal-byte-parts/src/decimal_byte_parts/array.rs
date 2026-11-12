@@ -281,7 +281,7 @@ pub struct DecimalBytePartsSlots {
     pub lower_parts: Vec<ArrayRef>,
 }
 
-pub(crate) trait DecimalBytePartsArrayExt: DecimalBytePartsArraySlotsExt {
+pub(crate) trait DecimalBytePartsArrayExt: TypedArrayRef<DecimalByteParts> {
     /// The decimal dtype of this array.
     fn decimal_dtype(&self) -> DecimalDType {
         *self

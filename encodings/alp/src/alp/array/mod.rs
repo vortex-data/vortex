@@ -340,7 +340,7 @@ impl ALPData {
     }
 }
 
-pub trait ALPArrayExt: ALPArraySlotsExt {
+pub trait ALPArrayExt: TypedArrayRef<ALP> {
     fn exponents(&self) -> Exponents {
         self.exponents
     }
