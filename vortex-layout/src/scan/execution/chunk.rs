@@ -20,8 +20,10 @@ use vortex_scan::planning::planner::WorkScope;
 use vortex_scan::selection::Selection;
 
 use super::PreparedScan;
+use super::PrunePlanner;
 use super::SegmentLocation;
 use super::selection::plan_selection;
+use crate::plan::physical::PlanRef;
 
 /// The row grid every chunk boundary lies on.
 pub(crate) const ROW_BLOCK_SIZE: usize = 8192;
@@ -80,6 +82,10 @@ pub(crate) fn scan_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<
 /// Emits one planner per chunk of a scan's rows, in row order, each spawned as independent so
 /// the driver may run it beside the others. A chunk none of whose rows is selected and kept is
 /// never planned.
+///
+/// A dynamic conjunct, such as a TopK's bound, may tighten while the chunks run. A chunk planned
+/// after it has changed prunes its rows with the conjunct's zone maps again first, so a chunk the
+/// new value excludes reads none of its conjuncts' or projection's segments.
 pub struct ChunkPlanner {
     scan: Arc<PreparedScan>,
     rows: Range<u64>,
@@ -87,6 +93,8 @@ pub struct ChunkPlanner {
     selection: Selection,
     /// The rows zone pruning kept, over `rows`, or `None` when nothing was pruned.
     kept: Option<Mask>,
+    /// The dynamic versions `kept` was pruned at, or `None` when chunks are not pruned again.
+    pruned_at: Option<Vec<Option<u64>>>,
 }
 
 impl ChunkPlanner {
@@ -99,13 +107,58 @@ impl ChunkPlanner {
         kept: Option<Mask>,
     ) -> Self {
         let chunks = scan_chunks(rows.clone(), scan.chunk_rows).into_iter();
+        let pruned_at = scan
+            .filter
+            .as_ref()
+            .map(|filter| filter.pruning_versions())
+            .filter(|versions| versions.iter().any(Option::is_some));
         Self {
             scan,
             rows,
             chunks,
             selection,
             kept,
+            pruned_at,
         }
+    }
+
+    /// The planner of `chunk` that prunes it with `pruning` before planning what is left.
+    /// `None` when zone pruning already excluded every row of the chunk.
+    fn prune_again(&self, chunk: Range<u64>, pruning: Vec<PlanRef>) -> Option<Box<dyn Planner>> {
+        let len = usize::try_from(chunk.end - chunk.start).vortex_expect("a chunk fits usize");
+        let kept = match &self.kept {
+            Some(kept) => {
+                let offset = usize::try_from(chunk.start - self.rows.start)
+                    .vortex_expect("a chunk fits usize");
+                kept.slice(offset..offset + len)
+            }
+            None => Mask::new_true(len),
+        };
+        if kept.all_false() {
+            return None;
+        }
+        let next = {
+            let scan = Arc::clone(&self.scan);
+            let selection = self.selection.clone();
+            let rows = chunk.clone();
+            move |kept: Option<Mask>| -> Box<dyn Planner> {
+                Box::new(Self {
+                    scan,
+                    chunks: vec![rows.clone()].into_iter(),
+                    rows,
+                    selection,
+                    kept,
+                    pruned_at: None,
+                })
+            }
+        };
+        Some(Box::new(PrunePlanner::again(
+            Arc::clone(&self.scan),
+            chunk,
+            pruning,
+            kept,
+            Box::new(next),
+        )))
     }
 }
 
@@ -123,8 +176,22 @@ impl Planner for ChunkPlanner {
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
-        let kept = self.kept.as_ref().map(|kept| (kept, self.rows.start));
-        for chunk in self.chunks.by_ref() {
+        while let Some(chunk) = self.chunks.next() {
+            let pruning = match (&self.pruned_at, &self.scan.filter) {
+                (Some(versions), Some(filter)) => filter.pruning_since(versions),
+                _ => Vec::new(),
+            };
+            if !pruning.is_empty() {
+                let scope = WorkScope {
+                    file_ordinal: 0,
+                    rows: chunk.clone(),
+                };
+                if let Some(planner) = self.prune_again(chunk, pruning) {
+                    return Ok(PlannerOutput::Spawn(scope, planner));
+                }
+                continue;
+            }
+            let kept = self.kept.as_ref().map(|kept| (kept, self.rows.start));
             let scope = WorkScope {
                 file_ordinal: 0,
                 rows: chunk,
