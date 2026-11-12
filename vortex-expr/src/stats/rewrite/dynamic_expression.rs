@@ -21,14 +21,17 @@ use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::bound::get_item;
 use vortex_array::expr::bound::lit;
+use vortex_array::expr::bound::or_collect;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpression;
 use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpressionOptions;
 use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
 use vortex_array::scalar_fn::fns::dynamic_expression::input_field_name;
 use vortex_array::scalar_fn::fns::get_item::GetItem;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::scalar_fn::fns::stat::StatFn;
 use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexResult;
@@ -50,6 +53,12 @@ pub(crate) enum StatsProof {
 /// dynamic expression changes. Thus the proof is itself a dynamic expression. Its children are
 /// the statistics of the inputs that a proof can use, and the row count, so lowering binds them
 /// to the stats of each zone. Each generation proves the current predicate again.
+///
+/// A predicate over several inputs, such as a TopK's bound on two sort columns
+/// `a < x OR (a = x AND b < y)`, gets a proof per input, ORed together. Each proves what it can
+/// from its own input's statistics, so each lowers to the zone map of a single column: a layout
+/// stores the zones of each column apart, so a proof reading two columns' statistics has no
+/// zone map to lower to.
 pub(crate) fn dynamic_stats_proof(
     expr: &BoundExpression,
     session: &VortexSession,
@@ -61,10 +70,39 @@ pub(crate) fn dynamic_stats_proof(
         .iter()
         .map(|child| child.dtype().clone())
         .collect::<Vec<_>>();
+    let proofs = if expr.children().len() > 1 {
+        (0..expr.children().len())
+            .map(|input_idx| {
+                input_proof(expr, options, &input_dtypes, &[input_idx], session, proof)
+            })
+            .collect::<VortexResult<Vec<_>>>()?
+    } else {
+        let inputs = (0..expr.children().len()).collect::<Vec<_>>();
+        vec![input_proof(
+            expr,
+            options,
+            &input_dtypes,
+            &inputs,
+            session,
+            proof,
+        )?]
+    };
+    Ok(or_collect(proofs))
+}
 
+/// The dynamic proof of `expr` from the statistics of `inputs`.
+fn input_proof(
+    expr: &BoundExpression,
+    options: &DynamicExpressionOptions,
+    input_dtypes: &[DType],
+    inputs: &[usize],
+    session: &VortexSession,
+    proof: StatsProof,
+) -> VortexResult<BoundExpression> {
     let mut stats = Vec::new();
     let mut children = Vec::new();
-    for (input_idx, input) in expr.children().iter().enumerate() {
+    for &input_idx in inputs {
+        let input = expr.child(input_idx);
         for aggregate_fn in proof_aggregates() {
             if aggregate_fn.return_dtype(input.dtype()).is_some() {
                 children.push(stat(input.clone(), aggregate_fn.clone()));
@@ -76,15 +114,12 @@ pub(crate) fn dynamic_stats_proof(
 
     let source = StatsProofSource {
         predicate: options.clone(),
-        input_dtypes,
+        input_dtypes: input_dtypes.to_vec(),
         stats,
         proof,
         session: session.clone(),
     };
-    Ok(Some(DynamicExpression.try_new_bound_expr(
-        DynamicExpressionOptions::new(Arc::new(source)),
-        children,
-    )?))
+    DynamicExpression.try_new_bound_expr(DynamicExpressionOptions::new(Arc::new(source)), children)
 }
 
 /// The statistics a proof of a dynamic expression can read.
@@ -115,11 +150,29 @@ struct StatsProofSource {
 impl StatsProofSource {
     /// Replace the statistics and row count in `proof` by fields of `scope`. Returns `None` when
     /// the proof reads a statistic that is not a child.
+    ///
+    /// An operand of an `AND` or an `OR` that reads such a statistic is replaced by `false`
+    /// instead. Both are monotone, so the weaker proof still holds only where the full one does:
+    /// a proof per input proves what its own input's statistics can.
     fn bind_children(
         &self,
         proof: &BoundExpression,
         scope: &DType,
     ) -> VortexResult<Option<BoundExpression>> {
+        if proof
+            .as_opt::<Binary>()
+            .is_some_and(|operator| matches!(operator, Operator::And | Operator::Or))
+        {
+            let mut children = Vec::with_capacity(2);
+            for child in proof.children() {
+                children.push(match self.bind_children(child, scope)? {
+                    Some(child) => child,
+                    None => lit(false),
+                });
+            }
+            return Ok(Some(proof.clone().with_children(children)?));
+        }
+
         if let Some(options) = proof.as_opt::<StatFn>() {
             let child = proof.child(0);
             let Some(field) = child.as_opt::<GetItem>() else {
@@ -206,6 +259,7 @@ mod tests {
     use std::sync::atomic::AtomicU64;
     use std::sync::atomic::Ordering;
 
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
@@ -213,11 +267,14 @@ mod tests {
     use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
+    use vortex_array::expr::and;
     use vortex_array::expr::col;
     use vortex_array::expr::dynamic_expression;
+    use vortex_array::expr::eq;
     use vortex_array::expr::get_item as unbound_get_item;
     use vortex_array::expr::lit as unbound_lit;
     use vortex_array::expr::lt;
+    use vortex_array::expr::or;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
@@ -312,6 +369,106 @@ mod tests {
                     &mut ctx
                 );
             }
+        }
+        Ok(())
+    }
+
+    /// The bound a TopK on two columns puts on them: `a < 5 OR (a = 5 AND b < 3)`.
+    #[derive(Debug)]
+    struct TwoColumnBound;
+
+    impl Display for TwoColumnBound {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "two column bound")
+        }
+    }
+
+    impl DynamicExpressionSource for TwoColumnBound {
+        fn generation(&self) -> u64 {
+            0
+        }
+
+        fn current(&self, scope: &DType) -> VortexResult<BoundExpression> {
+            let a = || unbound_get_item(input_field_name(0), root());
+            let b = unbound_get_item(input_field_name(1), root());
+            or(
+                lt(a(), unbound_lit(5u64)),
+                and(eq(a(), unbound_lit(5u64)), lt(b, unbound_lit(3u64))),
+            )
+            .bind(scope)
+        }
+    }
+
+    /// A predicate over two columns is proven per column: each proof reads one column's
+    /// statistics, so each lowers to one column's zone map, and proves what that column can.
+    #[rstest]
+    #[case::a_above_the_bound(7, 9, true)]
+    #[case::a_spans_the_bound(3, 9, false)]
+    fn multi_input_predicates_prove_per_input(
+        #[case] a_min: u64,
+        #[case] a_max: u64,
+        #[case] pruned: bool,
+    ) -> VortexResult<()> {
+        let session = VortexSession::empty().with::<StatsSession>();
+        let u64_dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
+        let dtype = DType::struct_(
+            [("a", u64_dtype.clone()), ("b", u64_dtype)],
+            Nullability::NonNullable,
+        );
+        let predicate = dynamic_expression(
+            Arc::new(TwoColumnBound) as Arc<dyn DynamicExpressionSource>,
+            [col("a"), col("b")],
+        )
+        .bind(&dtype)?;
+        let proof = predicate.falsify(&session)?.unwrap();
+        assert!(
+            proof
+                .as_opt::<Binary>()
+                .is_some_and(|operator| *operator == Operator::Or)
+        );
+
+        let mut ctx = session.create_execution_ctx();
+        // Only `a`'s proof prunes: `b`'s needs `a = 5`, which `b`'s statistics cannot show.
+        for (input_proof, expected) in proof.children().iter().zip([pruned, false]) {
+            let mut columns = Vec::new();
+            let mut fields = Vec::new();
+            for child in input_proof.children() {
+                if let Some(options) = child.as_opt::<StatFn>() {
+                    fields.push(child.child(0).as_::<GetItem>().to_string());
+                    let stat = Stat::from_aggregate_fn(options.aggregate_fn());
+                    columns.push(match (fields.last().map(String::as_str), stat) {
+                        (Some("a"), Some(Stat::Min)) => buffer![a_min].into_array(),
+                        (Some("a"), Some(Stat::Max)) => buffer![a_max].into_array(),
+                        // `b`'s statistics would prove the zone, but only with `a`'s.
+                        (Some("b"), Some(Stat::Min)) => buffer![4u64].into_array(),
+                        (Some("b"), Some(Stat::Max)) => buffer![9u64].into_array(),
+                        (_, Some(Stat::NullCount)) => buffer![0u64].into_array(),
+                        _ => ConstantArray::new(Scalar::null(child.dtype().as_nullable()), 1)
+                            .into_array(),
+                    });
+                } else {
+                    columns.push(buffer![1u64].into_array());
+                }
+            }
+            fields.dedup();
+            assert_eq!(
+                fields.len(),
+                1,
+                "each proof reads the statistics of one input"
+            );
+            let names = (0..columns.len())
+                .map(input_field_name)
+                .collect::<FieldNames>();
+            let stats =
+                StructArray::try_new(names, columns, 1, Validity::NonNullable)?.into_array();
+            let current = input_proof
+                .as_::<DynamicExpression>()
+                .current(stats.dtype())?;
+            assert_arrays_eq!(
+                stats.apply_bound(&current)?,
+                BoolArray::from_iter([expected]),
+                &mut ctx
+            );
         }
         Ok(())
     }
