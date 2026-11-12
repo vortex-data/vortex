@@ -2,17 +2,16 @@
 
 Vortex has two Java libraries:
 
-- `dev.vortex:vortex-jni` gives direct access to Vortex files. It writes and scans files with
+- `dev.vortex:vortex-jni` writes and scans Vortex files as
   [Apache Arrow](https://arrow.apache.org/docs/java/) record batches.
 - `dev.vortex:vortex-spark-3.5_2.12`, `dev.vortex:vortex-spark-3.5_2.13`, and
-  `dev.vortex:vortex-spark-4.0_2.13` are Spark file data sources. Use them to read and write
-  Vortex files from Spark.
+  `dev.vortex:vortex-spark-4.0_2.13` read and write Vortex files from Spark.
 
 ## Install
 
-The libraries need Java 17 or later. We recommend Java 21. The JARs contain native libraries for Linux (x86_64 and
-aarch64), macOS (aarch64), and Windows (x86_64). The JNI bindings load the native library
-automatically.
+The libraries need Java 17 or later. Java 21 is the preferred version. The JARs contain native
+libraries for Linux (x86_64 and aarch64), macOS (aarch64), and Windows (x86_64). The JNI
+bindings load the native library automatically.
 
 Gradle (Kotlin):
 
@@ -30,8 +29,7 @@ Maven:
 </dependency>
 ```
 
-The JNI library uses Arrow Java for its memory management. Arrow Java needs this JVM option on
-Java 17 and later:
+The JNI library allocates memory through Arrow Java, which needs this JVM option:
 
 ```shell
 --add-opens=java.base/java.nio=ALL-UNNAMED
@@ -39,8 +37,8 @@ Java 17 and later:
 
 ## Write a File
 
-A `Session` is the entry point for all operations. A `VortexWriter` accepts Arrow record batches
-and writes them to a file. The destination can be a local path or a URI.
+All operations start from a `Session`. A `VortexWriter` writes Arrow record batches to a file
+at a local path or a URI.
 
 ```java
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -94,33 +92,33 @@ try (VortexWriter writer = VortexWriter.builder(session, "/tmp/people.vortex", s
 }
 ```
 
-Call `writeBatch` one time for each batch. All batches must use the schema given to the
-builder. `writeBatch(root, allocator)` does not copy the data. After the call, you can clear
-or close the root, but do not write new values into its buffers. To fill the next batch,
-allocate new buffers, for example with `root.allocateNew()`.
+Call `writeBatch` once for each batch. Every batch must have the schema that the builder
+received. `writeBatch(root, allocator)` does not copy the data. After the call, you can clear
+or close the root, but do not overwrite its buffers. Allocate new buffers for the next batch,
+for example with `root.allocateNew()`.
 
-To write a batch that you exported through the
-[Arrow C Data Interface](https://arrow.apache.org/docs/format/CDataInterface.html), give its
-`ArrowArray` and `ArrowSchema` addresses to `writeBatch(long, long)`. Use this method also for
-dictionary-encoded fields.
+`writeBatch(long, long)` accepts the `ArrowArray` and `ArrowSchema` addresses of a batch
+exported through the
+[Arrow C Data Interface](https://arrow.apache.org/docs/format/CDataInterface.html).
+Dictionary-encoded fields need this method.
 
 `finish()` writes the file footer and returns the row count, the file size, and per-column
-statistics. `close()` also finishes the file. Call `finish()` or `close()` explicitly, so that
-IO errors come back to the caller. While the writer is open, `bytesWritten()` and
-`bufferedBytes()` give an estimate of the file size.
+statistics. `close()` calls `finish()`. Call one of them explicitly, so that the caller
+receives IO errors. While the writer is open, `bytesWritten()` and `bufferedBytes()` let you
+estimate the file size.
 
 ### Writer Options
 
 `VortexWriter.Builder` has these optional settings:
 
 - `putMetadata(key, bytes)` and `metadata(map)` store your own metadata in the file footer.
-- `compact(true)` writes with the compact strategy. The file is smaller, but reads are slower.
-  Readers do not need a special setting to read the file.
-- `options(map)` and `putOption(key, value)` give object store credentials. See
+- `compact(true)` writes a smaller file that is slower to read. Readers need no special
+  setting.
+- `options(map)` and `putOption(key, value)` set object store credentials. See
   [Object Storage](#object-storage).
 
-To write files that older Vortex readers can read, enable an older edition on the session
-before you open the writer:
+To write files for older Vortex readers, enable an older edition on the session before you open
+the writer:
 
 ```java
 session.enableEdition("core2025.10.0");
@@ -131,9 +129,9 @@ session.enableEdition("core2025.10.0");
 ## Read a File
 
 `DataSource.open` opens one or more files. It reads only the first file immediately, to get the
-schema. `DataSource.scan` returns a `Scan`, which is an iterator of `Partition` objects. Each
-partition gives an Arrow `ArrowReader`. Close the data source, the scan, and the reader after
-you use them.
+schema. `DataSource.scan` returns a `Scan`, which iterates over `Partition` objects. Each
+partition returns an Arrow `ArrowReader`. Close the data source, the scan, and each reader
+after use.
 
 ```java
 import dev.vortex.api.DataSource;
@@ -161,18 +159,20 @@ try (DataSource source = DataSource.open(session, "/tmp/people.vortex")) {
 }
 ```
 
-A partition is single-use: `scanArrow` consumes it. You can scan a `DataSource` more than one
-time. When you close a data source or a scan, the partitions and readers that you already have
-stay valid. Partitions do not keep the row order of the file by default. To keep the row order, set
-`ordered(true)` on the scan options.
+`scanArrow` consumes the partition, so you can read each partition only once. You can scan a
+`DataSource` many times. Partitions and readers that you already have stay valid after you
+close their data source or scan.
 
-The scan can return string columns as Arrow `Utf8View` vectors (`ViewVarCharVector`), even if
-you wrote them as `Utf8`. Use `getObject` or the vector type from the batch schema to read
-values.
+By default, a scan does not keep the row order of the file. Set `ordered(true)` on the scan
+options to keep it.
+
+A scan can return string columns as Arrow `Utf8View` vectors (`ViewVarCharVector`), even if
+you wrote them as `Utf8`. Read values with `getObject`, or use the vector type from the batch
+schema.
 
 ### Read Many Files
 
-Give a list of paths or a glob to read many files as one data source:
+A data source can cover a glob or a list of paths:
 
 ```java
 DataSource all = DataSource.open(session, "/data/events/*.vortex");
@@ -187,7 +187,7 @@ reaches them.
 ## Projection and Filters
 
 `ScanOptions.builder()` configures a scan. A projection selects columns, and a filter selects
-rows. Vortex evaluates both in the native scan, so it reads only the necessary data.
+rows. The native scan evaluates both, so it reads only the data that it needs.
 
 ```java
 import dev.vortex.api.Expression;
@@ -204,12 +204,12 @@ Scan scan = source.scan(options);
 ```
 
 `Expression` also has `or`, `not`, `isNull`, `like`, `between`, `in`, `notIn`, `listContains`,
-and typed literals for decimals, dates, timestamps, UUIDs, and more. Use `Expression.column(String[])`
-to get a nested struct field.
+and typed literals such as decimals, dates, timestamps, and UUIDs. `Expression.column(String[])`
+selects a nested struct field.
 
 ## Row Selection and Limits
 
-The scan options can also select rows by position or limit the row count:
+Scan options can also select rows by position or limit the row count:
 
 ```java
 // Only rows 0, 3, and 9. The indices must be sorted and unique.
@@ -230,9 +230,9 @@ For large selections, `includeRows` and `excludeRows` also accept a
 
 ## Memory Use
 
-A scan decodes many splits of each partition at the same time. By default, the number of
-splits increases with the number of CPU cores. To use less memory when many scans run at the
-same time, set a lower limit with `splitConcurrency`:
+A scan decodes several splits of each partition concurrently. By default, the number of
+splits scales with the number of CPU cores. When many scans run concurrently, set a lower limit
+with `splitConcurrency` to use less memory:
 
 ```java
 source.scan(ScanOptions.builder().splitConcurrency(2).build());
@@ -242,8 +242,8 @@ This option does not limit all native memory or IO read-ahead.
 
 ## Object Storage
 
-Paths can be URIs for object storage, for example `s3://bucket/path/file.vortex` or
-`abfss://container@account.dfs.core.windows.net/path/file.vortex`. Give credentials and other
+A path can be an object storage URI, for example `s3://bucket/path/file.vortex` or
+`abfss://container@account.dfs.core.windows.net/path/file.vortex`. Pass credentials and other
 object store options as a map of properties:
 
 ```java
@@ -261,23 +261,24 @@ VortexWriter writer = VortexWriter.builder(session, "s3://bucket/path/out.vortex
 
 Other S3 keys are `aws_session_token`, `aws_endpoint`, `aws_allow_http`, and
 `aws_skip_signature`. For Azure, use `azure_storage_account_key` or `azure_storage_sas_key`.
-If you do not give credentials, the object store uses the credentials from the environment.
+Without credentials in the map, the object store uses the credentials from the environment.
 
 ### Custom IO
 
 To read or write through your own IO layer, implement `NativeReadable` or `NativeWritable` from
-`dev.vortex.io` and give it to `DataSource.open` or `VortexWriter.builder`. The native reader
-calls `NativeReadable.readFully` from many threads at the same time, so the implementation must
-be thread-safe. Native code does not close a readable or a writable. Close them yourself after
-the data source and all its scans and readers are done, or after the writer is finished.
+`dev.vortex.io` and pass it to `DataSource.open` or `VortexWriter.builder`. The native reader
+calls `NativeReadable.readFully` from many threads concurrently, so the implementation must be
+thread-safe. Native code never closes a readable or a writable. Close a readable after you
+close its data source and all scans and readers of that data source. Close a writable after
+the writer finishes.
 
 `DataSource.open(session, readables, readConcurrency)` sets the maximum number of concurrent
 `readFully` calls. The value `0` selects the default.
 
-The native reader merges nearby reads into one request. By default, it merges reads with a gap
-of at most 1 MiB, to a maximum span of 16 MiB. To change these limits, override
-`coalesceDistance()` and `coalesceMaxSize()` in your `NativeReadable`. A larger gap makes fewer
-requests but reads more bytes.
+The native reader merges nearby reads into one request. By default, it merges reads that are
+at most 1 MiB apart, up to a span of 16 MiB. Override `coalesceDistance()` and
+`coalesceMaxSize()` in your `NativeReadable` to change these limits. A larger gap results in
+fewer requests but more bytes read.
 
 ## File Metadata and Statistics
 
@@ -297,13 +298,13 @@ for (VortexColumnStatistics stats : NativeFiles.readStatistics(session, "/tmp/pe
 ```
 
 `readMetadata` returns the metadata that the writer stored with `putMetadata`. `readStatistics`
-returns the statistics of each top-level column in Arrow schema order. Both methods also accept
-a `NativeReadable`. `NativeFiles` also has `listFiles` and `delete`.
+returns the statistics of each top-level column, in Arrow schema order. Both methods also
+accept a `NativeReadable`. `NativeFiles` also has `listFiles` and `delete`.
 
 ## Spark
 
-The Spark connector uses the JNI library to read and write Vortex files from Spark. Add the
-self-contained `all` JAR to Spark:
+The Spark connector reads and writes Vortex files through the JNI library. Add the `all` JAR,
+which bundles its dependencies, to Spark:
 
 ```shell
 spark-shell --jars https://repo1.maven.org/maven2/dev/vortex/vortex-spark-4.0_2.13/0.93.0/vortex-spark-4.0_2.13-0.93.0-all.jar
@@ -332,9 +333,11 @@ people.filter("age > 30")
 ```
 
 Spark lists the files and discovers Hive-style partitions. The connector pushes column
-projections and many filters down to the native scan. The connector reads and writes all
-files through Hadoop, so configure remote storage in the Spark Hadoop configuration. The object
-store properties in the previous section do not apply to Spark. It also works from Spark SQL:
+projections and many filters down to the native scan. The connector does all file IO through
+Hadoop, so configure remote storage in the Spark Hadoop configuration. The properties in
+[Object Storage](#object-storage) do not apply to Spark.
+
+The format is also available in Spark SQL:
 
 ```sql
 CREATE TEMPORARY VIEW people
@@ -344,12 +347,11 @@ OPTIONS (path '/tmp/people.vortex');
 SELECT name, age FROM people WHERE age > 30;
 ```
 
-The [Spark user guide](../user-guide/spark.md) has the full documentation, including the
-build dependency setup, tables, direct file queries, write options such as
-`vortex.write.compact`, read tuning, supported types, and remote storage through Hadoop.
+The [Spark user guide](../user-guide/spark.md) covers the build dependency setup, tables,
+direct file queries, read and write options, supported types, and remote storage.
 
 ## Next Steps
 
-- The [Java API reference](../api/java/index.rst) has the Javadoc for `vortex-jni` and
+- The [Java API reference](../api/java/index.rst) contains the Javadoc for `vortex-jni` and
   `vortex-spark`.
 - [Concepts](../concepts/index.md) explains Vortex arrays, layouts, and scans.
