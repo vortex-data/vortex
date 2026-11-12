@@ -70,8 +70,9 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
 
-    /// Non-strict Boolean checks only read the valid rows, so nulls are skipped wherever they
-    /// are. Integers with nulls in the same places are not sorted, because there nulls come first.
+    /// Booleans skip nulls when checking non-strict order, so these arrays count as sorted.
+    /// Integers with nulls in the same spots don't, because their nulls have to come first.
+    /// This is the mismatch described in the TODO above. Once it's fixed, we can remove test.
     #[rstest]
     #[case::interior_null([Some(false), None, Some(true)], [Some(0i32), None, Some(1)])]
     #[case::trailing_null([Some(false), Some(true), None], [Some(0i32), Some(1), None])]
