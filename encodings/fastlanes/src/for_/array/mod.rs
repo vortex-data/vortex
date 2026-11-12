@@ -39,6 +39,9 @@ pub struct FoRSlots {
 /// references, it decodes as `encoded[i] + blocked_references[(offset + i) / FL_CHUNK_SIZE]`,
 /// where `offset` is the position of the first element within the first chunk. Both use wrapping
 /// arithmetic.
+///
+/// Each reference must be less than or equal to all valid values that decode against it. Thus,
+/// each encoded value is the exact unsigned distance from its reference to the decoded value.
 #[derive(Clone, Debug)]
 pub struct FoRData {
     pub(super) offset: u16,

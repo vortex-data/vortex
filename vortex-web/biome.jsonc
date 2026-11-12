@@ -1,0 +1,87 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    // src/styles/vortex*.css and src/vendor/vortex-design are copies of the Vortex design
+    // system's stylesheets and modules: change the system, not the copies.
+    "includes": [
+      "**",
+      "!bun.lock",
+      "!crate",
+      "!public",
+      "!src/styles/vortex*.css",
+      "!src/vendor/vortex-design"
+    ]
+  },
+  // The style that .prettierrc.json set before the move to Biome.
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "lineEnding": "lf"
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "jsxQuoteStyle": "double",
+      "trailingCommas": "all",
+      "semicolons": "always",
+      "arrowParentheses": "always",
+      "bracketSpacing": true
+    }
+  },
+  "css": {
+    "formatter": {
+      "quoteStyle": "single"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "correctness": {
+        "useExhaustiveDependencies": {
+          "level": "error",
+          "options": {
+            // Some effects list a value only to run again when it changes, as
+            // eslint-plugin-react-hooks allowed.
+            "reportUnnecessaryDependencies": false
+          }
+        },
+        "useHookAtTopLevel": "error"
+      },
+      "style": {
+        // A ! marks a ref set in an effect, the root element, or an index
+        // that noUncheckedIndexedAccess cannot prove is in range.
+        "noNonNullAssertion": "off"
+      },
+      "suspicious": {
+        // The lists keyed by index are positional (histogram bins, byte
+        // columns, buffer numbers), so the index is the identity.
+        "noArrayIndexKey": "off"
+      },
+      "a11y": {
+        // Every pointer control needs a keyboard path.
+        "noStaticElementInteractions": "error",
+        "useKeyWithClickEvents": "error"
+      }
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "off"
+      }
+    }
+  }
+}

@@ -16,6 +16,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -40,14 +41,17 @@ fn varbinview_zip_fragmented_mask(bencher: Bencher) {
     let len = 2_048;
     let if_true = fixture(len).into_array();
     let if_false = other_fixture(len).into_array();
-    let mask = alternating_mask(len);
+    let mask = alternating_mask(len).into_array();
+    mark_optimized(&if_true, &SESSION).unwrap();
+    mark_optimized(&if_false, &SESSION).unwrap();
+    mark_optimized(&mask, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| {
             (
                 if_true.clone(),
                 if_false.clone(),
-                mask.clone().into_array(),
+                mask.clone(),
                 SESSION.create_execution_ctx(),
             )
         })
@@ -66,14 +70,17 @@ fn varbinview_zip_block_mask(bencher: Bencher) {
     let len = 2_048;
     let if_true = fixture(len).into_array();
     let if_false = other_fixture(len).into_array();
-    let mask = block_mask(len, 128);
+    let mask = block_mask(len, 128).into_array();
+    mark_optimized(&if_true, &SESSION).unwrap();
+    mark_optimized(&if_false, &SESSION).unwrap();
+    mark_optimized(&mask, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| {
             (
                 if_true.clone(),
                 if_false.clone(),
-                mask.clone().into_array(),
+                mask.clone(),
                 SESSION.create_execution_ctx(),
             )
         })

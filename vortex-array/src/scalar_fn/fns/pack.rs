@@ -64,7 +64,11 @@ impl ScalarFnVTable for Pack {
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::PackOpts {
-                paths: instance.names.iter().map(|n| n.to_string()).collect(),
+                paths: instance
+                    .names
+                    .iter()
+                    .map(|n| n.as_ref().to_owned())
+                    .collect(),
                 nullable: instance.nullability.into(),
             }
             .encode_to_vec(),
@@ -179,8 +183,10 @@ mod tests {
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
+    use crate::expr::Expression;
     use crate::expr::col;
     use crate::expr::pack;
+    use crate::expr::proto::ExprSerializeProtoExt;
     use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::fns::pack::StructArray;
     use crate::validity::Validity;
@@ -194,6 +200,29 @@ mod tests {
         ])
         .unwrap()
         .into_array()
+    }
+
+    #[test]
+    fn test_roundtrip_preserves_field_names() -> VortexResult<()> {
+        let name = "quote\"slash\\line\n\t\r\0 ♡";
+        let escaped_name = name.escape_debug().to_string();
+        let input = test_array();
+        let expression = pack(
+            [(name, col("a")), (escaped_name.as_str(), col("b"))],
+            Nullability::NonNullable,
+        );
+        let restored = Expression::from_proto(&expression.serialize_proto()?, &SESSION)?;
+        let expected = StructArray::from_fields(&[
+            (name, buffer![0i32, 1, 2].into_array()),
+            (escaped_name.as_str(), buffer![4i32, 5, 6].into_array()),
+        ])?;
+
+        assert_arrays_eq!(
+            input.apply(&restored)?,
+            expected,
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
     }
 
     fn field_array(array: &ArrayRef, field_path: &[&str]) -> VortexResult<ArrayRef> {

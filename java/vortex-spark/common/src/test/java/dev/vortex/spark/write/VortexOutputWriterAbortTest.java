@@ -37,11 +37,10 @@ final class VortexOutputWriterAbortTest {
     @TempDir
     Path tempDir;
 
-    // With one-row batches an oversized row fails in write, otherwise in the close that flushes it. With one in every
-    // partition, the closes during abort fail too.
+    // The oversized row fails in write as it is appended, whatever the batch size.
     @ParameterizedTest
-    @CsvSource({"1, false", "2048, false", "2048, true"})
-    void aFailedWriteLetsAbortCloseEveryPartitionWriter(String batchSize, boolean everyPartition) throws IOException {
+    @CsvSource({"1", "2048"})
+    void aFailedWriteLetsAbortCloseEveryPartitionWriter(String batchSize) throws IOException {
         SparkSession spark = SparkSession.builder()
                 .master("local[1,1]")
                 .appName("VortexOutputWriterAbortTest")
@@ -54,7 +53,7 @@ final class VortexOutputWriterAbortTest {
         List<String> stranded = new ArrayList<>();
         try {
             // The order Spark closes its writers in decides whether the failed one comes first, so fail each in turn.
-            for (int failed = 0; failed < (everyPartition ? 1 : PARTITIONS); failed++) {
+            for (int failed = 0; failed < PARTITIONS; failed++) {
                 WRITERS.clear();
                 ALLOCATORS.clear();
                 List<Row> rows = new ArrayList<>();
@@ -62,12 +61,8 @@ final class VortexOutputWriterAbortTest {
                     rows.add(RowFactory.create("small", p));
                 }
                 // Larger than the allocator limit set below, so appending it fails.
-                for (int p = 0; p < PARTITIONS; p++) {
-                    if (everyPartition || p == failed) {
-                        rows.add(RowFactory.create("x".repeat(2 << 20), p));
-                    }
-                }
-                Path output = tempDir.resolve(batchSize + "-" + everyPartition + "-failed=" + failed);
+                rows.add(RowFactory.create("x".repeat(2 << 20), failed));
+                Path output = tempDir.resolve(batchSize + "-failed=" + failed);
 
                 Exception thrown = assertThrows(Exception.class, () -> spark.createDataFrame(rows, schema)
                         .coalesce(1)

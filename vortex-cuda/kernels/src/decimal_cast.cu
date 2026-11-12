@@ -6,64 +6,43 @@
 #include <stdint.h>
 #include <type_traits>
 
-// Arrow decimal schemas fix the physical values buffer width:
-//   - Decimal32: 4 bytes per value.
-//   - Decimal64: 8 bytes per value.
-//   - Decimal128: 16 bytes per value.
-//   - Decimal256: 32 bytes per value.
+// Widen decimal values buffers to a wider physical width. Two callers use these kernels:
+//   - The Arrow export casts to the width that the Arrow schema fixes: 4 bytes for Decimal32,
+//     8 bytes for Decimal64, 16 bytes for Decimal128, and 32 bytes for Decimal256.
+//   - The Widen executor casts a narrow decimal child to the canonical width of its decimal
+//     dtype, from 2 to 32 bytes.
 //
-// Vortex storage width can differ, so export casts to the schema-implied width.
-// Rust-side export rejects narrowing casts because detecting overflow on-device
-// would require synchronizing an overflow flag back to the host.
+// Only widening pairs are instantiated. A narrowing cast can overflow, and detecting that on the
+// device would require synchronizing an overflow flag back to the host, so the Rust side rejects
+// narrowing before it loads a kernel.
 
-// Low 64-bit conversion for Decimal32/64 outputs.
-template <typename Input>
-__device__ __forceinline__ int64_t decimal_to_i64(Input value) {
-    if constexpr (std::is_same_v<Input, int128_t>) {
-        return value.lo;
-    } else if constexpr (std::is_same_v<Input, int256_t>) {
-        return value.parts[0];
-    } else {
-        return static_cast<int64_t>(value);
-    }
-}
-
-// 128-bit conversion for Decimal128 outputs.
-template <typename Input>
-__device__ __forceinline__ int128_t decimal_to_i128(Input value) {
-    if constexpr (std::is_same_v<Input, int128_t>) {
-        return value;
-    } else if constexpr (std::is_same_v<Input, int256_t>) {
-        return int128_t {value.parts[0], value.parts[1]};
-    } else {
-        const int64_t lo = static_cast<int64_t>(value);
-        const int64_t hi = value < 0 ? -1 : 0;
-        return int128_t {lo, hi};
-    }
-}
-
-// Convert one value to the Arrow schema's physical width.
+// Sign-extend one value to the wider output width in a single step, with no intermediate width.
+// Native outputs use one `static_cast`. The 128-bit and 256-bit outputs keep the input's words
+// and fill the upper words with its sign.
 template <typename Output, typename Input>
 __device__ __forceinline__ Output decimal_cast_value(Input value) {
-    if constexpr (std::is_same_v<Output, int32_t>) {
-        return static_cast<int32_t>(decimal_to_i64(value));
-    } else if constexpr (std::is_same_v<Output, int64_t>) {
-        return decimal_to_i64(value);
-    } else if constexpr (std::is_same_v<Output, int128_t>) {
-        return decimal_to_i128(value);
+    static_assert(sizeof(Input) < sizeof(Output), "decimal casts on the GPU only widen");
+
+    if constexpr (std::is_same_v<Output, int128_t>) {
+        static_assert(std::is_integral_v<Input> && std::is_signed_v<Input>);
+        const int64_t lo = static_cast<int64_t>(value);
+        return int128_t {lo, lo < 0 ? -1 : 0};
+    } else if constexpr (std::is_same_v<Output, int256_t> && std::is_same_v<Input, int128_t>) {
+        const int64_t sign = value.hi < 0 ? -1 : 0;
+        return int256_t {{value.lo, value.hi, sign, sign}};
+    } else if constexpr (std::is_same_v<Output, int256_t>) {
+        static_assert(std::is_integral_v<Input> && std::is_signed_v<Input>);
+        const int64_t lo = static_cast<int64_t>(value);
+        const int64_t sign = lo < 0 ? -1 : 0;
+        return int256_t {{lo, sign, sign, sign}};
     } else {
-        static_assert(std::is_same_v<Output, int256_t>);
-        if constexpr (std::is_same_v<Input, int256_t>) {
-            return value;
-        } else {
-            const int128_t value128 = decimal_to_i128(value);
-            const int64_t sign = value128.hi < 0 ? -1 : 0;
-            return int256_t {{value128.lo, value128.hi, sign, sign}};
-        }
+        static_assert(std::is_integral_v<Input> && std::is_signed_v<Input>);
+        static_assert(std::is_integral_v<Output> && std::is_signed_v<Output>);
+        return static_cast<Output>(value);
     }
 }
 
-// Cast a contiguous values buffer to the Arrow schema's physical width.
+// Cast a contiguous values buffer to the output physical width.
 template <typename Input, typename Output>
 __device__ void
 decimal_cast_device(const Input *__restrict input, Output *__restrict output, uint64_t array_len) {
@@ -76,28 +55,26 @@ decimal_cast_device(const Input *__restrict input, Output *__restrict output, ui
     }
 }
 
-// Generate Decimal32/64/128/256 cast kernels for one input storage type.
-#define GENERATE_DECIMAL_CAST_KERNELS(input_suffix, InputType)                                               \
-    extern "C" __global__ void decimal_cast_##input_suffix##_i32(const InputType *__restrict input,          \
-                                                                 int32_t *__restrict output,                 \
-                                                                 uint64_t array_len) {                       \
-        decimal_cast_device(input, output, array_len);                                                       \
-    }                                                                                                        \
-    extern "C" __global__ void decimal_cast_##input_suffix##_i64(const InputType *__restrict input,          \
-                                                                 int64_t *__restrict output,                 \
-                                                                 uint64_t array_len) {                       \
-        decimal_cast_device(input, output, array_len);                                                       \
-    }                                                                                                        \
-    extern "C" __global__ void decimal_cast_##input_suffix##_i128(const InputType *__restrict input,         \
-                                                                  int128_t *__restrict output,               \
-                                                                  uint64_t array_len) {                      \
-        decimal_cast_device(input, output, array_len);                                                       \
-    }                                                                                                        \
-    extern "C" __global__ void decimal_cast_##input_suffix##_i256(const InputType *__restrict input,         \
-                                                                  int256_t *__restrict output,               \
-                                                                  uint64_t array_len) {                      \
+#define GENERATE_DECIMAL_CAST(input_suffix, InputType, output_suffix, OutputType)                            \
+    extern "C" __global__ void decimal_cast_##input_suffix##_##output_suffix(                                \
+        const InputType *__restrict input,                                                                   \
+        OutputType *__restrict output,                                                                       \
+        uint64_t array_len) {                                                                                \
         decimal_cast_device(input, output, array_len);                                                       \
     }
 
-FOR_EACH_SIGNED_INT(GENERATE_DECIMAL_CAST_KERNELS)
-FOR_EACH_LARGE_DECIMAL(GENERATE_DECIMAL_CAST_KERNELS)
+GENERATE_DECIMAL_CAST(i8, int8_t, i16, int16_t)
+GENERATE_DECIMAL_CAST(i8, int8_t, i32, int32_t)
+GENERATE_DECIMAL_CAST(i8, int8_t, i64, int64_t)
+GENERATE_DECIMAL_CAST(i8, int8_t, i128, int128_t)
+GENERATE_DECIMAL_CAST(i8, int8_t, i256, int256_t)
+GENERATE_DECIMAL_CAST(i16, int16_t, i32, int32_t)
+GENERATE_DECIMAL_CAST(i16, int16_t, i64, int64_t)
+GENERATE_DECIMAL_CAST(i16, int16_t, i128, int128_t)
+GENERATE_DECIMAL_CAST(i16, int16_t, i256, int256_t)
+GENERATE_DECIMAL_CAST(i32, int32_t, i64, int64_t)
+GENERATE_DECIMAL_CAST(i32, int32_t, i128, int128_t)
+GENERATE_DECIMAL_CAST(i32, int32_t, i256, int256_t)
+GENERATE_DECIMAL_CAST(i64, int64_t, i128, int128_t)
+GENERATE_DECIMAL_CAST(i64, int64_t, i256, int256_t)
+GENERATE_DECIMAL_CAST(i128, int128_t, i256, int256_t)

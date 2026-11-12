@@ -31,6 +31,7 @@ mod slice;
 mod take;
 mod zip;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -40,7 +41,6 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Widen;
 use crate::arrays::WidenArray;
 use crate::arrays::widen::WidenArraySlotsExt;
-use crate::arrays::widen::encode::integer_value;
 use crate::arrays::widen::encode::smallest_integer_ptype;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -69,29 +69,30 @@ pub(super) fn wrap_values(values: ArrayRef, dtype: DType) -> VortexResult<ArrayR
 pub(super) fn ptype_holding_values_and_scalar(
     array: ArrayView<'_, Widen>,
     scalar: &Scalar,
-) -> VortexResult<Option<PType>> {
+) -> Option<PType> {
     let (DType::Primitive(values_ptype, _), DType::Primitive(logical_ptype, _)) =
         (array.values().dtype(), array.dtype())
     else {
-        return Ok(None);
+        return None;
     };
     if !scalar.dtype().eq_ignore_nullability(array.dtype()) {
-        return Ok(None);
+        return None;
     }
     if scalar.is_null() {
-        return Ok(Some(*values_ptype));
+        return Some(*values_ptype);
     }
 
-    let value = integer_value(scalar)?;
-    let Some(scalar_ptype) = smallest_integer_ptype(value..=value, logical_ptype.is_signed_int())
-    else {
-        return Ok(None);
-    };
+    let value = scalar
+        .as_primitive()
+        .pvalue()
+        .and_then(PValue::as_i128)
+        .vortex_expect("the non-null scalar has the Widen's integer dtype");
+    let scalar_ptype = smallest_integer_ptype(value..=value, logical_ptype.is_signed_int())?;
 
     if scalar_ptype.byte_width() > values_ptype.byte_width() {
-        Ok(Some(scalar_ptype))
+        Some(scalar_ptype)
     } else {
-        Ok(Some(*values_ptype))
+        Some(*values_ptype)
     }
 }
 
@@ -100,34 +101,41 @@ pub(super) fn cast_keeping_nullability(array: &ArrayRef, ptype: PType) -> Vortex
     array.cast(DType::Primitive(ptype, array.dtype().nullability()))
 }
 
-/// Returns whether the range of the integer dtype `values` holds `constant`.
+/// Returns whether the dtype range of `values` holds `constant`.
 ///
-/// Returns `None` when `values` is not an integer dtype, when `constant` is null, and when
-/// `constant` is not an integer with the signedness of `values`.
+/// Integers must have the same signedness, and decimals must have the same scale. Returns `None`
+/// for null constants, unsupported dtypes, or incompatible constants.
 pub(super) fn constant_fits_values(constant: &Scalar, values: &DType) -> Option<bool> {
-    let DType::Primitive(ptype, _) = values else {
-        return None;
-    };
-    let value = constant.as_primitive_opt()?.pvalue()?;
+    match (values, constant.dtype()) {
+        (DType::Decimal(values_dtype, _), DType::Decimal(constant_dtype, _))
+            if values_dtype.scale() == constant_dtype.scale() =>
+        {
+            let value = constant.as_decimal().decimal_value()?;
 
-    // `PValue` compares an integer with another value through `i64` or `u64`, and it panics when
-    // the other value does not convert. So only integers of the same signedness compare here.
-    let value_ptype = value.ptype();
-    if !ptype.is_int() || !value_ptype.is_int() {
-        return None;
-    }
-    if ptype.is_signed_int() != value_ptype.is_signed_int() {
-        return None;
-    }
+            Some(value.fits_in_precision(*values_dtype))
+        }
+        (DType::Primitive(values_ptype, _), DType::Primitive(constant_ptype, _))
+            if values_ptype.is_int()
+                && constant_ptype.is_int()
+                && values_ptype.is_signed_int() == constant_ptype.is_signed_int() =>
+        {
+            // `PValue` compares through `i64` or `u64`, so the signedness must match.
+            let value = constant.as_primitive().pvalue()?;
 
-    Some(PValue::min_value(*ptype) <= value && value <= PValue::max_value(*ptype))
+            Some(
+                PValue::min_value(*values_ptype) <= value
+                    && value <= PValue::max_value(*values_ptype),
+            )
+        }
+        _ => None,
+    }
 }
 
 /// Returns the wider of the value types of two [`Widen`] arrays, or `None` when a value type is
 /// not primitive.
 ///
-/// The logical dtypes **must** have the same signedness, which a debug build asserts. The value
-/// types then have that signedness too, so the wider one holds every value of the narrower one.
+/// The logical dtypes **must** have the same signedness. The value types then have that signedness
+/// too, so the wider one holds every value of the narrower one.
 pub(super) fn ptype_holding_both_values(
     lhs: ArrayView<'_, Widen>,
     rhs: ArrayView<'_, Widen>,
@@ -147,7 +155,7 @@ pub(super) fn ptype_holding_both_values(
 
 /// Returns `constant`, which **must** fit the type of `values`, as a constant array of that type
 /// with the nullability of `constant`.
-pub(super) fn constant_in_values_ptype(
+pub(super) fn constant_in_values_dtype(
     constant: &Scalar,
     values: &ArrayRef,
     len: usize,

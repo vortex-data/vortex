@@ -27,6 +27,7 @@ custom-labels = { workspace = true }
 
 [dependencies]
 async-fs = { workspace = true }
+async-lock = { workspace = true }
 bitvec = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }

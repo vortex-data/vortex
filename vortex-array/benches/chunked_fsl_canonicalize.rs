@@ -20,6 +20,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -67,6 +68,7 @@ fn create_chunked_fsl(list_size: usize, num_chunks: usize) -> ChunkedArray {
 #[divan::bench(args = NUM_CHUNKS, consts = LIST_SIZES)]
 fn canonicalize<const LIST_SIZE: usize>(bencher: Bencher, num_chunks: usize) {
     let chunked = create_chunked_fsl(LIST_SIZE, num_chunks).into_array();
+    mark_optimized(&chunked, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunked, SESSION.create_execution_ctx()))

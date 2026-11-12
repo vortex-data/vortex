@@ -82,6 +82,7 @@ impl DecodeInputs {
 }
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_onpair::onpair_compress;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -166,10 +167,13 @@ fn compress(n: usize, shape: Shape, ctx: &mut ExecutionCtx) -> OnPairArray {
         strings.iter().map(|s| Some(s.as_bytes())),
         DType::Utf8(Nullability::NonNullable),
     );
-    onpair_compress(varbin.as_array(), DEFAULT_CONFIG, ctx)
+    let array = onpair_compress(varbin.as_array(), DEFAULT_CONFIG, ctx)
         .unwrap_or_else(|e| panic!("onpair_compress failed: {e}"))
         .try_downcast::<OnPair>()
-        .unwrap_or_else(|array| panic!("expected OnPair array, got {}", array.encoding_id()))
+        .unwrap_or_else(|array| panic!("expected OnPair array, got {}", array.encoding_id()));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
+    array
 }
 
 /// Canonicalise a slot child to the decoder's native primitive width.

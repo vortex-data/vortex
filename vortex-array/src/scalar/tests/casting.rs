@@ -199,6 +199,27 @@ mod tests {
         );
     }
 
+    #[rstest]
+    #[case::u8(PType::U8)]
+    #[case::i32(PType::I32)]
+    #[case::u64(PType::U64)]
+    #[case::f16(PType::F16)]
+    #[case::f64(PType::F64)]
+    fn cast_bool_to_primitive(#[case] ptype: PType) -> VortexResult<()> {
+        let target = DType::Primitive(ptype, Nullability::Nullable);
+        for (value, expected) in [(true, 1u8), (false, 0)] {
+            assert_eq!(
+                Scalar::bool(value, Nullability::NonNullable).cast(&target)?,
+                Scalar::primitive(expected, Nullability::NonNullable).cast(&target)?
+            );
+        }
+        assert_eq!(
+            Scalar::null(DType::Bool(Nullability::Nullable)).cast(&target)?,
+            Scalar::null(target)
+        );
+        Ok(())
+    }
+
     #[test]
     fn test_fake_coercion_for_matching_type() {
         // Test that when types already match, no coercion happens.

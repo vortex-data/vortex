@@ -1,4 +1,4 @@
-# User Guides
+# User guides
 
 Vortex has an integration with
 [DuckDB](https://duckdb.org),

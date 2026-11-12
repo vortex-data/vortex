@@ -10,6 +10,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
@@ -81,7 +82,10 @@ fn chunked() -> VortexResult<FoRArray> {
 #[case::whole(0..5000)]
 #[case::sliced(1500..2600)]
 fn v2_roundtrip(#[case] range: std::ops::Range<usize>) -> VortexResult<()> {
-    let array = chunked()?.into_array().slice(range.clone())?;
+    let array = chunked()?
+        .into_array()
+        .slice(range.clone())?
+        .optimize_ctx(&SESSION)?;
     let serialization = SESSION
         .array_serialize(&array)?
         .ok_or_else(|| vortex_err!("FoR must serialize"))?;
@@ -128,17 +132,5 @@ fn v2_rejects_malformed_parts() -> VortexResult<()> {
     assert!(
         deserialize_v2_parts(&v2::FoRV2Metadata { offset: 1024 }, &[encoded, references]).is_err()
     );
-    Ok(())
-}
-
-#[test]
-fn vtable_serde_requires_plugin() -> VortexResult<()> {
-    let array = FoR::encode(
-        PrimitiveArray::from_iter([1u8, 2, 3]),
-        &mut SESSION.create_execution_ctx(),
-    )?;
-    let session = VortexSession::empty();
-    session.arrays().register(FoR);
-    assert!(session.array_serialize(&array.into_array())?.is_none());
     Ok(())
 }

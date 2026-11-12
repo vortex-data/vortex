@@ -5,6 +5,7 @@ use std::fs;
 use std::path::Path;
 
 pub mod benchmark;
+pub mod nest;
 pub mod schema;
 pub mod tpchgen;
 

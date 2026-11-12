@@ -25,6 +25,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
@@ -100,6 +101,7 @@ fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, 
     };
     let values = values.freeze();
     let array = PrimitiveArray::new(values, validity);
+    mark_optimized(array.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
@@ -126,15 +128,15 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
     let values = values.freeze();
     bencher
         .with_inputs(|| {
-            (
-                alp_encode(
-                    PrimitiveArray::new(Buffer::copy_from(&values), validity.clone()).as_view(),
-                    None,
-                    &mut SESSION.create_execution_ctx(),
-                )
-                .unwrap(),
-                SESSION.create_execution_ctx(),
+            let encoded = alp_encode(
+                PrimitiveArray::new(Buffer::copy_from(&values), validity.clone()).as_view(),
+                None,
+                &mut SESSION.create_execution_ctx(),
             )
+            .unwrap();
+            mark_optimized(encoded.as_array(), &SESSION).unwrap();
+
+            (encoded, SESSION.create_execution_ctx())
         })
         .bench_values(|(v, mut ctx)| decompress_into_array(v, &mut ctx));
 }
@@ -179,6 +181,8 @@ fn make_rd_array<T: ALPRDFloat + NativePType>(n: usize, fraction_patch: f64) -> 
 fn compress_rd<T: ALPRDFloat + NativePType>(bencher: Bencher, args: (usize, f64)) {
     let (n, fraction_patch) = args;
     let primitive = make_rd_array::<T>(n, fraction_patch);
+    mark_optimized(primitive.as_array(), &SESSION).unwrap();
+
     let encoder = RDEncoder::new(primitive.as_slice::<T>());
 
     bencher
@@ -192,6 +196,7 @@ fn decompress_rd<T: ALPRDFloat + NativePType>(bencher: Bencher, args: (usize, f6
     let primitive = make_rd_array::<T>(n, fraction_patch);
     let encoder = RDEncoder::new(primitive.as_slice::<T>());
     let encoded = encoder.encode(primitive.as_view());
+    mark_optimized(encoded.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&encoded, SESSION.create_execution_ctx()))

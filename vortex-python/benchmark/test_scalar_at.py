@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import os
-
 import pyarrow as pa
 import pytest
 from pytest_benchmark.fixture import BenchmarkFixture
@@ -11,13 +9,9 @@ import vortex as vx
 
 
 @pytest.fixture
-def scalar_vxf(request: pytest.FixtureRequest, vxf: vx.VortexFile) -> vx.VortexFile:
-    enabled = request.config.getoption("codspeed", default=False) or "CODSPEED_ENV" in os.environ
-    mode = request.config.getoption("codspeed_mode", default=None)
-    if mode is None and "CODSPEED_ENV" in os.environ:
-        mode = os.environ.get("CODSPEED_RUNNER_MODE", "simulation")
+def scalar_vxf(request: pytest.FixtureRequest, vxf: vx.VortexFile, codspeed_simulation: bool) -> vx.VortexFile:
     assert isinstance(request.node, pytest.Function)
-    if enabled and mode == "simulation" and request.node.callspec.params["vxf"] == "int":
+    if codspeed_simulation and request.node.callspec.params["vxf"] == "int":
         pytest.skip("Reactor polling varies inside these scalar scans under simulation.")
     return vxf
 

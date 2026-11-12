@@ -11,7 +11,8 @@ ratios. Parquet provides the established reference for a compressed columnar rep
 
 The suite covers NYC taxi data and several
 [Public BI](https://github.com/cwida/public_bi_benchmark) tables (Arade, Bimbo,
-CMSprovider, Euro2016, Food, HashTags), TPC-H `l_comment` variants, and synthetic nested
+CMSprovider, Euro2016, Food, HashTags), TPC-H `l_comment` variants, the TPC-H `lineitem`,
+`orders`, and `partsupp` tables at scale factor 1 (`TPC-H SF1 <table>`), and synthetic nested
 data. This is the workload behind the `Compression` PR comment.
 
 See [`src/main.rs`](./src/main.rs) for the dataset list and CLI flags (`--formats`,

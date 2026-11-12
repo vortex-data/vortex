@@ -5,6 +5,9 @@
 //!
 //! The node stores the child's buffer width, while its containing format supplies the logical dtype
 //! of the `Widen`. No `Widen` node or child decimal dtype is written.
+//!
+//! This uses the legacy decimal wire format because [`Widen`] has no wire representation of its
+//! own. Noncanonical stored widths can therefore come from current writers as well as old files.
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;

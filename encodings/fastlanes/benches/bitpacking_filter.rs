@@ -18,6 +18,7 @@ use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_fastlanes::BitPackedData;
@@ -61,6 +62,7 @@ fn fixture(selected_per_chunk: usize) -> (ArrayRef, Mask) {
     )
     .unwrap()
     .into_array();
+    mark_optimized(&packed, &SESSION).unwrap();
 
     let indices = (0..NUM_SELECTED_CHUNKS).flat_map(|chunk| {
         (0..selected_per_chunk)

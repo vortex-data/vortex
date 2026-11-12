@@ -20,19 +20,23 @@ import dev.vortex.api.VortexColumnStatistics;
 import dev.vortex.api.VortexWriteSummary;
 import dev.vortex.api.VortexWriter;
 import dev.vortex.arrow.ArrowAllocation;
+import dev.vortex.io.NativeWritable;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import org.apache.arrow.c.ArrowArray;
 import org.apache.arrow.c.ArrowSchema;
 import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
+import org.apache.arrow.vector.FixedSizeBinaryVector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
@@ -60,6 +64,7 @@ public final class JNIWriterTest {
     private static final byte[] VARIANT_METADATA = new byte[] {0x01, 0x00};
     private static final byte[] VARIANT_INT8_42 = new byte[] {0x0c, 0x2a};
     private static final byte[] VARIANT_TRUE = new byte[] {0x04};
+    private static final long PROSE_ROWS = 20_000;
 
     @TempDir
     Path tempDir;
@@ -146,6 +151,37 @@ public final class JNIWriterTest {
         value.setValueCount(3);
         variant.setValueCount(3);
         root.setRowCount(3);
+    }
+
+    @Test
+    public void testWriterReleasesEveryExportedSchema(@TempDir Path dir) throws IOException {
+        Session session = Session.create();
+        Schema schema = new Schema(List.of(Field.notNullable("v", new ArrowType.Int(64, true))));
+        // A dedicated allocator shows what the native writer still holds once the file is finished.
+        try (RootAllocator allocator = new RootAllocator()) {
+            try (VortexWriter writer = VortexWriter.builder(
+                                    session, dir.resolve("released.vortex").toString(), schema, allocator)
+                            .build();
+                    VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
+                for (int batch = 0; batch < 5; batch++) {
+                    BigIntVector values = (BigIntVector) root.getVector(0);
+                    values.allocateNew(1024);
+                    for (int i = 0; i < 1024; i++) {
+                        values.set(i, i + batch);
+                    }
+                    root.setRowCount(1024);
+                    try (ArrowArray array = ArrowArray.allocateNew(allocator);
+                            ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator)) {
+                        Data.exportVectorSchemaRoot(allocator, root, null, array, arrowSchema);
+                        writer.writeBatch(array.memoryAddress(), arrowSchema.memoryAddress());
+                    }
+                    root.clear();
+                }
+                writer.finish();
+            }
+            // Native code is the consumer of every exported array and schema, so it must have released them all.
+            assertEquals(0, allocator.getAllocatedMemory());
+        }
     }
 
     @Test
@@ -382,6 +418,48 @@ public final class JNIWriterTest {
     }
 
     /** Write a single three-row batch of {@link #personSchema()} data. */
+    @Test
+    public void testUuidColumnStatisticsAreBytes() throws IOException {
+        String writePath =
+                tempDir.resolve("uuid_stats.vortex").toAbsolutePath().toUri().toString();
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Field uuid = new Field(
+                "id",
+                new FieldType(
+                        false, new ArrowType.FixedSizeBinary(16), null, Map.of(ARROW_EXTENSION_NAME, "arrow.uuid")),
+                null);
+        Schema schema = new Schema(List.of(uuid));
+        byte[] low = new byte[16];
+        byte[] high = new byte[16];
+        low[15] = 1;
+        high[0] = 0x7F;
+
+        Session session = Session.create();
+        VortexWriteSummary summary;
+        try (VortexWriter writer =
+                VortexWriter.builder(session, writePath, schema, allocator).build()) {
+            try (VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
+                FixedSizeBinaryVector ids = (FixedSizeBinaryVector) root.getVector("id");
+                ids.allocateNew(2);
+                ids.setSafe(0, high);
+                ids.setSafe(1, low);
+                root.setRowCount(2);
+
+                try (ArrowArray array = ArrowArray.allocateNew(allocator);
+                        ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator)) {
+                    Data.exportVectorSchemaRoot(allocator, root, null, array, arrowSchema);
+                    writer.writeBatch(array.memoryAddress(), arrowSchema.memoryAddress());
+                }
+            }
+
+            summary = writer.finish();
+        }
+
+        VortexColumnStatistics id = summary.columnStatistics().get(0);
+        assertArrayEquals(low, (byte[]) id.lowerBound().orElseThrow());
+        assertArrayEquals(high, (byte[]) id.upperBound().orElseThrow());
+    }
+
     /**
      * Editions before the aggregates, such as {@code core2025.10.0}, do not permit {@code vortex.min}. The writer then
      * writes only the legacy file statistics, and these must still have the min, max and null count.
@@ -416,6 +494,79 @@ public final class JNIWriterTest {
 
         DataSource ds = DataSource.open(session, writePath);
         assertEquals(new DataSource.RowCount.Exact(3L), ds.rowCount());
+    }
+
+    /** The compact strategy trades read throughput for size, and the file it writes reads like any other. */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testCompactWritesASmallerFile(boolean toStream) throws IOException {
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        VortexWriteSummary standard = writeProse(allocator, "standard.vortex", false, toStream);
+        VortexWriteSummary compact = writeProse(allocator, "compact.vortex", true, toStream);
+
+        assertEquals(PROSE_ROWS, compact.rowCount());
+        assertTrue(
+                compact.fileSize() < standard.fileSize(),
+                "compact " + compact.fileSize() + " bytes, standard " + standard.fileSize() + " bytes");
+        assertEquals(
+                standard.columnStatistics().get(0).lowerBound(),
+                compact.columnStatistics().get(0).lowerBound());
+        assertEquals(
+                standard.columnStatistics().get(0).upperBound(),
+                compact.columnStatistics().get(0).upperBound());
+
+        DataSource ds = DataSource.open(
+                Session.create(), tempDir.resolve("compact.vortex").toUri().toString());
+        assertEquals(new DataSource.RowCount.Exact(PROSE_ROWS), ds.rowCount());
+    }
+
+    /** Writes rows of random words, text that a general-purpose compressor shrinks further than the default does. */
+    private VortexWriteSummary writeProse(BufferAllocator allocator, String name, boolean compact, boolean toStream)
+            throws IOException {
+        Schema schema = new Schema(List.of(Field.notNullable("text", new ArrowType.Utf8())));
+        Path path = tempDir.resolve(name);
+        Random random = new Random(7);
+        String[] words = new String[4096];
+        for (int i = 0; i < words.length; i++) {
+            words[i] = Long.toString(random.nextLong() & Long.MAX_VALUE, 36);
+        }
+        try (VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator);
+                OutputStream out = Files.newOutputStream(path)) {
+            VarCharVector text = (VarCharVector) root.getVector("text");
+            text.allocateNew((int) PROSE_ROWS);
+            for (int i = 0; i < PROSE_ROWS; i++) {
+                StringBuilder row = new StringBuilder();
+                for (int w = 0; w < 12; w++) {
+                    row.append(words[random.nextInt(words.length)]).append(' ');
+                }
+                text.setSafe(i, row.toString().getBytes(UTF_8));
+            }
+            root.setRowCount((int) PROSE_ROWS);
+
+            Session session = Session.create();
+            NativeWritable sink = new NativeWritable() {
+                @Override
+                public void write(byte[] buffer, int offset, int length) throws IOException {
+                    out.write(buffer, offset, length);
+                }
+
+                @Override
+                public void flush() throws IOException {
+                    out.flush();
+                }
+
+                @Override
+                public void close() {}
+            };
+            VortexWriter.Builder builder = toStream
+                    ? VortexWriter.builder(session, sink, schema, allocator)
+                    : VortexWriter.builder(
+                            session, path.toAbsolutePath().toUri().toString(), schema, allocator);
+            try (VortexWriter writer = builder.compact(compact).build()) {
+                writer.writeBatch(root, allocator);
+                return writer.finish();
+            }
+        }
     }
 
     private static void writePeopleBatch(VortexWriter writer, BufferAllocator allocator) throws IOException {

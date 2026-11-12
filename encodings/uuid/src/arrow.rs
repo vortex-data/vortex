@@ -30,15 +30,14 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
-use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowExport;
 use vortex_arrow::ArrowExportOptions;
-use vortex_arrow::ArrowExportVTable;
+use vortex_arrow::ArrowExtVTable;
 use vortex_arrow::ArrowImport;
-use vortex_arrow::ArrowImportVTable;
+use vortex_arrow::ArrowMetadataPolicy;
 use vortex_arrow::ArrowSession;
-use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_arrow::nulls;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -56,30 +55,30 @@ const UUID_BYTE_LEN: i32 = 16;
 /// The cached Id of Arrow's canonical `arrow.uuid` extension type.
 static ARROW_UUID: CachedId = CachedId::new(ArrowUuid::NAME);
 
-impl ArrowExportVTable for Uuid {
+impl ArrowExtVTable for Uuid {
+    fn metadata_policy() -> ArrowMetadataPolicy {
+        ArrowMetadataPolicy::PreserveVortex
+    }
+
     fn arrow_ext_id(&self) -> Id {
         *ARROW_UUID
     }
 
-    fn vortex_id(&self) -> Id {
-        Uuid.id()
-    }
-
-    // Encode all of these.
     fn to_arrow_field(
         &self,
         name: &str,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         _session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
         let mut field = Field::new(
-            name.to_string(),
+            name,
             DataType::FixedSizeBinary(UUID_BYTE_LEN),
-            dtype.is_nullable(),
+            ext_dtype.storage_dtype().is_nullable(),
         );
         field
             .try_with_extension_type(ArrowUuid)
-            .vortex_expect("FixedSizeBinary[16] is correct type for ArrowUuid");
+            .vortex_expect("UUID field was constructed with FixedSizeBinary(16)");
+
         Ok(Some(field))
     }
 
@@ -90,28 +89,13 @@ impl ArrowExportVTable for Uuid {
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
-        let is_uuid = array
-            .dtype()
-            .as_extension_opt()
-            .map(|ext| ext.is::<Uuid>())
-            .unwrap_or(false);
-        if !is_uuid {
-            return Ok(ArrowExport::Unsupported(array));
-        }
         Ok(ArrowExport::Exported(try_fsl_to_fsb(array, options, ctx)?))
-    }
-}
-
-impl ArrowImportVTable for Uuid {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_UUID
     }
 
     fn from_arrow_field(
-        &self,
         field: &Field,
         _session: &ArrowSession,
-    ) -> VortexResult<Option<DType>> {
+    ) -> VortexResult<Option<ExtDType<Self>>> {
         if !field.has_valid_extension_type::<ArrowUuid>() {
             return Ok(None);
         }
@@ -122,24 +106,20 @@ impl ArrowImportVTable for Uuid {
             field.is_nullable().into(),
         );
 
-        Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage_dtype)?.erased(),
-        )))
+        Ok(Some(ExtDType::try_with_vtable(
+            Uuid,
+            UuidMetadata::default(),
+            storage_dtype,
+        )?))
     }
 
     fn from_arrow_array(
-        &self,
         array: ArrowArrayRef,
         _field: &Field,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         _session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let DType::Extension(dtype) = dtype else {
-            return Ok(ArrowImport::Unsupported(array));
-        };
-        if !matches!(array.data_type(), DataType::FixedSizeBinary(UUID_BYTE_LEN))
-            || !dtype.is::<Uuid>()
-        {
+        if !matches!(array.data_type(), DataType::FixedSizeBinary(UUID_BYTE_LEN)) {
             return Ok(ArrowImport::Unsupported(array));
         }
 
@@ -150,7 +130,7 @@ impl ArrowImportVTable for Uuid {
             PType::U8,
             Validity::NonNullable,
         );
-        let validity = nulls(fsb.nulls(), dtype.is_nullable())?;
+        let validity = nulls(fsb.nulls(), ext_dtype.storage_dtype().is_nullable())?;
 
         let storage = FixedSizeListArray::new(
             u8_array.into_array(),
@@ -160,7 +140,7 @@ impl ArrowImportVTable for Uuid {
         )
         .into_array();
         Ok(ArrowImport::Imported(
-            ExtensionArray::new(dtype.clone(), storage).into_array(),
+            ExtensionArray::new(ext_dtype.clone().erased(), storage).into_array(),
         ))
     }
 }
@@ -185,12 +165,7 @@ fn try_fsl_to_fsb(
         storage.dtype().is_nullable(),
     );
 
-    let session = ctx.session().clone();
-    let arrow_storage =
-        session
-            .arrow()
-            .exporter(options)
-            .execute_arrow(storage, Some(&storage_field), ctx)?;
+    let arrow_storage = storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
     let fsl = arrow_storage.as_fixed_size_list();
     let bytes = fsl
@@ -226,20 +201,57 @@ mod tests {
     use arrow_schema::Fields;
     use arrow_schema::Schema;
     use rstest::rstest;
+    use uuid::Version;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::Struct;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::struct_::StructArrayExt;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::StructFields;
     use vortex_array::iter::ArrayIterator;
     use vortex_arrow::ArrowArrayStreamAdapter;
-    use vortex_error::vortex_err;
+    use vortex_arrow::ArrowSessionExt;
     use vortex_session::VortexSession;
 
     use super::*;
+
+    #[track_caller]
+    fn check_version_round_trip(
+        version: Option<Version>,
+        nullable: bool,
+        dictionary: bool,
+    ) -> VortexResult<()> {
+        let session = uuid_session();
+        let arrow = session.arrow();
+        let mut ctx = session.create_execution_ctx();
+        let array = versioned_uuid_array(version, nullable)?;
+        let mut field = arrow.to_arrow_field("id", array.dtype())?;
+        assert!(field.has_valid_extension_type::<ArrowUuid>());
+        assert_eq!(arrow.from_arrow_field(&field)?, *array.dtype());
+
+        let array = if dictionary {
+            field = field.clone().with_data_type(DataType::Dictionary(
+                Box::new(DataType::Int32),
+                Box::new(field.data_type().clone()),
+            ));
+            DictArray::try_new(PrimitiveArray::from_iter([2u32, 1, 0]).into_array(), array)?
+                .into_array()
+        } else {
+            array
+        };
+
+        let exported = array.clone().execute_arrow(Some(&field), &mut ctx)?;
+        assert_eq!(exported.data_type(), field.data_type());
+
+        let imported = arrow.from_arrow_array(exported, &field)?;
+        vortex_array::assert_arrays_eq!(imported, array, &mut ctx);
+
+        Ok(())
+    }
 
     /// A session with the UUID extension dtype and its Arrow plugins registered.
     fn uuid_session() -> VortexSession {
@@ -261,43 +273,34 @@ mod tests {
         )
     }
 
+    /// A session that only [`crate::initialize`] sets up imports an `arrow.uuid` field through the
+    /// UUID plugin, and a field that names the Vortex ID of the UUID type through the dtype
+    /// registry.
     #[test]
-    fn to_arrow_field_top_level_uuid_carries_extension_metadata() -> VortexResult<()> {
+    fn uuid_session_imports_by_plugin_and_by_vortex_id() -> VortexResult<()> {
         let vortex_session = uuid_session();
+        let mut ctx = vortex_session.create_execution_ctx();
         let session = vortex_session.arrow();
-        let field = session.to_arrow_field("id", &uuid_dtype(false))?;
-        assert!(field.has_valid_extension_type::<ArrowUuid>());
-        Ok(())
-    }
+        let dtype = uuid_dtype(false);
 
-    #[test]
-    fn to_arrow_field_struct_with_nested_uuid_preserves_metadata() -> VortexResult<()> {
-        let vortex_session = uuid_session();
-        let session = vortex_session.arrow();
-        let dtype = DType::Struct(
-            StructFields::from_iter([(FieldName::from("id"), uuid_dtype(false))]),
-            Nullability::NonNullable,
+        let mut plugin_field = Field::new("id", DataType::FixedSizeBinary(16), false);
+        plugin_field.try_with_extension_type(ArrowUuid)?;
+        assert_eq!(session.from_arrow_field(&plugin_field)?, dtype);
+
+        let vortex_id_field = session.to_arrow_storage_field("id", dtype.as_extension())?;
+        assert_eq!(session.from_arrow_field(&vortex_id_field)?, dtype);
+
+        let array = uuid_array(&session)?;
+        let exported = array
+            .clone()
+            .execute_arrow(Some(&vortex_id_field), &mut ctx)?;
+        assert_eq!(exported.data_type(), vortex_id_field.data_type());
+        assert_arrays_eq!(
+            session.from_arrow_array(exported, &vortex_id_field)?,
+            array,
+            &mut ctx
         );
-        let field = session.to_arrow_field("row", &dtype)?;
-        let DataType::Struct(inner) = field.data_type() else {
-            panic!("expected Struct, got {:?}", field.data_type());
-        };
-        assert_eq!(inner.len(), 1);
-        assert_eq!(inner[0].data_type(), &DataType::FixedSizeBinary(16));
-        assert!(inner[0].has_valid_extension_type::<ArrowUuid>());
-        Ok(())
-    }
 
-    #[test]
-    fn to_arrow_field_list_of_uuid_preserves_metadata() -> VortexResult<()> {
-        let vortex_session = uuid_session();
-        let session = vortex_session.arrow();
-        let dtype = DType::List(Arc::new(uuid_dtype(true)), Nullability::NonNullable);
-        let field = session.to_arrow_field("ids", &dtype)?;
-        let DataType::List(elem) = field.data_type() else {
-            panic!("expected List, got {:?}", field.data_type());
-        };
-        assert!(elem.has_valid_extension_type::<ArrowUuid>());
         Ok(())
     }
 
@@ -351,7 +354,7 @@ mod tests {
     }
 
     #[test]
-    fn to_arrow_schema_struct_of_struct_uuid() -> VortexResult<()> {
+    fn schema_roundtrip_preserves_nested_uuid() -> VortexResult<()> {
         let vortex_session = uuid_session();
         let session = vortex_session.arrow();
         let inner = DType::Struct(
@@ -359,7 +362,14 @@ mod tests {
             Nullability::NonNullable,
         );
         let outer = DType::Struct(
-            StructFields::from_iter([(FieldName::from("payload"), inner)]),
+            StructFields::from_iter([
+                (FieldName::from("payload"), inner),
+                (FieldName::from("id"), uuid_dtype(false)),
+                (
+                    FieldName::from("ids"),
+                    DType::List(Arc::new(uuid_dtype(true)), Nullability::NonNullable),
+                ),
+            ]),
             Nullability::NonNullable,
         );
         let schema = session.to_arrow_schema(&outer)?;
@@ -368,6 +378,8 @@ mod tests {
             panic!("expected Struct, got {:?}", payload.data_type());
         };
         assert!(inner_fields[0].has_valid_extension_type::<ArrowUuid>());
+        assert_eq!(session.from_arrow_schema(&schema)?, outer);
+
         Ok(())
     }
 
@@ -384,26 +396,6 @@ mod tests {
             dtype,
             DType::List(Arc::new(uuid_dtype(false)), Nullability::NonNullable)
         );
-        Ok(())
-    }
-
-    #[test]
-    fn schema_roundtrip_preserves_nested_uuid() -> VortexResult<()> {
-        let vortex_session = uuid_session();
-        let session = vortex_session.arrow();
-        let dtype = DType::Struct(
-            StructFields::from_iter([
-                (FieldName::from("id"), uuid_dtype(false)),
-                (
-                    FieldName::from("ids"),
-                    DType::List(Arc::new(uuid_dtype(true)), Nullability::NonNullable),
-                ),
-            ]),
-            Nullability::NonNullable,
-        );
-        let schema = session.to_arrow_schema(&dtype)?;
-        let roundtripped = session.from_arrow_schema(&schema)?;
-        assert_eq!(roundtripped, dtype);
         Ok(())
     }
 
@@ -444,18 +436,12 @@ mod tests {
         let mut ctx = vortex_session.create_execution_ctx();
         let session = vortex_session.arrow();
 
-        let mut field = Field::new("id", DataType::FixedSizeBinary(16), false);
-        field.try_with_extension_type(ArrowUuid)?;
-        let arrow_array: ArrowArrayRef = Arc::new(FixedSizeBinaryArray::try_from_iter(
-            [*b"0123456789abcdef", *b"fedcba9876543210"].into_iter(),
-        )?);
-
-        let vortex_array = session.from_arrow_array(arrow_array, &field)?;
+        let vortex_array = uuid_array(&session)?;
 
         let vortex_ext = vortex_array.dtype().as_extension();
         assert!(vortex_ext.is::<Uuid>());
 
-        let exported = session.execute_arrow(vortex_array, None, &mut ctx)?;
+        let exported = vortex_array.execute_arrow(None, &mut ctx)?;
         assert_eq!(exported.data_type(), &DataType::FixedSizeBinary(16));
         let fsb = exported.as_fixed_size_binary();
         assert_eq!(fsb.len(), 2);
@@ -492,7 +478,7 @@ mod tests {
         )?
         .into_array();
 
-        let exported = session.execute_arrow(struct_array, None, &mut ctx)?;
+        let exported = struct_array.execute_arrow(None, &mut ctx)?;
         let DataType::Struct(fields) = exported.data_type() else {
             panic!("expected Struct, got {:?}", exported.data_type());
         };
@@ -521,7 +507,7 @@ mod tests {
         )?
         .into_array();
 
-        let exported = session.execute_arrow(list, None, &mut ctx)?;
+        let exported = list.execute_arrow(None, &mut ctx)?;
         let DataType::List(elem) = exported.data_type() else {
             panic!("expected List, got {:?}", exported.data_type());
         };
@@ -567,28 +553,20 @@ mod tests {
             &values,
         )?);
 
-        let expected = run_array.to_data();
+        let expected = run_array
+            .to_data()
+            .into_builder()
+            .data_type(field.data_type().clone())
+            .build()?;
         let vortex_array = session.from_arrow_array(run_array, &field)?;
         assert_eq!(vortex_array.len(), 5);
         // The array conversion must agree with the dtype conversion.
         assert_eq!(vortex_array.dtype(), &dtype);
 
         // And the values must round-trip back out through the export plugin.
-        let exported = session.execute_arrow(vortex_array, Some(&field), &mut ctx)?;
-        assert_eq!(exported.len(), 5);
-        let ree = exported
-            .as_any()
-            .downcast_ref::<RunArray<Int32Type>>()
-            .ok_or_else(|| {
-                vortex_err!(
-                    "expected an Int32 run-end array, got {}",
-                    exported.data_type()
-                )
-            })?;
+        let exported = vortex_array.execute_arrow(Some(&field), &mut ctx)?;
         assert_eq!(exported.to_data(), expected);
-        let values = ree.values().as_fixed_size_binary();
-        assert_eq!(values.value(0), b"0123456789abcdef");
-        assert_eq!(values.value(1), b"fedcba9876543210");
+
         Ok(())
     }
 
@@ -636,13 +614,9 @@ mod tests {
         // Arrow's dictionary values data type does carry the nested element field, so the
         // extension survives the export as well.
         let mut ctx = vortex_session.create_execution_ctx();
-        let exported = session.execute_arrow(array, Some(&field), &mut ctx)?;
-        assert_eq!(exported.data_type(), field.data_type());
+        let exported = array.execute_arrow(Some(&field), &mut ctx)?;
         assert_eq!(exported.to_data(), expected);
-        let values = exported.as_any_dictionary().values().as_list::<i32>();
-        let uuids = values.values().as_fixed_size_binary();
-        assert_eq!(uuids.value(0), b"0123456789abcdef");
-        assert_eq!(uuids.value(1), b"fedcba9876543210");
+
         Ok(())
     }
 
@@ -665,8 +639,7 @@ mod tests {
         assert_eq!(array.dtype(), &session.from_arrow_schema(&schema)?);
         let ids = array.as_::<Struct>().unmasked_field_by_name("id")?.clone();
         assert_eq!(ids.dtype(), &uuid_dtype(false));
-        let exported = session.execute_arrow(
-            ids,
+        let exported = ids.execute_arrow(
             Some(&uuid_field),
             &mut vortex_session.create_execution_ctx(),
         )?;
@@ -718,7 +691,7 @@ mod tests {
         assert_eq!(by_nullability.dtype(), array.dtype());
         let mut ctx = vortex_session.create_execution_ctx();
         for imported in [array, by_nullability] {
-            let exported = session.execute_arrow(imported, None, &mut ctx)?;
+            let exported = imported.execute_arrow(None, &mut ctx)?;
             assert_eq!(exported.to_data(), arrow_struct.to_data());
         }
         Ok(())
@@ -767,9 +740,7 @@ mod tests {
         );
         assert_eq!(array.len(), 2);
         let mut ctx = vortex_session.create_execution_ctx();
-        let exported = vortex_session
-            .arrow()
-            .execute_arrow(array, None, &mut ctx)?;
+        let exported = array.execute_arrow(None, &mut ctx)?;
         let ids = exported.as_struct().column(0).as_fixed_size_binary();
         assert_eq!(ids.len(), 2);
         assert_eq!(ids.null_count(), 0);
@@ -826,10 +797,84 @@ mod tests {
         assert!(map_dtype.key_dtype().is_extension());
         assert!(map_dtype.value_dtype().is_extension());
 
-        let exported = session.execute_arrow(vortex, Some(&field), &mut ctx)?;
+        let exported = vortex.execute_arrow(Some(&field), &mut ctx)?;
         assert_eq!(exported.data_type(), field.data_type());
         assert_eq!(exported.as_map().value_offsets(), &[0, 2]);
         assert_eq!(exported.to_data(), expected);
+
+        Ok(())
+    }
+
+    /// Builds three UUIDs with valid version bits, with a null middle row when nullable.
+    fn versioned_uuid_array(version: Option<Version>, nullable: bool) -> VortexResult<ArrayRef> {
+        let dtype = ExtDType::try_with_vtable(
+            Uuid,
+            UuidMetadata { version },
+            uuid_dtype(nullable).as_extension().storage_dtype().clone(),
+        )?
+        .erased();
+
+        let bytes = match version {
+            Some(Version::Max) => [u8::MAX; 16],
+            Some(Version::Nil) | None => [0; 16],
+            Some(version) => uuid::Builder::from_bytes([0; 16])
+                .with_version(version)
+                .with_variant(uuid::Variant::RFC4122)
+                .into_uuid()
+                .into_bytes(),
+        };
+
+        let validity = if nullable {
+            Validity::from_iter([
+                true,  // First UUID.
+                false, // Null middle UUID.
+                true,  // Last UUID.
+            ])
+        } else {
+            Validity::NonNullable
+        };
+        let storage = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter((0..3).flat_map(|_| bytes)).into_array(),
+            16,
+            validity,
+            3,
+        )?;
+
+        Ok(ExtensionArray::try_new(dtype, storage.into_array())?.into_array())
+    }
+
+    #[rstest]
+    #[case::unspecified(None, false, false)]
+    #[case::nil(Some(Version::Nil), false, false)]
+    #[case::mac(Some(Version::Mac), false, false)]
+    #[case::dce(Some(Version::Dce), false, false)]
+    #[case::md5(Some(Version::Md5), false, false)]
+    #[case::random(Some(Version::Random), false, false)]
+    #[case::sha1(Some(Version::Sha1), false, false)]
+    #[case::sort_mac(Some(Version::SortMac), false, false)]
+    #[case::sort_rand(Some(Version::SortRand), false, false)]
+    #[case::custom(Some(Version::Custom), false, false)]
+    #[case::max(Some(Version::Max), false, false)]
+    #[case::nullable(Some(Version::Random), true, false)]
+    #[case::dictionary(Some(Version::Random), false, true)]
+    #[case::nullable_dictionary(Some(Version::Random), true, true)]
+    fn version_round_trip(
+        #[case] version: Option<Version>,
+        #[case] nullable: bool,
+        #[case] dictionary: bool,
+    ) -> VortexResult<()> {
+        check_version_round_trip(version, nullable, dictionary)
+    }
+
+    #[test]
+    fn mismatched_metadata_is_rejected() -> VortexResult<()> {
+        let session = uuid_session();
+        let mut ctx = session.create_execution_ctx();
+        let array = uuid_array(&session.arrow())?;
+        let target_array = versioned_uuid_array(Some(Version::Random), false)?;
+        let field = session.arrow().to_arrow_field("id", target_array.dtype())?;
+
+        assert!(array.execute_arrow(Some(&field), &mut ctx).is_err());
 
         Ok(())
     }

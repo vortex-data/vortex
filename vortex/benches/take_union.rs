@@ -43,6 +43,7 @@ use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::encodings::sparse;
 use vortex::encodings::sparse::Sparse;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -213,6 +214,9 @@ fn random_nullable_indices(rng: &mut StdRng) -> ArrayRef {
 
 /// Take `indices` and execute the result, so that the child gathers actually run.
 fn bench_take(bencher: Bencher, array: ArrayRef, indices: ArrayRef) {
+    mark_optimized(&array, &SESSION).unwrap();
+    mark_optimized(&indices, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (&array, &indices, SESSION.create_execution_ctx()))
         .bench_refs(|(array, indices, ctx)| {

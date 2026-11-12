@@ -32,15 +32,17 @@ use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::ScalarValue;
 use vortex_arrow::ArrowExport;
 use vortex_arrow::ArrowExportOptions;
-use vortex_arrow::ArrowExportVTable;
+use vortex_arrow::ArrowExtVTable;
 use vortex_arrow::ArrowImport;
-use vortex_arrow::ArrowImportVTable;
+use vortex_arrow::ArrowMetadataPolicy;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -95,7 +97,8 @@ pub(crate) fn multipolygon_storage_dtype(dim: Dimension, nullability: Nullabilit
     DType::List(Arc::new(polygon), nullability)
 }
 
-/// Validate `dtype` is `List<List<List<coordinate-struct>>>` and return its [`Dimension`].
+/// Validate that `dtype` equals [`multipolygon_storage_dtype`] for its [`Dimension`] and top-level
+/// nullability, and return that dimension. As in GeoArrow, only the outer `List` can be nullable.
 pub(crate) fn multipolygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(polygon, _) = dtype else {
         vortex_bail!("multipolygon storage must be a List of polygons, was {dtype}");
@@ -106,7 +109,15 @@ pub(crate) fn multipolygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(coords, _) = ring.as_ref() else {
         vortex_bail!("multipolygon ring storage must be a List of coordinates, was {ring}");
     };
-    coordinate_dimension(coords)
+    let dimension = coordinate_dimension(coords)?;
+
+    vortex_ensure_eq!(
+        *dtype,
+        multipolygon_storage_dtype(dimension, dtype.nullability()),
+        "multipolygon storage can be nullable only at its outer List"
+    );
+
+    Ok(dimension)
 }
 
 static ARROW_MULTIPOLYGON: CachedId = CachedId::new(MultiPolygonType::NAME);
@@ -141,8 +152,7 @@ fn multipolygon_array(
         &SpatialMetadata::default(),
         multipolygon_dimension(storage.dtype())?,
     );
-    let session = ctx.session().clone();
-    let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
+    let arrow = storage.clone().execute_arrow(None, ctx)?;
     MultiPolygonArray::try_from((arrow.as_ref(), multipolygon_type))
         .map_err(|e| vortex_err!("failed to construct MultiPolygonArray: {e}"))
 }
@@ -172,27 +182,31 @@ impl MultiPolygonData {
     }
 }
 
-impl ArrowExportVTable for MultiPolygon {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_MULTIPOLYGON
+impl ArrowExtVTable for MultiPolygon {
+    fn metadata_policy() -> ArrowMetadataPolicy {
+        ArrowMetadataPolicy::ArrowNative
     }
 
-    fn vortex_id(&self) -> Id {
-        self.id()
+    fn arrow_ext_id(&self) -> Id {
+        *ARROW_MULTIPOLYGON
     }
 
     fn to_arrow_field(
         &self,
         name: &str,
-        dtype: &DType,
-        session: &ArrowSession,
+        ext_dtype: &ExtDType<Self>,
+        _session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
-        let ext_type = dtype.as_extension();
-        let spatial_metadata = ext_type.metadata::<MultiPolygon>();
-        let dimension = multipolygon_dimension(ext_type.storage_dtype())?;
+        let spatial_metadata = ext_dtype.metadata();
+        let dimension = multipolygon_dimension(ext_dtype.storage_dtype())?;
 
-        let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
-        field.try_with_extension_type(multipolygon_type(spatial_metadata, dimension))?;
+        let arrow_type = multipolygon_type(spatial_metadata, dimension);
+        let mut field = Field::new(
+            name,
+            arrow_type.data_type(),
+            ext_dtype.storage_dtype().is_nullable(),
+        );
+        field.try_with_extension_type(arrow_type)?;
 
         Ok(Some(field))
     }
@@ -204,15 +218,6 @@ impl ArrowExportVTable for MultiPolygon {
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
-        let is_multipolygon = array
-            .dtype()
-            .as_extension_opt()
-            .map(|ext| ext.is::<MultiPolygon>())
-            .unwrap_or(false);
-        if !is_multipolygon {
-            return Ok(ArrowExport::Unsupported(array));
-        }
-
         let Ok(multipolygon_meta) = target.try_extension_type::<MultiPolygonType>() else {
             return Ok(ArrowExport::Unsupported(array));
         };
@@ -228,12 +233,8 @@ impl ArrowExportVTable for MultiPolygon {
             target.data_type().clone(),
             target.is_nullable(),
         );
-        let session = ctx.session().clone();
         let arrow_storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(&storage_field), ctx)?;
+            storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
         let multipolygons =
             MultiPolygonArray::try_from((arrow_storage.as_ref(), multipolygon_meta))
@@ -241,20 +242,11 @@ impl ArrowExportVTable for MultiPolygon {
 
         Ok(ArrowExport::Exported(Arc::new(multipolygons.into_arrow())))
     }
-}
 
-impl ArrowImportVTable for MultiPolygon {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_MULTIPOLYGON
-    }
-
-    /// Import a `geoarrow.multipolygon` field (matched by GeoArrow name). Accepts the full
-    /// `MultiPolygonType`, or a metadata-less literal (name only), inferring the dimension.
     fn from_arrow_field(
-        &self,
         field: &Field,
         session: &ArrowSession,
-    ) -> VortexResult<Option<DType>> {
+    ) -> VortexResult<Option<ExtDType<Self>>> {
         let (dimension, metadata) =
             if let Ok(multipolygon_meta) = field.try_extension_type::<MultiPolygonType>() {
                 vortex_ensure!(
@@ -293,23 +285,20 @@ impl ArrowImportVTable for MultiPolygon {
             };
 
         let storage_dtype = multipolygon_storage_dtype(dimension, field.is_nullable().into());
-        Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(MultiPolygon, metadata, storage_dtype)?.erased(),
-        )))
+        Ok(Some(ExtDType::try_with_vtable(
+            MultiPolygon,
+            metadata,
+            storage_dtype,
+        )?))
     }
 
     fn from_arrow_array(
-        &self,
         array: ArrowArrayRef,
         field: &Field,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let Some(ext_dtype) = dtype.as_extension_opt() else {
-            return Ok(ArrowImport::Unsupported(array));
-        };
-        if !ext_dtype.is::<MultiPolygon>()
-            || field.try_extension_type::<MultiPolygonType>().is_err()
+        if field.try_extension_type::<MultiPolygonType>().is_err()
             || !matches!(array.data_type(), DataType::List(_))
         {
             return Ok(ArrowImport::Unsupported(array));
@@ -317,7 +306,7 @@ impl ArrowImportVTable for MultiPolygon {
 
         let storage = session.from_arrow_array(array, field.is_nullable())?;
         Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(ext_dtype.clone(), storage)?.into_array(),
+            ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array(),
         ))
     }
 }

@@ -106,10 +106,10 @@ pub fn cpu_features(attr: TokenStream, item: TokenStream) -> TokenStream {
     // benchmark by leaf name and arguments, so without the suffix every leg would report
     // into one `words_gather_dispatch[65536]` series instead of one series each.
     let name = function.sig.ident.to_string();
-    let separator = if existing.is_empty() {
-        quote!()
-    } else {
-        quote!(,)
+    let separator = match existing.clone().into_iter().last() {
+        None => quote!(),
+        Some(proc_macro2::TokenTree::Punct(punct)) if punct.as_char() == ',' => quote!(),
+        Some(_) => quote!(,),
     };
     let bench_path = bench.path().clone();
     bench.meta = syn::parse_quote! {

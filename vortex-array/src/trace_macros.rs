@@ -19,7 +19,9 @@
 ///
 /// - When `test` OR `_test-harness` is on, AND `codspeed` is off, the body is compiled in and
 ///   guarded by a runtime check for an active recorder.
-/// - In all other configurations, the body is replaced with `()`.
+/// - In all other configurations, the arguments are only borrowed in a branch that never runs.
+///   Thus they are not evaluated, and a value that only a trace event reads is not reported
+///   as unused.
 ///
 /// The macro is named `trace_op` because it records *operations* (optimizer rewrites, parent
 /// kernels, execution steps, builder activity) rather than array values. The events it emits
@@ -30,6 +32,13 @@ macro_rules! trace_op {
         {
             if $crate::test_harness::trace::is_active() {
                 $crate::test_harness::trace::$event $(::<$($generic),*>)?($($arg),*);
+            }
+        }
+
+        #[cfg(not(all(any(test, feature = "_test-harness"), not(codspeed))))]
+        {
+            if false {
+                $(let _ = &$arg;)*
             }
         }
     }};

@@ -13,8 +13,6 @@ mod arrow;
 mod dtype;
 mod json_to_variant;
 
-use std::sync::Arc;
-
 pub mod editions;
 pub use dtype::Json;
 pub use json_to_variant::JsonToVariant;
@@ -31,8 +29,7 @@ use vortex_session::VortexSession;
 /// Register JSON extension support with a session.
 pub fn initialize(session: &VortexSession) {
     session.dtypes().register(Json);
-    session.arrow().register_exporter(Arc::new(Json));
-    session.arrow().register_importer(Arc::new(Json));
+    session.arrow().register_extension(Json);
     session.scalar_fns().register(JsonToVariant);
 
     // JSON is an opt-in durable dtype, so it belongs to an independently enabled edition family.

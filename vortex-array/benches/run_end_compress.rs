@@ -20,6 +20,7 @@ use vortex_array::dtype::IntegerPType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -79,6 +80,7 @@ fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
             .collect::<Buffer<_>>(),
         Validity::NonNullable,
     );
+    mark_optimized(values.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&values, SESSION.create_execution_ctx()))
@@ -100,6 +102,7 @@ fn decompress<T: IntegerPType>(bencher: Bencher, (length, run_step): (usize, usi
 
     let run_end_array = RunEnd::new(ends, values, &mut SESSION.create_execution_ctx());
     let array = run_end_array.into_array();
+    mark_optimized(&array, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
@@ -127,6 +130,8 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     let runend_array = RunEnd::try_new(ends.into_array(), values, &mut encode_ctx)
         .unwrap()
         .into_array();
+    mark_optimized(&source_array, &SESSION).unwrap();
+    mark_optimized(&runend_array, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&source_array, &runend_array, SESSION.create_execution_ctx()))
@@ -152,6 +157,7 @@ fn decompress_utf8(bencher: Bencher, (length, run_step): (usize, usize)) {
 
     let run_end_array = RunEnd::new(ends, values, &mut SESSION.create_execution_ctx());
     let array = run_end_array.into_array();
+    mark_optimized(&array, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))

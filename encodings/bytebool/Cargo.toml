@@ -25,5 +25,12 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
+mimalloc = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+
+[[bench]]
+name = "bytebool_probe"
+path = "benches/probe.rs"
+harness = false

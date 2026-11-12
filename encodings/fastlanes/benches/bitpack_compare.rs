@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Compare an already-packed `BitPackedArray` against a constant value. Compares the
-//! out-of-range fast path (constant outside `[0, 2^bit_width - 1]`) against an explicit
-//! "decompress, then compare" baseline.
+//! Compare an already-packed `BitPackedArray` against a constant outside
+//! `[0, 2^bit_width - 1]`, which the bit width alone decides without unpacking.
 //!
 //! Sized to finish quickly. Run with `cargo bench -p vortex-fastlanes --bench bitpack_compare`.
 
@@ -27,6 +26,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::BufferMut;
@@ -99,6 +99,9 @@ fn build_inputs() -> (ArrayRef, ArrayRef, ExecutionCtx) {
     // 1 << BW is just past the packable range, so the out-of-range fast path fires.
     let constant = 1u32 << BW;
     let rhs = ConstantArray::new(constant, LEN).into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+    mark_optimized(&rhs, &SESSION).unwrap();
+
     (array, rhs, ctx)
 }
 
@@ -116,41 +119,11 @@ fn fast_eq_out_of_range(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn baseline_eq(bencher: Bencher) {
-    let (array, rhs, mut ctx) = build_inputs();
-    bencher.bench_local(|| {
-        // What the fallback would do: materialize the unpacked primitive, then run Arrow
-        // compare on it.
-        let primitive = array.clone().execute::<PrimitiveArray>(&mut ctx).unwrap();
-        primitive
-            .into_array()
-            .binary(rhs.clone(), Operator::Eq)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap()
-    });
-}
-
-#[divan::bench]
 fn fast_lt_out_of_range(bencher: Bencher) {
     let (array, rhs, mut ctx) = build_inputs();
     bencher.bench_local(|| {
         array
             .clone()
-            .binary(rhs.clone(), Operator::Lt)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap()
-    });
-}
-
-#[divan::bench]
-fn baseline_lt(bencher: Bencher) {
-    let (array, rhs, mut ctx) = build_inputs();
-    bencher.bench_local(|| {
-        let primitive = array.clone().execute::<PrimitiveArray>(&mut ctx).unwrap();
-        primitive
-            .into_array()
             .binary(rhs.clone(), Operator::Lt)
             .unwrap()
             .execute::<BoolArray>(&mut ctx)

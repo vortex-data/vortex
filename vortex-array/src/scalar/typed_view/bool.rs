@@ -174,10 +174,11 @@ mod test {
                 .cast(&DType::Bool(NonNullable))
                 .is_err()
         );
-        assert!(
+        assert_eq!(
             scalar
                 .cast(&DType::Primitive(PType::I32, NonNullable))
-                .is_err()
+                .unwrap(),
+            Scalar::primitive(1i32, NonNullable)
         );
     }
 

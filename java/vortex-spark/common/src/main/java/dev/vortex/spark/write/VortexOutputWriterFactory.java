@@ -3,6 +3,7 @@
 
 package dev.vortex.spark.write;
 
+import dev.vortex.spark.ArrowProperties;
 import dev.vortex.spark.VortexOptions;
 import dev.vortex.spark.io.HadoopWritable;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
@@ -12,12 +13,19 @@ import org.apache.spark.sql.types.StructType;
 
 /** Creates Vortex output writers at paths assigned by Spark's file commit protocol. */
 public final class VortexOutputWriterFactory extends OutputWriterFactory {
+    static {
+        // Executors load this class before any Vortex batch, so Arrow sees the settings before it reads them.
+        ArrowProperties.configure();
+    }
+
     private static final long serialVersionUID = 1L;
 
     private final StructType schema;
     private final VortexOptions options;
 
     public VortexOutputWriterFactory(StructType schema, VortexOptions options) {
+        // Spark builds the factory on the driver, so a malformed value fails once there rather than in every task.
+        options.getBoolean(VortexOutputWriter.COMPACT_OPTION, false);
         this.schema = schema;
         this.options = options;
     }

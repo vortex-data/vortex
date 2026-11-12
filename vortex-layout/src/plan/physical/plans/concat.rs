@@ -10,18 +10,18 @@ use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::plan::physical::Eval;
 use crate::plan::physical::EvalPlan;
+use crate::plan::physical::LazyPlanRef;
 use crate::plan::physical::Plan;
-use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanId;
 use crate::plan::physical::PlanParts;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::PlanSlots;
 use crate::plan::physical::PlanVTable;
 use crate::plan::physical::operators::ConcatSource;
 use crate::plan::physical::optimizer::PlanParentReduceRule;
@@ -44,23 +44,25 @@ pub struct ConcatData {
 pub type ConcatPlan = Plan<Concat>;
 
 impl ConcatPlan {
-    /// Creates a concatenation from potentially unresolved children without validation.
+    /// Creates a concatenation from potentially unbuilt slots, one per chunk, without
+    /// validation.
     ///
     /// # Safety
     ///
-    /// Every child must have `dtype`; `row_offsets` must contain the cumulative row offset of
-    /// every child; and the sum of all child row counts must equal `row_count` without overflow.
-    pub(crate) unsafe fn from_children_unchecked(
+    /// Every slot must be present with `dtype`; `row_offsets` must contain the cumulative row
+    /// offset of every chunk; and the sum of all chunk row counts must equal `row_count` without
+    /// overflow.
+    pub(crate) unsafe fn from_slots_unchecked(
         dtype: DType,
         row_count: u64,
         row_offsets: Arc<[u64]>,
-        children: PlanChildren,
+        slots: PlanSlots,
     ) -> Self {
         PlanParts {
             vtable: Concat,
             dtype,
             row_count,
-            children,
+            slots,
             data: ConcatData { row_offsets },
         }
         .into_typed()
@@ -86,7 +88,7 @@ impl ConcatPlan {
         }
         // SAFETY: Child dtypes and the checked cumulative row metadata were validated above.
         Ok(unsafe {
-            Self::from_children_unchecked(dtype, row_count, row_offsets.into(), children.into())
+            Self::from_slots_unchecked(dtype, row_count, row_offsets.into(), children.into())
         })
     }
 
@@ -102,23 +104,29 @@ impl ConcatPlan {
         dtype: DType,
         map: impl Fn(PlanRef) -> VortexResult<PlanRef> + Send + Sync + 'static,
     ) -> Self {
-        let children = self.children().clone();
-        let child_dtype = dtype.clone();
+        let map = Arc::new(map);
+        let slots = self
+            .slots()
+            .iter()
+            .map(|slot| {
+                let chunk = slot.clone()?;
+                let map = Arc::clone(&map);
+                let dtype = dtype.clone();
+                Some(LazyPlanRef::lazy(move || {
+                    let chunk = chunk.get()?;
+                    let mapped = map(chunk.clone())?;
+                    vortex_ensure_eq!(mapped.dtype(), &dtype);
+                    vortex_ensure_eq!(mapped.row_count(), chunk.row_count());
+                    Ok(mapped)
+                }))
+            })
+            .collect();
         PlanParts {
             vtable: Concat,
             dtype,
             row_count: self.row_count(),
             data: self.data().clone(),
-            children: PlanChildren::lazy(self.children().len(), move |index| {
-                let child = children
-                    .get(index)?
-                    .ok_or_else(|| vortex_err!("Missing chunk {index}"))?;
-                let rows = child.row_count();
-                let mapped = map(child)?;
-                vortex_ensure_eq!(mapped.dtype(), &child_dtype);
-                vortex_ensure_eq!(mapped.row_count(), rows);
-                Ok(mapped)
-            }),
+            slots,
         }
         .into_typed()
     }
@@ -138,23 +146,17 @@ impl PlanVTable for Concat {
         Some(EmptyMetadata)
     }
 
-    fn with_children(
+    fn with_slots(
         plan: &Plan<Self>,
-        children: &PlanChildren,
+        slots: &PlanSlots,
         data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        if children.len() != plan.children().len() {
-            vortex_bail!(
-                "Concat expects {} children but got {}",
-                plan.children().len(),
-                children.len()
-            );
-        }
+        slots.check_len("Concat", plan.slots().len())?;
 
-        let mut row_offsets = Vec::with_capacity(children.len());
+        let mut row_offsets = Vec::with_capacity(slots.len());
         let mut row_count = 0u64;
-        for child in children.iter() {
-            let child = child?;
+        for index in 0..slots.len() {
+            let child = slots.required(index)?;
             if child.dtype() != plan.dtype() {
                 vortex_bail!(
                     "Concat child dtype {} does not match {}",
@@ -177,8 +179,8 @@ impl PlanVTable for Concat {
         Ok(())
     }
 
-    fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
-        Cow::Owned(format!("chunks[{index}]"))
+    fn slot_name(_plan: &Plan<Self>, slot: usize) -> Cow<'_, str> {
+        Cow::Owned(format!("chunks[{slot}]"))
     }
 
     fn compile(
@@ -201,7 +203,7 @@ impl PlanVTable for Concat {
             ) else {
                 continue;
             };
-            let chunk = plan.child_required(index)?;
+            let chunk = plan.slot_required(index)?;
             if let Some(chain) = compiler.compile(
                 &chunk,
                 rows.start + span.start as u64 - start..rows.start + span.end as u64 - start,

@@ -6,7 +6,7 @@ mod arbitrary;
 #[cfg(feature = "arbitrary")]
 pub use arbitrary::ArbitraryRunEndArray;
 pub use array::*;
-pub use iter::trimmed_ends_iter;
+pub use iter::slice_relative_ends;
 
 mod array;
 pub mod compress;
@@ -33,6 +33,7 @@ use vortex_session::VortexSession;
 
 pub(crate) fn initialize(session: &VortexSession) {
     kernel::initialize(session);
+    rules::register_parent_rules(session);
 }
 
 #[cfg(test)]
