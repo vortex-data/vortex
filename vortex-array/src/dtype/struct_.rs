@@ -604,18 +604,6 @@ mod test {
     }
 
     #[test]
-    fn test_without_field_deprecated() {
-        let a_type = DType::Primitive(PType::I32, Nullability::Nullable);
-        let b_type = DType::Bool(Nullability::NonNullable);
-        let sdt = StructFields::from_iter([("A", a_type), ("B", b_type.clone())]);
-
-        let without_a = sdt.without_field(0).unwrap();
-        assert_eq!(without_a.names(), ["B"]);
-        assert_eq!(without_a.field_by_index(0).unwrap(), b_type);
-        assert_eq!(without_a.nfields(), 1);
-    }
-
-    #[test]
     fn field_dtype_cache() -> VortexResult<()> {
         let inner = DType::Struct(
             StructFields::from_iter([("x", DType::Bool(Nullability::NonNullable))]),

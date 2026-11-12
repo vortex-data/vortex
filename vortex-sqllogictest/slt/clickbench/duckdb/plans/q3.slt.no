@@ -151,30 +151,42 @@ logical_opt [
         "name": "PROJECTION",
         "children": [
             {
-                "name": "AGGREGATE",
+                "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "PROJECTION",
+                        "name": "AGGREGATE",
                         "children": [
                             {
-                                "name": "READ_VORTEX",
-                                "children": [],
+                                "name": "PROJECTION",
+                                "children": [
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Filters": "",
+                                            "Function": "Vortex Scan",
+                                            "Estimated Cardinality": "1000000"
+                                        }
+                                    }
+                                ],
                                 "extra_info": {
-                                    "Filters": "",
-                                    "Function": "Vortex Scan",
+                                    "Expressions": "UserID",
                                     "Estimated Cardinality": "1000000"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Expressions": "UserID",
-                            "Estimated Cardinality": "1000000"
+                            "Groups": "",
+                            "Expressions": [
+                                "sum(UserID)",
+                                "count_star()"
+                            ],
+                            "Estimated Cardinality": "1"
                         }
                     }
                 ],
                 "extra_info": {
-                    "Groups": "",
-                    "Expressions": "avg(UserID)",
+                    "Expressions": "\"/\"(CAST(#0 AS DOUBLE), CAST(#1 AS DOUBLE))",
                     "Estimated Cardinality": "1"
                 }
             }
@@ -187,29 +199,42 @@ logical_opt [
 ]
 physical_plan [
     {
-        "name": "UNGROUPED_AGGREGATE",
+        "name": "PROJECTION",
         "children": [
             {
-                "name": "PROJECTION",
+                "name": "UNGROUPED_AGGREGATE",
                 "children": [
                     {
-                        "name": "READ_VORTEX",
-                        "children": [],
+                        "name": "PROJECTION",
+                        "children": [
+                            {
+                                "name": "READ_VORTEX",
+                                "children": [],
+                                "extra_info": {
+                                    "Function": "Vortex Scan",
+                                    "Projections": "UserID",
+                                    "Estimated Cardinality": "1000000"
+                                }
+                            }
+                        ],
                         "extra_info": {
-                            "Function": "Vortex Scan",
                             "Projections": "UserID",
                             "Estimated Cardinality": "1000000"
                         }
                     }
                 ],
                 "extra_info": {
-                    "Projections": "UserID",
-                    "Estimated Cardinality": "1000000"
+                    "Aggregates": [
+                        "sum(#0)",
+                        "count_star()"
+                    ],
+                    "Estimated Cardinality": "1"
                 }
             }
         ],
         "extra_info": {
-            "Aggregates": "avg(#0)"
+            "Projections": "\"/\"(CAST(#0 AS DOUBLE), CAST(#1 AS DOUBLE))",
+            "Estimated Cardinality": "1"
         }
     }
 ]

@@ -217,7 +217,13 @@ mod tests {
         let map = ArcSwapMap::<u32, i32>::default();
         map.insert(1, 1);
         map.insert(2, 2);
-        assert_eq!(map.read(|m| m.values().sum::<i32>()), 3);
+        let sum = map.read(|snapshot| {
+            map.insert(1, 10);
+            map.insert(2, 20);
+            snapshot.values().sum::<i32>()
+        });
+        assert_eq!(sum, 3);
+        assert_eq!(map.read(|snapshot| snapshot.values().sum::<i32>()), 30);
     }
 
     #[test]

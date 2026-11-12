@@ -35,7 +35,7 @@ impl CompareKernel for Sparse {
             return Ok(None);
         };
 
-        let fill_bool = scalar_cmp(lhs.fill_scalar(), &rhs_scalar, operator)?;
+        let fill_bool = scalar_cmp(lhs.fill_scalar(), rhs_scalar, operator)?;
         let patches = lhs.patches();
 
         let new_patches = patches.map_values(|values| {
@@ -73,7 +73,7 @@ mod tests {
     use crate::initialize;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         initialize(&session);
         session
     });
@@ -85,30 +85,27 @@ mod tests {
     #[case::lte(Scalar::from(10i32), Operator::Lte)]
     #[case::neq(Scalar::from(1i32), Operator::NotEq)]
     fn compare_matches_canonical(#[case] rhs: Scalar, #[case] op: Operator) {
+        let mut ctx = SESSION.create_execution_ctx();
         let array: SparseArray = Sparse::try_new(
             buffer![1u64, 3, 5].into_array(),
             buffer![10i32, 20, 30].into_array(),
             8,
             Scalar::from(1i32),
+            &mut ctx,
         )
         .unwrap();
         let arr = array.into_array();
         let len = arr.len();
-        let mut ctx = SESSION.create_execution_ctx();
 
         // Kernel path: compare pushes through the Sparse encoding.
         let kernel_bool = arr
             .binary(ConstantArray::new(rhs.clone(), len).into_array(), op)
-            .unwrap()
-            .execute::<Canonical>(&mut ctx)
             .unwrap();
 
         // Baseline: canonicalize first, then compare on the PrimitiveArray.
         let canonical_input = arr.execute::<Canonical>(&mut ctx).unwrap().into_array();
         let canonical_bool = canonical_input
             .binary(ConstantArray::new(rhs, len).into_array(), op)
-            .unwrap()
-            .execute::<Canonical>(&mut ctx)
             .unwrap();
 
         assert_arrays_eq!(kernel_bool, canonical_bool, &mut ctx);

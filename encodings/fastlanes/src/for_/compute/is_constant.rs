@@ -35,7 +35,7 @@ impl DynAggregateKernel for FoRIsConstantKernel {
             return Ok(None);
         };
         // TODO(mk): support many references.
-        if array.constant_reference().is_none() {
+        if !array.references().is_global() {
             return Ok(None);
         }
 

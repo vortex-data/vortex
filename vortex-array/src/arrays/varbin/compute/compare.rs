@@ -173,26 +173,29 @@ fn value_cmp(bytes: &[u8], start: usize, end: usize, constant: &[u8]) -> Orderin
 
 #[cfg(test)]
 mod test {
-    use vortex_buffer::BitBuffer;
+    use std::sync::LazyLock;
+
     use vortex_buffer::ByteBuffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
-    use crate::arrays::bool::BoolArrayExt;
+    use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::operators::Operator;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_binary_compare() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = VarBinArray::from_iter(
             [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
@@ -207,29 +210,18 @@ mod test {
                 .into_array(),
                 Operator::Eq,
             )
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
             .unwrap();
 
-        assert_eq!(
-            &result
-                .as_ref()
-                .validity()
-                .unwrap()
-                .execute_mask(result.as_ref().len(), &mut ctx)
-                .unwrap()
-                .to_bit_buffer(),
-            &BitBuffer::from_iter([true, false, true])
-        );
-        assert_eq!(
-            result.to_bit_buffer(),
-            BitBuffer::from_iter([true, false, false])
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([Some(true), None, Some(false)]),
+            &mut ctx
         );
     }
 
     #[test]
     fn varbinview_compare() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = VarBinArray::from_iter(
             [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
@@ -241,34 +233,25 @@ mod test {
         let result = array
             .into_array()
             .binary(vbv.into_array(), Operator::Eq)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
             .unwrap();
 
-        assert_eq!(
-            result
-                .as_ref()
-                .validity()
-                .unwrap()
-                .execute_mask(result.as_ref().len(), &mut ctx)
-                .unwrap()
-                .to_bit_buffer(),
-            BitBuffer::from_iter([false, false, true])
-        );
-        assert_eq!(
-            result.to_bit_buffer(),
-            BitBuffer::from_iter([false, true, true])
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([None, None, Some(true)]),
+            &mut ctx
         );
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::ByteBuffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
@@ -280,18 +263,22 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::operators::Operator;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_null_compare() {
         let arr = VarBinArray::from_iter([Some("h")], DType::Utf8(Nullability::NonNullable));
 
         let const_ = ConstantArray::new(Scalar::utf8("", Nullability::Nullable), 1);
 
-        assert_eq!(
-            arr.into_array()
-                .binary(const_.into_array(), Operator::Eq)
-                .unwrap()
-                .dtype(),
-            &DType::Bool(Nullability::Nullable)
+        let result = arr
+            .into_array()
+            .binary(const_.into_array(), Operator::Eq)
+            .unwrap();
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([Some(false)]),
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -302,7 +289,7 @@ mod tests {
     /// [`CompareKernel`]: super::CompareKernel
     #[test]
     fn varbin_i64_offsets_compare_constant() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = VarBinBuilder::<i64>::with_capacity_in(
             DType::Utf8(Nullability::NonNullable),
             3,
@@ -327,7 +314,7 @@ mod tests {
 
     #[test]
     fn varbin_i64_offsets_compare_constant_binary() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = VarBinBuilder::<i64>::with_capacity_in(
             DType::Binary(Nullability::NonNullable),
             3,

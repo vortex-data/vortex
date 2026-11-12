@@ -3,13 +3,18 @@
 
 //! Float compression statistics over arrays with and without nulls.
 
+#![expect(clippy::unwrap_used)]
+
 use std::sync::LazyLock;
 
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::prelude::*;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
@@ -20,11 +25,16 @@ use vortex_session::VortexSession;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+});
 
 const LEN: usize = 64 * 1024;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -56,10 +66,10 @@ fn bench_stats(bencher: Bencher, validity: Validity, count_distinct_values: bool
     let values = values();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::new(values.clone(), validity.clone()),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::new(values.clone(), validity.clone());
+            mark_optimized(array.as_array(), &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(array, ctx)| {
             FloatStats::generate_opts(

@@ -19,15 +19,86 @@ SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
 query TT
 EXPLAIN SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
 ----
-<REGEX>:.*COLUMN_DATA_SCAN.*
+<REGEX>:.*Column Data Scan.*
 
 query TT
 EXPLAIN SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
 ----
-<!REGEX>:.*(READ_VORTEX|AGGREGATE).*
+<!REGEX>:.*(Read Vortex|AGGREGATE).*
 
 query III
 SELECT count(*), min(i), max(i)
 FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
 ----
 6 1 6
+
+statement ok
+COPY (SELECT 1::INTEGER AS a, 100::INTEGER AS b) TO '${WORK_DIR}/reordered_1.vortex';
+
+statement ok
+COPY (SELECT 200::INTEGER AS b, 2::INTEGER AS a) TO '${WORK_DIR}/reordered_2.vortex';
+
+# Caches both footers.
+query I
+SELECT a FROM '${WORK_DIR}/reordered_*.vortex' ORDER BY a;
+----
+1
+2
+
+query TT
+EXPLAIN SELECT max(a), min(b) FROM '${WORK_DIR}/reordered_*.vortex';
+----
+<REGEX>:.*Column Data Scan.*
+
+query II
+SELECT max(a), min(b) FROM '${WORK_DIR}/reordered_*.vortex';
+----
+2 100
+
+statement ok
+COPY (
+    SELECT (range % 3)::INTEGER AS k, ((range % 3) + 0.5)::DECIMAL(10, 2) AS d,
+           ((range % 3) + 0.5)::DOUBLE AS f, range AS j
+    FROM range(30))
+TO '${WORK_DIR}/hive' (FORMAT vortex, PARTITION_BY (k, d, f), WRITE_PARTITION_COLUMNS true);
+
+# Caches every footer.
+query I
+SELECT count(*) FROM read_vortex('${WORK_DIR}/hive/**/*.vortex');
+----
+30
+
+query TT
+EXPLAIN (FORMAT json) SELECT min(k), max(k) FROM read_vortex('${WORK_DIR}/hive/**/*.vortex');
+----
+<REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query II
+SELECT min(k), max(k) FROM read_vortex('${WORK_DIR}/hive/**/*.vortex');
+----
+0 2
+
+query TT
+EXPLAIN (FORMAT json) SELECT min(d), max(d) FROM read_vortex('${WORK_DIR}/hive/**/*.vortex');
+----
+<REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query TT
+SELECT min(d), max(d) FROM read_vortex('${WORK_DIR}/hive/**/*.vortex');
+----
+0.50 2.50
+
+query TT
+SELECT min(f), max(f) FROM read_vortex('${WORK_DIR}/hive/**/*.vortex');
+----
+0.5 2.5
+
+query TT
+EXPLAIN SELECT min(j), max(j) FROM read_vortex('${WORK_DIR}/hive/**/*.vortex');
+----
+<REGEX>:.*Column Data Scan.*
+
+query TTBB
+SELECT d, f, d = '11', f = '11' FROM read_vortex('${WORK_DIR}/hive/k=1/d=1.50/f=1.5/*.vortex') LIMIT 1;
+----
+1.50 1.5 false false

@@ -5,7 +5,8 @@ import sys
 import textwrap
 from pathlib import Path
 
-from bench_orchestrator.config import Benchmark, Engine, Format
+import pytest
+from bench_orchestrator.config import BENCHMARK_SCAN_V1, Benchmark, Engine, Format
 from bench_orchestrator.runner.executor import BenchmarkExecutor
 
 
@@ -19,18 +20,18 @@ def test_build_command_adds_duckdb_cleanup_flag() -> None:
         options={"scale-factor": "1.0"},
     )
 
-    assert cmd[:5] == [
+    assert cmd[:7] == [
         "/tmp/duckdb-bench",
         "tpch",
         "--display-format",
         "gh-json",
         "--iterations",
+        "7",
+        "--hide-progress-bar",
     ]
-    assert "--formats" in cmd
-    assert "parquet,vortex" in cmd
+    assert cmd[cmd.index("--formats") + 1] == "parquet,vortex"
     assert "--delete-duckdb-database" in cmd
-    assert "--opt" in cmd
-    assert "scale-factor=1.0" in cmd
+    assert cmd[cmd.index("--opt") + 1] == "scale-factor=1.0"
 
 
 def test_build_command_serializes_vortex_spatial_native_format() -> None:
@@ -43,7 +44,22 @@ def test_build_command_serializes_vortex_spatial_native_format() -> None:
         options={"scale-factor": "1.0"},
     )
 
-    assert "parquet,vortex,vortex-spatial-native" in cmd
+    assert cmd[cmd.index("--formats") + 1] == "parquet,vortex,vortex-spatial-native"
+
+
+def test_scan_v1_benchmarks_are_explicit() -> None:
+    assert BENCHMARK_SCAN_V1 == {Benchmark.POLARSIGNALS, Benchmark.STATPOPGEN, Benchmark.TPCH_NESTED}
+
+
+@pytest.mark.parametrize("engine", [Engine.DATAFUSION, Engine.DUCKDB])
+@pytest.mark.parametrize("benchmark", list(Benchmark))
+def test_build_command_selects_scan_version(engine: Engine, benchmark: Benchmark) -> None:
+    executor = BenchmarkExecutor(Path("/tmp/bench"), engine)
+
+    cmd = executor.build_command(benchmark=benchmark, formats=[Format.VORTEX])
+
+    expected = "true" if benchmark in BENCHMARK_SCAN_V1 else "false"
+    assert cmd[cmd.index("--scan-v1") + 1] == expected
 
 
 def test_build_command_omits_formats_for_lance_backend() -> None:
@@ -57,8 +73,8 @@ def test_build_command_omits_formats_for_lance_backend() -> None:
 
     assert cmd[0] == "/tmp/lance-bench"
     assert "--formats" not in cmd
-    assert "--queries" in cmd
-    assert "3" in cmd
+    assert "--scan-v1" not in cmd
+    assert cmd[cmd.index("--queries") + 1] == "3"
 
 
 def test_build_command_includes_ingest_output_when_set() -> None:

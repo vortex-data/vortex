@@ -4,7 +4,7 @@
 //! TPCH benchmark implementation
 
 use glob::Pattern;
-use tracing::info;
+use tracing::debug;
 use tracing::warn;
 use url::Url;
 
@@ -26,6 +26,7 @@ use crate::tpch::schema::SUPPLIER;
 use crate::tpch::tpch_queries;
 use crate::tpch::tpchgen;
 use crate::tpch::tpchgen::TpchGenOptions;
+use crate::utils::split;
 
 /// TPCH benchmark implementation
 pub struct TpcHBenchmark {
@@ -59,7 +60,7 @@ impl TpcHBenchmark {
                         "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/parquet/"
                     );
                 }
-                info!(
+                debug!(
                     concat!(
                         "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
                         "If it does not, you should kill this command, locally generate the files (by running without\n",
@@ -139,12 +140,7 @@ impl Benchmark for TpcHBenchmark {
         ]
     }
 
-    #[expect(clippy::expect_used)]
     fn pattern(&self, table_name: &str, format: Format) -> Option<Pattern> {
-        Some(
-            format!("{}.{}", table_name, format.ext())
-                .parse()
-                .expect("valid glob pattern"),
-        )
+        Some(split::part_pattern(table_name, format.ext()))
     }
 }

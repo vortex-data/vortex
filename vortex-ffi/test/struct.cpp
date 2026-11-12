@@ -26,6 +26,18 @@ TEST_CASE("Struct builder", "[struct]") {
 
     SECTION("Struct builder finalize") {
         vx_struct_fields *fields = vx_struct_fields_builder_finalize(builder);
+        REQUIRE(fields != nullptr);
+        REQUIRE(vx_struct_fields_nfields(fields) == 2);
+        REQUIRE(to_string_view(vx_struct_fields_field_name(fields, 0)) == "col1");
+        REQUIRE(to_string_view(vx_struct_fields_field_name(fields, 1)) == "col2");
+        const vx_dtype *first = vx_struct_fields_field_dtype(fields, 0);
+        REQUIRE(vx_dtype_primitive_ptype(first) == PTYPE_U8);
+        REQUIRE_FALSE(vx_dtype_is_nullable(first));
+        vx_dtype_free(first);
+        const vx_dtype *second = vx_struct_fields_field_dtype(fields, 1);
+        REQUIRE(vx_dtype_get_variant(second) == DTYPE_BINARY);
+        REQUIRE(vx_dtype_is_nullable(second));
+        vx_dtype_free(second);
 
         SECTION("struct fields free") {
             vx_struct_fields_free(fields);
@@ -33,6 +45,8 @@ TEST_CASE("Struct builder", "[struct]") {
 
         SECTION("struct fields finalize") {
             const vx_dtype *dtype = vx_dtype_new_struct(fields, false);
+            REQUIRE(vx_dtype_get_variant(dtype) == DTYPE_STRUCT);
+            REQUIRE_FALSE(vx_dtype_is_nullable(dtype));
             vx_dtype_free(dtype);
         }
     }
@@ -68,6 +82,7 @@ TEST_CASE("Creating structs", "[struct]") {
         } else {
             CHECK(vx_dtype_is_nullable(dtype));
             CHECK(vx_dtype_get_variant(dtype) == DTYPE_PRIMITIVE);
+            CHECK(vx_dtype_primitive_ptype(dtype) == PTYPE_F32);
         }
 
         vx_dtype_free(dtype);

@@ -5,6 +5,7 @@
 
 use vortex_array::ArrayId;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
+use vortex_fastlanes::bitpacked_v2_id;
 use vortex_fastlanes::for_v2_id;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -17,6 +18,8 @@ use crate::SchemeExt;
 use crate::SchemeId;
 use crate::allowed_ids::AllowedIds;
 use crate::schemes::binary;
+use crate::schemes::boolean;
+use crate::schemes::fixed_size_list;
 use crate::schemes::float;
 use crate::schemes::integer;
 use crate::schemes::string;
@@ -61,11 +64,15 @@ impl CompressionMode {
                 excluded.push(binary::ZstdBuffersScheme.id());
             }
             Self::Cuda => {
-                // Keep FSST, which has a CUDA decoder and direct Arrow offset-based export. Other
-                // string fragmentation and dictionary schemes still require unsupported decode
-                // paths. Delta has a CUDA decode kernel, but stays excluded until GPU delta
-                // decode is benchmarked against the schemes it would displace.
+                // Keep FSST, which has a CUDA decoder and direct Arrow offset-based export, and
+                // string dictionaries, which the CUDA dictionary gather decodes into views over
+                // the decoded values. Other string fragmentation schemes and binary dictionaries
+                // still require unsupported decode paths. Delta has a CUDA decode kernel, but
+                // stays excluded until GPU delta decode is benchmarked against the schemes it
+                // would displace.
                 excluded.extend([
+                    boolean::BoolRunEndScheme.id(),
+                    boolean::BoolSparseScheme.id(),
                     integer::DeltaScheme::default().id(),
                     integer::SparseScheme.id(),
                     integer::IntRLEScheme.id(),
@@ -73,7 +80,7 @@ impl CompressionMode {
                     float::FloatRLEScheme.id(),
                     float::NullDominatedSparseScheme.id(),
                     string::NullDominatedSparseScheme.id(),
-                    string::StringDictScheme.id(),
+                    fixed_size_list::FixedSizeListSparseScheme.id(),
                     binary::BinaryDictScheme.id(),
                 ]);
                 // Both binary Zstd schemes are kept. Buffer-level compression preserves binary
@@ -94,9 +101,9 @@ impl CompressionMode {
     fn excluded_encodings(self) -> Vec<ArrayId> {
         match self {
             Self::All | Self::Default | Self::Compact => Vec::new(),
-            // Multi-part DecimalByteParts arrays and FoR arrays with per-chunk references have no
-            // CUDA decode kernel.
-            Self::Cuda => vec![decimal_byte_parts_v2_id(), for_v2_id()],
+            // Multi-part DecimalByteParts arrays, FoR arrays with per-chunk references and
+            // BitPacked arrays with per-block bit widths have no CUDA decode kernel.
+            Self::Cuda => vec![decimal_byte_parts_v2_id(), for_v2_id(), bitpacked_v2_id()],
         }
     }
 }
@@ -246,12 +253,18 @@ impl BtrBlocksCompressorBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayId;
     use vortex_array::VTable;
+    use vortex_array::arrays::Patched;
     use vortex_array::arrays::VarBin;
     use vortex_decimal_byte_parts::DecimalByteParts;
     use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
+    use vortex_fastlanes::bitpacked_v1_id;
+    use vortex_fastlanes::bitpacked_v2_id;
+    use vortex_fastlanes::for_v1_id;
     use vortex_fsst::FSST;
 
     use super::*;
@@ -259,11 +272,35 @@ mod tests {
     use crate::schemes::decimal::DECIMAL_V1;
     use crate::schemes::decimal::DECIMAL_V2;
 
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<CompressionSession>());
+
     #[rstest]
     #[case::fsst_missing_codes(&string::FSSTScheme, vec![FSST.id()], false)]
     #[case::fsst_with_codes(&string::FSSTScheme, vec![FSST.id(), VarBin.id()], true)]
     #[case::decimal_v1_id(&DECIMAL_V1, vec![decimal_byte_parts_v1_id()], true)]
     #[case::decimal_both_ids(&DECIMAL_V2, vec![decimal_byte_parts_v1_id(), DecimalByteParts.id()], true)]
+    #[case::bitpacking_v1_id(
+        &integer::BITPACKING_V1,
+        vec![bitpacked_v1_id(), Patched.id()],
+        true
+    )]
+    #[case::bitpacking_both_ids(
+        &integer::BITPACKING_V1,
+        vec![bitpacked_v1_id(), bitpacked_v2_id(), Patched.id()],
+        true
+    )]
+    #[case::bitpacking_v2_only(
+        &integer::BITPACKING_V1,
+        vec![bitpacked_v2_id(), Patched.id()],
+        false
+    )]
+    #[case::for_without_bitpacked(&integer::FOR_V1, vec![for_v1_id()], false)]
+    #[case::for_with_bitpacked(
+        &integer::FOR_V1,
+        vec![for_v1_id(), bitpacked_v1_id(), Patched.id()],
+        true
+    )]
     fn test_allowed_schemes(
         #[case] scheme: &'static dyn Scheme,
         #[case] allowed: Vec<ArrayId>,
@@ -277,8 +314,7 @@ mod tests {
 
     #[test]
     fn delta_is_excluded_only_by_cuda() {
-        let session = VortexSession::empty().with::<CompressionSession>();
-        let builder = BtrBlocksCompressorBuilder::from_session(&session).unrestricted();
+        let builder = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted();
         let has_delta = |builder: BtrBlocksCompressorBuilder| {
             builder
                 .allowed_schemes()
@@ -288,5 +324,15 @@ mod tests {
         assert!(has_delta(builder.clone()));
         assert!(has_delta(builder.clone().with_compact()));
         assert!(!has_delta(builder.only_cuda_compatible()));
+    }
+
+    #[test]
+    fn cuda_keeps_string_dictionaries_but_not_binary_ones() {
+        let cuda = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .only_cuda_compatible();
+        let has = |id: SchemeId| cuda.allowed_schemes().iter().any(|s| s.id() == id);
+        assert!(has(string::StringDictScheme.id()));
+        assert!(!has(binary::BinaryDictScheme.id()));
     }
 }

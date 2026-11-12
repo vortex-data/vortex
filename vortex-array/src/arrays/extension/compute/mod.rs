@@ -11,12 +11,14 @@ mod take;
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
@@ -26,6 +28,8 @@ mod test {
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_filter_extension_array() {
         let ext_dtype = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
@@ -33,20 +37,14 @@ mod test {
         // Create storage array
         let storage = buffer![1i32, 2, 3, 4, 5].into_array();
         let array = ExtensionArray::new(ext_dtype.clone(), storage);
-        test_filter_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
 
         // Test with nullable extension type
         let ext_dtype_nullable = ext_dtype.with_nullability(Nullability::Nullable);
         let storage = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None])
             .into_array();
         let array = ExtensionArray::new(ext_dtype_nullable, storage);
-        test_filter_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[rstest]
@@ -85,27 +83,28 @@ mod test {
         ExtensionArray::new(ext_dtype_large, storage)
     })]
     fn test_take_extension_array_conformance(#[case] array: ExtensionArray) {
-        test_take_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_take_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::dtype::Nullability;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     // Note: The original test_all_consistency cases for extension arrays caused errors
@@ -127,9 +126,6 @@ mod tests {
         ExtensionArray::new(ext_dtype, storage)
     })]
     fn test_extension_consistency(#[case] array: ExtensionArray) {
-        test_array_consistency(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_array_consistency(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

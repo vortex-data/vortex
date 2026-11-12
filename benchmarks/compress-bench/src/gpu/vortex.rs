@@ -29,7 +29,7 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex::layout::layouts::compressed::CompressingStrategy;
 use vortex::layout::scan::split_by::SplitBy;
-use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_bench::compress::Compressed;
@@ -269,7 +269,10 @@ async fn verify_batch(
     for (field_index, (gpu_field, host_field)) in gpu_fields.zip(host_fields).enumerate() {
         let decoded = gpu_field.clone().execute_cuda(cuda_ctx).await?;
         cuda_ctx.synchronize_stream()?;
-        let decoded = decoded.into_host().await?.into_array();
+        let decoded = decoded
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
         verify_field(host_field, decoded, host_ctx, batch_index, field_index)?;
     }
 
@@ -300,11 +303,11 @@ fn verify_field(
     batch_index: usize,
     field_index: usize,
 ) -> Result<()> {
-    let expected = SESSION.arrow().execute_arrow(host.clone(), None, ctx)?;
+    let expected = host.clone().execute_arrow(None, ctx)?;
     // Pin the Arrow target type so the two sides cannot land on different but equivalent
     // encodings of the same logical values.
     let target = Field::new("", expected.data_type().clone(), gpu.dtype().is_nullable());
-    let actual = SESSION.arrow().execute_arrow(gpu, Some(&target), ctx)?;
+    let actual = gpu.execute_arrow(Some(&target), ctx)?;
 
     if expected.to_data() == actual.to_data() {
         return Ok(());

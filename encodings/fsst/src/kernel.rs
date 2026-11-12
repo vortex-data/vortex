@@ -35,11 +35,11 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_array::ArrayRef;
-    use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::FilterArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::varbin::builder::VarBinBuilder;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
@@ -55,7 +55,7 @@ mod tests {
     use crate::fsst_train_compressor;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -98,15 +98,13 @@ mod tests {
         ]);
 
         // Create FilterArray and execute
-        let filter_array = FilterArray::new(fsst_array.clone(), mask.clone()).into_array();
+        let filter_array = FilterArray::new(fsst_array, mask).into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        let result = filter_array.execute::<Canonical>(&mut ctx)?;
 
-        // Compare with filtering the canonical VarBinView.
-        let expected = fsst_array.filter(mask)?;
+        let expected = VarBinViewArray::from_iter_str(["hello world", "jumps over the lazy dog"]);
 
-        assert_eq!(result.len(), 2);
-        assert_arrays_eq!(result.into_array(), expected, &mut ctx);
+        assert_eq!(filter_array.len(), 2);
+        assert_arrays_eq!(filter_array, expected, &mut ctx);
         Ok(())
     }
 
@@ -119,14 +117,19 @@ mod tests {
             true, false, true, false, true, false, true, false, true, false,
         ]);
 
-        let filter_array = FilterArray::new(fsst_array.clone(), mask.clone()).into_array();
+        let filter_array = FilterArray::new(fsst_array, mask).into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        let result = filter_array.execute::<Canonical>(&mut ctx)?;
 
-        let expected = fsst_array.filter(mask)?;
+        let expected = VarBinViewArray::from_iter_str([
+            "hello world",
+            "testing fsst compression",
+            "the quick brown fox",
+            "abcdefghijklmnop",
+            "0123456789",
+        ]);
 
-        assert_eq!(result.len(), 5);
-        assert_arrays_eq!(result.into_array(), expected, &mut ctx);
+        assert_eq!(filter_array.len(), 5);
+        assert_arrays_eq!(filter_array, expected, &mut ctx);
         Ok(())
     }
 
@@ -169,12 +172,11 @@ mod tests {
         let mask = Mask::from_iter(mask);
 
         let filter_array = FilterArray::new(fsst_array, mask.clone()).into_array();
-        let result = filter_array.execute::<Canonical>(&mut ctx)?;
 
         let expected = input.filter(mask)?;
 
-        assert_eq!(result.len(), 1);
-        assert_arrays_eq!(result.into_array(), expected, &mut ctx);
+        assert_eq!(filter_array.len(), 1);
+        assert_arrays_eq!(filter_array, expected, &mut ctx);
         Ok(())
     }
 
@@ -199,12 +201,11 @@ mod tests {
         let mask = Mask::from_iter([true, false, true]);
 
         let filter_array = FilterArray::new(fsst_array, mask.clone()).into_array();
-        let result = filter_array.execute::<Canonical>(&mut ctx)?;
 
         let expected = input.filter(mask)?;
 
-        assert_eq!(result.len(), 2);
-        assert_arrays_eq!(result.into_array(), expected, &mut ctx);
+        assert_eq!(filter_array.len(), 2);
+        assert_arrays_eq!(filter_array, expected, &mut ctx);
         Ok(())
     }
 
@@ -217,9 +218,8 @@ mod tests {
 
         let filter_array = fsst_array.filter(mask)?;
         let mut ctx = SESSION.create_execution_ctx();
-        let result = filter_array.execute::<Canonical>(&mut ctx)?.into_array();
 
-        assert_arrays_eq!(result, fsst_array, &mut ctx);
+        assert_arrays_eq!(filter_array, fsst_array, &mut ctx);
         Ok(())
     }
 

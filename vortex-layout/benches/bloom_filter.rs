@@ -35,6 +35,8 @@ const BLOCK_COUNTS: &[u32] = &[
 ];
 const VALUE_COUNT: usize = 8192;
 
+const INSERT_BLOCK_COUNTS: &[u32] = &[256, 32_768];
+
 fn options(block_count: u32) -> BloomOptions {
     BloomOptions::new(
         NonZeroU32::new(block_count).expect("benchmark block counts are non-zero"),
@@ -57,7 +59,7 @@ fn populated_filter(options: &BloomOptions, values: &[[u8; 16]]) -> BloomPartial
     filter
 }
 
-#[divan::bench(args = BLOCK_COUNTS)]
+#[divan::bench(args = INSERT_BLOCK_COUNTS)]
 fn insert(bencher: Bencher, block_count: u32) {
     let options = options(block_count);
     let values = values(0xbeef);

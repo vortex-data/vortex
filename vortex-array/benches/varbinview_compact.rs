@@ -11,11 +11,13 @@ use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
@@ -24,6 +26,7 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -37,7 +40,11 @@ const ARGS: &[(usize, usize)] = &[
     (1 << 11, 10),
 ];
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 #[divan::bench(args = ARGS)]
 fn compact(bencher: Bencher, args: (usize, usize)) {
@@ -61,6 +68,7 @@ fn compact_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)
     let array = taken
         .execute::<VarBinViewArray>(&mut ctx)
         .vortex_expect("operation should succeed in benchmark");
+    mark_optimized(array.as_array(), &SESSION).vortex_expect("optimize the benchmark input");
 
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
@@ -82,6 +90,7 @@ fn compact_sliced_impl(bencher: Bencher, (output_size, utilization_pct): (usize,
     let array = sliced
         .execute::<VarBinViewArray>(&mut ctx)
         .vortex_expect("operation should succeed in benchmark");
+    mark_optimized(array.as_array(), &SESSION).vortex_expect("optimize the benchmark input");
 
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))

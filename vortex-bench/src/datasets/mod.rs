@@ -12,14 +12,17 @@ use vortex::array::ExecutionCtx;
 use vortex::error::vortex_panic;
 
 use crate::clickbench::Flavor;
+use crate::tpch_nested::Shape;
 
 pub mod data_downloads;
 pub mod feature_vectors;
 pub mod nested_lists;
 pub mod nested_structs;
+pub mod sparse_wide;
 pub mod struct_list_of_ints;
 pub mod taxi_data;
 pub mod tpch_l_comment;
+pub mod tpch_sf1;
 
 use std::path::PathBuf;
 
@@ -66,8 +69,15 @@ pub enum BenchmarkDataset {
     TpcH { scale_factor: String },
     #[serde(rename = "tpcds")]
     TpcDS { scale_factor: String },
+    #[serde(rename = "tpch-nested")]
+    TpcHNested { scale_factor: String, shape: Shape },
     #[serde(rename = "clickbench")]
-    ClickBench { flavor: Flavor },
+    ClickBench {
+        flavor: Flavor,
+        /// How many partitioned files ran, when fewer than the complete dataset.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        files: Option<u32>,
+    },
     #[serde(rename = "clickbench-sorted")]
     ClickBenchSorted,
     #[serde(rename = "public-bi")]
@@ -82,6 +92,8 @@ pub enum BenchmarkDataset {
     Fineweb,
     #[serde(rename = "gharchive")]
     GhArchive,
+    #[serde(rename = "job")]
+    Job,
     #[serde(rename = "vortex")]
     VortexQueries,
 }
@@ -92,6 +104,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::Appian => "appian",
             BenchmarkDataset::TpcH { .. } => "tpch",
             BenchmarkDataset::TpcDS { .. } => "tpcds",
+            BenchmarkDataset::TpcHNested { .. } => "tpch-nested",
             BenchmarkDataset::ClickBench { .. } => "clickbench",
             BenchmarkDataset::ClickBenchSorted => "clickbench-sorted",
             BenchmarkDataset::PublicBi { .. } => "public-bi",
@@ -100,6 +113,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::PolarSignals { .. } => "polarsignals",
             BenchmarkDataset::Fineweb => "fineweb",
             BenchmarkDataset::GhArchive => "gharchive",
+            BenchmarkDataset::Job => "job",
             BenchmarkDataset::VortexQueries => "vortex",
         }
     }
@@ -111,9 +125,16 @@ impl Display for BenchmarkDataset {
             BenchmarkDataset::Appian => write!(f, "appian"),
             BenchmarkDataset::TpcH { scale_factor } => write!(f, "tpch(sf={scale_factor})"),
             BenchmarkDataset::TpcDS { scale_factor } => write!(f, "tpcds(sf={scale_factor})"),
-            BenchmarkDataset::ClickBench { flavor, .. } => match flavor {
-                Flavor::Partitioned => write!(f, "clickbench-partitioned"),
-                Flavor::Single => write!(f, "clickbench-single"),
+            BenchmarkDataset::TpcHNested {
+                scale_factor,
+                shape,
+            } => write!(f, "tpch-nested(sf={scale_factor}, shape={shape})"),
+            BenchmarkDataset::ClickBench { flavor, files } => match (flavor, files) {
+                (Flavor::Partitioned, Some(files)) => {
+                    write!(f, "clickbench-partitioned(files={files})")
+                }
+                (Flavor::Partitioned, None) => write!(f, "clickbench-partitioned"),
+                (Flavor::Single, _) => write!(f, "clickbench-single"),
             },
             BenchmarkDataset::ClickBenchSorted => write!(f, "clickbench-sorted"),
             BenchmarkDataset::PublicBi { name } => write!(f, "public-bi({name})"),
@@ -126,6 +147,7 @@ impl Display for BenchmarkDataset {
             }
             BenchmarkDataset::Fineweb => write!(f, "fineweb"),
             BenchmarkDataset::GhArchive => write!(f, "gharchive"),
+            BenchmarkDataset::Job => write!(f, "job"),
             BenchmarkDataset::VortexQueries => write!(f, "vortex"),
         }
     }
@@ -173,7 +195,7 @@ impl BenchmarkDataset {
                 "time_dim",
                 "web_returns",
             ],
-            BenchmarkDataset::TpcH { .. } => &[
+            BenchmarkDataset::TpcH { .. } | BenchmarkDataset::TpcHNested { .. } => &[
                 "customer", "lineitem", "nation", "orders", "part", "partsupp", "region",
                 "supplier",
             ],
@@ -186,6 +208,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::PolarSignals { .. } => &["stacktraces"],
             BenchmarkDataset::Fineweb => &["fineweb"],
             BenchmarkDataset::GhArchive => &["events"],
+            BenchmarkDataset::Job => crate::job::TABLES,
             // See VortexBenchmark::table_specs
             BenchmarkDataset::VortexQueries => &[],
         }

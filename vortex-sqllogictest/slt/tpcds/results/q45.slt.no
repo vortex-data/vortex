@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTR
+SELECT ca_zip,
+       ca_city,
+       sum(ws_sales_price)
+FROM web_sales,
+     customer,
+     customer_address,
+     date_dim,
+     item
+WHERE ws_bill_customer_sk = c_customer_sk
+  AND c_current_addr_sk = ca_address_sk
+  AND ws_item_sk = i_item_sk
+  AND (SUBSTRING(ca_zip,1,5) IN ('85669',
+                              '86197',
+                              '88274',
+                              '83405',
+                              '86475',
+                              '85392',
+                              '85460',
+                              '80348',
+                              '81792')
+       OR i_item_id IN
+         (SELECT i_item_id
+          FROM item
+          WHERE i_item_sk IN (2,
+                              3,
+                              5,
+                              7,
+                              11,
+                              13,
+                              17,
+                              19,
+                              23,
+                              29) ))
+  AND ws_sold_date_sk = d_date_sk
+  AND d_qoy = 2
+  AND d_year = 2001
+GROUP BY ca_zip,
+         ca_city
+ORDER BY ca_zip,
+         ca_city
+LIMIT 100;
+----
+00816 Wyoming 1.55
+05193 Pine Grove 22.57
+21521 Newport 79.87
+21952 Sunnyside 6.59
+35965 Arthur 9.18
+36871 Wildwood 19.78
+40519 Sumner 22.78
+46115 Plainville 3.04
+51521 Newport 103.73
+55124 Valley View 27.42
+56668 White Oak 3.97
+68339 Whitney 43.34
+68721 Union 7.06
+78371 Oak Ridge 7.17
+87752 Walnut Grove 32.84
+92621 Rankin 2.12
+96955 White Hall 48.55

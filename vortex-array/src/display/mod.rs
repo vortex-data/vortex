@@ -20,8 +20,7 @@ use itertools::Itertools as _;
 pub use tree_display::TreeDisplay;
 
 use crate::ArrayRef;
-use crate::VortexSessionExecute;
-use crate::legacy_session;
+use crate::ExecutionCtx;
 
 /// Describe how to convert an array to a string.
 ///
@@ -32,12 +31,15 @@ pub enum DisplayOptions {
     /// Only the top-level encoding id and limited metadata: `vortex.primitive(i16, len=5)`.
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
+    /// # use vortex_array::VortexSessionExecute;
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
     /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
     /// assert_eq!(
-    ///     format!("{}", array.display_as(DisplayOptions::MetadataOnly)),
+    ///     format!("{}", array.display_as(DisplayOptions::MetadataOnly, &ctx)),
     ///     "vortex.primitive(i16, len=5)",
     /// );
     /// ```
@@ -45,17 +47,20 @@ pub enum DisplayOptions {
     /// Only the logical values of the array: `[0i16, 1i16, 2i16, 3i16, 4i16]`.
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
+    /// # use vortex_array::VortexSessionExecute;
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
     /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
     /// assert_eq!(
-    ///     format!("{}", array.display_as(DisplayOptions::default())),
+    ///     format!("{}", array.display_as(DisplayOptions::default(), &ctx)),
     ///     "[0i16, 1i16, 2i16, 3i16, 4i16]",
     /// );
     /// assert_eq!(
-    ///     format!("{}", array.display_as(DisplayOptions::default())),
-    ///     format!("{}", array.display_values()),
+    ///     format!("{}", array.display_as(DisplayOptions::default(), &ctx)),
+    ///     format!("{}", array.display_values(&ctx)),
     /// );
     /// ```
     CommaSeparatedScalars { omit_comma_after_space: bool },
@@ -64,6 +69,9 @@ pub enum DisplayOptions {
     /// With buffers, metadata, and stats:
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
+    /// # use vortex_array::VortexSessionExecute;
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
@@ -72,7 +80,7 @@ pub enum DisplayOptions {
     ///   metadata: ptype: i16
     ///   buffer: values host 10 B (align=2) (100.00%)
     /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: true, stats: true })), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: true, stats: true }, &ctx)), expected);
     ///
     /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
@@ -88,12 +96,15 @@ pub enum DisplayOptions {
     ///     metadata: ptype: i32
     ///     buffer: values host 8 B (align=4) (100.00%)
     /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: true, stats: true })), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: true, stats: true }, &ctx)), expected);
     /// ```
     ///
     /// With metadata and stats but no buffers:
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
+    /// # use vortex_array::VortexSessionExecute;
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
@@ -101,7 +112,7 @@ pub enum DisplayOptions {
     /// let expected = "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)
     ///   metadata: ptype: i16
     /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: true, stats: true })), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: true, stats: true }, &ctx)), expected);
     ///
     /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
@@ -115,12 +126,15 @@ pub enum DisplayOptions {
     ///   y: vortex.primitive(i32, len=2) nbytes=8 B (50.00%)
     ///     metadata: ptype: i32
     /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: true, stats: true })), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: true, stats: true }, &ctx)), expected);
     /// ```
     ///
     /// With metadata and buffers but no stats:
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
+    /// # use vortex_array::VortexSessionExecute;
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
@@ -129,7 +143,7 @@ pub enum DisplayOptions {
     ///   metadata: ptype: i16
     ///   buffer: values host 10 B (align=2)
     /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: true, stats: false })), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: true, stats: false }, &ctx)), expected);
     ///
     /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
@@ -145,12 +159,15 @@ pub enum DisplayOptions {
     ///     metadata: ptype: i32
     ///     buffer: values host 8 B (align=4)
     /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: true, stats: false })), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: true, stats: false }, &ctx)), expected);
     /// ```
     ///
     /// With buffers and stats but no metadata:
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
+    /// # use vortex_array::VortexSessionExecute;
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
@@ -158,7 +175,7 @@ pub enum DisplayOptions {
     /// let expected = "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)
     ///   buffer: values host 10 B (align=2) (100.00%)
     /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: false, stats: true })), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: false, stats: true }, &ctx)), expected);
     ///
     /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
@@ -171,12 +188,15 @@ pub enum DisplayOptions {
     ///   y: vortex.primitive(i32, len=2) nbytes=8 B (50.00%)
     ///     buffer: values host 8 B (align=4) (100.00%)
     /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: false, stats: true })), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: false, stats: true }, &ctx)), expected);
     /// ```
     ///
     /// With just buffers:
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
+    /// # use vortex_array::VortexSessionExecute;
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
@@ -184,7 +204,7 @@ pub enum DisplayOptions {
     /// let expected = "root: vortex.primitive(i16, len=5)
     ///   buffer: values host 10 B (align=2)
     /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: false, stats: false })), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: false, stats: false }, &ctx)), expected);
     ///
     /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
@@ -197,12 +217,15 @@ pub enum DisplayOptions {
     ///   y: vortex.primitive(i32, len=2)
     ///     buffer: values host 8 B (align=4)
     /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: false, stats: false })), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: false, stats: false }, &ctx)), expected);
     /// ```
     ///
     /// With just metadata:
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
+    /// # use vortex_array::VortexSessionExecute;
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
@@ -210,7 +233,7 @@ pub enum DisplayOptions {
     /// let expected = "root: vortex.primitive(i16, len=5)
     ///   metadata: ptype: i16
     /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: true, stats: false })), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: true, stats: false }, &ctx)), expected);
     ///
     /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
@@ -224,19 +247,22 @@ pub enum DisplayOptions {
     ///   y: vortex.primitive(i32, len=2)
     ///     metadata: ptype: i32
     /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: true, stats: false })), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: true, stats: false }, &ctx)), expected);
     /// ```
     ///
     /// With just stats:
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
+    /// # use vortex_array::VortexSessionExecute;
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
     /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
     /// let expected = "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)
     /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: false, stats: true })), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: false, stats: true }, &ctx)), expected);
     ///
     /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
@@ -247,18 +273,21 @@ pub enum DisplayOptions {
     ///   x: vortex.primitive(i32, len=2) nbytes=8 B (50.00%)
     ///   y: vortex.primitive(i32, len=2) nbytes=8 B (50.00%)
     /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: false, stats: true })), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: false, stats: true }, &ctx)), expected);
     /// ```
     ///
     /// With neither buffers, metadata, stats, nor values:
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
+    /// # use vortex_array::VortexSessionExecute;
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
     /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
     /// let expected = "root: vortex.primitive(i16, len=5)\n";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: false, stats: false })), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: false, stats: false }, &ctx)), expected);
     ///
     /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
@@ -269,7 +298,7 @@ pub enum DisplayOptions {
     ///   x: vortex.primitive(i32, len=2)
     ///   y: vortex.primitive(i32, len=2)
     /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: false, stats: false })), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: false, stats: false }, &ctx)), expected);
     /// ```
     TreeDisplay {
         buffers: bool,
@@ -282,6 +311,9 @@ pub enum DisplayOptions {
     /// For regular arrays, displays a single column with values.
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
+    /// # use vortex_array::VortexSessionExecute;
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::arrays::StructArray;
     /// # use vortex_array::IntoArray;
@@ -298,7 +330,7 @@ pub enum DisplayOptions {
     /// ├──────┼──────┤
     /// │ 2i32 │ 4i32 │
     /// └──────┴──────┘".trim();
-    /// assert_eq!(format!("{}", s.display_as(DisplayOptions::TableDisplay)), expected);
+    /// assert_eq!(format!("{}", s.display_as(DisplayOptions::TableDisplay, &ctx)), expected);
     /// ```
     #[cfg(feature = "table-display")]
     TableDisplay,
@@ -314,14 +346,31 @@ impl Default for DisplayOptions {
 
 /// A shim used to display an array as specified in the options.
 ///
+/// Values are read with a clone of the execution context, made each time the array is formatted.
+///
 /// See also:
 /// [Array::display_as](../trait.Array.html#method.display_as)
 /// and [DisplayOptions].
-pub struct DisplayArrayAs<'a>(pub &'a ArrayRef, pub DisplayOptions);
+pub struct DisplayArrayAs<'a> {
+    array: &'a ArrayRef,
+    options: DisplayOptions,
+    ctx: &'a ExecutionCtx,
+}
+
+impl<'a> DisplayArrayAs<'a> {
+    /// Display `array` as specified by `options`, reading values with `ctx`.
+    pub fn new(array: &'a ArrayRef, options: DisplayOptions, ctx: &'a ExecutionCtx) -> Self {
+        Self {
+            array,
+            options,
+            ctx,
+        }
+    }
+}
 
 impl Display for DisplayArrayAs<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt_as(f, &self.1)
+        self.array.fmt_as(f, &self.options, &mut self.ctx.clone())
     }
 }
 
@@ -339,7 +388,7 @@ impl Display for DisplayArrayAs<'_> {
 /// ```
 impl Display for ArrayRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.fmt_as(f, &DisplayOptions::MetadataOnly)
+        EncodingSummaryExtractor::write(self, f)
     }
 }
 
@@ -353,11 +402,14 @@ impl ArrayRef {
     /// # Examples
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
+    /// # use vortex_array::VortexSessionExecute;
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
     /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
     /// assert_eq!(
-    ///     format!("{}", array.display_values()),
+    ///     format!("{}", array.display_values(&ctx)),
     ///     "[0i16, 1i16, 2i16, 3i16, 4i16]",
     /// )
     /// ```
@@ -365,20 +417,25 @@ impl ArrayRef {
     /// See also:
     /// [Array::display_as](..//trait.Array.html#method.display_as),
     /// [DisplayArrayAs], and [DisplayOptions].
-    pub fn display_values(&self) -> impl Display {
-        DisplayArrayAs(
+    pub fn display_values<'a>(&'a self, ctx: &'a ExecutionCtx) -> DisplayArrayAs<'a> {
+        DisplayArrayAs::new(
             self,
             DisplayOptions::CommaSeparatedScalars {
                 omit_comma_after_space: false,
             },
+            ctx,
         )
     }
 
-    /// Display the array as specified by the options.
+    /// Display the array as specified by the options, reading values with `ctx`.
     ///
     /// See [DisplayOptions] for examples.
-    pub fn display_as(&self, options: DisplayOptions) -> impl Display {
-        DisplayArrayAs(self, options)
+    pub fn display_as<'a>(
+        &'a self,
+        options: DisplayOptions,
+        ctx: &'a ExecutionCtx,
+    ) -> DisplayArrayAs<'a> {
+        DisplayArrayAs::new(self, options, ctx)
     }
 
     /// Display the tree of array encodings and lengths without metadata, buffers, or stats.
@@ -497,6 +554,9 @@ impl ArrayRef {
     ///
     /// # Examples
     /// ```
+    /// # use vortex_session::VortexSession;
+    /// # use vortex_array::VortexSessionExecute;
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # #[cfg(feature = "table-display")]
     /// # {
     /// # use vortex_array::arrays::StructArray;
@@ -514,16 +574,20 @@ impl ArrayRef {
     /// ├──────┼──────┤
     /// │ 2i32 │ 4i32 │
     /// └──────┴──────┘".trim();
-    /// assert_eq!(format!("{}", s.display_table()), expected);
+    /// assert_eq!(format!("{}", s.display_table(&ctx)), expected);
     /// # }
     /// ```
     #[cfg(feature = "table-display")]
-    pub fn display_table(&self) -> impl Display {
-        DisplayArrayAs(self, DisplayOptions::TableDisplay)
+    pub fn display_table<'a>(&'a self, ctx: &'a ExecutionCtx) -> DisplayArrayAs<'a> {
+        DisplayArrayAs::new(self, DisplayOptions::TableDisplay, ctx)
     }
 
-    #[allow(clippy::disallowed_methods)]
-    fn fmt_as(&self, f: &mut std::fmt::Formatter, options: &DisplayOptions) -> std::fmt::Result {
+    fn fmt_as(
+        &self,
+        f: &mut std::fmt::Formatter,
+        options: &DisplayOptions,
+        ctx: &mut ExecutionCtx,
+    ) -> std::fmt::Result {
         match options {
             DisplayOptions::MetadataOnly => EncodingSummaryExtractor::write(self, f),
             DisplayOptions::CommaSeparatedScalars {
@@ -537,17 +601,22 @@ impl ArrayRef {
                 let limit = self.len().min(f.precision().unwrap_or(DISPLAY_LIMIT));
                 let is_truncated = self.len() > limit;
 
-                let fmt_scalar = |i| {
-                    self.execute_scalar(i, &mut legacy_session().create_execution_ctx())
+                let mut fmt_scalar = |i| {
+                    self.execute_scalar(i, ctx)
                         .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string())
                 };
+                let head = (0..limit.saturating_sub(3))
+                    .map(&mut fmt_scalar)
+                    .collect::<Vec<_>>();
+                let tail = (self.len().saturating_sub(3)..self.len())
+                    .map(&mut fmt_scalar)
+                    .collect::<Vec<_>>();
                 write!(
                     f,
                     "{opening_brace}{}{closing_brace}",
-                    (0..limit.saturating_sub(3))
-                        .map(fmt_scalar)
+                    head.into_iter()
                         .chain(repeat_n("...".to_string(), is_truncated as usize))
-                        .chain((self.len().saturating_sub(3)..self.len()).map(fmt_scalar))
+                        .chain(tail)
                         .format(sep)
                 )
             }
@@ -585,15 +654,13 @@ impl ArrayRef {
                 use crate::dtype::DType;
 
                 let mut builder = tabled::builder::Builder::default();
-                // Reuse a single execution context across all per-row accesses below.
-                let mut ctx = legacy_session().create_execution_ctx();
 
                 // Special logic for struct arrays.
                 let DType::Struct(sf, _) = self.dtype() else {
                     // For non-struct arrays, simply display a single column table without header.
                     for row_idx in 0..self.len() {
                         let value = self
-                            .execute_scalar(row_idx, &mut ctx)
+                            .execute_scalar(row_idx, ctx)
                             .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());
                         builder.push_record([value]);
                     }
@@ -604,7 +671,7 @@ impl ArrayRef {
                     return write!(f, "{table}");
                 };
 
-                let struct_ = match self.clone().execute::<StructArray>(&mut ctx) {
+                let struct_ = match self.clone().execute::<StructArray>(ctx) {
                     Ok(struct_) => struct_,
                     Err(e) => return write!(f, "<error: {e}>"),
                 };
@@ -613,7 +680,7 @@ impl ArrayRef {
                 // Resolve validity to a mask once instead of probing it per row.
                 let validity = self
                     .validity()
-                    .and_then(|v| v.execute_mask(self.len(), &mut ctx))
+                    .and_then(|v| v.execute_mask(self.len(), ctx))
                     .unwrap_or_else(|_| Mask::new_false(self.len()));
 
                 for row_idx in 0..self.len() {
@@ -624,7 +691,7 @@ impl ArrayRef {
                         let mut row = Vec::with_capacity(struct_.struct_fields().nfields());
                         for field_array in StructArrayExt::iter_unmasked_fields(&struct_) {
                             let value = field_array
-                                .execute_scalar(row_idx, &mut ctx)
+                                .execute_scalar(row_idx, ctx)
                                 .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());
                             row.push(value);
                         }
@@ -658,10 +725,14 @@ impl ArrayRef {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray as _;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
@@ -670,27 +741,34 @@ mod test {
     use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_primitive() {
+        let ctx = SESSION.create_execution_ctx();
         let x = Buffer::<u32>::empty().into_array();
-        assert_eq!(x.display_values().to_string(), "[]");
+        assert_eq!(x.display_values(&ctx).to_string(), "[]");
 
         let x = buffer![1].into_array();
-        assert_eq!(x.display_values().to_string(), "[1i32]");
+        assert_eq!(x.display_values(&ctx).to_string(), "[1i32]");
 
         let x = buffer![1, 2, 3, 4].into_array();
-        assert_eq!(x.display_values().to_string(), "[1i32, 2i32, 3i32, 4i32]");
+        assert_eq!(
+            x.display_values(&ctx).to_string(),
+            "[1i32, 2i32, 3i32, 4i32]"
+        );
 
         let x =
             PrimitiveArray::from_iter(0i32..i32::try_from(DISPLAY_LIMIT).unwrap() + 1).into_array();
         assert_eq!(
-            x.display_values().to_string(),
+            x.display_values(&ctx).to_string(),
             "[0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32, 9i32, 10i32, 11i32, 12i32, ..., 14i32, 15i32, 16i32]"
         );
     }
 
     #[test]
     fn test_empty_struct() {
+        let ctx = SESSION.create_execution_ctx();
         let s = StructArray::try_new(
             FieldNames::empty(),
             vec![],
@@ -699,11 +777,12 @@ mod test {
         )
         .unwrap()
         .into_array();
-        assert_eq!(s.display_values().to_string(), "[{}, null, {}]");
+        assert_eq!(s.display_values(&ctx).to_string(), "[{}, null, {}]");
     }
 
     #[test]
     fn test_simple_struct() {
+        let ctx = SESSION.create_execution_ctx();
         let s = StructArray::from_fields(&[
             ("x", buffer![1, 2, 3, 4].into_array()),
             ("y", buffer![-1, -2, -3, -4].into_array()),
@@ -711,22 +790,24 @@ mod test {
         .unwrap()
         .into_array();
         assert_eq!(
-            s.display_values().to_string(),
+            s.display_values(&ctx).to_string(),
             "[{x: 1i32, y: -1i32}, {x: 2i32, y: -2i32}, {x: 3i32, y: -3i32}, {x: 4i32, y: -4i32}]"
         );
     }
 
     #[test]
     fn test_list() {
+        let mut ctx = SESSION.create_execution_ctx();
         let x = ListArray::try_new(
             buffer![1, 2, 3, 4].into_array(),
             buffer![0, 0, 1, 1, 2, 4].into_array(),
             Validity::Array(BoolArray::from_iter([true, true, false, true, true]).into_array()),
+            &mut ctx,
         )
         .unwrap()
         .into_array();
         assert_eq!(
-            x.display_values().to_string(),
+            x.display_values(&ctx).to_string(),
             "[[], [1i32], null, [2i32], [3i32, 4i32]]"
         );
     }
@@ -741,10 +822,11 @@ mod test {
 
     #[test]
     fn test_table_display_primitive() {
+        let ctx = SESSION.create_execution_ctx();
         use crate::display::DisplayOptions;
 
         let array = buffer![1, 2, 3, 4].into_array();
-        let table_display = array.display_as(DisplayOptions::TableDisplay);
+        let table_display = array.display_as(DisplayOptions::TableDisplay, &ctx);
         assert_eq!(
             table_display.to_string(),
             r"
@@ -763,6 +845,7 @@ mod test {
 
     #[test]
     fn test_table_display() {
+        let ctx = SESSION.create_execution_ctx();
         use crate::display::DisplayOptions;
 
         let array =
@@ -775,7 +858,7 @@ mod test {
         .unwrap()
         .into_array();
 
-        let table_display = struct_.display_as(DisplayOptions::TableDisplay);
+        let table_display = struct_.display_as(DisplayOptions::TableDisplay, &ctx);
         assert_eq!(
             table_display.to_string(),
             r"

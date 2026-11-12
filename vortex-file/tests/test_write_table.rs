@@ -11,11 +11,13 @@ use futures::pin_mut;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::FieldNames;
 use vortex_array::field_path;
 use vortex_array::validity::Validity;
@@ -35,7 +37,7 @@ mod common;
 use common::enable_all_registered_array_encodings;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session()
+    let session = VortexSession::empty()
         .with::<LayoutSession>()
         .with::<RuntimeSession>();
 
@@ -102,8 +104,10 @@ async fn test_file_roundtrip() {
 
     pin_mut!(stream);
 
+    let mut chunks = Vec::new();
     while let Some(next) = stream.next().await {
         let next = next.expect("next");
+        chunks.push(next.clone());
         let next = next.execute::<StructArray>(&mut ctx).unwrap();
         let a = next
             .unmasked_field_by_name("a")
@@ -122,6 +126,8 @@ async fn test_file_roundtrip() {
         assert!(b.is_canonical());
         assert!(raw.nbytes() > compressed.nbytes());
     }
+    let result = ChunkedArray::try_new(chunks, data.dtype().clone()).unwrap();
+    assert_arrays_eq!(result, data, &mut ctx);
 }
 
 /// Regression test: writing a Dict<ListView> where the list has
@@ -129,11 +135,13 @@ async fn test_file_roundtrip() {
 /// with "Array vortex.fill_null does not support serialization".
 #[tokio::test]
 async fn test_dict_listview_validity_roundtrip() {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = PrimitiveArray::from_iter(vec![1i32, 2, 3, 4, 5]).into_array();
     let offsets = PrimitiveArray::from_iter(vec![0u32, 2, 4]).into_array();
     let sizes = PrimitiveArray::from_iter(vec![2u32, 2, 1]).into_array();
     let list_validity = Validity::Array(BoolArray::from_iter([true, false, true]).into_array());
-    let listview = ListViewArray::new(elements, offsets, sizes, list_validity).into_array();
+    let listview =
+        ListViewArray::new(elements, offsets, sizes, list_validity, &mut ctx).into_array();
 
     let codes = PrimitiveArray::new(
         vortex_buffer::buffer![0u32, 0, 1, 0, 2],

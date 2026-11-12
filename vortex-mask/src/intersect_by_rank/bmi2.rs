@@ -45,8 +45,8 @@ unsafe fn pdep_bmi2(source: u64, mask: u64) -> u64 {
 /// kernel without the feature calls an out-of-line `pdep_bmi2` once per word.
 ///
 /// # Safety
-/// Requires BMI2.
-#[target_feature(enable = "bmi2")]
+/// Requires BMI2 and POPCNT.
+#[target_feature(enable = "bmi2,popcnt")]
 pub(super) unsafe fn intersect_bit_buffers_bmi2(
     self_buffer: &BitBuffer,
     mask_buffer: &BitBuffer,
@@ -58,8 +58,8 @@ pub(super) unsafe fn intersect_bit_buffers_bmi2(
 /// See [`intersect_bit_buffers_bmi2`].
 ///
 /// # Safety
-/// Requires BMI2.
-#[target_feature(enable = "bmi2")]
+/// Requires BMI2 and POPCNT.
+#[target_feature(enable = "bmi2,popcnt")]
 pub(super) unsafe fn intersect_bit_buffer_by_rank_indices_bmi2(
     self_buffer: &BitBuffer,
     mask_indices: &[usize],
@@ -70,8 +70,8 @@ pub(super) unsafe fn intersect_bit_buffer_by_rank_indices_bmi2(
 /// See [`intersect_bit_buffers_bmi2`].
 ///
 /// # Safety
-/// Requires BMI2.
-#[target_feature(enable = "bmi2")]
+/// Requires BMI2 and POPCNT.
+#[target_feature(enable = "bmi2,popcnt")]
 pub(super) unsafe fn intersect_mask_driven_bmi2<I>(
     self_buffer: &BitBuffer,
     mask_indices: I,

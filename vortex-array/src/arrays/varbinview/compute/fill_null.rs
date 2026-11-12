@@ -81,12 +81,14 @@ impl FillNullKernel for VarBinView {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
@@ -95,13 +97,15 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     const LONG: &str = "a value that is too long to inline";
 
     #[rstest]
     #[case::inlined_fill("fill", 0)]
     #[case::outlined_fill("a fill value that is too long to inline", 1)]
     fn fill_null_utf8(#[case] fill: &str, #[case] added_buffers: usize) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array =
             VarBinViewArray::from_iter_nullable_str([None, Some("short"), None, Some(LONG), None]);
         let input_buffers = array.data_buffers().len();
@@ -123,7 +127,7 @@ mod tests {
 
     #[test]
     fn fill_null_binary_with_nullable_fill() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = VarBinViewArray::from_iter_nullable_bin([Some(b"a".as_slice()), None]);
 
         let filled = array
@@ -146,13 +150,12 @@ mod tests {
 
     #[test]
     fn fill_null_varbin_input() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = VarBinArray::from_nullable_strs(vec![Some("a"), None, Some(LONG)]);
 
         let filled = array
             .into_array()
-            .fill_null(Scalar::utf8("fill", Nullability::NonNullable))?
-            .execute::<VarBinViewArray>(&mut ctx)?;
+            .fill_null(Scalar::utf8("fill", Nullability::NonNullable))?;
 
         assert_arrays_eq!(
             filled,

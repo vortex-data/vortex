@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Spatial extension types and metadata shared by their Arrow plugins.
+//!
+//! Geometry types derive their coordinate dimension from storage and carry an optional coordinate
+//! reference system in [`SpatialMetadata`]. Shared metadata handling keeps these properties
+//! consistent across the GeoArrow fields used to import and export each geometry.
+
 pub(crate) mod coordinate;
 mod linestring;
 mod multilinestring;
@@ -42,6 +48,7 @@ pub use rect::*;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListViewArray;
@@ -58,10 +65,12 @@ use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::Scalar;
 use vortex_arrow::ArrowSession;
+use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 pub use wkb::*;
 
 /// Whether `dtype` is one of the native geometry extension types the spatial kernels operate on.
@@ -194,7 +203,7 @@ pub(crate) fn single_geometry(
 /// `Point`/`Polygon`/`MultiPolygon` scalar. `None` for unsupported types. Plan-time, one value only.
 pub fn native_geometry_scalar_from_wkb(
     bytes: &[u8],
-    session: &ArrowSession,
+    session: &VortexSession,
 ) -> VortexResult<Option<Scalar>> {
     let metadata = geoarrow_metadata(&SpatialMetadata::default());
     let binary = BinaryArray::from(vec![Some(bytes)]);
@@ -208,7 +217,9 @@ pub fn native_geometry_scalar_from_wkb(
     let to_storage = |target: &GeoArrowType| -> VortexResult<ArrayRef> {
         let native =
             cast(&wkb, target).map_err(|e| vortex_err!("failed to cast WKB literal: {e}"))?;
-        session.from_arrow_array(native.to_array_ref(), false)
+        session
+            .arrow()
+            .from_arrow_array(native.to_array_ref(), false)
     };
 
     let scalar = match Wkb::try_from_bytes(bytes)?.geometry_type() {
@@ -216,39 +227,39 @@ pub fn native_geometry_scalar_from_wkb(
             let target = GeoArrowType::Point(
                 PointType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(Point, to_storage(&target)?)?
+            spatial_ext_scalar(Point, to_storage(&target)?, session)?
         }
         GeometryType::LineString => {
             let target = GeoArrowType::LineString(
                 LineStringType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(LineString, to_storage(&target)?)?
+            spatial_ext_scalar(LineString, to_storage(&target)?, session)?
         }
         GeometryType::Polygon => {
             let target = GeoArrowType::Polygon(
                 PolygonType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(Polygon, to_storage(&target)?)?
+            spatial_ext_scalar(Polygon, to_storage(&target)?, session)?
         }
         GeometryType::MultiPoint => {
             let target = GeoArrowType::MultiPoint(
                 MultiPointType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(MultiPoint, to_storage(&target)?)?
+            spatial_ext_scalar(MultiPoint, to_storage(&target)?, session)?
         }
         GeometryType::MultiLineString => {
             let target = GeoArrowType::MultiLineString(
                 MultiLineStringType::new(Dimension::XY, metadata)
                     .with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(MultiLineString, to_storage(&target)?)?
+            spatial_ext_scalar(MultiLineString, to_storage(&target)?, session)?
         }
         GeometryType::MultiPolygon => {
             let target = GeoArrowType::MultiPolygon(
                 MultiPolygonType::new(Dimension::XY, metadata)
                     .with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(MultiPolygon, to_storage(&target)?)?
+            spatial_ext_scalar(MultiPolygon, to_storage(&target)?, session)?
         }
         _ => return Ok(None),
     };
@@ -256,18 +267,17 @@ pub fn native_geometry_scalar_from_wkb(
 }
 
 /// Wrap cast-from-WKB `storage` in its `vtable` extension type and pull out the single scalar.
-// `scalar_at` is deprecated for `execute_scalar`, but there is no execution context at plan time.
-#[allow(deprecated)]
 fn spatial_ext_scalar<V: ExtVTable<Metadata = SpatialMetadata>>(
     vtable: V,
     storage: ArrayRef,
+    session: &VortexSession,
 ) -> VortexResult<Scalar> {
     let ext =
         ExtDType::try_with_vtable(vtable, SpatialMetadata::default(), storage.dtype().clone())?
             .erased();
     ExtensionArray::try_new(ext, storage)?
         .into_array()
-        .scalar_at(0)
+        .execute_scalar(0, &mut session.create_execution_ctx())
 }
 
 /// Extension metadata that is common to all the spatial extension types.
@@ -278,7 +288,19 @@ fn spatial_ext_scalar<V: ExtVTable<Metadata = SpatialMetadata>>(
 #[derive(Clone, PartialEq, Eq, Hash, prost::Message)]
 pub struct SpatialMetadata {
     #[prost(optional, string, tag = "1")]
-    pub crs: Option<String>,
+    pub(crate) crs: Option<String>,
+}
+
+impl SpatialMetadata {
+    /// Creates metadata with an optional coordinate reference system (CRS).
+    pub fn new(crs: Option<String>) -> Self {
+        Self { crs }
+    }
+
+    /// Returns the coordinate reference system, or `None` for unreferenced geometry.
+    pub fn get_crs(&self) -> Option<&str> {
+        self.crs.as_deref()
+    }
 }
 
 impl Display for SpatialMetadata {
@@ -331,25 +353,99 @@ pub(crate) fn spatial_metadata_from_arrow(metadata: &Metadata) -> SpatialMetadat
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::LazyLock;
+
     use prost::Message;
+    use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ExtensionArray;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builders::builder_with_capacity_in;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtVTable;
+    use vortex_array::dtype::proto::dtype as pb;
+    use vortex_array::dtype::proto::dtype::d_type::DtypeType;
+    use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
+    use vortex_arrow::ExecuteArrowExt;
+    use vortex_buffer::BufferAllocatorRef;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use super::LineString;
     use super::MultiLineString;
     use super::MultiPoint;
+    use super::MultiPolygon;
     use super::Point;
     use super::Polygon;
     use crate::extension::SpatialMetadata;
+    use crate::extension::coordinate::Dimension;
+    use crate::extension::coordinate::coordinate_storage_dtype;
+    use crate::test_harness::spatial_session;
+
+    #[track_caller]
+    fn check_nested_arrow_round_trip(
+        vtable: impl ExtVTable<Metadata = SpatialMetadata>,
+        depth: usize,
+        nullable: bool,
+        fixed: bool,
+    ) -> VortexResult<()> {
+        let session = spatial_session();
+        let mut ctx = session.create_execution_ctx();
+        let mut storage = coordinate_storage_dtype(Dimension::Xy, Nullability::NonNullable);
+        for _ in 0..depth {
+            storage = DType::List(Arc::new(storage), Nullability::NonNullable);
+        }
+
+        storage = storage.with_nullability(nullable.into());
+        let dtype = ExtDType::try_with_vtable(
+            vtable,
+            SpatialMetadata::new(Some("EPSG:4326".into())),
+            storage,
+        )?
+        .erased();
+        let mut builder =
+            builder_with_capacity_in(dtype.storage_dtype(), 2, BufferAllocatorRef::static_ref());
+        builder.append_zeros(2);
+        let array = ExtensionArray::try_new(dtype, builder.finish())?.into_array();
+        let array = if fixed {
+            FixedSizeListArray::try_new(array, 1, Validity::NonNullable, 2)?.into_array()
+        } else {
+            ListArray::try_new(
+                array,
+                PrimitiveArray::from_iter([0u32, 1, 2]).into_array(),
+                Validity::NonNullable,
+                &mut ctx,
+            )?
+            .into_array()
+        };
+
+        let arrow = session.arrow();
+        let field = arrow.to_arrow_field("geometry", array.dtype())?;
+        assert_eq!(arrow.from_arrow_field(&field)?, *array.dtype());
+        let exported = array.clone().execute_arrow(Some(&field), &mut ctx)?;
+        assert_eq!(exported.data_type(), field.data_type());
+        exported.to_data().validate_full()?;
+        let imported = arrow.from_arrow_array(exported, &field)?;
+        vortex_array::assert_arrays_eq!(imported, array, &mut ctx);
+
+        Ok(())
+    }
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// Test shim: decode with an explicitly constructed session.
     fn native_geometry_scalar_from_wkb(
         bytes: &[u8],
     ) -> VortexResult<Option<vortex_array::scalar::Scalar>> {
-        let session = vortex_array::array_session();
-        super::native_geometry_scalar_from_wkb(bytes, &session.arrow())
+        super::native_geometry_scalar_from_wkb(bytes, &VortexSession::empty())
     }
 
     #[test]
@@ -378,6 +474,14 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<Point>());
+        assert_eq!(ext.metadata::<Point>(), &SpatialMetadata::default());
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected =
+            crate::test_harness::point_column(vec![1.0], vec![2.0])?.execute_scalar(0, &mut ctx)?;
+        let actual_storage = scalar.as_extension().to_storage_scalar();
+        let expected_storage = expected.as_extension().to_storage_scalar();
+        assert_eq!(actual_storage.dtype(), expected_storage.dtype());
+        assert_eq!(actual_storage, expected_storage);
         Ok(())
     }
 
@@ -400,6 +504,19 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<Polygon>());
+        assert_eq!(ext.metadata::<Polygon>(), &SpatialMetadata::default());
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = crate::test_harness::polygon_column(vec![vec![vec![
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (0.0, 1.0),
+            (0.0, 0.0),
+        ]]])?
+        .execute_scalar(0, &mut ctx)?;
+        let actual_storage = scalar.as_extension().to_storage_scalar();
+        let expected_storage = expected.as_extension().to_storage_scalar();
+        assert_eq!(actual_storage.dtype(), expected_storage.dtype());
+        assert_eq!(actual_storage, expected_storage);
         Ok(())
     }
 
@@ -421,6 +538,14 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<LineString>());
+        assert_eq!(ext.metadata::<LineString>(), &SpatialMetadata::default());
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = crate::test_harness::linestring_column(vec![vec![(0.0, 0.0), (1.0, 1.0)]])?
+            .execute_scalar(0, &mut ctx)?;
+        let actual_storage = scalar.as_extension().to_storage_scalar();
+        let expected_storage = expected.as_extension().to_storage_scalar();
+        assert_eq!(actual_storage.dtype(), expected_storage.dtype());
+        assert_eq!(actual_storage, expected_storage);
         Ok(())
     }
 
@@ -445,6 +570,14 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<MultiPoint>());
+        assert_eq!(ext.metadata::<MultiPoint>(), &SpatialMetadata::default());
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = crate::test_harness::multipoint_column(vec![vec![(0.0, 0.0), (1.0, 1.0)]])?
+            .execute_scalar(0, &mut ctx)?;
+        let actual_storage = scalar.as_extension().to_storage_scalar();
+        let expected_storage = expected.as_extension().to_storage_scalar();
+        assert_eq!(actual_storage.dtype(), expected_storage.dtype());
+        assert_eq!(actual_storage, expected_storage);
         Ok(())
     }
 
@@ -473,6 +606,88 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<MultiLineString>());
+        assert_eq!(
+            ext.metadata::<MultiLineString>(),
+            &SpatialMetadata::default()
+        );
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = crate::test_harness::multilinestring_column(vec![vec![
+            vec![(0.0, 0.0), (1.0, 1.0)],
+            vec![(2.0, 2.0), (3.0, 3.0)],
+        ]])?
+        .execute_scalar(0, &mut ctx)?;
+        let actual_storage = scalar.as_extension().to_storage_scalar();
+        let expected_storage = expected.as_extension().to_storage_scalar();
+        assert_eq!(actual_storage.dtype(), expected_storage.dtype());
+        assert_eq!(actual_storage, expected_storage);
         Ok(())
+    }
+
+    /// A non-nullable `List` of `element`.
+    fn list(element: DType) -> DType {
+        DType::List(Arc::new(element), Nullability::NonNullable)
+    }
+
+    /// The non-nullable 2D coordinate `Struct`.
+    fn xy() -> DType {
+        coordinate_storage_dtype(Dimension::Xy, Nullability::NonNullable)
+    }
+
+    /// The list-based geometry types reject storage with a nullable inner `List` or coordinate
+    /// `Struct`, and the error reports the rejected storage.
+    #[rstest]
+    #[case::linestring_coordinates(     LineString,      list(xy().as_nullable()))]
+    #[case::multipoint_coordinates(     MultiPoint,      list(xy().as_nullable()))]
+    #[case::polygon_rings(              Polygon,         list(list(xy()).as_nullable()))]
+    #[case::polygon_coordinates(        Polygon,         list(list(xy().as_nullable())))]
+    #[case::multilinestring_lines(      MultiLineString, list(list(xy()).as_nullable()))]
+    #[case::multilinestring_coordinates(MultiLineString, list(list(xy().as_nullable())))]
+    #[case::multipolygon_polygons(      MultiPolygon,    list(list(list(xy())).as_nullable()))]
+    #[case::multipolygon_rings(         MultiPolygon,    list(list(list(xy()).as_nullable())))]
+    #[case::multipolygon_coordinates(   MultiPolygon,    list(list(list(xy().as_nullable()))))]
+    fn nullable_nested_level_is_rejected(
+        #[case] vtable: impl ExtVTable<Metadata = SpatialMetadata>,
+        #[case] storage: DType,
+    ) {
+        let result = ExtDType::try_with_vtable(vtable, SpatialMetadata::default(), storage.clone());
+        assert!(result.is_err_and(|error| error.to_string().contains(&format!("left: {storage}"))));
+    }
+
+    /// A serialized `vortex.st.linestring` dtype with a nullable coordinate `Struct` fails to read,
+    /// with an error that names the expected storage. [`LineString`] rejects that storage at
+    /// construction, so the test builds the serialized extension dtype by hand.
+    #[test]
+    fn nullable_nested_level_fails_to_read() -> VortexResult<()> {
+        let serialized = pb::DType {
+            dtype_type: Some(DtypeType::Extension(Box::new(pb::Extension {
+                id: "vortex.st.linestring".to_string(),
+                storage_dtype: Some(Box::new(pb::DType::try_from(&list(xy().as_nullable()))?)),
+                metadata: None,
+            }))),
+        };
+
+        let result = DType::from_proto(&serialized, &spatial_session());
+        assert!(result.is_err_and(|error| error.to_string().contains(
+            "linestring storage can be nullable only at its outer List\n  left: list({x=f64, y=f64}?)\n right: list({x=f64, y=f64})"
+        )));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::line(LineString, 1, false, false)]
+    #[case::points(MultiPoint, 1, false, false)]
+    #[case::polygon(Polygon, 2, false, false)]
+    #[case::multiline(MultiLineString, 2, false, false)]
+    #[case::multipolygon(MultiPolygon, 3, false, false)]
+    #[case::nullable(LineString, 1, true, false)]
+    #[case::fixed_size_list(LineString, 1, false, true)]
+    #[case::nullable_fixed_list(LineString, 1, true, true)]
+    fn nested_arrow_round_trip(
+        #[case] vtable: impl ExtVTable<Metadata = SpatialMetadata>,
+        #[case] depth: usize,
+        #[case] nullable: bool,
+        #[case] fixed: bool,
+    ) -> VortexResult<()> {
+        check_nested_arrow_round_trip(vtable, depth, nullable, fixed)
     }
 }

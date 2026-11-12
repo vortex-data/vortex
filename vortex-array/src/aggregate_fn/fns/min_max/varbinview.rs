@@ -22,8 +22,7 @@ pub(super) fn accumulate_varbinview(
     array: &VarBinViewArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    partial.merge(args, compute_min_max_with_validity(array, ctx)?);
-    Ok(())
+    partial.merge(args, compute_min_max_with_validity(array, ctx)?)
 }
 
 fn compute_min_max_with_validity(
@@ -178,7 +177,7 @@ mod tests {
     use crate::arrays::VarBinViewArray;
     use crate::dtype::Nullability;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn utf8_min_max(values: &[Option<&str>]) -> VortexResult<Option<(String, String)>> {
         let array =

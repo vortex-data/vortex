@@ -17,6 +17,7 @@ use pyo3::types::PyString;
 use vortex::dtype::BigCast;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
+use vortex::dtype::DecimalType;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::dtype::MAX_PRECISION;
@@ -36,6 +37,7 @@ use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
 
 use crate::dtype::PyDType;
+use crate::error::PyVortexError;
 use crate::error::PyVortexResult;
 use crate::scalar::PyScalar;
 use crate::scalar::bool;
@@ -153,11 +155,8 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
                 "Value can't be represented as decimal",
             ));
         };
-        return Ok(Scalar::decimal(
-            value,
-            *decimal_dtype,
-            Nullability::NonNullable,
-        ));
+        return Scalar::try_decimal(value, *decimal_dtype, Nullability::NonNullable)
+            .map_err(|e| PyValueError::new_err(e.to_string()));
     }
 
     if let Ok(integer) = value.cast::<PyInt>() {
@@ -256,24 +255,36 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
                 Nullability::NonNullable,
             ));
         } else {
-            // If no dtype was provided, we need to infer the element dtype from the list contents.
-            // We do this in a greedy way taking the first element dtype we find.
-            let mut elements = Vec::with_capacity(list.len());
-            let mut element_dtype = None;
-
-            for element in list.iter() {
-                let scalar = scalar_helper_inner(&element, element_dtype.as_ref())?;
-                if element_dtype.is_none() {
-                    element_dtype = Some(scalar.dtype().clone());
+            let elements = list
+                .iter()
+                .map(|element| scalar_helper_inner(&element, None))
+                .collect::<PyResult<Vec<_>>>()?;
+            let element_dtype = elements
+                .iter()
+                .find(|element| !matches!(element.dtype(), DType::Null))
+                .map(|element| element.dtype().clone())
+                .unwrap_or(DType::Null);
+            let mut nullability = element_dtype.nullability();
+            for element in &elements {
+                if !matches!(element.dtype(), DType::Null)
+                    && !element.dtype().eq_ignore_nullability(&element_dtype)
+                {
+                    return Err(PyValueError::new_err(format!(
+                        "list elements must share a dtype, got {} and {}",
+                        element_dtype,
+                        element.dtype()
+                    )));
                 }
-                elements.push(scalar);
+                nullability |= element.dtype().nullability();
             }
+            let element_dtype = element_dtype.with_nullability(nullability);
+            let elements = elements
+                .iter()
+                .map(|element| element.cast(&element_dtype).map_err(PyVortexError::from))
+                .collect::<PyVortexResult<Vec<_>>>()?;
 
             return Ok(Scalar::list(
-                element_dtype
-                    .map(Arc::new)
-                    // Empty list defaults to Null dtype
-                    .unwrap_or_else(|| Arc::new(DType::Null)),
+                Arc::new(element_dtype),
                 elements,
                 Nullability::NonNullable,
             ));
@@ -489,7 +500,7 @@ fn timestamp_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortex
         micros_to_unit(micros, unit)?
     };
 
-    let ext = Timestamp::new_with_tz(unit, tz, Nullability::NonNullable);
+    let ext = Timestamp::try_new_with_tz(unit, tz, Nullability::NonNullable)?;
     Ok(Scalar::try_new(
         DType::Extension(ext.erased()),
         Some(ScalarValue::from(storage)),
@@ -590,29 +601,23 @@ fn decimal_scalar(value: &Bound<'_, PyAny>, hint: Option<&DecimalDType>) -> PyVo
 
     Ok(Scalar::try_new(
         DType::Decimal(decimal_dtype, Nullability::NonNullable),
-        Some(ScalarValue::from(narrowest_decimal_value(
+        Some(ScalarValue::from(canonical_decimal_value(
             unscaled,
             &decimal_dtype,
         )?)),
     )?)
 }
 
-/// The narrowest [`DecimalValue`] variant able to hold every value of `dtype`'s precision.
-fn narrowest_decimal_value(value: i256, dtype: &DecimalDType) -> PyResult<DecimalValue> {
+/// The [`DecimalValue`] variant of the canonical width of `dtype`'s precision.
+fn canonical_decimal_value(value: i256, dtype: &DecimalDType) -> PyResult<DecimalValue> {
     let overflow = || PyValueError::new_err(format!("Decimal value {value} overflows {dtype}"));
-    let required_bits = dtype.required_bit_width();
-    Ok(if required_bits <= 8 {
-        DecimalValue::I8(BigCast::from(value).ok_or_else(overflow)?)
-    } else if required_bits <= 16 {
-        DecimalValue::I16(BigCast::from(value).ok_or_else(overflow)?)
-    } else if required_bits <= 32 {
-        DecimalValue::I32(BigCast::from(value).ok_or_else(overflow)?)
-    } else if required_bits <= 64 {
-        DecimalValue::I64(BigCast::from(value).ok_or_else(overflow)?)
-    } else if required_bits <= 128 {
-        DecimalValue::I128(value.maybe_i128().ok_or_else(overflow)?)
-    } else {
-        DecimalValue::I256(value)
+    Ok(match dtype.canonical_values_type() {
+        DecimalType::I8 => DecimalValue::I8(BigCast::from(value).ok_or_else(overflow)?),
+        DecimalType::I16 => DecimalValue::I16(BigCast::from(value).ok_or_else(overflow)?),
+        DecimalType::I32 => DecimalValue::I32(BigCast::from(value).ok_or_else(overflow)?),
+        DecimalType::I64 => DecimalValue::I64(BigCast::from(value).ok_or_else(overflow)?),
+        DecimalType::I128 => DecimalValue::I128(value.maybe_i128().ok_or_else(overflow)?),
+        DecimalType::I256 => DecimalValue::I256(value),
     })
 }
 

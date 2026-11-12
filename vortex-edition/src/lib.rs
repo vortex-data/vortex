@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Definitions of Vortex *editions*: named sets of serialized component IDs. Frozen editions
-//! carry a forever read-compatibility guarantee; draft editions do not.
+//! carry a forever read-compatibility guarantee; draft editions do not, and their members can
+//! change or be removed.
 //!
 //! Editions live on the session, like encodings do: [`EditionSession`] holds the registered
 //! editions and [`EnabledEditions`] selects which of them a writer may emit. Declarations
@@ -44,6 +45,7 @@ use std::fmt::Formatter;
 
 pub use declarations::EDITION_DECLARATIONS;
 pub use declarations::EDITION_FAMILIES;
+pub use declarations::unstable::UNSTABLE;
 pub use session::EditionSession;
 pub use session::EditionSessionExt;
 pub use session::EnabledEditions;
@@ -197,8 +199,12 @@ impl Display for ComponentKind {
 pub struct Edition {
     /// The edition identifier. For a `core` edition, its date records when it freezes.
     pub id: EditionId,
+    /// Whether this edition becomes immutable when it freezes. An edition that is not immutable,
+    /// such as [`UNSTABLE`], never freezes and stays a draft, so its members can always change or
+    /// be removed.
+    pub immutable: bool,
     /// The minimum version of the edition family's [`EditionFamily::origin`] whose reader
-    /// supports every member of this edition.
+    /// supports every member of this edition. Always `None` for an edition that never freezes.
     ///
     /// A stable edition may freeze in the release that cuts it. Until that release is cut, its
     /// version is not known and this remains `None`. The version is then backfilled to document
@@ -211,7 +217,8 @@ pub struct Edition {
 }
 
 impl Edition {
-    /// A draft is an edition whose `min_library_version` has not been recorded yet.
+    /// A draft is an edition whose `min_library_version` has not been recorded yet. Members of a
+    /// draft can change or be removed.
     ///
     /// This describes the absence of a frozen compatibility guarantee, not necessarily the
     /// implementation stability of its members.

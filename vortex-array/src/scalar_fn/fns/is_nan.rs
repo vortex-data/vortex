@@ -48,12 +48,13 @@ impl RowFn for IsNan {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
-    use vortex_error::VortexExpect as _;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -64,6 +65,8 @@ mod tests {
     use crate::expr::root;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn dtype() {
@@ -96,13 +99,6 @@ mod tests {
     }
 
     #[test]
-    fn replace_children() {
-        let expr = is_nan(root());
-        expr.with_children([root()])
-            .vortex_expect("operation should succeed in test");
-    }
-
-    #[test]
     fn evaluate_floats() {
         let test_array = PrimitiveArray::from_option_iter([
             Some(1.0f32),
@@ -125,7 +121,7 @@ mod tests {
             };
             assert_eq!(
                 result
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
                     .unwrap(),
                 expected_scalar
             );
@@ -148,7 +144,7 @@ mod tests {
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
                 result
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
                     .unwrap(),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
@@ -165,7 +161,7 @@ mod tests {
         for i in 0..result.len() {
             assert_eq!(
                 result
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
                     .unwrap(),
                 Scalar::null(DType::Bool(Nullability::Nullable))
             );
@@ -196,7 +192,7 @@ mod tests {
                 };
                 assert_eq!(
                     result
-                        .execute_scalar(i, &mut array_session().create_execution_ctx())
+                        .execute_scalar(i, &mut SESSION.create_execution_ctx())
                         .unwrap(),
                     expected_scalar
                 );
@@ -224,7 +220,7 @@ mod tests {
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
                 result
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
                     .unwrap(),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );

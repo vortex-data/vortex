@@ -59,7 +59,9 @@ impl Dimension {
             ["x", "y", "z"] => Dimension::Xyz,
             ["x", "y", "m"] => Dimension::Xym,
             ["x", "y", "z", "m"] => Dimension::Xyzm,
-            _ => vortex_bail!("not a valid GeoArrow coordinate dimension: {names:?}"),
+            _ => {
+                vortex_bail!("not a valid GeoArrow coordinate dimension: {names:?}")
+            }
         })
     }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -16,13 +17,14 @@ use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::analysis::referenced_field_paths;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::analysis::referenced_field_paths;
+use vortex_expr::transform::find_between;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
@@ -38,6 +40,7 @@ use crate::layouts::row_idx::RowIdxLayoutReader;
 use crate::scan::limit::RowLimit;
 use crate::scan::limit::ScanLimit;
 use crate::scan::repeated_scan::RepeatedScan;
+use crate::scan::repeated_scan::SplitConcurrency;
 use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
@@ -70,7 +73,7 @@ pub struct ScanBuilder<A> {
     /// uses them instead of walking the layout.
     natural_splits: Option<Arc<[u64]>>,
     /// The number of splits to make progress on concurrently **per-thread**.
-    concurrency: usize,
+    concurrency: SplitConcurrency,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
@@ -97,7 +100,10 @@ impl ScanBuilder<ArrayRef> {
             natural_splits: None,
             // We default to four tasks per worker thread, which allows for some I/O lookahead
             // without too much impact on work-stealing.
-            concurrency: 4,
+            concurrency: SplitConcurrency {
+                per_worker: 4,
+                max: None,
+            },
             map_fn: Arc::new(Ok),
             metrics_registry: None,
             limit: None,
@@ -221,14 +227,31 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// Returns the per-worker row-split concurrency.
     pub fn concurrency(&self) -> usize {
-        self.concurrency
+        self.concurrency.per_worker
+    }
+
+    /// Returns the most row splits in progress at once, in all, if a bound is set.
+    pub fn max_splits_in_flight(&self) -> Option<NonZeroUsize> {
+        self.concurrency.max
     }
 
     /// The number of row splits to make progress on concurrently per-thread, must
     /// be greater than 0.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         assert!(concurrency > 0);
-        self.concurrency = concurrency;
+        self.concurrency.per_worker = concurrency;
+        self
+    }
+
+    /// Bound the row splits in progress at once to `max` in all, whatever the per-worker
+    /// concurrency and the machine's core count. `None` removes the bound. A filtered, limited
+    /// scan may hold one more trimmed array per split while it is mapped.
+    ///
+    /// Each split in progress holds the decoded chunks of every column it overlaps, so a scan
+    /// that runs alongside others, such as one task of several on a machine, can set this to
+    /// reduce memory held by concurrent decoding. This does not cap total memory or I/O read-ahead.
+    pub fn with_some_max_splits_in_flight(mut self, max: Option<NonZeroUsize>) -> Self {
+        self.concurrency.max = max;
         self
     }
 
@@ -299,7 +322,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
         }
     }
 
-    /// Optimize expressions, compute split ranges, and return an executable repeated scan.
+    /// Rewrite range comparisons in the filter into betweens, compute split ranges, and return an
+    /// executable repeated scan.
     pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
         let dtype = self.dtype()?;
 
@@ -323,7 +347,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         }
 
         let bound_projection = self.projection;
-        let bound_filter = self.filter;
+        let bound_filter = self.filter.map(find_between).transpose()?;
 
         // Compute the row splits of the scan.
         let splits =
@@ -466,6 +490,7 @@ mod test {
     use std::ops::Range;
     use std::pin::Pin;
     use std::sync::Arc;
+    use std::sync::LazyLock;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
     use std::sync::mpsc;
@@ -481,7 +506,6 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldMask;
@@ -491,11 +515,18 @@ mod test {
     use vortex_array::dtype::StructFields;
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::ExactBoundExpr;
+    use vortex_array::expr::and;
+    use vortex_array::expr::between;
+    use vortex_array::expr::col;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
+    use vortex_array::expr::gt_eq;
     use vortex_array::expr::is_not_null;
     use vortex_array::expr::lit;
+    use vortex_array::expr::lt;
     use vortex_array::expr::root;
+    use vortex_array::scalar_fn::fns::between::BetweenOptions;
+    use vortex_array::scalar_fn::fns::between::StrictComparison;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
@@ -503,6 +534,7 @@ mod test {
     use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use super::ScanBuilder;
     use super::referenced_field_masks;
@@ -518,6 +550,8 @@ mod test {
     use crate::scan::test::keep_all;
     use crate::scan::test::keep_odd;
     use crate::scan::test::session_with_handle;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn nested_dtype() -> DType {
         DType::Struct(
@@ -807,7 +841,7 @@ mod test {
 
     #[test]
     fn into_stream_executes_after_prepare() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let calls = Arc::new(AtomicUsize::new(0));
         let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
 
@@ -820,7 +854,7 @@ mod test {
         let mut values = Vec::new();
         for chunk in &mut iter {
             let prim = chunk?.execute::<PrimitiveArray>(&mut ctx)?;
-            values.push(prim.into_buffer::<i32>()[0]);
+            values.extend(prim.into_buffer::<i32>().iter().copied());
         }
 
         assert_eq!(calls.load(Ordering::Relaxed), 1);
@@ -831,7 +865,7 @@ mod test {
 
     #[test]
     fn supplied_natural_splits_skip_layout_walk() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let calls = Arc::new(AtomicUsize::new(0));
         let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
 
@@ -1098,6 +1132,42 @@ mod test {
     }
 
     #[test]
+    fn scan_evaluates_filter_ranges_as_between() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let filter_exprs = Arc::new(Mutex::new(Vec::new()));
+        let dtype = nested_dtype();
+        let reader = Arc::new(
+            TestLayoutReader::new(4)
+                .with_dtype(dtype.clone())
+                .with_filter_exprs(Arc::clone(&filter_exprs)),
+        );
+        let filter = and(gt_eq(col("b"), lit(2_i32)), lt(col("b"), lit(5_i32))).bind(&dtype)?;
+
+        let values = collect_scan_values(
+            ScanBuilder::new(session, reader)
+                .with_projection(col("b").bind(&dtype)?)
+                .with_filter(filter)
+                .into_array_iter(&runtime)?,
+        )?;
+        drain_runtime(&runtime);
+
+        assert_eq!(values, [0, 1, 2, 3]);
+        let expected = between(
+            col("b"),
+            lit(2_i32),
+            lit(5_i32),
+            BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::Strict,
+            },
+        )
+        .bind(&dtype)?;
+        assert_eq!(filter_exprs.lock().as_slice(), [expected]);
+        Ok(())
+    }
+
+    #[test]
     fn prepared_scan_split_futures_can_be_polled_in_reverse() -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
         let session = session_with_handle(runtime.handle());
@@ -1263,7 +1333,7 @@ mod test {
 
     #[test]
     fn into_stream_with_row_range() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let calls = Arc::new(AtomicUsize::new(0));
         let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
 

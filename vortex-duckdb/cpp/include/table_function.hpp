@@ -5,24 +5,20 @@
 
 #include "data.hpp"
 #include "duckdb.h"
+#include "duckdb/common/multi_file/multi_file_data.hpp"
 #include "duckdb/function/function.hpp"
+#include "duckdb/function/partition_stats.hpp"
 #include "duckdb/function/table_function.hpp"
+
+#include <limits>
 
 using namespace duckdb;
 
 static_assert(sizeof(idx_t) == 8);
 
-bool is_vortex_scan(const TableFunction &function);
+bool is_vortex_scan(const BoundTableFunction &function);
 
-struct TableFunctionProjectionExpressionInput {
-    const LogicalGet &get;
-    const Expression &expression;
-    idx_t projection_idx;
-};
-
-// true if we can push down the expression, false otherwise
-bool projection_expression_pushdown(ClientContext &context,
-                                    const TableFunctionProjectionExpressionInput &input);
+constexpr inline idx_t COUNT_STAR_PROJ_IDX = std::numeric_limits<idx_t>::max();
 
 struct TableFunctionUngroupedAggregateInput {
     const LogicalGet &get;
@@ -44,15 +40,20 @@ bool aggregate_pushdown(ClientContext &context, const TableFunctionUngroupedAggr
  * a "row group".
  */
 struct VortexRowGroup final : PartitionRowGroup {
-    explicit VortexRowGroup(unique_ptr<CData> ffi_footer) : ffi_footer(std::move(ffi_footer)) {
+    VortexRowGroup(unique_ptr<CData> ffi_footer, const vector<MultiFileColumnDefinition> &columns)
+        : ffi_footer(std::move(ffi_footer)), columns(columns) {
     }
 
     unique_ptr<CData> ffi_footer;
+    const vector<MultiFileColumnDefinition> &columns;
 
     unique_ptr<BaseStatistics> GetColumnStatistics(const StorageIndex &storage_index) override;
-    bool MinMaxIsExact(const BaseStatistics &, const StorageIndex &) override {
-        // TODO(myrrc): in duckdb 2.0 we should report false for strings and
-        // also add TRUNCATED_STATS type for them
+
+    bool MinMaxIsExact(const StorageIndex &) override {
         return true;
+    }
+
+    bool HasPendingWrites() override {
+        return false;
     }
 };

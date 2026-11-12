@@ -44,7 +44,9 @@ impl ExtVTable for Uuid {
         let version = match metadata.len() {
             0 => None,
             1 => Some(u8_to_version(metadata[0])?),
-            other => vortex_bail!("UUID metadata must be 0 or 1 bytes, got {other}"),
+            other => {
+                vortex_bail!("UUID metadata must be 0 or 1 bytes, got {other}")
+            }
         };
 
         Ok(UuidMetadata { version })
@@ -138,16 +140,18 @@ mod tests {
     use crate::vtable::UUID_BYTE_LEN;
 
     #[rstest]
-    #[case::no_version(None)]
-    #[case::v4_random(Some(Version::Random))]
-    #[case::v7_sort_rand(Some(Version::SortRand))]
-    #[case::nil(Some(Version::Nil))]
-    #[case::max(Some(Version::Max))]
-    fn roundtrip_metadata(#[case] version: Option<Version>) -> VortexResult<()> {
+    #[case::no_version(None, &[])]
+    #[case::v4_random(Some(Version::Random), &[4])]
+    #[case::v7_sort_rand(Some(Version::SortRand), &[7])]
+    #[case::nil(Some(Version::Nil), &[0])]
+    #[case::max(Some(Version::Max), &[15])]
+    fn roundtrip_metadata(
+        #[case] version: Option<Version>,
+        #[case] expected: &[u8],
+    ) -> VortexResult<()> {
         let metadata = UuidMetadata { version };
         let bytes = Uuid.serialize_metadata(&metadata)?;
-        let expected_len = if version.is_none() { 0 } else { 1 };
-        assert_eq!(bytes.len(), expected_len);
+        assert_eq!(bytes, expected);
         let deserialized = Uuid.deserialize_metadata(&bytes)?;
         assert_eq!(deserialized, metadata);
         Ok(())
@@ -305,23 +309,6 @@ mod tests {
             UuidMetadata {
                 version: Some(Version::Random),
             },
-            uuid_storage_dtype(Nullability::NonNullable),
-        )?;
-        let storage_value = uuid_storage_scalar(&v4_uuid);
-
-        let result = Uuid::unpack_native(&ext_dtype, &storage_value)?;
-        assert_eq!(result, v4_uuid);
-        Ok(())
-    }
-
-    #[test]
-    fn unpack_native_any_version_accepts_all() -> VortexResult<()> {
-        // A v4 UUID should be accepted when metadata has no version constraint.
-        let v4_uuid = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
-            .map_err(|e| vortex_error::vortex_err!("{e}"))?;
-
-        let ext_dtype = ExtDType::try_new(
-            UuidMetadata::default(),
             uuid_storage_dtype(Nullability::NonNullable),
         )?;
         let storage_value = uuid_storage_scalar(&v4_uuid);

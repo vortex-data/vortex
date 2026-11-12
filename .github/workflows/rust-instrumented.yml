@@ -10,7 +10,8 @@ concurrency:
 on:
   push:
     branches: [develop]
-  pull_request: { }
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch: { }
 
 permissions:
@@ -22,30 +23,10 @@ env:
   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
 
 jobs:
-  duckdb-mirror:
-    name: "Mirror DuckDB to R2"
-    if: github.event_name == 'pull_request'
-    uses: ./.github/workflows/duckdb-r2.yml
-    secrets: inherit
-
-  duckdb-ready:
-    name: "DuckDB libraries available in R2"
-    needs: duckdb-mirror
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Verify DuckDB mirror
-        if: ${{ needs.duckdb-mirror.result == 'failure' }}
-        run: |
-          echo "DuckDB mirror failed"
-          exit 1
-
   rust-coverage:
     name: "Rust tests (coverage) (${{ matrix.suite }})"
-    needs: duckdb-ready
-    # The PR-only mirror is a skipped ancestor on develop; override implicit success().
-    if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
+    # Coverage only runs on develop; PRs get the same tests uninstrumented in ci.yml.
+    if: github.event_name != 'pull_request'
     timeout-minutes: 30
     permissions:
       id-token: write
@@ -55,7 +36,7 @@ jobs:
           - suite: tests
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-large/volume=200gb/image=ubuntu24-full-x64-pre-v2/tag=rust-coverage-suite-{1}', github.run_id, matrix.suite)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-large/volume=200gb/image=ubuntu26-full-x64-pre-v2/tag=rust-coverage-suite-{1}', github.run_id, matrix.suite)
           || 'ubuntu-latest' }}
     env:
       RUSTFLAGS: "-Cinstrument-coverage -A warnings"
@@ -123,6 +104,7 @@ jobs:
 
   cxx-coverage:
     name: "C++ API (coverage)"
+    if: github.event_name != 'pull_request'
     timeout-minutes: 15
     env:
       # Symbolizing error backtrace in debug .so is slow
@@ -131,7 +113,7 @@ jobs:
       id-token: write
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=cxx-coverage', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=cxx-coverage', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -162,6 +144,7 @@ jobs:
           use_oidc: true
 
   rust-test-sanitizer:
+    if: github.event.pull_request.draft != true
     strategy:
       fail-fast: false
       matrix:
@@ -175,7 +158,7 @@ jobs:
     name: "Rust tests (${{ matrix.sanitizer }})"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-test-sanitizer', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-test-sanitizer', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:
@@ -230,6 +213,7 @@ jobs:
             -p vortex-ffi --tests -- --no-capture
 
   rust-ffi-test-sanitizer:
+    if: github.event.pull_request.draft != true
     strategy:
       fail-fast: false
       matrix:
@@ -254,7 +238,7 @@ jobs:
       RUST_LIB_BACKTRACE: 0
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=rust-ffi-test-sanitizer', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/tag=rust-ffi-test-sanitizer', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -300,9 +284,10 @@ jobs:
 
   miri:
     name: "Rust tests (miri)"
+    if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=rust-miri', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/tag=rust-miri', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:

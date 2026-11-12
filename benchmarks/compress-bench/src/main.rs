@@ -20,6 +20,7 @@ use compress_bench::vortex::VortexCompressor;
 use futures::FutureExt;
 use indicatif::ProgressBar;
 use itertools::Itertools;
+use mimalloc::MiMalloc;
 use regex::Regex;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_bench::Engine;
@@ -35,10 +36,12 @@ use vortex_bench::compress::benchmark_decompress;
 use vortex_bench::compress::calculate_ratios;
 use vortex_bench::create_output_writer;
 use vortex_bench::datasets::Dataset;
+use vortex_bench::datasets::sparse_wide::SparseWide;
 use vortex_bench::datasets::struct_list_of_ints::StructListOfInts;
 use vortex_bench::datasets::taxi_data::TaxiData;
 use vortex_bench::datasets::tpch_l_comment::TPCHLCommentCanonical;
 use vortex_bench::datasets::tpch_l_comment::TPCHLCommentChunked;
+use vortex_bench::datasets::tpch_sf1::TpchSf1Table;
 use vortex_bench::display::DisplayFormat;
 use vortex_bench::display::print_measurements_json;
 use vortex_bench::display::render_table;
@@ -52,6 +55,7 @@ use vortex_bench::public_bi::PBIDataset::Euro2016;
 use vortex_bench::public_bi::PBIDataset::Food;
 use vortex_bench::public_bi::PBIDataset::HashTags;
 use vortex_bench::setup_logging_and_tracing_with_format;
+use vortex_bench::statpopgen::StatPopGenBenchmark;
 use vortex_bench::v3;
 
 #[derive(Parser, Debug)]
@@ -81,6 +85,13 @@ struct Args {
     /// orchestrator to know whan queries to run one by one.
     #[arg(long, default_value_t = false)]
     print_datasets: bool,
+    /// Materialize the Parquet source files for the selected datasets, print their paths, and
+    /// exit without benchmarking.
+    ///
+    /// CI runs this as its own step so that downloading and converting data is not interleaved
+    /// with the timed runs in the logs.
+    #[arg(long)]
+    prepare_data: bool,
     /// Run GPU decompression for the GPU-supported benchmarks.
     ///
     /// Restricts the suite to datasets with verified CUDA decode support and measures
@@ -105,6 +116,12 @@ struct Args {
     /// measure storage bandwidth instead, and do not read the ratio as a decode comparison.
     #[arg(long)]
     gpu_direct_io: bool,
+    /// Number of Tokio worker threads.
+    ///
+    /// Every timed Vortex and Parquet operation runs as tasks on this one pool, so both formats
+    /// get the same CPU budget. Defaults to one per available core.
+    #[arg(long)]
+    threads: Option<usize>,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
     #[arg(short, long)]
@@ -120,12 +137,29 @@ struct Args {
     log_format: LogFormat,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
+fn main() -> anyhow::Result<()> {
+    vortex_bench::configure_allocator();
     let args = Args::parse();
 
     setup_logging_and_tracing_with_format(args.verbose, args.tracing, args.log_format)?;
 
+    let mut runtime = tokio::runtime::Builder::new_multi_thread();
+    runtime.enable_all();
+    if let Some(threads) = args.threads {
+        runtime.worker_threads(threads);
+    }
+    let runtime = runtime.build()?;
+    tracing::info!(
+        "Running with {} Tokio worker threads",
+        runtime.metrics().num_workers()
+    );
+    runtime.block_on(run(args))
+}
+
+async fn run(args: Args) -> anyhow::Result<()> {
     if args.gpu_decompress && !cfg!(feature = "cuda") {
         anyhow::bail!("--gpu-decompress requires building compress-bench with --features cuda");
     }
@@ -156,6 +190,7 @@ async fn main() -> anyhow::Result<()> {
         ops,
         mode,
         args.print_datasets,
+        args.prepare_data,
         args.display_format,
         args.output_path,
         args.ingest_output,
@@ -217,6 +252,7 @@ async fn run_compress(
     ops: Vec<CompressOp>,
     mode: BenchMode,
     print_datasets: bool,
+    prepare_data: bool,
     display_format: DisplayFormat,
     output_path: Option<PathBuf>,
     ingest_output: Option<PathBuf>,
@@ -267,7 +303,11 @@ async fn run_compress(
     .chain(structlistofints.iter().map(|d| d as &dyn Dataset))
     .collect();
 
+    let sparse_wide = SparseWide::ALL;
+    // Keep the full cohort and nested genotype fields, sampling only the variant rows.
+    let statpopgen = StatPopGenBenchmark::new(10)?;
     let all_datasets: Vec<&dyn Dataset> = [
+        &statpopgen as &dyn Dataset,
         &TaxiData as &dyn Dataset,
         PBI_DATASETS.get(Arade),
         PBI_DATASETS.get(Bimbo),
@@ -286,7 +326,9 @@ async fn run_compress(
         &DownloadableDataset::AirQuality,
     ]
     .into_iter()
+    .chain(TpchSf1Table::ALL.iter().map(|d| d as &dyn Dataset))
     .chain(structlistofints.iter().map(|d| d as &dyn Dataset))
+    .chain(sparse_wide.iter().map(|d| d as &dyn Dataset))
     .collect();
 
     let datasets: Vec<&dyn Dataset> = if mode.is_gpu() {
@@ -312,6 +354,13 @@ async fn run_compress(
     if print_datasets {
         for dataset in &datasets {
             println!("{}", dataset.name());
+        }
+        return Ok(());
+    }
+
+    if prepare_data {
+        for dataset in &datasets {
+            println!("{}", dataset.to_parquet_path().await?.display());
         }
         return Ok(());
     }

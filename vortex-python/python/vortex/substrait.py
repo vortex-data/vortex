@@ -47,52 +47,61 @@ def _literal(
     extension_types: ExtensionTypes,
     type_variations: TypeVariations,
 ) -> _expr.Expr:
+    dtype, value = _literal_value(substrait_object, extension_types=extension_types, type_variations=type_variations)
+    return _expr.literal(dtype, value)
+
+
+def _literal_value(
+    substrait_object: Expression.Literal,
+    *,
+    extension_types: ExtensionTypes,
+    type_variations: TypeVariations,
+) -> tuple[_dtype.DType, object]:
+    """The dtype and the Python value of a Substrait literal."""
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/algebra.proto#L890
     match substrait_object.WhichOneof("literal_type"):
         case "boolean":
-            return _expr.literal(_dtype.bool_(nullable=False), substrait_object.boolean)
+            return (_dtype.bool_(nullable=False), substrait_object.boolean)
         case "i8":
-            return _expr.literal(_dtype.int_(8, nullable=False), substrait_object.i8)
+            return (_dtype.int_(8, nullable=False), substrait_object.i8)
         case "i16":
-            return _expr.literal(_dtype.int_(16, nullable=False), substrait_object.i16)
+            return (_dtype.int_(16, nullable=False), substrait_object.i16)
         case "i32":
-            return _expr.literal(_dtype.int_(32, nullable=False), substrait_object.i32)
+            return (_dtype.int_(32, nullable=False), substrait_object.i32)
         case "i64":
-            return _expr.literal(_dtype.int_(64, nullable=False), substrait_object.i64)
+            return (_dtype.int_(64, nullable=False), substrait_object.i64)
         case "fp32":
-            return _expr.literal(_dtype.float_(32, nullable=False), substrait_object.fp32)
+            return (_dtype.float_(32, nullable=False), substrait_object.fp32)
         case "fp64":
-            return _expr.literal(_dtype.float_(64, nullable=False), substrait_object.fp64)
+            return (_dtype.float_(64, nullable=False), substrait_object.fp64)
         case "decimal":
             substrait_decimal = substrait_object.decimal
-            return _expr.literal(
+            return (
                 _dtype.decimal(precision=substrait_decimal.precision, scale=substrait_decimal.scale, nullable=False),
                 int.from_bytes(substrait_decimal.value, byteorder="little", signed=True),
             )
         case "string":
-            return _expr.literal(_dtype.utf8(nullable=False), substrait_object.string)
+            return (_dtype.utf8(nullable=False), substrait_object.string)
         case "binary":
-            return _expr.literal(_dtype.binary(nullable=False), substrait_object.binary)
+            return (_dtype.binary(nullable=False), substrait_object.binary)
         case "timestamp":
             # The unit here is from the substrait definition
-            return _expr.literal(_dtype.timestamp(unit="us", nullable=False), substrait_object.timestamp)
+            return (_dtype.timestamp(unit="us", nullable=False), substrait_object.timestamp)
         case "precision_timestamp":
             unit = _precision_to_unit("precision_timestamp", substrait_object.precision_timestamp.precision)
 
-            return _expr.literal(
-                _dtype.timestamp(unit=unit, nullable=False), substrait_object.precision_timestamp.value
-            )
+            return (_dtype.timestamp(unit=unit, nullable=False), substrait_object.precision_timestamp.value)
         case "date":
             # The unit here is from the substrait definition
-            return _expr.literal(_dtype.date(unit="days", nullable=False), substrait_object.date)
+            return (_dtype.date(unit="days", nullable=False), substrait_object.date)
         case "time":
             # The unit here is from the substrait definition
-            return _expr.literal(_dtype.time(unit="us", nullable=False), substrait_object.time)
+            return (_dtype.time(unit="us", nullable=False), substrait_object.time)
         case "precision_time":
             unit = _precision_to_unit("precision_time", substrait_object.precision_time.precision)
-            return _expr.literal(_dtype.time(unit=unit, nullable=False), substrait_object.precision_time.value)
+            return (_dtype.time(unit=unit, nullable=False), substrait_object.precision_time.value)
         case "null":
-            return _expr.literal(
+            return (
                 _type_to_dtype(
                     substrait_object.null,
                     force_nullable=True,
@@ -543,6 +552,14 @@ def expression(
                 extension_types=extension_types,
                 type_variations=type_variations,
             )
+        case "singular_or_list":
+            return singular_or_list(
+                substrait_object.singular_or_list,
+                functions,
+                schema,
+                extension_types=extension_types,
+                type_variations=type_variations,
+            )
         case "window_function":
             raise NotImplementedError
         case "if_then":
@@ -555,6 +572,94 @@ def expression(
             raise NotImplementedError
         case rex_type:
             raise ValueError(f"unknown rex_type {rex_type}")
+
+
+def singular_or_list(
+    substrait_object: Expression.SingularOrList,
+    functions: list[Callable[..., _expr.Expr]],
+    schema: NamedStruct,
+    *,
+    extension_types: ExtensionTypes,
+    type_variations: TypeVariations,
+) -> _expr.Expr:
+    """``value IN (options...)``, with the semantics of the PyArrow ``is_in`` that produces it.
+
+    PyArrow's ``is_in`` never gives null. A null value is an element only of a set that holds a
+    null and does not skip nulls, and Substrait does not carry whether nulls are skipped. So a set
+    of literals without a null is supported, and a null value is not an element of it.
+    """
+    # https://github.com/substrait-io/substrait/blob/main/proto/substrait/algebra.proto#L1095
+    needle = expression(
+        substrait_object.value,
+        functions,
+        schema,
+        extension_types=extension_types,
+        type_variations=type_variations,
+    )
+
+    members: list[tuple[_dtype.DType, object]] = []
+    for option in substrait_object.options:
+        if option.WhichOneof("rex_type") != "literal":
+            raise NotImplementedError("Substrait IN lists support literal options only")
+        members.append(_literal_value(option.literal, extension_types=extension_types, type_variations=type_variations))
+
+    values = [value for _, value in members]
+    if any(value is None for value in values):
+        raise NotImplementedError("Substrait IN lists that hold a null are not supported")
+
+    needle_dtype = _field_dtype(
+        substrait_object.value, schema, extension_types=extension_types, type_variations=type_variations
+    )
+    member_dtype = members[0][0] if members else needle_dtype
+    if any(dtype != member_dtype for dtype, _ in members):
+        raise NotImplementedError("Substrait IN lists support options of one type only")
+    if member_dtype is None:
+        raise NotImplementedError("Substrait IN lists support an empty list of a field only")
+
+    element = _member_dtype(member_dtype, needle_dtype)
+    contains = _expr.list_contains(_expr.literal(_dtype.list_(element), values), needle)
+    return _expr.fill_null(contains, False)
+
+
+def _field_dtype(
+    substrait_object: Expression,
+    schema: NamedStruct,
+    *,
+    extension_types: ExtensionTypes,
+    type_variations: TypeVariations,
+) -> _dtype.DType | None:
+    """The dtype of a top-level field reference, or ``None`` for any other expression."""
+    if substrait_object.WhichOneof("rex_type") != "selection":
+        return None
+    selection = substrait_object.selection
+    if selection.WhichOneof("reference_type") != "direct_reference":
+        return None
+    segments = reference_segment(selection.direct_reference)
+    if len(segments) != 1:
+        return None
+    return _type_to_dtype(
+        schema.struct.types[segments[0]],
+        extension_types=extension_types,
+        type_variations=type_variations,
+    )
+
+
+def _member_dtype(member: _dtype.DType, needle: _dtype.DType | None) -> _dtype.DType:
+    """The element dtype of the set: the needle's, for numbers that PyArrow writes at their own width.
+
+    PyArrow writes Python integers as 64-bit integers whatever the type of the field, and casts the
+    set to that type itself. Integers take the needle's primitive type, and floats the needle's
+    float type. Any other member keeps its own type.
+    """
+    if not isinstance(member, _dtype.PrimitiveDType) or not isinstance(needle, _dtype.PrimitiveDType):
+        return member
+    member_is_float = member.ptype in _FLOAT_PTYPES
+    if member_is_float and needle.ptype not in _FLOAT_PTYPES:
+        return member
+    return needle
+
+
+_FLOAT_PTYPES = (_dtype.PType.F16, _dtype.PType.F32, _dtype.PType.F64)
 
 
 def expression_reference(

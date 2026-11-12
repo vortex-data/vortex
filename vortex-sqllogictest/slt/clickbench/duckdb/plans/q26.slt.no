@@ -160,7 +160,7 @@ logical_plan [
                         "extra_info": {
                             "Order By": [
                                 "#[7.1]",
-                                "memory.main.hits.SearchPhrase"
+                                "SearchPhrase"
                             ]
                         }
                     }
@@ -265,8 +265,9 @@ physical_plan [
                     "Top": "10",
                     "Order By": [
                         "#1 ASC",
-                        "memory.main.hits.SearchPhrase ASC"
-                    ]
+                        "SearchPhrase ASC"
+                    ],
+                    "Estimated Cardinality": "10"
                 }
             }
         ],

@@ -21,48 +21,53 @@ impl FilterReduce for Masked {
         // The child is guaranteed to have no nulls, so filtering it is straightforward
         let filtered_child = array.child().filter(mask.clone())?;
 
-        // Construct new MaskedArray
+        // SAFETY: filtering a null-free child keeps it null-free, and the child and validity are
+        // filtered by the same mask, so their lengths match.
         Ok(Some(
-            MaskedArray::try_new(filtered_child, filtered_validity)?.into_array(),
+            unsafe { MaskedArray::new_unchecked(filtered_child, filtered_validity) }.into_array(),
         ))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[rstest]
     #[case(
         MaskedArray::try_new(
             PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]).into_array(),
-            Validity::from_iter([true, true, false, true, false])
+            Validity::from_iter([true, true, false, true, false]),
+            &mut SESSION.create_execution_ctx(),
         ).unwrap()
     )]
     #[case(
         MaskedArray::try_new(
             PrimitiveArray::from_iter([10i32, 20, 30]).into_array(),
-            Validity::AllValid
+            Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
         ).unwrap()
     )]
     #[case(
         MaskedArray::try_new(
             PrimitiveArray::from_iter(0..100).into_array(),
-            Validity::from_iter((0..100).map(|i| i % 3 != 0))
+            Validity::from_iter((0..100).map(|i| i % 3 != 0)),
+            &mut SESSION.create_execution_ctx(),
         ).unwrap()
     )]
     fn test_filter_masked_conformance(#[case] array: MaskedArray) {
-        test_filter_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

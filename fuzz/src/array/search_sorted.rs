@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::Ordering;
-use std::fmt::Debug;
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -16,7 +15,6 @@ use vortex_array::dtype::NativePType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
-use vortex_array::search_sorted::IndexOrd;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
@@ -25,37 +23,30 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-struct SearchNullableSlice<T>(Vec<Option<T>>);
-
-impl<T: PartialOrd + Debug> IndexOrd<Option<T>> for SearchNullableSlice<T> {
-    fn index_cmp(&self, idx: usize, elem: &Option<T>) -> VortexResult<Option<Ordering>> {
-        // SAFETY: Used in search_sorted_by same as the standard library. The search_sorted ensures idx is in bounds
-        Ok(unsafe { self.0.get_unchecked(idx) }.partial_cmp(elem))
-    }
-
-    fn index_len(&self) -> usize {
-        self.0.len()
-    }
-}
-
-struct SearchPrimitiveSlice<T>(Vec<Option<T>>);
-
-impl<T: NativePType> IndexOrd<Option<T>> for SearchPrimitiveSlice<T> {
-    fn index_cmp(&self, idx: usize, elem: &Option<T>) -> VortexResult<Option<Ordering>> {
-        match elem {
-            None => unreachable!("Can't search for None"),
-            Some(v) => {
-                // SAFETY: Used in search_sorted_by same as the standard library. The search_sorted ensures idx is in bounds
-                Ok(match unsafe { self.0.get_unchecked(idx) } {
-                    None => Some(Ordering::Less),
-                    Some(i) => Some(i.total_compare(*v)),
-                })
-            }
+// Count the insertion boundary directly instead of reusing production binary search.
+fn linear_search(
+    comparisons: impl Iterator<Item = Ordering>,
+    side: SearchSortedSide,
+) -> SearchResult {
+    let mut less = 0;
+    let mut equal = 0;
+    for comparison in comparisons {
+        match comparison {
+            Ordering::Less => less += 1,
+            Ordering::Equal => equal += 1,
+            Ordering::Greater => {}
         }
     }
-
-    fn index_len(&self) -> usize {
-        self.0.len()
+    let index = less
+        + if side == SearchSortedSide::Right {
+            equal
+        } else {
+            0
+        };
+    if equal == 0 {
+        SearchResult::NotFound(index)
+    } else {
+        SearchResult::Found(index)
     }
 }
 
@@ -80,7 +71,10 @@ pub fn search_sorted_canonical_array(
                 .map(|(b, v)| v.then_some(b))
                 .collect::<Vec<_>>();
             let to_find = scalar.try_into()?;
-            SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side)
+            Ok(linear_search(
+                opt_values.iter().map(|value| value.cmp(&Some(to_find))),
+                side,
+            ))
         }
         DType::Primitive(p, _) => {
             let primitive_array = array.clone().execute::<PrimitiveArray>(ctx)?;
@@ -98,7 +92,13 @@ pub fn search_sorted_canonical_array(
                     .map(|(b, v)| v.then_some(b))
                     .collect::<Vec<_>>();
                 let to_find: P = scalar.try_into()?;
-                SearchPrimitiveSlice(opt_values).search_sorted(&Some(to_find), side)
+                Ok(linear_search(
+                    opt_values.iter().map(|value| match value {
+                        None => Ordering::Less,
+                        Some(value) => value.total_compare(to_find),
+                    }),
+                    side,
+                ))
             })
         }
         DType::Decimal(d, _) => {
@@ -127,7 +127,10 @@ pub fn search_sorted_canonical_array(
                     })
                     .transpose()?
                     .ok_or_else(|| vortex_err!("unexpected null scalar"))?;
-                SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side)
+                Ok(linear_search(
+                    opt_values.iter().map(|value| value.cmp(&Some(to_find))),
+                    side,
+                ))
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
@@ -141,7 +144,11 @@ pub fn search_sorted_canonical_array(
             } else {
                 ByteBuffer::try_from(scalar)?.to_vec()
             };
-            SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side)
+            let to_find = Some(to_find);
+            Ok(linear_search(
+                opt_values.iter().map(|value| value.cmp(&to_find)),
+                side,
+            ))
         }
         DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) => {
             let scalar_vals = (0..array.len())

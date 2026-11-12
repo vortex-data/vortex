@@ -42,10 +42,10 @@ mod compile;
 mod port;
 mod scan;
 pub mod synthetic;
+mod values;
 
 pub use self::compile::Chain;
 pub use self::compile::Compiler;
-pub use self::compile::Reach;
 pub(crate) use self::compile::overlapping;
 pub(super) use self::port::Arena;
 pub use self::port::Inlet;
@@ -55,6 +55,7 @@ pub use self::scan::ReadRequest;
 pub use self::scan::Scan;
 pub use self::scan::Split;
 pub use self::scan::Turn;
+pub use self::values::ValueCache;
 
 /// Batches an inlet holds before its sink is blocked, unless the plan joining it says
 /// otherwise; see [`Compiler::join_with`].

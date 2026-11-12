@@ -157,7 +157,8 @@ physical_plan [
             }
         ],
         "extra_info": {
-            "Aggregates": "sum(#0)"
+            "Aggregates": "sum(#0)",
+            "Estimated Cardinality": "1"
         }
     }
 ]

@@ -8,33 +8,65 @@ use hegel::generators as gs;
 use num_traits::PrimInt;
 use num_traits::WrappingAdd;
 use rstest::rstest;
+use vortex_array::Array;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::Accumulator;
+use vortex_array::aggregate_fn::DynAccumulator;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySessionExt;
+use vortex_array::smallvec::smallvec;
 use vortex_buffer::Buffer;
+use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::BitPacked;
+use crate::BitPackedData;
 use crate::FL_CHUNK_SIZE;
 use crate::FoR;
 use crate::FoRArray;
 use crate::FoRArrayExt;
 use crate::FoRArraySlotsExt;
+use crate::FoRData;
+use crate::FoRReferences;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     crate::initialize(&session);
     session
 });
+
+/// The global reference of `array`.
+pub(crate) fn global(array: &FoRArray) -> VortexResult<Scalar> {
+    match array.references() {
+        FoRReferences::Global(reference) => Ok(reference.clone()),
+        FoRReferences::Blocked(_) => vortex_bail!("expected a global reference"),
+    }
+}
+
+/// The blocked references of `array`.
+pub(crate) fn blocked(array: &FoRArray) -> VortexResult<ArrayRef> {
+    match array.references() {
+        FoRReferences::Global(_) => vortex_bail!("expected blocked references"),
+        FoRReferences::Blocked(references) => Ok(references.clone()),
+    }
+}
 
 /// Builds a FoR array over `encoded` with the given per-chunk references, and the values it
 /// should decode to.
@@ -91,7 +123,7 @@ fn nullable() -> VortexResult<(FoRArray, PrimitiveArray)> {
 #[case::nullable(nullable())]
 fn decodes_per_chunk(#[case] arrays: VortexResult<(FoRArray, PrimitiveArray)>) -> VortexResult<()> {
     let (array, expected) = arrays?;
-    assert!(array.constant_reference().is_none());
+    blocked(&array)?;
     assert_arrays_eq!(array, expected, &mut SESSION.create_execution_ctx());
     Ok(())
 }
@@ -115,14 +147,20 @@ fn consistency(#[case] arrays: VortexResult<(FoRArray, PrimitiveArray)>) -> Vort
 fn slice_keeps_chunk_alignment(#[case] start: usize, #[case] end: usize) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let (array, expected) = unsigned()?;
-    let sliced = array.into_array().slice(start..end)?;
+    let sliced = array
+        .into_array()
+        .slice(start..end)?
+        .optimize_ctx(&*SESSION)?;
     assert_arrays_eq!(sliced, expected.into_array().slice(start..end)?, &mut ctx);
 
     if let Some(sliced) = sliced.as_opt::<FoR>() {
         assert_eq!(usize::from(sliced.offset()), start % FL_CHUNK_SIZE);
         // Slicing a slice composes offsets.
         let len = end - start;
-        let inner: ArrayRef = sliced.array().slice(len / 3..len)?;
+        let inner: ArrayRef = sliced
+            .array()
+            .slice(len / 3..len)?
+            .optimize_ctx(&*SESSION)?;
         let expected = unsigned()?.1.into_array().slice(start + len / 3..end)?;
         assert_arrays_eq!(inner, expected, &mut ctx);
     }
@@ -130,16 +168,63 @@ fn slice_keeps_chunk_alignment(#[case] start: usize, #[case] end: usize) -> Vort
 }
 
 #[test]
-fn constant_references_keep_the_scalar_reference() -> VortexResult<()> {
+fn global_reference_survives_slicing() -> VortexResult<()> {
     let array = FoR::try_new(
         PrimitiveArray::from_iter(0..3000u32).into_array(),
         7u32.into(),
     )?;
-    assert_eq!(array.references().len(), 3);
-    assert_eq!(array.constant_reference(), Some(7u32.into()));
-    let sliced = array.into_array().slice(1500..1600)?;
-    assert_eq!(sliced.as_::<FoR>().constant_reference(), Some(7u32.into()));
+    assert_eq!(global(&array)?, 7u32.into());
+    assert!(array.blocked_references().is_none());
+    let sliced = array
+        .into_array()
+        .slice(1500..1600)?
+        .optimize_ctx(&SESSION)?;
+    assert_eq!(global(&sliced.as_::<FoR>().into_owned())?, 7u32.into());
     Ok(())
+}
+
+#[test]
+fn constant_blocked_references_become_global() -> VortexResult<()> {
+    let array = FoR::try_new_chunked(
+        PrimitiveArray::from_iter(0..3000u32).into_array(),
+        ConstantArray::new(7u32, 3).into_array(),
+        0,
+    )?;
+    assert_eq!(global(&array)?, 7u32.into());
+    Ok(())
+}
+
+#[test]
+fn encode_chunked_equal_minimums_are_global() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter((0..3000u32).map(|i| 1_000 + i % 100));
+    let encoded = FoR::encode_chunked(values.clone(), &mut ctx)?;
+    assert_eq!(global(&encoded)?, 1_000u32.into());
+    assert_arrays_eq!(encoded, values, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::both(Some(7u32.into()), Some(PrimitiveArray::from_iter([7u32, 8, 9]).into_array()), 0)]
+#[case::neither(None, None, 0)]
+#[case::global_with_offset(Some(7u32.into()), None, 5)]
+fn rejects_invalid_references(
+    #[case] global_reference: Option<Scalar>,
+    #[case] blocked_references: Option<ArrayRef>,
+    #[case] offset: u16,
+) {
+    let encoded = PrimitiveArray::from_iter(0..3000u32).into_array();
+    let data = FoRData::try_new(offset, global_reference);
+    let array = data.and_then(|data| {
+        Array::try_from_parts(ArrayParts::new(
+            FoR,
+            encoded.dtype().clone(),
+            encoded.len(),
+            data,
+            smallvec![Some(encoded), blocked_references],
+        ))
+    });
+    assert!(array.is_err());
 }
 
 fn drifting_u32(len: u32) -> PrimitiveArray {
@@ -198,7 +283,7 @@ fn encode_chunked_uses_chunk_minimums() -> VortexResult<()> {
     let encoded = FoR::encode_chunked(values, &mut ctx)?;
     // The all-null chunk 1 reuses chunk 0's reference.
     assert_arrays_eq!(
-        encoded.references(),
+        blocked(&encoded)?,
         PrimitiveArray::from_iter([500u32, 500, 9_000, 3]),
         &mut ctx
     );
@@ -211,8 +296,8 @@ fn encode_chunked_all_null_is_constant() -> VortexResult<()> {
     let values = PrimitiveArray::from_option_iter((0..2000).map(|_| None::<u64>));
     let encoded = FoR::encode_chunked(values.clone(), &mut ctx)?;
     assert!(encoded.encoded().is::<Constant>());
-    assert!(encoded.constant_reference().is_some());
-    // A constant reference serializes in the single-reference format.
+    global(&encoded)?;
+    // A global reference serializes in the single-reference format.
     assert!(SESSION.array_serialize(encoded.as_array()).is_ok());
     assert_arrays_eq!(encoded, values, &mut ctx);
     Ok(())
@@ -232,7 +317,7 @@ fn fused(bit_width: u8, signed: bool) -> VortexResult<(FoRArray, PrimitiveArray)
     };
     let for_array = FoR::encode_chunked(values.clone(), &mut ctx)?;
     let bp = BitPacked::encode(for_array.encoded(), bit_width, &mut ctx)?;
-    let array = FoR::try_new_chunked(bp.into_array(), for_array.references().clone(), 0)?;
+    let array = FoR::try_new_chunked(bp.into_array(), blocked(&for_array)?, 0)?;
     Ok((array, values))
 }
 
@@ -260,7 +345,10 @@ fn fused_decode_sliced(
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let (array, expected) = fused(bit_width, signed)?;
-    let sliced = array.into_array().slice(start..end)?;
+    let sliced = array
+        .into_array()
+        .slice(start..end)?
+        .optimize_ctx(&SESSION)?;
     let sliced_for = sliced.as_::<FoR>();
     // A BitPacked child with patches slices lazily, which takes the unfused path.
     assert_eq!(sliced_for.encoded().is::<BitPacked>(), bit_width == 3);
@@ -271,7 +359,7 @@ fn fused_decode_sliced(
 
 /// Fused decode over a BitPacked child equals `encoded.wrapping_add(reference)` per element, for
 /// every integer type, with references anywhere in the type's range, with or without patches,
-/// nulls and per-chunk references.
+/// nulls, per-chunk references and per-block bit widths.
 #[hegel::test]
 fn fused_decode_is_wrapping_add(tc: TestCase) {
     match tc.draw(gs::integers::<u8>().max_value(7)) {
@@ -346,7 +434,24 @@ where
     let encoded_array =
         PrimitiveArray::from_option_iter(encoded.iter().zip(&valid).map(|(&e, &v)| v.then_some(e)));
 
-    let bp = BitPacked::encode(&encoded_array.into_array(), bit_width, &mut ctx)?;
+    let bp = if tc.draw(gs::booleans()) {
+        // Each block draws its own width, from zero to the native width, so values wider than
+        // their block's width become patches.
+        let num_blocks = len.div_ceil(FL_CHUNK_SIZE);
+        let native = T::PTYPE.bit_width() as u8;
+        let mut bit_widths: Vec<u8> = tc.draw(
+            gs::vecs(gs::integers().max_value(native))
+                .min_size(num_blocks)
+                .max_size(num_blocks),
+        );
+        // `encode_blocked` rejects all blocks at the native width; keep one block packed.
+        if bit_widths.iter().all(|&w| w == native) {
+            bit_widths[0] = native - 1;
+        }
+        BitPackedData::encode_blocked(&encoded_array.into_array(), &bit_widths, &mut ctx)?
+    } else {
+        BitPacked::encode(&encoded_array.into_array(), bit_width, &mut ctx)?
+    };
     let array = if constant {
         FoR::try_new(bp.into_array(), references[0].into())?
     } else {
@@ -358,7 +463,8 @@ where
     };
     assert_arrays_eq!(array, expected, &mut ctx);
 
-    // A slice keeps the fused path without patches and takes the unfused one with them.
+    // A slice keeps the fused path with a global width and no patches, and takes the unfused one
+    // otherwise.
     let start = tc.draw(gs::integers().min_value(0).max_value(len));
     let end = tc.draw(gs::integers().min_value(start).max_value(len));
     assert_arrays_eq!(
@@ -366,5 +472,22 @@ where
         expected.into_array().slice(start..end)?,
         &mut ctx
     );
+    Ok(())
+}
+
+#[test]
+fn empty_for_leaves_constant_partial_empty() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let empty = FoR::try_new(Buffer::<u32>::empty().into_array(), 7u32.into())?.into_array();
+    let mut acc = Accumulator::try_new(IsConstant, EmptyOptions, empty.dtype().clone())?;
+    acc.accumulate(&empty, &mut ctx)?;
+
+    assert!(acc.partial_scalar()?.is_null());
+    assert!(!is_constant(&empty, &mut ctx)?);
+
+    acc.accumulate(&buffer![1u32, 1].into_array(), &mut ctx)?;
+    acc.accumulate(&empty, &mut ctx)?;
+
+    assert_eq!(acc.finish()?, Scalar::bool(true, Nullability::NonNullable));
     Ok(())
 }

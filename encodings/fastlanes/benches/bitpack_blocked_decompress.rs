@@ -12,8 +12,13 @@ use divan::counter::ItemsCount;
 use mimalloc::MiMalloc;
 use num_traits::AsPrimitive;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_fastlanes::BitPackedArraySlotsExt;
 use vortex_fastlanes::bitpack_compress::bitpack_encode_blocked;
 use vortex_fastlanes::bitpack_decompress::unpack_array_blocked;
@@ -23,11 +28,16 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>();
     vortex_fastlanes::initialize(&session);
     session
 });
@@ -55,6 +65,8 @@ where
         &mut SESSION.create_execution_ctx(),
     )
     .unwrap();
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     let offsets = array.block_offsets().unwrap().clone();
 
     bencher.counter(ItemsCount::new(array.len())).bench(|| {

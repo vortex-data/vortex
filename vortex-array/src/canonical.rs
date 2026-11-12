@@ -186,18 +186,15 @@ impl Canonical {
                 })
             }
             DType::Decimal(decimal_type, n) => {
-                match_each_decimal_value_type!(
-                    DecimalType::smallest_decimal_value_type(decimal_type),
-                    |D| {
-                        Canonical::Decimal(unsafe {
-                            DecimalArray::new_unchecked::<D>(
-                                Buffer::empty(),
-                                *decimal_type,
-                                Validity::from(n),
-                            )
-                        })
-                    }
-                )
+                match_each_decimal_value_type!(decimal_type.canonical_values_type(), |D| {
+                    Canonical::Decimal(unsafe {
+                        DecimalArray::new_unchecked::<D>(
+                            Buffer::empty(),
+                            *decimal_type,
+                            Validity::from(n),
+                        )
+                    })
+                })
             }
             DType::Utf8(n) => Canonical::VarBinView(unsafe {
                 VarBinViewArray::new_unchecked(
@@ -258,7 +255,7 @@ impl Canonical {
                 Canonical::Union(UnionArray::empty(variants.clone(), *nullability))
             }
             DType::Variant(_) => {
-                vortex_panic!(InvalidArgument: "Canonical empty is not supported for Variant")
+                vortex_panic!("Canonical empty is not supported for Variant")
             }
             DType::Extension(ext_dtype) => Canonical::Extension(ExtensionArray::new(
                 ext_dtype.clone(),
@@ -553,123 +550,6 @@ impl Canonical {
 impl IntoArray for Canonical {
     fn into_array(self) -> ArrayRef {
         match_each_canonical!(self, |arr| arr.into_array())
-    }
-}
-
-/// Trait for types that can be converted from an owned type into an owned array variant.
-///
-/// # Canonicalization
-///
-/// This trait has a blanket implementation for all types implementing [ToCanonical].
-#[deprecated(note = "use `array.execute::<T>(ctx)` instead")]
-pub trait ToCanonical {
-    /// Canonicalize into a [`NullArray`] if the target is [`Null`](DType::Null) typed.
-    #[deprecated(note = "use `array.execute::<NullArray>(ctx)` instead")]
-    fn to_null(&self) -> NullArray;
-
-    /// Canonicalize into a [`BoolArray`] if the target is [`Bool`](DType::Bool) typed.
-    #[deprecated(note = "use `array.execute::<BoolArray>(ctx)` instead")]
-    fn to_bool(&self) -> BoolArray;
-
-    /// Canonicalize into a [`PrimitiveArray`] if the target is [`Primitive`](DType::Primitive)
-    /// typed.
-    #[deprecated(note = "use `array.execute::<PrimitiveArray>(ctx)` instead")]
-    fn to_primitive(&self) -> PrimitiveArray;
-
-    /// Canonicalize into a [`DecimalArray`] if the target is [`Decimal`](DType::Decimal)
-    /// typed.
-    #[deprecated(note = "use `array.execute::<DecimalArray>(ctx)` instead")]
-    fn to_decimal(&self) -> DecimalArray;
-
-    /// Canonicalize into a [`StructArray`] if the target is [`Struct`](DType::Struct) typed.
-    #[deprecated(note = "use `array.execute::<StructArray>(ctx)` instead")]
-    fn to_struct(&self) -> StructArray;
-
-    /// Canonicalize into a [`ListViewArray`] if the target is [`List`](DType::List) typed.
-    #[deprecated(note = "use `array.execute::<ListViewArray>(ctx)` instead")]
-    fn to_listview(&self) -> ListViewArray;
-
-    /// Canonicalize into a [`MapArray`] if the target is [`Map`](DType::Map) typed.
-    #[deprecated(note = "use `array.execute::<MapArray>(ctx)` instead")]
-    fn to_map(&self) -> MapArray;
-
-    /// Canonicalize into a [`FixedSizeListArray`] if the target is [`List`](DType::FixedSizeList)
-    /// typed.
-    #[deprecated(note = "use `array.execute::<FixedSizeListArray>(ctx)` instead")]
-    fn to_fixed_size_list(&self) -> FixedSizeListArray;
-
-    /// Canonicalize into a [`VarBinViewArray`] if the target is [`Utf8`](DType::Utf8)
-    /// or [`Binary`](DType::Binary) typed.
-    #[deprecated(note = "use `array.execute::<VarBinViewArray>(ctx)` instead")]
-    fn to_varbinview(&self) -> VarBinViewArray;
-
-    /// Canonicalize into an [`ExtensionArray`] if the array is [`Extension`](DType::Extension)
-    /// typed.
-    #[deprecated(note = "use `array.execute::<ExtensionArray>(ctx)` instead")]
-    fn to_extension(&self) -> ExtensionArray;
-}
-
-// Blanket impl for all Array encodings.
-#[expect(deprecated)]
-impl ToCanonical for ArrayRef {
-    fn to_null(&self) -> NullArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_null()
-    }
-
-    fn to_bool(&self) -> BoolArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_bool()
-    }
-
-    fn to_primitive(&self) -> PrimitiveArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_primitive()
-    }
-
-    fn to_decimal(&self) -> DecimalArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_decimal()
-    }
-
-    fn to_struct(&self) -> StructArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_struct()
-    }
-
-    fn to_listview(&self) -> ListViewArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_listview()
-    }
-
-    fn to_map(&self) -> MapArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_map()
-    }
-
-    fn to_fixed_size_list(&self) -> FixedSizeListArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_fixed_size_list()
-    }
-
-    fn to_varbinview(&self) -> VarBinViewArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_varbinview()
-    }
-
-    fn to_extension(&self) -> ExtensionArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_extension()
     }
 }
 
@@ -1230,7 +1110,9 @@ impl Executable for VariantArray {
             Ok(variant_array) => Ok(variant_array),
             Err(array) => match Canonical::execute(array, ctx)? {
                 Canonical::Variant(variant_array) => Ok(variant_array),
-                canonical => vortex_panic!("Cannot unwrap VariantArray from {:?}", canonical),
+                canonical => {
+                    vortex_panic!("Cannot unwrap VariantArray from {:?}", canonical)
+                }
             },
         }
     }
@@ -1381,12 +1263,14 @@ mod tests {
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::Primitive;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::Struct;
     use crate::arrays::VarBinArray;
     use crate::arrays::Variant;
     use crate::arrays::VariantArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::arrays::variant::VariantArraySlotsExt;
+    use crate::assert_arrays_eq;
     use crate::canonical::AnyCanonical;
     use crate::canonical::StructArray;
     use crate::dtype::DType;
@@ -1401,7 +1285,7 @@ mod tests {
     use crate::scalar::Scalar;
 
     /// A shared session for these canonical tests, used to create execution contexts.
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn variant_core_storage(len: usize) -> ArrayRef {
         ConstantArray::new(
@@ -1533,6 +1417,7 @@ mod tests {
 
         assert!(value.is::<Primitive>());
         assert!(!value.is::<Constant>());
+        assert_arrays_eq!(value, PrimitiveArray::from_iter([10i32, 10]), &mut ctx);
 
         Ok(())
     }
@@ -1540,15 +1425,17 @@ mod tests {
 
 #[cfg(test)]
 mod compaction_tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::Canonical;
     use crate::Compaction;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
@@ -1557,6 +1444,8 @@ mod compaction_tests {
     use crate::assert_arrays_eq;
     use crate::buffer::BufferHandle;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     const LEVELS: [Compaction; 3] = [Compaction::ZeroCopy, Compaction::Bounded, Compaction::Exact];
 
@@ -1578,7 +1467,7 @@ mod compaction_tests {
     // level must still slice away the unused rest.
     #[case::shared_value(&[1, 1, 1, 1, 1, 1], [20, 20, 20])]
     fn view_buffers(#[case] rows: &[u32], #[case] expected: [usize; 3]) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let all = VarBinViewArray::from_iter_str(
             (b'a'..=b'f').map(|c| char::from(c).to_string().repeat(20)),
         );
@@ -1617,12 +1506,13 @@ mod compaction_tests {
         #[case] offsets: &[u32],
         #[case] expected: [usize; 3],
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lists = ListViewArray::new(
             PrimitiveArray::from_iter(0..n_elements).into_array(),
             PrimitiveArray::from_iter(offsets.iter().copied()).into_array(),
             PrimitiveArray::from_iter(offsets.iter().map(|_| 2u32)).into_array(),
             Validity::NonNullable,
+            &mut ctx,
         );
 
         for (compaction, expected) in LEVELS.into_iter().zip(expected) {
@@ -1638,7 +1528,7 @@ mod compaction_tests {
     /// Two bits at offset 7 span two bytes; only exact compaction realigns them into one.
     #[test]
     fn bool_bits() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let bytes: ByteBuffer = (0..4u8).collect();
         let bools = BoolArray::try_new_from_handle(
             BufferHandle::new_host(bytes),

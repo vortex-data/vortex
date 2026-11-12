@@ -16,12 +16,14 @@ use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
 use futures::executor::block_on;
+use mimalloc::MiMalloc;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::error::VortexExpect;
+use vortex_array::test_harness::mark_optimized;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
@@ -31,6 +33,9 @@ use vortex_onpair::DEFAULT_CONFIG;
 use vortex_onpair::onpair_compress;
 
 use crate::timed_launch_strategy::TimedLaunchStrategy;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 // Bench-local size instead of the workspace 100M default: each input is a
 // URL-shaped string, much heavier per-element than the fixed-width primitives
@@ -57,6 +62,7 @@ fn make_fixture(n: usize) -> OnPairBenchFixture {
     .into_array();
     let array = onpair_compress(&varbin, DEFAULT_CONFIG, setup_ctx.execution_ctx())
         .vortex_expect("OnPair compression failed");
+    mark_optimized(&array, &vortex_cuda::cuda_session()).unwrap();
 
     OnPairBenchFixture {
         array,

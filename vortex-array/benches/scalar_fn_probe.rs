@@ -7,20 +7,26 @@ use std::sync::LazyLock;
 
 use divan::Bencher;
 use divan::black_box;
+use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     LazyLock::force(&SESSION);
@@ -30,7 +36,11 @@ fn main() {
 const ARRAY_SIZE: usize = 100_000;
 const NUM_ACCESSES: usize = 50;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 /// evaluating ADD's validity is cheaper than evaluating ADD
 fn binary_add() -> ArrayRef {
@@ -39,9 +49,12 @@ fn binary_add() -> ArrayRef {
             .into_array();
     let rhs = PrimitiveArray::from_iter((0..ARRAY_SIZE).map(|i| i as i64)).into_array();
     let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Add).erased();
-    ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])
+    let array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])
         .unwrap()
-        .into_array()
+        .into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 /// evaluating AND's validity is equal to evaluating the AND due to
@@ -51,9 +64,12 @@ fn binary_and() -> ArrayRef {
         .into_array();
     let rhs = BoolArray::from_iter((0..ARRAY_SIZE).map(|i| i % 2 == 0)).into_array();
     let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::And).erased();
-    ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])
+    let array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])
         .unwrap()
-        .into_array()
+        .into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 fn indices() -> Vec<usize> {

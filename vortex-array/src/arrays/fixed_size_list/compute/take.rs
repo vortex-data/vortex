@@ -91,7 +91,7 @@ fn take_empty_fsl(
         FixedSizeListArray::new_unchecked(new_elements, array.list_size(), new_validity, new_len)
     }
     .into_array()
-    .optimize_ctx(ctx.session())
+    .optimize_ctx(ctx)
 }
 
 fn take_non_empty_fsl(
@@ -177,7 +177,12 @@ fn take_piecewise_fsl(
             .checked_add(length)
             .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
         if end > array_len {
-            vortex_bail!(OutOfBounds: end - 1, 0, array_len);
+            vortex_bail!(
+                "index {} out of bounds from {} to {}",
+                end - 1,
+                0,
+                array_len
+            );
         }
         total_len = total_len
             .checked_add(length)
@@ -220,7 +225,7 @@ fn take_piecewise_fsl(
         FixedSizeListArray::new_unchecked(new_elements, array.list_size(), new_validity, new_len)
     }
     .into_array()
-    .optimize_ctx(ctx.session())
+    .optimize_ctx(ctx)
     .map(Some)
 }
 
@@ -254,7 +259,7 @@ fn take_non_empty_degenerate_fsl(
         )
     }
     .into_array()
-    .optimize_ctx(ctx.session())
+    .optimize_ctx(ctx)
 }
 
 fn take_non_empty_non_degenerate_fsl<I: IntegerPType>(
@@ -276,7 +281,7 @@ fn take_non_empty_non_degenerate_fsl<I: IntegerPType>(
         FixedSizeListArray::new_unchecked(new_elements, array.list_size(), new_validity, new_len)
     }
     .into_array()
-    .optimize_ctx(ctx.session())
+    .optimize_ctx(ctx)
 }
 
 fn take_non_empty_non_degenerate_elements<I: IntegerPType>(
@@ -308,7 +313,12 @@ fn take_non_empty_non_degenerate_elements<I: IntegerPType>(
 
             let data_idx: usize = data_idx.as_();
             if data_idx >= array_len {
-                vortex_bail!(OutOfBounds: data_idx, 0, array_len);
+                vortex_bail!(
+                    "index {} out of bounds from {} to {}",
+                    data_idx,
+                    0,
+                    array_len
+                );
             }
             Ok((data_idx * list_size) as u64)
         })
@@ -332,7 +342,12 @@ fn bounds_check_valid_indices<I: IntegerPType>(
         if is_index_valid {
             let data_idx = data_idx.as_();
             if data_idx >= array_len {
-                vortex_bail!(OutOfBounds: data_idx, 0, array_len);
+                vortex_bail!(
+                    "index {} out of bounds from {} to {}",
+                    data_idx,
+                    0,
+                    array_len
+                );
             }
         }
     }

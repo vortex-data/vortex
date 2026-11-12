@@ -44,6 +44,7 @@ use vortex::array::arrays::chunked::ChunkedArrayExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::match_each_integer_ptype;
+use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::session::ArraySessionExt;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
@@ -54,6 +55,7 @@ use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_python_abi::BUFFER_EXPORT_CAPSULE_NAME;
 use vortex_python_abi::VORTEX_BUFFER_EXPORT_VERSION;
 use vortex_python_abi::VORTEX_BUFFER_HOST;
@@ -187,6 +189,94 @@ fn array_metadata_tuple<'py>(
     .map_err(Into::into)
 }
 
+/// Read the requested pyarrow type as the Arrow field that an export of `dtype` targets.
+pub(crate) fn arrow_target_field(
+    arrow_type: Option<&Bound<PyAny>>,
+    dtype: &DType,
+) -> PyResult<Option<Field>> {
+    Ok(arrow_type
+        .map(|arrow_type| DataType::from_pyarrow(&arrow_type.as_borrowed()))
+        .transpose()?
+        .map(|data_type| Field::new("", data_type, dtype.is_nullable())))
+}
+
+/// An array executed into Arrow, but not yet given to pyarrow.
+///
+/// Execution does the work of an export and does not need the GIL, so callers run it detached.
+/// The conversion to pyarrow needs the GIL. Keeping the two apart lets a caller release the GIL
+/// once for all the work before an export, rather than once per step.
+pub(crate) enum ArrowExport {
+    /// One Arrow array per chunk, all converted to the type of the field.
+    Chunked(Vec<ArrowArrayRef>, Field),
+    Single(ArrowArrayRef),
+}
+
+impl ArrowExport {
+    /// Execute `array` into Arrow, into `target_field` when one is given.
+    ///
+    /// A chunked array stays chunked unless `combine_chunks` is set.
+    pub(crate) fn execute(
+        array: ArrayRef,
+        target_field: Option<Field>,
+        combine_chunks: bool,
+    ) -> VortexResult<Self> {
+        if let Some(chunked_array) = array.as_opt::<Chunked>()
+            && !combine_chunks
+        {
+            // We figure out a single Arrow Data Type to convert all chunks into, otherwise
+            // the preferred type of each chunk may be different.
+            let arrow_field = match target_field {
+                Some(target_field) => target_field,
+                None => session()
+                    .arrow()
+                    .default_arrow_export_field(chunked_array.dtype())?,
+            };
+
+            let chunks = chunked_array
+                .iter_chunks()
+                .map(|chunk| {
+                    chunk
+                        .clone()
+                        .execute_arrow(Some(&arrow_field), &mut session().create_execution_ctx())
+                })
+                .collect::<VortexResult<Vec<ArrowArrayRef>>>()?;
+
+            return Ok(Self::Chunked(chunks, arrow_field));
+        }
+
+        let arrow_array =
+            array.execute_arrow(target_field.as_ref(), &mut session().create_execution_ctx())?;
+        Ok(Self::Single(arrow_array))
+    }
+
+    /// Give the Arrow data to pyarrow, as a ``pyarrow.ChunkedArray`` for chunks.
+    pub(crate) fn into_pyarrow(self, py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
+        match self {
+            Self::Chunked(chunks, arrow_field) => {
+                // NOTE(aduffy): pyarrow.chunked_array() constructor only takes DataType and not
+                //  Field, which probably loses the extension information?
+                let pa_data_type = arrow_field.data_type().clone().to_pyarrow(py)?;
+                let chunks = chunks
+                    .iter()
+                    .map(|arrow_array| arrow_array.into_data().to_pyarrow(py))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let kwargs = PyDict::from_sequence(
+                    &PyList::new(py, vec![("type", pa_data_type)])?.into_any(),
+                )?;
+
+                // Combine into a chunked array
+                PyModule::import(py, "pyarrow")?.call_method(
+                    "chunked_array",
+                    (PyList::new(py, chunks)?,),
+                    Some(&kwargs),
+                )
+            }
+            Self::Single(arrow_array) => Ok(arrow_array.into_data().to_pyarrow(py)?.into_bound(py)),
+        }
+    }
+}
+
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "arrays")?;
     parent.add_submodule(&m)?;
@@ -200,6 +290,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<builtins::PyNullArray>()?;
     m.add_class::<builtins::PyBoolArray>()?;
     m.add_class::<builtins::PyPrimitiveArray>()?;
+    m.add_class::<builtins::PyDecimalArray>()?;
     m.add_class::<builtins::PyVarBinArray>()?;
     m.add_class::<builtins::PyVarBinViewArray>()?;
     m.add_class::<builtins::PyStructArray>()?;
@@ -500,66 +591,10 @@ impl PyArray {
         // NOTE(ngates): for struct arrays, we could also return a RecordBatchStreamReader.
         let array = PyArrayRef::extract(self_.as_any().as_borrowed())?.into_inner();
         let py = self_.py();
-        let target_field = arrow_type
-            .map(|arrow_type| DataType::from_pyarrow(&arrow_type.as_borrowed()))
-            .transpose()?
-            .map(|data_type| Field::new("", data_type, array.dtype().is_nullable()));
+        let target_field = arrow_target_field(arrow_type, array.dtype())?;
 
-        if let Some(chunked_array) = array.as_opt::<Chunked>()
-            && !combine_chunks
-        {
-            // We figure out a single Arrow Data Type to convert all chunks into, otherwise
-            // the preferred type of each chunk may be different.
-            let inferred_field;
-            let arrow_field = if let Some(target_field) = target_field.as_ref() {
-                target_field
-            } else {
-                inferred_field = session()
-                    .arrow()
-                    .to_arrow_field("", chunked_array.dtype())?;
-                &inferred_field
-            };
-
-            let chunks = py.detach(|| {
-                chunked_array
-                    .iter_chunks()
-                    .map(|chunk| {
-                        session().arrow().execute_arrow(
-                            chunk.clone(),
-                            Some(arrow_field),
-                            &mut session().create_execution_ctx(),
-                        )
-                    })
-                    .collect::<VortexResult<Vec<ArrowArrayRef>>>()
-            })?;
-
-            // NOTE(aduffy): pyarrow.chunked_array() constructor only takes DataType and not Field,
-            //  which probably loses the extension information?
-            let pa_data_type = arrow_field.data_type().clone().to_pyarrow(py)?;
-            let chunks = chunks
-                .iter()
-                .map(|arrow_array| arrow_array.into_data().to_pyarrow(py))
-                .collect::<Result<Vec<_>, _>>()?;
-
-            let kwargs =
-                PyDict::from_sequence(&PyList::new(py, vec![("type", pa_data_type)])?.into_any())?;
-
-            // Combine into a chunked array
-            Ok(PyModule::import(py, "pyarrow")?.call_method(
-                "chunked_array",
-                (PyList::new(py, chunks)?,),
-                Some(&kwargs),
-            )?)
-        } else {
-            let arrow_array = py.detach(|| {
-                session().arrow().execute_arrow(
-                    array,
-                    target_field.as_ref(),
-                    &mut session().create_execution_ctx(),
-                )
-            })?;
-            Ok(arrow_array.into_data().to_pyarrow(py)?.into_bound(py))
-        }
+        let export = py.detach(|| ArrowExport::execute(array, target_field, combine_chunks))?;
+        Ok(export.into_pyarrow(py)?)
     }
 
     /// Export this array's vtable metadata tree for optional native extensions.
@@ -668,42 +703,54 @@ impl PyArray {
     /// Rust docs are *not* copied into Python for __lt__: https://github.com/PyO3/pyo3/issues/4326
     fn __lt__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = slf.binary(other.into_inner(), Operator::Lt)?;
+        let inner = slf
+            .binary(other.into_inner(), Operator::Lt)?
+            .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
 
     /// Rust docs are *not* copied into Python for __le__: https://github.com/PyO3/pyo3/issues/4326
     fn __le__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = slf.binary(other.into_inner(), Operator::Lte)?;
+        let inner = slf
+            .binary(other.into_inner(), Operator::Lte)?
+            .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
 
     /// Rust docs are *not* copied into Python for __eq__: https://github.com/PyO3/pyo3/issues/4326
     fn __eq__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = slf.binary(other.into_inner(), Operator::Eq)?;
+        let inner = slf
+            .binary(other.into_inner(), Operator::Eq)?
+            .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
 
     /// Rust docs are *not* copied into Python for __ne__: https://github.com/PyO3/pyo3/issues/4326
     fn __ne__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = slf.binary(other.into_inner(), Operator::NotEq)?;
+        let inner = slf
+            .binary(other.into_inner(), Operator::NotEq)?
+            .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
 
     /// Rust docs are *not* copied into Python for __ge__: https://github.com/PyO3/pyo3/issues/4326
     fn __ge__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = slf.binary(other.into_inner(), Operator::Gte)?;
+        let inner = slf
+            .binary(other.into_inner(), Operator::Gte)?
+            .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
 
     /// Rust docs are *not* copied into Python for __gt__: https://github.com/PyO3/pyo3/issues/4326
     fn __gt__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = slf.binary(other.into_inner(), Operator::Gt)?;
+        let inner = slf
+            .binary(other.into_inner(), Operator::Gt)?
+            .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
 
@@ -895,7 +942,7 @@ impl PyArray {
             .into());
         }
 
-        let inner = slf.take(indices.clone())?;
+        let inner = slf.take(indices.clone())?.optimize_ctx(session())?;
 
         Ok(PyArrayRef::from(inner))
     }
@@ -903,7 +950,7 @@ impl PyArray {
     #[pyo3(signature = (start, end))]
     fn slice(slf: Bound<Self>, start: usize, end: usize) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = slf.slice(start..end)?;
+        let inner = slf.slice(start..end)?.optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
 

@@ -25,6 +25,7 @@ vortex-arrow = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-edition = { workspace = true }
 vortex-error = { workspace = true }
+vortex-expr = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 wkb = { workspace = true }
@@ -38,6 +39,8 @@ divan = { workspace = true }
 mimalloc = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-file = { workspace = true }
+vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-spatial = { path = ".", features = ["_test-harness"] }
 

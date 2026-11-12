@@ -4,8 +4,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
@@ -32,6 +30,8 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::PushKernelArg;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -143,6 +143,7 @@ async fn execute_dict_bool_typed<I: DeviceRepr + NativePType>(
     let values_view = values_device.cuda_view::<u8>()?;
     let codes_view = codes_device.cuda_view::<I>()?;
     let codes_len_u64 = codes_len as u64;
+    let values_len_u64 = values_len as u64;
     let values_offset_u64 = values_meta.offset() as u64;
 
     let codes_ptype = I::PTYPE.to_string();
@@ -151,6 +152,7 @@ async fn execute_dict_bool_typed<I: DeviceRepr + NativePType>(
         args.arg(&codes_view)
             .arg(&codes_len_u64)
             .arg(&values_view)
+            .arg(&values_len_u64)
             .arg(&values_offset_u64)
             .arg(&mut output_slice);
     })?;
@@ -171,6 +173,7 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
 ) -> VortexResult<Canonical> {
     assert!(!codes.is_empty());
     let codes_len = codes.len();
+    let values_len_u64 = values.len() as u64;
 
     let PrimitiveDataParts {
         ptype: value_ptype,
@@ -202,10 +205,11 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
         args.arg(&codes_view)
             .arg(&codes_len_u64)
             .arg(&values_view)
+            .arg(&values_len_u64)
             .arg(&mut output_slice);
     })?;
 
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let output_device = CudaDeviceBuffer::new(output_slice)?;
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         BufferHandle::new_device(Arc::new(output_device)),
         value_ptype,
@@ -253,6 +257,7 @@ async fn execute_dict_decimal_typed<
     assert!(!codes.is_empty());
     let codes_len = codes.len();
     let codes_len_u64 = codes_len as u64;
+    let values_len_u64 = values.len() as u64;
 
     let DecimalDataParts {
         values: values_buffer,
@@ -287,10 +292,11 @@ async fn execute_dict_decimal_typed<
         args.arg(&codes_view)
             .arg(&codes_len_u64)
             .arg(&values_view)
+            .arg(&values_len_u64)
             .arg(&mut output_slice);
     })?;
 
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let output_device = CudaDeviceBuffer::new(output_slice)?;
     Ok(Canonical::Decimal(DecimalArray::new_handle(
         BufferHandle::new_device(Arc::new(output_device)),
         V::DECIMAL_TYPE,
@@ -316,6 +322,7 @@ async fn execute_dict_varbinview(
     let codes_ptype = codes_prim.ptype();
     let codes_len = codes_prim.len();
     let values_vbv = values.execute_cuda(ctx).await?.into_varbinview();
+    let values_len_u64 = values_vbv.len() as u64;
 
     let VarBinViewDataParts {
         views: values_views_handle,
@@ -352,11 +359,12 @@ async fn execute_dict_varbinview(
             args.arg(&codes_view);
             args.arg(&codes_len_u64);
             args.arg(&values_view);
+            args.arg(&values_len_u64);
             args.arg(&mut output_slice);
         })?;
     });
 
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let output_device = CudaDeviceBuffer::new(output_slice)?;
 
     // Output views gathered by the kernel share the values' data buffers.
     // Outlined views reference into these buffers via buffer_index + offset,
@@ -373,6 +381,9 @@ async fn execute_dict_varbinview(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
+    use vortex::array::ExecutionCtx;
     use vortex::array::IntoArray;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::DecimalArray;
@@ -380,11 +391,13 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::validity::Validity;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
     use vortex::dtype::DecimalDType;
     use vortex::dtype::i256;
     use vortex::error::VortexExpect;
+    use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
@@ -393,6 +406,8 @@ mod tests {
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
     use crate::device_buffer::cuda_backing_allocation;
     use crate::session::CudaSession;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// Copy a CUDA primitive array result to host memory.
     fn cuda_primitive_to_host(prim: PrimitiveArray) -> VortexResult<PrimitiveArray> {
@@ -405,7 +420,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_bool_gathers_packed_validity_bits() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -457,14 +472,17 @@ mod tests {
         unsafe { release(&raw mut exported.array) };
         assert_eq!(exported_bits_ptr, bits_ptr);
 
-        let actual = actual.into_host().await?.into_array();
+        let actual = actual
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
         assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
 
     #[crate::test]
     async fn test_cuda_dict_u32_values_u8_codes() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -494,7 +512,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_u64_values_u16_codes() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -527,7 +545,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_i32_values_u32_codes() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -556,7 +574,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_large_array() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -586,7 +604,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_values_with_validity() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -616,7 +634,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_codes_with_validity() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -651,7 +669,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_both_with_validity() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -693,7 +711,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_i64_values_with_validity() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -736,7 +754,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_all_valid_matches_baseline() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -777,7 +795,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i8_values() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -804,7 +822,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i16_values() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -831,7 +849,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i32_values() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -858,7 +876,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i64_values() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -888,7 +906,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i128_values() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -922,16 +940,19 @@ mod tests {
     }
 
     /// Helper to copy a CUDA VarBinViewArray result to host memory.
-    async fn cuda_varbinview_to_host(vbv: VarBinViewArray) -> VortexResult<VarBinViewArray> {
+    async fn cuda_varbinview_to_host(
+        vbv: VarBinViewArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<VarBinViewArray> {
         Ok(Canonical::VarBinView(vbv)
-            .into_host()
+            .into_host(ctx)
             .await?
             .into_varbinview())
     }
 
     #[crate::test]
     async fn test_cuda_dict_string_values_u8_codes() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -947,7 +968,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
-        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+        let cuda_result = cuda_varbinview_to_host(cuda_result, cuda_ctx.execution_ctx()).await?;
 
         assert_arrays_eq!(cuda_result.into_array(), dict_array, &mut ctx);
         Ok(())
@@ -955,7 +976,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_values_u16_codes() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -971,7 +992,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
-        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+        let cuda_result = cuda_varbinview_to_host(cuda_result, cuda_ctx.execution_ctx()).await?;
 
         assert_arrays_eq!(cuda_result.into_array(), dict_array, &mut ctx);
         Ok(())
@@ -979,7 +1000,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_max_inlined_12_bytes() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -997,7 +1018,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
-        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+        let cuda_result = cuda_varbinview_to_host(cuda_result, cuda_ctx.execution_ctx()).await?;
 
         assert_arrays_eq!(cuda_result.into_array(), dict_array, &mut ctx);
         Ok(())
@@ -1005,7 +1026,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_outlined_views() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -1026,7 +1047,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
-        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+        let cuda_result = cuda_varbinview_to_host(cuda_result, cuda_ctx.execution_ctx()).await?;
 
         assert_arrays_eq!(cuda_result.into_array(), dict_array, &mut ctx);
         Ok(())
@@ -1034,7 +1055,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_empty_strings() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -1050,7 +1071,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
-        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+        let cuda_result = cuda_varbinview_to_host(cuda_result, cuda_ctx.execution_ctx()).await?;
 
         assert_arrays_eq!(cuda_result.into_array(), dict_array, &mut ctx);
         Ok(())
@@ -1058,7 +1079,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_values_with_validity() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -1075,7 +1096,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
-        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+        let cuda_result = cuda_varbinview_to_host(cuda_result, cuda_ctx.execution_ctx()).await?;
 
         assert_arrays_eq!(cuda_result.into_array(), dict_array, &mut ctx);
         Ok(())
@@ -1083,7 +1104,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_outlined_with_validity() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -1107,7 +1128,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
-        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+        let cuda_result = cuda_varbinview_to_host(cuda_result, cuda_ctx.execution_ctx()).await?;
 
         assert_arrays_eq!(cuda_result.into_array(), dict_array, &mut ctx);
         Ok(())
@@ -1115,7 +1136,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i256_values() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -1146,5 +1167,233 @@ mod tests {
 
         assert_arrays_eq!(cuda_result.into_array(), dict_array, &mut ctx);
         Ok(())
+    }
+
+    /// Codes under null positions may hold any value. Returns those codes together with the same
+    /// codes with `sane` in every null position, whose CPU decode is the expected GPU result.
+    fn garbage_under_nulls<T: NativePType>(
+        codes: Vec<T>,
+        valid: &[bool],
+        sane: T,
+    ) -> (PrimitiveArray, PrimitiveArray) {
+        let validity: Validity = valid.iter().copied().collect();
+        let sane_codes: Vec<T> = codes
+            .iter()
+            .zip(valid)
+            .map(|(&code, &valid)| if valid { code } else { sane })
+            .collect();
+        (
+            PrimitiveArray::new(Buffer::from(codes), validity.clone()),
+            PrimitiveArray::new(Buffer::from(sane_codes), validity),
+        )
+    }
+
+    async fn gpu_dict_to_host(
+        dict: DictArray,
+        cuda_ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let canonical = DictExecutor.execute(dict.into_array(), cuda_ctx).await?;
+        Ok(canonical
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array())
+    }
+
+    async fn assert_gpu_matches(
+        codes: PrimitiveArray,
+        sane: PrimitiveArray,
+        values: ArrayRef,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+        let dict = DictArray::try_new(codes.into_array(), values.clone())?;
+        let expected = DictArray::try_new(sane.into_array(), values)?;
+        let actual = gpu_dict_to_host(dict, &mut cuda_ctx).await?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_cuda_dict_string_out_of_range_codes_under_nulls() -> VortexResult<()> {
+        let values =
+            VarBinViewArray::from_iter_str(["a", "bb", "a string longer than twelve bytes"]);
+        // `u32::MAX` points 64 GiB past the views, so an unchecked gather faults.
+        let (codes, sane) = garbage_under_nulls(
+            vec![0u32, 200, 2, u32::MAX, 1],
+            &[true, false, true, false, true],
+            0,
+        );
+        assert_gpu_matches(codes, sane, values.into_array()).await
+    }
+
+    #[crate::test]
+    async fn test_cuda_dict_primitive_far_out_of_range_codes_under_nulls() -> VortexResult<()> {
+        // These codes point gigabytes past the dictionary, so an unchecked gather faults.
+        let values = PrimitiveArray::new(Buffer::from(vec![10i64, 20, 30]), NonNullable);
+        let (codes, sane) = garbage_under_nulls(
+            vec![0u32, u32::MAX, 2, 0x8000_0000, 1],
+            &[true, false, true, false, true],
+            0,
+        );
+        assert_gpu_matches(codes, sane, values.into_array()).await
+    }
+
+    #[crate::test]
+    async fn test_cuda_dict_decimal_out_of_range_codes_under_nulls() -> VortexResult<()> {
+        let values = DecimalArray::from_iter([1i128, 2, 3], DecimalDType::new(38, 0));
+        let (codes, sane) = garbage_under_nulls(vec![1u32, u32::MAX, 2], &[true, false, true], 0);
+        assert_gpu_matches(codes, sane, values.into_array()).await
+    }
+
+    #[crate::test]
+    async fn test_cuda_dict_bool_out_of_range_codes_under_nulls() -> VortexResult<()> {
+        let values = BoolArray::from_iter([true, false, true]);
+        let (codes, sane) = garbage_under_nulls(
+            vec![2u64, u64::MAX, 0, 1_000_000, 1, 9, 2, 0, 1],
+            &[true, false, true, false, true, false, true, true, true],
+            0,
+        );
+        assert_gpu_matches(codes, sane, values.into_array()).await
+    }
+
+    /// The shape the `compress_gpu` fuzzer found: a one-value dictionary whose null code is
+    /// 3,960,089,894. An unchecked gather reads about 4 GB past the dictionary and fails with
+    /// `CUDA_ERROR_ILLEGAL_ADDRESS`.
+    #[crate::test]
+    async fn test_cuda_dict_fuzz_garbage_null_code() -> VortexResult<()> {
+        let values = PrimitiveArray::new(Buffer::from(vec![0u8]), NonNullable);
+        let (codes, sane) = garbage_under_nulls(vec![0u32, 3_960_089_894], &[true, false], 0);
+        assert_gpu_matches(codes, sane, values.into_array()).await
+    }
+
+    #[crate::test]
+    async fn test_cuda_dict_all_null_codes() -> VortexResult<()> {
+        let values = VarBinViewArray::from_iter_str(["x", "a string longer than twelve bytes"]);
+        let (codes, sane) =
+            garbage_under_nulls(vec![5_000u16, 7, u16::MAX], &[false, false, false], 0);
+        assert_gpu_matches(codes, sane, values.into_array()).await
+    }
+
+    #[crate::test]
+    async fn test_cuda_dict_string_codes_sliced_across_block_boundaries() -> VortexResult<()> {
+        let values = VarBinViewArray::from_iter_str(
+            (0..50).map(|i| format!("value-{i}-{}", "x".repeat(i % 20))),
+        );
+        let len = 3_000u16;
+        let valid: Vec<bool> = (0..len).map(|i| i % 11 != 0).collect();
+        let raw: Vec<u16> = (0..len)
+            .map(|i| {
+                if valid[usize::from(i)] {
+                    (i * 7) % 50
+                } else {
+                    60_000
+                }
+            })
+            .collect();
+        let (codes, sane) = garbage_under_nulls(raw, &valid, 0);
+        for range in [0..1023, 1023..1025, 1000..2049, 2047..2048, 1024..3000] {
+            let mut ctx = SESSION.create_execution_ctx();
+            let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+                .vortex_expect("failed to create execution context");
+            let sliced = codes.clone().into_array().slice(range.clone())?;
+            let sliced_sane = sane.clone().into_array().slice(range.clone())?;
+            let dict = DictArray::try_new(sliced, values.clone().into_array())?;
+            let expected = DictArray::try_new(sliced_sane, values.clone().into_array())?;
+            let actual = gpu_dict_to_host(dict, &mut cuda_ctx).await?;
+            assert_arrays_eq!(actual, expected, &mut ctx);
+        }
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_cuda_dict_string_u16_codes_full_range() -> VortexResult<()> {
+        let values = VarBinViewArray::from_iter_str((0..65_536u32).map(|i| format!("v{i:05}")));
+        let codes = PrimitiveArray::new(
+            Buffer::from(vec![0u16, u16::MAX, 32_768, 1, u16::MAX - 1]),
+            NonNullable,
+        );
+        assert_gpu_matches(codes.clone(), codes, values.into_array()).await
+    }
+
+    #[crate::test]
+    async fn test_cuda_dict_string_u32_codes_beyond_u16() -> VortexResult<()> {
+        let values =
+            VarBinViewArray::from_iter_str((0..70_000u32).map(|i| format!("dictionary-entry-{i}")));
+        let codes = PrimitiveArray::new(
+            Buffer::from(vec![0u32, 69_999, 65_536, 12_345]),
+            NonNullable,
+        );
+        assert_gpu_matches(codes.clone(), codes, values.into_array()).await
+    }
+
+    #[crate::test]
+    async fn test_cuda_dict_string_inline_boundary_and_long_values() -> VortexResult<()> {
+        let long = "z".repeat(4_097);
+        let values =
+            VarBinViewArray::from_iter_str(["", "twelve-bytes", "thirteen-byte", long.as_str()]);
+        let codes = PrimitiveArray::new(Buffer::from(vec![3u8, 0, 1, 2, 3, 2, 1, 0]), NonNullable);
+        assert_gpu_matches(codes.clone(), codes, values.into_array()).await
+    }
+
+    #[crate::test]
+    async fn test_cuda_dict_binary_non_utf8_values() -> VortexResult<()> {
+        let values = VarBinViewArray::from_iter_nullable_bin([
+            Some(vec![0xffu8, 0xfe, 0x00]),
+            Some(vec![0x80]),
+            Some(vec![]),
+            None,
+            Some(vec![0xc3; 20]),
+        ]);
+        let (codes, sane) = garbage_under_nulls(
+            vec![0u8, 1, 2, 3, 4, 77, 4, 0],
+            &[true, true, true, true, true, false, true, true],
+            0,
+        );
+        assert_gpu_matches(codes, sane, values.into_array()).await
+    }
+
+    /// Moves the codes' buffer to the device, as a file scan leaves it.
+    async fn codes_on_device(
+        codes: PrimitiveArray,
+        cuda_ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<PrimitiveArray> {
+        let handle = cuda_ctx
+            .ensure_on_device(codes.buffer_handle().clone())
+            .await?;
+        Ok(PrimitiveArray::from_buffer_handle(
+            handle,
+            codes.ptype(),
+            codes.validity()?,
+        ))
+    }
+
+    /// Decodes with device-resident codes, as a file scan leaves them, and copies the result back
+    /// to the host.
+    async fn assert_gpu_matches_with_device_codes(
+        codes: PrimitiveArray,
+        sane: PrimitiveArray,
+        values: ArrayRef,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+        let device_codes = codes_on_device(codes, &mut cuda_ctx).await?;
+        let dict = DictArray::try_new(device_codes.into_array(), values.clone())?;
+        let expected = DictArray::try_new(sane.into_array(), values)?;
+        let actual = gpu_dict_to_host(dict, &mut cuda_ctx).await?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_cuda_dict_string_nullable_values_and_codes_device_codes() -> VortexResult<()> {
+        let values = VarBinViewArray::from_iter_nullable_str([Some("x"), None, Some("zz")]);
+        let (codes, sane) = garbage_under_nulls(
+            vec![0u16, 9_999, 2, 1, u16::MAX, 0],
+            &[true, false, true, true, false, true],
+            0,
+        );
+        assert_gpu_matches_with_device_codes(codes, sane, values.into_array()).await
     }
 }

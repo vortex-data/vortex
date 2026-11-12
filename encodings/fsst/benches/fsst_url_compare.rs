@@ -19,8 +19,12 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::like;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_fsst::test_utils::HIGH_MATCH_DOMAIN;
@@ -33,11 +37,15 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<MemorySession>();
     vortex_fsst::initialize(&session);
     session
 });
@@ -70,7 +78,7 @@ fn pick_url_with_domain(data: &VarBinArray, domain: &str) -> String {
         .unwrap();
     (0..data.len())
         .filter(|&i| mask.value(i))
-        .map(|i| unsafe { String::from_utf8_unchecked(data.bytes_at(i).to_vec()) })
+        .map(|i| unsafe { String::from_utf8_unchecked(data.bytes_at(i, &mut ctx).to_vec()) })
         .find(|u| u.contains(domain))
         .unwrap_or_else(|| format!("http://{domain}/missing"))
 }
@@ -86,6 +94,8 @@ fn eq_pushdown_high_match(bencher: Bencher) {
         .into_array();
     let match_url = pick_url_with_domain(data, HIGH_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
+    mark_optimized(&fsst_array, &SESSION).unwrap();
+    mark_optimized(constant.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
@@ -110,6 +120,8 @@ fn eq_pushdown_low_match(bencher: Bencher) {
         .into_array();
     let match_url = pick_url_with_domain(data, LOW_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
+    mark_optimized(&fsst_array, &SESSION).unwrap();
+    mark_optimized(constant.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
@@ -134,6 +146,8 @@ fn eq_pushdown_high_match_view(bencher: Bencher) {
         .into_array();
     let match_url = pick_url_with_domain(&URL_DATA, HIGH_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
+    mark_optimized(&fsst_array, &SESSION).unwrap();
+    mark_optimized(constant.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
@@ -156,6 +170,8 @@ fn eq_pushdown_low_match_view(bencher: Bencher) {
     let fsst_array = fsst_compress(&array, &compressor, &mut ctx).unwrap();
     let match_url = pick_url_with_domain(&URL_DATA, LOW_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
+    mark_optimized(fsst_array.as_array(), &SESSION).unwrap();
+    mark_optimized(constant.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
@@ -181,6 +197,8 @@ fn eq_canonicalize_high_match(bencher: Bencher) {
         .into_array();
     let match_url = pick_url_with_domain(data, HIGH_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
+    mark_optimized(&fsst_array, &SESSION).unwrap();
+    mark_optimized(constant.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
@@ -208,6 +226,8 @@ fn eq_canonicalize_low_match(bencher: Bencher) {
         .into_array();
     let match_url = pick_url_with_domain(data, LOW_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
+    mark_optimized(&fsst_array, &SESSION).unwrap();
+    mark_optimized(constant.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
@@ -239,6 +259,7 @@ fn like_substr_high_match(bencher: Bencher) {
         .into_array();
     let pattern = format!("%{HIGH_MATCH_DOMAIN}%");
     let expr = like(root(), lit(pattern.as_str()));
+    mark_optimized(&fsst_array, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&fsst_array, SESSION.create_execution_ctx()))
@@ -263,6 +284,7 @@ fn like_substr_low_match(bencher: Bencher) {
         .into_array();
     let pattern = format!("%{LOW_MATCH_DOMAIN}%");
     let expr = like(root(), lit(pattern.as_str()));
+    mark_optimized(&fsst_array, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&fsst_array, SESSION.create_execution_ctx()))

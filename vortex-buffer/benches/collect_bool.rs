@@ -121,8 +121,17 @@ fn bench_words_gather(
         .bench_refs(|words| collect(words, len, &bools));
 }
 
+// A 65536-bool gather is close to the duration at which divan stops tuning the sample size, so
+// divan picked a different sample size in different runs, and each size reported a different
+// time. A fixed `sample_size` keeps the size the same in every run. The guide owns the rationale
+// (`docs/developer-guide/benchmarking.md`, "How CodSpeed measures a benchmark"), and
+// https://github.com/vortex-data/vortex/pull/10808 has the measurements.
+//
+// 16 iterations make each 65536-bool sample take at least 16 µs on every leg. A larger value keeps
+// more input buffers alive, because divan creates the inputs of a whole sample before it times the
+// sample.
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = GATHER_INPUT_SIZE)]
+#[divan::bench(args = GATHER_INPUT_SIZE, sample_size = 16)]
 fn words_gather_dispatch(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: `collect_bool_words` invokes the predicate with indices `0..len` only.

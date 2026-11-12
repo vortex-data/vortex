@@ -40,11 +40,12 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowExport;
 use vortex_arrow::ArrowExportOptions;
-use vortex_arrow::ArrowExportVTable;
+use vortex_arrow::ArrowExtVTable;
 use vortex_arrow::ArrowImport;
-use vortex_arrow::ArrowImportVTable;
+use vortex_arrow::ArrowMetadataPolicy;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_buffer::Buffer;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -104,12 +105,21 @@ pub(crate) fn linestring_storage_dtype(dim: Dimension, nullability: Nullability)
     DType::List(Arc::new(coords), nullability)
 }
 
-/// Validate `dtype` is `List<coordinate-struct>` and return its [`Dimension`].
+/// Validate that `dtype` equals [`linestring_storage_dtype`] for its [`Dimension`] and top-level
+/// nullability, and return that dimension. As in GeoArrow, only the outer `List` can be nullable.
 pub(crate) fn linestring_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(coords, _) = dtype else {
         vortex_bail!("linestring storage must be a List of coordinates, was {dtype}");
     };
-    coordinate_dimension(coords)
+    let dimension = coordinate_dimension(coords)?;
+
+    vortex_ensure_eq!(
+        *dtype,
+        linestring_storage_dtype(dimension, dtype.nullability()),
+        "linestring storage can be nullable only at its outer List"
+    );
+
+    Ok(dimension)
 }
 
 /// Return one coordinate ordinate, filling an ordinate absent from the point dimension with zero.
@@ -177,7 +187,9 @@ pub(crate) fn linestring_array_from_point_pairs(
     .into_array();
 
     let offsets = Buffer::from_iter((0..=last_offset).step_by(2)).into_array();
-    let storage = ListArray::try_new(vertices, offsets, validity)?.into_array();
+    // SAFETY: each line string has two vertices, so the offsets step by two from zero up to the
+    // vertex count. The validity has one entry per row.
+    let storage = unsafe { ListArray::new_unchecked(vertices, offsets, validity) }.into_array();
 
     Ok(ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array())
 }
@@ -213,8 +225,7 @@ fn linestring_array(storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
         &SpatialMetadata::default(),
         linestring_dimension(storage.dtype())?,
     );
-    let session = ctx.session().clone();
-    let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
+    let arrow = storage.clone().execute_arrow(None, ctx)?;
     LineStringArray::try_from((arrow.as_ref(), linestring_type))
         .map_err(|e| vortex_err!("failed to construct LineStringArray: {e}"))
 }
@@ -244,27 +255,31 @@ impl LineStringData {
     }
 }
 
-impl ArrowExportVTable for LineString {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_LINESTRING
+impl ArrowExtVTable for LineString {
+    fn metadata_policy() -> ArrowMetadataPolicy {
+        ArrowMetadataPolicy::ArrowNative
     }
 
-    fn vortex_id(&self) -> Id {
-        self.id()
+    fn arrow_ext_id(&self) -> Id {
+        *ARROW_LINESTRING
     }
 
     fn to_arrow_field(
         &self,
         name: &str,
-        dtype: &DType,
-        session: &ArrowSession,
+        ext_dtype: &ExtDType<Self>,
+        _session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
-        let ext_type = dtype.as_extension();
-        let spatial_metadata = ext_type.metadata::<LineString>();
-        let dimension = linestring_dimension(ext_type.storage_dtype())?;
+        let spatial_metadata = ext_dtype.metadata();
+        let dimension = linestring_dimension(ext_dtype.storage_dtype())?;
 
-        let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
-        field.try_with_extension_type(linestring_type(spatial_metadata, dimension))?;
+        let arrow_type = linestring_type(spatial_metadata, dimension);
+        let mut field = Field::new(
+            name,
+            arrow_type.data_type(),
+            ext_dtype.storage_dtype().is_nullable(),
+        );
+        field.try_with_extension_type(arrow_type)?;
 
         Ok(Some(field))
     }
@@ -276,15 +291,6 @@ impl ArrowExportVTable for LineString {
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
-        let is_linestring = array
-            .dtype()
-            .as_extension_opt()
-            .map(|ext| ext.is::<LineString>())
-            .unwrap_or(false);
-        if !is_linestring {
-            return Ok(ArrowExport::Unsupported(array));
-        }
-
         let Ok(linestring_meta) = target.try_extension_type::<LineStringType>() else {
             return Ok(ArrowExport::Unsupported(array));
         };
@@ -300,12 +306,8 @@ impl ArrowExportVTable for LineString {
             target.data_type().clone(),
             target.is_nullable(),
         );
-        let session = ctx.session().clone();
         let arrow_storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(&storage_field), ctx)?;
+            storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
         // Round-trip through GeoArrow's line-string array; `into_arrow` is concrete, so wrap in `Arc`.
         let linestrings = LineStringArray::try_from((arrow_storage.as_ref(), linestring_meta))
@@ -313,28 +315,17 @@ impl ArrowExportVTable for LineString {
 
         Ok(ArrowExport::Exported(Arc::new(linestrings.into_arrow())))
     }
-}
 
-impl ArrowImportVTable for LineString {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_LINESTRING
-    }
-
-    /// Import a `geoarrow.linestring` field as the [`LineString`] dtype. Keyed off the standard
-    /// GeoArrow name, so any producer resolves here. Accepts the full `LineStringType` extension, or
-    /// — for a metadata-less geometry literal — the name alone, inferring the dimension from the
-    /// coordinate field names.
     fn from_arrow_field(
-        &self,
         field: &Field,
         session: &ArrowSession,
-    ) -> VortexResult<Option<DType>> {
+    ) -> VortexResult<Option<ExtDType<Self>>> {
         let (dimension, metadata) =
             if let Ok(linestring_meta) = field.try_extension_type::<LineStringType>() {
                 vortex_ensure!(
                     linestring_meta.coord_type() == CoordType::Separated,
                     "geoarrow.linestring with interleaved coordinates is not supported; \
-                 re-encode with separated (struct) coordinates"
+             re-encode with separated (struct) coordinates"
                 );
                 (
                     linestring_meta.dimension().into(),
@@ -361,23 +352,20 @@ impl ArrowImportVTable for LineString {
             };
 
         let storage_dtype = linestring_storage_dtype(dimension, field.is_nullable().into());
-        Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(LineString, metadata, storage_dtype)?.erased(),
-        )))
+        Ok(Some(ExtDType::try_with_vtable(
+            LineString,
+            metadata,
+            storage_dtype,
+        )?))
     }
 
     fn from_arrow_array(
-        &self,
         array: ArrowArrayRef,
         field: &Field,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let Some(ext_dtype) = dtype.as_extension_opt() else {
-            return Ok(ArrowImport::Unsupported(array));
-        };
-        if !ext_dtype.is::<LineString>()
-            || field.try_extension_type::<LineStringType>().is_err()
+        if field.try_extension_type::<LineStringType>().is_err()
             || !matches!(array.data_type(), DataType::List(_))
         {
             return Ok(ArrowImport::Unsupported(array));
@@ -385,7 +373,7 @@ impl ArrowImportVTable for LineString {
 
         let storage = session.from_arrow_array(array, field.is_nullable())?;
         Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(ext_dtype.clone(), storage)?.into_array(),
+            ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array(),
         ))
     }
 }

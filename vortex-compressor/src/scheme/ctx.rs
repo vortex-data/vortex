@@ -54,13 +54,6 @@ impl CompressorContext {
     }
 }
 
-#[cfg(test)]
-impl Default for CompressorContext {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl CompressorContext {
     /// Whether this context is for sample compression (ratio estimation).
     pub fn is_sample(&self) -> bool {

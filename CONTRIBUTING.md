@@ -96,6 +96,28 @@ Run `cargo shear --fix` to apply suggested fixes, then review the manifest chang
 used only by generated code or to enable transitive features may need an entry in the affected
 crate's `[package.metadata.cargo-shear]` `ignored` list, with a comment explaining why.
 
+### Dependency release cooldown
+
+New releases wait 7 days before they reach the Python and JavaScript lock files, so most malicious
+publishes are found and removed upstream first. Renovate applies the wait to the version updates
+that it proposes. For lock file refreshes, uv applies the wait to `uv.lock` through `exclude-newer`
+in the root `pyproject.toml`. npm and Bun apply it to the JavaScript lock files, as `renovate.json`
+describes. `Cargo.lock` has no such wait. The weekly Rust lock file maintenance takes the latest
+compatible crate releases at once.
+
+Renovate opens security updates at once, but uv still refuses a fix released less than 7 days ago.
+The security PR then reports that it could not update `uv.lock`. To take the fix, add this
+exception to the PR's `pyproject.toml`:
+
+```toml
+[tool.uv]
+exclude-newer-package = { <package> = false }
+```
+
+Then run `uv lock --upgrade-package <package>`. Plain `uv lock` keeps the vulnerable version if it
+still satisfies the constraints, for example for a transitive dependency. Remove the exception once
+that release is 7 days old.
+
 ### Python bindings
 
 `vortex-data` is a mixed Python and Rust package. `uv` manages its Python environment, and
@@ -158,18 +180,21 @@ Use `make -C docs help` to list focused targets, and finish documentation change
 
 #### PR previews
 
-PRs with branches in `vortex-data/vortex` get a docs preview when they change `docs/` or a docs
-workflow. This includes draft PRs and PRs targeting another feature branch. Fork PRs do not get
-hosted previews. Resolve merge conflicts before building a preview.
+PRs with branches in `vortex-data/vortex` get a docs preview when they change `docs/`,
+`vortex-web/`, a docs or Explorer build workflow, or the Vercel deploy files in
+`.github/vercel-cli/`. This includes draft PRs and PRs
+targeting another feature branch. Fork PRs do not get hosted previews. Resolve merge conflicts
+before building a preview.
 
 Add the `action/preview-docs` label to preview other changes, such as API documentation generated from
 source code. The label stays on the PR and enables previews for later pushes. Removing it stops
 updates only if the PR no longer changes docs or a docs workflow.
 
-The deployment status links to the latest preview for the PR. The workflow summary also records
-the built commit and an immutable deployment URL. Previews build the PR head commit. Eligibility
-uses the complete PR diff, so rebasing over upstream docs changes does not enable a preview for
-an unrelated PR.
+Previews are hosted on Vercel. The `vercel-docs` deployment status links to the latest preview for
+the PR, and the workflow summary records its URL. One Vercel project serves the docs and the
+Explorer, so each preview also serves the Explorer at `/explorer/`. Each preview keeps its own URL. Previews build the
+PR head commit. Eligibility uses the complete PR diff, so rebasing over upstream docs changes does
+not enable a preview for an unrelated PR.
 
 Closing a PR or removing its last reason for a preview stops new preview builds. The last hosted
 build and its deployment record remain available. Preview checks are not required for merging.
@@ -192,15 +217,17 @@ At the time of writing, the following individuals serve as Committers (non-votin
 2. Alexander Droste
 3. Alfonso Subiotto
 4. Andy Pavlo
-5. Connor Tsui
-6. Daniel King
-7. Dmitrii Blaginin
-8. Lorenz Hübschle
-9. Marko Bakovic
-10. Mikhail Kot
-11. Mosha Pasumansky
-12. Onur Satici
-13. Xinyu Zeng
+5. Ashvin Agrawal
+6. Connor Tsui
+7. Daniel King
+8. Dmitrii Blaginin
+9. Lorenz Hübschle
+10. Marko Bakovic
+11. Matthew Katz
+12. Mikhail Kot
+13. Mosha Pasumansky
+14. Onur Satici
+15. Xinyu Zeng
 
 ### Maintainers
 

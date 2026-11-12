@@ -8,12 +8,10 @@ use std::fmt::Formatter;
 
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::dtype::DType;
-use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
 /// A scalar value representing binary data.
@@ -90,23 +88,6 @@ impl<'a> BinaryScalar<'a> {
         self.value
     }
 
-    /// Casts this scalar to the given `dtype`.
-    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        if !matches!(dtype, DType::Binary(..)) {
-            vortex_bail!(
-                "Cannot cast binary to {dtype}: binary scalars can only be cast to binary types with different nullability"
-            )
-        }
-        Scalar::try_new(
-            dtype.clone(),
-            Some(ScalarValue::Binary(
-                self.value()
-                    .cloned()
-                    .vortex_expect("nullness handled in Scalar::cast"),
-            )),
-        )
-    }
-
     /// Length of the scalar value or None if value is null
     pub fn len(&self) -> Option<usize> {
         self.value.as_ref().map(|v| v.len())
@@ -125,7 +106,9 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
 
+    use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::scalar::BinaryScalar;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
@@ -172,10 +155,9 @@ mod tests {
 
     #[test]
     fn test_binary_null_value() {
-        let null_binary = Scalar::null(crate::dtype::DType::Binary(Nullability::Nullable));
+        let null_binary = Scalar::null(DType::Binary(Nullability::Nullable));
         let scalar = null_binary.as_binary();
 
-        assert!(scalar.value().is_none());
         assert!(scalar.value().is_none());
         assert!(scalar.len().is_none());
         assert!(scalar.is_empty().is_none());
@@ -198,49 +180,33 @@ mod tests {
     }
 
     #[test]
-    fn test_binary_value_ref() {
-        use vortex_buffer::ByteBuffer;
+    fn test_binary_cast() {
+        let scalar = Scalar::binary(buffer![1u8, 2, 3], Nullability::NonNullable);
+        for target in [
+            DType::Binary(Nullability::NonNullable),
+            DType::Binary(Nullability::Nullable),
+        ] {
+            let result = scalar.cast(&target).unwrap();
+            assert_eq!(result.dtype(), &target);
+            assert_eq!(result.as_binary().value().unwrap().as_slice(), &[1, 2, 3]);
+        }
 
-        let data = vec![1u8, 2, 3, 4, 5];
-        let binary = Scalar::binary(ByteBuffer::from(data.clone()), Nullability::NonNullable);
-        let scalar = binary.as_binary();
-
-        // value_ref should not clone
-        let value_ref = scalar.value().unwrap();
-        assert_eq!(value_ref.as_slice(), &data);
-
-        // to_value should clone
-        let value = scalar.value().unwrap();
-        assert_eq!(value.as_slice(), &data);
-    }
-
-    #[test]
-    fn test_binary_cast_to_binary() {
-        use crate::dtype::DType;
-        use crate::dtype::Nullability;
-
-        let binary = Scalar::binary(buffer![1u8, 2, 3], Nullability::NonNullable);
-        let scalar = binary.as_binary();
-
-        // Cast to nullable binary
-        let result = scalar.cast(&DType::Binary(Nullability::Nullable)).unwrap();
-        assert_eq!(result.dtype(), &DType::Binary(Nullability::Nullable));
-
-        let casted = result.as_binary();
-        assert_eq!(casted.value().unwrap().as_slice(), &[1, 2, 3]);
-    }
-
-    #[test]
-    fn test_binary_cast_to_non_binary_fails() {
-        use crate::dtype::DType;
-        use crate::dtype::Nullability;
-        use crate::dtype::PType;
-
-        let binary = Scalar::binary(buffer![1u8, 2, 3], Nullability::NonNullable);
-        let scalar = binary.as_binary();
-
-        let result = scalar.cast(&DType::Primitive(PType::I32, Nullability::NonNullable));
-        assert!(result.is_err());
+        let nullable = Scalar::binary(buffer![1u8, 2, 3], Nullability::Nullable);
+        let result = nullable
+            .cast(&DType::Binary(Nullability::NonNullable))
+            .unwrap();
+        assert_eq!(result.dtype(), &DType::Binary(Nullability::NonNullable));
+        assert_eq!(result.as_binary().value().unwrap().as_slice(), &[1, 2, 3]);
+        assert!(
+            Scalar::null(DType::Binary(Nullability::Nullable))
+                .cast(&DType::Binary(Nullability::NonNullable))
+                .is_err()
+        );
+        assert!(
+            scalar
+                .cast(&DType::Primitive(PType::I32, Nullability::NonNullable))
+                .is_err()
+        );
     }
 
     #[test]
@@ -267,12 +233,10 @@ mod tests {
     #[test]
     fn test_from_slice() {
         let data: &[u8] = &[1u8, 2, 3, 4];
+        assert_eq!(ScalarValue::from(data).as_binary().as_slice(), data);
         let scalar: Scalar = data.into();
 
-        assert_eq!(
-            scalar.dtype(),
-            &crate::dtype::DType::Binary(Nullability::NonNullable)
-        );
+        assert_eq!(scalar.dtype(), &DType::Binary(Nullability::NonNullable));
         let binary = scalar.as_binary();
         assert_eq!(binary.value().unwrap().as_slice(), data);
     }
@@ -306,7 +270,7 @@ mod tests {
         assert_eq!(buffer.unwrap().as_slice(), &data);
 
         // Null case
-        let null_scalar = Scalar::null(crate::dtype::DType::Binary(Nullability::Nullable));
+        let null_scalar = Scalar::null(DType::Binary(Nullability::Nullable));
         let null_buffer: Option<ByteBuffer> = (&null_scalar).try_into().unwrap();
         assert!(null_buffer.is_none());
     }
@@ -327,46 +291,18 @@ mod tests {
     }
 
     #[test]
-    fn test_from_arc_bytebuffer() {
+    fn test_from_bytebuffer() {
         use vortex_buffer::ByteBuffer;
 
         let data = vec![10u8, 20, 30];
         let buffer = ByteBuffer::from(data.clone());
+        assert_eq!(
+            ScalarValue::from(buffer.clone()).as_binary().as_slice(),
+            &data
+        );
         let scalar: Scalar = buffer.into();
 
-        assert_eq!(
-            scalar.dtype(),
-            &crate::dtype::DType::Binary(Nullability::NonNullable)
-        );
-        let binary = scalar.as_binary();
-        assert_eq!(binary.value().unwrap().as_slice(), &data);
-    }
-
-    #[test]
-    fn test_scalar_value_from_slice() {
-        let data: &[u8] = &[100u8, 200];
-        let value: ScalarValue = data.into();
-
-        let scalar = Scalar::new(
-            crate::dtype::DType::Binary(Nullability::NonNullable),
-            Some(value),
-        );
-        let binary = scalar.as_binary();
-        assert_eq!(binary.value().unwrap().as_slice(), data);
-    }
-
-    #[test]
-    fn test_scalar_value_from_bytebuffer() {
-        use vortex_buffer::ByteBuffer;
-
-        let data = vec![111u8, 222];
-        let buffer = ByteBuffer::from(data.clone());
-        let value: ScalarValue = buffer.into();
-
-        let scalar = Scalar::new(
-            crate::dtype::DType::Binary(Nullability::NonNullable),
-            Some(value),
-        );
+        assert_eq!(scalar.dtype(), &DType::Binary(Nullability::NonNullable));
         let binary = scalar.as_binary();
         assert_eq!(binary.value().unwrap().as_slice(), &data);
     }

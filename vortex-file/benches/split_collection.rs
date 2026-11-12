@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Benchmarks scan split collection (`SplitBy::Layout`) over written files.
+//! Benchmarks scan split collection over written files, with `SplitBy::Layout` and, in the
+//! `*_sub_splitting` variants, the default `SplitBy::LayoutSubSplitting`.
 //!
 //! The default write strategy produces `struct -> zoned -> chunked -> flat` per column, so
 //! split collection walks every chunk of every column. `cold` builds a fresh reader tree per
@@ -18,11 +19,16 @@ use std::sync::LazyLock;
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use vortex_array::IntoArray;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::session::ArraySession;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::CompressionSession;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_file::OpenOptionsSessionExt;
@@ -43,13 +49,22 @@ use vortex_utils::aliases::hash_map::HashMap;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
 const ROWS_PER_CHUNK: usize = 1024;
 
 /// (columns, chunks) configurations.
-const CONFIGS: &[(usize, usize)] = &[(16, 64)];
+const CONFIGS: &[(usize, usize)] = &[
+    (16, 8),
+    (24, 4),
+    // Keep the larger scaling cases for local runs without lengthening CPU simulation.
+    #[cfg(not(codspeed))]
+    (16, 64),
+    #[cfg(not(codspeed))]
+    (256, 64),
+];
 
 static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_current_thread()
@@ -60,9 +75,14 @@ static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let _guard = RUNTIME.enter();
-    let session = vortex_array::array_session()
-        .with::<LayoutSession>()
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>()
         .with::<RuntimeSession>()
+        .with::<CompressionSession>()
+        .with::<LayoutSession>()
         .with_tokio();
     vortex_file::register_default_encodings(&session);
     session
@@ -70,20 +90,17 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
 fn make_file(columns: usize, chunks: usize) -> VortexFile {
     let field_names = (0..columns).map(|c| format!("col_{c}")).collect::<Vec<_>>();
-    let struct_chunks = (0..chunks)
-        .map(|chunk| {
-            let fields = field_names
-                .iter()
-                .map(|name| {
-                    let start = (chunk * ROWS_PER_CHUNK) as i64;
-                    let values =
-                        Buffer::from_iter(start..start + ROWS_PER_CHUNK as i64).into_array();
-                    (name.as_str(), values)
-                })
-                .collect::<Vec<_>>();
-            StructArray::from_fields(&fields).unwrap().into_array()
-        })
-        .collect::<Vec<_>>();
+    let struct_chunks = (0..chunks).map(|chunk| {
+        let fields = field_names
+            .iter()
+            .map(|name| {
+                let start = (chunk * ROWS_PER_CHUNK) as i64;
+                let values = Buffer::from_iter(start..start + ROWS_PER_CHUNK as i64).into_array();
+                (name.as_str(), values)
+            })
+            .collect::<Vec<_>>();
+        StructArray::from_fields(&fields).unwrap().into_array()
+    });
     let array = ChunkedArray::from_iter(struct_chunks).into_array();
 
     let strategy = vortex_file::WriteStrategyBuilder::from_session(&SESSION)
@@ -186,8 +203,12 @@ static MISALIGNED_FILES: LazyLock<HashMap<(usize, usize), VortexFile>> = LazyLoc
 });
 
 fn collect_splits(file: &VortexFile) -> Vec<u64> {
+    collect_splits_by(file, SplitBy::Layout)
+}
+
+fn collect_splits_by(file: &VortexFile, split_by: SplitBy) -> Vec<u64> {
     let reader = file.layout_reader().unwrap();
-    SplitBy::Layout
+    split_by
         .splits(reader.as_ref(), &(0..file.row_count()), &[FieldMask::All])
         .unwrap()
 }
@@ -239,4 +260,35 @@ fn cold_misaligned(bencher: Bencher, config: &(usize, usize)) {
     );
 
     bencher.bench(|| collect_splits(file));
+}
+
+/// Like `warm`, but with the default `SplitBy::LayoutSubSplitting`, which also classifies soft
+/// boundaries.
+#[divan::bench(args = CONFIGS)]
+fn warm_sub_splitting(bencher: Bencher, config: &(usize, usize)) {
+    let file = &FILES[config];
+    let reader = file.layout_reader().unwrap();
+    let row_count = file.row_count();
+
+    bencher.bench(|| {
+        SplitBy::default()
+            .splits(reader.as_ref(), &(0..row_count), &[FieldMask::All])
+            .unwrap()
+    });
+}
+
+/// Like `cold_misaligned`, but with the default `SplitBy::LayoutSubSplitting`.
+#[divan::bench(args = MISALIGNED_CONFIGS)]
+fn cold_misaligned_sub_splitting(bencher: Bencher, config: &(usize, usize)) {
+    let file = &MISALIGNED_FILES[config];
+    // Sanity-check once per config that the file has soft boundaries to merge, so this measures
+    // the classification path rather than the cheap one.
+    let merged = collect_splits_by(file, SplitBy::default()).len();
+    let layout = collect_splits(file).len();
+    assert!(
+        merged < layout,
+        "expected soft boundaries to merge, got {merged} splits vs {layout} by layout"
+    );
+
+    bencher.bench(|| collect_splits_by(file, SplitBy::default()));
 }

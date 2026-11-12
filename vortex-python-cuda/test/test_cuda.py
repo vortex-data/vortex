@@ -220,7 +220,11 @@ def test_to_cudf_real_cudf_smoke() -> None:
     dataframe = cast(Any, struct_array).to_cudf()
     assert type(dataframe).__name__ == "DataFrame"
     assert list(dataframe.columns) == ["x", "y"]
-    assert len(dataframe) == 3
+    assert dataframe.to_arrow().to_pylist() == [
+        {"x": 1, "y": 4.0},
+        {"x": None, "y": 5.0},
+        {"x": 3, "y": 6.0},
+    ]
     assert "<NA>" in repr(dataframe)
     assert {name: str(dtype) for name, dtype in dataframe.dtypes.items()} == {
         "x": "int64",

@@ -3,12 +3,12 @@
 
 use std::hash::Hasher;
 
-use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::registry::CachedId;
 
@@ -23,29 +23,25 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::varbin::VarBinArrayExt;
-use crate::arrays::varbin::VarBinArraySlotsExt;
 use crate::arrays::varbin::VarBinData;
 use crate::arrays::varbin::VarBinSlots;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::match_each_varbin_builder;
-use crate::serde::ArrayChildren;
-use crate::validity::Validity;
 pub(crate) mod canonical;
 mod kernel;
 mod operations;
+mod plugin;
 mod validity;
 
 use canonical::varbin_to_canonical;
 use vortex_session::VortexSession;
 
 use crate::EqMode;
-use crate::arrays::varbin::compute::rules::PARENT_RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 
@@ -58,8 +54,19 @@ pub(crate) fn initialize(session: &VortexSession) {
 
 #[derive(Clone, prost::Message)]
 pub struct VarBinMetadata {
-    #[prost(enumeration = "PType", tag = "1")]
+    #[prost(int32, tag = "1")]
     pub(crate) offsets_ptype: i32,
+}
+
+impl VarBinMetadata {
+    fn get_offsets_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.offsets_ptype).map_err(|_| {
+            vortex_err!(
+                "VarBinMetadata offsets_ptype must be a known PType, got {}",
+                self.offsets_ptype
+            )
+        })
+    }
 }
 
 impl ArrayHash for VarBinData {
@@ -142,70 +149,8 @@ impl VTable for VarBin {
         ))
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            VarBinMetadata {
-                offsets_ptype: PType::try_from(array.offsets().dtype())
-                    .vortex_expect("Must be a valid PType") as i32,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = VarBinMetadata::decode(metadata)?;
-        let validity = if children.len() == 1 {
-            Validity::from(dtype.nullability())
-        } else if children.len() == 2 {
-            let validity = children.get(1, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!("Expected 1 or 2 children, got {}", children.len());
-        };
-
-        let offsets = children.get(
-            0,
-            &DType::Primitive(metadata.offsets_ptype(), Nullability::NonNullable),
-            len + 1,
-        )?;
-
-        if buffers.len() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
-        }
-        let bytes = buffers[0].clone().try_to_host_sync()?;
-
-        let data = VarBinData::try_build(offsets.clone(), bytes, dtype.clone(), validity.clone())?;
-        let slots = VarBinData::make_slots(offsets, &validity, len);
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            slots,
-        ))
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         VarBinSlots::NAMES[idx].to_string()
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn append_to_builder(
@@ -264,3 +209,53 @@ fn append_to_varbinview(
 
 #[derive(Clone, Debug)]
 pub struct VarBin;
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use prost::Message;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use super::VarBin;
+    use super::VarBinMetadata;
+    use crate::ArrayRef;
+    use crate::array::ArrayDeserialization;
+    use crate::array::ArrayPlugin;
+    use crate::array::VTable;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn test_deserialize_rejects_unknown_offsets_ptype() -> VortexResult<()> {
+        let metadata = VarBinMetadata { offsets_ptype: 11 }.encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = ArrayPlugin::deserialize(
+            &VarBin,
+            ArrayDeserialization::new(
+                VTable::id(&VarBin),
+                &DType::Utf8(Nullability::NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("VarBinMetadata offsets_ptype must be a known PType, got 11")
+        }));
+
+        let known = VarBinMetadata {
+            offsets_ptype: PType::U32 as i32,
+        };
+        assert_eq!(known.get_offsets_ptype()?, PType::U32);
+
+        Ok(())
+    }
+}

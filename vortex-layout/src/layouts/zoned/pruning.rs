@@ -25,6 +25,7 @@ use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -72,9 +73,13 @@ impl PruningState {
             aggregate_fns,
             lazy_children,
             session,
-            pruning_result: Default::default(),
+            pruning_result: LazyLock::new(|| {
+                DashMap::with_hasher_and_shard_amount(Default::default(), 8)
+            }),
             zone_map: Default::default(),
-            pruning_predicates: Default::default(),
+            pruning_predicates: LazyLock::new(|| {
+                Arc::new(DashMap::with_hasher_and_shard_amount(Default::default(), 8))
+            }),
         }
     }
 

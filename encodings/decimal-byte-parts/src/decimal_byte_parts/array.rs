@@ -26,8 +26,6 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::require_child;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar::ScalarValue;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -38,13 +36,11 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 
 use super::MAX_LOWER_PARTS;
 use super::assemble::assemble_decimal;
 use super::assemble::assemble_wide_decimal_value;
 use super::decimal_byte_parts_v2_id;
-use super::rules::PARENT_RULES;
 
 /// A [`DecimalByteParts`]-encoded Vortex array.
 pub type DecimalBytePartsArray = Array<DecimalByteParts>;
@@ -255,35 +251,8 @@ impl VTable for DecimalByteParts {
         vortex_array::vtable::with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("DecimalByteParts serialization requires DecimalBytePartsPlugin")
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("DecimalByteParts deserialization requires DecimalBytePartsPlugin")
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         DecimalBytePartsSlots::slot_name(idx)
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -397,7 +366,7 @@ impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
             ),
         };
 
-        Scalar::try_new(array.dtype().clone(), Some(ScalarValue::Decimal(value)))
+        Scalar::try_decimal(value, array.decimal_dtype(), array.dtype().nullability())
     }
 }
 
@@ -410,13 +379,14 @@ impl ValidityChild<DecimalByteParts> for DecimalByteParts {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::Array;
     use vortex_array::ArrayParts;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -434,6 +404,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::DecimalByteParts;
     use super::DecimalBytePartsArraySlotsExt;
@@ -442,6 +413,12 @@ mod tests {
     use crate::decimal_byte_parts::MAX_LOWER_PARTS;
     use crate::decimal_byte_parts::testing::i128_parts;
     use crate::decimal_byte_parts::testing::i256_parts;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_scalar_at_decimal_parts() {
@@ -461,7 +438,7 @@ mod tests {
         assert_eq!(
             Scalar::null(dtype.clone()),
             array
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
@@ -471,13 +448,13 @@ mod tests {
             )
             .unwrap(),
             array
-                .execute_scalar(1, &mut array_session().create_execution_ctx())
+                .execute_scalar(1, &mut SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             Scalar::try_new(dtype, Some(ScalarValue::Decimal(DecimalValue::I64(400)))).unwrap(),
             array
-                .execute_scalar(2, &mut array_session().create_execution_ctx())
+                .execute_scalar(2, &mut SESSION.create_execution_ctx())
                 .unwrap()
         );
     }
@@ -489,7 +466,7 @@ mod tests {
         assert_eq!(array.msp().dtype().as_ptype(), PType::I64);
         assert_eq!(array.lower_parts()[0].dtype(), &LOWER_PART_DTYPE);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let msp = array.msp().clone().execute::<PrimitiveArray>(&mut ctx)?;
         let lower = array.lower_parts()[0]
             .clone()
@@ -507,7 +484,7 @@ mod tests {
         );
         assert_eq!(array.lower_parts().len(), MAX_LOWER_PARTS);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let msp = array.msp().clone().execute::<PrimitiveArray>(&mut ctx)?;
         assert_eq!(msp.as_slice::<i64>(), &[5]);
         for (part, expected) in array.lower_parts().iter().zip([6u64, 7, 8]) {
@@ -535,7 +512,7 @@ mod tests {
             .collect();
         let dtype = DecimalDType::new(if lower_count <= 1 { 38 } else { 76 }, 0);
         let array = DecimalByteParts::try_new_with_lower_parts(msp.into_array(), lower, dtype)?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let canonical = array
             .clone()
             .into_array()
@@ -556,7 +533,7 @@ mod tests {
             Validity::Array(BoolArray::from_iter([false, true, true]).into_array()),
         )
         .into_array();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(
             array.execute_scalar(0, &mut ctx)?,
             Scalar::null(array.dtype().clone())
@@ -582,7 +559,7 @@ mod tests {
         #[values(PType::I8, PType::I16, PType::I32, PType::I64)] msp_ptype: PType,
         #[values(1, 2, 3)] lower_count: usize,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let validity = Validity::from_iter([false, true, true]);
         let msp = PrimitiveArray::new(buffer![0i64, 1, -1], validity.clone())
             .into_array()
@@ -636,11 +613,7 @@ mod tests {
                 )
             }
         };
-        let actual = encoded
-            .clone()
-            .into_array()
-            .execute::<DecimalArray>(&mut ctx)?;
-        assert_arrays_eq!(expected.clone(), actual, &mut ctx);
+        assert_arrays_eq!(encoded, expected, &mut ctx);
         for row in 0..expected.len() {
             assert_eq!(
                 encoded.execute_scalar(row, &mut ctx)?,
@@ -696,7 +669,7 @@ mod tests {
 
     #[test]
     fn test_wide_decimal_buffer_types() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let i128_array = i128_parts(vec![1i128 << 100], Validity::NonNullable);
         let canonical = i128_array.into_array().execute::<DecimalArray>(&mut ctx)?;
@@ -748,13 +721,20 @@ mod tests {
         )?
         .into_array();
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(
             array.execute_scalar(0, &mut ctx)?,
             Scalar::null(array.dtype().clone())
         );
-        let canonical = array.clone().execute::<DecimalArray>(&mut ctx)?;
-        assert_arrays_eq!(array, canonical.into_array(), &mut ctx);
+        assert_arrays_eq!(
+            array,
+            DecimalArray::new(
+                buffer![0i128, 0, 11],
+                DecimalDType::new(38, 2),
+                Validity::from_iter([false, false, true]),
+            ),
+            &mut ctx
+        );
         Ok(())
     }
 }

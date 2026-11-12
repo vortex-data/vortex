@@ -14,6 +14,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::Constant;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
@@ -45,7 +46,23 @@ unsafe impl<T: NativePType> InputElement for T {
     }
 
     fn decode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column> {
+        // A canonical input shares its buffer without executing the array.
+        if let Some(primitive) = array.as_opt::<Primitive>() {
+            return Ok(primitive.to_buffer::<T>());
+        }
+
         Ok(array.execute::<PrimitiveArray>(ctx)?.into_buffer::<T>())
+    }
+
+    #[inline]
+    fn decode_ref(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column> {
+        if let Some(primitive) = array.as_opt::<Primitive>() {
+            return Ok(primitive.to_buffer::<T>());
+        }
+
+        let executed = array.clone().execute::<PrimitiveArray>(ctx)?;
+
+        Ok(executed.into_buffer::<T>())
     }
 
     fn decode_constant(array: ArrayRef, _ctx: &mut ExecutionCtx) -> VortexResult<Self::Constant> {

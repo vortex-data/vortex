@@ -11,7 +11,6 @@ use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
-use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::like::LikeReduce;
@@ -27,11 +26,9 @@ impl LikeReduce for Dict {
             return Ok(None);
         }
         if let Some(pattern) = pattern.as_constant() {
-            let pattern = ConstantArray::new(pattern, array.values().len()).into_array();
+            let pattern = ConstantArray::new(pattern.clone(), array.values().len()).into_array();
 
-            let values = Like::try_new(array.values().clone(), pattern, options)?
-                .into_array()
-                .optimize()?;
+            let values = Like::try_new(array.values().clone(), pattern, options)?.into_array();
 
             // SAFETY: LIKE preserves the len of the values, so codes are still pointing at
             //  valid positions.
@@ -51,24 +48,27 @@ impl LikeReduce for Dict {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::DictArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::dict::compute::like::ConstantArray;
     use crate::assert_arrays_eq;
-    use crate::optimizer::ArrayOptimizer;
     use crate::scalar_fn::fns::like::Like;
     use crate::scalar_fn::fns::like::LikeOptions;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn like_reduce_dict() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dict = DictArray::try_new(
             buffer![0u8, 1, 0, 2].into_array(),
             VarBinArray::from(vec!["hello", "world", "help"]).into_array(),
@@ -76,9 +76,7 @@ mod tests {
         .into_array();
 
         let pattern = ConstantArray::new("hello%", 4).into_array();
-        let result = Like::try_new(dict, pattern, LikeOptions::default())?
-            .into_array()
-            .optimize()?;
+        let result = Like::try_new(dict, pattern, LikeOptions::default())?.into_array();
 
         assert_arrays_eq!(
             result,

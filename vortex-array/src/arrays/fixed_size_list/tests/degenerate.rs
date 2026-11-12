@@ -2,12 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use vortex_buffer::buffer;
+use vortex_session::VortexSession;
 
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
@@ -17,6 +18,8 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Non-nullable degenerate cases
@@ -58,7 +61,7 @@ fn test_fsl_size_0_length_1_non_nullable() {
 
     // Get the single empty list.
     let scalar = fsl
-        .execute_scalar(0, &mut array_session().create_execution_ctx())
+        .execute_scalar(0, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(!scalar.is_null());
     assert_eq!(
@@ -86,7 +89,7 @@ fn test_fsl_size_0_huge_length_non_nullable() {
 
     // Spot check a few lists.
     let scalar_first = fsl
-        .execute_scalar(0, &mut array_session().create_execution_ctx())
+        .execute_scalar(0, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(!scalar_first.is_null());
     assert_eq!(
@@ -99,7 +102,7 @@ fn test_fsl_size_0_huge_length_non_nullable() {
     );
 
     let scalar_middle = fsl
-        .execute_scalar(500_000_000_000, &mut array_session().create_execution_ctx())
+        .execute_scalar(500_000_000_000, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(!scalar_middle.is_null());
     assert_eq!(
@@ -112,7 +115,7 @@ fn test_fsl_size_0_huge_length_non_nullable() {
     );
 
     let scalar_end = fsl
-        .execute_scalar(999_999_999_999, &mut array_session().create_execution_ctx())
+        .execute_scalar(999_999_999_999, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(!scalar_end.is_null());
     assert_eq!(
@@ -164,7 +167,7 @@ fn test_fsl_size_0_length_1_nullable_valid() {
 
     // Get the single empty list (should be valid).
     let scalar = fsl
-        .execute_scalar(0, &mut array_session().create_execution_ctx())
+        .execute_scalar(0, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(!scalar.is_null());
     assert_eq!(
@@ -189,7 +192,7 @@ fn test_fsl_size_0_length_1_nullable_null() {
 
     // The single list should be null.
     let scalar = fsl
-        .execute_scalar(0, &mut array_session().create_execution_ctx())
+        .execute_scalar(0, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(scalar.is_null());
 }
@@ -216,7 +219,7 @@ fn test_fsl_size_0_length_10_nullable_mixed() {
     ];
     for i in 0..len {
         let scalar = fsl
-            .execute_scalar(i, &mut array_session().create_execution_ctx())
+            .execute_scalar(i, &mut SESSION.create_execution_ctx())
             .unwrap();
         if expected_valid[i] {
             assert!(!scalar.is_null());
@@ -257,7 +260,7 @@ fn test_fsl_size_0_nullable_elements() {
     // All lists should be empty but valid.
     for i in 0..len {
         let scalar = fsl
-            .execute_scalar(i, &mut array_session().create_execution_ctx())
+            .execute_scalar(i, &mut SESSION.create_execution_ctx())
             .unwrap();
         assert!(!scalar.is_null());
     }

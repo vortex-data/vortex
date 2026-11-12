@@ -21,9 +21,18 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::session::DTypeSession;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::scalar_fn::session::ScalarFnSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
+use vortex_edition::EditionSession;
+use vortex_edition::EnabledEditions;
+use vortex_expr::stats::session::StatsSession;
 use vortex_session::VortexSession;
 use vortex_spatial::scalar_fn::collect::SpatialCollect;
 use vortex_spatial::scalar_fn::envelope::SpatialEnvelope;
@@ -31,27 +40,40 @@ use vortex_spatial::test_harness::linestring_column;
 use vortex_spatial::test_harness::nullable_point_column;
 use vortex_spatial::test_harness::point_column;
 use vortex_spatial::test_harness::polygon_column;
-use vortex_spatial::test_harness::spatial_session;
 
 // Scalar function execution allocates its output inside the timed region, so use the vendored
 // allocator instead of measuring glibc differences between CodSpeed runner images.
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(spatial_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<DTypeSession>()
+        .with::<ScalarFnSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>()
+        .with::<StatsSession>()
+        .with::<EditionSession>()
+        .with::<EnabledEditions>();
+    vortex_spatial::initialize(&session);
+    session
+});
 
 const ROWS: usize = 512;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
 fn geometry_lists(elements: ArrayRef, elements_per_row: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let offsets = PrimitiveArray::from_iter(
         (0..=ROWS).map(|row| u64::try_from(row * elements_per_row).unwrap()),
     )
     .into_array();
-    ListArray::try_new(elements, offsets, Validity::NonNullable)
+    ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx)
         .unwrap()
         .into_array()
 }
@@ -124,6 +146,8 @@ fn collect_list_rows(geometry_lists: &ArrayRef, ctx: &mut ExecutionCtx) -> Array
 }
 
 fn bench_collect(bencher: Bencher, geometry_lists: ArrayRef) {
+    mark_optimized(&geometry_lists, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
@@ -168,6 +192,8 @@ fn envelope_of_collect(input: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
 #[divan::bench]
 fn envelope_of_collected_points(bencher: Bencher) {
     let input = point_lists(false);
+    mark_optimized(&input, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))

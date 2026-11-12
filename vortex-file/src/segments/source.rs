@@ -563,8 +563,10 @@ impl SegmentSource for BufferSegmentSource {
 #[cfg(test)]
 mod tests {
     use std::panic::AssertUnwindSafe;
+    use std::sync::atomic::AtomicBool;
 
     use futures::future::BoxFuture;
+    use futures::task::ArcWake;
     use vortex_error::vortex_bail;
     use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_layout::segments::SegmentSource;
@@ -675,35 +677,64 @@ mod tests {
         }
     }
 
-    // A driver panic must surface to every concurrent reader sharing one driver: exactly one
-    // reader re-raises the original panic, the rest report a graceful error, and none hang. This
-    // also covers the fan-out invariant — `Shared` wakes every reader on completion, so a reader
-    // dropped mid-flight can never swallow another reader's wake-up.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn file_segment_source_panic_propagates_to_all_concurrent_readers() {
-        let source = Arc::new(panicking_source());
-        let handle = TokioRuntime::current();
-        let reader_count = 8;
+    #[derive(Default)]
+    struct WakeFlag(AtomicBool);
 
-        let readers: Vec<_> = (0..reader_count)
+    impl ArcWake for WakeFlag {
+        fn wake_by_ref(arc_self: &Arc<Self>) {
+            arc_self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    // A driver panic must surface to every reader sharing one driver: exactly one reader re-raises
+    // the original panic, the rest report a graceful error, and none hang. The readers are polled
+    // by hand, so a missed wake-up fails an assertion instead of a wall-clock timeout. The panic
+    // hook can take seconds to symbolize a backtrace on Windows.
+    #[tokio::test]
+    async fn file_segment_source_panic_propagates_to_all_concurrent_readers() {
+        let source = panicking_source();
+
+        let mut readers: Vec<_> = (0..8)
             .map(|_| {
-                let source = Arc::clone(&source);
-                handle.spawn(async move {
-                    AssertUnwindSafe(source.request(SegmentId::from(0)))
-                        .catch_unwind()
-                        .await
-                })
+                (
+                    source.request(SegmentId::from(0)),
+                    Arc::new(WakeFlag::default()),
+                )
             })
             .collect();
 
-        let joined =
-            tokio::time::timeout(std::time::Duration::from_secs(5), future::join_all(readers))
-                .await
-                .expect("a reader hung instead of observing the driver panic");
+        let poll_reader = |reader: &mut SegmentFuture, flag: &Arc<WakeFlag>| {
+            let waker = futures::task::waker(Arc::clone(flag));
+            let mut cx = Context::from_waker(&waker);
+            std::panic::catch_unwind(AssertUnwindSafe(|| reader.poll_unpin(&mut cx)))
+        };
+
+        // The first poll marks each request as polled, which lets the driver issue the read.
+        for (reader, flag) in &mut readers {
+            assert!(
+                matches!(poll_reader(reader, flag), Ok(Poll::Pending)),
+                "a reader resolved before the driver ran"
+            );
+        }
+
+        source.driver.clone().await;
 
         let mut original_panics = 0;
-        for reader in joined {
-            match reader {
+        for (i, (reader, flag)) in readers.iter_mut().enumerate() {
+            assert!(
+                flag.0.load(Ordering::SeqCst),
+                "reader {i} was not woken after the driver finished"
+            );
+
+            let outcome = match poll_reader(reader, flag) {
+                Ok(Poll::Ready(result)) => Ok(result),
+                Ok(Poll::Pending) => {
+                    panic!("reader {i} is still pending after the driver finished")
+                }
+                Err(payload) => Err(payload),
+            };
+
+            match outcome {
                 // The first reader to observe completion re-raises the original panic.
                 Err(payload) => {
                     assert!(
@@ -1042,6 +1073,11 @@ mod tests {
         let joined =
             tokio::time::timeout(std::time::Duration::from_secs(5), future::join_all(tasks)).await;
 
-        assert!(joined.is_ok(), "concurrent reads stalled before completing");
+        let results = joined.expect("concurrent reads stalled before completing");
+        assert_eq!(results.len(), n as usize);
+        for result in results {
+            let err = result.expect_err("reader must forward the I/O error");
+            assert!(err.to_string().contains("slow read done"), "{err}");
+        }
     }
 }

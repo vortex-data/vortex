@@ -12,6 +12,7 @@
 //! See <https://docs.vortex.dev/developer-guide/internals/execution> for the full execution
 //! narrative, diagrams, and walkthroughs.
 
+use std::any::TypeId;
 use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
@@ -33,6 +34,8 @@ use vortex_session::VortexSession;
 use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::aggregate_fn::session::AggregateFnSessionExt;
+use crate::aggregate_fn::session::AggregateKernels;
 use crate::array::ArrayId;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
@@ -40,18 +43,21 @@ use crate::dtype::DType;
 use crate::matcher::Matcher;
 use crate::memory::BufferAllocatorRef;
 use crate::memory::MemorySessionExt;
-use crate::optimizer::ArrayOptimizer;
+use crate::optimizer::Optimizer;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentExecutionKernels;
+use crate::optimizer::kernels::ParentReduceKernels;
 use crate::optimizer::kernels::execute_parent_key;
-use crate::stats::StatsSet;
+use crate::optimizer::kernels::execute_parent_marker_key;
+use crate::optimizer::optimize_with_kernels;
+use crate::stats::ArrayStats;
 use crate::trace_op;
 
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 2^22.
 pub(crate) fn max_iterations() -> usize {
-    static MAX_ITERATIONS: LazyLock<usize> =
-        LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
+    static MAX_ITERATIONS: LazyLock<usize> = LazyLock::new(|| {
+        match std::env::var("VORTEX_MAX_ITERATIONS") {
             Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
                 vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
             }),
@@ -59,7 +65,8 @@ pub(crate) fn max_iterations() -> usize {
             Err(VarError::NotUnicode(_)) => {
                 vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
             }
-        });
+        }
+    });
     *MAX_ITERATIONS
 }
 
@@ -137,6 +144,11 @@ impl ArrayRef {
     ///     - root activation   -> return current_array
     ///     - ExecuteSlot frame -> pop, reattach child, resume parent
     ///
+    ///   Step 1b: if current_array was rewritten under stack.top and no builder is active:
+    ///               reattach it, try its parent-reduce rules against the parent
+    ///     - rewritten -> pop, the result replaces the parent
+    ///     - none      -> detach it again
+    ///
     ///   Step 2: current_builder active?
     ///     - yes -> skip Step 2a / 2b
     ///     - no  -> try parent kernels
@@ -147,7 +159,8 @@ impl ArrayRef {
     ///               kernels[(parent.encoding_id(), child.encoding_id())]
     ///                 .try_execute_parent(child, parent, stack.top.slot_idx)
     ///
-    ///   Step 2b: for child in current_array.children():
+    ///   Step 2b: if current_array's encoding has any registered kernel,
+    ///            for child in current_array.children():
     ///               parent = current_array
     ///               kernels[(parent.encoding_id(), child.encoding_id())]
     ///                 .try_execute_parent(child, parent, child.slot_idx)
@@ -159,17 +172,37 @@ impl ArrayRef {
     ///     Done                 -> finish current_builder if present, else use returned array
     /// ```
     ///
+    /// Step 2b first checks whether `current_array`'s encoding owns any execute-parent kernel at
+    /// all (a marker entry in the same kernel snapshot), so a pure compression encoding does not
+    /// probe the registry once for each of its children. Step 2a probes only one pair, so a
+    /// marker check there cannot remove a probe.
+    ///
     /// Step 2a and Step 2b are skipped while `current_builder` is active. `AppendChild`
     /// partially consumes `current_array`: some slots already live in the builder, so a
     /// parent rewrite would observe inconsistent state and could discard accumulated builder
     /// data.
     #[allow(clippy::cognitive_complexity)]
-    pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let mut current_array = self;
+    pub fn execute_until<M: Matcher + 'static>(
+        self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        // Cloning the context's kernels releases the borrow of `ctx`, which the kernels need.
+        let ctx_kernels = Arc::clone(&ctx.kernels);
+
+        // One optimizer serves the whole execution, so a shared node that one step rewrote is
+        // reused when a later step reaches it.
+        let mut optimizer = Optimizer::new(&ctx_kernels.reduce_parent);
+
+        // Constructors build lazy arrays, so each node is optimized when execution reaches it: the
+        // root here, with the nodes below it that were never optimized, and a child when execution
+        // focuses it.
+        let mut current_array = optimizer.optimize_array(&self)?;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
-        let execute_parent_kernels = Arc::clone(&ctx.execute_parent_kernels);
-        let kernels = execute_parent_kernels.as_ref();
+        // Whether `current_array` was rewritten since its parent was suspended, so its
+        // parent-reduce rules have not yet seen it under that parent.
+        let mut child_rewritten = false;
+        let kernels = ctx_kernels.execute_parent.as_ref();
         let max_iterations = max_iterations();
 
         trace_op!(record_execute_until_start::<M>(&current_array));
@@ -184,12 +217,13 @@ impl ArrayRef {
                 current_builder.is_some(),
             ));
 
-            let is_done = stack
-                .last()
-                .map_or(M::matches as DonePredicate, |frame| frame.done);
-
-            let done_target = is_done(&current_array);
-            let done_canonical = AnyCanonical::matches(&current_array);
+            let (done_target, done_canonical) = match stack.last() {
+                None => root_done_check::<M>(&current_array),
+                Some(frame) => (
+                    (frame.done)(&current_array),
+                    AnyCanonical::matches(&current_array),
+                ),
+            };
             trace_op!(record_execute_until_done_check(done_target, done_canonical));
 
             if done_target || done_canonical {
@@ -199,16 +233,69 @@ impl ArrayRef {
                             current_builder.is_none(),
                             "root activation should not retain a builder"
                         );
+                        // Kernels build their results with lazy constructors too, such as a
+                        // filtered validity, so optimize whatever execution produced. This is
+                        // free when the array is already marked as optimized.
+                        current_array = optimizer.optimize_array(&current_array)?;
                         trace_op!(record_execute_until_return(&current_array));
                         return Ok(current_array);
                     }
                     Some(frame) => {
                         let _slot_idx = frame.slot_idx;
                         (current_array, current_builder) = pop_frame(frame, current_array)?;
+                        child_rewritten = false;
                         trace_op!(record_execute_until_pop_frame(_slot_idx, &current_array));
                         continue;
                     }
                 }
+            }
+
+            // Step 1b: parent-reduce rules against the suspended parent.
+            //
+            // Once execution rewrites the child into another encoding, its parent-reduce rules
+            // can match where they did not before, such as a slice that executed into a run-end
+            // array. Skipped while a builder is active at either level, as in Step 2a.
+            if child_rewritten
+                && current_builder.is_none()
+                && stack
+                    .last()
+                    .is_some_and(|frame| frame.parent_builder.is_none())
+            {
+                child_rewritten = false;
+                let frame = stack.pop().vortex_expect("just peeked");
+                let slot_idx = frame.slot_idx;
+                // SAFETY: `current_array` is the executed slot, so it has the slot's dtype and len.
+                let parent = unsafe {
+                    frame
+                        .parent_array
+                        .put_slot_unchecked(slot_idx, current_array)
+                }?;
+                if let Some(reduced) = optimizer.reduce_parent_of_slot(&parent, slot_idx)? {
+                    let child = parent.slots()[slot_idx]
+                        .as_ref()
+                        .vortex_expect("slot was just put back");
+                    log_parent_rewrite(
+                        ctx,
+                        "stack_reduce_parent",
+                        slot_idx,
+                        &parent,
+                        child,
+                        &reduced,
+                    );
+                    reduced.statistics().inherit_from(parent.statistics());
+                    current_array = optimizer.optimize_array(&reduced)?;
+                    current_builder = frame.parent_builder;
+                    // The rewrite replaced the parent, which is the child of the next frame.
+                    child_rewritten = true;
+                    continue;
+                }
+                // SAFETY: the slot is put back unchanged before the parent leaves the executor.
+                let (parent, child) = unsafe { parent.take_slot_unchecked(slot_idx) }?;
+                stack.push(StackFrame {
+                    parent_array: parent,
+                    ..frame
+                });
+                current_array = child;
             }
 
             // Step 2a: execute_parent against the suspended parent from ExecuteSlot.
@@ -235,10 +322,11 @@ impl ArrayRef {
                 }
             {
                 let frame = stack.pop().vortex_expect("just peeked");
-                let optimized = result.optimize_ctx(ctx.session())?;
+                let optimized = optimizer.optimize_array(&result)?;
                 trace_op!(record_execute_optimized(&result, &optimized));
                 current_array = optimized;
                 current_builder = frame.parent_builder;
+                child_rewritten = !stack.is_empty();
                 continue;
             }
             if current_builder.is_none() && stack.last().is_some() {
@@ -250,11 +338,13 @@ impl ArrayRef {
 
             // Step 2b: execute_parent against current_array's own children.
             if current_builder.is_none()
+                && has_execute_parent_kernels(kernels, &current_array)
                 && let Some(rewritten) = try_execute_parent(&current_array, kernels, ctx)?
             {
-                let optimized = rewritten.optimize_ctx(ctx.session())?;
+                let optimized = optimizer.optimize_array(&rewritten)?;
                 trace_op!(record_execute_optimized(&rewritten, &optimized));
                 current_array = optimized;
+                child_rewritten = !stack.is_empty();
                 continue;
             }
             if current_builder.is_none() {
@@ -265,8 +355,10 @@ impl ArrayRef {
             }
 
             let expected_len = current_array.len();
-            let expected_dtype = current_array.dtype().clone();
-            let stats = current_array.statistics().to_owned();
+            // Only the debug postcondition compares dtypes, so skip the clone otherwise.
+            let expected_dtype = cfg!(debug_assertions).then(|| current_array.dtype().clone());
+            // Share the existing stats handle instead of cloning the set; uninitialised stats stay lazy.
+            let stats = current_array.statistics().share_existing();
             let encoding_id = current_array.encoding_id();
             trace_op!(record_execute_encoding(&current_array));
             let result = current_array.execute_encoding_unchecked(ctx)?;
@@ -284,8 +376,9 @@ impl ArrayRef {
                         original_dtype: child.dtype().clone(),
                         original_len: child.len(),
                     });
-                    current_array = child;
+                    current_array = optimizer.optimize_array(&child)?;
                     current_builder = None;
+                    child_rewritten = false;
                 }
                 ExecutionStep::AppendChild(i) => {
                     if current_builder.is_none() {
@@ -300,6 +393,10 @@ impl ArrayRef {
 
                     trace_op!(record_append_child(i, &parent, &child));
                     trace_op!(record_builder_append(&child));
+
+                    // `append_to_builder` optimizes the child itself. The shared optimizer here
+                    // also reuses a shared node that an earlier step of this execution rewrote.
+                    let child = optimizer.optimize_array(&child)?;
 
                     // TODO(joe)[7674]: replace with a builder kernel registry so we don't
                     // need to go through the VTable append_to_builder indirection.
@@ -325,6 +422,10 @@ impl ArrayRef {
                     if had_builder {
                         trace_op!(record_builder_finish(&current_array));
                     }
+                    // Kernels build their results with lazy constructors, such as a cast that only
+                    // changes nullability. Reduce them before execute-parent kernels see them.
+                    current_array = optimizer.optimize_array(&current_array)?;
+                    child_rewritten = !stack.is_empty();
                 }
             }
         }
@@ -345,13 +446,26 @@ struct StackFrame {
     original_len: usize,
 }
 
+/// The kernels an [`ExecutionCtx`] snapshotted from its session when it was created.
+///
+/// The context holds them in its own `Arc`, which execution clones for each array it executes.
+/// Only this context and its clones share that `Arc`, so the clone does not write to a reference
+/// count that every thread shares, as cloning a snapshot of the session's registries would.
+#[derive(Debug)]
+struct ContextKernels {
+    execute_parent: Arc<ParentExecutionKernels>,
+    reduce_parent: Arc<ParentReduceKernels>,
+}
+
 /// Execution context for batch CPU compute.
 #[derive(Debug, Clone)]
 pub struct ExecutionCtx {
     session: VortexSession,
     // OnceLock avoids cloning the session allocator when a context does not allocate.
     allocator: OnceLock<BufferAllocatorRef>,
-    execute_parent_kernels: Arc<ParentExecutionKernels>,
+    kernels: Arc<ContextKernels>,
+    // OnceLock avoids snapshotting the aggregate kernels when a context does not aggregate.
+    aggregate_kernels: OnceLock<AggregateKernels>,
     #[cfg(debug_assertions)]
     id: usize,
     #[cfg(debug_assertions)]
@@ -361,15 +475,21 @@ pub struct ExecutionCtx {
 impl ExecutionCtx {
     /// Create a new execution context with the given session.
     ///
-    /// This captures a snapshot of the session's execute-parent kernel registry. Kernels
-    /// registered after this context is created are not visible to it; create a new
-    /// [`ExecutionCtx`] after registration to use newly registered kernels.
+    /// This captures a snapshot of the session's execute-parent and parent-reduce kernel
+    /// registries. Kernels registered after this context is created are not visible to it; create
+    /// a new [`ExecutionCtx`] after registration to use newly registered kernels.
     pub fn new(session: VortexSession) -> Self {
-        let execute_parent_kernels = session.kernels().execute_parent_snapshot();
+        let session_kernels = session.kernels();
+        let kernels = Arc::new(ContextKernels {
+            execute_parent: session_kernels.execute_parent_snapshot(),
+            reduce_parent: session_kernels.reduce_parent_snapshot(),
+        });
+        drop(session_kernels);
         Self {
             session,
             allocator: OnceLock::new(),
-            execute_parent_kernels,
+            kernels,
+            aggregate_kernels: OnceLock::new(),
             #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
@@ -385,9 +505,24 @@ impl ExecutionCtx {
         &self.session
     }
 
+    /// The parent-reduce kernels this context snapshotted from its session, which optimizing with
+    /// the context uses instead of looking up the session's kernels again.
+    pub(crate) fn reduce_parent_kernels(&self) -> &ParentReduceKernels {
+        &self.kernels.reduce_parent
+    }
+
     /// Get the allocator for this execution context.
     pub fn allocator(&self) -> &BufferAllocatorRef {
         self.allocator.get_or_init(|| self.session.allocator())
+    }
+
+    /// Get the aggregate kernels for this execution context.
+    ///
+    /// The session's aggregate kernel registries are snapshotted on first use. Kernels registered
+    /// after that are not visible to this context.
+    pub(crate) fn aggregate_kernels(&self) -> &AggregateKernels {
+        self.aggregate_kernels
+            .get_or_init(|| self.session.aggregate_fns().kernels_snapshot())
     }
 
     /// Set the allocator for this execution context.
@@ -466,48 +601,30 @@ impl Executable for ArrayRef {
         }
         trace_op!(record_single_step_phase_none("canonical", &array));
 
-        if let Some(reduced) = array.reduce()? {
-            reduced.statistics().inherit_from(array.statistics());
-            trace_op!(record_single_step_applied("reduce", &array, &reduced));
-            return Ok(reduced);
+        let optimized = optimize_with_kernels(&array, &ctx.kernels.reduce_parent)?;
+        if !ArrayRef::ptr_eq(&optimized, &array) {
+            optimized.statistics().inherit_from(array.statistics());
+            trace_op!(record_single_step_applied("optimize", &array, &optimized));
+            return Ok(optimized);
         }
-        trace_op!(record_single_step_phase_none("reduce", &array));
+        trace_op!(record_single_step_phase_none("optimize", &array));
+
+        let ctx_kernels = Arc::clone(&ctx.kernels);
+        let kernels = ctx_kernels.execute_parent.as_ref();
+        let has_parent_kernels = has_execute_parent_kernels(kernels, &array);
 
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
-            if let Some(reduced_parent) = child.reduce_parent(&array, slot_idx)? {
-                log_parent_rewrite(
-                    ctx,
-                    "reduce_parent",
-                    slot_idx,
+            if has_parent_kernels
+                && let Some(executed_parent) = execute_parent_for_child(
+                    "single_step_execute_parent",
                     &array,
                     child,
-                    &reduced_parent,
-                );
-                reduced_parent.statistics().inherit_from(array.statistics());
-                trace_op!(record_single_step_applied(
-                    "reduce_parent",
-                    &array,
-                    &reduced_parent,
-                ));
-                return Ok(reduced_parent);
-            }
-        }
-        trace_op!(record_single_step_phase_none("reduce_parent", &array));
-
-        let execute_parent_kernels = Arc::clone(&ctx.execute_parent_kernels);
-        let kernels = execute_parent_kernels.as_ref();
-
-        for (slot_idx, slot) in array.slots().iter().enumerate() {
-            let Some(child) = slot else { continue };
-            if let Some(executed_parent) = execute_parent_for_child(
-                "single_step_execute_parent",
-                &array,
-                child,
-                slot_idx,
-                kernels,
-                ctx,
-            )? {
+                    slot_idx,
+                    kernels,
+                    ctx,
+                )?
+            {
                 executed_parent
                     .statistics()
                     .inherit_from(array.statistics());
@@ -566,6 +683,16 @@ pub fn execute_into_builder(
     Ok(builder)
 }
 
+/// Returns `(matches M, is canonical)`, scanning once when `M` is [`AnyCanonical`].
+#[inline]
+fn root_done_check<M: Matcher + 'static>(array: &ArrayRef) -> (bool, bool) {
+    if TypeId::of::<M>() == TypeId::of::<AnyCanonical>() {
+        let canonical = AnyCanonical::matches(array);
+        return (canonical, canonical);
+    }
+    (M::matches(array), AnyCanonical::matches(array))
+}
+
 /// Pop a stack frame, restoring the parent with the finished child in its slot.
 fn pop_frame(
     frame: StackFrame,
@@ -589,8 +716,8 @@ fn finalize_done(
     result: ArrayRef,
     mut builder: Option<Box<dyn ArrayBuilder>>,
     expected_len: usize,
-    expected_dtype: DType,
-    stats: StatsSet,
+    expected_dtype: Option<DType>,
+    stats: ArrayStats,
     encoding_id: ArrayId,
 ) -> VortexResult<(ArrayRef, Option<Box<dyn ArrayBuilder>>)> {
     let output = if let Some(mut builder) = builder.take() {
@@ -606,15 +733,17 @@ fn finalize_done(
             "Result length mismatch for {:?}",
             encoding_id
         );
-        vortex_ensure_eq!(
-            output.dtype(),
-            &expected_dtype,
-            "Executed canonical dtype mismatch for {:?}",
-            encoding_id
-        );
+        if let Some(expected_dtype) = expected_dtype {
+            vortex_ensure_eq!(
+                output.dtype(),
+                &expected_dtype,
+                "Executed canonical dtype mismatch for {:?}",
+                encoding_id
+            );
+        }
     }
 
-    output.statistics().set_iter(stats.into_iter());
+    output.statistics().transfer_from(&stats);
     Ok((output, None))
 }
 
@@ -629,7 +758,7 @@ fn execute_parent_for_child(
     let key = execute_parent_key(parent.encoding_id(), child.encoding_id());
     if let Some(plugins) = kernels.get(&key) {
         #[allow(clippy::unused_enumerate_index)]
-        for (_plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
+        for (_plugin_idx, plugin) in plugins.iter().enumerate() {
             if let Some(result) = plugin.execute_parent(child, parent, slot_idx, ctx)? {
                 if cfg!(debug_assertions) {
                     vortex_ensure_eq!(
@@ -680,6 +809,12 @@ fn log_parent_rewrite(
         "{phase}: slot[{slot_idx}]({}) rewrote {parent} -> {output}",
         child.encoding_id(),
     ));
+}
+
+/// Whether any execute-parent kernel is registered with `parent`'s encoding as the parent.
+#[inline]
+fn has_execute_parent_kernels(kernels: &ParentExecutionKernels, parent: &ArrayRef) -> bool {
+    kernels.contains_key(&execute_parent_marker_key(parent.encoding_id()))
 }
 
 /// Try execute_parent on each occupied slot of the array.
@@ -801,6 +936,18 @@ impl ExecutionResult {
         }
     }
 
+    /// Like [`execute_slot`](Self::execute_slot), but with a [`DonePredicate`] chosen at runtime.
+    pub(crate) fn execute_slot_until(
+        array: ArrayRef,
+        slot_idx: usize,
+        done: DonePredicate,
+    ) -> Self {
+        Self {
+            array,
+            step: ExecutionStep::ExecuteSlot(slot_idx, done),
+        }
+    }
+
     /// Request that the child slot at `slot_idx` be detached, appended into the current
     /// activation's canonical builder, and leave the returned parent as the next
     /// `current_array`.
@@ -856,6 +1003,25 @@ macro_rules! require_child {
         }
         $parent
     }};
+}
+
+/// The scalar function counterpart of [`require_child!`]: require that input `$idx` of `$args`
+/// matches `$M`. If it does not, early-returns a
+/// [`ScalarFnExecutionResult`](crate::scalar_fn::ScalarFnExecutionResult) asking the executor to
+/// execute that input until it matches, so the function is stepped again with the executed input.
+///
+/// ```ignore
+/// require_input!(args, 0 => AnyColumnar);
+/// ```
+#[macro_export]
+macro_rules! require_input {
+    ($args:expr, $idx:expr => $M:ty) => {
+        if !$args.input_matches($idx, <$M as $crate::matcher::Matcher>::matches)? {
+            return Ok($crate::scalar_fn::ScalarFnExecutionResult::execute_input::<
+                $M,
+            >($idx));
+        }
+    };
 }
 
 /// Like [`require_child!`], but for optional children. If the child is `None`, this is a no-op.
@@ -953,6 +1119,7 @@ mod tests {
     use crate::VTable as _;
     use crate::VortexSessionExecute;
     use crate::arrays::Bool;
+    use crate::arrays::BoolArray;
     use crate::arrays::Primitive;
     use crate::memory::BufferAllocatorRef;
     use crate::memory::MemorySession;
@@ -980,7 +1147,8 @@ mod tests {
         let before_registration = session.create_execution_ctx();
         assert!(
             !before_registration
-                .execute_parent_kernels
+                .kernels
+                .execute_parent
                 .contains_key(&key)
         );
 
@@ -993,12 +1161,42 @@ mod tests {
 
         assert!(
             !before_registration
-                .execute_parent_kernels
+                .kernels
+                .execute_parent
                 .contains_key(&key)
         );
 
         let after_registration = session.create_execution_ctx();
-        assert!(after_registration.execute_parent_kernels.contains_key(&key));
+        assert!(after_registration.kernels.execute_parent.contains_key(&key));
+    }
+
+    #[test]
+    fn execution_ctx_snapshot_marks_parents_with_kernels() {
+        let session = VortexSession::empty().with_some(KernelSession::empty());
+        let bool_array = BoolArray::from_iter([true, false]).into_array();
+        let primitive = vortex_buffer::buffer![1i32, 2].into_array();
+
+        let before = session.create_execution_ctx();
+        assert!(!has_execute_parent_kernels(
+            &before.kernels.execute_parent,
+            &bool_array
+        ));
+
+        session.kernels().register_execute_parent(
+            Bool.id(),
+            Primitive.id(),
+            &[noop_execute_parent as ExecuteParentFn],
+        );
+
+        let after = session.create_execution_ctx();
+        assert!(has_execute_parent_kernels(
+            &after.kernels.execute_parent,
+            &bool_array
+        ));
+        assert!(!has_execute_parent_kernels(
+            &after.kernels.execute_parent,
+            &primitive
+        ));
     }
 
     #[test]

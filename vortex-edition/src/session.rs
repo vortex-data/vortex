@@ -186,6 +186,11 @@ impl EditionSession {
         self.inner.read().editions.get(&id.to_string()).copied()
     }
 
+    /// Find a declared edition by its name, for example `core2025.10.0`.
+    pub fn find_by_name(&self, name: &str) -> Option<Edition> {
+        self.inner.read().editions.get(name).copied()
+    }
+
     /// The newest frozen edition of a family, if any. Drafts are never current.
     pub fn current(&self, family: &str) -> Option<Edition> {
         self.editions()
@@ -238,6 +243,13 @@ impl EditionSession {
                      its editions",
                     edition.id,
                     edition.id.family,
+                );
+            }
+            if !edition.immutable && !edition.is_draft() {
+                vortex_bail!(
+                    "edition {} never freezes, so it cannot record a min_library_version; \
+                     promote members into a new edition",
+                    edition.id
                 );
             }
             if let Some(version) = edition.min_library_version

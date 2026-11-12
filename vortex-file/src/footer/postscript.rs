@@ -344,7 +344,14 @@ mod tests {
         let postscript = Postscript::read_flatbuffer_bytes(&bytes).unwrap();
         assert_eq!(postscript.metadata.len(), MAX_METADATA_SEGMENTS);
         let mut total_key_bytes = 0;
-        for entry in &postscript.metadata {
+        for (index, entry) in postscript.metadata.iter().enumerate() {
+            assert_eq!(
+                entry.key,
+                format!("{index:0>width$}", width = MAX_METADATA_KEY_BYTES)
+            );
+            assert_eq!(entry.segment.offset, 2 + index as u64);
+            assert_eq!(entry.segment.length, 1);
+            assert_eq!(entry.segment.alignment, Alignment::none());
             assert_eq!(entry.key.len(), MAX_METADATA_KEY_BYTES);
             total_key_bytes += entry.key.len();
         }

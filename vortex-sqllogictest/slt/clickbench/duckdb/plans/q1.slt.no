@@ -218,7 +218,8 @@ physical_plan [
             }
         ],
         "extra_info": {
-            "Aggregates": "count_star()"
+            "Aggregates": "count_star()",
+            "Estimated Cardinality": "1"
         }
     }
 ]

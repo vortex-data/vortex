@@ -55,7 +55,20 @@ impl MaskFuture {
 
     /// Create a MaskFuture from a ready mask.
     pub fn ready(mask: Mask) -> Self {
-        Self::new(mask.len(), async move { Ok(mask) })
+        let fut = Self::new(mask.len(), async move { Ok(mask) });
+        // Complete the shared future now: it is ready on its first poll, and once complete,
+        // `peek` sees it.
+        let _ready = fut.inner.clone().now_or_never();
+        fut
+    }
+
+    /// Returns the mask if the future has completed, without polling it.
+    ///
+    /// [`MaskFuture::ready`] and slices of a completed mask have completed from the start. A
+    /// reader can check their mask before it requests any data, for example to skip unselected
+    /// rows. A failed future returns `None`; awaiting it reports the error.
+    pub fn peek(&self) -> Option<&Mask> {
+        self.inner.peek().and_then(|result| result.as_ref().ok())
     }
 
     /// Create a MaskFuture that resolves to a mask with all values set to true.
@@ -69,6 +82,11 @@ impl MaskFuture {
         // allocating another boxed, shared one that would await it only to hand the mask back.
         if range.start == 0 && range.end == self.len {
             return self.clone();
+        }
+
+        // A slice of a completed mask is complete too.
+        if let Some(mask) = self.peek() {
+            return Self::ready(mask.slice(range));
         }
 
         let inner = self.inner.clone();
@@ -119,8 +137,35 @@ mod tests {
 
             let partial = fut.slice(0..mask.len() - 1);
             assert_eq!(partial.len(), mask.len() - 1);
-            assert_eq!(partial.await?, mask.slice(0..mask.len() - 1));
+            assert_eq!(partial.await?, Mask::from_iter([true, false, true, true]));
             Ok(())
         })
+    }
+
+    #[test]
+    fn ready_masks_and_their_slices_can_be_peeked() -> VortexResult<()> {
+        let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false]));
+        let fut = MaskFuture::ready(mask.clone());
+        assert_eq!(fut.peek(), Some(&mask));
+        assert_eq!(MaskFuture::new_true(3).peek(), Some(&Mask::new_true(3)));
+
+        let slice = fut.slice(1..3);
+        assert_eq!(slice.peek(), Some(&mask.slice(1..3)));
+        // A ready future returns its mask on the first poll.
+        assert_eq!(slice.now_or_never().transpose()?, Some(mask.slice(1..3)));
+        Ok(())
+    }
+
+    #[test]
+    fn pending_masks_can_be_peeked_once_complete() -> VortexResult<()> {
+        let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true]));
+        let pending = MaskFuture::new(3, async move { Ok(mask) });
+        assert!(pending.peek().is_none());
+        assert!(pending.slice(0..2).peek().is_none());
+
+        let mask = futures::executor::block_on(pending.clone())?;
+        assert_eq!(pending.peek(), Some(&mask));
+        assert_eq!(pending.slice(0..2).peek(), Some(&mask.slice(0..2)));
+        Ok(())
     }
 }

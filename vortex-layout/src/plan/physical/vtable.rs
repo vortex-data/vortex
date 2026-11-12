@@ -13,29 +13,30 @@ use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_session::registry::Id;
 
-use crate::plan::physical::PlanChildren;
+use crate::plan::physical::PlanSlots;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
-use crate::plan::physical::pipeline::Reach;
 use crate::plan::physical::typed::Plan;
-use crate::segments::SegmentId;
 
 /// A unique identifier for a plan operator.
 pub type PlanId = Id;
 
 /// Operator-specific behavior for a typed [`Plan`].
 ///
-/// Common fields — dtype, row count, and children — are stored outside the erased operator data.
-/// Implementations own only their operator-specific data, its metadata codec, and a callback for
-/// refreshing cached data after generic child replacement.
+/// Common fields — dtype, row count, and child slots — are stored outside the erased operator
+/// data. Implementations own only their operator-specific data, its metadata codec, and a callback
+/// for refreshing cached data after generic slot replacement.
+///
+/// Each operator fixes what every slot position holds. An absent child is a `None` slot, so the
+/// positions of the others never depend on which children are present.
 ///
 /// Operators describe physical work over a row domain. Their identity and operator-specific data
-/// do not depend on the source layout kind. The common lazy-child storage may nevertheless own a
-/// hidden source-layout reference used for on-demand lowering.
+/// do not depend on the source layout kind. A lazy slot may nevertheless own a hidden
+/// source-layout reference used for on-demand lowering.
 pub trait PlanVTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// Operator-specific data, excluding children.
     ///
-    /// Children belong in [`PlanParts::children`](crate::plan::physical::PlanParts::children) so that
+    /// Children belong in [`PlanParts::slots`](crate::plan::physical::PlanParts::slots) so that
     /// traversal and rewriting can discover them generically.
     type PlanData: 'static + Send + Sync + Clone + Debug;
 
@@ -56,24 +57,24 @@ pub trait PlanVTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// Returns `None` when the operator holds state that cannot be serialized.
     fn metadata(plan: &Plan<Self>) -> Option<Self::Metadata>;
 
-    /// Refreshes cloned operator data after the common child container is replaced.
+    /// Refreshes cloned operator data after the slots are replaced.
     ///
-    /// The plan layer clones [`PlanData`](Self::PlanData), replaces the children externally, and
-    /// invokes this callback. Implementations validate the new children and update any derived
+    /// The plan layer clones [`PlanData`](Self::PlanData), replaces the slots externally, and
+    /// invokes this callback. Implementations validate the new slots and update any derived
     /// values in `data`; they do not rebuild the plan itself.
-    fn with_children(
+    fn with_slots(
         plan: &Plan<Self>,
-        children: &PlanChildren,
+        slots: &PlanSlots,
         data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        let _ = (plan, children, data);
+        let _ = (plan, slots, data);
         Ok(())
     }
 
-    /// Returns the display name of the child at `index`.
-    fn child_name(plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
+    /// Returns the display name of `slot`.
+    fn slot_name(plan: &Plan<Self>, slot: usize) -> Cow<'_, str> {
         let _ = plan;
-        Cow::Owned(format!("child[{index}]"))
+        Cow::Owned(format!("slot[{slot}]"))
     }
 
     /// Compiles this plan over `rows` of its row domain, restricted to `mask`, into a chain:
@@ -83,6 +84,10 @@ pub trait PlanVTable: 'static + Clone + Sized + Send + Sync + Debug {
     ///
     /// A plan compiles its children through `compiler` and either adds stages to a child's
     /// chain or joins several children's chains with a source of its own. Compiling does no IO.
+    ///
+    /// Pipelines have no absent inputs: a plan that joins its children compiles
+    /// [`Plan::children`], the present slots in slot order, so inlet `i` of its source reads the
+    /// `i`-th present slot.
     fn compile(
         plan: &Plan<Self>,
         rows: Range<u64>,
@@ -91,21 +96,5 @@ pub trait PlanVTable: 'static + Clone + Sized + Send + Sync + Debug {
     ) -> VortexResult<Option<Chain>> {
         let _ = (rows, mask, compiler);
         vortex_bail!("Plan {} has no pipeline implementation", plan.vtable().id())
-    }
-
-    /// Visits every segment compiling this plan over `rows` could read, under any mask, with
-    /// the rows of the scanned plan it is read for, so a segment more than one reader reads is
-    /// decoded once. `at` maps this plan's rows to the scanned plan's.
-    ///
-    /// The default visits nothing, so the segments under a plan that does not override it are
-    /// read by each reader alone.
-    fn reach(
-        plan: &Plan<Self>,
-        rows: Range<u64>,
-        at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
-    ) -> VortexResult<()> {
-        let _ = (plan, rows, at, visit);
-        Ok(())
     }
 }

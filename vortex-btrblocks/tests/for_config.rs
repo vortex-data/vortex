@@ -27,17 +27,18 @@ use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
 use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
+use vortex_fastlanes::bitpacked_v2_id;
 use vortex_fastlanes::for_v1_id;
 use vortex_fastlanes::for_v2_id;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 static FOR_V1: FoRScheme = FoRScheme::v1();
-static BITPACKING: BitPackingScheme = BitPackingScheme;
+static BITPACKING: BitPackingScheme = BitPackingScheme::v1();
 
 /// Registers the fastlanes encodings, and enables no editions.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     vortex_fastlanes::initialize(&session);
     session
 });
@@ -45,7 +46,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 /// Like [`SESSION`], with the latest core edition enabled: it allows `fastlanes.for` but not
 /// `fastlanes.for.v2`.
 static CORE_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session().with::<EditionSession>();
+    let session = VortexSession::empty().with::<EditionSession>();
     for family in EDITION_FAMILIES {
         session
             .editions()
@@ -77,6 +78,12 @@ fn drifting() -> ArrayRef {
 /// to a constant and the array serializes as `fastlanes.for`.
 fn clustered() -> ArrayRef {
     PrimitiveArray::from_iter((0..8192u32).map(|i| 1_000_000 + i % 100)).into_array()
+}
+
+/// Values whose range doubles every chunk from the same base, so the child needs a different bit
+/// width in each block.
+fn widening() -> ArrayRef {
+    PrimitiveArray::from_iter((0..8192u32).map(|i| 1_000_000 + i % (4 << (i / 1024)))).into_array()
 }
 
 /// Compresses `array`, round trips it through serialization, and returns the serialized IDs.
@@ -144,6 +151,7 @@ fn core_edition_keeps_single_reference() -> VortexResult<()> {
         BtrBlocksCompressorBuilder::from_session(&CORE_SESSION),
         &drifting(),
     )?;
+    assert!(ids.contains(&for_v1_id()));
     assert!(!ids.contains(&for_v2_id()));
     Ok(())
 }
@@ -162,6 +170,21 @@ fn nullable_drifting_roundtrip() -> VortexResult<()> {
 #[test]
 fn cuda_preset_keeps_single_reference() -> VortexResult<()> {
     let ids = compress_roundtrip(for_only().only_cuda_compatible(), &drifting())?;
+    assert!(ids.contains(&for_v1_id()));
     assert!(!ids.contains(&for_v2_id()));
+    Ok(())
+}
+
+/// FoR bit-packs its child with per-block widths exactly when `fastlanes.bitpacked.v2` is allowed.
+#[rstest]
+#[case::all_allowed(for_only(), true)]
+#[case::cuda(for_only().only_cuda_compatible(), false)]
+fn child_widths_follow_bitpacked_v2(
+    #[case] builder: BtrBlocksCompressorBuilder,
+    #[case] expect_v2: bool,
+) -> VortexResult<()> {
+    let ids = compress_roundtrip(builder, &widening())?;
+    assert!(ids.contains(&for_v1_id()));
+    assert_eq!(ids.contains(&bitpacked_v2_id()), expect_v2);
     Ok(())
 }

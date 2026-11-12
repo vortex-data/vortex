@@ -9,6 +9,7 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::FoRReferences;
 use crate::for_::FoR;
 use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRArraySlotsExt;
@@ -20,10 +21,13 @@ impl CastReduce for FoR {
         }
 
         let casted_child = array.encoded().cast(dtype.clone())?;
-        Ok(Some(
-            FoR::try_new_chunked(casted_child, array.references().clone(), array.offset())?
-                .into_array(),
-        ))
+        let casted = match array.references() {
+            FoRReferences::Global(reference) => FoR::try_new(casted_child, reference.clone())?,
+            FoRReferences::Blocked(references) => {
+                FoR::try_new_chunked(casted_child, references.clone(), array.offset())?
+            }
+        };
+        Ok(Some(casted.into_array()))
     }
 }
 
@@ -52,7 +56,7 @@ mod tests {
     use crate::FoRArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -97,6 +101,11 @@ mod tests {
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_option_iter([Some(50i64), None, Some(70), Some(80), None]),
+            &mut SESSION.create_execution_ctx()
         );
     }
 

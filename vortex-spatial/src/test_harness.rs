@@ -5,6 +5,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -40,7 +41,7 @@ use crate::extension::polygon_storage_dtype;
 
 /// A fresh session with the spatial types, functions, and pruning rules registered.
 pub fn spatial_session() -> VortexSession {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     crate::initialize(&session);
     session
 }
@@ -69,6 +70,7 @@ fn offset(n: usize) -> VortexResult<i32> {
 /// Wrap `elements` — built from `rows` flattened one level — in a non-nullable `List` with one
 /// entry per row.
 fn nest<T>(rows: &[Vec<T>], elements: ArrayRef) -> VortexResult<ArrayRef> {
+    let mut ctx = VortexSession::empty().create_execution_ctx();
     let mut offsets = vec![0i32];
     let mut len = 0usize;
     for row in rows {
@@ -79,6 +81,7 @@ fn nest<T>(rows: &[Vec<T>], elements: ArrayRef) -> VortexResult<ArrayRef> {
         elements,
         PrimitiveArray::from_iter(offsets).into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )?
     .into_array())
 }
@@ -182,6 +185,7 @@ pub fn multipolygon_column(multipolygons: Vec<MultiPolygonRings>) -> VortexResul
 pub fn nullable_multipolygon_column(
     multipolygons: Vec<Option<MultiPolygonRings>>,
 ) -> VortexResult<ArrayRef> {
+    let mut ctx = VortexSession::empty().create_execution_ctx();
     let rows: Vec<MultiPolygonRings> = multipolygons
         .iter()
         .map(|row| row.clone().unwrap_or_default())
@@ -197,6 +201,7 @@ pub fn nullable_multipolygon_column(
         vertex_list_lists(&polygons)?,
         PrimitiveArray::from_iter(offsets).into_array(),
         Validity::from_iter(multipolygons.iter().map(Option::is_some)),
+        &mut ctx,
     )?
     .into_array();
     spatial_column::<MultiPolygon>(

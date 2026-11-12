@@ -1,9 +1,15 @@
 name: Fuzzer Issue Autofix
 
-# Run the Fuzzer Fix Automation when a fuzzer-labeled issue is opened or gains
-# the "fuzzer" label. This covers issues filed by the fuzz pipeline as well as
-# ones created manually, complementing the in-pipeline attempt-fix-* jobs in
-# fuzz.yml.
+# Run the Fuzzer Fix Automation when an issue gets the "fuzzer" label. This
+# covers issues that people file or label manually. Issues that the fuzz
+# pipeline files do not start this workflow, because the pipeline uses
+# GITHUB_TOKEN and events from that token do not trigger workflows. The
+# attempt-fix-* jobs in fuzz.yml fix those issues instead.
+#
+# The trigger is "labeled" only. An issue that is opened with labels also sends
+# one "labeled" event for each label, so an "opened" trigger only adds a second
+# run for each new issue. GitHub cannot filter issue events by label name, so
+# each label event on any issue still starts a run that the gate job skips.
 #
 # A gate job runs first, WITHOUT the claude-automation environment, so untrusted
 # triggers are rejected before the write-capable App token is minted. The
@@ -11,14 +17,14 @@ name: Fuzzer Issue Autofix
 # triage permission, which is below write.
 
 concurrency:
-  # Keyed on the issue so repeat triggers (e.g. opened + labeled for the same
-  # issue) collapse into a single in-flight fix attempt.
+  # Keyed on the issue so repeat triggers for the same issue collapse into a
+  # single in-flight fix attempt.
   group: fuzzer-fix-${{ github.event.issue.number }}
   cancel-in-progress: true
 
 on:
   issues:
-    types: [opened, labeled]
+    types: [labeled]
 
 jobs:
   gate:
@@ -26,10 +32,7 @@ jobs:
     # Cheap pre-filter: only fuzzer-labeled issues are in scope. The trust
     # decision (who triggered this, is the content trusted) is made in the
     # script below, before any environment or write-capable token is attached.
-    if: |
-      (github.event.action == 'opened' &&
-        contains(github.event.issue.labels.*.name, 'fuzzer')) ||
-      (github.event.action == 'labeled' && github.event.label.name == 'fuzzer')
+    if: github.event.label.name == 'fuzzer'
     runs-on: ubuntu-latest
     permissions:
       contents: read

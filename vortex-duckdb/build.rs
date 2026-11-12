@@ -8,7 +8,10 @@
 use std::env;
 use std::fs;
 use std::io;
+#[cfg(unix)]
 use std::os::unix::fs::symlink;
+#[cfg(windows)]
+use std::os::windows::fs::symlink_dir as symlink;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -23,21 +26,18 @@ const DUCKDB_RELEASES_URL: &str = "https://ci-builds.vortex.dev";
 
 const DUCKDB_SOURCE_RELEASE_URL: &str = "https://github.com/duckdb/duckdb/archive/refs/tags";
 const DUCKDB_SOURCE_COMMIT_URL: &str = "https://github.com/duckdb/duckdb/archive";
-const DEFAULT_DUCKDB_VERSION: &str = "1.5.5";
+const DEFAULT_DUCKDB_VERSION: &str = "v2.0.0";
 
 const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckdb_static.a"];
 const BUILD_MARKER: &str = ".vx-build-complete";
 const DUCKDB_CACHE_DIR: &str = "vortex-duckdb-cache";
 const EXTRACT_MARKER: &str = ".vx-extract-complete";
 
-const SOURCE_FILES: [&str; 12] = [
+const SOURCE_FILES: [&str; 9] = [
     "cpp/vortex_duckdb.cpp",
     "cpp/copy_function.cpp",
     "cpp/expr.cpp",
-    "cpp/optimizer.cpp",
-    "cpp/scalar_fn_pushdown.cpp",
     "cpp/spatial_overrides.cpp",
-    "cpp/cast_pushdown.cpp",
     "cpp/aggregate_fn_pushdown.cpp",
     "cpp/table_filter.cpp",
     "cpp/multi_file_reader.cpp",
@@ -47,7 +47,7 @@ const SOURCE_FILES: [&str; 12] = [
 
 // Duckdb C API function we use.
 // This lowers codegen'd src/cpp.rs by four times.
-const DUCKDB_C_API_FUNCTIONS: [&str; 135] = [
+const DUCKDB_C_API_FUNCTIONS: [&str; 139] = [
     "duckdb_array_type_array_size",
     "duckdb_array_type_child_type",
     "duckdb_array_vector_get_child",
@@ -60,6 +60,7 @@ const DUCKDB_C_API_FUNCTIONS: [&str; 135] = [
     "duckdb_config_count",
     "duckdb_connect",
     "duckdb_create_array_type",
+    "duckdb_create_array_value",
     "duckdb_create_blob",
     "duckdb_create_bool",
     "duckdb_create_config",
@@ -75,11 +76,14 @@ const DUCKDB_C_API_FUNCTIONS: [&str; 135] = [
     "duckdb_create_int64",
     "duckdb_create_int8",
     "duckdb_create_list_type",
+    "duckdb_create_list_value",
     "duckdb_create_logical_type",
     "duckdb_create_map_type",
+    "duckdb_create_map_value",
     "duckdb_create_null_value",
     "duckdb_create_selection_vector",
     "duckdb_create_struct_type",
+    "duckdb_create_struct_value",
     "duckdb_create_time",
     "duckdb_create_time_ns",
     "duckdb_create_timestamp",
@@ -354,48 +358,6 @@ fn extract(archive: &Path, dest: &Path) {
     zip::ZipArchive::new(file).unwrap().extract(dest).unwrap();
 }
 
-fn git_apply(repo_dir: &Path, patch: &Path, args: &[&str]) -> bool {
-    let output = Command::new("git")
-        .current_dir(repo_dir)
-        .args(["apply", "-p1"])
-        .args(args)
-        .arg(patch)
-        .output();
-    match output {
-        Ok(out) => out.status.success(),
-        Err(e) => {
-            println!("cargo:error=git is required to patch DuckDB sources: {e}");
-            exit(1);
-        }
-    }
-}
-
-fn apply_source_patches(crate_dir: &Path, repo_dir: &Path) {
-    let mut patches: Vec<PathBuf> = fs::read_dir(crate_dir.join("patches"))
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "diff"))
-        .collect();
-    patches.sort();
-
-    for patch in patches {
-        // A successful reverse dry-run means the patch is already applied.
-        if git_apply(repo_dir, &patch, &["--check", "--reverse"]) {
-            continue;
-        }
-        if !git_apply(repo_dir, &patch, &[]) {
-            println!(
-                "cargo:error=Failed to apply {} to {}; delete that directory to re-extract \
-                DuckDB sources",
-                patch.display(),
-                repo_dir.display()
-            );
-            exit(1);
-        }
-        println!("cargo:info=Applied {}", patch.display());
-    }
-}
-
 /// Download DuckDB library archive from R2 and extract it.
 /// Return false if archive is not available or download failed
 fn download_prebuilt(version: &DuckDBVersion, library_dir: &Path, target: &str) -> bool {
@@ -403,13 +365,21 @@ fn download_prebuilt(version: &DuckDBVersion, library_dir: &Path, target: &str) 
         "aarch64-apple-darwin" | "x86_64-apple-darwin" => ("osx", "universal"),
         "x86_64-unknown-linux-gnu" => ("linux", "amd64"),
         "aarch64-unknown-linux-gnu" => ("linux", "arm64"),
+        "x86_64-pc-windows-msvc" => ("windows", "amd64"),
+        "aarch64-pc-windows-msvc" => ("windows", "arm64"),
         _ => {
             println!("cargo:error=Unsupported target {target}");
             exit(1);
         }
     };
 
-    let archive_name = format!("libduckdb-{platform}-{arch}.zip");
+    // This isn't exactly required, but a separate name IMO is better since
+    // windows builds require static libs
+    let archive_name = if platform == "windows" {
+        format!("libduckdb-{platform}-{arch}-static.zip")
+    } else {
+        format!("libduckdb-{platform}-{arch}.zip")
+    };
     let url = format!("{DUCKDB_RELEASES_URL}/{version}/{archive_name}");
     let archive_path = library_dir.join(&archive_name);
     let extract_marker = library_dir.join(EXTRACT_MARKER);
@@ -447,12 +417,15 @@ fn build_duckdb(version: &DuckDBVersion, duckdb_repo_dir: &Path) {
         ("1", "0")
     };
 
-    // If we're building from a commit we need to build benchmark
-    // extensions statically, otherwise DuckDB tries to load them from an http
-    // endpoint with version 0.0.1 (all non-tagged builds) which doesn't exist.
-    let static_extensions = match version {
-        DuckDBVersion::Release(_) => "parquet",
-        DuckDBVersion::Commit(_) => "parquet;tpch;tpcds",
+    // If we're building from a commit we need to build some extensions
+    // statically, otherwise DuckDB tries to load them from an http endpoint
+    // with version 0.0.1 (all non-tagged builds) which doesn't exist.
+    let (static_extensions, link_extensions) = match version {
+        DuckDBVersion::Release(_) => ("parquet", "0"),
+        // tpch/tpcds/parquet needed for benchmarks
+        // icu needed for timestamptz tests
+        // httpfs needed for s3 write test
+        DuckDBVersion::Commit(_) => ("parquet;tpch;tpcds;icu;httpfs", "1"),
     };
 
     let envs = [
@@ -463,6 +436,7 @@ fn build_duckdb(version: &DuckDBVersion, duckdb_repo_dir: &Path) {
         ("BUILD_UNITTESTS", "false"),
         ("ENABLE_UNITTEST_CPP_TESTS", "false"),
         ("BUILD_EXTENSIONS", static_extensions),
+        ("LINK_CORE_EXTENSIONS", link_extensions),
     ];
 
     let output = Command::new("make")
@@ -570,6 +544,7 @@ fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
 /// Generate libvortex_duckdb.*
 fn compile_cpp(duckdb_include_dir: &Path) {
     let mut build = cc::Build::new();
+
     let has_debuginfo = env::var("DEBUG")
         .map(|v| !matches!(v.as_str(), "false" | "0" | "none" | ""))
         .unwrap_or(false);
@@ -578,19 +553,36 @@ fn compile_cpp(duckdb_include_dir: &Path) {
     } else {
         build.define("NDEBUG", None);
     }
+
+    if build.get_compiler().is_like_msvc() {
+        build.flag("/W4").flag("/EHsc").include(duckdb_include_dir);
+    } else {
+        build
+            .flags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"])
+            // We don't want compiler warnings inside duckdb headers, pass as flags
+            .flag("-isystem")
+            .flag(duckdb_include_dir);
+    }
+
+    build.std("c++20").cpp(true);
+
+    if let Some(root) = duckdb_include_dir.parent().and_then(Path::parent) {
+        let third_party = root.join("third_party");
+        if let Ok(entries) = fs::read_dir(&third_party) {
+            for entry in entries.flatten() {
+                let include = entry.path().join("include");
+                if include.is_dir() {
+                    if build.get_compiler().is_like_msvc() {
+                        build.include(include);
+                    } else {
+                        build.flag("-isystem").flag(include);
+                    }
+                }
+            }
+        }
+    }
+
     build
-        .std("c++20")
-        .flags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"])
-        .cpp(true)
-        // Duckdb 1.5.5 uses C++11. spatial_overrides.o uses
-        // duckdb::ScalarFunctionCatalogEntry::Name which is constexpr but not
-        // inline. Our code uses C++20 where constexpr implies inline. GCC
-        // emits this symbol with STB_GNU_UNIQUE and this conflicts on link stage
-        // in duckdb-vortex where libvortex_duckdb.a is linked statically
-        .flag_if_supported("-fno-gnu-unique")
-        // We don't want compiler warnings inside duckdb headers, pass as flags
-        .flag("-isystem")
-        .flag(duckdb_include_dir)
         .include("include")
         .include("cpp/include")
         .files(SOURCE_FILES)
@@ -658,7 +650,6 @@ fn vortex_version(crate_dir: &Path) {
 
 fn main() {
     println!("cargo:rerun-if-changed=cpp/include");
-    println!("cargo:rerun-if-changed=patches");
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_DEBUG");
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_SAN");
     println!("cargo:rerun-if-env-changed=DEBUG");
@@ -690,7 +681,6 @@ fn main() {
             "cargo:info=Using DuckDB source from DUCKDB_SOURCE_DIR={}",
             source_dir.display()
         );
-        apply_source_patches(&crate_dir, &source_dir);
         bindgen_c2rust(&crate_dir, &duckdb_include_dir);
         cbindgen_rust2c(&crate_dir);
         compile_cpp(&duckdb_include_dir);
@@ -742,15 +732,21 @@ fn main() {
         fs::write(&extract_marker, version.to_string()).unwrap();
     }
 
-    apply_source_patches(&crate_dir, &inner_dir);
-
     drop(fs::remove_file(&duckdb_dir));
     drop(fs::remove_dir_all(&duckdb_dir));
     symlink(&source_dir, &duckdb_dir).unwrap();
 
     println!("cargo:info=building DuckDB in {build_type} mode");
 
-    let prebuilt_library_dir = cache_root.join(format!("duckdb-lib-{version}-{target}-prebuilt"));
+    // windows builds should be separate entries in the cache as they use
+    // static libraries
+    let prebuilt_kind = if target.contains("windows") {
+        "static-prebuilt"
+    } else {
+        "prebuilt"
+    };
+    let prebuilt_library_dir =
+        cache_root.join(format!("duckdb-lib-{version}-{target}-{prebuilt_kind}"));
     let source_library_dir = cache_root.join(format!(
         "duckdb-lib-{version}-{target}-{build_type}{sanitizer_suffix}"
     ));
@@ -781,21 +777,28 @@ fn main() {
 
     let library_dir_str = library_dir.display();
     println!("cargo:rustc-link-search=native={library_dir_str}");
-    println!("cargo:rustc-link-lib=dylib=duckdb");
+    if target.contains("windows") {
+        // If we got here, we're not building inside duckdb-vortex.
+        // Running tests under Linux requires linking a single .so because ELF
+        // has public visibility by default. Windows, however, has multiple
+        // static libraries each exporting a subset of symbols we need
+        println!("cargo:rustc-link-lib=static=duckdb_loadable_extensions");
+        println!("cargo:rustc-link-lib=static=duckdb_httplib");
+        println!("cargo:rustc-link-lib=static=core_functions_extension");
+        println!("cargo:rustc-link-lib=static=icu_extension");
+        println!("cargo:rustc-link-lib=static=duckdb_static");
+        // We also need symbols from standard library runtime
+        println!("cargo:rustc-link-lib=libcpmt");
+        // And this is needed by duckdb_static
+        println!("cargo:rustc-link-lib=rstrtmgr");
+    } else {
+        println!("cargo:rustc-link-lib=dylib=duckdb");
 
-    // Set rpath for binaries built directly from this crate. This is not
-    // inherited by downstream crates.
-    println!("cargo:rustc-link-arg=-Wl,-rpath,{library_dir_str}");
+        // Set rpath for binaries built directly from this crate. This is not
+        // inherited by downstream crates.
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{library_dir_str}");
+    }
 
-    // Export the library path for downstream crates via the `links` manifest key.
-    // Downstream crates can access this via `env::var("DEP_DUCKDB_LIB_DIR")` in their build.rs
-    // and add their own rpath:
-    //
-    //   if let Ok(duckdb_lib) = env::var("DEP_DUCKDB_LIB_DIR") {
-    //       println!("cargo:rustc-link-arg=-Wl,-rpath,{duckdb_lib}");
-    //   }
-    //
-    // Alternatively, set LD_LIBRARY_PATH (Linux) or DYLD_LIBRARY_PATH (macOS) at runtime.
     println!("cargo:lib_dir={library_dir_str}");
 
     let duckdb_include_dir = inner_dir.join("src").join("include");

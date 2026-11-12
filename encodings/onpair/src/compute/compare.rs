@@ -101,6 +101,7 @@ mod tests {
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::fns::binary::CompareKernel;
     use vortex_array::scalar_fn::fns::operators::CompareOperator;
@@ -114,7 +115,7 @@ mod tests {
     use crate::compress::onpair_compress;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -135,9 +136,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let arr = onpair_compress(input.as_array(), DEFAULT_CONFIG, &mut ctx)?.into_array();
 
-        let result = arr
-            .binary(ConstantArray::new("", input.len()).into_array(), op)?
-            .execute::<BoolArray>(&mut ctx)?;
+        let result = arr.binary(ConstantArray::new("", input.len()).into_array(), op)?;
         assert_arrays_eq!(&result, &BoolArray::from_iter(expected), &mut ctx);
         Ok(())
     }
@@ -154,8 +153,7 @@ mod tests {
 
         let eq_empty = arr
             .clone()
-            .binary(ConstantArray::new("", arr.len()).into_array(), Operator::Eq)?
-            .execute::<BoolArray>(&mut ctx)?;
+            .binary(ConstantArray::new("", arr.len()).into_array(), Operator::Eq)?;
         assert_arrays_eq!(
             &eq_empty,
             &BoolArray::from_iter([Some(true), None, Some(false)]),
@@ -164,9 +162,7 @@ mod tests {
 
         let null_rhs =
             ConstantArray::new(Scalar::null(DType::Utf8(Nullability::Nullable)), arr.len());
-        let eq_null = arr
-            .binary(null_rhs.into_array(), Operator::Eq)?
-            .execute::<BoolArray>(&mut ctx)?;
+        let eq_null = arr.binary(null_rhs.into_array(), Operator::Eq)?;
         assert_arrays_eq!(
             &eq_null,
             &BoolArray::from_iter([None::<bool>, None, None]),
@@ -186,18 +182,14 @@ mod tests {
         let arr = onpair_compress(input.as_array(), DEFAULT_CONFIG, &mut ctx)?.into_array();
         let rhs = ConstantArray::new("hello", arr.len()).into_array();
 
-        let eq = arr
-            .binary(rhs.clone(), Operator::Eq)?
-            .execute::<BoolArray>(&mut ctx)?;
+        let eq = arr.binary(rhs.clone(), Operator::Eq)?;
         assert_arrays_eq!(
             &eq,
             &BoolArray::from_iter([Some(true), None, Some(false), Some(true)]),
             &mut ctx
         );
 
-        let neq = arr
-            .binary(rhs, Operator::NotEq)?
-            .execute::<BoolArray>(&mut ctx)?;
+        let neq = arr.binary(rhs, Operator::NotEq)?;
         assert_arrays_eq!(
             &neq,
             &BoolArray::from_iter([Some(false), None, Some(true), Some(false)]),
@@ -259,7 +251,7 @@ mod tests {
         );
         let mut ctx = SESSION.create_execution_ctx();
         let arr = onpair_compress(input.as_array(), DEFAULT_CONFIG, &mut ctx)?.into_array();
-        let sliced = arr.slice(1..4)?;
+        let sliced = arr.slice(1..4)?.optimize_ctx(&SESSION)?;
         assert!(sliced.is::<OnPair>(), "slice dropped OnPair encoding");
         let sliced = sliced
             .try_downcast::<OnPair>()

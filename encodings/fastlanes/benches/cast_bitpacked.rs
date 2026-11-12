@@ -3,12 +3,6 @@
 
 //! Benchmarks the cost of widening a bit-packed narrow integer column to a wider integer type on
 //! decompression (e.g. `u16 -> u32`).
-//!
-//! Two strategies are compared:
-//!
-//! - `cast_execute`: the real public path, `array.cast(u32).execute()`.
-//! - `canonicalize_then_cast`: explicitly canonicalizes to a full-length `u16` `PrimitiveArray` and
-//!   then casts that to `u32`.
 
 #![expect(clippy::unwrap_used)]
 
@@ -22,12 +16,17 @@ use rand::prelude::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -39,11 +38,16 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>();
     vortex_fastlanes::initialize(&session);
     session
 });
@@ -91,11 +95,14 @@ fn make_chunks(len: usize, count: usize, fraction_patched: f64) -> Vec<BitPacked
 }
 
 fn single(chunks: &[BitPackedArray]) -> ArrayRef {
-    if chunks.len() == 1 {
+    let array = if chunks.len() == 1 {
         chunks[0].clone().into_array()
     } else {
         ChunkedArray::from_iter(chunks.iter().map(|c| c.clone().into_array())).into_array()
-    }
+    };
+    mark_optimized(&array, &SESSION).vortex_expect("mark the array as optimized");
+
+    array
 }
 
 #[divan::bench(args = ARGS)]

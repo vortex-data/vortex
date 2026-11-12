@@ -176,17 +176,22 @@ mod tests {
 
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
+    use vortex_array::ArrayVTable;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::Widen;
+    use vortex_array::arrays::WidenArray;
     use vortex_array::arrays::struct_::StructArrayExt;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
@@ -198,6 +203,7 @@ mod tests {
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::AllOr;
@@ -212,9 +218,8 @@ mod tests {
 
     // Currently, flat layouts do not force compute stats during write, they only retain
     // pre-computed stats.
-    #[should_panic]
     #[test]
-    fn flat_stats() {
+    fn flat_does_not_compute_missing_stats() {
         block_on(|handle| async {
             let session = new_session().with_handle(handle);
             let ctx = ArrayContext::empty();
@@ -248,7 +253,7 @@ mod tests {
 
             assert_eq!(
                 result.statistics().get_as::<bool>(Stat::IsSorted),
-                Precision::Exact(true)
+                Precision::Absent
             );
         })
     }
@@ -269,12 +274,11 @@ mod tests {
             builder.append_value("Another string that's meant to be smaller than the previous value, though still need extra padding");
             let array = builder.finish();
             let mut stats_ctx = session.create_execution_ctx();
-            array.statistics().set_iter(
+            array.statistics().set_all(
                 array
                     .statistics()
                     .compute_all(&Stat::all().collect::<Vec<_>>(), &mut stats_ctx)
-                    .vortex_expect("stats computation should succeed for test array")
-                    .into_iter(),
+                    .vortex_expect("stats computation should succeed for test array"),
             );
 
             let layout = FlatLayoutStrategy::default()
@@ -322,7 +326,7 @@ mod tests {
     #[test]
     fn struct_array_round_trip() {
         block_on(|handle| async {
-            let mut ctx_exec = array_session().create_execution_ctx();
+            let mut ctx_exec = SESSION.create_execution_ctx();
             let session = new_session().with_handle(handle);
             let mut validity_builder = BitBufferMut::with_capacity(2);
             validity_builder.append(true);
@@ -405,6 +409,49 @@ mod tests {
                 .execute::<PrimitiveArray>(&mut ctx_exec)
                 .unwrap();
             assert_eq!(field_b.as_slice::<u64>(), &[3, 4]);
+        })
+    }
+
+    #[test]
+    fn flat_writes_decimal_widen() -> VortexResult<()> {
+        let values = DecimalArray::new(
+            buffer![-125i32, 50, 900],
+            DecimalDType::new(9, 2),
+            Validity::from_iter([true, false, true]),
+        );
+        let dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::Nullable);
+        let array = WidenArray::try_new(values.into_array(), dtype)?.into_array();
+
+        block_on(|handle| async {
+            let mut ctx_exec = SESSION.create_execution_ctx();
+            let session = new_session().with_handle(handle);
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(
+                    ctx.clone().into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    array.clone().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+
+            let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+            let expr = root().bind(reader.dtype())?;
+            let result = reader
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &expr,
+                    MaskFuture::new_true(usize::try_from(layout.row_count())?),
+                )?
+                .await?;
+
+            assert!(!ctx.to_ids().contains(&ArrayVTable::id(&Widen)));
+            assert_arrays_eq!(result, array, &mut ctx_exec);
+
+            Ok(())
         })
     }
 }

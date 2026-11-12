@@ -14,12 +14,14 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PatchedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::patched::PatchedArraySlotsExt;
+use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySessionExt;
@@ -47,7 +49,7 @@ use crate::bitpack_compress::bitpack_blocked_to_best_bit_widths;
 use crate::bitpack_compress::bitpack_encode_blocked;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     session.arrays().register(BitPackedPatchedPlugin);
     session
 });
@@ -87,6 +89,8 @@ fn test_decode_bitpacked_patches() -> VortexResult<()> {
         ),
         &SESSION,
     )?;
+
+    assert_arrays_eq!(deserialized, parray, &mut ctx);
 
     let patched: PatchedArray = deserialized
         .try_downcast()
@@ -141,6 +145,8 @@ fn bitpacked_without_patches_stays_bitpacked() -> VortexResult<()> {
         &SESSION,
     )?;
 
+    assert_arrays_eq!(deserialized, parray, &mut ctx);
+
     let result = deserialized
         .try_downcast::<BitPacked>()
         .map_err(|a| vortex_err!("Expected deserialize BitPacked, got {}", a.encoding_id()))?;
@@ -183,7 +189,8 @@ fn primitive_array_returns_error() -> VortexResult<()> {
 }
 
 static PLUGIN_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
+    crate::initialize(&session);
     session.arrays().register(BitPackedPlugin);
     session
 });
@@ -220,7 +227,8 @@ fn serde_roundtrip(
     let mut ctx = PLUGIN_SESSION.create_execution_ctx();
     let array = BitPackedData::encode(&values, bit_width, &mut ctx)?
         .into_array()
-        .slice(range.clone())?;
+        .slice(range.clone())?
+        .optimize_ctx(&PLUGIN_SESSION)?;
     let view = array.as_::<BitPacked>();
     let serialization = PLUGIN_SESSION
         .array_serialize(&array)?
@@ -234,16 +242,6 @@ fn serde_roundtrip(
     let read = roundtrip(&array)?;
     assert_eq!(read.encoding_id(), BitPackedPlugin.id());
     assert_arrays_eq!(read, values.slice(range)?, &mut ctx);
-    Ok(())
-}
-
-#[test]
-fn vtable_serde_requires_plugin() -> VortexResult<()> {
-    let values = PrimitiveArray::from_iter([1u8, 2, 3]).into_array();
-    let array = BitPackedData::encode(&values, 2, &mut SESSION.create_execution_ctx())?;
-    let session = vortex_array::array_session();
-    session.arrays().register(BitPacked);
-    assert!(session.array_serialize(&array.into_array()).is_err());
     Ok(())
 }
 
@@ -417,5 +415,83 @@ fn test_decode_blocked_bitpacked_patches() -> VortexResult<()> {
     assert!(inner_bitpacked.patches().is_none());
     assert!(!inner_bitpacked.bit_widths().is_global());
     assert_arrays_eq!(patched, values, &mut ctx);
+    Ok(())
+}
+
+/// Slicing removes individual patches while retaining the first chunk's original offset.
+#[rstest]
+#[case::v1(false)]
+#[case::v2(true)]
+fn serde_roundtrip_sliced_chunked_patches(
+    #[case] blocked: bool,
+    #[values(500, 1500)] start: usize,
+) -> VortexResult<()> {
+    let mut ctx = PLUGIN_SESSION.create_execution_ctx();
+    // Every 7th value does not fit 11 bits and becomes a patch, in every chunk.
+    let values =
+        PrimitiveArray::from_iter((0u32..4096).map(|i| if i % 7 == 0 { 5000 } else { i % 2048 }));
+    let encoded = BitPackedData::encode(&values.clone().into_array(), 11, &mut ctx)?;
+    // Slice mid-chunk while still encoded, as the slice kernel does.
+    let sliced = <BitPacked as SliceKernel>::slice(encoded.as_view(), start..4096, &mut ctx)?
+        .ok_or_else(|| vortex_err!("BitPacked slices"))?;
+    let sliced = if blocked {
+        // Represent the same sliced blocks as v2 without relying on a blocked slice kernel.
+        let view = sliced.as_::<BitPacked>();
+        let num_blocks = (usize::from(view.offset()) + view.len()).div_ceil(1024);
+        let block_offsets = PrimitiveArray::from_iter(
+            (0..=u32::try_from(num_blocks)?).map(|block| block * 11 * 128),
+        );
+        BitPacked::try_new_with_block_offsets(
+            view.packed().clone(),
+            PType::U32,
+            view.validity()?,
+            view.patches(),
+            block_offsets.into_array(),
+            view.len(),
+            view.offset(),
+        )?
+        .into_array()
+    } else {
+        sliced
+    };
+    let sliced = sliced.optimize_ctx(&PLUGIN_SESSION)?;
+    let read = roundtrip(&sliced)?;
+    assert_eq!(read.as_::<BitPacked>().bit_widths().is_global(), !blocked);
+    let expected = values.into_array().slice(start..4096)?;
+    // Probe the first patch of the second retained chunk (row 529 when start is 500).
+    let patch_index = ((start / 1024 + 1) * 1024).next_multiple_of(7) - start;
+    assert_eq!(
+        read.execute_scalar(patch_index, &mut ctx)?,
+        expected.execute_scalar(patch_index, &mut ctx)?
+    );
+    assert_arrays_eq!(read, expected, &mut ctx);
+
+    let indices = PrimitiveArray::from_iter([
+        u32::try_from(patch_index - 1)?,
+        u32::try_from(patch_index)?,
+        u32::try_from(patch_index + 1)?,
+    ])
+    .into_array();
+    let taken = read
+        .take(indices.clone())?
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    assert_arrays_eq!(taken, expected.take(indices)?, &mut ctx);
+
+    let read_patches = read.as_::<BitPacked>().patches().unwrap();
+    let expected_patches = sliced.as_::<BitPacked>().patches().unwrap();
+    assert_eq!(
+        read_patches.offset_within_chunk(),
+        expected_patches.offset_within_chunk()
+    );
+    let resliced = read_patches.slice(800..read.len(), &mut ctx)?.unwrap();
+    let expected_resliced = expected_patches
+        .slice(800..sliced.len(), &mut ctx)?
+        .unwrap();
+    assert_eq!(
+        resliced.offset_within_chunk(),
+        expected_resliced.offset_within_chunk()
+    );
+    assert_arrays_eq!(resliced.indices(), expected_resliced.indices(), &mut ctx);
+    assert_arrays_eq!(resliced.values(), expected_resliced.values(), &mut ctx);
     Ok(())
 }

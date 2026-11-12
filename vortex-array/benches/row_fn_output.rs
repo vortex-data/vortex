@@ -15,17 +15,19 @@ use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::VecExecutionArgs;
 use vortex_array::scalar_fn::unstable::row::RowFn;
 use vortex_array::scalar_fn::unstable::row::RowVisitor;
 use vortex_array::scalar_fn::unstable::row::execute_rows;
+use vortex_array::test_harness::mark_optimized;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -40,7 +42,11 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 const ROWS: usize = 1 << 14;
 
@@ -221,6 +227,10 @@ fn make_args<T: BenchPrimitive>(shape: InputShape) -> VecExecutionArgs {
         InputShape::PerRowConstant => vec![T::per_row(0), T::constant()],
         InputShape::ConstantPerRow => vec![T::constant(), T::per_row(1)],
     };
+
+    for arg in &args {
+        mark_optimized(arg, &SESSION).vortex_expect("optimize the benchmark input");
+    }
 
     VecExecutionArgs::new(args, ROWS)
 }

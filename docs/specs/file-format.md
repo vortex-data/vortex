@@ -1,4 +1,4 @@
-# File Format
+# File format
 
 :::{important}
 The Vortex file format's stability guarantee starts with version `0.36.0` of the Vortex Rust crates

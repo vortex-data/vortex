@@ -161,7 +161,6 @@ impl TableFilterRef {
                     comparison_type: cpp::DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID,
                 };
                 unsafe { cpp::duckdb_vx_table_filter_get_dynamic(self.as_ptr(), &raw mut out) };
-
                 TableFilterClass::Dynamic(DynamicFilter {
                     data: unsafe { DynamicFilterData::own(out.data) },
                     operator: out.comparison_type,

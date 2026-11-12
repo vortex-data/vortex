@@ -18,6 +18,7 @@ use pyo3::PyResult;
 use pyo3::Python;
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;
+use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
@@ -25,9 +26,13 @@ use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::DType;
+use vortex::error::VortexResult;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 
+use crate::arrays::ArrowExport;
 use crate::arrays::PyArrayRef;
+use crate::arrays::arrow_target_field;
 use crate::arrow::IntoPyArrow;
 use crate::dtype::PyDType;
 use crate::error::PyVortexResult;
@@ -67,6 +72,16 @@ impl PyArrayIterator {
     pub fn take(&self) -> Option<Box<dyn ArrayIterator + Send>> {
         self.iter.lock().take()
     }
+
+    /// Read the chunks that are left into one array; this does the IO, so call it detached.
+    fn read_remaining(&self) -> VortexResult<ArrayRef> {
+        if let Some(iter) = self.take() {
+            iter.read_all()
+        } else {
+            // Otherwise, we continue to return an empty array.
+            Ok(Canonical::empty(&self.dtype).into_array())
+        }
+    }
 }
 
 #[pymethods]
@@ -99,15 +114,42 @@ impl PyArrayIterator {
     /// Read all chunks into a single :class:`vortex.Array`. If there are multiple chunks,
     /// this will be a :class:`vortex.ChunkedArray`, otherwise it will be a single array.
     fn read_all(&self, py: Python) -> PyVortexResult<PyArrayRef> {
-        let array = py.detach(|| {
-            if let Some(iter) = self.iter.lock().take() {
-                iter.read_all()
-            } else {
-                // Otherwise, we continue to return an empty array.
-                Ok(Canonical::empty(&self.dtype).into_array())
-            }
-        })?;
+        let array = py.detach(|| self.read_remaining())?;
         Ok(PyArrayRef::from(array))
+    }
+
+    /// Read all chunks and export them as one Arrow array, as
+    /// :meth:`vortex.Array.to_arrow_array` does.
+    ///
+    /// The result is the same as ``read_all().to_arrow_array(...)``. This releases the GIL once
+    /// for the read and the export together, rather than once for each. When other threads hold
+    /// the GIL, each release costs a wait to take it back.
+    ///
+    /// Parameters
+    /// ----------
+    /// arrow_type : :class:`pyarrow.DataType` | None
+    ///     The Arrow type to export into. By default, the type is inferred from the dtype.
+    /// combine_chunks : :class:`bool`
+    ///     Export chunks as one contiguous array rather than a :class:`pyarrow.ChunkedArray`.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`pyarrow.Array` | :class:`pyarrow.ChunkedArray`
+    #[pyo3(signature = (*, arrow_type = None, combine_chunks = false))]
+    fn to_arrow_array<'py>(
+        &self,
+        py: Python<'py>,
+        arrow_type: Option<&Bound<'py, PyAny>>,
+        combine_chunks: bool,
+    ) -> PyVortexResult<Bound<'py, PyAny>> {
+        let target_field = arrow_target_field(arrow_type, &self.dtype)?;
+
+        let export = py.detach(|| {
+            let array = self.read_remaining()?;
+            ArrowExport::execute(array, target_field, combine_chunks)
+        })?;
+
+        Ok(export.into_pyarrow(py)?)
     }
 
     /// Convert the :class:`vortex.ArrayIterator` into a :class:`pyarrow.RecordBatchReader`.
@@ -129,11 +171,7 @@ impl PyArrayIterator {
             Box::new(RecordBatchIterator::new(
                 iter.map(move |chunk| {
                     let target = target.clone();
-                    session().arrow().execute_arrow(
-                        chunk?,
-                        Some(&target),
-                        &mut session().create_execution_ctx(),
-                    )
+                    chunk?.execute_arrow(Some(&target), &mut session().create_execution_ctx())
                 })
                 .map(|chunk| chunk.map_err(|e| ArrowError::ExternalError(Box::new(e))))
                 .map(|array| array.map(|a| RecordBatch::from(a.as_struct().clone()))),

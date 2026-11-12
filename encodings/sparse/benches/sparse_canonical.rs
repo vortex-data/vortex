@@ -12,12 +12,19 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
+use vortex_array::dtype::Nullability::Nullable;
 use vortex_array::dtype::PType::I32;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
+use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -28,11 +35,16 @@ use vortex_sparse::Sparse;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>();
     vortex_sparse::initialize(&session);
     session
 });
@@ -49,7 +61,13 @@ const FIXED_SIZE_LIST_ARGS: &[(usize, usize, u32)] = &[
     (1_024, 17, 8),
 ];
 
-fn make_sparse_list(len: usize, patch_stride: usize, list_size: usize) -> ArrayRef {
+fn make_sparse_list(
+    len: usize,
+    patch_stride: usize,
+    list_size: usize,
+    fill_value: Scalar,
+) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let patch_indices: Buffer<u32> = (0..len).step_by(patch_stride).map(|i| i as u32).collect();
     let n_patches = patch_indices.len();
 
@@ -60,22 +78,27 @@ fn make_sparse_list(len: usize, patch_stride: usize, list_size: usize) -> ArrayR
         patch_elements,
         patch_offsets.into_array(),
         patch_sizes.into_array(),
-        Validity::NonNullable,
+        Validity::from(fill_value.dtype().nullability()),
+        &mut ctx,
     )
     .into_array();
 
-    let fill_value = Scalar::list(
-        Arc::new(I32.into()),
-        (0..list_size as i32).map(Scalar::from).collect(),
-        NonNullable,
-    );
+    let array = Sparse::try_new(
+        patch_indices.into_array(),
+        patch_values,
+        len,
+        fill_value,
+        &mut ctx,
+    )
+    .vortex_expect("sparse list input should be valid")
+    .into_array();
+    mark_optimized(&array, &SESSION).vortex_expect("mark the sparse list as optimized");
 
-    Sparse::try_new(patch_indices.into_array(), patch_values, len, fill_value)
-        .vortex_expect("sparse list input should be valid")
-        .into_array()
+    array
 }
 
 fn make_sparse_fixed_size_list(len: usize, patch_stride: usize, list_size: u32) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let patch_indices: Buffer<u32> = (0..len).step_by(patch_stride).map(|i| i as u32).collect();
     let n_patches = patch_indices.len();
 
@@ -91,9 +114,18 @@ fn make_sparse_fixed_size_list(len: usize, patch_stride: usize, list_size: u32) 
         NonNullable,
     );
 
-    Sparse::try_new(patch_indices.into_array(), patch_values, len, fill_value)
-        .vortex_expect("sparse fixed-size-list input should be valid")
-        .into_array()
+    let array = Sparse::try_new(
+        patch_indices.into_array(),
+        patch_values,
+        len,
+        fill_value,
+        &mut ctx,
+    )
+    .vortex_expect("sparse fixed-size-list input should be valid")
+    .into_array();
+    mark_optimized(&array, &SESSION).vortex_expect("mark the sparse fixed-size list as optimized");
+
+    array
 }
 
 #[divan::bench(args = LIST_ARGS)]
@@ -101,8 +133,29 @@ fn canonicalize_sparse_list(
     bencher: Bencher,
     (len, patch_stride, list_size): (usize, usize, usize),
 ) {
-    let sparse = make_sparse_list(len, patch_stride, list_size);
+    let fill_value = Scalar::list(
+        Arc::new(I32.into()),
+        (0..list_size as i32).map(Scalar::from).collect(),
+        NonNullable,
+    );
+    let sparse = make_sparse_list(len, patch_stride, list_size, fill_value);
 
+    bench_sparse_list(bencher, sparse);
+}
+
+#[divan::bench(args = LIST_ARGS)]
+fn canonicalize_sparse_list_null_fill(
+    bencher: Bencher,
+    (len, patch_stride, list_size): (usize, usize, usize),
+) {
+    // Present patches are valid lists; only the rows between patches are null.
+    let fill_value = Scalar::null(DType::List(Arc::new(I32.into()), Nullable));
+    let sparse = make_sparse_list(len, patch_stride, list_size, fill_value);
+
+    bench_sparse_list(bencher, sparse);
+}
+
+fn bench_sparse_list(bencher: Bencher, sparse: ArrayRef) {
     bencher
         .with_inputs(|| (sparse.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {

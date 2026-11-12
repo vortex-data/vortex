@@ -64,7 +64,11 @@ fn test_decimal_cast_to_primitive() {
         .cast(&DType::Primitive(PType::F64, Nullability::NonNullable))
         .unwrap();
     let float_value: f64 = float_result.try_into().unwrap();
-    assert!((float_value - 123.45).abs() < 0.001);
+    assert_eq!(float_value, 123.45);
+    assert_eq!(
+        float_result.as_primitive().typed_value::<f64>(),
+        Some(123.45)
+    );
 
     // Cast to i32 should give us 123 (truncated)
     let int_result = &decimal_scalar
@@ -87,6 +91,10 @@ fn test_decimal_cast_null_handling() {
         .cast(&DType::Primitive(PType::I32, Nullability::Nullable))
         .unwrap();
     assert!(result.is_null());
+    assert_eq!(
+        result.dtype(),
+        &DType::Primitive(PType::I32, Nullability::Nullable)
+    );
 
     // Cast null decimal to another decimal type should preserve null
     let result = null_decimal
@@ -156,18 +164,27 @@ fn test_decimal_cast_negative_values() {
 }
 
 #[rstest]
-#[case(DecimalValue::I8(i8::MAX), DecimalDType::new(3, 0))]
-#[case(DecimalValue::I8(i8::MIN), DecimalDType::new(3, 0))]
-#[case(DecimalValue::I16(i16::MAX), DecimalDType::new(5, 0))]
-#[case(DecimalValue::I16(i16::MIN), DecimalDType::new(5, 0))]
-#[case(DecimalValue::I32(i32::MAX), DecimalDType::new(10, 0))]
-#[case(DecimalValue::I32(i32::MIN), DecimalDType::new(10, 0))]
-fn test_decimal_cast_edge_values(#[case] value: DecimalValue, #[case] dtype: DecimalDType) {
+#[case(DecimalValue::I8(i8::MAX), DecimalDType::new(3, 0), 127.0)]
+#[case(DecimalValue::I8(i8::MIN), DecimalDType::new(3, 0), -128.0)]
+#[case(DecimalValue::I16(i16::MAX), DecimalDType::new(5, 0), 32767.0)]
+#[case(DecimalValue::I16(i16::MIN), DecimalDType::new(5, 0), -32768.0)]
+#[case(DecimalValue::I32(i32::MAX), DecimalDType::new(10, 0), 2147483647.0)]
+#[case(DecimalValue::I32(i32::MIN), DecimalDType::new(10, 0), -2147483648.0)]
+fn test_decimal_cast_edge_values(
+    #[case] value: DecimalValue,
+    #[case] dtype: DecimalDType,
+    #[case] expected: f64,
+) {
     let decimal_scalar = Scalar::decimal(value, dtype, Nullability::NonNullable);
 
     // Cast to f64 should always work for these ranges
     let result = decimal_scalar.cast(&DType::Primitive(PType::F64, Nullability::NonNullable));
-    assert!(result.is_ok());
+    let result = result.unwrap();
+    assert_eq!(
+        result.dtype(),
+        &DType::Primitive(PType::F64, Nullability::NonNullable)
+    );
+    assert_eq!(result.as_primitive().typed_value::<f64>(), Some(expected));
 }
 
 #[rstest]
@@ -226,25 +243,6 @@ fn test_decimal_to_primitive_i32() {
     assert!(result.is_ok());
     let i32_scalar = result.unwrap();
     assert_eq!(i32_scalar.as_primitive().typed_value::<i32>().unwrap(), 42);
-}
-
-#[test]
-fn test_decimal_to_primitive_f64() {
-    // Create a decimal with value 123.45 (scale=2, so internal value is 12345)
-    let decimal = Scalar::decimal(
-        DecimalValue::I32(12345),
-        DecimalDType::new(10, 2),
-        Nullability::NonNullable,
-    );
-
-    // Cast to f64 - should preserve decimal value
-    let result = decimal.cast(&DType::Primitive(PType::F64, Nullability::NonNullable));
-    assert!(result.is_ok());
-    let f64_scalar = result.unwrap();
-    assert_eq!(
-        f64_scalar.as_primitive().typed_value::<f64>().unwrap(),
-        123.45
-    );
 }
 
 #[test]
@@ -405,25 +403,6 @@ fn test_primitive_to_decimal_precision_checked() {
 }
 
 #[test]
-fn test_null_decimal_cast() {
-    // Create a null decimal
-    let null_decimal = Scalar::null(DType::Decimal(
-        DecimalDType::new(10, 2),
-        Nullability::Nullable,
-    ));
-
-    // Cast to i32 - should produce null i32
-    let result = null_decimal.cast(&DType::Primitive(PType::I32, Nullability::Nullable));
-    assert!(result.is_ok());
-    let i32_scalar = result.unwrap();
-    assert!(i32_scalar.is_null());
-    assert_eq!(
-        i32_scalar.dtype(),
-        &DType::Primitive(PType::I32, Nullability::Nullable)
-    );
-}
-
-#[test]
 fn test_decimal_i256_to_primitive() {
     // Create a decimal with i256 value
     use crate::dtype::i256;
@@ -483,7 +462,7 @@ fn test_decimal_cast_preserves_nullability() {
     assert!(result.is_ok());
     let nullable_scalar = result.unwrap();
     assert_eq!(nullable_scalar.dtype().nullability(), Nullability::Nullable);
-    assert!(!nullable_scalar.is_null());
+    assert_eq!(nullable_scalar.as_primitive().typed_value::<i32>(), Some(1));
 }
 
 #[test]
@@ -720,6 +699,10 @@ fn test_decimal_value_from_unsigned() {
 
     let v4: DecimalValue = 18446744073709551615u64.into();
     assert_eq!(v4, DecimalValue::I128(18446744073709551615));
+    assert_eq!(v1.decimal_type(), DecimalType::I16);
+    assert_eq!(v2.decimal_type(), DecimalType::I32);
+    assert_eq!(v3.decimal_type(), DecimalType::I64);
+    assert_eq!(v4.decimal_type(), DecimalType::I128);
 }
 
 #[test]
@@ -1236,6 +1219,11 @@ fn test_checked_ops_preserve_type() {
         .checked_add(&DecimalValue::I256(i256::from_i128(2)))
         .unwrap();
     assert_eq!(add_i256.decimal_type(), DecimalType::I256);
+    assert_eq!(add.as_i256(), i256::from_i128(8));
+    assert_eq!(sub.as_i256(), i256::from_i128(7));
+    assert_eq!(mul.as_i256(), i256::from_i128(6));
+    assert_eq!(div.as_i256(), i256::from_i128(5));
+    assert_eq!(add_i256.as_i256(), i256::from_i128(3));
 }
 
 #[test]
@@ -1249,6 +1237,8 @@ fn test_checked_ops_mixed_types_use_wider() {
         .checked_sub(&DecimalValue::I128(3))
         .unwrap();
     assert_eq!(sub.decimal_type(), DecimalType::I128);
+    assert_eq!(add.as_i256(), i256::from_i128(3));
+    assert_eq!(sub.as_i256(), i256::from_i128(7));
 }
 
 #[test]

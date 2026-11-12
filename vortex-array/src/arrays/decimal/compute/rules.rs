@@ -4,6 +4,7 @@
 use std::ops::Range;
 
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -11,20 +12,24 @@ use crate::array::ArrayView;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Masked;
+use crate::arrays::Slice;
 use crate::arrays::slice::SliceReduce;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::match_each_decimal_value_type;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
-pub(crate) static RULES: ParentRuleSet<Decimal> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&DecimalMaskedValidityRule),
-    ParentRuleSet::lift(&CastReduceAdaptor(Decimal)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Decimal)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Decimal)),
-]);
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Masked, Decimal, const { &DecimalMaskedValidityRule });
+    kernels.register_reduce_parent_rule(Cast, Decimal, const { &CastReduceAdaptor(Decimal) });
+    kernels.register_reduce_parent_rule(MaskFn, Decimal, const { &MaskReduceAdaptor(Decimal) });
+    kernels.register_reduce_parent_rule(Slice, Decimal, const { &SliceReduceAdaptor(Decimal) });
+}
 
 /// Rule to push down validity masking from MaskedArray parent into DecimalArray child.
 ///
@@ -88,6 +93,7 @@ mod tests {
     use std::any::Any;
     use std::ops::Range;
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use futures::future::BoxFuture;
     use num_traits::AsPrimitive;
@@ -98,10 +104,10 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
@@ -110,7 +116,10 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::DecimalType;
     use crate::match_each_decimal_value_type;
+    use crate::optimizer::ArrayOptimizer;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     // Host-backed storage exposes device slicing without allowing implicit host copies.
     #[derive(Debug, PartialEq, Eq, Hash)]
@@ -163,7 +172,7 @@ mod tests {
         )]
         values_type: DecimalType,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let bytes = match_each_decimal_value_type!(values_type, |D| {
             Buffer::<D>::from_iter([-12i8, 34, -56, 78, 90, 12].map(|value| value.as_()))
                 .into_byte_buffer()
@@ -180,7 +189,7 @@ mod tests {
         let sliced = array.slice(1..5)?;
 
         let range = 1..3;
-        let nested = sliced.slice(range.clone())?;
+        let nested = sliced.slice(range.clone())?.optimize_ctx(&SESSION)?;
         let decimal = nested.as_::<Decimal>();
         let byte_width = values_type.byte_width();
         let original_range = range.start + 1..range.end + 1;

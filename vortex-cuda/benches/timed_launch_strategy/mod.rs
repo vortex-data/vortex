@@ -5,11 +5,10 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
-use cudarc::driver::sys::CUevent_flags;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_BLOCKING_SYNC;
 use vortex::error::VortexResult;
 use vortex_cuda::CudaKernelEvents;
 use vortex_cuda::LaunchStrategy;
+use vortex_cuda_driver::sys::CUevent_flags;
 
 #[derive(Debug, Default)]
 pub struct TimedLaunchStrategy {
@@ -26,7 +25,7 @@ impl TimedLaunchStrategy {
 impl LaunchStrategy for TimedLaunchStrategy {
     fn event_flags(&self) -> CUevent_flags {
         // using blocking_sync to make sure all events flush before we complete.
-        CU_EVENT_BLOCKING_SYNC
+        CUevent_flags::CU_EVENT_BLOCKING_SYNC
     }
 
     fn on_complete(&self, events: &CudaKernelEvents, _len: usize) -> VortexResult<()> {

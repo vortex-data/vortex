@@ -11,6 +11,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::expr::stats::Precision;
@@ -169,4 +170,36 @@ pub(crate) fn propagate_take_stats(
             &(unsafe { StatsSet::new_unchecked(inexact_min_max) }).as_typed_ref(source.dtype()),
         )
     })
+}
+
+/// Executes a dictionary whose codes are constant by expanding the one value they select, rather
+/// than materializing the codes and gathering through them.
+///
+/// The executor offers the codes child to its parent's kernels before the values child, so this
+/// runs ahead of the values' take kernel, whatever their encoding.
+#[derive(Debug)]
+pub(crate) struct DictConstantCodesKernel;
+
+impl ExecuteParentKernel<Constant> for DictConstantCodesKernel {
+    type Parent = Dict;
+
+    fn execute_parent(
+        &self,
+        array: ArrayView<'_, Constant>,
+        parent: <Self::Parent as Matcher>::Match<'_>,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if child_idx != 0 || parent.is_empty() {
+            return Ok(None);
+        }
+        let value = match array.scalar().as_primitive().as_::<usize>() {
+            Some(code) => parent
+                .values()
+                .execute_scalar(code, ctx)?
+                .cast(parent.dtype())?,
+            None => Scalar::null(parent.dtype().as_nullable()),
+        };
+        Ok(Some(ConstantArray::new(value, parent.len()).into_array()))
+    }
 }

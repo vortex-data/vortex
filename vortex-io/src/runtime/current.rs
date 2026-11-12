@@ -4,8 +4,11 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use async_channel::TryRecvError;
+use futures::SinkExt;
 use futures::Stream;
 use futures::StreamExt;
+use futures::channel::mpsc;
 use futures::stream::BoxStream;
 use parking_lot::Mutex;
 use smol::block_on;
@@ -72,7 +75,7 @@ impl CurrentThreadRuntime {
         // on the channel. Channel buffers up to one item per core so calling threads can get a
         // ready item without every one of them having to become an executor.
         let capacity = get_available_parallelism().unwrap_or(1).max(1);
-        let (result_tx, result_rx) = kanal::bounded_async(capacity);
+        let (result_tx, result_rx) = async_channel::bounded(capacity);
         let driver = self.executor.async_executor().spawn(async move {
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
@@ -88,6 +91,35 @@ impl CurrentThreadRuntime {
             executor: Arc::clone(&self.executor),
             results: result_rx,
             driver: Arc::new(Mutex::new(Some(driver))),
+        }
+    }
+
+    /// Returns an iterator that drives a stream in a background task, keeping at most one
+    /// completed item ready ahead of the single consumer.
+    ///
+    /// Use this instead of [`block_on_stream_thread_safe`](Self::block_on_stream_thread_safe)
+    /// when items are large and a per-core output queue would retain too many of them.
+    pub fn block_on_stream_prefetch<S, R>(&self, stream: S) -> PrefetchIterator<R>
+    where
+        S: Stream<Item = R> + Send + 'static,
+        R: Send + 'static,
+    {
+        // A zero-capacity mpsc still gives the sender one slot, and `send` resolves only once the
+        // receiver takes the item, so the driver never pulls a second item ahead.
+        let (mut result_tx, result_rx) = mpsc::channel(0);
+        let driver = self.executor.async_executor().spawn(async move {
+            futures::pin_mut!(stream);
+            while let Some(item) = stream.next().await {
+                if result_tx.send(item).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        PrefetchIterator {
+            executor: Arc::clone(&self.executor),
+            results: result_rx,
+            driver: Some(driver),
         }
     }
 }
@@ -136,7 +168,7 @@ impl<T> Iterator for CurrentThreadIterator<'_, T> {
 /// An iterator that drives a stream from multiple threads.
 pub struct ThreadSafeIterator<T> {
     executor: Arc<SmolExecutor>,
-    results: kanal::AsyncReceiver<T>,
+    results: async_channel::Receiver<T>,
     /// Handle to the task driving the stream. Once the stream ends, the first consumer to
     /// observe it joins the task so a panic raised while driving the stream is re-raised rather
     /// than silently ending the iterator.
@@ -160,9 +192,9 @@ impl<T> Iterator for ThreadSafeIterator<T> {
     fn next(&mut self) -> Option<Self::Item> {
         // If driver already has an item, take it without driving the executor
         match self.results.try_recv() {
-            Ok(Some(item)) => return Some(item),
-            Ok(None) => {}
-            Err(_) => return self.get_task_error(),
+            Ok(item) => return Some(item),
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Closed) => return self.get_task_error(),
         }
 
         match block_on(self.executor.run(self.results.recv())) {
@@ -180,6 +212,32 @@ impl<T> ThreadSafeIterator<T> {
             block_on(self.executor.run(task));
         }
         None
+    }
+}
+
+/// A single-consumer iterator that keeps at most one completed item ahead of the consumer.
+pub struct PrefetchIterator<T> {
+    executor: Arc<SmolExecutor>,
+    results: mpsc::Receiver<T>,
+    /// Joined once the stream ends so a panic raised while driving it is re-raised.
+    driver: Option<smol::Task<()>>,
+}
+
+impl<T> Iterator for PrefetchIterator<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let item = match self.results.try_recv() {
+            Ok(item) => Some(item),
+            Err(mpsc::TryRecvError::Closed) => None,
+            Err(mpsc::TryRecvError::Empty) => block_on(self.executor.run(self.results.next())),
+        };
+        if item.is_none()
+            && let Some(driver) = self.driver.take()
+        {
+            block_on(self.executor.run(driver));
+        }
+        item
     }
 }
 
@@ -482,10 +540,7 @@ mod tests {
         let results = collected.lock();
         let mut values: Vec<_> = results.iter().map(|(_, v)| *v).collect();
         values.sort();
-        values.dedup();
-
-        assert!(values.len() >= 5);
-        assert!(values.iter().all(|&v| v < num_items));
+        assert_eq!(values, (0..num_threads * 5).collect::<Vec<_>>());
     }
 
     #[test]
@@ -628,5 +683,38 @@ mod tests {
 
         assert_eq!(results.len(), num_items);
         assert_eq!(results, (0..num_items).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_block_on_stream_prefetch_keeps_one_item_ahead() {
+        let runtime = CurrentThreadRuntime::new();
+        let produced = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&produced);
+        let items = stream::iter(0..16).inspect(move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+        let mut iter = runtime.block_on_stream_prefetch(items);
+        assert_eq!(iter.next(), Some(0));
+        runtime.block_on(async {
+            for _ in 0..64 {
+                runtime.handle().spawn(async {}).await;
+            }
+        });
+        assert_eq!(produced.load(Ordering::SeqCst), 2);
+        assert_eq!(iter.collect::<Vec<_>>(), (1..16).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_block_on_stream_prefetch_propagates_driver_panic() {
+        let runtime = CurrentThreadRuntime::new();
+        let items = stream::iter(0..2).map(|value| {
+            assert!(value != 1, "stream driver panic");
+            value
+        });
+        let mut iter = runtime.block_on_stream_prefetch(items);
+        assert_eq!(iter.next(), Some(0));
+        let panic = std::panic::catch_unwind(AssertUnwindSafe(|| iter.next()))
+            .expect_err("stream panic must propagate through iterator");
+        assert!(panic_message(panic.as_ref()).contains("stream driver panic"));
     }
 }

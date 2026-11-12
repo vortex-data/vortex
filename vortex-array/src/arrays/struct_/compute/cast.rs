@@ -156,7 +156,7 @@ mod tests {
     use crate::scalar_fn::fns::cast::Cast;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn null_struct_cast_execute_parent(
         child: &ArrayRef,
@@ -204,8 +204,8 @@ mod tests {
 
         let utf8_null = DType::Utf8(Nullability::Nullable);
         let target = DType::Struct(
-            StructFields::new(FieldNames::from(["b"]), vec![utf8_null.clone()]),
-            Nullability::NonNullable,
+            StructFields::new(FieldNames::from(["a"]), vec![utf8_null.clone()]),
+            Nullability::Nullable,
         );
 
         let cast = Cast::new(source, target.clone()).into_array();
@@ -223,7 +223,7 @@ mod tests {
 
         assert_eq!(result.dtype(), &target);
         assert_arrays_eq!(
-            result.unmasked_field_by_name("b").unwrap(),
+            result.unmasked_field_by_name("a").unwrap(),
             ConstantArray::new(Scalar::null(utf8_null), 1),
             &mut ctx
         );
@@ -325,11 +325,22 @@ mod tests {
         assert_eq!(cast.dtype(), &target_dtype);
         assert_eq!(cast.len(), 3);
         let nfields = cast
+            .clone()
             .execute::<StructArray>(&mut SESSION.create_execution_ctx())
             .unwrap()
             .struct_fields()
             .nfields();
         assert_eq!(nfields, 2);
+        let expected = StructArray::new(
+            FieldNames::from(["a", "a"]),
+            vec![
+                buffer![1i32, 2, 3].into_array(),
+                buffer![10i64, 20, 30].into_array(),
+            ],
+            3,
+            Validity::AllValid,
+        );
+        assert_arrays_eq!(cast, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -359,10 +370,29 @@ mod tests {
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
         let nfields = result
+            .clone()
             .execute::<StructArray>(&mut SESSION.create_execution_ctx())
             .unwrap()
             .struct_fields()
             .nfields();
         assert_eq!(nfields, 3);
+        let expected = StructArray::new(
+            FieldNames::from(["a", "b", "c"]),
+            vec![
+                buffer![1i32, 2, 3].into_array(),
+                buffer![10i64, 20, 30].into_array(),
+                ConstantArray::new(
+                    Scalar::null(DType::Decimal(
+                        DecimalDType::new(38, 10),
+                        Nullability::Nullable,
+                    )),
+                    3,
+                )
+                .into_array(),
+            ],
+            3,
+            Validity::NonNullable,
+        );
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }
 }

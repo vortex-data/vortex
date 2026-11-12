@@ -23,46 +23,73 @@ use crate::dispatch::CpuKernel;
 /// `pdep` + `tzcnt` on x86_64 with BMI2, and a scalar fallback elsewhere.
 #[inline]
 pub fn bit_select(bytes: &[u8], offset: usize, len: usize, nth: usize) -> Option<usize> {
+    select_impl::<false>(bytes, offset, len, nth)
+}
+
+/// Returns the position of the `nth` unset bit (0-indexed) within the logical range
+/// `[offset, offset + len)` of the given byte slice.
+///
+/// The returned position is relative to the logical start (i.e., 0-indexed from `offset`).
+/// Returns `None` if `nth` is out of bounds.
+///
+/// This runs the same kernels as [`bit_select`] over the inverted bits.
+#[inline]
+pub fn bit_select_unset(bytes: &[u8], offset: usize, len: usize, nth: usize) -> Option<usize> {
+    select_impl::<true>(bytes, offset, len, nth)
+}
+
+/// The shared body of [`bit_select`] and [`bit_select_unset`]. With `UNSET`, every byte and word
+/// is read inverted, so the same scans find unset bits.
+#[inline]
+fn select_impl<const UNSET: bool>(
+    bytes: &[u8],
+    offset: usize,
+    len: usize,
+    nth: usize,
+) -> Option<usize> {
     let (head, middle, tail) = align_offset_len(bytes, offset, len);
     let mut remaining = nth;
     let mut pos = 0usize;
 
     // ── partial first byte ──────────────────────────────────────────────
     if let Some(head) = head {
+        let start_bit = offset % 8;
+        let head_len = (8 - start_bit).min(len);
+        let head = read_partial_byte::<UNSET>(head, head_len);
         let count = head.count_ones() as usize;
         if remaining < count {
             return Some(select_in_byte(head, remaining));
         }
         remaining -= count;
-        let start_bit = offset % 8;
-        pos = (8 - start_bit).min(len);
+        pos = head_len;
     }
 
     // ── aligned middle bytes ────────────────────────────────────────────
     if !middle.is_empty() {
         let (chunks, tail_bytes) = middle.as_chunks::<64>();
 
-        let (rem, new_pos, chunk_idx) = scan_chunks(chunks, remaining, pos);
+        let (rem, new_pos, chunk_idx) = scan_chunks::<UNSET>(chunks, remaining, pos);
         remaining = rem;
         pos = new_pos;
 
         if chunk_idx < chunks.len() {
-            return Some(pos + select_in_chunk(&chunks[chunk_idx], remaining));
+            return Some(pos + select_in_chunk::<UNSET>(&chunks[chunk_idx], remaining));
         }
 
         let (words, tail_bytes) = tail_bytes.as_chunks::<8>();
 
-        let (rem, new_pos, word_idx) = scan_words(words, remaining, pos);
+        let (rem, new_pos, word_idx) = scan_words::<UNSET>(words, remaining, pos);
         remaining = rem;
         pos = new_pos;
 
         if word_idx < words.len() {
-            let word = u64::from_le_bytes(words[word_idx]);
+            let word = read_word::<UNSET>(u64::from_le_bytes(words[word_idx]));
             return Some(pos + select_in_word(word, remaining));
         }
 
         // Remaining aligned bytes that don't fill a full u64.
         for &byte in tail_bytes {
+            let byte = if UNSET { !byte } else { byte };
             let count = byte.count_ones() as usize;
             if remaining < count {
                 return Some(pos + select_in_byte(byte, remaining));
@@ -73,7 +100,8 @@ pub fn bit_select(bytes: &[u8], offset: usize, len: usize, nth: usize) -> Option
     }
 
     // ── partial last byte ───────────────────────────────────────────────
-    if let Some(tail) = tail
+    // Every bit before the tail has been consumed, so the tail holds the last `len - pos`.
+    if let Some(tail) = tail.map(|tail| read_partial_byte::<UNSET>(tail, len - pos))
         && remaining < tail.count_ones() as usize
     {
         return Some(pos + select_in_byte(tail, remaining));
@@ -82,19 +110,43 @@ pub fn bit_select(bytes: &[u8], offset: usize, len: usize, nth: usize) -> Option
     None
 }
 
+// ── Inverted reads ──────────────────────────────────────────────────────
+
+/// `word` as [`select_impl`] reads it: inverted when selecting unset bits.
+#[inline]
+const fn read_word<const UNSET: bool>(word: u64) -> u64 {
+    if UNSET { !word } else { word }
+}
+
+/// A partial byte from [`align_offset_len`] as [`select_impl`] reads it. Only its low `bit_len`
+/// bits are in range, and the rest are zero, so after inverting they are masked off again.
+#[inline]
+fn read_partial_byte<const UNSET: bool>(byte: u8, bit_len: usize) -> u8 {
+    if UNSET {
+        !byte & ((1u8 << bit_len) - 1)
+    } else {
+        byte
+    }
+}
+
 // ── 64-byte chunk scan ──────────────────────────────────────────────────
 
-/// Scan `chunks` accumulating popcounts. Returns `(remaining, position, chunk_index)`.
+/// Scan `chunks` counting the bits being selected: set bits, or unset ones with `UNSET`.
+/// Returns `(remaining, position, chunk_index)`.
 ///
 /// If `chunk_index < chunks.len()`, the target bit is inside that chunk and `remaining`
 /// is the rank *within* that chunk. Otherwise all chunks were consumed.
 #[inline]
-fn scan_chunks(chunks: &[[u8; 64]], remaining: usize, pos: usize) -> (usize, usize, usize) {
-    dispatch!(Level::new(), simd => scan_chunks_simd(simd, chunks, remaining, pos))
+fn scan_chunks<const UNSET: bool>(
+    chunks: &[[u8; 64]],
+    remaining: usize,
+    pos: usize,
+) -> (usize, usize, usize) {
+    dispatch!(Level::new(), simd => scan_chunks_simd::<_, UNSET>(simd, chunks, remaining, pos))
 }
 
 #[simd]
-fn scan_chunks_simd<S: Simd>(
+fn scan_chunks_simd<S: Simd, const UNSET: bool>(
     simd: S,
     chunks: &[[u8; 64]],
     mut remaining: usize,
@@ -104,6 +156,8 @@ fn scan_chunks_simd<S: Simd>(
         let words: u64x8<S> = u8x64::from_slice(simd, chunk).bitcast();
         let total = usize::try_from(words.count_ones().reduce_sum())
             .vortex_expect("chunk popcount fits in usize");
+        // A chunk holds 512 bits, so the unset ones are the rest.
+        let total = if UNSET { 512 - total } else { total };
         if remaining < total {
             return (remaining, pos, idx);
         }
@@ -115,24 +169,33 @@ fn scan_chunks_simd<S: Simd>(
 
 // ── Word-level scan ─────────────────────────────────────────────────────
 
-/// Scan `words` accumulating popcounts. Returns `(remaining, position, word_index)`.
+/// Scan `words` counting the bits being selected: set bits, or unset ones with `UNSET`.
+/// Returns `(remaining, position, word_index)`.
 ///
 /// If `word_index < words.len()`, the target bit is inside that word and `remaining`
 /// is the rank *within* that word. Otherwise all words were consumed.
 #[inline]
-fn scan_words(words: &[[u8; 8]], remaining: usize, pos: usize) -> (usize, usize, usize) {
-    scan_words_impl(words, remaining, pos)
+fn scan_words<const UNSET: bool>(
+    words: &[[u8; 8]],
+    remaining: usize,
+    pos: usize,
+) -> (usize, usize, usize) {
+    scan_words_impl::<UNSET>(words, remaining, pos)
 }
 
 // ── Scalar word scan ────────────────────────────────────────────────────
 
 #[inline]
-fn scan_words_impl(words: &[[u8; 8]], remaining: usize, pos: usize) -> (usize, usize, usize) {
-    scan_words_scalar(words, remaining, pos)
+fn scan_words_impl<const UNSET: bool>(
+    words: &[[u8; 8]],
+    remaining: usize,
+    pos: usize,
+) -> (usize, usize, usize) {
+    scan_words_scalar::<UNSET>(words, remaining, pos)
 }
 
 #[inline]
-fn scan_words_scalar(
+fn scan_words_scalar<const UNSET: bool>(
     words: &[[u8; 8]],
     mut remaining: usize,
     mut pos: usize,
@@ -141,10 +204,10 @@ fn scan_words_scalar(
 
     // 4× unrolled: the four independent `count_ones` calls pipeline well.
     while idx + 4 <= words.len() {
-        let count_0 = u64::from_le_bytes(words[idx]).count_ones() as usize;
-        let count_1 = u64::from_le_bytes(words[idx + 1]).count_ones() as usize;
-        let count_2 = u64::from_le_bytes(words[idx + 2]).count_ones() as usize;
-        let count_3 = u64::from_le_bytes(words[idx + 3]).count_ones() as usize;
+        let count_0 = read_word::<UNSET>(u64::from_le_bytes(words[idx])).count_ones() as usize;
+        let count_1 = read_word::<UNSET>(u64::from_le_bytes(words[idx + 1])).count_ones() as usize;
+        let count_2 = read_word::<UNSET>(u64::from_le_bytes(words[idx + 2])).count_ones() as usize;
+        let count_3 = read_word::<UNSET>(u64::from_le_bytes(words[idx + 3])).count_ones() as usize;
         let total = count_0 + count_1 + count_2 + count_3;
 
         if remaining >= total {
@@ -173,7 +236,7 @@ fn scan_words_scalar(
     }
 
     while idx < words.len() {
-        let word = u64::from_le_bytes(words[idx]);
+        let word = read_word::<UNSET>(u64::from_le_bytes(words[idx]));
         let count = word.count_ones() as usize;
         if remaining < count {
             return (remaining, pos, idx);
@@ -188,15 +251,21 @@ fn scan_words_scalar(
 
 // ── In-chunk select ─────────────────────────────────────────────────────
 
-/// Position of the `nth` set bit inside a 64-byte chunk (0-indexed).
+/// Position of the `nth` set bit, or unset bit with `UNSET`, inside a 64-byte chunk (0-indexed).
 #[inline]
-fn select_in_chunk(chunk: &[u8; 64], nth: usize) -> usize {
-    dispatch!(Level::new(), simd => select_in_chunk_simd(simd, chunk, nth))
+fn select_in_chunk<const UNSET: bool>(chunk: &[u8; 64], nth: usize) -> usize {
+    dispatch!(Level::new(), simd => select_in_chunk_simd::<_, UNSET>(simd, chunk, nth))
 }
 
 #[simd]
-fn select_in_chunk_simd<S: Simd>(simd: S, chunk: &[u8; 64], mut nth: usize) -> usize {
-    let words: [u64; 8] = std::array::from_fn(|i| u64::from_le_bytes(chunk.as_chunks::<8>().0[i]));
+fn select_in_chunk_simd<S: Simd, const UNSET: bool>(
+    simd: S,
+    chunk: &[u8; 64],
+    mut nth: usize,
+) -> usize {
+    let words: [u64; 8] = std::array::from_fn(|i| {
+        read_word::<UNSET>(u64::from_le_bytes(chunk.as_chunks::<8>().0[i]))
+    });
     let counts = u64x8::from_slice(simd, &words).count_ones().to_array();
     for (idx, count) in counts.into_iter().enumerate() {
         // Each lane is the popcount of a u64, hence at most 64.
@@ -340,13 +409,11 @@ mod tests {
             .map(|i| ((i.wrapping_mul(0x9E) ^ 0xA5) & 0xFF) as u8)
             .collect();
 
-        // Collect set-bit positions naively.
-        let expected: Vec<usize> = (0..len)
-            .filter(|&i| {
-                let phys = offset + i;
-                (buf[phys / 8] >> (phys % 8)) & 1 == 1
-            })
-            .collect();
+        // Collect set- and unset-bit positions naively.
+        let (expected, expected_unset): (Vec<usize>, Vec<usize>) = (0..len).partition(|&i| {
+            let phys = offset + i;
+            (buf[phys / 8] >> (phys % 8)) & 1 == 1
+        });
 
         for (nth, &expected_pos) in expected.iter().enumerate() {
             assert_eq!(
@@ -355,6 +422,17 @@ mod tests {
                 "offset={offset} len={len} nth={nth}"
             );
         }
+        for (nth, &expected_pos) in expected_unset.iter().enumerate() {
+            assert_eq!(
+                bit_select_unset(&buf, offset, len, nth),
+                Some(expected_pos),
+                "offset={offset} len={len} nth={nth}"
+            );
+        }
+        assert_eq!(
+            bit_select_unset(&buf, offset, len, expected_unset.len()),
+            None
+        );
     }
 
     #[test]
@@ -367,18 +445,52 @@ mod tests {
 
         let true_count = buf.iter().map(|b| b.count_ones() as usize).sum::<usize>();
 
-        // Spot-check a few positions.
-        let first = bit_select(&buf, 0, len, 0);
-        let last = bit_select(&buf, 0, len, true_count - 1);
-        let first = first.expect("buffer has at least one set bit");
-        let last = last.expect("true_count - 1 is in bounds");
-        assert!(first < len);
-        assert!(last < len);
-        assert!(first <= last);
+        let is_set = |index: &usize| buf[*index / 8] & (1 << (*index % 8)) != 0;
+        let expected_first = (0..len).find(is_set);
+        let expected_last = (0..len).rev().find(is_set);
+        assert_eq!(bit_select(&buf, 0, len, 0), expected_first);
+        assert_eq!(bit_select(&buf, 0, len, true_count - 1), expected_last);
+    }
 
-        // Verify the found positions are actually set.
-        assert_ne!(buf[first / 8] & (1 << (first % 8)), 0);
-        assert_ne!(buf[last / 8] & (1 << (last % 8)), 0);
+    /// Inverting a partial byte sets the bits outside the range, which must still not count.
+    #[rstest]
+    #[case(3, 7)]
+    #[case(5, 600)]
+    fn test_select_unset_ignores_bits_outside_range(#[case] offset: usize, #[case] len: usize) {
+        // Every bit is unset, including the byte past the range.
+        let buf = vec![0u8; (offset + len).div_ceil(8) + 1];
+        for nth in 0..len {
+            assert_eq!(
+                bit_select_unset(&buf, offset, len, nth),
+                Some(nth),
+                "nth={nth}"
+            );
+        }
+        assert_eq!(bit_select_unset(&buf, offset, len, len), None);
+    }
+
+    /// Sparse unset bits over several 64-byte chunks, so the scan subtracts `512 - total` for
+    /// whole chunks and then selects inside a later one.
+    #[rstest]
+    #[case(0)]
+    #[case(3)]
+    fn test_select_unset_across_chunks(#[case] offset: usize) {
+        let len = 4 * 512 + 100;
+        let mut buf = vec![0xFFu8; (offset + len).div_ceil(8)];
+        let expected: Vec<usize> = (0..len).filter(|i| i % 97 == 0).collect();
+        for &index in &expected {
+            let phys = offset + index;
+            buf[phys / 8] &= !(1 << (phys % 8));
+        }
+
+        for (nth, &expected_pos) in expected.iter().enumerate() {
+            assert_eq!(
+                bit_select_unset(&buf, offset, len, nth),
+                Some(expected_pos),
+                "offset={offset} nth={nth}"
+            );
+        }
+        assert_eq!(bit_select_unset(&buf, offset, len, expected.len()), None);
     }
 
     #[test]

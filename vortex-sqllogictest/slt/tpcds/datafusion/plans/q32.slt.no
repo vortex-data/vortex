@@ -32,8 +32,8 @@ logical_plan
 09)----------------Inner Join: catalog_sales.cs_item_sk = item.i_item_sk
 10)------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_item_sk, cs_ext_discount_amt]
 11)------------------Projection: item.i_item_sk
-12)--------------------Filter: item.i_manufact_id = Int64(977)
-13)----------------------TableScan: item projection=[i_item_sk, i_manufact_id], partial_filters=[item.i_manufact_id = Int64(977)]
+12)--------------------Filter: item.i_manufact_id = Int32(977)
+13)----------------------TableScan: item projection=[i_item_sk, i_manufact_id], partial_filters=[item.i_manufact_id = Int32(977)]
 14)--------------Projection: date_dim.d_date_sk
 15)----------------Filter: date_dim.d_date >= Date32("2000-01-27") AND date_dim.d_date <= Date32("2000-04-26")
 16)------------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("2000-01-27"), date_dim.d_date <= Date32("2000-04-26")]

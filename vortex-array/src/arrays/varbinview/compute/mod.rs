@@ -11,45 +11,19 @@ mod zip;
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::buffer;
-    use vortex_error::VortexResult;
+    use std::sync::LazyLock;
+
+    use rstest::rstest;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
-    use crate::arrays::VarBinViewArray;
-    #[test]
-    fn take_nullable() -> VortexResult<()> {
-        let arr = VarBinViewArray::from_iter_nullable_str([
-            Some("one"),
-            None,
-            Some("three"),
-            Some("four"),
-            None,
-            Some("six"),
-        ]);
-
-        let taken = arr.take(buffer![0, 3].into_array())?;
-
-        assert!(taken.dtype().is_nullable());
-        let mut ctx = array_session().create_execution_ctx();
-        let taken = taken.execute::<VarBinViewArray>(&mut ctx)?;
-        let mask = taken.validity()?.execute_mask(taken.len(), &mut ctx)?;
-        let result = (0..taken.len())
-            .map(|i| {
-                mask.value(i)
-                    .then(|| unsafe { String::from_utf8_unchecked(taken.bytes_at(i).to_vec()) })
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(result, [Some("one".to_string()), Some("four".to_string())]);
-        Ok(())
-    }
-    // Consistency tests
-    use rstest::rstest;
-
     use crate::VortexSessionExecute;
-    use crate::array_session;
+    use crate::arrays::VarBinViewArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     // From test_all_consistency
@@ -85,9 +59,6 @@ mod tests {
         None::<&str>, None, None, None
     ]))]
     fn test_varbinview_consistency(#[case] array: VarBinViewArray) {
-        test_array_consistency(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_array_consistency(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

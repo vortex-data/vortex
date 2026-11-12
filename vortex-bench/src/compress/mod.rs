@@ -436,7 +436,7 @@ mod tests {
         let mut timings = HashMap::new();
         timings.insert(
             (Format::OnDiskVortex, CompressOp::Compress),
-            Duration::from_millis(20),
+            Duration::from_millis(30),
         );
         timings.insert(
             (Format::Lance, CompressOp::Compress),
@@ -444,7 +444,7 @@ mod tests {
         );
         timings.insert(
             (Format::OnDiskVortex, CompressOp::Decompress),
-            Duration::from_millis(12),
+            Duration::from_millis(24),
         );
         timings.insert(
             (Format::Lance, CompressOp::Decompress),
@@ -458,20 +458,26 @@ mod tests {
         let mut ratios = Vec::new();
         calculate_ratios(&timings, &compressed_sizes, "demo", &mut ratios);
 
-        assert!(
+        assert_eq!(
             ratios
                 .iter()
-                .any(|m| m.name == "vortex:lance size/demo" && m.value == 2.0)
-        );
-        assert!(
-            ratios
-                .iter()
-                .any(|m| { m.name == "vortex:lance ratio compress time/demo" && m.value == 2.0 })
-        );
-        assert!(
-            ratios
-                .iter()
-                .any(|m| { m.name == "vortex:lance ratio decompress time/demo" && m.value == 2.0 })
+                .map(|m| (m.name.as_str(), m.format, m.unit.as_ref(), m.value))
+                .collect::<Vec<_>>(),
+            [
+                ("vortex:lance size/demo", Format::OnDiskVortex, "ratio", 2.0),
+                (
+                    "vortex:lance ratio compress time/demo",
+                    Format::OnDiskVortex,
+                    "ratio",
+                    3.0
+                ),
+                (
+                    "vortex:lance ratio decompress time/demo",
+                    Format::OnDiskVortex,
+                    "ratio",
+                    4.0
+                ),
+            ],
         );
     }
 }

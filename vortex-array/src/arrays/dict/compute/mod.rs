@@ -4,6 +4,7 @@
 mod cast;
 mod compare;
 mod fill_null;
+mod filter;
 pub(crate) mod is_constant;
 pub(crate) mod is_sorted;
 mod like;
@@ -13,7 +14,6 @@ pub(crate) mod rules;
 mod slice;
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use super::Dict;
 use super::DictArray;
@@ -23,7 +23,6 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::dict::DictArraySlotsExt;
-use crate::arrays::filter::FilterReduce;
 
 impl TakeExecute for Dict {
     fn take(
@@ -39,19 +38,6 @@ impl TakeExecute for Dict {
         let taken = unsafe { DictArray::new_unchecked(codes, array.values().clone()) };
 
         Ok(Some(taken.into_array()))
-    }
-}
-
-impl FilterReduce for Dict {
-    fn filter(array: ArrayView<'_, Dict>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        let codes = array.codes().filter(mask.clone())?;
-
-        // SAFETY: Selection preserves the integer code type and non-null code bounds, so every code
-        // indexes the unchanged values. `new_unchecked` resets `all_values_referenced` because
-        // selection can remove a value's last reference.
-        let filtered = unsafe { DictArray::new_unchecked(codes, array.values().clone()) };
-
-        Ok(Some(filtered.into_array()))
     }
 }
 
@@ -81,7 +67,7 @@ mod test {
     use crate::dtype::PType::I32;
     use crate::scalar_fn::fns::operators::Operator;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn canonicalise_nullable_primitive() {
@@ -100,14 +86,10 @@ mod test {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
-        let actual = dict
-            .into_array()
-            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
-            .unwrap();
 
         let expected = PrimitiveArray::from_option_iter(values);
 
-        assert_arrays_eq!(actual, expected, &mut ctx);
+        assert_arrays_eq!(dict, expected, &mut ctx);
     }
 
     #[test]
@@ -123,11 +105,7 @@ mod test {
         .unwrap()
         .into_array();
 
-        let actual = dict
-            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
-            .unwrap();
-
-        assert_arrays_eq!(actual, expected, &mut ctx);
+        assert_arrays_eq!(dict, expected, &mut ctx);
     }
 
     #[test]
@@ -143,11 +121,7 @@ mod test {
         .unwrap()
         .into_array();
 
-        let actual = dict
-            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
-            .unwrap();
-
-        assert_arrays_eq!(actual, expected, &mut ctx);
+        assert_arrays_eq!(dict, expected, &mut ctx);
     }
 
     #[test]
@@ -289,12 +263,14 @@ mod test {
         )
         .unwrap();
 
-        assert_eq!(
-            array
-                .take(PrimitiveArray::from_option_iter([Option::<i32>::None]).into_array())
-                .unwrap()
-                .dtype(),
-            &DType::Primitive(I32, Nullability::Nullable)
+        let taken = array
+            .take(PrimitiveArray::from_option_iter([None::<i32>]).into_array())
+            .unwrap();
+        assert_eq!(taken.dtype(), &DType::Primitive(I32, Nullability::Nullable));
+        assert_arrays_eq!(
+            taken,
+            PrimitiveArray::from_option_iter([None::<i32>]),
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -352,7 +328,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     // Primitive arrays

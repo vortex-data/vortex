@@ -51,7 +51,7 @@ impl TryFrom<Operator> for NumericOperator {
             Operator::Sub => Ok(NumericOperator::Sub),
             Operator::Mul => Ok(NumericOperator::Mul),
             Operator::Div => Ok(NumericOperator::Div),
-            _ => Err(vortex_err!(InvalidArgument: "{op} is not a numeric operator")),
+            _ => Err(vortex_err!("{op} is not a numeric operator")),
         }
     }
 }

@@ -7,9 +7,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cudarc::driver::DevicePtr;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
@@ -37,6 +34,8 @@ use vortex::encodings::fsst::FSSTArraySlotsExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::PushKernelArg;
 
 use crate::CanonicalCudaExt;
 use crate::CudaBufferExt;
@@ -128,7 +127,7 @@ impl CudaExecute for FSSTExecutor {
             .clone()
             .execute_cuda(ctx)
             .await?
-            .into_host()
+            .into_host(ctx.execution_ctx())
             .await?
             .into_primitive();
         let codes_offsets = fsst
@@ -188,7 +187,7 @@ pub(crate) async fn decode_fsst_varbin(
     } = i32_offsets_from_lengths(lens, ctx).await?;
 
     if total_size == 0 {
-        let allocation = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?);
+        let allocation = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?)?;
         let values = BufferHandle::new_device(allocation.slice(0..0));
         return Ok(DecodedVarBin {
             dtype,
@@ -242,7 +241,7 @@ where
     // The kernel gates store widths on `out_pos % N` relative to the base, so the base must
     // satisfy the widest store (u128 → 16).
     let mut output = ctx.device_alloc::<u8>(total_size)?;
-    let (output_base_ptr, _) = output.device_ptr(ctx.stream());
+    let output_base_ptr = output.device_address();
     assert_eq!(
         output_base_ptr % 16,
         0,
@@ -274,7 +273,7 @@ where
         dtype,
         len,
         offsets: output_offsets,
-        values: BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output))),
+        values: BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)?)),
         validity,
     })
 }
@@ -336,7 +335,7 @@ where
     let mut device_views = (total_size <= MAX_BUFFER_LEN)
         .then(|| ctx.device_alloc::<i128>(num_strings))
         .transpose()?;
-    let (output_base_ptr, _) = device_output.device_ptr(ctx.stream());
+    let output_base_ptr = device_output.device_address();
     assert_eq!(
         output_base_ptr % 16,
         0,
@@ -373,8 +372,8 @@ where
     // views directly and both buffers can remain on-device. Larger heaps use the host rollover
     // path below to split decoded bytes across multiple backing buffers.
     if let Some(device_views) = device_views {
-        let views = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_views)));
-        let bytes = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)));
+        let views = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_views)?));
+        let bytes = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)?));
         return Ok(Canonical::VarBinView(unsafe {
             VarBinViewArray::new_handle_unchecked(views, Arc::from([bytes]), dtype, validity)
         }));
@@ -382,7 +381,7 @@ where
 
     // BinaryView offsets are u32. Retain the host rollover path for decoded heaps
     // that need multiple backing buffers; ordinary batches stay entirely on-device.
-    let host_bytes = CudaDeviceBuffer::new(device_output)
+    let host_bytes = CudaDeviceBuffer::new(device_output)?
         .copy_to_host(Alignment::new(1))?
         .await?;
     let host_bytes = host_bytes.slice(0..total_size);
@@ -398,18 +397,22 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use rstest::rstest;
     use vortex::array::IntoArray;
     use vortex::array::arrays::VarBinArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::buffer::Buffer;
     use vortex::dtype::DType;
     use vortex::dtype::Nullability;
     use vortex::encodings::fsst::fsst_compress;
     use vortex::encodings::fsst::fsst_train_compressor;
     use vortex::error::VortexExpect;
+    use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
@@ -420,8 +423,10 @@ mod tests {
     use crate::session::CudaSession;
     use crate::session::VarBinExportLayout;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn cuda_ctx_with_varbin_layout(layout: VarBinExportLayout) -> VortexResult<CudaExecutionCtx> {
-        let session = vortex::array::array_session()
+        let session = VortexSession::empty()
             .with_some(CudaSession::try_default()?.with_varbin_export_layout(layout));
         CudaSession::create_execution_ctx(&session)
     }
@@ -476,7 +481,7 @@ mod tests {
         #[case] strings: Vec<Option<&'static [u8]>>,
         #[case] dtype: DType,
     ) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -492,7 +497,10 @@ mod tests {
         assert_eq!(gpu_result.dtype(), &dtype);
         assert_device_resident(&gpu_result);
 
-        let host_result = gpu_result.into_host().await?.into_array();
+        let host_result = gpu_result
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
         assert_arrays_eq!(fsst_array, host_result, &mut ctx);
         Ok(())
     }
@@ -500,7 +508,7 @@ mod tests {
     /// Verifies that the view kernel applies a sliced validity bitmap's nonzero bit offset.
     #[crate::test]
     async fn test_cuda_fsst_decompression_sliced_validity() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
         let values = [
@@ -514,11 +522,14 @@ mod tests {
             VarBinArray::from_iter(values, DType::Utf8(Nullability::Nullable)).into_array();
         let compressor = fsst_train_compressor(&varbin, cuda_ctx.execution_ctx())?;
         let fsst = fsst_compress(&varbin, &compressor, cuda_ctx.execution_ctx())?.into_array();
-        let sliced = fsst.slice(1..4)?;
+        let sliced = fsst.slice(1..4)?.optimize_ctx(cuda_ctx.execution_ctx())?;
 
         let gpu_result = FSSTExecutor.execute(sliced.clone(), &mut cuda_ctx).await?;
         assert_device_resident(&gpu_result);
-        let host_result = gpu_result.into_host().await?.into_array();
+        let host_result = gpu_result
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
         assert_arrays_eq!(sliced, host_result, &mut ctx);
         Ok(())
     }
@@ -616,7 +627,7 @@ mod tests {
     /// Exercises the multi-block grid-stride path on a larger dataset.
     #[crate::test]
     async fn test_cuda_fsst_decompression_roundtrip_large() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         use vortex_fsst::test_utils::make_fsst_clickbench_urls;
 
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
@@ -630,7 +641,10 @@ mod tests {
             .vortex_expect("GPU decompression failed");
         assert_device_resident(&gpu_result);
 
-        let host_result = gpu_result.into_host().await?.into_array();
+        let host_result = gpu_result
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
         assert_arrays_eq!(fsst_array, host_result, &mut ctx);
         Ok(())
     }

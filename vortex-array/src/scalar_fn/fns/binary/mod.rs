@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Binary scalar functions and their encoding-specific execution adaptors.
+//!
+//! [`Binary`] binds an [`Operator`] to two operands. Binding checks the operand types and determines
+//! the result dtype. Execution can use encoding-specific kernels or the native kernels for the
+//! operator's comparison, boolean, or numeric operation.
+
 use std::fmt::Display;
 use std::fmt::Formatter;
 
@@ -14,19 +20,24 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::AnyColumnar;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::arrays::Constant;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
+use crate::matcher::Matcher;
 use crate::proto::expr as pb;
+use crate::require_input;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -49,11 +60,15 @@ mod primitive_operand;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
 
+/// A binary scalar function parameterized by an [`Operator`].
 #[derive(Clone)]
 pub struct Binary;
 
 impl Binary {
     /// Creates a lazy binary operation over `lhs` and `rhs`.
+    ///
+    /// Comparisons require matching logical dtypes, ignoring nullability, even for empty or null
+    /// operands. Extension dtypes must match, including their metadata; storage dtypes are distinct.
     ///
     /// # Errors
     ///
@@ -73,15 +88,6 @@ const KLEENE_LUT: [[[bool; 2]; 2]; 2] = [
     [[false, true], [true, true]],   // or
     [[false, false], [false, true]], // and
 ];
-
-/// Kleene and/or reduction where one argument is constant non-NULL and other
-/// is non-constant.
-fn kleene_one_const<T: ReduceNode>(node: T, constant: bool, is_and: bool) -> T {
-    match (is_and, constant) {
-        (true, true) | (false, false) => node,
-        (is_and, constant) => node.new_constant((constant && !is_and).into()),
-    }
-}
 
 impl ScalarFnVTable for Binary {
     type Options = Operator;
@@ -159,12 +165,8 @@ impl ScalarFnVTable for Binary {
             );
         }
 
-        if operator.is_comparison()
-            && !lhs.eq_ignore_nullability(rhs)
-            && !lhs.is_extension()
-            && !rhs.is_extension()
-        {
-            vortex_bail!("Cannot compare different DTypes {} and {}", lhs, rhs);
+        if operator.is_comparison() {
+            validate_comparison_dtypes(lhs, rhs)?;
         }
 
         if matches!(operator, Operator::And | Operator::Or)
@@ -293,15 +295,61 @@ impl ScalarFnVTable for Binary {
             .and_then(|s| s.value().cloned())
             .map(|v| v.as_bool());
         let is_and = *operator == Operator::And;
+        let nullability = node.node_dtype()?.nullability();
 
-        Ok(Some(match (left_const, right_const) {
+        let (constant, other) = match (left_const, right_const) {
             (None, None) => return Ok(None),
-            (Some(left_const), Some(right_const)) => left.new_constant(
-                KLEENE_LUT[is_and as usize][left_const as usize][right_const as usize].into(),
-            ),
-            (Some(constant), None) => kleene_one_const(right, constant, is_and),
-            (None, Some(constant)) => kleene_one_const(left, constant, is_and),
-        }))
+            (Some(left_const), Some(right_const)) => {
+                return Ok(Some(left.new_constant(Scalar::bool(
+                    KLEENE_LUT[is_and as usize][left_const as usize][right_const as usize],
+                    nullability,
+                ))));
+            }
+            (Some(constant), None) => (constant, right),
+            (None, Some(constant)) => (constant, left),
+        };
+
+        // `x AND true` and `x OR false` are `x`, but only when `x` already has the result's
+        // nullability: otherwise leave the cast to the boolean kernel.
+        if constant == is_and {
+            return Ok((other.node_dtype()?.nullability() == nullability).then_some(other));
+        }
+        // `x AND false` and `x OR true` are the constant itself.
+        Ok(Some(
+            other.new_constant(Scalar::bool(constant, nullability)),
+        ))
+    }
+
+    fn execute_step(
+        &self,
+        op: &Operator,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        let columnar = |idx| args.input_matches(idx, AnyColumnar::matches);
+        let ready = (columnar(0)? && columnar(1)?)
+            // A constant operand can decide the result, such as `false AND x` or `x < null`, so
+            // `execute` does not need the other operand executed.
+            || match op {
+                Operator::And | Operator::Or => {
+                    let constant = |idx| args.input_matches(idx, |array| array.is::<Constant>());
+                    constant(0)? || constant(1)?
+                }
+                _ => {
+                    let null = |idx| {
+                        args.input_matches(idx, |array| {
+                            array.as_constant().is_some_and(|scalar| scalar.is_null())
+                        })
+                    };
+                    null(0)? || null(1)?
+                }
+            };
+        if !ready {
+            require_input!(args, 0 => AnyColumnar);
+            require_input!(args, 1 => AnyColumnar);
+        }
+        self.execute(op, args, ctx)
+            .map(ScalarFnExecutionResult::done)
     }
 
     fn is_strict(&self, operator: &Operator) -> bool {
@@ -326,15 +374,19 @@ impl ScalarFnVTable for Binary {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::*;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Bool;
     use crate::arrays::BoolArray;
+    use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFn;
@@ -361,6 +413,8 @@ mod tests {
     use crate::expr::test_harness;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn and_collect_balanced() {
@@ -541,7 +595,7 @@ mod tests {
         let result_equal = lhs_struct.binary(rhs_struct_equal, Operator::Eq).unwrap();
         assert_eq!(
             result_equal
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .vortex_expect("value"),
             Scalar::bool(true, Nullability::NonNullable),
             "Equal structs should be equal"
@@ -552,7 +606,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             result_different
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .vortex_expect("value"),
             Scalar::bool(false, Nullability::NonNullable),
             "Different structs should not be equal"
@@ -561,7 +615,7 @@ mod tests {
 
     #[test]
     fn test_or_kleene_validity() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         use crate::arrays::StructArray;
         use crate::expr::col;
 
@@ -586,141 +640,95 @@ mod tests {
     }
 
     #[test]
-    fn test_scalar_subtract_unsigned() {
-        let mut ctx = array_session().create_execution_ctx();
-        use vortex_buffer::buffer;
-
-        use crate::IntoArray;
-        use crate::arrays::ConstantArray;
-        use crate::arrays::PrimitiveArray;
-
-        let values = buffer![1u16, 2, 3].into_array();
-        let rhs = ConstantArray::new(Scalar::from(1u16), 3).into_array();
-        let result = values.binary(rhs, Operator::Sub).unwrap();
-        assert_arrays_eq!(result, PrimitiveArray::from_iter([0u16, 1, 2]), &mut ctx);
-    }
-
-    #[test]
-    fn test_scalar_subtract_signed() {
-        let mut ctx = array_session().create_execution_ctx();
-        use vortex_buffer::buffer;
-
-        use crate::IntoArray;
-        use crate::arrays::ConstantArray;
-        use crate::arrays::PrimitiveArray;
-
-        let values = buffer![1i64, 2, 3].into_array();
-        let rhs = ConstantArray::new(Scalar::from(-1i64), 3).into_array();
-        let result = values.binary(rhs, Operator::Sub).unwrap();
-        assert_arrays_eq!(result, PrimitiveArray::from_iter([2i64, 3, 4]), &mut ctx);
-    }
-
-    #[test]
-    fn test_scalar_subtract_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
-        use crate::IntoArray;
-        use crate::arrays::ConstantArray;
-        use crate::arrays::PrimitiveArray;
-
-        let values = PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]);
-        let rhs = ConstantArray::new(Scalar::from(Some(1u16)), 4).into_array();
-        let result = values.into_array().binary(rhs, Operator::Sub).unwrap();
-        assert_arrays_eq!(
-            result,
-            PrimitiveArray::from_option_iter([Some(0u16), Some(1), None, Some(2)]),
-            &mut ctx
-        );
-    }
-
-    #[test]
-    fn test_scalar_subtract_float() {
-        let mut ctx = array_session().create_execution_ctx();
-        use vortex_buffer::buffer;
-
-        use crate::IntoArray;
-        use crate::arrays::ConstantArray;
-        use crate::arrays::PrimitiveArray;
-
-        let values = buffer![1.0f64, 2.0, 3.0].into_array();
-        let rhs = ConstantArray::new(Scalar::from(-1f64), 3).into_array();
-        let result = values.binary(rhs, Operator::Sub).unwrap();
-        assert_arrays_eq!(
-            result,
-            PrimitiveArray::from_iter([2.0f64, 3.0, 4.0]),
-            &mut ctx
-        );
-    }
-
-    #[test]
-    fn test_scalar_subtract_float_underflow_is_ok() {
-        use vortex_buffer::buffer;
-
-        let values = buffer![f32::MIN, 2.0, 3.0].into_array();
-        let rhs1 = ConstantArray::new(Scalar::from(1.0f32), 3).into_array();
-        let _results = values.binary(rhs1, Operator::Sub).unwrap();
-        let values = buffer![f32::MIN, 2.0, 3.0].into_array();
-        let rhs2 = ConstantArray::new(Scalar::from(f32::MAX), 3).into_array();
-        let _results = values.binary(rhs2, Operator::Sub).unwrap();
-    }
-
-    #[test]
     fn test_and_reduce() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let left = BoolArray::from_iter([true, true, false]).into_array();
         let right = ConstantArray::new(true, 3).into_array();
 
         let array = Binary::try_new(left.clone(), right.clone(), Operator::And)?
             .into_array()
-            .optimize()?; // calls reduce()
+            .optimize_ctx(&SESSION)?; // calls reduce()
         assert!(array.is::<Bool>()); // and(left, const) -> left
         assert_arrays_eq!(array, left, &mut ctx);
 
         let array = Binary::try_new(right.clone(), left.clone(), Operator::And)?
             .into_array()
-            .optimize()?;
+            .optimize_ctx(&SESSION)?;
         assert!(array.is::<Bool>()); // and(const, left) -> left
         assert_arrays_eq!(array, left, &mut ctx);
 
         let array = Binary::try_new(left.clone(), right.clone(), Operator::Or)?
             .into_array()
-            .optimize()?;
-        assert_eq!(array.as_constant(), Some(true.into())); // or(left, const) -> true
+            .optimize_ctx(&SESSION)?;
+        assert_eq!(array.as_constant(), Some(&true.into())); // or(left, const) -> true
 
         let array = Binary::try_new(right.clone(), left, Operator::Or)?
             .into_array()
-            .optimize()?;
-        assert_eq!(array.as_constant(), Some(true.into())); // or(const, left) -> true
+            .optimize_ctx(&SESSION)?;
+        assert_eq!(array.as_constant(), Some(&true.into())); // or(const, left) -> true
 
         let array = Binary::try_new(right.clone(), right.clone(), Operator::Or)?
             .into_array()
-            .optimize()?;
-        assert_eq!(array.as_constant(), Some(true.into())); // or(const, const) -> const
+            .optimize_ctx(&SESSION)?;
+        assert_eq!(array.as_constant(), Some(&true.into())); // or(const, const) -> const
 
         let left_false = ConstantArray::new(false, 3).into_array();
 
         let array = Binary::try_new(right.clone(), left_false.clone(), Operator::Or)?
             .into_array()
-            .optimize()?;
-        assert_eq!(array.as_constant(), Some(true.into()));
+            .optimize_ctx(&SESSION)?;
+        assert_eq!(array.as_constant(), Some(&true.into()));
         let array = Binary::try_new(left_false, right, Operator::And)?
             .into_array()
-            .optimize()?;
-        assert_eq!(array.as_constant(), Some(false.into()));
+            .optimize_ctx(&SESSION)?;
+        assert_eq!(array.as_constant(), Some(&false.into()));
 
         Ok(())
     }
 
     #[test]
     fn test_and_reduce_nullable() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let nullable_true =
             ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
         let right = BoolArray::from_iter([true, false, true]).into_array();
 
-        let array = Binary::try_new(nullable_true, right.clone(), Operator::And)?
+        let array = Binary::try_new(nullable_true, right, Operator::And)?
             .into_array()
-            .optimize()?;
-        assert_arrays_eq!(array, right, &mut ctx);
+            .optimize_ctx(&SESSION)?;
+        assert_arrays_eq!(
+            array,
+            BoolArray::from_iter([Some(true), Some(false), Some(true)]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Short-circuiting against a constant keeps the result's nullability: `x AND false` over a
+    /// nullable `x` is a nullable false, which a parent rebuilt around it requires.
+    #[test]
+    fn test_short_circuit_keeps_nullability() -> VortexResult<()> {
+        let nullable = BoolArray::from_iter([Some(true), None, Some(false)]).into_array();
+        let non_nullable = BoolArray::from_iter([true, false, true]).into_array();
+        let false_ = ConstantArray::new(false, 3).into_array();
+        let nullable_false =
+            ConstantArray::new(Scalar::bool(false, Nullability::Nullable), 3).into_array();
+
+        let and_false = Binary::try_new(nullable, false_, Operator::And)?
+            .into_array()
+            .optimize_ctx(&SESSION)?;
+        assert_eq!(and_false.dtype(), &DType::Bool(Nullability::Nullable));
+        assert!(and_false.is::<Constant>());
+
+        let or_false = Binary::try_new(non_nullable, nullable_false, Operator::Or)?
+            .into_array()
+            .optimize_ctx(&SESSION)?;
+        assert_eq!(or_false.dtype(), &DType::Bool(Nullability::Nullable));
+        assert_arrays_eq!(
+            or_false,
+            BoolArray::from_iter([Some(true), Some(false), Some(true)]),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -733,7 +741,7 @@ mod tests {
 
     #[test]
     fn test_isnull_and_reduce() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let left = BoolArray::from_iter([Some(true), Some(true), None]).into_array();
         let right = BoolArray::from_iter([true, false, true]).into_array();
 
@@ -743,7 +751,7 @@ mod tests {
             let array = lhs
                 .binary(rhs.clone(), Operator::And)?
                 .is_null()?
-                .optimize()?;
+                .optimize_ctx(&SESSION)?;
             assert_eq!(*array.as_::<ExactScalarFn<Binary>>().options, Operator::And);
             assert_arrays_eq!(
                 array.as_::<ScalarFn>().get_child(0), // not(left.validity())
@@ -751,13 +759,14 @@ mod tests {
                 &mut ctx
             );
             assert_arrays_eq!(array.as_::<ScalarFn>().get_child(1), right, &mut ctx);
+            assert_arrays_eq!(array, BoolArray::from_iter([false, false, true]), &mut ctx);
         }
         Ok(())
     }
 
     #[test]
     fn test_isnotnull_or_reduce() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let left = BoolArray::from_iter([Some(true), Some(true), None]).into_array();
         let right = BoolArray::from_iter([true, false, true]).into_array();
 
@@ -767,7 +776,7 @@ mod tests {
             let array = lhs
                 .binary(rhs.clone(), Operator::Or)?
                 .is_not_null()?
-                .optimize()?;
+                .optimize_ctx(&SESSION)?;
             assert_eq!(*array.as_::<ExactScalarFn<Binary>>().options, Operator::Or);
             assert_arrays_eq!(
                 array.as_::<ScalarFn>().get_child(0), // left.validity()
@@ -775,7 +784,53 @@ mod tests {
                 &mut ctx
             );
             assert_arrays_eq!(array.as_::<ScalarFn>().get_child(1), right, &mut ctx);
+            assert_arrays_eq!(array, BoolArray::from_iter([true, true, true]), &mut ctx);
         }
+        Ok(())
+    }
+
+    /// Comparisons over arithmetic, joined by `AND`: every input is a scalar function, so each
+    /// operator executes its inputs through the executor.
+    #[test]
+    fn executes_non_columnar_inputs_iteratively() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let a = PrimitiveArray::from_iter([1i32, 5, 9, 12]).into_array();
+        let b = PrimitiveArray::from_iter([2i32, 2, 2, 2]).into_array();
+        let sum = a.binary(b.clone(), Operator::Add)?;
+        let difference = a.binary(b, Operator::Sub)?;
+        let ten = ConstantArray::new(10i32, 4).into_array();
+        let result = sum
+            .binary(ten.clone(), Operator::Gt)?
+            .binary(difference.binary(ten, Operator::Lt)?, Operator::And)?;
+
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, false, true, false]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// A constant `false` decides `AND` without executing the other operand, which here fails
+    /// when executed.
+    #[test]
+    fn deciding_constant_skips_other_operand() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let failing = PrimitiveArray::from_iter([1i32, 2, 3])
+            .into_array()
+            .binary(ConstantArray::new(0i32, 3).into_array(), Operator::Div)?
+            .binary(ConstantArray::new(1i32, 3).into_array(), Operator::Gt)?;
+        assert!(failing.clone().execute::<Canonical>(&mut ctx).is_err());
+
+        let result = ConstantArray::new(false, 3)
+            .into_array()
+            .binary(failing, Operator::And)?;
+
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, false, false]),
+            &mut ctx
+        );
         Ok(())
     }
 }

@@ -5,6 +5,7 @@
 
 import json
 import os
+import shlex
 import subprocess
 import tomllib
 import unittest
@@ -202,12 +203,18 @@ class ConfigureTests(CMakeTest):
         assert_selection(None)
 
     def test_linker_type_reaches_cargo_and_default_keeps_ambient(self) -> None:
+        compiler = self.executable(
+            "compiler tools' directory/recording compiler",
+            "import json, sys\nprint(json.dumps(sys.argv[1:]))\n",
+        )
         hook = self.write(
             "linker.cmake",
-            """\
+            f"""\
             # Probe Threads before the fixture linker exists.
             set(THREADS_PREFER_PTHREAD_FLAG TRUE)
             find_package(Threads REQUIRED)
+            set(CMAKE_C_COMPILER "{compiler}")
+            set(CMAKE_CXX_COMPILER "{compiler}")
             set(CMAKE_LINKER_TYPE VortexFixture)
             set(CMAKE_C_USING_LINKER_VortexFixture "-fuse-ld=fixture ld;-Wl,--fixture-selection")
             """,
@@ -219,11 +226,16 @@ class ConfigureTests(CMakeTest):
         target = recorded["args"][recorded["args"].index("--target") + 1]
         key = f"CARGO_TARGET_{target.upper().replace('-', '_')}_LINKER"
         linker = Path(recorded["env"][key])
-        self.assertTrue(linker.name.endswith("-gcc"), linker)
-        self.assertIn("'-fuse-ld=fixture ld' '-Wl,--fixture-selection'", linker.read_text())
-        for compiler in ("CC", "CXX"):
-            launcher = linker.parent / recorded["env"][f"{compiler}_{target}"].removeprefix("env ")
-            self.assertNotIn("fixture", launcher.read_text(), launcher)
+        arguments = ["-o", "output directory's/program", "--coverage"]
+        result = self.command(linker, *arguments, env=recorded["env"])
+        self.assertEqual(
+            json.loads(result.stdout),
+            [*arguments[:-1], "-fuse-ld=fixture ld", "-Wl,--fixture-selection"],
+        )
+        for language in ("CC", "CXX"):
+            launcher = shlex.split(recorded["env"][f"{language}_{target}"])
+            result = self.command(*launcher, *arguments, env=recorded["env"])
+            self.assertEqual(json.loads(result.stdout), arguments)
 
         self.env[key] = "/ambient/linker"
         for options in ((), ("-DCMAKE_LINKER_TYPE=DEFAULT",)):

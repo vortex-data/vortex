@@ -80,7 +80,7 @@ logical_plan
 09)----------------Filter: __common_expr_3 AND CASE WHEN __common_expr_3 THEN abs(sum(catalog_sales.cs_sales_price) - avg(sum(catalog_sales.cs_sales_price)) PARTITION BY [item.i_category, item.i_brand, call_center.cc_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) / avg(sum(catalog_sales.cs_sales_price)) PARTITION BY [item.i_category, item.i_brand, call_center.cc_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING ELSE Decimal128(NULL,32,10) END > Decimal128(0.1000000000,32,10)
 10)------------------Projection: avg(sum(catalog_sales.cs_sales_price)) PARTITION BY [item.i_category, item.i_brand, call_center.cc_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING > Decimal128(0.000000,21,6) AS __common_expr_3, item.i_category, item.i_brand, call_center.cc_name, date_dim.d_year, date_dim.d_moy, sum(catalog_sales.cs_sales_price), rank() PARTITION BY [item.i_category, item.i_brand, call_center.cc_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, avg(sum(catalog_sales.cs_sales_price)) PARTITION BY [item.i_category, item.i_brand, call_center.cc_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
 11)--------------------WindowAggr: windowExpr=[[avg(sum(catalog_sales.cs_sales_price)) PARTITION BY [item.i_category, item.i_brand, call_center.cc_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING]]
-12)----------------------Filter: date_dim.d_year = Int64(1999)
+12)----------------------Filter: date_dim.d_year = Int32(1999)
 13)------------------------WindowAggr: windowExpr=[[rank() PARTITION BY [item.i_category, item.i_brand, call_center.cc_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
 14)--------------------------Aggregate: groupBy=[[item.i_category, item.i_brand, call_center.cc_name, date_dim.d_year, date_dim.d_moy]], aggr=[[sum(catalog_sales.cs_sales_price)]]
 15)----------------------------Projection: item.i_brand, item.i_category, catalog_sales.cs_sales_price, date_dim.d_year, date_dim.d_moy, call_center.cc_name
@@ -91,8 +91,8 @@ logical_plan
 20)--------------------------------------Inner Join: item.i_item_sk = catalog_sales.cs_item_sk
 21)----------------------------------------TableScan: item projection=[i_item_sk, i_brand, i_category]
 22)----------------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_call_center_sk, cs_item_sk, cs_sales_price]
-23)------------------------------------Filter: date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(12) OR date_dim.d_year = Int64(2000) AND date_dim.d_moy = Int64(1)
-24)--------------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(12) OR date_dim.d_year = Int64(2000) AND date_dim.d_moy = Int64(1)]
+23)------------------------------------Filter: date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(1998) AND date_dim.d_moy = Int32(12) OR date_dim.d_year = Int32(2000) AND date_dim.d_moy = Int32(1)
+24)--------------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(1998) AND date_dim.d_moy = Int32(12) OR date_dim.d_year = Int32(2000) AND date_dim.d_moy = Int32(1)]
 25)--------------------------------TableScan: call_center projection=[cc_call_center_sk, cc_name]
 26)------------SubqueryAlias: v1_lag
 27)--------------SubqueryAlias: v1
@@ -107,8 +107,8 @@ logical_plan
 36)--------------------------------Inner Join: item.i_item_sk = catalog_sales.cs_item_sk
 37)----------------------------------TableScan: item projection=[i_item_sk, i_brand, i_category]
 38)----------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_call_center_sk, cs_item_sk, cs_sales_price]
-39)------------------------------Filter: date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(12) OR date_dim.d_year = Int64(2000) AND date_dim.d_moy = Int64(1)
-40)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(12) OR date_dim.d_year = Int64(2000) AND date_dim.d_moy = Int64(1)]
+39)------------------------------Filter: date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(1998) AND date_dim.d_moy = Int32(12) OR date_dim.d_year = Int32(2000) AND date_dim.d_moy = Int32(1)
+40)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(1998) AND date_dim.d_moy = Int32(12) OR date_dim.d_year = Int32(2000) AND date_dim.d_moy = Int32(1)]
 41)--------------------------TableScan: call_center projection=[cc_call_center_sk, cc_name]
 42)--------SubqueryAlias: v1_lead
 43)----------SubqueryAlias: v1
@@ -123,8 +123,8 @@ logical_plan
 52)----------------------------Inner Join: item.i_item_sk = catalog_sales.cs_item_sk
 53)------------------------------TableScan: item projection=[i_item_sk, i_brand, i_category]
 54)------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_call_center_sk, cs_item_sk, cs_sales_price]
-55)--------------------------Filter: date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(12) OR date_dim.d_year = Int64(2000) AND date_dim.d_moy = Int64(1)
-56)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(12) OR date_dim.d_year = Int64(2000) AND date_dim.d_moy = Int64(1)]
+55)--------------------------Filter: date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(1998) AND date_dim.d_moy = Int32(12) OR date_dim.d_year = Int32(2000) AND date_dim.d_moy = Int32(1)
+56)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(1998) AND date_dim.d_moy = Int32(12) OR date_dim.d_year = Int32(2000) AND date_dim.d_moy = Int32(1)]
 57)----------------------TableScan: call_center projection=[cc_call_center_sk, cc_name]
 physical_plan
 01)SortPreservingMergeExec: [sum_sales@6 - avg_monthly_sales@5 ASC, i_category@0 ASC NULLS LAST, i_brand@1 ASC NULLS LAST, cc_name@2 ASC NULLS LAST, d_year@3 ASC NULLS LAST, d_moy@4 ASC NULLS LAST, psum@7 ASC NULLS LAST, nsum@8 ASC NULLS LAST], fetch=100

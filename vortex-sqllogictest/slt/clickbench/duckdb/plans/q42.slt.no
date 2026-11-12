@@ -218,20 +218,20 @@ logical_opt [
                                                         "($.DontCountHits = 0i16)"
                                                     ],
                                                     "Function": "Vortex Scan",
-                                                    "Estimated Cardinality": "40000"
+                                                    "Estimated Cardinality": "200000"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Expressions": "EventTime",
-                                            "Estimated Cardinality": "40000"
+                                            "Estimated Cardinality": "200000"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Groups": "date_trunc('minute', EventTime)",
                                     "Expressions": "count_star()",
-                                    "Estimated Cardinality": "20000"
+                                    "Estimated Cardinality": "100000"
                                 }
                             }
                         ],
@@ -241,7 +241,7 @@ logical_opt [
                                 "PageViews",
                                 "date_trunc('minute', M)"
                             ],
-                            "Estimated Cardinality": "20000"
+                            "Estimated Cardinality": "100000"
                         }
                     }
                 ],
@@ -282,25 +282,26 @@ physical_plan [
                                                 "extra_info": {
                                                     "Function": "Vortex Scan",
                                                     "Filters": [
-                                                        "CounterID=62",
-                                                        "IsRefresh=0",
-                                                        "DontCountHits=0"
+                                                        "($.CounterID = 62i32)",
+                                                        "(2013-07-14T00:00:00Z <= $.EventDate <= 2013-07-15T00:00:00Z)",
+                                                        "($.IsRefresh = 0i16)",
+                                                        "($.DontCountHits = 0i16)"
                                                     ],
                                                     "Projections": "EventTime",
-                                                    "Estimated Cardinality": "40000"
+                                                    "Estimated Cardinality": "200000"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Projections": "date_trunc('minute', EventTime)",
-                                            "Estimated Cardinality": "40000"
+                                            "Estimated Cardinality": "200000"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Groups": "#0",
                                     "Aggregates": "count_star()",
-                                    "Estimated Cardinality": "20000"
+                                    "Estimated Cardinality": "100000"
                                 }
                             }
                         ],
@@ -310,14 +311,15 @@ physical_plan [
                                 "PageViews",
                                 "date_trunc('minute', M)"
                             ],
-                            "Estimated Cardinality": "20000"
+                            "Estimated Cardinality": "100000"
                         }
                     }
                 ],
                 "extra_info": {
                     "Top": "10",
                     "Offset": "1000",
-                    "Order By": "#2 ASC"
+                    "Order By": "#2 ASC",
+                    "Estimated Cardinality": "10"
                 }
             }
         ],

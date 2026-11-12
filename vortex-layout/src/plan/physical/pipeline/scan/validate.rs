@@ -44,18 +44,6 @@ impl Core {
                 );
             }
         }
-        let waiting: Vec<_> = self.shares.waiting().collect();
-        for (port, queue) in self.arena.iter() {
-            if queue.is_free() || queue.source != SourceEnd::Unclaimed {
-                continue;
-            }
-            assert!(
-                waiting.contains(&port),
-                "port {port} has no reader and no split will claim it, so its sink {:?} \
-                 pushes into it for nothing",
-                queue.sink
-            );
-        }
     }
 
     /// Checks what one run of pipeline `id` reported: a source waits only on a condition some

@@ -1,4 +1,4 @@
-# Scalar Format
+# Scalar format
 
 ## Protobuf Definition
 

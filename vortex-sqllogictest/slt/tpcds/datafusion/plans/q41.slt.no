@@ -79,8 +79,8 @@ logical_plan
 06)----------Left Join: i1.i_manufact = __scalar_sq_1.i_manufact
 07)------------SubqueryAlias: i1
 08)--------------Projection: item.i_manufact, item.i_product_name
-09)----------------Filter: item.i_manufact_id >= Int64(738) AND item.i_manufact_id <= Int64(778)
-10)------------------TableScan: item projection=[i_manufact_id, i_manufact, i_product_name], partial_filters=[item.i_manufact_id >= Int64(738), item.i_manufact_id <= Int64(778)]
+09)----------------Filter: item.i_manufact_id >= Int32(738) AND item.i_manufact_id <= Int32(778)
+10)------------------TableScan: item projection=[i_manufact_id, i_manufact, i_product_name], partial_filters=[item.i_manufact_id >= Int32(738), item.i_manufact_id <= Int32(778)]
 11)------------SubqueryAlias: __scalar_sq_1
 12)--------------Projection: count(Int64(1)) AS item_cnt, item.i_manufact, Boolean(true) AS __always_true
 13)----------------Aggregate: groupBy=[[item.i_manufact]], aggr=[[count(Int64(1))]]

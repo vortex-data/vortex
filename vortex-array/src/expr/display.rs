@@ -69,6 +69,7 @@ impl DisplayTreeNode for Expression {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
             Expression::Root => unreachable!("the scope root has no children"),
+            Expression::Variable(_) => unreachable!("a variable has no children"),
         }
     }
 
@@ -76,6 +77,7 @@ impl DisplayTreeNode for Expression {
         match self {
             Expression::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
             Expression::Root => write!(f, "{ROOT_DISPLAY}"),
+            Expression::Variable(name) => write!(f, "@{name}"),
         }
     }
 }
@@ -154,36 +156,6 @@ mod tests {
     use crate::expr::select_exclude;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
-
-    #[test]
-    fn tree_display_getitem() {
-        let expr = get_item("x", root());
-        println!("{}", expr.display_tree());
-    }
-
-    #[test]
-    fn tree_display_binary() {
-        let expr = gt(get_item("x", root()), lit(5));
-        println!("{}", expr.display_tree());
-    }
-
-    #[test]
-    fn test_child_names_debug() {
-        // Simple test to debug child names display
-        let binary_expr = gt(get_item("x", root()), lit(10));
-        println!("Binary expr tree:\n{}", binary_expr.display_tree());
-
-        let between_expr = between(
-            get_item("score", root()),
-            lit(0),
-            lit(100),
-            BetweenOptions {
-                lower_strict: StrictComparison::NonStrict,
-                upper_strict: StrictComparison::NonStrict,
-            },
-        );
-        println!("Between expr tree:\n{}", between_expr.display_tree());
-    }
 
     #[test]
     fn test_display_tree_root() {

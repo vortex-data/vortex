@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::Alignment;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -22,11 +24,13 @@ use crate::arrays::Filter;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::decimal::DecimalArrayExt;
 use crate::arrays::filter::FilterArraySlotsExt;
+use crate::buffer::BufferHandle;
 use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
+use crate::match_each_decimal_type_width;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
-use crate::match_each_native_ptype;
+use crate::match_each_ptype_width;
 use crate::validity::Validity;
 
 #[inline]
@@ -37,20 +41,24 @@ pub(in crate::arrays::filter) fn take_primitive(
 ) -> VortexResult<ArrayRef> {
     let child = array.child().clone().execute::<PrimitiveArray>(ctx)?;
     let child_validity = child.validity()?;
-    match_each_native_ptype!(child.ptype(), |T| {
-        let child_buf = child.to_buffer::<T>();
-        match_each_integer_ptype!(indices.ptype(), |P| {
-            let (taken, output_validity) = take_fixed_width::<T, P>(
-                child_buf,
+    let ptype = child.ptype();
+    let values = child.buffer_handle().to_host_sync();
+    let (taken, output_validity) = match_each_ptype_width!(
+        ptype,
+        |W| {
+            take_fixed_width_records::<W>(
+                values,
+                Alignment::new(W),
                 child_validity,
                 array.filter_mask(),
                 indices,
                 ctx,
-            )?;
-            // SAFETY: Take operation validated all the parts
-            Ok(unsafe { PrimitiveArray::new_unchecked(taken, output_validity) }.into_array())
-        })
-    })
+            )
+        },
+        _ => { unreachable!("primitive widths are specialized") },
+    )?;
+
+    Ok(PrimitiveArray::from_byte_buffer(taken, ptype, output_validity).into_array())
 }
 
 #[inline]
@@ -60,25 +68,61 @@ pub(in crate::arrays::filter) fn take_decimal(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let child = array.child().clone().execute::<DecimalArray>(ctx)?;
-    let decimal_dtype = child.decimal_dtype();
     let child_validity = child.validity()?;
-    match_each_decimal_value_type!(child.values_type(), |T| {
-        let child_buf = child.buffer::<T>();
-        match_each_integer_ptype!(indices.ptype(), |P| {
-            let (taken, output_validity) = take_fixed_width::<T, P>(
-                child_buf,
+    let values_type = child.values_type();
+
+    // Decimal storage alignment can be smaller than its byte width. Retain the native alignment
+    // so contiguous record slices stay aligned without copying.
+    let alignment = match_each_decimal_value_type!(values_type, |T| { Alignment::of::<T>() });
+    let values = child.buffer_handle().to_host_sync();
+    let (taken, output_validity) = match_each_decimal_type_width!(
+        values_type,
+        |W| {
+            take_fixed_width_records::<W>(
+                values,
+                alignment,
                 child_validity,
                 array.filter_mask(),
                 indices,
                 ctx,
-            )?;
-            // SAFETY: Valid ranks copy existing decimal values, null ranks write default placeholders that
-            // are hidden by output validity, and the output validity was built for the take length.
-            Ok(
-                unsafe { DecimalArray::new_unchecked(taken, decimal_dtype, output_validity) }
-                    .into_array(),
             )
-        })
+        },
+        _ => { unreachable!("decimal widths are specialized") },
+    )?;
+
+    // SAFETY: Valid ranks copy existing decimal values, null ranks write zero placeholders that are
+    // hidden by output validity, and the output validity was built for the take length.
+    Ok(unsafe {
+        DecimalArray::new_unchecked_handle(
+            BufferHandle::new_host(taken),
+            values_type,
+            child.decimal_dtype(),
+            output_validity,
+        )
+    }
+    .into_array())
+}
+
+/// Takes byte records with the array's required storage alignment.
+///
+/// `alignment` must divide `W` so slices between records remain aligned.
+fn take_fixed_width_records<const W: usize>(
+    child: ByteBuffer,
+    alignment: Alignment,
+    child_validity: Validity,
+    filter: &Mask,
+    indices: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(ByteBuffer, Validity)>
+where
+    [u8; W]: Default,
+{
+    let child = Buffer::<[u8; W]>::from_byte_buffer_aligned(child, alignment);
+    match_each_integer_ptype!(indices.ptype(), |P| {
+        let (taken, validity) =
+            take_fixed_width::<[u8; W], P>(child, child_validity, filter, indices, ctx)?;
+
+        Ok((taken.into_byte_buffer().aligned(alignment), validity))
     })
 }
 

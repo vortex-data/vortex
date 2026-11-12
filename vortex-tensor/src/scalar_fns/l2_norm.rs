@@ -179,6 +179,10 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let output: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
+        assert_eq!(
+            output.dtype(),
+            &DType::Primitive(T::PTYPE, Nullability::NonNullable)
+        );
         Ok(output.as_slice::<T>().to_vec())
     }
 
@@ -241,14 +245,20 @@ mod tests {
 
     #[test]
     fn null_input_row() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         // 2 rows of dim-2 vectors. Row 1 is masked as null.
         let arr = tensor_array(&[2], &[3.0, 4.0, 0.0, 0.0])?;
-        let arr = MaskedArray::try_new(arr, Validity::from_iter([true, false]))?.into_array();
+        let arr =
+            MaskedArray::try_new(arr, Validity::from_iter([true, false]), &mut ctx)?.into_array();
 
         let result = L2Norm::try_new(arr)?;
-        let mut ctx = SESSION.create_execution_ctx();
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
+        assert_eq!(prim.len(), 2);
+        assert_eq!(
+            prim.dtype(),
+            &DType::Primitive(PType::F64, Nullability::Nullable)
+        );
         // Row 0: norm = 5.0, row 1: null.
         assert!(prim.is_valid(0, &mut ctx)?);
         assert!(!prim.is_valid(1, &mut ctx)?);
@@ -314,6 +324,7 @@ mod tests {
             .into_iter()
             .map(f32::to_bits)
             .collect();
+        assert_eq!(expected, vec![f32::INFINITY.to_bits(); 3]);
         for encoded in [storage_constant, literal_constant] {
             let actual: Vec<_> = evaluate_l2_norm::<f32>(encoded)?
                 .into_iter()
@@ -381,6 +392,11 @@ mod tests {
         assert_eq!(recovered.dtype(), original.dtype());
         assert_eq!(recovered.len(), original.len());
         assert_eq!(recovered.encoding_id(), original.encoding_id());
+        vortex_array::assert_arrays_eq!(
+            recovered,
+            PrimitiveArray::from_iter([14.0f64.sqrt(), 77.0f64.sqrt()]),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 

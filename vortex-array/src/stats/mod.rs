@@ -7,41 +7,16 @@ use arrow_buffer::BooleanBufferBuilder;
 use arrow_buffer::MutableBuffer;
 use arrow_buffer::bit_iterator::BitIterator;
 use enum_iterator::last;
-pub use expr::all_nan;
-pub use expr::all_non_nan;
-pub use expr::all_non_null;
-pub use expr::all_null;
-pub use expr::bound;
-pub use expr::min_max;
-pub use expr::nan_count;
-pub use expr::null_count;
-pub use expr::stat;
-pub use expr::sum;
 pub use stats_set::*;
 
 mod array;
-pub mod bind;
-pub mod expr;
 pub mod flatbuffers;
-pub mod rewrite;
-pub mod session;
 mod stats_set;
 
 pub use array::*;
-pub use session::*;
 use vortex_error::VortexExpect;
 
 use crate::expr::stats::Stat;
-
-/// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
-/// Sum is included for boolean arrays.
-pub const PRUNING_STATS: &[Stat] = &[
-    Stat::Min,
-    Stat::Max,
-    Stat::Sum,
-    Stat::NullCount,
-    Stat::NaNCount,
-];
 
 pub fn as_stat_bitset_bytes(stats: &[Stat]) -> Vec<u8> {
     let max_stat = u8::from(last::<Stat>().vortex_expect("last stat")) as usize + 1;

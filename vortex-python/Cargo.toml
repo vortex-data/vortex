@@ -37,6 +37,7 @@ bytes = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+memmap2 = { workspace = true }
 object_store = { workspace = true, features = [
     "fs",
     "aws",
@@ -54,6 +55,7 @@ tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 url = { workspace = true }
 vortex = { workspace = true, features = [
     "hf",
+    "memmap2",
     "object_store",
     "object_store_registry",
     "opendal",

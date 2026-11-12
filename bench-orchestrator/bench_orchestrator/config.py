@@ -53,11 +53,13 @@ class Benchmark(Enum):
 
     APPIAN = "appian"
     TPCH = "tpch"
+    TPCH_NESTED = "tpch-nested"
     TPCDS = "tpcds"
     CLICKBENCH = "clickbench"
     CLICKBENCH_SORTED = "clickbench-sorted"
     FINEWEB = "fineweb"
     GHARCHIVE = "gh-archive"
+    JOB = "job"
     POLARSIGNALS = "polarsignals"
     PUBLIC_BI = "public-bi"
     STATPOPGEN = "statpopgen"
@@ -89,6 +91,23 @@ ENGINE_FORMATS: dict[Engine, list[Format]] = {
 BENCHMARK_ENGINES: dict[Benchmark, frozenset[Engine]] = {
     Benchmark.SPATIALBENCH: frozenset({Engine.DUCKDB}),
 }
+
+
+# Benchmarks whose Vortex scans still run on the V1 scan. The orchestrator runs every other
+# benchmark on the planner-driven V2 scan, overriding the benchmark binaries' V1 default.
+# These suites write the list layout, which the V2 scan cannot read yet.
+BENCHMARK_SCAN_V1: frozenset[Benchmark] = frozenset(
+    {
+        Benchmark.POLARSIGNALS,
+        Benchmark.STATPOPGEN,
+        Benchmark.TPCH_NESTED,
+    }
+)
+
+
+def uses_scan_v2(benchmark: Benchmark) -> bool:
+    """Return whether `benchmark` runs its Vortex scans on the V2 scan."""
+    return benchmark not in BENCHMARK_SCAN_V1
 
 
 def engines_for_benchmark(benchmark: Benchmark) -> frozenset[Engine]:

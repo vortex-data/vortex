@@ -8,12 +8,14 @@ import pickle
 import threading
 import time
 import weakref
+from collections.abc import Callable
 from pathlib import Path
 from typing import IO, cast
 
 import numpy as np
 import pyarrow as pa
 import pytest
+from pyarrow.fs import LocalFileSystem
 from typing_extensions import Buffer
 from vortex.io import ReadAt, ReadBytesAt
 
@@ -33,12 +35,11 @@ def path(tmp_path_factory: pytest.TempPathFactory, table: pa.Table) -> Path:
 
 
 @pytest.fixture(scope="module")
-def expected(path: Path) -> pa.Table:
-    """The file as read through the native path reader, which every Python reader must match."""
-    return vx.open(str(path)).to_arrow().read_all()
+def expected(table: pa.Table) -> pa.Table:
+    return table.cast(pa.schema([("index", pa.int64()), ("string", pa.string_view())]))
 
 
-def read_all(source: ReadBytesAt | ReadAt | IO[bytes]) -> pa.Table:
+def read_all(source: ReadBytesAt | ReadAt | IO[bytes] | pa.NativeFile) -> pa.Table:
     return vx.open_readable(source, without_segment_cache=True).to_arrow().read_all()
 
 
@@ -80,6 +81,16 @@ def test_file_object(path: Path, expected: pa.Table) -> None:
 
 def test_bytes_io(path: Path, expected: pa.Table) -> None:
     assert read_all(io.BytesIO(path.read_bytes())).equals(expected)
+
+
+@pytest.mark.parametrize(
+    "open_file",
+    [pa.OSFile, pa.memory_map, LocalFileSystem().open_input_file],
+    ids=["os_file", "memory_map", "filesystem"],
+)
+def test_pyarrow_file(path: Path, expected: pa.Table, open_file: Callable[[str], pa.NativeFile]) -> None:
+    with open_file(str(path)) as f:
+        assert read_all(f).equals(expected)
 
 
 def test_reopen_with_footer(path: Path, expected: pa.Table) -> None:
@@ -233,8 +244,15 @@ def test_pickle_is_refused(path: Path) -> None:
 def test_read_at_concurrency_limit(path: Path, concurrency: int) -> None:
     class Slow(PReadFile):
         def read_into(self, offset: int, buffer: memoryview) -> int:
-            time.sleep(0.01)
-            return super().read_into(offset, buffer)
+            with self._lock:
+                self._in_flight += 1
+                self.max_in_flight = max(self.max_in_flight, self._in_flight)
+            try:
+                time.sleep(0.01)
+                return os.preadv(self._fd, [buffer], offset)
+            finally:
+                with self._lock:
+                    self._in_flight -= 1
 
     reader = Slow(path)
     try:

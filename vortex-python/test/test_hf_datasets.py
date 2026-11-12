@@ -281,7 +281,7 @@ def test_streaming_take_then_shuffle_keeps_row_set(tmp_path: Path) -> None:
     taken = sorted(row["idx"] for row in limited)
     shuffled = sorted(row["idx"] for row in limited.shuffle(seed=7, buffer_size=16))
 
-    assert shuffled == taken
+    assert taken == shuffled == [0, 1, 2, 3]
 
 
 @pytest.mark.skipif(
@@ -393,8 +393,10 @@ def test_materialize_filter_with_num_proc(tmp_path: Path) -> None:
 
     assert isinstance(dataset, hf_datasets.Dataset)
     rows = dataset.to_list()
-    assert len(rows) == 50
-    assert {cast(int, row["label"]) for row in rows} == {1}
+    assert sorted(rows, key=lambda row: row["text"]) == sorted(
+        [{"text": f"{shard}-{i}", "label": 1} for shard in range(2) for i in range(1, 50, 2)],
+        key=lambda row: row["text"],
+    )
 
 
 def test_load_dataset_multi_split_without_mapping_raises(tmp_path: Path) -> None:

@@ -630,7 +630,7 @@ mod tests {
         let expr = and(expr, lit2);
         let mut printer = ExprLitCollector::default();
         expr.accept(&mut printer).unwrap();
-        assert_eq!(printer.0.len(), 2);
+        assert_eq!(printer.0, vec![&lit(1), &lit(2)]);
     }
 
     #[test]
@@ -651,7 +651,8 @@ mod tests {
 
         let mut printer = ExprLitCollector::default();
         expr.accept(&mut printer).unwrap();
-        assert_eq!(printer.0.len(), 3);
+        assert_eq!(printer.0, vec![&lit(0), &lit(1), &lit(2)]);
+        assert_eq!(expr, and(eq(lit(0), lit(1)), lit(2)));
     }
 
     #[test]

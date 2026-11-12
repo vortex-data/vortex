@@ -210,16 +210,20 @@ fn push_view(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::VarBinViewArray;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn zip_varbinview_kernel_zips() -> VortexResult<()> {
@@ -249,14 +253,14 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true, false, false, true]);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let zipped = mask
             .clone()
             .into_array()
             .zip(a.into_array(), b.into_array())?
             .execute::<VarBinViewArray>(&mut ctx)?;
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let validity_mask = zipped.validity()?.execute_mask(zipped.len(), &mut ctx)?;
         let values = (0..zipped.len())
             .map(|i| {

@@ -214,7 +214,7 @@ fn collect_row_bytes(array: &ListViewArray, ctx: &mut ExecutionCtx) -> Vec<Vec<u
     (0..array.len())
         .map(|i| {
             let slice = array
-                .list_elements_at(i)
+                .list_elements_at(i, ctx)
                 .vortex_expect("row key bytes must be addressable");
             let p = slice
                 .execute::<PrimitiveArray>(ctx)
@@ -421,7 +421,10 @@ fn row_keys(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<RowKey
             let mut keys = Vec::with_capacity(len);
             for i in 0..len {
                 if mask.value(i) {
-                    keys.push(RowKey::Composite(row_keys(&a.list_elements_at(i)?, ctx)?));
+                    keys.push(RowKey::Composite(row_keys(
+                        &a.list_elements_at(i, ctx)?,
+                        ctx,
+                    )?));
                 } else {
                     keys.push(RowKey::Null);
                 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -30,29 +31,35 @@ impl ZipKernel for Chunked {
         let dtype = if_true
             .dtype()
             .union_nullability(if_false.dtype().nullability());
-        let mut out_chunks = Vec::with_capacity(if_true.nchunks() + if_false.nchunks());
-
-        for pair in if_true.paired_chunks(&if_false) {
+        let chunks = if_true.paired_chunks(&if_false).map(|pair| {
             let pair = pair?;
-            let mask_slice = mask.slice(pair.pos)?;
-            out_chunks.push(mask_slice.zip(pair.left, pair.right)?);
-        }
-
-        // SAFETY: chunks originate from zipping slices of inputs that share dtype/nullability.
-        let chunked = unsafe { ChunkedArray::new_unchecked(out_chunks, dtype) };
-        Ok(Some(chunked.into_array()))
+            mask.slice(pair.pos)?.zip(pair.left, pair.right)
+        });
+        chunks.process_results(|chunks| {
+            // SAFETY: chunks originate from zipping slices of inputs that share dtype/nullability.
+            Some(unsafe {
+                ChunkedArray::new_unchecked_sized(
+                    chunks,
+                    dtype,
+                    if_true.nchunks() + if_false.nchunks(),
+                )
+                .into_array()
+            })
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
@@ -62,9 +69,11 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_chunked_zip_aligns_across_boundaries() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let if_true = ChunkedArray::try_new(
             vec![
                 buffer![1i32, 2].into_array(),
@@ -94,7 +103,7 @@ mod tests {
         // One step of execution will push down the zip.
         let zipped = zipped
             .clone()
-            .execute::<ArrayRef>(&mut array_session().create_execution_ctx())
+            .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())
             .unwrap();
         let zipped = zipped
             .as_opt::<Chunked>()

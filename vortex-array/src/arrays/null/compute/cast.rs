@@ -29,17 +29,22 @@ impl CastReduce for Null {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::NullArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::optimizer::ArrayOptimizer;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_cast_null_to_null() {
@@ -68,7 +73,7 @@ mod tests {
         for i in 0..5 {
             assert!(
                 result
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
                     .unwrap()
                     .is_null()
             );
@@ -78,9 +83,11 @@ mod tests {
     #[test]
     fn test_cast_null_to_non_nullable_fails() {
         let null_array = NullArray::new(5);
+        // The cast is rejected when it is optimized.
         let result = null_array
             .into_array()
-            .cast(DType::Primitive(PType::I32, Nullability::NonNullable));
+            .cast(DType::Primitive(PType::I32, Nullability::NonNullable))
+            .and_then(|cast| cast.optimize_ctx(&SESSION));
         assert!(result.is_err());
     }
 
@@ -90,9 +97,6 @@ mod tests {
     #[case(NullArray::new(100))]
     #[case(NullArray::new(0))]
     fn test_cast_null_conformance(#[case] array: NullArray) {
-        test_cast_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

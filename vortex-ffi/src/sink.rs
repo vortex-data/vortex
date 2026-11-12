@@ -174,11 +174,17 @@ pub unsafe extern "C-unwind" fn vx_array_sink_abort(sink: *mut vx_array_sink) {
 mod tests {
 
     use tempfile::NamedTempFile;
+    use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::array::stream::ArrayStreamExt;
     use vortex::array::validity::Validity;
+    use vortex::buffer::ByteBuffer;
     use vortex::buffer::buffer;
     use vortex::dtype::DType;
+    use vortex::file::OpenOptionsSessionExt;
 
     use super::*;
     use crate::array::vx_array;
@@ -190,6 +196,16 @@ mod tests {
     use crate::error::vx_error_free;
     use crate::session::vx_session_free;
     use crate::session::vx_session_new;
+
+    unsafe fn assert_written(session: *const vx_session, path: vx_view, expected: ArrayRef) {
+        let session = vx_session::as_ref(session);
+        let bytes = ByteBuffer::from(std::fs::read(unsafe { path.as_str() }.unwrap()).unwrap());
+        let file = session.open_options().open_buffer(bytes).unwrap();
+        let actual = RUNTIME
+            .block_on(file.scan().unwrap().into_array_stream().unwrap().read_all())
+            .unwrap();
+        assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+    }
 
     #[test]
     #[cfg_attr(miri, ignore)]
@@ -218,6 +234,8 @@ mod tests {
             // Close the sink
             vx_array_sink_close(sink, &raw mut error);
             assert!(error.is_null());
+
+            assert_written(session, path, buffer![1i32, 2, 3].into_array());
 
             // Cleanup
             vx_array_free(vx_array_ptr);
@@ -259,6 +277,11 @@ mod tests {
 
             vx_array_sink_close(sink, &raw mut error);
             assert!(error.is_null());
+            assert_written(
+                session,
+                path,
+                buffer![0u64, 1, 2, 3, 4, 5, 6, 7, 8].into_array(),
+            );
 
             vx_dtype_free(vx_dtype_ptr);
             vx_session_free(session);
@@ -271,34 +294,29 @@ mod tests {
         unsafe {
             let session = vx_session_new();
 
-            // Use a path that will fail during file creation (read-only directory on most systems)
-            let invalid_path = vx_view::from_str("/dev/null/invalid.vortex");
+            let parent_file = NamedTempFile::new().unwrap();
+            let path = parent_file.path().join("invalid.vortex");
+            let invalid_path = vx_view::from_str(path.to_str().unwrap());
             let dtype = DType::Primitive(vortex::dtype::PType::I32, false.into());
             let vx_dtype_ptr = vx_dtype::new(dtype);
 
             let mut error = std::ptr::null_mut();
             let sink = vx_array_sink_open_file(session, invalid_path, vx_dtype_ptr, &raw mut error);
 
-            // The sink creation may succeed but close should fail due to invalid path
-            if !sink.is_null() {
-                // Push an array
-                let array = PrimitiveArray::new(buffer![1i32], Validity::NonNullable);
-                let vx_array_ptr = vx_array::new(array.into_array());
-                vx_array_sink_push(sink, vx_array_ptr, &raw mut error);
-                vx_array_free(vx_array_ptr);
-
-                // Close should fail due to invalid path
-                vx_array_sink_close(sink, &raw mut error);
-                // Either error is set or operation succeeds (depends on filesystem)
-                if !error.is_null() {
-                    vx_error_free(error);
-                }
-            } else {
-                // Sink creation failed, which is also valid
-                if !error.is_null() {
-                    vx_error_free(error);
-                }
+            assert!(!sink.is_null());
+            assert!(error.is_null());
+            let array = PrimitiveArray::new(buffer![1i32], Validity::NonNullable);
+            let vx_array_ptr = vx_array::new(array.into_array());
+            vx_array_sink_push(sink, vx_array_ptr, &raw mut error);
+            vx_array_free(vx_array_ptr);
+            // The asynchronous writer can fail before or after push.
+            if !error.is_null() {
+                vx_error_free(error);
+                error = std::ptr::null_mut();
             }
+            vx_array_sink_close(sink, &raw mut error);
+            assert!(!error.is_null());
+            vx_error_free(error);
 
             vx_dtype_free(vx_dtype_ptr);
             vx_session_free(session);

@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Converts scalar values between Vortex and DataFusion.
+//!
+//! A bare DataFusion scalar cannot carry extension metadata. Extensions without a dedicated
+//! DataFusion scalar representation must cross a field-aware Arrow boundary instead.
+
 use std::sync::Arc;
 
 use arrow_array::Array;
@@ -18,11 +23,9 @@ use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::dtype::half::f16;
 use vortex::dtype::i256;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
-use vortex::error::vortex_panic;
 use vortex::extension::datetime::AnyTemporal;
 use vortex::extension::datetime::TemporalMetadata;
 use vortex::extension::datetime::TimeUnit;
@@ -134,18 +137,19 @@ impl TryToDataFusion<ScalarValue> for Scalar {
             dtype @ DType::Union(..) => vortex_bail!(
                 "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
             ),
-            DType::Variant(_) => vortex_bail!("Variant scalars aren't supported with DF"),
+            DType::Variant(_) => {
+                vortex_bail!("Variant scalars aren't supported with DF")
+            }
             DType::Extension(ext) => {
-                let storage_scalar = self.as_extension().to_storage_scalar();
-
                 let Some(temporal) = ext.metadata_opt::<AnyTemporal>() else {
-                    // Unknown extension type: perform scalar conversion using the canonical
-                    // scalar DType.
-                    return storage_scalar.try_to_df();
+                    vortex_bail!(
+                        "DataFusion ScalarValue requires a dedicated extension representation, got {}",
+                        self.dtype()
+                    );
                 };
 
-                // Special handling: temporal extension types in Vortex correspond to Arrow's
-                // temporal physical types.
+                // Temporal extension types in Vortex have dedicated DataFusion scalar types.
+                let storage_scalar = self.as_extension().to_storage_scalar();
                 let pv = storage_scalar.as_primitive();
                 match temporal {
                     TemporalMetadata::Timestamp(unit, tz) => match unit {
@@ -188,7 +192,6 @@ impl TryToDataFusion<ScalarValue> for Scalar {
 /// Converts a DataFusion [`ScalarValue`] to a Vortex [`Scalar`], resolving Arrow types through
 /// `session`'s [`ArrowSession`](vortex_arrow::ArrowSession).
 pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexResult<Scalar> {
-    let arrow = session.arrow();
     Ok(match value {
         ScalarValue::Null => Scalar::null(DType::Null),
         ScalarValue::Boolean(b) => b
@@ -241,11 +244,10 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexRes
         ScalarValue::Date32(v)
         | ScalarValue::Time32Second(v)
         | ScalarValue::Time32Millisecond(v) => {
-            let dtype = arrow
-                .from_arrow_datatype(&value.data_type(), Nullability::Nullable)
-                .vortex_expect("arrow data type to dtype");
-            Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))
-                .vortex_expect("unable to create a time `Scalar`")
+            let dtype = session
+                .arrow()
+                .from_arrow_datatype(&value.data_type(), Nullability::Nullable)?;
+            Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))?
         }
         ScalarValue::Date64(v)
         | ScalarValue::Time64Microsecond(v)
@@ -254,11 +256,10 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexRes
         | ScalarValue::TimestampMillisecond(v, _)
         | ScalarValue::TimestampMicrosecond(v, _)
         | ScalarValue::TimestampNanosecond(v, _) => {
-            let dtype = arrow
-                .from_arrow_datatype(&value.data_type(), Nullability::Nullable)
-                .vortex_expect("arrow data type to dtype");
-            Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))
-                .vortex_expect("unable to create a time `Scalar`")
+            let dtype = session
+                .arrow()
+                .from_arrow_datatype(&value.data_type(), Nullability::Nullable)?;
+            Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))?
         }
         ScalarValue::Decimal32(decimal, precision, scale) => {
             let decimal_dtype = DecimalDType::new(*precision, *scale);
@@ -313,7 +314,7 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexRes
             }
         }
         ScalarValue::Dictionary(_, v) => scalar_from_df(v.as_ref(), session)?,
-        ScalarValue::Struct(array) => struct_from_df(array, session),
+        ScalarValue::Struct(array) => struct_from_df(array, session)?,
         ScalarValue::RunEndEncoded(_, _, v) => scalar_from_df(v.as_ref(), session)?,
         _ => vortex_bail!("Can't convert {value:?} value to a Vortex scalar"),
     })
@@ -366,13 +367,11 @@ fn struct_to_df(scalar: &Scalar) -> VortexResult<ScalarValue> {
 /// same fields. Going through `ScalarValue` instead would drop each field's `ARROW:extension:name`
 /// (and its declared nullability), yielding storage-typed children that
 /// [`Scalar::struct_`] rejects against an extension-typed struct dtype.
-fn struct_from_df(array: &StructArray, session: &VortexSession) -> Scalar {
+fn struct_from_df(array: &StructArray, session: &VortexSession) -> VortexResult<Scalar> {
     let arrow = session.arrow();
-    let dtype = arrow
-        .from_arrow_datatype(array.data_type(), Nullability::Nullable)
-        .vortex_expect("arrow data type to dtype");
+    let dtype = arrow.from_arrow_datatype(array.data_type(), Nullability::Nullable)?;
     if array.is_null(0) {
-        Scalar::null(dtype)
+        Ok(Scalar::null(dtype))
     } else {
         let mut ctx = session.create_execution_ctx();
         let children = array
@@ -383,12 +382,9 @@ fn struct_from_df(array: &StructArray, session: &VortexSession) -> Scalar {
                 arrow
                     .from_arrow_array(ArrowArrayRef::clone(column), field)
                     .and_then(|column| column.execute_scalar(0, &mut ctx))
-                    .unwrap_or_else(|e| {
-                        vortex_panic!("cannot convert struct field to a Vortex scalar: {e}")
-                    })
             })
-            .collect::<Vec<_>>();
-        Scalar::struct_(dtype, children)
+            .collect::<VortexResult<Vec<_>>>()?;
+        Ok(Scalar::struct_(dtype, children))
     }
 }
 
@@ -399,6 +395,7 @@ mod tests {
     use datafusion_common::arrow::datatypes::i256 as arrow_i256;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
+    use vortex::array::EmptyMetadata;
     use vortex::buffer::ByteBuffer;
     use vortex::dtype::DType;
     use vortex::dtype::DecimalDType;
@@ -407,9 +404,15 @@ mod tests {
     use vortex::dtype::PType;
     use vortex::dtype::StructFields;
     use vortex::dtype::UnionVariants;
+    use vortex::dtype::extension::ExtDType;
     use vortex::dtype::i256;
+    use vortex::error::VortexExpect;
+    use vortex::extension::datetime::Date;
+    use vortex::extension::datetime::Time;
+    use vortex::extension::datetime::Timestamp;
     use vortex::scalar::DecimalValue;
     use vortex::scalar::Scalar;
+    use vortex_json::Json;
 
     use super::*;
 
@@ -417,6 +420,39 @@ mod tests {
     fn from_df(value: &ScalarValue) -> Scalar {
         scalar_from_df(value, &VortexSession::default())
             .vortex_expect("conversion should succeed in tests")
+    }
+
+    #[rstest]
+    #[case::invalid_zone(ScalarValue::TimestampSecond(None, Some("Not/A/Timezone".into())))]
+    #[case::extreme_time(ScalarValue::Time64Nanosecond(Some(i64::MIN)))]
+    fn test_reject_invalid_temporal_scalar(#[case] value: ScalarValue) {
+        assert!(scalar_from_df(&value, &VortexSession::default()).is_err());
+    }
+
+    #[test]
+    fn test_accept_extreme_timestamp_scalar() -> VortexResult<()> {
+        let expected = ScalarValue::TimestampSecond(Some(i64::MAX), None);
+        let scalar = scalar_from_df(&expected, &VortexSession::default())?;
+
+        assert_eq!(scalar.try_to_df()?, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_reject_struct_with_invalid_timestamp_metadata() {
+        let array =
+            arrow_array::TimestampSecondArray::from(vec![0]).with_timezone("Not/A/Timezone");
+        let field = Field::new("timestamp", array.data_type().clone(), false);
+        let array = StructArray::new(vec![field].into(), vec![Arc::new(array)], None);
+
+        assert!(
+            scalar_from_df(
+                &ScalarValue::Struct(Arc::new(array)),
+                &VortexSession::default(),
+            )
+            .is_err()
+        );
     }
 
     #[rstest]
@@ -606,14 +642,8 @@ mod tests {
     ) {
         let result = from_df(&df_scalar);
         assert_eq!(result.dtype(), expected_vortex.dtype());
+        assert_eq!(result, expected_vortex);
         assert_eq!(result.is_null(), expected_vortex.is_null());
-
-        // For non-null values, convert both back to DataFusion for comparison
-        if !result.is_null() {
-            let result_df = result.try_to_df().unwrap();
-            let expected_df = expected_vortex.try_to_df().unwrap();
-            assert_eq!(result_df, expected_df);
-        }
     }
 
     #[rstest]
@@ -623,35 +653,39 @@ mod tests {
     #[case::decimal256_null(ScalarValue::Decimal256(None, 50, 10))]
     fn test_from_datafusion_decimals(#[case] df_scalar: ScalarValue) {
         let result = from_df(&df_scalar);
-        match &df_scalar {
-            ScalarValue::Decimal128(value, precision, scale) => {
-                if let DType::Decimal(decimal_type, _) = result.dtype() {
-                    assert_eq!(decimal_type.precision(), *precision);
-                    assert_eq!(decimal_type.scale(), *scale);
-                    if value.is_some() {
-                        assert!(!result.is_null());
-                    } else {
-                        assert!(result.is_null());
-                    }
-                } else {
-                    panic!("Expected decimal type");
-                }
-            }
-            ScalarValue::Decimal256(value, precision, scale) => {
-                if let DType::Decimal(decimal_type, _) = result.dtype() {
-                    assert_eq!(decimal_type.precision(), *precision);
-                    assert_eq!(decimal_type.scale(), *scale);
-                    if value.is_some() {
-                        assert!(!result.is_null());
-                    } else {
-                        assert!(result.is_null());
-                    }
-                } else {
-                    panic!("Expected decimal type");
-                }
-            }
-            _ => panic!("Unexpected scalar type"),
-        }
+        let expected = match &df_scalar {
+            ScalarValue::Decimal128(value, ..) => value
+                .map(|_| {
+                    Scalar::decimal(
+                        DecimalValue::I128(12345),
+                        DecimalDType::new(10, 2),
+                        Nullability::Nullable,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    Scalar::null(DType::Decimal(
+                        DecimalDType::new(10, 2),
+                        Nullability::Nullable,
+                    ))
+                }),
+            ScalarValue::Decimal256(value, ..) => value
+                .map(|_| {
+                    Scalar::decimal(
+                        DecimalValue::I256(i256::from(12345i64)),
+                        DecimalDType::new(50, 10),
+                        Nullability::Nullable,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    Scalar::null(DType::Decimal(
+                        DecimalDType::new(50, 10),
+                        Nullability::Nullable,
+                    ))
+                }),
+            _ => unreachable!(),
+        };
+        assert_eq!(result.dtype(), expected.dtype());
+        assert_eq!(result, expected);
     }
 
     #[rstest]
@@ -670,16 +704,52 @@ mod tests {
     ))]
     fn test_from_datafusion_temporals(#[case] df_scalar: ScalarValue) {
         let result = from_df(&df_scalar);
-
-        // All temporal types should convert to extension types
-        if let DType::Extension(_) = result.dtype() {
-            assert!(!result.is_null());
-        } else {
-            panic!(
-                "Expected extension type for temporal scalar, got: {:?}",
-                result.dtype()
-            );
-        }
+        let (dtype, value) = match df_scalar {
+            ScalarValue::Date32(_) => (
+                Date::new(TimeUnit::Days, Nullability::Nullable).erased(),
+                Scalar::from(18628i32),
+            ),
+            ScalarValue::Date64(_) => (
+                Date::new(TimeUnit::Milliseconds, Nullability::Nullable).erased(),
+                Scalar::from(1609459200000i64),
+            ),
+            ScalarValue::Time32Second(_) => (
+                Time::new(TimeUnit::Seconds, Nullability::Nullable).erased(),
+                Scalar::from(3661i32),
+            ),
+            ScalarValue::Time32Millisecond(_) => (
+                Time::new(TimeUnit::Milliseconds, Nullability::Nullable).erased(),
+                Scalar::from(3661000i32),
+            ),
+            ScalarValue::Time64Microsecond(_) => (
+                Time::new(TimeUnit::Microseconds, Nullability::Nullable).erased(),
+                Scalar::from(3661000000i64),
+            ),
+            ScalarValue::Time64Nanosecond(_) => (
+                Time::new(TimeUnit::Nanoseconds, Nullability::Nullable).erased(),
+                Scalar::from(3661000000000i64),
+            ),
+            ScalarValue::TimestampSecond(..) => (
+                Timestamp::new(TimeUnit::Seconds, Nullability::Nullable).erased(),
+                Scalar::from(1609459200i64),
+            ),
+            ScalarValue::TimestampMillisecond(..) => (
+                Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased(),
+                Scalar::from(1609459200000i64),
+            ),
+            ScalarValue::TimestampMicrosecond(..) => (
+                Timestamp::new(TimeUnit::Microseconds, Nullability::Nullable).erased(),
+                Scalar::from(1609459200000000i64),
+            ),
+            ScalarValue::TimestampNanosecond(..) => (
+                Timestamp::new(TimeUnit::Nanoseconds, Nullability::Nullable).erased(),
+                Scalar::from(1609459200000000000i64),
+            ),
+            _ => unreachable!(),
+        };
+        let expected = Scalar::try_new(DType::Extension(dtype), value.into_value()).unwrap();
+        assert_eq!(result.dtype(), expected.dtype());
+        assert_eq!(result, expected);
     }
 
     #[rstest]
@@ -699,6 +769,7 @@ mod tests {
     fn test_round_trip_conversions(#[case] original: Scalar) {
         let df_scalar = original.try_to_df().unwrap();
         let round_trip = from_df(&df_scalar);
+        assert_eq!(round_trip, original);
 
         // Check that core types match (ignoring nullability differences that can occur in round-trip)
         assert!(
@@ -714,17 +785,6 @@ mod tests {
             "Null status mismatch for scalar: {:?}",
             original
         );
-
-        if !original.is_null() {
-            // For non-null values, compare by converting both to DataFusion scalars
-            let original_df = original.try_to_df().unwrap();
-            let round_trip_df = round_trip.try_to_df().unwrap();
-            assert_eq!(
-                original_df, round_trip_df,
-                "Value mismatch for scalar: {:?}",
-                original
-            );
-        }
     }
 
     #[rstest]
@@ -769,11 +829,7 @@ mod tests {
         // Test DataFusion -> Vortex
         let vortex_result = from_df(&expected_df_null);
         assert!(vortex_result.is_null());
-        assert!(
-            vortex_result
-                .dtype()
-                .eq_ignore_nullability(vortex_null.dtype())
-        );
+        assert_eq!(vortex_result.dtype(), vortex_null.dtype());
     }
 
     #[rstest]
@@ -782,6 +838,7 @@ mod tests {
     #[case::large_utf8(ScalarValue::LargeUtf8(Some("test string".to_string())))]
     fn test_utf8_variants(#[case] variant: ScalarValue) {
         let result = from_df(&variant);
+        assert_eq!(result.dtype(), &DType::Utf8(Nullability::NonNullable));
         assert_eq!(result.as_utf8().value().unwrap().as_str(), "test string");
     }
 
@@ -792,6 +849,7 @@ mod tests {
     #[case::fixed_size_binary(ScalarValue::FixedSizeBinary(5, Some(vec![1u8, 2, 3, 4, 5])))]
     fn test_binary_variants(#[case] variant: ScalarValue) {
         let result = from_df(&variant);
+        assert_eq!(result.dtype(), &DType::Binary(Nullability::Nullable));
         let result_bytes: Vec<u8> = result
             .as_binary()
             .value()
@@ -829,6 +887,22 @@ mod tests {
             id_dtype.as_extension().is::<Uuid>(),
             "expected a Uuid extension field, got {id_dtype}"
         );
+        assert!(scalar.dtype().is_nullable());
+        assert_eq!(fields.names(), ["id"]);
+        assert!(!id_dtype.is_nullable());
+        let id = scalar.as_struct().field("id").vortex_expect("id field");
+        assert_eq!(
+            id.as_extension().to_storage_scalar(),
+            Scalar::fixed_size_list(
+                DType::Primitive(PType::U8, Nullability::NonNullable),
+                b"0123456789abcdef"
+                    .iter()
+                    .copied()
+                    .map(Scalar::from)
+                    .collect(),
+                Nullability::NonNullable,
+            )
+        );
         Ok(())
     }
 
@@ -852,9 +926,10 @@ mod tests {
         let df = original.try_to_df()?;
         assert!(matches!(df, ScalarValue::Struct(_)));
 
-        // Back through `from_df` and out again yields the identical DataFusion struct value.
+        // Check the recovered struct directly against the original values.
         let back = from_df(&df);
-        assert_eq!(back.try_to_df()?, df);
+        assert_eq!(back.dtype(), &original.dtype().as_nullable());
+        assert_eq!(back, original);
         Ok(())
     }
 
@@ -871,9 +946,11 @@ mod tests {
             Nullability::Nullable,
         );
 
-        let df = Scalar::null(dtype).try_to_df()?;
+        let df = Scalar::null(dtype.clone()).try_to_df()?;
         assert!(matches!(df, ScalarValue::Struct(_)));
-        assert!(from_df(&df).is_null());
+        let back = from_df(&df);
+        assert!(back.is_null());
+        assert_eq!(back.dtype(), &dtype);
         Ok(())
     }
 
@@ -899,6 +976,45 @@ mod tests {
         let err = scalar.try_to_df().unwrap_err();
 
         assert!(err.to_string().contains("unsupported scalar type"), "{err}");
+    }
+
+    #[rstest]
+    #[case::value(false, false)]
+    #[case::null(true, false)]
+    #[case::nested(false, true)]
+    fn test_bare_extension_scalar_cannot_lose_its_dtype(
+        #[case] null: bool,
+        #[case] nested: bool,
+    ) -> VortexResult<()> {
+        let dtype = DType::Extension(
+            ExtDType::<Json>::try_new(EmptyMetadata, DType::Utf8(Nullability::Nullable))?.erased(),
+        );
+        let scalar = Scalar::try_new(
+            dtype.clone(),
+            (!null).then(|| vortex::scalar::ScalarValue::from(r#"{"x":1}"#)),
+        )?;
+        let scalar = if nested {
+            Scalar::struct_(
+                DType::Struct(
+                    StructFields::new(FieldNames::from(["json"]), vec![dtype]),
+                    Nullability::NonNullable,
+                ),
+                vec![scalar],
+            )
+        } else {
+            scalar
+        };
+
+        let error = scalar
+            .try_to_df()
+            .expect_err("extension metadata cannot fit in a ScalarValue");
+        assert!(
+            error
+                .to_string()
+                .contains("requires a dedicated extension representation")
+        );
+
+        Ok(())
     }
 
     /// Wraps `value` in a `ScalarValue::RunEndEncoded`, as DataFusion represents a scalar taken
@@ -947,13 +1063,8 @@ mod tests {
     ) {
         let result = from_df(&run_end_encoded(inner));
         assert_eq!(result.dtype(), expected_vortex.dtype());
+        assert_eq!(result, expected_vortex);
         assert_eq!(result.is_null(), expected_vortex.is_null());
-
-        if !result.is_null() {
-            let result_df = result.try_to_df().unwrap();
-            let expected_df = expected_vortex.try_to_df().unwrap();
-            assert_eq!(result_df, expected_df);
-        }
     }
 
     /// A run-end-encoded scalar whose values are themselves dictionary-encoded, mirroring the
@@ -967,6 +1078,7 @@ mod tests {
 
         let result = from_df(&run_end_encoded(dictionary));
 
+        assert_eq!(result.dtype(), &DType::Utf8(Nullability::NonNullable));
         assert_eq!(result.as_utf8().value().unwrap().as_str(), "hello");
     }
 }

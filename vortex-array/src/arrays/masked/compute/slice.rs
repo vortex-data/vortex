@@ -18,6 +18,10 @@ impl SliceReduce for Masked {
         let child = array.child().slice(range.clone())?;
         let validity = array.validity()?.slice(range)?;
 
-        Ok(Some(MaskedArray::try_new(child, validity)?.into_array()))
+        // SAFETY: slicing a null-free child keeps it null-free, and the child and validity are
+        // sliced by the same range, so their lengths match.
+        Ok(Some(
+            unsafe { MaskedArray::new_unchecked(child, validity) }.into_array(),
+        ))
     }
 }

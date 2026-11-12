@@ -7,22 +7,21 @@ import { SummaryPane } from './SummaryPane';
 import { ArraySummaryPane } from './ArraySummaryPane';
 
 /**
- * Right-hand summary sidebar shared by the details and swimlane views. Shows the
- * selected node's summary (array-aware), falling back to the whole-file summary
- * when nothing is selected.
+ * The summary pane beside the view, in both views: the selected node's facts (array-aware), or
+ * the whole file's when nothing is selected.
  */
 export function SummarySidebar() {
   const file = useVortexFile();
   const { state: selection } = useSelection();
-  const isArrayNode = selection.selectedNode?.isArrayNode ?? false;
+  const node = selection.selectedNode;
 
   return (
-    <div className="w-[180px] flex-shrink-0 overflow-y-auto border-l border-vortex-grey-light/40 dark:border-white/[0.06] p-2.5">
-      {isArrayNode && selection.selectedNode ? (
-        <ArraySummaryPane node={selection.selectedNode} />
+    <section className="vx-card vx-pane x-side" aria-label="Summary">
+      {node?.isArrayNode ? (
+        <ArraySummaryPane node={node} />
       ) : (
-        <SummaryPane node={selection.selectedNode} file={file} />
+        <SummaryPane node={node} file={file} />
       )}
-    </div>
+    </section>
   );
 }

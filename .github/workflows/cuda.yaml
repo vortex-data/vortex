@@ -10,7 +10,8 @@ concurrency:
 on:
   push:
     branches: [develop]
-  pull_request: { }
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch: { }
 
 permissions:
@@ -19,10 +20,12 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  TY_VERSION: 0.0.98
 
 jobs:
   changes:
     name: "Detect CUDA changes"
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -56,7 +59,7 @@ jobs:
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA build & lint"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/runner=gpu/extras=s3-cache/tag=cuda-build
+    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/extras=s3-cache/tag=cuda-build
     steps:
       - parallel:
           - uses: runs-on/action@v2
@@ -94,7 +97,7 @@ jobs:
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/runner=gpu/extras=s3-cache/tag=cuda-tests
+    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/extras=s3-cache/tag=cuda-tests
     steps:
       - parallel:
           - uses: runs-on/action@v2
@@ -116,34 +119,35 @@ jobs:
             with:
               sync: false
       - name: Install nextest
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8  # v2
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91  # v2
         with:
           tool: nextest
-      - name: Rust Tests
-        env:
-          FLAT_LAYOUT_INLINE_ARRAY_NODE: true
-        run: |
-          cargo nextest run \
-            --cargo-profile ci \
-            --locked \
-            -p vortex-file \
-            -p vortex-cuda \
-            -p vortex-cuda-ffi \
-            -p vortex-cub \
-            -p vortex-nvcomp \
-            -p vortex-test-e2e-cuda \
-            -p vortex-python-cuda \
-            --all-features \
-            --no-fail-fast \
-            --target x86_64-unknown-linux-gnu \
-            --verbose
-      - name: Python CUDA extension checks
-        env:
-          MATURIN_PEP517_ARGS: "--profile ci"
-        run: |
-          uv sync --all-packages --extra cuda
-          uvx ty check vortex-python vortex-python-cuda
-          uv run --all-packages --extra cuda pytest --benchmark-disable vortex-python/test/test_cuda.py vortex-python-cuda/test
+      - parallel:
+          - name: Rust Tests
+            env:
+              FLAT_LAYOUT_INLINE_ARRAY_NODE: true
+            run: |
+              cargo nextest run \
+                --cargo-profile ci \
+                --locked \
+                -p vortex-file \
+                -p vortex-cuda \
+                -p vortex-cuda-ffi \
+                -p vortex-cub \
+                -p vortex-nvcomp \
+                -p vortex-test-e2e-cuda \
+                -p vortex-python-cuda \
+                --all-features \
+                --no-fail-fast \
+                --target x86_64-unknown-linux-gnu \
+                --verbose
+          - name: Python CUDA extension checks
+            env:
+              MATURIN_PEP517_ARGS: "--profile ci"
+            run: |
+              uv sync --all-packages --extra cuda
+              uvx ty@$TY_VERSION check vortex-python vortex-python-cuda
+              uv run --all-packages --extra cuda pytest --benchmark-disable vortex-python/test/test_cuda.py vortex-python-cuda/test
 
   cuda-test-sanitizer:
     needs: [changes]
@@ -152,7 +156,7 @@ jobs:
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests (${{ matrix.sanitizer }})"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/runner=gpu/extras=s3-cache/tag=cuda-test-sanitizer
+    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/extras=s3-cache/tag=cuda-test-sanitizer
     strategy:
       fail-fast: false
       matrix:
@@ -195,7 +199,7 @@ jobs:
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests (cudf)"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/runner=gpu/extras=s3-cache/tag=cuda-test-cudf
+    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/extras=s3-cache/tag=cuda-test-cudf
     steps:
       - parallel:
           - uses: runs-on/action@v2

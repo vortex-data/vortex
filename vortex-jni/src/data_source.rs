@@ -36,6 +36,7 @@ use crate::RUNTIME;
 use crate::errors::try_or_throw;
 use crate::file::extract_properties;
 use crate::io::JavaFileSystem;
+use crate::io::read_coalesce_config;
 use crate::object_store::object_store_fs;
 use crate::session::session_ref;
 
@@ -155,12 +156,13 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDataSource_openFiles(
             if readable.is_null() {
                 throw_runtime!("null readable for path '{path}'");
             }
+            let coalesce_config = read_coalesce_config(env, &readable)?;
             let readable = Arc::new(env.new_global_ref(&readable)?);
 
             // `MultiFileDataSource::with_glob` strips leading slashes (object-store paths
             // are bucket-relative), so key the registry by the same normalized form.
             let key = path.trim_start_matches('/').to_string();
-            fs.insert(key.clone(), readable, size)?;
+            fs.insert(key.clone(), readable, size, coalesce_config)?;
             ordered_paths.push(key);
         }
 

@@ -40,7 +40,8 @@
 //! # Example
 //!
 //! ```rust
-//! use vortex_array::{IntoArray, VortexSessionExecute, array_session};
+//! use vortex_array::{IntoArray, VortexSessionExecute};
+//! use vortex_session::VortexSession;
 //! use vortex_array::arrays::PrimitiveArray;
 //! use vortex_array::validity::Validity;
 //! use vortex_btrblocks::{BtrBlocksCompressor, BtrBlocksCompressorBuilder, Scheme, SchemeExt};
@@ -48,7 +49,7 @@
 //! use vortex_buffer::buffer;
 //!
 //! # fn example() -> vortex_error::VortexResult<()> {
-//! let session = array_session();
+//! let session = VortexSession::empty();
 //! let array = PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array();
 //!
 //! // Only schemes producing encodings the session registers and its enabled editions permit
@@ -97,7 +98,7 @@ pub use vortex_compressor::stats::StringStats;
 
 #[cfg(test)]
 static SESSION: std::sync::LazyLock<vortex_session::VortexSession> =
-    std::sync::LazyLock::new(vortex_array::array_session);
+    std::sync::LazyLock::new(vortex_session::VortexSession::empty);
 
 #[cfg(test)]
 mod tests;

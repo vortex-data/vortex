@@ -14,6 +14,7 @@ import dev.vortex.api.Partition;
 import dev.vortex.api.Scan;
 import dev.vortex.api.ScanOptions;
 import dev.vortex.api.Session;
+import dev.vortex.api.VortexColumnStatistics;
 import dev.vortex.api.VortexWriteSummary;
 import dev.vortex.api.VortexWriter;
 import dev.vortex.arrow.ArrowAllocation;
@@ -27,6 +28,8 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -45,6 +48,8 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /** Round-trip tests for the caller-provided I/O bridge ({@link NativeReadable} / {@link NativeWritable}). */
 public final class NativeIOBridgeTest {
@@ -67,15 +72,37 @@ public final class NativeIOBridgeTest {
         private final String name;
         private final FileChannel channel;
         private final long length;
+        private final int coalesceDistance;
+        private final int coalesceMaxSize;
+        private int distanceCalls;
+        private int maxSizeCalls;
 
         FileChannelReadable(Path path) throws IOException {
             this(path.toString(), path);
         }
 
         FileChannelReadable(String name, Path path) throws IOException {
+            this(name, path, DEFAULT_COALESCE_DISTANCE, DEFAULT_COALESCE_MAX_SIZE);
+        }
+
+        FileChannelReadable(String name, Path path, int coalesceDistance, int coalesceMaxSize) throws IOException {
+            this.coalesceDistance = coalesceDistance;
+            this.coalesceMaxSize = coalesceMaxSize;
             this.name = name;
             this.channel = FileChannel.open(path, StandardOpenOption.READ);
             this.length = channel.size();
+        }
+
+        @Override
+        public int coalesceDistance() {
+            distanceCalls++;
+            return coalesceDistance;
+        }
+
+        @Override
+        public int coalesceMaxSize() {
+            maxSizeCalls++;
+            return coalesceMaxSize;
         }
 
         @Override
@@ -191,9 +218,11 @@ public final class NativeIOBridgeTest {
                         VectorSchemaRoot root = reader.getVectorSchemaRoot();
                         ViewVarCharVector nameOut = (ViewVarCharVector) root.getVector("name");
                         IntVector ageOut = (IntVector) root.getVector("age");
-                        if (rows == 0) {
-                            assertEquals("Alice", nameOut.getObject(0).toString());
-                            assertEquals(30, ageOut.get(0));
+                        for (int i = 0; i < root.getRowCount(); i++) {
+                            assertEquals(
+                                    List.of("Alice", "Bob", "Carol").get(rows + i),
+                                    nameOut.getObject(i).toString());
+                            assertEquals(List.of(30, 25, 40).get(rows + i), ageOut.getObject(i));
                         }
                         rows += root.getRowCount();
                     }
@@ -247,6 +276,25 @@ public final class NativeIOBridgeTest {
     }
 
     @Test
+    public void testStatisticsThroughBridge() throws IOException {
+        Path path = tempDir.resolve("bridge_statistics.vortex");
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+
+        writePeopleFile(session, allocator, path);
+
+        try (FileChannelReadable readable = new FileChannelReadable(path)) {
+            List<VortexColumnStatistics> statistics = NativeFiles.readStatistics(session, readable);
+            assertEquals(2, statistics.size());
+            assertEquals(3L, statistics.get(0).valueCount());
+            assertEquals("Alice", statistics.get(0).lowerBound().orElseThrow());
+            assertEquals("Carol", statistics.get(0).upperBound().orElseThrow());
+            assertEquals(25, statistics.get(1).lowerBound().orElseThrow());
+            assertEquals(40, statistics.get(1).upperBound().orElseThrow());
+        }
+    }
+
+    @Test
     public void testMultipleReadables() throws IOException {
         Path first = tempDir.resolve("bridge_a.vortex");
         Path second = tempDir.resolve("bridge_b.vortex");
@@ -263,16 +311,22 @@ public final class NativeIOBridgeTest {
             assertEquals(6L, ds.rowCount().asOptional().orElseThrow());
 
             Scan scan = ds.scan(ScanOptions.of());
-            long rows = 0;
+            List<String> rows = new ArrayList<>();
             while (scan.hasNext()) {
                 Partition p = scan.next();
                 try (ArrowReader reader = p.scanArrow(allocator)) {
                     while (reader.loadNextBatch()) {
-                        rows += reader.getVectorSchemaRoot().getRowCount();
+                        VectorSchemaRoot root = reader.getVectorSchemaRoot();
+                        ViewVarCharVector names = (ViewVarCharVector) root.getVector("name");
+                        IntVector ages = (IntVector) root.getVector("age");
+                        for (int i = 0; i < root.getRowCount(); i++) {
+                            rows.add(names.getObject(i).toString() + ":" + ages.getObject(i));
+                        }
                     }
                 }
             }
-            assertEquals(6, rows);
+            rows.sort(String::compareTo);
+            assertEquals(List.of("Alice:30", "Alice:30", "Bob:25", "Bob:25", "Carol:40", "Carol:40"), rows);
         }
     }
 
@@ -330,15 +384,23 @@ public final class NativeIOBridgeTest {
             DataSource ds = DataSource.open(session, List.of(readable), 4);
             Scan scan = ds.scan(ScanOptions.of());
             long rows = 0;
-            long ageSum = 0;
+            BitSet seen = new BitSet(batches * rowsPerBatch);
             while (scan.hasNext()) {
                 Partition p = scan.next();
                 try (ArrowReader reader = p.scanArrow(allocator)) {
                     while (reader.loadNextBatch()) {
                         VectorSchemaRoot root = reader.getVectorSchemaRoot();
                         IntVector ageOut = (IntVector) root.getVector("age");
+                        ViewVarCharVector names = (ViewVarCharVector) root.getVector("name");
                         for (int i = 0; i < root.getRowCount(); i++) {
-                            ageSum += ageOut.get(i);
+                            assertTrue(!ageOut.isNull(i));
+                            int age = ageOut.get(i);
+                            assertTrue(age >= 0 && age < batches * rowsPerBatch);
+                            assertTrue(!seen.get(age), "duplicate age " + age);
+                            seen.set(age);
+                            assertEquals(
+                                    "name-" + age / rowsPerBatch + "-" + age % rowsPerBatch,
+                                    names.getObject(i).toString());
                         }
                         rows += root.getRowCount();
                     }
@@ -346,7 +408,53 @@ public final class NativeIOBridgeTest {
             }
             long total = (long) batches * rowsPerBatch;
             assertEquals(total, rows);
-            assertEquals(total * (total - 1) / 2, ageSum, "ages should be 0..N-1 exactly once");
+            assertEquals(total, seen.cardinality());
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false, 1048576, 33554432", "true, 1048576, 33554432", "false, 0, 1", "true, 0, 1"})
+    public void testCoalescingSettingsCapturedOnce(boolean metadata, int distance, int maxSize) throws IOException {
+        Path path = tempDir.resolve("coalescing.vortex");
+        Session session = Session.create();
+        writePeopleFile(session, ArrowAllocation.rootAllocator(), path);
+
+        try (FileChannelReadable readable = new FileChannelReadable(path.toString(), path, distance, maxSize)) {
+            registerReadable(metadata, session, readable);
+            assertEquals(1, readable.distanceCalls);
+            assertEquals(1, readable.maxSizeCalls);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "false, -1, 1024, coalesceDistance",
+        "true, -1, 1024, coalesceDistance",
+        "false, 0, 0, coalesceMaxSize",
+        "true, 0, 0, coalesceMaxSize",
+        "false, 0, -1, coalesceMaxSize",
+        "true, 0, -1, coalesceMaxSize"
+    })
+    public void testInvalidCoalescingSettingsRejected(boolean metadata, int distance, int maxSize, String setting)
+            throws IOException {
+        Path path = tempDir.resolve("invalid_coalescing.vortex");
+        Files.write(path, new byte[] {0});
+        Session session = Session.create();
+        try (FileChannelReadable readable = new FileChannelReadable(path.toString(), path, distance, maxSize)) {
+            RuntimeException thrown =
+                    assertThrows(RuntimeException.class, () -> registerReadable(metadata, session, readable));
+            assertTrue(thrown.getMessage().contains(setting), thrown.getMessage());
+        }
+    }
+
+    /** Registers {@code readable} through the file-metadata or data-source JNI entry point. */
+    private static void registerReadable(boolean metadata, Session session, NativeReadable readable) {
+        if (metadata) {
+            assertEquals(2, NativeFiles.readStatistics(session, readable).size());
+        } else {
+            assertEquals(
+                    3L,
+                    DataSource.open(session, readable).rowCount().asOptional().orElseThrow());
         }
     }
 

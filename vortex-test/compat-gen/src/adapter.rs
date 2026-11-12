@@ -43,7 +43,7 @@ pub fn compute_all_stats(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResu
     let all_stats: Vec<Stat> = Stat::all().collect();
     for node in array.depth_first_traversal() {
         let computed = node.statistics().compute_all(&all_stats, ctx)?;
-        node.statistics().set_iter(computed.into_iter());
+        node.statistics().set_all(computed);
     }
     Ok(())
 }

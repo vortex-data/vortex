@@ -37,10 +37,14 @@ public final class NativeExpression {
 
     public static native long isNotNull(long childPointer);
 
+    public static native long mask(long childPointer, long maskPointer);
+
     public static native long like(long childPointer, long patternPointer, boolean negated, boolean caseInsensitive);
 
     public static native long between(
             long valuePointer, long lowerPointer, long upperPointer, boolean lowerStrict, boolean upperStrict);
+
+    public static native long listContains(long listPointer, long needlePointer, boolean sqlNullSemantics);
 
     public static native long literalBool(boolean value, boolean isNull);
 

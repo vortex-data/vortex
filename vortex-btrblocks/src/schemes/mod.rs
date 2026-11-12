@@ -4,11 +4,13 @@
 //! Compression scheme implementations.
 
 pub mod binary;
+pub mod boolean;
 pub mod float;
 pub mod integer;
 pub mod string;
 
 pub mod decimal;
+pub mod fixed_size_list;
 pub mod temporal;
 
 pub(crate) mod patches;

@@ -5,7 +5,6 @@ package dev.vortex.api;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -43,7 +42,9 @@ public final class VortexWriteSummaryTest {
         columns[0] = statistics(1, 2L, 0L);
 
         assertEquals(1, summary.columnStatistics().size());
-        assertSame(first, summary.columnStatistics().get(0));
+        assertEquals(0, summary.columnStatistics().get(0).columnIndex());
+        assertEquals(1L, summary.columnStatistics().get(0).compressedSize());
+        assertEquals(0L, summary.columnStatistics().get(0).valueCount());
     }
 
     @Test
@@ -54,13 +55,6 @@ public final class VortexWriteSummaryTest {
 
         assertThrows(UnsupportedOperationException.class, columns::clear);
         assertThrows(UnsupportedOperationException.class, () -> columns.add(statistics(1, 1L, 0L)));
-    }
-
-    @Test
-    public void statisticsListIsStableAcrossCalls() {
-        VortexWriteSummary summary = new VortexWriteSummary(1L, 1L, new VortexColumnStatistics[0]);
-
-        assertSame(summary.columnStatistics(), summary.columnStatistics());
     }
 
     @Test
@@ -122,23 +116,18 @@ public final class VortexWriteSummaryTest {
         }) {
             VortexColumnStatistics bounded = statistics(0, 1L, 1L, 0L, -1L, pair[0], pair[1]);
 
-            assertSame(pair[0], bounded.lowerBound().orElseThrow());
-            assertSame(pair[1], bounded.upperBound().orElseThrow());
+            assertEquals(pair[0], bounded.lowerBound().orElseThrow());
+            assertEquals(pair[0].getClass(), bounded.lowerBound().orElseThrow().getClass());
+            assertEquals(pair[1], bounded.upperBound().orElseThrow());
+            assertEquals(pair[1].getClass(), bounded.upperBound().orElseThrow().getClass());
         }
     }
 
     @Test
-    public void binaryBoundsAreSharedNotCopied() {
-        // Documented as `byte[]` and handed straight back, so a reader that mutates the array changes what
-        // every later reader sees. Callers must copy before writing.
+    public void binaryBoundsPreserveBytes() {
         VortexColumnStatistics bounded = statistics(0, 1L, 1L, 0L, -1L, new byte[] {1, 2}, new byte[] {3, 4});
-
-        byte[] lower = (byte[]) bounded.lowerBound().orElseThrow();
-        assertArrayEquals(new byte[] {1, 2}, lower);
-        lower[0] = 9;
-
-        assertSame(lower, bounded.lowerBound().orElseThrow());
-        assertArrayEquals(new byte[] {9, 2}, (byte[]) bounded.lowerBound().orElseThrow());
+        assertArrayEquals(new byte[] {1, 2}, (byte[]) bounded.lowerBound().orElseThrow());
+        assertArrayEquals(new byte[] {3, 4}, (byte[]) bounded.upperBound().orElseThrow());
     }
 
     private static VortexColumnStatistics statistics(int columnIndex, long compressedSize, long valueCount) {

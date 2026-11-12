@@ -15,9 +15,10 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_mask::Mask;
@@ -31,7 +32,8 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
 // Sized so the bench stays well under a few hundred microseconds under CodSpeed's instruction-count
 // simulation, which runs ~10x the local walltime; the branchless value blend is still exercised.
@@ -58,13 +60,17 @@ fn nullable(bencher: Bencher) {
 }
 
 fn run(bencher: Bencher, if_true: ArrayRef, if_false: ArrayRef) {
-    let mask = mask();
+    let mask = mask().into_array();
+    mark_optimized(&if_true, &SESSION).unwrap();
+    mark_optimized(&if_false, &SESSION).unwrap();
+    mark_optimized(&mask, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             (
                 if_true.clone(),
                 if_false.clone(),
-                mask.clone().into_array(),
+                mask.clone(),
                 SESSION.create_execution_ctx(),
             )
         })

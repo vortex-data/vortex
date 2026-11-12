@@ -14,6 +14,7 @@ use lance::deps::datafusion::arrow::util::pretty::pretty_format_batches;
 use lance::deps::datafusion::physical_plan::ExecutionPlan;
 use lance::deps::datafusion::prelude::SessionContext;
 use lance_bench::convert::convert_parquet_to_lance;
+use mimalloc::MiMalloc;
 use tracing::info;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
@@ -84,8 +85,12 @@ struct Args {
     options: Vec<Opt>,
 }
 
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    vortex_bench::configure_allocator();
     let args = Args::parse();
     let opts = Opts::from(args.options);
 

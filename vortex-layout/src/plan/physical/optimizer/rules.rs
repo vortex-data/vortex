@@ -10,6 +10,7 @@ use std::marker::PhantomData;
 use vortex_error::VortexResult;
 #[cfg(debug_assertions)]
 use vortex_error::vortex_ensure_eq;
+use vortex_session::VortexSession;
 
 use crate::plan::physical::Plan;
 use crate::plan::physical::PlanRef;
@@ -21,7 +22,7 @@ use crate::plan::physical::PlanVTable;
 /// owns traversal and drives further rewrites.
 pub trait PlanReduceRule<P: PlanVTable>: Debug + Send + Sync + 'static {
     /// Attempts to replace `plan`.
-    fn reduce(&self, plan: &Plan<P>) -> VortexResult<Option<PlanRef>>;
+    fn reduce(&self, plan: &Plan<P>, session: &VortexSession) -> VortexResult<Option<PlanRef>>;
 }
 
 /// Type-erased interface used by [`PlanRuleSet`].
@@ -30,7 +31,7 @@ pub trait DynPlanReduceRule: Debug + Send + Sync + 'static {
     fn matches(&self, plan: &PlanRef) -> bool;
 
     /// Attempts to replace `plan`.
-    fn reduce(&self, plan: &PlanRef) -> VortexResult<Option<PlanRef>>;
+    fn reduce(&self, plan: &PlanRef, session: &VortexSession) -> VortexResult<Option<PlanRef>>;
 }
 
 /// Bridges a typed [`PlanReduceRule`] to a type-erased static registry.
@@ -72,11 +73,11 @@ where
         plan.is::<P>()
     }
 
-    fn reduce(&self, plan: &PlanRef) -> VortexResult<Option<PlanRef>> {
+    fn reduce(&self, plan: &PlanRef, session: &VortexSession) -> VortexResult<Option<PlanRef>> {
         let Some(plan) = plan.as_opt::<P>() else {
             return Ok(None);
         };
-        self.rule.reduce(plan)
+        self.rule.reduce(plan, session)
     }
 }
 
@@ -92,12 +93,16 @@ impl PlanRuleSet {
     }
 
     /// Evaluates rules registered for the concrete plan operator.
-    pub fn evaluate(&self, plan: &PlanRef) -> VortexResult<Option<PlanRef>> {
+    pub fn evaluate(
+        &self,
+        plan: &PlanRef,
+        session: &VortexSession,
+    ) -> VortexResult<Option<PlanRef>> {
         for rule in self.rules {
             if !rule.matches(plan) {
                 continue;
             }
-            let Some(reduced) = rule.reduce(plan)? else {
+            let Some(reduced) = rule.reduce(plan, session)? else {
                 continue;
             };
 
@@ -129,12 +134,13 @@ pub trait PlanParentReduceRule<C: PlanVTable>: Debug + Send + Sync + 'static {
     /// The concrete parent operator matched by this rule.
     type Parent: PlanVTable;
 
-    /// Attempts to replace `parent` based on its child at `child_idx`.
+    /// Attempts to replace `parent` based on its child in slot `child_idx`.
     fn reduce_parent(
         &self,
         child: &Plan<C>,
         parent: &Plan<Self::Parent>,
         child_idx: usize,
+        session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>>;
 }
 
@@ -143,12 +149,13 @@ pub trait DynPlanParentReduceRule: Debug + Send + Sync + 'static {
     /// Returns whether this rule supports the concrete child and parent operators.
     fn matches(&self, child: &PlanRef, parent: &PlanRef) -> bool;
 
-    /// Attempts to replace `parent` based on `child` at `child_idx`.
+    /// Attempts to replace `parent` based on `child` in slot `child_idx`.
     fn reduce_parent(
         &self,
         child: &PlanRef,
         parent: &PlanRef,
         child_idx: usize,
+        session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>>;
 }
 
@@ -197,6 +204,7 @@ where
         child: &PlanRef,
         parent: &PlanRef,
         child_idx: usize,
+        session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
         let Some(child) = child.as_opt::<C>() else {
             return Ok(None);
@@ -204,7 +212,7 @@ where
         let Some(parent) = parent.as_opt::<R::Parent>() else {
             return Ok(None);
         };
-        self.rule.reduce_parent(child, parent, child_idx)
+        self.rule.reduce_parent(child, parent, child_idx, session)
     }
 }
 
@@ -225,12 +233,13 @@ impl PlanParentRuleSet {
         child: &PlanRef,
         parent: &PlanRef,
         child_idx: usize,
+        session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
         for rule in self.rules {
             if !rule.matches(child, parent) {
                 continue;
             }
-            let Some(reduced) = rule.reduce_parent(child, parent, child_idx)? else {
+            let Some(reduced) = rule.reduce_parent(child, parent, child_idx, session)? else {
                 continue;
             };
 

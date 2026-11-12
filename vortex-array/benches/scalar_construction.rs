@@ -19,7 +19,6 @@ use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::count::Count;
 use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
-use vortex_array::array_session;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
@@ -28,6 +27,7 @@ use vortex_array::dtype::StructFields;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
@@ -43,7 +43,8 @@ const N: usize = 1024;
 /// A merge costs about 300ns, so it runs fewer times to keep the CodSpeed simulation under 1ms.
 const MERGES: usize = 64;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
 fn main() {
     LazyLock::force(&SESSION);
@@ -153,7 +154,7 @@ fn i64_stats(offset: i64) -> StatsSet {
 #[divan::bench]
 fn stats_get_min(bencher: Bencher) {
     let array = (0..1024i64).collect::<Buffer<i64>>().into_array();
-    array.statistics().set_iter(i64_stats(0).into_iter());
+    array.statistics().set_all(i64_stats(0));
     bencher.counter(ItemsCount::new(N)).bench_local(|| {
         for _ in 0..N {
             black_box(black_box(&array).statistics().get(Stat::Min));
@@ -164,7 +165,7 @@ fn stats_get_min(bencher: Bencher) {
 #[divan::bench]
 fn stats_compute_is_constant_cached(bencher: Bencher) {
     let array = (0..1024i64).collect::<Buffer<i64>>().into_array();
-    array.statistics().set_iter(i64_stats(0).into_iter());
+    array.statistics().set_all(i64_stats(0));
     let mut ctx = SESSION.create_execution_ctx();
     bencher.counter(ItemsCount::new(N)).bench_local(|| {
         for _ in 0..N {

@@ -136,7 +136,7 @@ pub(crate) fn collect_codes_window(
         code_end,
         array.codes().len()
     );
-    let codes = collect_widened::<u16>(&array.codes().slice(code_start..code_end)?, ctx)?;
+    let codes = collect_widened_range::<u16>(array.codes(), code_start..code_end, ctx)?;
     Ok(CodesWindow {
         offsets,
         codes,

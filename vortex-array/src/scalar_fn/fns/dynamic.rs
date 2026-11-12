@@ -34,6 +34,8 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::dynamic_expression::DynamicExpression;
+use crate::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -123,6 +125,12 @@ impl ScalarFnVTable for DynamicComparison {
     fn is_strict(&self, _options: &Self::Options) -> bool {
         false
     }
+
+    /// A dynamic comparison is a comparison, or a constant while it has no value to compare
+    /// against, and neither can fail.
+    fn is_infallible(&self, _options: &Self::Options) -> bool {
+        true
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -134,6 +142,25 @@ pub struct DynamicComparisonExpr {
 }
 
 impl DynamicComparisonExpr {
+    /// The comparison applied between the input and the dynamic value.
+    pub fn operator(&self) -> CompareOperator {
+        self.operator
+    }
+
+    /// The result used while the dynamic value is not yet known.
+    pub fn default(&self) -> bool {
+        self.default
+    }
+
+    /// A comparison against the same dynamic value with a different operator and default.
+    pub fn with_operator(&self, operator: CompareOperator, default: bool) -> Self {
+        Self {
+            operator,
+            rhs: Arc::clone(&self.rhs),
+            default,
+        }
+    }
+
     pub fn scalar(&self) -> Option<Scalar> {
         (self.rhs.value)().map(|v| {
             Scalar::try_new(self.rhs.dtype.clone(), Some(v))
@@ -200,25 +227,35 @@ impl Debug for Rhs {
 /// A utility for checking whether any dynamic expressions have been updated.
 pub struct DynamicExprUpdates {
     exprs: Box<[DynamicComparisonExpr]>,
+    sources: Box<[Arc<dyn DynamicExpressionSource>]>,
     // Track the latest observed versions of each dynamic expression, along with a version counter.
-    prev_versions: Mutex<(u64, Vec<Option<Scalar>>)>,
+    prev_versions: Mutex<ObservedVersions>,
+}
+
+struct ObservedVersions {
+    version: u64,
+    scalars: Vec<Option<Scalar>>,
+    generations: Vec<u64>,
 }
 
 impl DynamicExprUpdates {
     /// Track dynamic scalar functions contained in a bound expression tree.
     pub fn new(expr: &BoundExpression) -> Option<Self> {
         #[derive(Default)]
-        struct Visitor(Vec<DynamicComparisonExpr>);
+        struct Visitor {
+            exprs: Vec<DynamicComparisonExpr>,
+            sources: Vec<Arc<dyn DynamicExpressionSource>>,
+        }
 
         impl NodeVisitor<'_> for Visitor {
             type NodeTy = BoundExpression;
 
             fn visit_down(&mut self, node: &'_ Self::NodeTy) -> VortexResult<TraversalOrder> {
-                if let Some(dynamic) = node
-                    .as_scalar()
-                    .and_then(|scalar_fn| scalar_fn.as_opt::<DynamicComparison>())
-                {
-                    self.0.push(dynamic.clone());
+                if let Some(dynamic) = node.as_opt::<DynamicComparison>() {
+                    self.exprs.push(dynamic.clone());
+                }
+                if let Some(dynamic) = node.as_opt::<DynamicExpression>() {
+                    self.sources.push(Arc::clone(dynamic.source()));
                 }
                 Ok(TraversalOrder::Continue)
             }
@@ -227,12 +264,13 @@ impl DynamicExprUpdates {
         let mut visitor = Visitor::default();
         expr.accept(&mut visitor).vortex_expect("Infallible");
 
-        if visitor.0.is_empty() {
+        if visitor.exprs.is_empty() && visitor.sources.is_empty() {
             return None;
         }
 
-        let exprs = visitor.0.into_boxed_slice();
-        let prev_versions = exprs
+        let exprs = visitor.exprs.into_boxed_slice();
+        let sources = visitor.sources.into_boxed_slice();
+        let scalars = exprs
             .iter()
             .map(|expr| {
                 (expr.rhs.value)().map(|v| {
@@ -241,10 +279,16 @@ impl DynamicExprUpdates {
                 })
             })
             .collect();
+        let generations = sources.iter().map(|source| source.generation()).collect();
 
         Some(Self {
             exprs,
-            prev_versions: Mutex::new((0, prev_versions)),
+            sources,
+            prev_versions: Mutex::new(ObservedVersions {
+                version: 0,
+                scalars,
+                generations,
+            }),
         })
     }
 
@@ -254,35 +298,43 @@ impl DynamicExprUpdates {
         let mut updated = false;
         for (i, expr) in self.exprs.iter().enumerate() {
             let current = expr.scalar();
-            if current != guard.1[i] {
+            if current != guard.scalars[i] {
                 // At least one expression has been updated.
                 // We don't bail out early in order to avoid false positives for future calls
                 // to `is_updated`.
                 updated = true;
-                guard.1[i] = current;
+                guard.scalars[i] = current;
+            }
+        }
+        for (i, source) in self.sources.iter().enumerate() {
+            let current = source.generation();
+            if current != guard.generations[i] {
+                updated = true;
+                guard.generations[i] = current;
             }
         }
 
         if updated {
-            guard.0 += 1;
+            guard.version += 1;
         }
 
-        guard.0
+        guard.version
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
     use std::sync::atomic::AtomicI32;
     use std::sync::atomic::Ordering;
 
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
@@ -290,6 +342,8 @@ mod tests {
     use crate::dtype::PType;
     use crate::expr::dynamic;
     use crate::expr::root;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn is_not_strict() {
@@ -323,7 +377,7 @@ mod tests {
 
     #[test]
     fn execute_with_value() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let input = buffer![1i32, 5, 10].into_array();
         let expr = dynamic(
             CompareOperator::Lt,
@@ -339,7 +393,7 @@ mod tests {
 
     #[test]
     fn execute_without_value_default_true() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let input = buffer![1i32, 5, 10].into_array();
         let expr = dynamic(
             CompareOperator::Lt,
@@ -355,7 +409,7 @@ mod tests {
 
     #[test]
     fn execute_without_value_default_false() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let input = buffer![1i32, 5, 10].into_array();
         let expr = dynamic(
             CompareOperator::Lt,
@@ -375,7 +429,7 @@ mod tests {
 
     #[test]
     fn execute_value_flips() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let threshold = Arc::new(AtomicI32::new(5));
         let threshold_clone = Arc::clone(&threshold);
         let expr = dynamic(

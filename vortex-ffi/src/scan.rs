@@ -33,6 +33,7 @@ use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 
 use crate::RUNTIME;
 use crate::array::vx_array;
@@ -208,6 +209,7 @@ fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
         limit,
         partition_selection: Selection::All,
         partition_range: None,
+        split_concurrency: None,
     })
 }
 
@@ -377,9 +379,7 @@ pub unsafe extern "C-unwind" fn vx_partition_scan_arrow(
         let on_chunk = move |chunk: VortexResult<ArrayRef>| -> VortexResult<RecordBatch> {
             let chunk: ArrayRef = chunk?;
             let mut ctx: ExecutionCtx = session.create_execution_ctx();
-            let arrow = session
-                .arrow()
-                .execute_arrow(chunk, Some(&target), &mut ctx)?;
+            let arrow = chunk.execute_arrow(Some(&target), &mut ctx)?;
             Ok(RecordBatch::from(arrow.as_struct().clone()))
         };
 
@@ -446,20 +446,29 @@ pub unsafe extern "C-unwind" fn vx_partition_next(
 #[cfg(test)]
 mod tests {
     use std::ptr;
+    use std::sync::LazyLock;
 
+    use tempfile::NamedTempFile;
     use vortex::VortexSessionDefault;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::VarBinView;
+    use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::validity::Validity;
     use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
 
     use crate::array::vx_array;
     use crate::array::vx_array_free;
+    use crate::array::vx_array_get_field;
     use crate::data_source::vx_data_source_free;
     use crate::data_source::vx_data_source_new;
     use crate::data_source::vx_data_source_options;
+    use crate::dtype::vx_dtype;
+    use crate::dtype::vx_dtype_free;
     use crate::expression::vx_binary_operator;
     use crate::expression::vx_expression_binary;
     use crate::expression::vx_expression_free;
@@ -470,6 +479,7 @@ mod tests {
     use crate::scalar::vx_scalar_new_u64;
     use crate::scan::vx_data_source_scan;
     use crate::scan::vx_estimate;
+    use crate::scan::vx_estimate_type;
     use crate::scan::vx_partition_free;
     use crate::scan::vx_partition_next;
     use crate::scan::vx_partition_row_count;
@@ -480,10 +490,15 @@ mod tests {
     use crate::scan::vx_scan_selection_include;
     use crate::session::vx_session_free;
     use crate::session::vx_session_new;
+    use crate::sink::vx_array_sink_close;
+    use crate::sink::vx_array_sink_open_file;
+    use crate::sink::vx_array_sink_push;
     use crate::string::vx_view;
     use crate::tests::SAMPLE_ROWS;
     use crate::tests::assert_no_error;
     use crate::tests::write_sample;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// Perform a scan with options over a sample file, return owned read array and
     /// original generated array for the sample file.
@@ -529,10 +544,33 @@ mod tests {
         }
     }
 
+    fn expected_rows(source: &StructArray, indices: &[usize]) -> StructArray {
+        let names = source.unmasked_field_by_name("name").unwrap();
+        let names = names.as_::<VarBinView>();
+        StructArray::try_new(
+            ["age", "height", "name"].into(),
+            vec![
+                PrimitiveArray::from_option_iter(indices.iter().map(|&i| Some(i as u64)))
+                    .into_array(),
+                PrimitiveArray::from_option_iter(indices.iter().map(|&i| Some(200 * i as u64)))
+                    .into_array(),
+                VarBinViewArray::from_iter_str(
+                    indices
+                        .iter()
+                        .map(|&i| String::from_utf8(names.bytes_at(i).to_vec()).unwrap()),
+                )
+                .into_array(),
+            ],
+            indices.len(),
+            Validity::NonNullable,
+        )
+        .unwrap()
+    }
+
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_no_options() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let (array, struct_array) = scan(ptr::null());
         assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut ctx);
         unsafe { vx_array_free(array) };
@@ -541,18 +579,74 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_project_all() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let opts = vx_scan_options::default();
         let (array, struct_array) = scan(&raw const opts);
         assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut ctx);
         unsafe { vx_array_free(array) };
     }
 
+    /// C callers read fields with `vx_array_get_field`, which needs a struct rather than the
+    /// lazy pack expression a layout reader builds for the projection.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_scan_returns_struct() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let strings = VarBinViewArray::from_iter_nullable_str([Some("inlined"), Some("y")]);
+        let struct_array = StructArray::try_new(
+            ["s"].into(),
+            vec![strings.clone().into_array()],
+            strings.len(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+        unsafe {
+            let session = vx_session_new();
+            let file = NamedTempFile::new().unwrap();
+            let path = vx_view::from_str(file.path().to_str().unwrap());
+            let dtype = vx_dtype::new(struct_array.dtype().clone());
+            let mut error = ptr::null_mut();
+            let sink = vx_array_sink_open_file(session, path, dtype, &raw mut error);
+            assert_no_error(error);
+            let input = vx_array::new(struct_array.into_array());
+            vx_array_sink_push(sink, input, &raw mut error);
+            assert_no_error(error);
+            vx_array_sink_close(sink, &raw mut error);
+            assert_no_error(error);
+            vx_array_free(input);
+            vx_dtype_free(dtype);
+
+            let ds_options = vx_data_source_options {
+                paths: &raw const path,
+                paths_len: 1,
+            };
+            let ds = vx_data_source_new(session, &raw const ds_options, &raw mut error);
+            assert_no_error(error);
+            let scan = vx_data_source_scan(ds, ptr::null(), ptr::null_mut(), &raw mut error);
+            assert_no_error(error);
+            let partition = vx_scan_next_partition(scan, &raw mut error);
+            assert_no_error(error);
+            let array = vx_partition_next(partition, &raw mut error);
+            assert_no_error(error);
+
+            let field = vx_array_get_field(array, 0, &raw mut error);
+            assert_no_error(error);
+            assert_arrays_eq!(vx_array::as_ref(field), strings, &mut ctx);
+
+            vx_array_free(field);
+            vx_array_free(array);
+            vx_partition_free(partition);
+            vx_scan_free(scan);
+            vx_data_source_free(ds);
+            vx_session_free(session);
+        }
+    }
+
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_project_single_field() {
         unsafe {
-            let mut ctx = array_session().create_execution_ctx();
+            let mut ctx = SESSION.create_execution_ctx();
             let root = vx_expression_root();
             let mut opts = vx_scan_options::default();
 
@@ -589,6 +683,9 @@ mod tests {
 
             opts.projection = expr_sum;
             let (array, _) = scan(&raw const opts);
+            let expected =
+                PrimitiveArray::from_option_iter((0..SAMPLE_ROWS as u64).map(|i| Some(201 * i)));
+            assert_arrays_eq!(vx_array::as_ref(array), expected, &mut ctx);
             {
                 let array = vx_array::as_ref(array);
                 let stats = array.statistics();
@@ -626,8 +723,10 @@ mod tests {
                 filter,
                 ..Default::default()
             };
-            let (array, _) = scan(&raw const opts);
-            assert_eq!(vx_array::as_ref(array).len(), 100);
+            let (array, source) = scan(&raw const opts);
+            let mut ctx = SESSION.create_execution_ctx();
+            let expected = expected_rows(&source, &(100..200).collect::<Vec<_>>());
+            assert_arrays_eq!(vx_array::as_ref(array), expected, &mut ctx);
 
             vx_array_free(array);
             vx_expression_free(filter);
@@ -658,7 +757,9 @@ mod tests {
                 ..Default::default()
             };
             let (array, _) = scan(&raw const opts);
-            assert_eq!(vx_array::as_ref(array).len(), 100);
+            let mut ctx = SESSION.create_execution_ctx();
+            let expected = PrimitiveArray::from_option_iter((100u64..200).map(Some));
+            assert_arrays_eq!(vx_array::as_ref(array), expected, &mut ctx);
 
             vx_array_free(array);
             vx_expression_free(filter);
@@ -677,8 +778,10 @@ mod tests {
             row_range_end: 100,
             ..Default::default()
         };
-        let (array, _) = scan(&raw const opts);
-        assert_eq!(vx_array::as_ref(array).len(), 50);
+        let (array, source) = scan(&raw const opts);
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = expected_rows(&source, &(50..100).collect::<Vec<_>>());
+        assert_arrays_eq!(vx_array::as_ref(array), expected, &mut ctx);
         unsafe { vx_array_free(array) };
     }
 
@@ -694,8 +797,10 @@ mod tests {
             },
             ..Default::default()
         };
-        let (array, _) = scan(&raw const opts);
-        assert_eq!(vx_array::as_ref(array).len(), indices.len());
+        let (array, source) = scan(&raw const opts);
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = expected_rows(&source, &[0, 50, 100, 150, 199]);
+        assert_arrays_eq!(vx_array::as_ref(array), expected, &mut ctx);
         unsafe { vx_array_free(array) };
     }
 
@@ -714,7 +819,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_ordered() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let opts = vx_scan_options {
             ordered: true,
             ..Default::default()
@@ -753,6 +858,8 @@ mod tests {
             let result = vx_partition_row_count(partition, &raw mut count, &raw mut error);
             assert_no_error(error);
             assert_eq!(result, 0);
+            assert!(matches!(count.r#type, vx_estimate_type::VX_ESTIMATE_EXACT));
+            assert_eq!(count.estimate, SAMPLE_ROWS as u64);
 
             vx_partition_free(partition);
             vx_scan_free(scan_ptr);

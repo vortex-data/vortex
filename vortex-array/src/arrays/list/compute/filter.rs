@@ -196,7 +196,7 @@ impl FilterKernel for List {
                 .slice(element_range)?
                 .filter(element_mask)?
         } else {
-            array.sliced_elements()?.filter(element_mask)?
+            array.sliced_elements(ctx)?.filter(element_mask)?
         };
 
         // SAFETY: new_offsets are monotonically increasing starting from 0 with length
@@ -247,6 +247,10 @@ mod tests {
         assert!(range_is_subinterval);
         assert_eq!(element_mask.len(), 60000);
         assert_eq!(element_mask.true_count(), 40000);
+        assert_eq!(
+            element_mask,
+            Mask::from_slices(60000, vec![(0, 20000), (40000, 60000)])
+        );
         Ok(())
     }
 
@@ -264,6 +268,7 @@ mod tests {
         assert!(!range_is_subinterval);
         assert_eq!(element_mask.len(), 50);
         assert_eq!(element_mask.true_count(), 10);
+        assert_eq!(element_mask, Mask::from_slices(50, vec![(20, 30)]));
         Ok(())
     }
 
@@ -323,6 +328,10 @@ mod tests {
         assert!(!range_is_subinterval);
         assert_eq!(element_mask.len(), 100000);
         assert_eq!(element_mask.true_count(), 40000);
+        assert_eq!(
+            element_mask,
+            Mask::from_slices(100000, vec![(0, 20000), (80000, 100000)])
+        );
         Ok(())
     }
 }

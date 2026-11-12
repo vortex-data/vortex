@@ -94,6 +94,7 @@ impl Scheme for VarBinScheme {
             varbin.bytes().clone(),
             varbin.dtype().clone(),
             varbin.validity()?,
+            exec_ctx,
         )?
         .into_array())
     }

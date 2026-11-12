@@ -114,7 +114,9 @@ impl FloatStats {
             PType::F16 => typed_float_stats::<f16>(input, opts.count_distinct_values, ctx),
             PType::F32 => typed_float_stats::<f32>(input, opts.count_distinct_values, ctx),
             PType::F64 => typed_float_stats::<f64>(input, opts.count_distinct_values, ctx),
-            _ => vortex_panic!("cannot generate FloatStats from ptype {}", input.ptype()),
+            _ => {
+                vortex_panic!("cannot generate FloatStats from ptype {}", input.ptype())
+            }
         }
     }
 
@@ -275,20 +277,24 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::FloatStats;
     use crate::stats::GenerateStatsOptions;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_float_stats() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let floats = buffer![0.0f32, 1.0f32, 2.0f32].into_array();
         let floats = floats.execute::<PrimitiveArray>(&mut ctx)?;
 
@@ -309,7 +315,7 @@ mod tests {
 
     #[test]
     fn test_float_stats_leading_nulls() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let floats = PrimitiveArray::new(
             buffer![0.0f32, 1.0f32, 2.0f32],
             Validity::from_iter([false, true, true]),

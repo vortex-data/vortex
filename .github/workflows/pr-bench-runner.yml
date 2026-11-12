@@ -46,7 +46,7 @@ jobs:
     timeout-minutes: 60
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/tag=build-{1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          && format('runs-on={0}/region=us-east-1/runner=arm64-bench/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -57,6 +57,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+      - uses: ./.github/actions/assert-cpu
+        if: github.repository == 'vortex-data/vortex'
       - uses: ./.github/actions/setup-prebuild
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -89,7 +91,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu24-full-arm64-pre-v2/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu26-full-arm64-pre-v2/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       # `extras=s3-cache` points ACTIONS_RESULTS_URL at the RunsOn artifact proxy, but only
@@ -124,7 +126,7 @@ jobs:
 
       - name: Setup Polar Signals
         if: github.event.pull_request.head.repo.fork == false
-        uses: polarsignals/gh-actions-ps-profiling@68ae857e375a826606352016e5b90f01a2a7ff7a  # v0.8.1
+        uses: polarsignals/gh-actions-ps-profiling@cd2cb45af81fbe1ca629c2ac479348207598160e  # v0.9.0
         # Profiling is observability only, so a flaky agent download must not fail the benchmark.
         continue-on-error: true
         with:
@@ -143,6 +145,81 @@ jobs:
           role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
 
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
+
+      - name: Install LitData
+        # LitData is Python-only, so random-access-bench times it through
+        # scripts/litdata-random-access.py, run by the interpreter named in LITDATA_PYTHON.
+        if: inputs.benchmark_id == 'random-access-bench' && inputs.remote_data_dir == ''
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+
+          uv venv --python 3.12 .venv-litdata
+          uv pip install --python .venv-litdata \
+            --index-strategy unsafe-best-match \
+            --extra-index-url https://download.pytorch.org/whl/cpu \
+            litdata==0.2.76 torch pyarrow numpy
+          echo "LITDATA_PYTHON=$PWD/.venv-litdata/bin/python" >> "$GITHUB_ENV"
+
+      # Parquet and LitData do not depend on Vortex code, so they are cached; LitData alone is
+      # about 80% of data generation time. Vortex, Arrow IPC and Lance are written every run.
+      # The key covers the dataset generators, the crates that write and seed the Parquet files,
+      # and the LitData conversion. Keep the litdata version in sync with the Install LitData step.
+      - name: Compute benchmark data cache key
+        id: data-cache-key
+        if: inputs.benchmark_id == 'random-access-bench'
+        shell: bash
+        run: |
+          set -Eeu -o pipefail
+          crates=$(awk '/^\[\[package\]\]/ { name = "" }
+            /^name = / { name = $3 }
+            /^version = / && name ~ /^"(parquet|arrow-.*|rand.*)"$/ { print name, $3 }' Cargo.lock \
+            | sort | sha256sum | cut -c1-16)
+          echo "crates=$crates" >> "$GITHUB_OUTPUT"
+
+      - name: Restore benchmark data
+        id: data-cache
+        if: inputs.benchmark_id == 'random-access-bench'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            vortex-bench/data/taxi/taxi.parquet
+            vortex-bench/data/random_access/*/*.parquet
+            vortex-bench/data/random_access/*/*.litdata
+          key: >-
+            random-access-data-v1-${{ inputs.remote_data_dir != '' && 's3' || 'local' }}-litdata0.2.76-${{ steps.data-cache-key.outputs.crates }}-${{
+              hashFiles(
+                'vortex-bench/src/datasets/**',
+                'vortex-bench/src/random_access/**',
+                'scripts/litdata-random-access.py',
+                'benchmarks/random-access-bench/src/litdata.rs') }}
+
+      # Download and convert all benchmark data up front, so the benchmark step below only
+      # contains timed runs. The data is written with the same settings the benchmark uses.
+      - name: Generate ${{ inputs.benchmark_name }} data
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+        run: |
+          bench="${{ inputs.benchmark_id }}"
+          python3 "scripts/${bench%-bench}-split.py" --prepare-data \
+            ${{ inputs.remote_data_dir != '' && format('--remote-data-dir {0}', inputs.remote_data_dir) || '' }}
+
+      - name: Save benchmark data
+        if: inputs.benchmark_id == 'random-access-bench' && steps.data-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            vortex-bench/data/taxi/taxi.parquet
+            vortex-bench/data/random_access/*/*.parquet
+            vortex-bench/data/random_access/*/*.litdata
+          key: ${{ steps.data-cache.outputs.cache-primary-key }}
+
       - name: Upload benchmark data to S3
         if: inputs.remote_data_dir != '' && github.event.pull_request.head.repo.fork == false
         shell: bash
@@ -151,8 +228,6 @@ jobs:
         run: |
           set -Eeu -o pipefail -x
 
-          target/release_debug/${{ inputs.benchmark_id }} --prepare-data \
-            --formats ${{ inputs.with_lance && 'parquet,vortex,lance' || 'parquet,vortex' }}
           aws s3 rm --recursive "${{ inputs.remote_data_dir }}"
           aws s3 cp --recursive vortex-bench/data "${{ inputs.remote_data_dir }}"
 
@@ -167,7 +242,7 @@ jobs:
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
           AWS_REGION: "us-east-1"
         run: |
-          python3 scripts/random-access-split.py \
+          python3 scripts/random-access-split.py --emit-ingest-records \
             ${{ inputs.remote_data_dir != '' && format('--remote-data-dir {0}', inputs.remote_data_dir) || '' }}
 
       - name: Run ${{ inputs.benchmark_name }} benchmark (per-dataset)
@@ -177,7 +252,7 @@ jobs:
           RUST_BACKTRACE: full
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          python3 scripts/compress-split.py
+          python3 scripts/compress-split.py --emit-ingest-records
 
       - name: Run ${{ inputs.benchmark_name }} benchmark (per-column-encoder)
         if: inputs.benchmark_id == 'string-bench'
@@ -188,21 +263,21 @@ jobs:
         run: |
           python3 scripts/string-split.py
 
-      - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+      - name: Fetch baseline from the benchmarks database
+        uses: ./.github/actions/fetch-bench-baseline
         with:
-          sync: false
+          role-arn: ${{ vars.GH_BENCH_READ_ROLE_ARN }}
+          region: ${{ vars.RDS_BENCH_REGION }}
+          endpoint: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
+          database: ${{ vars.RDS_BENCH_DB_NAME }}
 
       - name: Compare results
         shell: bash
         run: |
           set -Eeu -o pipefail -x
 
-          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
-          gzip -d -c data.json.gz > base.json
-
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ inputs.benchmark_name }}" \
-            > comment.md
+          uv run --no-project scripts/compare-benchmark-jsons.py base.ingest.jsonl results.json \
+            "${{ inputs.benchmark_name }}" --pr-records results.ingest.jsonl > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PR

@@ -82,13 +82,31 @@ impl FileReadAt {
     ) -> VortexResult<Self> {
         let path = path.as_ref();
         let uri = path.to_string_lossy().to_string().into();
-        let file = Arc::new(File::open(path)?);
-        Ok(Self {
+        Ok(Self::from_file(
+            Arc::new(File::open(path)?),
+            uri,
+            handle,
+            allocator,
+        ))
+    }
+
+    /// Read an already open `file`, identified by `uri`, using a custom writable buffer
+    /// allocator.
+    ///
+    /// Readers that must read the same file as another reader share its open file: a path can
+    /// be replaced between opens.
+    pub fn from_file(
+        file: Arc<File>,
+        uri: Arc<str>,
+        handle: Handle,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
+        Self {
             uri,
             file,
             handle,
             allocator,
-        })
+        }
     }
 }
 

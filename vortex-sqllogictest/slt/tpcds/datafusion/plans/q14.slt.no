@@ -145,33 +145,33 @@ logical_plan
 04)------SubqueryAlias: y
 05)--------Union
 06)----------Projection: Utf8("store") AS channel, item.i_brand_id, item.i_class_id, item.i_category_id, sum(store_sales.ss_quantity * store_sales.ss_list_price) AS sales, count(Int64(1)) AS count(*) AS number_sales
-07)------------Filter: CAST(sum(store_sales.ss_quantity * store_sales.ss_list_price) AS Decimal128(38, 6)) > (<subquery>)
+07)------------Filter: CAST(sum(store_sales.ss_quantity * store_sales.ss_list_price) AS Decimal128(32, 6)) > (<subquery>)
 08)--------------Subquery:
-09)----------------Projection: CAST(avg_sales.average_sales AS Decimal128(38, 6))
+09)----------------Projection: CAST(avg_sales.average_sales AS Decimal128(32, 6))
 10)------------------SubqueryAlias: avg_sales
 11)--------------------Projection: avg(sq2.quantity * sq2.list_price) AS average_sales
-12)----------------------Aggregate: groupBy=[[]], aggr=[[avg(CAST(sq2.quantity AS Decimal128(20, 0)) * sq2.list_price)]]
+12)----------------------Aggregate: groupBy=[[]], aggr=[[avg(CAST(sq2.quantity AS Decimal128(10, 0)) * sq2.list_price)]]
 13)------------------------SubqueryAlias: sq2
 14)--------------------------Union
 15)----------------------------Projection: store_sales.ss_quantity AS quantity, store_sales.ss_list_price AS list_price
 16)------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 17)--------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_quantity, ss_list_price]
 18)--------------------------------Projection: date_dim.d_date_sk
-19)----------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-20)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
+19)----------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+20)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
 21)----------------------------Projection: catalog_sales.cs_quantity AS quantity, catalog_sales.cs_list_price AS list_price
 22)------------------------------Inner Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
 23)--------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_quantity, cs_list_price]
 24)--------------------------------Projection: date_dim.d_date_sk
-25)----------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-26)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
+25)----------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+26)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
 27)----------------------------Projection: web_sales.ws_quantity AS quantity, web_sales.ws_list_price AS list_price
 28)------------------------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
 29)--------------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_quantity, ws_list_price]
 30)--------------------------------Projection: date_dim.d_date_sk
-31)----------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-32)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
-33)--------------Aggregate: groupBy=[[item.i_brand_id, item.i_class_id, item.i_category_id]], aggr=[[sum(CAST(store_sales.ss_quantity AS Decimal128(20, 0)) * store_sales.ss_list_price), count(Int64(1))]]
+31)----------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+32)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
+33)--------------Aggregate: groupBy=[[item.i_brand_id, item.i_class_id, item.i_category_id]], aggr=[[sum(CAST(store_sales.ss_quantity AS Decimal128(10, 0)) * store_sales.ss_list_price), count(Int64(1))]]
 34)----------------Projection: store_sales.ss_quantity, store_sales.ss_list_price, item.i_brand_id, item.i_class_id, item.i_category_id
 35)------------------LeftSemi Join: store_sales.ss_item_sk = __correlated_sq_1.ss_item_sk
 36)--------------------Projection: store_sales.ss_item_sk, store_sales.ss_quantity, store_sales.ss_list_price, item.i_brand_id, item.i_class_id, item.i_category_id
@@ -181,8 +181,8 @@ logical_plan
 40)----------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_quantity, ss_list_price]
 41)----------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id]
 42)------------------------Projection: date_dim.d_date_sk
-43)--------------------------Filter: date_dim.d_year = Int64(2001) AND date_dim.d_moy = Int64(11)
-44)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2001), date_dim.d_moy = Int64(11)]
+43)--------------------------Filter: date_dim.d_year = Int32(2001) AND date_dim.d_moy = Int32(11)
+44)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int32(2001), date_dim.d_moy = Int32(11)]
 45)--------------------SubqueryAlias: __correlated_sq_1
 46)----------------------SubqueryAlias: cross_items
 47)------------------------Projection: item.i_item_sk AS ss_item_sk
@@ -202,8 +202,8 @@ logical_plan
 61)------------------------------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id]
 62)------------------------------------------SubqueryAlias: d1
 63)--------------------------------------------Projection: date_dim.d_date_sk
-64)----------------------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-65)------------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
+64)----------------------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+65)------------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
 66)------------------------------------Projection: ics.i_brand_id, ics.i_class_id, ics.i_category_id
 67)--------------------------------------LeftSemi Join: catalog_sales.cs_sold_date_sk = d2.d_date_sk
 68)----------------------------------------Projection: catalog_sales.cs_sold_date_sk, ics.i_brand_id, ics.i_class_id, ics.i_category_id
@@ -213,8 +213,8 @@ logical_plan
 72)----------------------------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id]
 73)----------------------------------------SubqueryAlias: d2
 74)------------------------------------------Projection: date_dim.d_date_sk
-75)--------------------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-76)----------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
+75)--------------------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+76)----------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
 77)--------------------------------Projection: iws.i_brand_id, iws.i_class_id, iws.i_category_id
 78)----------------------------------LeftSemi Join: web_sales.ws_sold_date_sk = d3.d_date_sk
 79)------------------------------------Projection: web_sales.ws_sold_date_sk, iws.i_brand_id, iws.i_class_id, iws.i_category_id
@@ -224,36 +224,36 @@ logical_plan
 83)------------------------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id]
 84)------------------------------------SubqueryAlias: d3
 85)--------------------------------------Projection: date_dim.d_date_sk
-86)----------------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-87)------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
+86)----------------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+87)------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
 88)----------Projection: Utf8("catalog") AS channel, item.i_brand_id, item.i_class_id, item.i_category_id, sum(catalog_sales.cs_quantity * catalog_sales.cs_list_price) AS sales, count(Int64(1)) AS count(*) AS number_sales
-89)------------Filter: CAST(sum(catalog_sales.cs_quantity * catalog_sales.cs_list_price) AS Decimal128(38, 6)) > (<subquery>)
+89)------------Filter: CAST(sum(catalog_sales.cs_quantity * catalog_sales.cs_list_price) AS Decimal128(32, 6)) > (<subquery>)
 90)--------------Subquery:
-91)----------------Projection: CAST(avg_sales.average_sales AS Decimal128(38, 6))
+91)----------------Projection: CAST(avg_sales.average_sales AS Decimal128(32, 6))
 92)------------------SubqueryAlias: avg_sales
 93)--------------------Projection: avg(sq2.quantity * sq2.list_price) AS average_sales
-94)----------------------Aggregate: groupBy=[[]], aggr=[[avg(CAST(sq2.quantity AS Decimal128(20, 0)) * sq2.list_price)]]
+94)----------------------Aggregate: groupBy=[[]], aggr=[[avg(CAST(sq2.quantity AS Decimal128(10, 0)) * sq2.list_price)]]
 95)------------------------SubqueryAlias: sq2
 96)--------------------------Union
 97)----------------------------Projection: store_sales.ss_quantity AS quantity, store_sales.ss_list_price AS list_price
 98)------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 99)--------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_quantity, ss_list_price]
 100)--------------------------------Projection: date_dim.d_date_sk
-101)----------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-102)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
+101)----------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+102)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
 103)----------------------------Projection: catalog_sales.cs_quantity AS quantity, catalog_sales.cs_list_price AS list_price
 104)------------------------------Inner Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
 105)--------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_quantity, cs_list_price]
 106)--------------------------------Projection: date_dim.d_date_sk
-107)----------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-108)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
+107)----------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+108)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
 109)----------------------------Projection: web_sales.ws_quantity AS quantity, web_sales.ws_list_price AS list_price
 110)------------------------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
 111)--------------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_quantity, ws_list_price]
 112)--------------------------------Projection: date_dim.d_date_sk
-113)----------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-114)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
-115)--------------Aggregate: groupBy=[[item.i_brand_id, item.i_class_id, item.i_category_id]], aggr=[[sum(CAST(catalog_sales.cs_quantity AS Decimal128(20, 0)) * catalog_sales.cs_list_price), count(Int64(1))]]
+113)----------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+114)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
+115)--------------Aggregate: groupBy=[[item.i_brand_id, item.i_class_id, item.i_category_id]], aggr=[[sum(CAST(catalog_sales.cs_quantity AS Decimal128(10, 0)) * catalog_sales.cs_list_price), count(Int64(1))]]
 116)----------------Projection: catalog_sales.cs_quantity, catalog_sales.cs_list_price, item.i_brand_id, item.i_class_id, item.i_category_id
 117)------------------LeftSemi Join: catalog_sales.cs_item_sk = __correlated_sq_2.ss_item_sk
 118)--------------------Projection: catalog_sales.cs_item_sk, catalog_sales.cs_quantity, catalog_sales.cs_list_price, item.i_brand_id, item.i_class_id, item.i_category_id
@@ -263,8 +263,8 @@ logical_plan
 122)----------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_item_sk, cs_quantity, cs_list_price]
 123)----------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id]
 124)------------------------Projection: date_dim.d_date_sk
-125)--------------------------Filter: date_dim.d_year = Int64(2001) AND date_dim.d_moy = Int64(11)
-126)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2001), date_dim.d_moy = Int64(11)]
+125)--------------------------Filter: date_dim.d_year = Int32(2001) AND date_dim.d_moy = Int32(11)
+126)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int32(2001), date_dim.d_moy = Int32(11)]
 127)--------------------SubqueryAlias: __correlated_sq_2
 128)----------------------SubqueryAlias: cross_items
 129)------------------------Projection: item.i_item_sk AS ss_item_sk
@@ -284,8 +284,8 @@ logical_plan
 143)------------------------------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id]
 144)------------------------------------------SubqueryAlias: d1
 145)--------------------------------------------Projection: date_dim.d_date_sk
-146)----------------------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-147)------------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
+146)----------------------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+147)------------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
 148)------------------------------------Projection: ics.i_brand_id, ics.i_class_id, ics.i_category_id
 149)--------------------------------------LeftSemi Join: catalog_sales.cs_sold_date_sk = d2.d_date_sk
 150)----------------------------------------Projection: catalog_sales.cs_sold_date_sk, ics.i_brand_id, ics.i_class_id, ics.i_category_id
@@ -295,8 +295,8 @@ logical_plan
 154)----------------------------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id]
 155)----------------------------------------SubqueryAlias: d2
 156)------------------------------------------Projection: date_dim.d_date_sk
-157)--------------------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-158)----------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
+157)--------------------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+158)----------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
 159)--------------------------------Projection: iws.i_brand_id, iws.i_class_id, iws.i_category_id
 160)----------------------------------LeftSemi Join: web_sales.ws_sold_date_sk = d3.d_date_sk
 161)------------------------------------Projection: web_sales.ws_sold_date_sk, iws.i_brand_id, iws.i_class_id, iws.i_category_id
@@ -306,36 +306,36 @@ logical_plan
 165)------------------------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id]
 166)------------------------------------SubqueryAlias: d3
 167)--------------------------------------Projection: date_dim.d_date_sk
-168)----------------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-169)------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
+168)----------------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+169)------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
 170)----------Projection: Utf8("web") AS channel, item.i_brand_id, item.i_class_id, item.i_category_id, sum(web_sales.ws_quantity * web_sales.ws_list_price) AS sales, count(Int64(1)) AS count(*) AS number_sales
-171)------------Filter: CAST(sum(web_sales.ws_quantity * web_sales.ws_list_price) AS Decimal128(38, 6)) > (<subquery>)
+171)------------Filter: CAST(sum(web_sales.ws_quantity * web_sales.ws_list_price) AS Decimal128(32, 6)) > (<subquery>)
 172)--------------Subquery:
-173)----------------Projection: CAST(avg_sales.average_sales AS Decimal128(38, 6))
+173)----------------Projection: CAST(avg_sales.average_sales AS Decimal128(32, 6))
 174)------------------SubqueryAlias: avg_sales
 175)--------------------Projection: avg(sq2.quantity * sq2.list_price) AS average_sales
-176)----------------------Aggregate: groupBy=[[]], aggr=[[avg(CAST(sq2.quantity AS Decimal128(20, 0)) * sq2.list_price)]]
+176)----------------------Aggregate: groupBy=[[]], aggr=[[avg(CAST(sq2.quantity AS Decimal128(10, 0)) * sq2.list_price)]]
 177)------------------------SubqueryAlias: sq2
 178)--------------------------Union
 179)----------------------------Projection: store_sales.ss_quantity AS quantity, store_sales.ss_list_price AS list_price
 180)------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 181)--------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_quantity, ss_list_price]
 182)--------------------------------Projection: date_dim.d_date_sk
-183)----------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-184)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
+183)----------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+184)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
 185)----------------------------Projection: catalog_sales.cs_quantity AS quantity, catalog_sales.cs_list_price AS list_price
 186)------------------------------Inner Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
 187)--------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_quantity, cs_list_price]
 188)--------------------------------Projection: date_dim.d_date_sk
-189)----------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-190)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
+189)----------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+190)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
 191)----------------------------Projection: web_sales.ws_quantity AS quantity, web_sales.ws_list_price AS list_price
 192)------------------------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
 193)--------------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_quantity, ws_list_price]
 194)--------------------------------Projection: date_dim.d_date_sk
-195)----------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-196)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
-197)--------------Aggregate: groupBy=[[item.i_brand_id, item.i_class_id, item.i_category_id]], aggr=[[sum(CAST(web_sales.ws_quantity AS Decimal128(20, 0)) * web_sales.ws_list_price), count(Int64(1))]]
+195)----------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+196)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
+197)--------------Aggregate: groupBy=[[item.i_brand_id, item.i_class_id, item.i_category_id]], aggr=[[sum(CAST(web_sales.ws_quantity AS Decimal128(10, 0)) * web_sales.ws_list_price), count(Int64(1))]]
 198)----------------Projection: web_sales.ws_quantity, web_sales.ws_list_price, item.i_brand_id, item.i_class_id, item.i_category_id
 199)------------------LeftSemi Join: web_sales.ws_item_sk = __correlated_sq_3.ss_item_sk
 200)--------------------Projection: web_sales.ws_item_sk, web_sales.ws_quantity, web_sales.ws_list_price, item.i_brand_id, item.i_class_id, item.i_category_id
@@ -345,8 +345,8 @@ logical_plan
 204)----------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_item_sk, ws_quantity, ws_list_price]
 205)----------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id]
 206)------------------------Projection: date_dim.d_date_sk
-207)--------------------------Filter: date_dim.d_year = Int64(2001) AND date_dim.d_moy = Int64(11)
-208)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2001), date_dim.d_moy = Int64(11)]
+207)--------------------------Filter: date_dim.d_year = Int32(2001) AND date_dim.d_moy = Int32(11)
+208)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int32(2001), date_dim.d_moy = Int32(11)]
 209)--------------------SubqueryAlias: __correlated_sq_3
 210)----------------------SubqueryAlias: cross_items
 211)------------------------Projection: item.i_item_sk AS ss_item_sk
@@ -366,8 +366,8 @@ logical_plan
 225)------------------------------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id]
 226)------------------------------------------SubqueryAlias: d1
 227)--------------------------------------------Projection: date_dim.d_date_sk
-228)----------------------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-229)------------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
+228)----------------------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+229)------------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
 230)------------------------------------Projection: ics.i_brand_id, ics.i_class_id, ics.i_category_id
 231)--------------------------------------LeftSemi Join: catalog_sales.cs_sold_date_sk = d2.d_date_sk
 232)----------------------------------------Projection: catalog_sales.cs_sold_date_sk, ics.i_brand_id, ics.i_class_id, ics.i_category_id
@@ -377,8 +377,8 @@ logical_plan
 236)----------------------------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id]
 237)----------------------------------------SubqueryAlias: d2
 238)------------------------------------------Projection: date_dim.d_date_sk
-239)--------------------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-240)----------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
+239)--------------------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+240)----------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
 241)--------------------------------Projection: iws.i_brand_id, iws.i_class_id, iws.i_category_id
 242)----------------------------------LeftSemi Join: web_sales.ws_sold_date_sk = d3.d_date_sk
 243)------------------------------------Projection: web_sales.ws_sold_date_sk, iws.i_brand_id, iws.i_class_id, iws.i_category_id
@@ -388,8 +388,8 @@ logical_plan
 247)------------------------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id]
 248)------------------------------------SubqueryAlias: d3
 249)--------------------------------------Projection: date_dim.d_date_sk
-250)----------------------------------------Filter: date_dim.d_year >= Int64(1999) AND date_dim.d_year <= Int64(2001)
-251)------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int64(1999), date_dim.d_year <= Int64(2001)]
+250)----------------------------------------Filter: date_dim.d_year >= Int32(1999) AND date_dim.d_year <= Int32(2001)
+251)------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year >= Int32(1999), date_dim.d_year <= Int32(2001)]
 physical_plan
 01)ScalarSubqueryExec: subqueries=1
 02)--SortPreservingMergeExec: [channel@0 ASC, i_brand_id@1 ASC, i_class_id@2 ASC, i_category_id@3 ASC], fetch=100
@@ -400,7 +400,7 @@ physical_plan
 07)------------AggregateExec: mode=Partial, gby=[(NULL as channel, NULL as i_brand_id, NULL as i_class_id, NULL as i_category_id), (channel@0 as channel, NULL as i_brand_id, NULL as i_class_id, NULL as i_category_id), (channel@0 as channel, i_brand_id@1 as i_brand_id, NULL as i_class_id, NULL as i_category_id), (channel@0 as channel, i_brand_id@1 as i_brand_id, i_class_id@2 as i_class_id, NULL as i_category_id), (channel@0 as channel, i_brand_id@1 as i_brand_id, i_class_id@2 as i_class_id, i_category_id@3 as i_category_id)], aggr=[sum(y.sales), sum(y.number_sales)]
 08)--------------InterleaveExec
 09)----------------ProjectionExec: expr=[store as channel, i_brand_id@0 as i_brand_id, i_class_id@1 as i_class_id, i_category_id@2 as i_category_id, sum(store_sales.ss_quantity * store_sales.ss_list_price)@3 as sales, count(Int64(1))@4 as number_sales]
-10)------------------FilterExec: CAST(sum(store_sales.ss_quantity * store_sales.ss_list_price)@3 AS Decimal128(38, 6)) > scalar_subquery(<pending>)
+10)------------------FilterExec: CAST(sum(store_sales.ss_quantity * store_sales.ss_list_price)@3 AS Decimal128(32, 6)) > scalar_subquery(<pending>)
 11)--------------------AggregateExec: mode=FinalPartitioned, gby=[i_brand_id@0 as i_brand_id, i_class_id@1 as i_class_id, i_category_id@2 as i_category_id], aggr=[sum(store_sales.ss_quantity * store_sales.ss_list_price), count(Int64(1))]
 12)----------------------RepartitionExec: partitioning=Hash([i_brand_id@0, i_class_id@1, i_category_id@2], 4), input_partitions=4
 13)------------------------AggregateExec: mode=Partial, gby=[i_brand_id@2 as i_brand_id, i_class_id@3 as i_class_id, i_category_id@4 as i_category_id], aggr=[sum(store_sales.ss_quantity * store_sales.ss_list_price), count(Int64(1))]
@@ -439,7 +439,7 @@ physical_plan
 46)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand_id, i_class_id, i_category_id], file_type=vortex
 47)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_quantity, ss_list_price], file_type=vortex
 48)----------------ProjectionExec: expr=[catalog as channel, i_brand_id@0 as i_brand_id, i_class_id@1 as i_class_id, i_category_id@2 as i_category_id, sum(catalog_sales.cs_quantity * catalog_sales.cs_list_price)@3 as sales, count(Int64(1))@4 as number_sales]
-49)------------------FilterExec: CAST(sum(catalog_sales.cs_quantity * catalog_sales.cs_list_price)@3 AS Decimal128(38, 6)) > scalar_subquery(<pending>)
+49)------------------FilterExec: CAST(sum(catalog_sales.cs_quantity * catalog_sales.cs_list_price)@3 AS Decimal128(32, 6)) > scalar_subquery(<pending>)
 50)--------------------AggregateExec: mode=FinalPartitioned, gby=[i_brand_id@0 as i_brand_id, i_class_id@1 as i_class_id, i_category_id@2 as i_category_id], aggr=[sum(catalog_sales.cs_quantity * catalog_sales.cs_list_price), count(Int64(1))]
 51)----------------------RepartitionExec: partitioning=Hash([i_brand_id@0, i_class_id@1, i_category_id@2], 4), input_partitions=4
 52)------------------------AggregateExec: mode=Partial, gby=[i_brand_id@2 as i_brand_id, i_class_id@3 as i_class_id, i_category_id@4 as i_category_id], aggr=[sum(catalog_sales.cs_quantity * catalog_sales.cs_list_price), count(Int64(1))]
@@ -478,7 +478,7 @@ physical_plan
 85)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand_id, i_class_id, i_category_id], file_type=vortex
 86)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_item_sk, cs_quantity, cs_list_price], file_type=vortex
 87)----------------ProjectionExec: expr=[web as channel, i_brand_id@0 as i_brand_id, i_class_id@1 as i_class_id, i_category_id@2 as i_category_id, sum(web_sales.ws_quantity * web_sales.ws_list_price)@3 as sales, count(Int64(1))@4 as number_sales]
-88)------------------FilterExec: CAST(sum(web_sales.ws_quantity * web_sales.ws_list_price)@3 AS Decimal128(38, 6)) > scalar_subquery(<pending>)
+88)------------------FilterExec: CAST(sum(web_sales.ws_quantity * web_sales.ws_list_price)@3 AS Decimal128(32, 6)) > scalar_subquery(<pending>)
 89)--------------------AggregateExec: mode=FinalPartitioned, gby=[i_brand_id@0 as i_brand_id, i_class_id@1 as i_class_id, i_category_id@2 as i_category_id], aggr=[sum(web_sales.ws_quantity * web_sales.ws_list_price), count(Int64(1))]
 90)----------------------RepartitionExec: partitioning=Hash([i_brand_id@0, i_class_id@1, i_category_id@2], 4), input_partitions=4
 91)------------------------AggregateExec: mode=Partial, gby=[i_brand_id@2 as i_brand_id, i_class_id@3 as i_class_id, i_category_id@4 as i_category_id], aggr=[sum(web_sales.ws_quantity * web_sales.ws_list_price), count(Int64(1))]
@@ -516,7 +516,7 @@ physical_plan
 123)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ws_item_sk@1)], projection=[ws_sold_date_sk@4, ws_item_sk@5, ws_quantity@6, ws_list_price@7, i_brand_id@1, i_class_id@2, i_category_id@3]
 124)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand_id, i_class_id, i_category_id], file_type=vortex
 125)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_item_sk, ws_quantity, ws_list_price], file_type=vortex
-126)--ProjectionExec: expr=[CAST(avg(sq2.quantity * sq2.list_price)@0 AS Decimal128(38, 6)) as avg_sales.average_sales]
+126)--ProjectionExec: expr=[CAST(avg(sq2.quantity * sq2.list_price)@0 AS Decimal128(32, 6)) as avg_sales.average_sales]
 127)----AggregateExec: mode=Final, gby=[], aggr=[avg(sq2.quantity * sq2.list_price)]
 128)------CoalescePartitionsExec
 129)--------AggregateExec: mode=Partial, gby=[], aggr=[avg(sq2.quantity * sq2.list_price)]
