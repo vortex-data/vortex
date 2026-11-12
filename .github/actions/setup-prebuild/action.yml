@@ -163,3 +163,42 @@ runs:
         components: ${{ inputs.components }}
         targets: ${{ inputs.targets }}
         enable-sccache: "false"
+
+    # Keep Cargo's downloads in the RunsOn S3 cache. Without it, every job resolves the
+    # crates.io index and downloads crates again, which sometimes stalls for 30 s. Windows
+    # keeps its own registry cache in ci.yml.
+    - name: Resolve Cargo home
+      if: runner.os != 'Windows'
+      id: cargo-home
+      shell: bash
+      run: echo "path=${CARGO_HOME:-$HOME/.cargo}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore Cargo registry
+      if: runner.os != 'Windows'
+      id: cargo-registry
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      with:
+        path: |
+          ${{ steps.cargo-home.outputs.path }}/registry/index
+          ${{ steps.cargo-home.outputs.path }}/registry/cache
+          ${{ steps.cargo-home.outputs.path }}/git/db
+        key: cargo-registry-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
+        restore-keys: cargo-registry-v1-${{ runner.os }}-${{ runner.arch }}-
+
+    # On a miss, fetch the full lockfile, so that the saved entry holds every crate that any
+    # job needs, and not only the crates of the first job that saves it.
+    - name: Fetch all crates
+      if: runner.os != 'Windows' && steps.cargo-registry.outputs.cache-hit != 'true'
+      shell: bash
+      run: cargo fetch --locked
+
+    # Save before compilation, so that a later build or test failure does not discard it.
+    - name: Save Cargo registry
+      if: runner.os != 'Windows' && steps.cargo-registry.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      with:
+        path: |
+          ${{ steps.cargo-home.outputs.path }}/registry/index
+          ${{ steps.cargo-home.outputs.path }}/registry/cache
+          ${{ steps.cargo-home.outputs.path }}/git/db
+        key: ${{ steps.cargo-registry.outputs.cache-primary-key }}
