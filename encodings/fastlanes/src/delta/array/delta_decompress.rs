@@ -1,14 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
-use fastlanes::BitPacking;
-use fastlanes::Delta;
 use fastlanes::FastLanes;
-use fearless_simd::Level;
-use itertools::Itertools;
-use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -16,26 +9,16 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::slice::SliceSlots;
-use vortex_array::dtype::NativePType;
-use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure_eq;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidthsView;
 use crate::DeltaArray;
 use crate::FL_CHUNK_SIZE;
-use crate::bitpack_decompress::execute_block_offsets;
-use crate::bitpack_decompress::for_each_packed_block;
 use crate::delta::array::DeltaArrayExt;
 use crate::delta::array::DeltaArraySlotsExt;
-use crate::delta::array::transpose::TransposeKernel;
-use crate::unpack_iter::for_each_packed_chunk;
+use crate::delta::array::chunks::DeltaChunks;
 
 pub fn delta_decompress(
     array: &DeltaArray,
@@ -53,25 +36,15 @@ pub fn delta_decompress(
     // raw bytes inverts the `wrapping_sub` done at compress time regardless of signedness.
     let bases = bases.reinterpret_cast(original_ptype.to_unsigned());
 
-    let packed = PackedDeltas::try_new(array.deltas());
-    let deltas_len = array.deltas().len();
-
     let decoded = match_each_unsigned_integer_ptype!(bases.ptype(), |T| {
-        const LANES: usize = T::LANES;
-
-        let buffer = match packed {
-            Some(packed) => {
-                fused_decompress_primitive::<T, LANES>(bases.as_slice(), packed, deltas_len, ctx)?
-            }
-            None => {
-                let deltas = array
-                    .deltas()
-                    .clone()
-                    .execute::<PrimitiveArray>(ctx)?
-                    .reinterpret_cast(original_ptype.to_unsigned());
-                decompress_primitive::<T, LANES>(bases.as_slice(), deltas.as_slice())
-            }
-        };
+        let mut deltas = None;
+        let buffer = DeltaChunks::<T, { T::LANES }>::for_array(
+            array.as_view(),
+            bases.as_slice(),
+            &mut deltas,
+            ctx,
+        )?
+        .decode_all();
         // Whole chunks were decoded; keep the values within the Delta array's slice.
         let buffer = buffer.slice(start..end);
 
@@ -112,173 +85,14 @@ impl<'a> PackedDeltas<'a> {
             first_block: start / FL_CHUNK_SIZE,
         })
     }
-}
 
-/// Performs the low-level delta decompression on primitive values.
-///
-/// All chunks must be full 1024-element chunks (deltas length must be a multiple of 1024).
-pub(crate) fn decompress_primitive<T, const LANES: usize>(bases: &[T], deltas: &[T]) -> Buffer<T>
-where
-    T: NativePType + Delta,
-{
-    let (chunks, remainder) = deltas.as_chunks::<1024>();
-    debug_assert!(
-        remainder.is_empty(),
-        "deltas must be padded to a multiple of 1024"
-    );
-    assert_eq!(bases.len(), chunks.len() * LANES);
-
-    // Allocate a result array.
-    let mut output = BufferMut::with_capacity(deltas.len());
-    // Bound to the requested length: `spare_capacity_mut` may expose extra over-aligned capacity
-    // beyond `deltas.len()`, which would desync the `zip_eq` with `chunks` below and panic.
-    let (output_chunks, _) = output.spare_capacity_mut()[..deltas.len()].as_chunks_mut::<1024>();
-
-    // Loop over all the chunks
-    let untranspose = TransposeKernel::untranspose(Level::new());
-    let mut transposed: [T; 1024] = [T::default(); 1024];
-    for ((i, chunk), output_chunk) in chunks.iter().enumerate().zip_eq(output_chunks.iter_mut()) {
-        Delta::undelta::<LANES>(
-            chunk,
-            unsafe { &*(bases[i * LANES..(i + 1) * LANES].as_ptr().cast()) },
-            &mut transposed,
-        );
-
-        untranspose.apply_uninit(&transposed, output_chunk);
+    /// The bit-packed array holding the deltas.
+    pub(crate) fn packed(&self) -> ArrayView<'a, BitPacked> {
+        self.packed
     }
 
-    unsafe { output.set_len(deltas.len()) };
-
-    output.freeze()
-}
-
-/// Delta decompression of bit-packed deltas, unpacking and prefix-summing each chunk in one pass.
-///
-/// `BitPacking::unpack` and `Delta::undelta` visit a chunk in the same lane order, so the fused
-/// kernel produces the same transposed chunk as unpacking followed by undelta. The chunk still has
-/// to be untransposed into logical order, exactly like the unfused path.
-///
-/// A patch changes every later value of its lane, so a chunk with patches is unpacked, patched and
-/// then prefix-summed. Chunks without patches take the fused kernel.
-pub(crate) fn fused_decompress_primitive<T, const LANES: usize>(
-    bases: &[T],
-    deltas: PackedDeltas<'_>,
-    len: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Buffer<T>>
-where
-    T: NativePType + PhysicalPType<Physical = T> + Delta,
-{
-    debug_assert!(
-        len.is_multiple_of(FL_CHUNK_SIZE),
-        "deltas must be padded to a multiple of 1024"
-    );
-    let num_chunks = len / FL_CHUNK_SIZE;
-    assert_eq!(bases.len(), num_chunks * LANES);
-    let bp = deltas.packed;
-    let blocks = deltas.first_block..deltas.first_block + num_chunks;
-    let patches = chunk_patches::<T>(bp, &blocks, ctx)?;
-    let mut patches = patches.as_slice();
-
-    let mut output = BufferMut::<T>::with_capacity(len);
-    let (output_chunks, _) = output.spare_capacity_mut()[..len].as_chunks_mut::<FL_CHUNK_SIZE>();
-
-    let mut decoded = 0;
-    let untranspose = TransposeKernel::untranspose(Level::new());
-    let mut transposed: [T; FL_CHUNK_SIZE] = [T::default(); FL_CHUNK_SIZE];
-    let mut unpacked: [T; FL_CHUNK_SIZE] = [T::default(); FL_CHUNK_SIZE];
-    let mut decode_block = |packed: &[T], bit_width: usize, block: usize| {
-        if !blocks.contains(&block) {
-            return;
-        }
-        let chunk = block - blocks.start;
-        let base = bases[chunk * LANES..]
-            .first_chunk::<LANES>()
-            .vortex_expect("one base per lane");
-        let patched = patches.partition_point(|&(index, _)| index < (chunk + 1) * FL_CHUNK_SIZE);
-        let (chunk_patches, rest) = patches.split_at(patched);
-        patches = rest;
-        if chunk_patches.is_empty() {
-            // SAFETY: the block walk bounds `packed` to one block at `bit_width`.
-            unsafe { Delta::unchecked_undelta_pack(bit_width, packed, base, &mut transposed) };
-        } else {
-            // SAFETY: as above.
-            unsafe { BitPacking::unchecked_unpack(bit_width, packed, &mut unpacked) };
-            for &(index, value) in chunk_patches {
-                unpacked[index % FL_CHUNK_SIZE] = value;
-            }
-            Delta::undelta::<LANES>(&unpacked, base, &mut transposed);
-        }
-        untranspose.apply_uninit(&transposed, &mut output_chunks[chunk]);
-        decoded += 1;
-    };
-
-    let packed = bp.packed_slice::<T>();
-    let offset = usize::from(bp.offset());
-    match bp.bit_widths() {
-        BitWidthsView::Global(bit_width) => {
-            let bit_width = usize::from(bit_width);
-            for_each_packed_chunk::<T, _>(packed, bit_width, offset, bp.len(), |packed, range| {
-                decode_block(packed, bit_width, range.start / FL_CHUNK_SIZE)
-            })?;
-        }
-        BitWidthsView::Blocked(offsets) => {
-            // The validated offsets bound every block to its bit width within `packed`.
-            let offsets = execute_block_offsets(bp, offsets, ctx)?;
-            for_each_packed_block::<T, _>(
-                packed,
-                &offsets,
-                offset,
-                bp.len(),
-                |packed, bit_width, range| {
-                    decode_block(packed, bit_width, range.start / FL_CHUNK_SIZE)
-                },
-            );
-        }
+    /// The packed block holding the first delta.
+    pub(crate) fn first_block(&self) -> usize {
+        self.first_block
     }
-    vortex_ensure_eq!(decoded, num_chunks, "bit-packed deltas hold too few blocks");
-
-    // SAFETY: every chunk of `output` was initialized above.
-    unsafe { output.set_len(len) };
-
-    Ok(output.freeze())
-}
-
-/// The patches of `bp` that fall within `blocks`, as positions counted from the start of the
-/// first block, in ascending order.
-fn chunk_patches<T: NativePType>(
-    bp: ArrayView<'_, BitPacked>,
-    blocks: &Range<usize>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Vec<(usize, T)>> {
-    let Some(patches) = bp.patches() else {
-        return Ok(Vec::new());
-    };
-    let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
-    let values = patches
-        .values()
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?
-        .reinterpret_cast(T::PTYPE);
-    let values = values.as_slice::<T>();
-    let start = blocks.start * FL_CHUNK_SIZE;
-    let positions = start..blocks.end * FL_CHUNK_SIZE;
-    // Patch indices count from the start of `bp`, which sits `offset` into its first block.
-    let shift = usize::from(bp.offset());
-    let mut chunk_patches: Vec<(usize, T)> =
-        match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
-            indices
-                .as_slice::<P>()
-                .iter()
-                .zip_eq(values)
-                .filter_map(|(&index, &value)| {
-                    let position = AsPrimitive::<usize>::as_(index) - patches.offset() + shift;
-                    positions
-                        .contains(&position)
-                        .then(|| (position - start, value))
-                })
-                .collect()
-        });
-    chunk_patches.sort_unstable_by_key(|&(position, _)| position);
-    Ok(chunk_patches)
 }
