@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Converts DataFusion physical expressions for native Vortex evaluation.
+//! Converts DataFusion physical expressions into mixed Vortex/DF evaluation.
 //!
-//! Unsupported expressions stay in DataFusion. Comparison and membership literals retain their own
+//! Eligible non-native fragments run in a typed DF callback inside the Vortex scan. Comparison and membership literals retain their own
 //! extension metadata, or inherit missing metadata from the operand they are compared with. This
 //! supplies the logical dtype that Vortex requires without adding implicit casts.
+
+mod fallback;
+#[cfg(test)]
+pub(crate) mod mixed_tests;
 
 use std::sync::Arc;
 
@@ -15,6 +19,7 @@ use arrow_schema::Schema;
 use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use datafusion_common::DataFusionError;
+use datafusion_common::HashMap;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::exec_datafusion_err;
@@ -38,6 +43,7 @@ use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
+use parking_lot::Mutex;
 use vortex::VortexSessionDefault;
 use vortex::aggregate_fn::NumericalAggregateOpts;
 use vortex::array::VortexSessionExecute;
@@ -89,8 +95,7 @@ pub struct ProcessedProjection {
 /// Trait for converting DataFusion expressions to Vortex ones.
 ///
 /// Custom converters implement a single schema-aware decision. Conversion should preserve
-/// DataFusion values, nulls, and evaluation errors; see [`DefaultExpressionConverter`] for
-/// the arithmetic and nested field access exceptions. Unsupported expressions remain in
+/// DataFusion values, nulls, and evaluation errors. Unsupported expressions remain in
 /// DataFusion, including when a file's schema adapter introduces them.
 ///
 /// # Implementing a custom converter
@@ -132,6 +137,16 @@ pub trait ExpressionConverter: Send + Sync {
         expr: &Arc<dyn PhysicalExpr>,
         schema: &Schema,
     ) -> DFResult<Option<Expression>>;
+
+    /// Convert a positive advisory filter. Overrides must filter conservatively
+    /// and introduce no new value errors, including on unused encoded values.
+    fn try_convert_dynamic(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+    ) -> DFResult<Option<Expression>> {
+        Ok(self.try_convert(expr, schema)?.filter(is_infallible))
+    }
 
     /// Split a projection into Vortex expressions that can be pushed down and leftover
     /// DataFusion projections that need to be evaluated after the scan.
@@ -220,14 +235,13 @@ type Conversion<T> = Result<T, Unconverted>;
 
 /// The default [`ExpressionConverter`] implementation.
 ///
-/// Supported arithmetic is pushed down using Vortex semantics, including its checked
-/// integer arithmetic. Matching DataFusion's overflow behavior is deferred to a future patch.
-/// Nested struct field access also uses Vortex semantics: a null parent produces a null child,
-/// whereas DataFusion extracts the child without applying parent validity. These differences
-/// are accepted for both filters and projections.
+/// Compatible subtrees execute natively; remaining synchronous non-volatile fragments
+/// use a typed DataFusion callback. Integer wrapping arithmetic, float binary comparisons
+/// and struct extraction with different null semantics retain DataFusion evaluation.
 /// Searched `CASE WHEN` expressions preserve short-circuit evaluation: conditions and
 /// branch values only execute on the rows that reach them, including fallible branches.
 /// Other expressions require compatible SQL semantics or remain in DataFusion.
+#[derive(Clone)]
 pub struct DefaultExpressionConverter {
     /// Session used to resolve Arrow → Vortex dtypes through the extension
     /// plugin registry, so registered extension types (e.g. UUID ⇄
@@ -236,9 +250,50 @@ pub struct DefaultExpressionConverter {
     session: VortexSession,
     /// What `$` is in the expressions this converts.
     scope: Scope,
+    df_fallback: bool,
+    native_cache: Option<Arc<Mutex<NativeCache>>>,
 }
 
+fn validate_columns(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> Conversion<Vec<usize>> {
+    let columns = collect_columns(expr);
+    let mut column_indices = Vec::with_capacity(columns.len());
+    for column in columns {
+        let field = schema.fields().get(column.index()).ok_or_else(|| {
+            exec_datafusion_err!(
+                "Column {}@{} is out of bounds",
+                column.name(),
+                column.index()
+            )
+        })?;
+        if field.name() != column.name() {
+            return Err(exec_datafusion_err!(
+                "Column {}@{} refers to field {}",
+                column.name(),
+                column.index(),
+                field.name()
+            )
+            .into());
+        }
+        if schema
+            .fields()
+            .iter()
+            .filter(|field| field.name() == column.name())
+            .count()
+            != 1
+        {
+            return Err(Unconverted::Unsupported);
+        }
+        column_indices.push(column.index());
+    }
+    column_indices.sort_unstable();
+    column_indices.dedup();
+    Ok(column_indices)
+}
+
+type NativeCache = HashMap<(usize, usize, bool), (Arc<dyn PhysicalExpr>, Option<Expression>)>;
+
 /// What `$` is where an expression is converted.
+#[derive(Clone)]
 enum Scope {
     /// Outside any lambda, the scan's columns: a column `c` reads `$.c`.
     Global,
@@ -254,12 +309,27 @@ impl Default for DefaultExpressionConverter {
 }
 
 impl DefaultExpressionConverter {
+    fn native_only(&self) -> Self {
+        Self {
+            df_fallback: false,
+            ..self.clone()
+        }
+    }
+    fn conversion_context(&self) -> Self {
+        Self {
+            native_cache: Some(Arc::new(Mutex::new(HashMap::default()))),
+            ..self.clone()
+        }
+    }
+
     /// Create a converter that resolves Arrow extension types using `session`'s
     /// dtype registry.
     pub fn new(session: VortexSession) -> Self {
         Self {
             session,
             scope: Scope::Global,
+            df_fallback: true,
+            native_cache: None,
         }
     }
 
@@ -277,29 +347,20 @@ impl DefaultExpressionConverter {
         expr: &Arc<dyn PhysicalExpr>,
         schema: &Schema,
     ) -> Conversion<Expression> {
-        let columns = collect_columns(expr);
-        let mut column_indices = Vec::with_capacity(columns.len());
-        for column in columns {
-            let field = schema.fields().get(column.index()).ok_or_else(|| {
-                exec_datafusion_err!(
-                    "Column {}@{} is out of bounds",
-                    column.name(),
-                    column.index()
-                )
-            })?;
-            if field.name() != column.name() {
-                return Err(exec_datafusion_err!(
-                    "Column {}@{} refers to field {}",
-                    column.name(),
-                    column.index(),
-                    field.name()
-                )
-                .into());
-            }
-            column_indices.push(column.index());
+        self.memoized_native(expr, schema, true, || {
+            self.convert_checked_uncached(expr, schema)
+        })
+    }
+
+    fn convert_checked_uncached(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+    ) -> Conversion<Expression> {
+        let mut column_indices = validate_columns(expr, schema)?;
+        if crate::df_expression::contains_higher_order_function(expr) {
+            column_indices = (0..schema.fields().len()).collect();
         }
-        column_indices.sort_unstable();
-        column_indices.dedup();
         let input_dtype = self
             .session
             .arrow()
@@ -310,14 +371,8 @@ impl DefaultExpressionConverter {
             )
             .map_err(|_| Unconverted::Unsupported)?;
         let converted = self.convert_expr(expr, schema, &input_dtype)?;
-        // `return_field` names the field by formatting the whole expression. For the IN list of a
-        // hash join filter, with thousands of keys, that costs more than the conversion. A
-        // predicate has no field metadata, so its type and nullability are enough.
-        let expected_dtype = if expr.data_type(schema)? == DataType::Boolean {
-            DType::Bool(expr.nullable(schema)?.into())
-        } else {
-            self.arrow_dtype(expr.return_field(schema)?.as_ref())?
-        };
+        // Preserve extension metadata even for Boolean outputs.
+        let expected_dtype = self.arrow_dtype(expr.return_field(schema)?.as_ref())?;
         if !converted_dtype(&converted, &input_dtype)?.eq_ignore_nullability(&expected_dtype) {
             return Err(Unconverted::Unsupported);
         }
@@ -325,6 +380,81 @@ impl DefaultExpressionConverter {
     }
 
     fn convert_expr(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        self.memoized_native(expr, schema, false, || {
+            self.convert_expr_uncached(expr, schema, input_dtype)
+        })
+    }
+
+    fn memoized_native(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+        checked: bool,
+        convert: impl FnOnce() -> Conversion<Expression>,
+    ) -> Conversion<Expression> {
+        let cache = if !self.df_fallback && matches!(self.scope, Scope::Global) {
+            self.native_cache.as_ref()
+        } else {
+            None
+        };
+        let key = (
+            Arc::as_ptr(expr) as *const () as usize,
+            schema as *const Schema as usize,
+            checked,
+        );
+        if let Some(cache) = cache
+            && let Some((_, cached)) = cache.lock().get(&key)
+        {
+            return cached.clone().ok_or(Unconverted::Unsupported);
+        }
+        let result = convert();
+        if let Some(cache) = cache {
+            let value = match &result {
+                Ok(value) => Some(value.clone()),
+                Err(Unconverted::Unsupported) => None,
+                Err(_) => return result,
+            };
+            cache.lock().insert(key, (Arc::clone(expr), value));
+        }
+        result
+    }
+
+    fn convert_expr_uncached(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        let mut result = if !fallback::compatible(expr, schema)? {
+            Err(Unconverted::Unsupported)
+        } else if self.df_fallback && !fallback::eager(expr) {
+            self.native_only()
+                .convert_native_expr(expr, schema, input_dtype)
+        } else {
+            self.convert_native_expr(expr, schema, input_dtype)
+        };
+        if let Ok(converted) = &result {
+            let expected = self.arrow_dtype(expr.return_field(schema)?.as_ref())?;
+            if !converted_dtype(converted, input_dtype)?.eq_ignore_nullability(&expected) {
+                result = Err(Unconverted::Unsupported);
+            }
+        }
+        match result {
+            Err(Unconverted::Unsupported)
+                if self.df_fallback && matches!(self.scope, Scope::Global) =>
+            {
+                fallback::lower(self, expr, schema, false)
+            }
+            other => other,
+        }
+    }
+
+    fn convert_native_expr(
         &self,
         expr: &Arc<dyn PhysicalExpr>,
         schema: &Schema,
@@ -811,6 +941,8 @@ impl DefaultExpressionConverter {
         let body_converter = Self {
             session: self.session.clone(),
             scope: Scope::Lambda(params),
+            df_fallback: false,
+            native_cache: None,
         };
         // DataFusion also types the body against the outer schema: a lambda variable carries its
         // own field.
@@ -860,8 +992,31 @@ impl ExpressionConverter for DefaultExpressionConverter {
         if DynamicFilterTracking::classify(expr).contains_dynamic_filter() {
             return Ok(None);
         }
-        match self.convert_checked(expr, schema) {
+        if !crate::df_expression::eligible(expr) {
+            return Ok(None);
+        }
+        match self.conversion_context().convert_checked(expr, schema) {
             Ok(converted) => Ok(Some(converted)),
+            Err(Unconverted::Unsupported) => Ok(None),
+            Err(Unconverted::Failed(error)) => Err(error),
+        }
+    }
+    fn try_convert_dynamic(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+    ) -> DFResult<Option<Expression>> {
+        if !crate::df_expression::eligible(expr) || expr.data_type(schema)? != DataType::Boolean {
+            return Ok(None);
+        }
+        let converter = self.conversion_context();
+        match converter.convert_checked(expr, schema) {
+            Ok(value) if is_infallible(&value) => return Ok(Some(value)),
+            Err(Unconverted::Failed(error)) => return Err(error),
+            _ => {}
+        }
+        match fallback::lower(&converter, expr, schema, true) {
+            Ok(value) => Ok(Some(value)),
             Err(Unconverted::Unsupported) => Ok(None),
             Err(Unconverted::Failed(error)) => Err(error),
         }

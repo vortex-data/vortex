@@ -18,6 +18,7 @@ use arrow_array::StructArray;
 use arrow_array::UInt8Array;
 use arrow_array::UInt32Array;
 use arrow_array::UInt64Array;
+use arrow_array::cast::AsArray;
 use arrow_array::types::Float64Type;
 use arrow_array::types::Int32Type;
 use arrow_array::types::Int64Type;
@@ -56,7 +57,6 @@ use rstest::rstest;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
-use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::PType;
 use vortex::encodings::uuid::Uuid;
@@ -69,6 +69,7 @@ use vortex::scalar_fn::fns::cast::Cast;
 use vortex::scalar_fn::fns::list_contains::ListContains;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex_array::assert_arrays_eq;
+use vortex_arrow::ExecuteArrowExt;
 
 use super::*;
 use crate::common_tests::TestSessionContext;
@@ -141,7 +142,7 @@ fn array_sum_expr(list: Arc<dyn PhysicalExpr>, schema: &Schema) -> DFResult<Arc<
 
 /// Plans `array_transform(list, (param) -> body)` as DataFusion does: the parameter is the list's
 /// element field, numbered after the columns of `schema` and any enclosing lambda's parameters.
-fn array_transform_expr(
+pub(super) fn array_transform_expr(
     list: Arc<dyn PhysicalExpr>,
     param: &str,
     index: usize,
@@ -186,6 +187,7 @@ fn get_field_expr(
 /// Whether the default converter accepts `expr` for native evaluation against `schema`.
 fn converts(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> DFResult<bool> {
     Ok(DefaultExpressionConverter::default()
+        .native_only()
         .try_convert(expr, schema)?
         .is_some())
 }
@@ -193,6 +195,7 @@ fn converts(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> DFResult<bool> {
 /// Convert `expr` natively, failing the test if the converter declines it.
 fn convert(expr: Arc<dyn PhysicalExpr>, schema: &Schema) -> DFResult<Expression> {
     DefaultExpressionConverter::default()
+        .native_only()
         .try_convert(&expr, schema)?
         .ok_or_else(|| exec_datafusion_err!("Expected native conversion for {expr}"))
 }
@@ -206,7 +209,7 @@ fn assert_in_list_matches(
 ) -> anyhow::Result<()> {
     let expr = df_expr::InListExpr::try_new(value, list, negated, &batch.schema())?;
     expr.evaluate(&batch)?;
-    assert_native_matches(Arc::new(expr), batch)
+    assert_conversion_matches(Arc::new(expr), batch)
 }
 
 fn int_literals(values: impl IntoIterator<Item = Option<i32>>) -> Vec<Arc<dyn PhysicalExpr>> {
@@ -864,7 +867,7 @@ fn test_comparison_inherits_complete_extension_metadata() -> anyhow::Result<()> 
         Arc::new(literal),
     ));
 
-    assert_native_matches(predicate, batch)
+    assert_conversion_matches(predicate, batch)
 }
 
 #[test]
@@ -954,7 +957,7 @@ fn test_like_preserves_nullable_input_through_non_nullable_cast() -> anyhow::Res
     )))) as Arc<dyn PhysicalExpr>;
     let like = Arc::new(df_expr::LikeExpr::new(false, false, cast, pattern));
 
-    assert_native_matches(like, batch)
+    assert_conversion_matches(like, batch)
 }
 
 #[rstest]
@@ -1101,13 +1104,13 @@ fn test_literal_ignores_unreferenced_malformed_decimal() -> DFResult<()> {
 #[test]
 fn test_projection_ignores_unreferenced_unsupported_field() -> DFResult<()> {
     let schema = Schema::new(vec![
-        Field::new("a", DataType::Int32, false),
+        Field::new("a", DataType::Float64, false),
         Field::new(
             "unsupported",
             DataType::Duration(ArrowTimeUnit::Second),
             true,
         ),
-        Field::new("b", DataType::Int32, false),
+        Field::new("b", DataType::Float64, false),
     ]);
     let projection = ProjectionExprs::from(vec![ProjectionExpr::new(
         Arc::new(df_expr::BinaryExpr::new(
@@ -1469,10 +1472,13 @@ fn test_case_when_datafusion_vortex_equivalence() -> anyhow::Result<()> {
         vec![(greater_than(10), int32(100)), (greater_than(5), int32(50))],
         Some(int32(0)),
     )?;
-    assert_native_matches(Arc::new(case_expr), batch)
+    assert_conversion_matches(Arc::new(case_expr), batch)
 }
 
-fn assert_native_matches(expr: Arc<dyn PhysicalExpr>, batch: RecordBatch) -> anyhow::Result<()> {
+fn assert_conversion_matches(
+    expr: Arc<dyn PhysicalExpr>,
+    batch: RecordBatch,
+) -> anyhow::Result<()> {
     let session = VortexSession::default();
     let converted = DefaultExpressionConverter::new(session.clone())
         .try_convert(&expr, &batch.schema())?
@@ -1491,12 +1497,23 @@ fn assert_native_matches(expr: Arc<dyn PhysicalExpr>, batch: RecordBatch) -> any
             if constant {
                 input = ConstantArray::new(input.execute_scalar(0, &mut ctx)?, 1).into_array();
             }
+            // Struct scalarization drops hidden children under null parents. In
+            // constant cases, compare DF on the actual supplied representation;
+            // ordinary arrays retain the original Arrow reference unchanged.
+            let reference = if constant {
+                let field =
+                    Field::new("", DataType::Struct(batch.schema().fields().clone()), false);
+                let arrow = input.clone().execute_arrow(Some(&field), &mut ctx)?;
+                RecordBatch::from(arrow.as_struct())
+            } else {
+                batch.clone()
+            };
             let actual = input
                 .apply(&converted)?
                 .execute::<Canonical>(&mut ctx)
                 .map(IntoArray::into_array);
             let expected = expr
-                .evaluate(&batch)
+                .evaluate(&reference)
                 .and_then(|value| value.into_array(batch.num_rows()));
             match (actual, expected) {
                 (Ok(actual), Ok(expected)) => {
@@ -1532,7 +1549,7 @@ fn test_native_integer_division(
     #[case] denominators: Vec<i32>,
 ) -> anyhow::Result<()> {
     let batch = arrow_array::record_batch!(("a", Int32, values), ("b", Int32, denominators))?;
-    assert_native_matches(
+    assert_conversion_matches(
         Arc::new(df_expr::BinaryExpr::new(
             Arc::new(df_expr::Column::new("a", 0)),
             DFOperator::Divide,
@@ -1562,7 +1579,7 @@ fn test_native_float_arithmetic(#[case] operator: DFOperator) -> anyhow::Result<
         ),
         ("b", Float64, vec![0.0, f64::NEG_INFINITY, 0.0, 2.0, 0.0])
     )?;
-    assert_native_matches(
+    assert_conversion_matches(
         Arc::new(df_expr::BinaryExpr::new(
             Arc::new(df_expr::Column::new("a", 0)),
             operator,
@@ -1581,7 +1598,7 @@ fn test_native_integer_cast(#[case] target: DataType) -> anyhow::Result<()> {
         Int32,
         vec![Some(i32::MIN), Some(i32::MAX), Some(0), None]
     ))?;
-    assert_native_matches(
+    assert_conversion_matches(
         Arc::new(df_expr::CastExpr::new(
             Arc::new(df_expr::Column::new("a", 0)),
             target,
@@ -1604,7 +1621,7 @@ fn test_native_float_cast() -> anyhow::Result<()> {
             None
         ]
     ))?;
-    assert_native_matches(
+    assert_conversion_matches(
         Arc::new(df_expr::CastExpr::new(
             Arc::new(df_expr::Column::new("a", 0)),
             DataType::Float64,
@@ -1644,7 +1661,7 @@ fn test_native_numeric_cast(
     #[case] target: DataType,
 ) -> anyhow::Result<()> {
     let batch = RecordBatch::try_from_iter([("a", values)])?;
-    assert_native_matches(
+    assert_conversion_matches(
         Arc::new(df_expr::CastExpr::new(
             Arc::new(df_expr::Column::new("a", 0)),
             target,
@@ -1675,7 +1692,7 @@ fn test_native_list_cast_to_float64(
         Some(vec![Some(0), Some(1)]),
     ]);
     let batch = RecordBatch::try_from_iter([("xs", cast(&lists, &list_type(element))?)])?;
-    assert_native_matches(
+    assert_conversion_matches(
         Arc::new(df_expr::CastExpr::new(
             Arc::new(df_expr::Column::new("xs", 0)),
             list_type(DataType::Float64),
@@ -1876,7 +1893,7 @@ fn test_string_functions_match_datafusion(
         let session = VortexSession::default();
         let serialized = native.serialize_proto()?;
         assert_eq!(Expression::from_proto(&serialized, &session)?, native);
-        assert_native_matches(expr, batch)?;
+        assert_conversion_matches(expr, batch)?;
     }
     Ok(())
 }
@@ -1946,7 +1963,7 @@ fn test_large_string_position_matches_datafusion() -> anyhow::Result<()> {
         ("s", LargeUtf8, vec![Some("é📊hello"), None, Some("")]),
         ("needle", LargeUtf8, vec![Some("h"), Some(""), Some("x")])
     )?;
-    assert_native_matches(plan_predicate("strpos(s, needle)", &batch.schema())?, batch)
+    assert_conversion_matches(plan_predicate("strpos(s, needle)", &batch.schema())?, batch)
 }
 
 /// Regression test for #10634: coercion casts `REE<Dict<Utf8>>` columns to `Dict<Utf8>` before
@@ -2043,7 +2060,7 @@ fn test_ree_dict_comparison_matches_datafusion(#[case] predicate: &str) -> anyho
         true,
     )]));
     let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(ree)])?;
-    assert_native_matches(plan_predicate(predicate, &schema)?, batch)
+    assert_conversion_matches(plan_predicate(predicate, &schema)?, batch)
 }
 
 #[rstest]
@@ -2051,7 +2068,7 @@ fn test_ree_dict_comparison_matches_datafusion(#[case] predicate: &str) -> anyho
 #[case::sub(DFOperator::Minus)]
 #[case::mul(DFOperator::Multiply)]
 #[case::div(DFOperator::Divide)]
-fn test_integer_arithmetic_pushdown_ignores_overflow_mode(
+fn test_integer_arithmetic_uses_native_division_and_df_overflow_modes(
     #[case] op: DFOperator,
     #[values(false, true)] checked: bool,
 ) -> DFResult<()> {
@@ -2064,7 +2081,7 @@ fn test_integer_arithmetic_pushdown_ignores_overflow_mode(
         )
         .with_fail_on_overflow(checked),
     );
-    assert!(converts(&expr, &schema)?);
+    assert_eq!(converts(&expr, &schema)?, op == DFOperator::Divide);
     Ok(())
 }
 
@@ -2081,7 +2098,7 @@ fn test_native_integer_arithmetic(
         ("a", Int32, vec![Some(-12), Some(0), Some(12), None]),
         ("b", Int32, vec![-2, 2, 2, 0])
     )?;
-    assert_native_matches(
+    assert_conversion_matches(
         Arc::new(
             df_expr::BinaryExpr::new(
                 Arc::new(df_expr::Column::new("a", 0)),
@@ -2116,7 +2133,7 @@ fn test_native_decimal_arithmetic(#[case] op: DFOperator) -> anyhow::Result<()> 
             ) as arrow_array::ArrayRef,
         ),
     ])?;
-    assert_native_matches(
+    assert_conversion_matches(
         Arc::new(df_expr::BinaryExpr::new(
             Arc::new(df_expr::Column::new("a", 0)),
             op,
@@ -2172,7 +2189,7 @@ fn test_native_case_short_circuit(
     };
     let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::CaseExpr::try_new(None, pairs, otherwise)?);
     assert_eq!(expr.evaluate(&batch).is_err(), branch == "error");
-    assert_native_matches(expr, batch)
+    assert_conversion_matches(expr, batch)
 }
 
 #[rstest]
@@ -2226,20 +2243,18 @@ fn test_case_unsupported_child_falls_back(#[values(0, 1, 2)] child: usize) -> DF
     Some(vec![true, true, false, true]),
     vec![Some(10), None, None, Some(40)],
 )]
-fn test_native_nested_get_field(
+fn test_nested_get_field_matches_datafusion(
     #[case] outer_validity: Option<Vec<bool>>,
     #[case] inner_validity: Option<Vec<bool>>,
-    #[case] mut expected: Vec<Option<i32>>,
+    #[case] _historical_parent_nulls: Vec<Option<i32>>,
     #[values(false, true)] nullable_leaf: bool,
     #[values(false, true)] flattened: bool,
 ) -> anyhow::Result<()> {
-    let parents_all_valid = expected.iter().all(Option::is_some);
     let nullable_outer = outer_validity.is_some();
     let nullable_inner = inner_validity.is_some();
     let mut values = vec![Some(10), Some(20), Some(30), Some(40)];
     if nullable_leaf {
         values[3] = None;
-        expected[3] = None;
     }
     let inner = Arc::new(StructArray::new(
         vec![Field::new("leaf", DataType::Int32, nullable_leaf)].into(),
@@ -2272,25 +2287,7 @@ fn test_native_nested_get_field(
             &batch.schema(),
         )?
     };
-    let converted = convert(Arc::clone(&expr), &batch.schema())?;
-    assert_eq!(
-        converted,
-        get_item("leaf", get_item("inner", get_item("outer", root())))
-    );
-    if parents_all_valid {
-        return assert_native_matches(expr, batch);
-    }
-
-    let session = VortexSession::default();
-    let input = session
-        .arrow()
-        .from_arrow_record_batch(batch.clone(), &batch.schema())?;
-    assert_arrays_eq!(
-        input.apply(&converted)?,
-        PrimitiveArray::from_option_iter(expected),
-        &mut session.create_execution_ctx()
-    );
-    Ok(())
+    assert_conversion_matches(expr, batch)
 }
 
 #[rstest]
@@ -2424,21 +2421,7 @@ fn test_native_nested_list_length(
         Arc::new(ConfigOptions::new()),
     )?);
     let length = array_length_expr(vec![get_field], &batch.schema());
-    if nullable_parent {
-        let converted = convert(length, &batch.schema())?;
-        let session = VortexSession::default();
-        let input = session
-            .arrow()
-            .from_arrow_record_batch(batch.clone(), &batch.schema())?;
-        assert_arrays_eq!(
-            input.apply(&converted)?,
-            PrimitiveArray::from_option_iter([Some(1u64), None, None]),
-            &mut session.create_execution_ctx()
-        );
-        Ok(())
-    } else {
-        assert_native_matches(length, batch)
-    }
+    assert_conversion_matches(length, batch)
 }
 
 #[rstest]
@@ -2457,7 +2440,7 @@ fn test_native_array_sum(
     let data_type = DataType::new_list(element, true);
     let batch = RecordBatch::try_from_iter([("xs", cast(&lists, &data_type)?)])?;
     let expr = array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &batch.schema())?;
-    assert_native_matches(expr, batch)
+    assert_conversion_matches(expr, batch)
 }
 
 #[test]
@@ -2539,7 +2522,7 @@ fn test_native_array_transform(
     if summed {
         expr = array_sum_expr(expr, &schema)?;
     }
-    assert_native_matches(expr, batch)
+    assert_conversion_matches(expr, batch)
 }
 
 /// `100 / x` never sees the zero under a null list, as DataFusion drops the values under nulls.
@@ -2567,7 +2550,7 @@ fn test_native_array_transform_skips_values_under_null_lists() -> anyhow::Result
         &schema,
     )?;
     expr.evaluate(&batch)?;
-    assert_native_matches(expr, batch)
+    assert_conversion_matches(expr, batch)
 }
 
 /// `array_transform(xss, (x) -> array_transform(x, (y) -> y IS NOT NULL))`, and the same with the
@@ -2597,7 +2580,7 @@ fn test_native_nested_array_transform(#[case] inner_param: &str) -> anyhow::Resu
         |x| array_transform_expr(x, inner_param, 2, is_not_null_body, &schema),
         &schema,
     )?;
-    assert_native_matches(expr, batch)
+    assert_conversion_matches(expr, batch)
 }
 
 /// A body may read only its own parameter: a column, even one named like the parameter, or an
@@ -2660,7 +2643,7 @@ fn test_native_case_null_conditions() -> anyhow::Result<()> {
         )],
         None,
     )?);
-    assert_native_matches(expr, batch)
+    assert_conversion_matches(expr, batch)
 }
 
 #[rstest]
@@ -2670,7 +2653,7 @@ fn test_native_not(#[values(false, true)] nested: bool) -> anyhow::Result<()> {
     if nested {
         expr = Arc::new(df_expr::NotExpr::new(expr));
     }
-    assert_native_matches(Arc::new(df_expr::NotExpr::new(expr)), batch)
+    assert_conversion_matches(Arc::new(df_expr::NotExpr::new(expr)), batch)
 }
 
 #[test]
