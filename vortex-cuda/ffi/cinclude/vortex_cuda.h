@@ -65,6 +65,17 @@ struct ArrowDeviceArrayStream {
 #define VX_CUDA_SCAN_FLAG_DIRECT_IO (1u << 0)
 
 /**
+ * Opaque scan handle returning an independently owned schema for every CUDA batch.
+ *
+ * The logical dtype is fixed, but physical Arrow schemas, dictionary values, and index widths
+ * may vary between batches. Dictionaries are exported using `DictionaryExport::Preserve`.
+ * Plain batches stay plain; dictionaries are not synthesized.
+ * The handle retains its runtime and session resources. Use and free it on the creating thread,
+ * without concurrent or reentrant calls. Free with `vx_cuda_device_batches_free`.
+ */
+typedef struct vx_cuda_device_batches vx_cuda_device_batches;
+
+/**
  * Options for scanning a CUDA-compatible Vortex file.
  *
  * Zero-initialize this struct to use buffered file I/O and layout-derived batch splitting.
@@ -264,6 +275,75 @@ int vx_cuda_partition_scan_arrow_device_stream(const vx_session *session,
                                                vx_partition *partition,
                                                struct ArrowDeviceArrayStream *out_stream,
                                                vx_error **error_out);
+
+/**
+ * Scan a local CUDA-readable file with a native per-batch-schema iterator.
+ *
+ * Returns an owned handle, or null on error. Uses the same options, ordered top-level projection,
+ * direct I/O, and batch splitting as `vx_cuda_scan_path_arrow_device_stream_projected`, but
+ * preserves dictionaries. Null options selects defaults;
+ * zero `ncolumns` ignores `columns` and selects all columns. Names are literal, case-sensitive,
+ * unique UTF-8; unknown names fail and nonempty projections require a struct file.
+ *
+ * The session handle, path, options, and column names are borrowed only for this call. The result
+ * retains the runtime and session resources, and must be used and freed on the creating thread.
+ * Non-null `error_out` is cleared on success or receives an owned error on failure; free errors
+ * with `vx_error_free`.
+ *
+ * # Safety
+ *
+ * `session` must be a live borrowed Vortex FFI handle; `path` must contain readable UTF-8.
+ * Non-null `options` must point to an initialized, aligned `vx_cuda_scan_options`.
+ * For nonzero `ncolumns`, `columns` must reference that many valid, aligned `vx_view` values.
+ * Name bytes must be readable for this call; null is allowed only for zero length.
+ * Non-null `error_out` must be writable for one error pointer.
+ */
+struct vx_cuda_device_batches *vx_cuda_scan_path_device_batches(const vx_session *session,
+                                                                vx_view path,
+                                                                const struct vx_cuda_scan_options *options,
+                                                                const vx_view *columns,
+                                                                size_t ncolumns,
+                                                                vx_error **error_out);
+
+/**
+ * Return the next independently owned Arrow schema and CUDA array. Returns `0` on success,
+ * `1` on error. Each batch has its own physical schema; never reuse an earlier batch's schema.
+ *
+ * End of stream returns both outputs empty/released (both release callbacks null), including on
+ * repeated calls. A zero-row batch has live release callbacks and is not end of stream.
+ * Errors leave both outputs unchanged. Null or unaligned handle/output pointers are rejected
+ * before consuming input. A scan, logical dtype, export error, or panic makes the handle terminal:
+ * later calls fail rather than skipping the failed batch. Free the handle after such an error.
+ * Non-null `error_out` is cleared on success or receives an owned error; free with `vx_error_free`.
+ *
+ * Successful outputs outlive the handle and the original session handle. Release the schema via
+ * `out_schema->release` and the array via `out_array->array.release`, independently, exactly once.
+ * Export is stream-ordered: wait on `out_array->sync_event` before consuming device buffers.
+ * The event and device buffers remain valid until the array is released. Releasing the schema
+ * or handle does not release the array. The caller owns the output storage itself.
+ *
+ * # Safety
+ *
+ * Use a live handle on its creating thread, without concurrent or reentrant calls. Non-null,
+ * aligned output pointers must reference writable, non-overlapping storage, not aliasing the
+ * handle or `error_out`. Output storage may be uninitialized; release any previous contents before
+ * a successful call overwrites them. Non-null `error_out` must be writable for one error pointer.
+ */
+int vx_cuda_device_batches_next(struct vx_cuda_device_batches *handle,
+                                FFI_ArrowSchema *out_schema,
+                                struct ArrowDeviceArray *out_array,
+                                vx_error **error_out);
+
+/**
+ * Free a device-batches handle. Null is a no-op. Previously returned schemas and arrays remain
+ * owned by the caller and must still be released independently via their Arrow callbacks.
+ *
+ * # Safety
+ *
+ * A non-null handle must be live, exclusively owned, and freed exactly once on its creating
+ * thread, without a concurrent or reentrant call.
+ */
+void vx_cuda_device_batches_free(struct vx_cuda_device_batches *handle);
 
 #ifdef __cplusplus
 }  // extern "C"

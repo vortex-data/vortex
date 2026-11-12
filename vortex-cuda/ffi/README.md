@@ -4,7 +4,8 @@ CUDA-specific C FFI helpers for cuDF interop.
 
 This crate keeps CUDA out of the base `vortex-ffi` crate. Its public C API exports a borrowed `vx_array` as an `ArrowSchema + ArrowDeviceArray` pair.
 
-It does not create cuDF objects itself. The caller passes the exported Arrow Device structs to cuDF and releases them after cuDF is done importing.
+The Rust FFI does not create cuDF objects itself. The caller imports the exported Arrow Device
+structs into cuDF and retains the device arrays until all GPU work using their buffers completes.
 
 Use this crate as the CUDA-enabled FFI artifact. Include both headers:
 
@@ -31,7 +32,14 @@ On Linux, use `vx_cuda_scan_path_arrow_device_stream_with_options` with
 `vx_cuda_scan_options.flags = VX_CUDA_SCAN_FLAG_DIRECT_IO` to bypass the operating system page
 cache for pooled data-plane reads. Footer and zone-map reads remain buffered on the host.
 
+## Dictionary-preserving batches
+
+Use `vx_cuda_scan_path_device_batches` to preserve dictionaries with a schema per batch.
+Physical encodings and dictionary index widths may differ between batches; import each batch
+with its own schema. The existing fixed-schema stream API continues to decode dictionaries.
+See `vortex_cuda.h` for ownership, synchronization, and error contracts.
+
 ## Generated header
 
-`build.rs` generates `cinclude/vortex_cuda.h` with cbindgen. Edit `src/lib.rs` or `cbindgen.toml`
+`build.rs` generates `cinclude/vortex_cuda.h` with cbindgen. Edit the Rust declarations in `src/` or `cbindgen.toml`
 and commit the regenerated header. It skips clang-format; CUDA CI checks for header drift.
