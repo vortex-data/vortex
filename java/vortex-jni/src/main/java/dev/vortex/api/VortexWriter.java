@@ -92,6 +92,7 @@ public final class VortexWriter implements AutoCloseable {
         private final BufferAllocator allocator;
         private final Map<String, String> options = new HashMap<>();
         private final Map<String, byte[]> metadata = new HashMap<>();
+        private boolean compact;
 
         private Builder(
                 Session session, String uri, NativeWritable writable, Schema arrowSchema, BufferAllocator allocator) {
@@ -146,6 +147,16 @@ public final class VortexWriter implements AutoCloseable {
         }
 
         /**
+         * Write with the compact strategy, which prefers a smaller file over read throughput and latency. It is what
+         * {@code vortex.io.VortexWriteOptions.compact()} selects in Python, and is off by default. The file is read
+         * like any other.
+         */
+        public Builder compact(boolean compact) {
+            this.compact = compact;
+            return this;
+        }
+
+        /**
          * Open the writer.
          *
          * @throws IOException if the writer cannot be opened, including when the native side rejects the configured
@@ -158,9 +169,10 @@ public final class VortexWriter implements AutoCloseable {
                 final long pointer;
                 try {
                     pointer = uri != null
-                            ? NativeWriter.create(session.nativePointer(), uri, ffi.memoryAddress(), options, metadata)
+                            ? NativeWriter.create(
+                                    session.nativePointer(), uri, ffi.memoryAddress(), options, metadata, compact)
                             : NativeWriter.createStream(
-                                    session.nativePointer(), writable, ffi.memoryAddress(), metadata);
+                                    session.nativePointer(), writable, ffi.memoryAddress(), metadata, compact);
                 } catch (RuntimeException e) {
                     // Native failures arrive as RuntimeException. Wrap them so callers can handle every
                     // failure to open a writer as an IOException, as writeBatch and finish already do.

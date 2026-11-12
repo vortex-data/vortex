@@ -137,6 +137,7 @@ derive the column and partition by it, for example `withColumn("year", year(col(
 |---------------------------|---------|-------------|
 | `batch.size`              | `2048`  | Rows buffered per write batch; range 1–65536. |
 | `vortex.write.batch.size` | —       | Rows buffered per write batch for Vortex alone, overriding `batch.size`. |
+| `vortex.write.compact`   | `false` | Write with the compact strategy: smaller files, slower reads. |
 
 ## Spark SQL
 
