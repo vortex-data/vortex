@@ -16,6 +16,7 @@ use datafusion::datasource::listing::ListingTable;
 use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::datasource::listing::ListingTableUrl;
 use datafusion::prelude::SessionContext;
+use datafusion::prelude::ident;
 use datafusion_bench::format_to_df_format;
 use datafusion_bench::metrics::MetricsSetExt;
 use datafusion_bench::tracer::get_labelset_from_global;
@@ -137,6 +138,9 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let opts = Opts::from(args.options);
     let scan_v2 = !args.scan_v1;
+    // Declare each table's known file sort order to DataFusion, so it can merge ordered scans and
+    // eliminate sorts instead of sorting.
+    let declare_sort_order = opts.get_as::<bool>("declare-sort-order").unwrap_or(false);
 
     set_join_set_tracer(get_static_tracer())?;
     setup_logging_and_tracing(args.verbose, args.tracing)?;
@@ -196,7 +200,14 @@ async fn main() -> anyhow::Result<()> {
                         session.sql(&sql).await?.collect().await?;
                     }
                     datafusion_bench::make_object_store(&session, benchmark.data_url())?;
-                    register_benchmark_tables(&session, benchmark, format, scan_v2).await?;
+                    register_benchmark_tables(
+                        &session,
+                        benchmark,
+                        format,
+                        scan_v2,
+                        declare_sort_order,
+                    )
+                    .await?;
                     Ok((session, format))
                 }
             },
@@ -261,6 +272,7 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     benchmark: &B,
     format: Format,
     scan_v2: bool,
+    declare_sort_order: bool,
 ) -> anyhow::Result<()> {
     if !scan_v2 && use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact)
     {
@@ -275,7 +287,16 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
             let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern)?
                 .with_table_ref(table_ref.clone());
 
-            let listing_options = ListingOptions::new(Arc::clone(&file_format));
+            let mut listing_options = ListingOptions::new(Arc::clone(&file_format));
+            let sort_order = benchmark.file_sort_order(table.name);
+            if declare_sort_order && !sort_order.is_empty() {
+                listing_options = listing_options.with_file_sort_order(vec![
+                    sort_order
+                        .iter()
+                        .map(|column| ident(*column).sort(true, false))
+                        .collect(),
+                ]);
+            }
             let mut config =
                 ListingTableConfig::new(table_url).with_listing_options(listing_options);
 

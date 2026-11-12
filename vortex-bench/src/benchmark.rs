@@ -93,4 +93,11 @@ pub trait Benchmark: Send + Sync {
         _ = format;
         None
     }
+
+    /// The columns every file of `table_name` is sorted by ascending, most significant first, or
+    /// empty if the files have no known order.
+    fn file_sort_order(&self, table_name: &str) -> &'static [&'static str] {
+        _ = table_name;
+        &[]
+    }
 }
