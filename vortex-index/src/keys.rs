@@ -89,8 +89,25 @@ impl KeyColumn<String> for Strings {
         let mut offsets = vec![0];
         for array in arrays {
             let values = array.execute::<VarBinViewArray>(ctx)?;
-            for idx in 0..values.len() {
-                bytes.extend_from_slice(values.bytes_at(idx).as_slice());
+            // Copy straight from the views and their buffers: `bytes_at` makes a reference-counted
+            // buffer per string, which costs more than the copy for short terms.
+            let buffers: Vec<&[u8]> = (0..values.data_buffers().len())
+                .map(|idx| values.buffer(idx).as_slice())
+                .collect();
+            offsets.reserve(values.len());
+            for view in values.views() {
+                if view.is_inlined() {
+                    bytes.extend_from_slice(view.as_inlined().value());
+                } else {
+                    let view = view.as_view();
+                    let buffer = buffers.get(view.buffer_index as usize).ok_or_else(|| {
+                        vortex_err!("Index key view points past its {} buffers", buffers.len())
+                    })?;
+                    let value = buffer.get(view.as_range()).ok_or_else(|| {
+                        vortex_err!("Index key view points past the end of its buffer")
+                    })?;
+                    bytes.extend_from_slice(value);
+                }
                 offsets.push(bytes.len());
             }
         }
