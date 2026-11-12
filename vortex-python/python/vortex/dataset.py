@@ -7,7 +7,7 @@ import warnings
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from functools import reduce
-from typing import final
+from typing import Any, final
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -37,8 +37,8 @@ def _temporary_worker_threads(use_threads: bool) -> Generator[None]:
         _set_worker_threads(previous_workers)
 
 
-def _is_strictly_increasing(indices: pyarrow.Array) -> bool:
-    return len(indices) < 2 or bool(pc.all(pc.greater(indices[1:], indices[:-1])).as_py())
+def _is_strictly_increasing(indices: pyarrow.Array[Any]) -> bool:
+    return len(indices) < 2 or bool(pc.all(pc.greater(indices[1:], indices[:-1])).as_py())  # ty: ignore[invalid-argument-type]
 
 
 def _read_batches_with_temporary_worker_threads(
@@ -350,10 +350,10 @@ class VortexDataset(pyarrow.dataset.Dataset):
         table : :class:`.pyarrow.Table`
 
         """
-        indices = indices.cast(pa.uint64())
+        uint_indices: pyarrow.Array[Any] = indices.cast(pa.uint64())
         row_filter = self._filter_expression(filter)
 
-        def scan(scan_indices: pyarrow.Array) -> Array:
+        def scan(scan_indices: pyarrow.Array[Any]) -> Array:
             return self._dataset.to_array(
                 columns=columns,
                 row_filter=row_filter,
@@ -362,17 +362,18 @@ class VortexDataset(pyarrow.dataset.Dataset):
             )
 
         with _temporary_worker_threads(use_threads):
-            if row_filter is not None or _is_strictly_increasing(indices):
-                return scan(indices).to_arrow_table()
+            if row_filter is not None or _is_strictly_increasing(uint_indices):
+                return scan(uint_indices).to_arrow_table()
 
             # The scan needs strictly increasing indices, so scan the sorted distinct rows once and
             # gather them back into the requested order.
             if _row_range is not None:
                 start, end = _row_range
-                indices = indices.filter(pc.and_(pc.greater_equal(indices, start), pc.less(indices, end)))
-            distinct = pc.unique(indices)
+                in_range = pc.and_(pc.greater_equal(uint_indices, start), pc.less(uint_indices, end))  # ty: ignore[no-matching-overload]
+                uint_indices = uint_indices.filter(in_range)
+            distinct = pc.unique(uint_indices)
             distinct = distinct.take(pc.sort_indices(distinct))
-            return scan(distinct).take(array(pc.index_in(indices, value_set=distinct))).to_arrow_table()
+            return scan(distinct).take(array(pc.index_in(uint_indices, value_set=distinct))).to_arrow_table()
 
     def to_record_batch_reader(
         self,
