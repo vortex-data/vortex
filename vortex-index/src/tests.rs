@@ -62,6 +62,7 @@ use crate::initialize;
 use crate::open_in_file_index;
 use crate::rows::collect;
 use crate::text_match;
+use crate::tokenize::tokenize;
 
 const ROWS: usize = 3000;
 const BLOCK_LEN: usize = 64;
@@ -357,6 +358,32 @@ async fn bm25_top_k_matches_scoring_every_row(#[case] query: &str) -> VortexResu
         let expected: Vec<u64> = every[..k].iter().map(|h| h.row).collect();
         assert_eq!(rows, expected, "k = {k}");
     }
+    Ok(())
+}
+
+/// The count read beside the top `k` is the number of rows holding every query term, and the
+/// hits are those of a plain search.
+#[rstest]
+#[case("needle echo")]
+#[case("alpha bravo charlie")]
+#[case("needle zulu")]
+#[tokio::test]
+async fn bm25_count_matches_rows_with_every_term(#[case] query: &str) -> VortexResult<()> {
+    let session = session()?;
+    let data = Data::generate(7, ROWS);
+    let file = write_indexed_file(&session, &data).await?;
+    let index = open_in_file_index(InvertedIndex, &file, "text")?.expect("inverted index");
+
+    let terms: Vec<String> = tokenize(query).collect();
+    let expected = data
+        .rows_where(|text| {
+            let tokens: Vec<String> = tokenize(text).collect();
+            terms.iter().all(|term| tokens.contains(term))
+        })
+        .len() as u64;
+    let (hits, count) = index.search_bm25_counted(query, 5).await?;
+    assert_eq!(count, expected);
+    assert_eq!(hits, index.search_bm25(query, 5).await?);
     Ok(())
 }
 

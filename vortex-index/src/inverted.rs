@@ -567,9 +567,36 @@ impl IndexRows<InvertedIndex> {
         query: &str,
         k: usize,
     ) -> VortexResult<IndexStep<Vec<Hit>>> {
-        let terms = query_terms(query);
-        if terms.is_empty() || k == 0 {
+        if k == 0 {
             return Ok(IndexStep::Done(Vec::new()));
+        }
+        self.bm25_steps(query, k, false)?.map(|(hits, _)| Ok(hits))
+    }
+
+    /// [`search_bm25`](Self::search_bm25), and also the number of rows holding every query term,
+    /// as `text_match` would select, from the same read of the postings.
+    pub async fn search_bm25_counted(
+        self: &Arc<Self>,
+        query: &str,
+        k: usize,
+    ) -> VortexResult<(Vec<Hit>, u64)> {
+        self.bm25_steps(query, k, true)?
+            .map(|(hits, count)| Ok((hits, count.unwrap_or(0))))?
+            .run()
+            .await
+    }
+
+    /// The top `k` hits of `query`, and with `count`, how many rows hold every query term.
+    fn bm25_steps(
+        self: &Arc<Self>,
+        query: &str,
+        k: usize,
+        count: bool,
+    ) -> VortexResult<IndexStep<(Vec<Hit>, Option<u64>)>> {
+        let terms = query_terms(query);
+        let empty = (Vec::new(), count.then_some(0));
+        if terms.is_empty() {
+            return Ok(IndexStep::Done(empty));
         }
         let corpus = self.memo_get::<Corpus>();
         let this = Arc::clone(self);
@@ -580,8 +607,10 @@ impl IndexRows<InvertedIndex> {
                 .enumerate()
                 .filter_map(|(idx, term)| column.position(term).map(|row| (row, Some(idx))))
                 .collect();
+            // A row holds every term only if the index holds every term.
+            let all_terms = wanted.len() == terms.len();
             if wanted.is_empty() {
-                return Ok(IndexStep::Done(Vec::new()));
+                return Ok(IndexStep::Done(empty));
             }
             if corpus.is_none() {
                 let row = column
@@ -632,7 +661,19 @@ impl IndexRows<InvertedIndex> {
                             Ok(Scoring::new(posting, &corpus))
                         })
                         .collect::<VortexResult<Vec<_>>>()?;
-                    Ok(IndexStep::Done(bm25_top(lists, k, &corpus)))
+                    let matches = count.then(|| {
+                        if all_terms {
+                            count_common_rows(lists.iter().map(|list| &list.posting.rows[..]))
+                        } else {
+                            0
+                        }
+                    });
+                    let hits = if k == 0 {
+                        Vec::new()
+                    } else {
+                        bm25_top(lists, k, &corpus)
+                    };
+                    Ok(IndexStep::Done((hits, matches)))
                 }),
             ))
         })
@@ -777,6 +818,30 @@ fn bm25_top_into(
         }
     }
     ranked_hits(best_k(scores, &candidates, k))
+}
+
+/// How many rows appear in every one of `lists`, each ascending.
+fn count_common_rows<'a>(lists: impl Iterator<Item = &'a [u32]>) -> u64 {
+    let mut lists: Vec<&[u32]> = lists.collect();
+    lists.sort_by_key(|rows| rows.len());
+    let Some((shortest, rest)) = lists.split_first() else {
+        return 0;
+    };
+    let mut at = vec![0; rest.len()];
+    let mut common = 0;
+    'rows: for &row in *shortest {
+        for (rows, at) in rest.iter().zip(&mut at) {
+            *at = gallop(rows, *at, row);
+            if *at == rows.len() {
+                break 'rows;
+            }
+            if rows[*at] != row {
+                continue 'rows;
+            }
+        }
+        common += 1;
+    }
+    common
 }
 
 /// The first position at or after `from` whose row is at least `row`, searching outward from
