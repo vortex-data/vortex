@@ -42,10 +42,12 @@ pub(crate) use self::chunk::scan_chunks;
 use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;
 use self::projection::ProjectionPlanner;
+pub use self::projection::projection_pieces;
 pub use self::prune::PruneNext;
 pub use self::prune::PrunePlanner;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::ValueCache;
+use crate::plan::physical::selection::selected;
 use crate::scan::v2::ScanCache;
 use crate::scan::v2::io::SegmentRanges;
 use crate::scan::v2::io::SegmentScanIo;
@@ -127,6 +129,36 @@ impl PreparedScan {
             Arc::clone(&self.segments),
             Arc::clone(&self.ranges),
         ))
+    }
+
+    /// The optimized projection plan, over the scan's root row domain.
+    #[doc(hidden)]
+    pub fn projection_plan(&self) -> &PlanRef {
+        &self.projection
+    }
+
+    /// The projection plan a chunk compiles for the selected `mask` of `rows`.
+    #[doc(hidden)]
+    pub fn selected_projection(&self, rows: Range<u64>, mask: Mask) -> PlanRef {
+        selected(self.projection.clone(), rows, mask)
+    }
+
+    /// The rows of one chunk.
+    #[doc(hidden)]
+    pub fn chunk_rows(&self) -> usize {
+        self.chunk_rows
+    }
+
+    /// The global row index of the root row domain's first row.
+    #[doc(hidden)]
+    pub fn row_offset(&self) -> u64 {
+        self.row_offset
+    }
+
+    /// Whole values shared by the chunks of this scan.
+    #[doc(hidden)]
+    pub fn value_cache(&self) -> &ValueCache {
+        &self.values
     }
 
     /// The planner of one chunk's selected rows: its conjuncts when the scan has a filter, else

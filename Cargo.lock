@@ -11328,6 +11328,8 @@ dependencies = [
  "rand 0.10.3",
  "serde_json",
  "tokio",
+ "tpchgen",
+ "tpchgen-arrow",
  "tracing",
  "tracing-subscriber",
  "vortex",

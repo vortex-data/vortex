@@ -125,6 +125,12 @@ impl FilterPlans {
         self.pruning.iter().flatten()
     }
 
+    /// The plan of each conjunct, in conjunct order.
+    #[doc(hidden)]
+    pub fn predicate_plans(&self) -> &[PlanRef] {
+        &self.predicates
+    }
+
     /// The pruning plans worth running before a scan of `rows` rows.
     ///
     /// A scan of at most one filtered chunk evaluates its conjuncts on that chunk next, so
@@ -132,7 +138,8 @@ impl FilterPlans {
     /// join's key bounds also proves its current predicate over the zones again. Without those
     /// plans, TPC-DS at SF1, whose join probes are mostly scans of one chunk, ran 3% faster, and
     /// SF10 was unchanged.
-    pub(crate) fn pruning_over(&self, rows: u64) -> impl Iterator<Item = &PlanRef> {
+    #[doc(hidden)]
+    pub fn pruning_over(&self, rows: u64) -> impl Iterator<Item = &PlanRef> {
         let small = rows <= FILTERED_ROWS_PER_CHUNK as u64;
         self.pruning
             .iter()
@@ -176,6 +183,9 @@ pub(super) struct FilterPlanner {
     active: Option<(usize, Option<u64>, ScanAdaptor)>,
     pieces: Vec<Mask>,
     announced: bool,
+    /// The scan of the conjunct expected to run first, compiled while announcing so it is not
+    /// compiled again, until any conjunct's scan starts.
+    first: Option<(usize, Scan)>,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
     next_hint: u32,
 }
@@ -208,9 +218,91 @@ impl FilterPlanner {
             active: None,
             pieces: Vec::new(),
             announced: false,
+            first: None,
             next_hint: u32::MAX,
         }
     }
+
+    /// Starts the reads of every conjunct's segments for the selected rows and announces the
+    /// projection's.
+    ///
+    /// The conjunct that runs first compiles over these rows and this mask, so its scan, compiled
+    /// here to list its segments, is the scan it runs. A dynamic conjunct may be skipped once its
+    /// version is sampled, so it is compiled when it runs.
+    fn announce(&mut self) -> VortexResult<IoBatch> {
+        let selected = self.selected.as_ref().vortex_expect("selected rows exist");
+        let session = &self.scan.session;
+        let rows = selected.scope.rows.clone();
+        let expression = &self.filter.expression;
+        let first = expression.next_conjunct(&self.remaining).filter(|&index| {
+            !expression.is_switched_off(index) && expression.dynamic_version(index).is_none()
+        });
+        let mut predicates = Vec::new();
+        let mut first_scan = None;
+        if let Some(index) = first {
+            let mut scan = conjunct_scan(&self.scan, &self.filter.predicates[index], selected)?;
+            predicates.extend_from_slice(scan.compiled_segments()?);
+            first_scan = Some((index, scan));
+        }
+        predicates.extend(segments_read(
+            session,
+            self.filter
+                .predicates
+                .iter()
+                .enumerate()
+                .filter(|(idx, _)| Some(*idx) != first && !expression.is_switched_off(*idx))
+                .map(|(_, plan)| plan),
+            rows.clone(),
+            &selected.mask,
+        )?);
+        predicates.sort_unstable();
+        predicates.dedup();
+        let projection = segments_read(
+            session,
+            std::iter::once(&self.scan.projection),
+            rows,
+            &selected.mask,
+        )?;
+        let mut batch = Vec::new();
+        let mut seen = FxHashSet::default();
+        let locations = &self.scan.locations;
+        hint(
+            locations,
+            &mut self.next_hint,
+            IoIntent::Prefetch,
+            &predicates,
+            &mut seen,
+            &mut batch,
+        );
+        hint(
+            locations,
+            &mut self.next_hint,
+            IoIntent::Announce,
+            &projection,
+            &mut seen,
+            &mut batch,
+        );
+        self.first = first_scan;
+        Ok(batch)
+    }
+}
+
+/// A scan of `plan`, a conjunct of `scan`'s filter, over the selected rows.
+fn conjunct_scan(
+    scan: &PreparedScan,
+    plan: &PlanRef,
+    selected: &SelectedRows,
+) -> VortexResult<Scan> {
+    Ok(Scan::try_new(
+        scan.session.clone(),
+        plan.clone(),
+        vec![Split {
+            rows: selected.scope.rows.clone(),
+            mask: selected.mask.clone(),
+        }],
+    )?
+    .with_row_offset(scan.row_offset)
+    .with_value_cache(scan.values.clone()))
 }
 
 /// Publishes a hint for each of `segments` not in `seen`, and adds it there.
@@ -261,54 +353,19 @@ impl Planner for FilterPlanner {
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
-        let Some(selected) = &mut self.selected else {
+        if self.selected.is_none() {
             return Ok(PlannerOutput::Done);
-        };
+        }
         if !self.announced {
             self.announced = true;
-            let session = &self.scan.session;
-            let rows = selected.scope.rows.clone();
-            let expression = &self.filter.expression;
-            let predicates = segments_read(
-                session,
-                self.filter
-                    .predicates
-                    .iter()
-                    .enumerate()
-                    .filter(|(idx, _)| !expression.is_switched_off(*idx))
-                    .map(|(_, plan)| plan),
-                rows.clone(),
-                &selected.mask,
-            )?;
-            let projection = segments_read(
-                session,
-                std::iter::once(&self.scan.projection),
-                rows,
-                &selected.mask,
-            )?;
-            let mut batch = Vec::new();
-            let mut seen = FxHashSet::default();
-            let locations = &self.scan.locations;
-            hint(
-                locations,
-                &mut self.next_hint,
-                IoIntent::Prefetch,
-                &predicates,
-                &mut seen,
-                &mut batch,
-            );
-            hint(
-                locations,
-                &mut self.next_hint,
-                IoIntent::Announce,
-                &projection,
-                &mut seen,
-                &mut batch,
-            );
+            let batch = self.announce()?;
             if !batch.is_empty() {
                 return Ok(PlannerOutput::NeedsIO(batch));
             }
         }
+        let Some(selected) = &mut self.selected else {
+            return Ok(PlannerOutput::Done);
+        };
         if let Some((index, version, adaptor)) = &mut self.active {
             if adaptor.state() != State::Done {
                 return Ok(match adaptor.compute()? {
@@ -366,16 +423,10 @@ impl Planner for FilterPlanner {
                 );
                 continue;
             }
-            let scan = Scan::try_new(
-                self.scan.session.clone(),
-                self.filter.predicates[index].clone(),
-                vec![Split {
-                    rows: selected.scope.rows.clone(),
-                    mask: selected.mask.clone(),
-                }],
-            )?
-            .with_row_offset(self.scan.row_offset)
-            .with_value_cache(self.scan.values.clone());
+            let scan = match self.first.take() {
+                Some((first, scan)) if first == index => scan,
+                _ => conjunct_scan(&self.scan, &self.filter.predicates[index], selected)?,
+            };
             self.active = Some((
                 index,
                 version,

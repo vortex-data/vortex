@@ -5,9 +5,11 @@
 //! more than once are decoded once.
 
 use std::ops::Range;
+use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_mask::MaskValuesRef;
 use vortex_session::VortexSession;
 
 use super::DEFAULT_CAPACITY;
@@ -21,6 +23,7 @@ use crate::plan::physical::SegmentScanPlan;
 use crate::plan::physical::operator::Operator;
 use crate::plan::physical::operator::Source;
 use crate::plan::physical::operators::ScanSource;
+use crate::plan::physical::selection::selected_slice;
 
 /// A pipeline under construction: a source and the stages after it, not yet given outlets, so a
 /// parent plan can add stages before it becomes a pipeline.
@@ -60,6 +63,14 @@ impl Core {
     }
 }
 
+/// A selection trimmed to rows of a chunk: the mask and rows it was trimmed from, and the
+/// result.
+pub(crate) struct SelectedSlice {
+    mask: MaskValuesRef,
+    rows: Range<usize>,
+    selected: Option<(Range<usize>, Mask)>,
+}
+
 /// What a plan compiles its children through. See
 /// [`PlanVTable::compile`](crate::plan::physical::PlanVTable::compile).
 pub struct Compiler<'a> {
@@ -96,6 +107,10 @@ impl Compiler<'_> {
         capacity: impl Fn(usize) -> usize,
         source: impl Source + 'static,
     ) -> Chain {
+        if self.core.discover {
+            // The chains have listed their segments, and nothing runs them.
+            return Chain::new(source);
+        }
         let inlets = chains
             .into_iter()
             .enumerate()
@@ -113,6 +128,37 @@ impl Compiler<'_> {
             stages: Vec::new(),
             inlets,
         }
+    }
+
+    /// [`selected_slice`](crate::plan::physical::selection::selected_slice) of `mask` over
+    /// `rows`, shared by every plan of the stage that trims the same mask to the same rows.
+    ///
+    /// The fields of a struct read the same rows under the same mask, so where their chunks
+    /// line up they trim it once, and the scans of their chunks share one mask and the indices
+    /// filtering derives from it.
+    pub(crate) fn selected_slice(
+        &mut self,
+        mask: &Mask,
+        rows: Range<usize>,
+    ) -> Option<(Range<usize>, Mask)> {
+        let Mask::Values(values) = mask else {
+            return selected_slice(mask, rows);
+        };
+        if let Some(slice) = self
+            .core
+            .slices
+            .iter()
+            .find(|slice| slice.rows == rows && Arc::ptr_eq(&slice.mask, values))
+        {
+            return slice.selected.clone();
+        }
+        let selected = selected_slice(mask, rows.clone());
+        self.core.slices.push(SelectedSlice {
+            mask: Arc::clone(values),
+            rows,
+            selected: selected.clone(),
+        });
+        selected
     }
 
     /// The global row index of the scanned plan's row zero.

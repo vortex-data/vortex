@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
@@ -22,7 +23,6 @@ use vortex_scan::planning::planner::WorkScope;
 
 use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::pipeline::Split;
-use crate::plan::physical::selection::selected;
 use crate::scan::execution::PreparedScan;
 use crate::scan::execution::SelectedRows;
 use crate::scan::execution::adaptor::AdaptorStep;
@@ -41,33 +41,38 @@ pub(super) struct ProjectionPlanner {
 impl ProjectionPlanner {
     /// Creates a planner for `selected`.
     pub(super) fn new(scan: Arc<PreparedScan>, selected: SelectedRows) -> Self {
-        let selected = if selected.mask.true_count() <= MAX_OUTPUT_ROWS {
-            vec![selected]
-        } else {
-            (0..selected.mask.len())
-                .step_by(MAX_OUTPUT_ROWS)
-                .filter_map(|start| {
-                    let end = (start + MAX_OUTPUT_ROWS).min(selected.mask.len());
-                    let mask = selected.mask.slice(start..end);
-                    if mask.all_false() {
-                        return None;
-                    }
-                    Some(SelectedRows {
-                        scope: WorkScope {
-                            file_ordinal: selected.scope.file_ordinal,
-                            rows: selected.scope.rows.start + start as u64
-                                ..selected.scope.rows.start + end as u64,
-                        },
-                        mask,
-                    })
-                })
-                .collect()
-        };
+        let file_ordinal = selected.scope.file_ordinal;
+        let selected = projection_pieces(selected.scope.rows, selected.mask)
+            .into_iter()
+            .map(|(rows, mask)| SelectedRows {
+                scope: WorkScope { file_ordinal, rows },
+                mask,
+            })
+            .collect::<Vec<_>>();
         Self {
             scan,
             selected: selected.into_iter(),
         }
     }
+}
+
+/// The pieces a projection of the `mask`-selected rows of `rows` runs as, one morsel each: the
+/// whole selection when it holds at most 65,536 rows, else consecutive 65,536-row pieces that
+/// select any row.
+#[doc(hidden)]
+pub fn projection_pieces(rows: Range<u64>, mask: Mask) -> Vec<(Range<u64>, Mask)> {
+    if mask.true_count() <= MAX_OUTPUT_ROWS {
+        return vec![(rows, mask)];
+    }
+    (0..mask.len())
+        .step_by(MAX_OUTPUT_ROWS)
+        .filter_map(|start| {
+            let end = (start + MAX_OUTPUT_ROWS).min(mask.len());
+            let piece = mask.slice(start..end);
+            (!piece.all_false())
+                .then(|| (rows.start + start as u64..rows.start + end as u64, piece))
+        })
+        .collect()
 }
 
 impl IoConsumer for ProjectionPlanner {
@@ -165,8 +170,7 @@ impl Morsel for ProjectionMorsel {
         let Some(adaptor) = self.adaptor.as_mut() else {
             let scan = Scan::try_new(
                 self.scan.session.clone(),
-                selected(
-                    self.scan.projection.clone(),
+                self.scan.selected_projection(
                     self.selected.scope.rows.clone(),
                     self.selected.mask.clone(),
                 ),

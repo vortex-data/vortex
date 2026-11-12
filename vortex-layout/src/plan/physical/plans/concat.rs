@@ -28,7 +28,6 @@ use crate::plan::physical::optimizer::PlanParentReduceRule;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
 use crate::plan::physical::pipeline::overlapping;
-use crate::plan::physical::selection::selected_slice;
 
 /// Concatenates its children row-wise.
 #[derive(Clone, Debug)]
@@ -196,7 +195,7 @@ impl PlanVTable for Concat {
         };
         let mut chains = Vec::with_capacity(capacity);
         for (index, start, local) in overlapping(plan, &rows) {
-            let Some((span, local_mask)) = selected_slice(
+            let Some((span, local_mask)) = compiler.selected_slice(
                 mask,
                 usize::try_from(local.start - rows.start)?
                     ..usize::try_from(local.end - rows.start)?,

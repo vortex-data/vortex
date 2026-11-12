@@ -98,17 +98,10 @@ impl VTable for Chunked {
     }
 
     fn new_plan(layout: &Layout<Self>) -> VortexResult<PlanRef> {
-        let mut row_offsets = Vec::with_capacity(layout.nchildren());
-        let mut row_count = 0u64;
-        for index in 0..layout.nchildren() {
-            row_offsets.push(row_count);
-            row_count = row_count
-                .checked_add(layout.child_row_count(index))
-                .ok_or_else(|| vortex_err!("Chunked row count overflow"))?;
-        }
-        // SAFETY: Chunked layout construction validates that every child has the parent dtype and
-        // that their row counts sum to the parent; offsets were computed with checked addition
-        // above.
+        // The layout's offsets end with its row count; a plan keeps the start of each chunk.
+        let row_offsets = &layout.chunk_offsets[..layout.chunk_offsets.len() - 1];
+        // SAFETY: Chunked layout construction validates that every child has the parent dtype,
+        // and computes the offsets with checked addition, ending at the parent's row count.
         let plan = unsafe {
             ConcatPlan::from_slots_unchecked(
                 layout.dtype().clone(),

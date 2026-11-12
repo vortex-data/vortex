@@ -24,6 +24,7 @@ use vortex_session::VortexSession;
 
 use super::DEFAULT_CAPACITY;
 use super::compile::Chain;
+use super::compile::SelectedSlice;
 use super::port::Arena;
 use super::port::PipelineId;
 use super::port::PortId;
@@ -267,7 +268,10 @@ fn push_out(batch: ArrayRef, outlets: &[PortId], arena: &mut Arena) {
 /// in flight, and the shares.
 pub(crate) struct Core {
     pub(crate) session: VortexSession,
-    pub(crate) exec: ExecutionCtx,
+    /// Created when a pipeline first runs, so compiling only to find segments builds none.
+    exec: Option<ExecutionCtx>,
+    /// Compiling only to find the segments the plan reads: joins build no pipelines.
+    pub(crate) discover: bool,
     /// The global row index of plan row zero.
     pub(crate) row_offset: u64,
     pub(crate) arena: Arena,
@@ -287,6 +291,9 @@ pub(crate) struct Core {
     dirty_flags: Vec<bool>,
     /// The segment of every scan source compiled so far, in compile order.
     pub(crate) segments: Vec<SegmentId>,
+    /// The selections already trimmed to chunk rows while compiling a stage. See
+    /// [`Compiler::selected_slice`](super::Compiler::selected_slice).
+    pub(crate) slices: Vec<SelectedSlice>,
     /// Whole values kept for later scans of the same split.
     pub(crate) values: ValueCache,
 }
@@ -294,7 +301,8 @@ pub(crate) struct Core {
 impl Core {
     fn new(session: VortexSession, row_offset: u64) -> Self {
         Self {
-            exec: session.create_execution_ctx(),
+            exec: None,
+            discover: false,
             session,
             row_offset,
             arena: Arena::default(),
@@ -307,8 +315,15 @@ impl Core {
             dirty: Vec::new(),
             dirty_flags: Vec::new(),
             segments: Vec::new(),
+            slices: Vec::new(),
             values: ValueCache::default(),
         }
+    }
+
+    /// The execution context pipelines run with.
+    fn exec(&mut self) -> &ExecutionCtx {
+        self.exec
+            .get_or_insert_with(|| self.session.create_execution_ctx())
     }
 
     /// Makes `chain` a pipeline writing `outlets`, and queues it to run.
@@ -359,7 +374,9 @@ impl Core {
         mask: &Mask,
         slot: usize,
     ) -> VortexResult<Option<PortId>> {
-        let Some(chain) = self.compile(plan, rows, mask)? else {
+        let chain = self.compile(plan, rows, mask)?;
+        self.slices.clear();
+        let Some(chain) = chain else {
             return Ok(None);
         };
         let port = self
@@ -398,14 +415,11 @@ impl Core {
             .as_mut()
             .ok_or_else(|| vortex_err!("Pipeline {id} is not live"))?;
         pipe.queued = false;
+        let exec = self
+            .exec
+            .get_or_insert_with(|| self.session.create_execution_ctx());
         let mut reads = SmallVec::new();
-        let progress = drive(
-            pipe,
-            &mut self.arena,
-            &self.session,
-            &mut self.exec,
-            &mut reads,
-        )?;
+        let progress = drive(pipe, &mut self.arena, &self.session, exec, &mut reads)?;
         for segment_id in reads {
             self.ask(id, segment_id);
         }
@@ -659,11 +673,24 @@ impl Scan {
         mask: &Mask,
     ) -> VortexResult<Vec<SegmentId>> {
         let mut core = Core::new(session.clone(), 0);
+        core.discover = true;
         core.compile(plan, rows, mask)?;
         let mut segments = core.segments;
         segments.sort_unstable();
         segments.dedup();
         Ok(segments)
+    }
+
+    /// Compiles the first split now, unless a split has started, and returns the segments every
+    /// split compiled so far reads, in compile order and possibly repeated.
+    ///
+    /// For a scan of one split, these are the segments [`segments`](Self::segments) lists for its
+    /// plan and split, without compiling the plan a second time when the scan runs.
+    pub fn compiled_segments(&mut self) -> VortexResult<&[SegmentId]> {
+        if self.next == 0 && !self.splits.is_empty() {
+            self.activate()?;
+        }
+        Ok(&self.core.segments)
     }
 
     /// Runs up to `max_active` splits at once.
@@ -690,7 +717,7 @@ impl Scan {
     pub fn step(&mut self) -> VortexResult<Turn> {
         loop {
             if let Some((split, array)) = self.outputs.pop_front() {
-                let array = array.optimize_ctx(&self.core.exec)?;
+                let array = array.optimize_ctx(self.core.exec())?;
                 return Ok(Turn::Output(split, array));
             }
             if let Some(read) = self.core.new_reads.pop_front() {
