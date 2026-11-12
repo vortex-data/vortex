@@ -24,6 +24,7 @@ pub mod scan;
 pub mod stats;
 pub mod storage;
 pub mod writer;
+pub mod zone_segments;
 
 pub use manifest::Manifest;
 pub use manifest::ManifestEntry;
@@ -34,6 +35,7 @@ pub use storage::LocalStorage;
 pub use storage::MemoryStorage;
 pub use storage::TableStorage;
 pub use writer::ManifestBuilder;
+pub use zone_segments::ZoneSegment;
 
 #[cfg(test)]
 mod tests;

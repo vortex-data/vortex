@@ -18,6 +18,8 @@ use datafusion_catalog::Session;
 use datafusion_catalog::TableProvider;
 use datafusion_common::DFSchema;
 use datafusion_common::DataFusionError;
+use datafusion_common::HashMap;
+use datafusion_common::HashSet;
 use datafusion_common::Result as DFResult;
 use datafusion_common::Statistics;
 use datafusion_common::project_schema;
@@ -34,22 +36,29 @@ use datafusion_expr::TableProviderFilterPushDown;
 use datafusion_expr::TableType;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::empty::EmptyExec;
+use futures::future::try_join_all;
 use object_store::ObjectMeta;
 use object_store::path::Path;
 use tokio::sync::OnceCell;
+use vortex::buffer::Alignment;
 use vortex::buffer::ByteBuffer;
+use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
+use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::and;
 use vortex::file::Footer;
+use vortex::layout::segments::SegmentId;
+use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_table::Manifest;
 use vortex_table::TableStats;
+use vortex_table::ZoneSegment;
 use vortex_table::footer::footer_hash;
 use vortex_table::footer::parse_footer;
 
@@ -68,6 +77,8 @@ struct ManifestFile {
     footer: OnceCell<Footer>,
     /// The file's DataFusion statistics, once a scan keeps the file.
     statistics: OnceCell<Arc<Statistics>>,
+    /// Where the file's zone maps are, by top-level column.
+    zone_segments: Vec<ZoneSegment>,
 }
 
 impl ManifestFile {
@@ -104,6 +115,8 @@ pub struct VortexManifestTable {
     files: Vec<ManifestFile>,
     /// Column statistics of every file, one row per file, for pruning them all at once.
     table_stats: Arc<TableStats>,
+    /// Whether a scan reads the kept files' zone maps for the filter's columns while planning.
+    prefetch_zone_maps: bool,
 }
 
 impl fmt::Debug for VortexManifestTable {
@@ -151,6 +164,7 @@ impl VortexManifestTable {
                     footer_hash: entry.footer_hash,
                     footer: OnceCell::new(),
                     statistics: OnceCell::new(),
+                    zone_segments: entry.zone_segments.clone(),
                 })
             })
             .collect::<VortexResult<Vec<_>>>()?;
@@ -192,7 +206,80 @@ impl VortexManifestTable {
             schema,
             files,
             table_stats,
+            prefetch_zone_maps: true,
         })
+    }
+
+    /// Whether a scan reads, while planning and in one concurrent round, the zone maps the
+    /// filter's columns have in every file it keeps, so each file's scan prunes its zones without
+    /// IO. On by default.
+    pub fn with_zone_map_prefetch(mut self, prefetch: bool) -> Self {
+        self.prefetch_zone_maps = prefetch;
+        self
+    }
+
+    /// Reads the zone maps of `columns` in each of `kept` concurrently, and puts them beside the
+    /// file's footer in the session's file metadata cache, where the file's scan finds them.
+    /// Returns the segments and bytes read.
+    async fn prefetch_zone_maps(
+        &self,
+        state: &dyn Session,
+        kept: &[usize],
+        columns: &HashSet<String>,
+    ) -> DFResult<(usize, usize)> {
+        let store = state.runtime_env().object_store(&self.object_store_url)?;
+        let fetches = kept.iter().map(|&i| {
+            let file = &self.files[i];
+            let store = Arc::clone(&store);
+            async move {
+                let segments: Vec<&ZoneSegment> = file
+                    .zone_segments
+                    .iter()
+                    .filter(|segment| columns.contains(&segment.column))
+                    .collect();
+                if segments.is_empty() {
+                    return Ok::<_, DataFusionError>((i, HashMap::new()));
+                }
+                let ranges: Vec<_> = segments
+                    .iter()
+                    .map(|s| s.offset..s.offset + u64::from(s.length))
+                    .collect();
+                let buffers = store.get_ranges(&file.meta.location, &ranges).await?;
+                let read = segments
+                    .iter()
+                    .zip(buffers)
+                    .map(|(segment, bytes)| {
+                        let alignment = Alignment::from_exponent(segment.alignment);
+                        (
+                            SegmentId::from(segment.segment),
+                            ByteBuffer::from(bytes).aligned(alignment),
+                        )
+                    })
+                    .collect::<HashMap<_, _>>();
+                Ok((i, read))
+            }
+        });
+        let cache = state.runtime_env().cache_manager.get_file_metadata_cache();
+        let (mut count, mut bytes) = (0, 0);
+        for (i, segments) in try_join_all(fetches).await? {
+            if segments.is_empty() {
+                continue;
+            }
+            let file = &self.files[i];
+            let footer = file.footer(&self.session).await.map_err(external)?;
+            count += segments.len();
+            bytes += segments.values().map(|s| s.len()).sum::<usize>();
+            cache.put(
+                &file.meta.location,
+                CachedFileMetadataEntry::new(
+                    file.meta.clone(),
+                    Arc::new(
+                        CachedVortexMetadata::from_footer(footer.clone()).with_segments(segments),
+                    ),
+                ),
+            );
+        }
+        Ok((count, bytes))
     }
 
     /// Parses the footer of each of `kept` and puts it in the session's file metadata cache, so
@@ -302,6 +389,16 @@ impl TableProvider for VortexManifestTable {
             .await
             .map_err(external)?;
         let seeded_at = start.elapsed();
+        let (zone_segments, zone_bytes) = match &predicate {
+            Some(predicate) if self.prefetch_zone_maps && !kept_ordinals.is_empty() => {
+                let columns =
+                    top_level_columns(predicate, self.table_stats.dtype()).map_err(external)?;
+                self.prefetch_zone_maps(state, &kept_ordinals, &columns)
+                    .await?
+            }
+            _ => (0, 0),
+        };
+        let prefetched_at = start.elapsed();
         let mut kept = Vec::with_capacity(kept_ordinals.len());
         for &i in &kept_ordinals {
             let stats = self.file_statistics(state, i).await?;
@@ -314,7 +411,10 @@ impl TableProvider for VortexManifestTable {
             predicate = ?predicate.as_ref().map(|p| p.to_string()),
             prune_us = pruned_at.as_micros(),
             seed_us = (seeded_at - pruned_at).as_micros(),
-            stats_us = (start.elapsed() - seeded_at).as_micros(),
+            zone_segments,
+            zone_bytes,
+            zone_us = (prefetched_at - seeded_at).as_micros(),
+            stats_us = (start.elapsed() - prefetched_at).as_micros(),
             "planned manifest scan"
         );
 
@@ -345,6 +445,23 @@ impl TableProvider for VortexManifestTable {
     }
 }
 
+/// The top-level columns `predicate` reads, bound to `dtype`.
+fn top_level_columns(predicate: &Expression, dtype: &DType) -> VortexResult<HashSet<String>> {
+    fn visit(expr: &BoundExpression, columns: &mut HashSet<String>) {
+        if let Some(name) = expr.as_opt::<GetItem>()
+            && expr.child(0).is_root()
+        {
+            columns.insert(name.to_string());
+        }
+        for child in expr.children() {
+            visit(child, columns);
+        }
+    }
+    let mut columns = HashSet::new();
+    visit(&predicate.bind(dtype)?, &mut columns);
+    Ok(columns)
+}
+
 fn external(e: VortexError) -> DataFusionError {
     DataFusionError::External(Box::new(e))
 }
@@ -361,6 +478,7 @@ mod tests {
     use datafusion_expr::lit;
     use datafusion_physical_plan::ExecutionPlan;
     use datafusion_physical_plan::empty::EmptyExec;
+    use insta::allow_duplicates;
     use insta::assert_snapshot;
     use object_store::path::Path;
     use rstest::rstest;
@@ -382,6 +500,7 @@ mod tests {
     use super::VortexManifestTable;
     use crate::VortexFormat;
     use crate::common_tests::TestSessionContext;
+    use crate::persistent::cache::CachedVortexMetadata;
 
     /// A table of three files whose `id` columns hold 0..10, 10..20 and 20..30.
     async fn table(ctx: &TestSessionContext) -> anyhow::Result<VortexManifestTable> {
@@ -446,27 +565,52 @@ mod tests {
         // Only the kept files' footers are parsed.
         let parsed = table.files.iter().filter(|f| f.footer.get().is_some());
         assert_eq!(parsed.count(), files);
+        // With a filter, the kept files' zone maps for its column are read ahead, for their scans.
+        let cache = state.runtime_env().cache_manager.get_file_metadata_cache();
+        let prefetched = table
+            .files
+            .iter()
+            .filter(|f| {
+                cache.get(&f.meta.location).is_some_and(|entry| {
+                    entry
+                        .file_metadata
+                        .as_any()
+                        .downcast_ref::<CachedVortexMetadata>()
+                        .and_then(CachedVortexMetadata::segment_cache)
+                        .is_some()
+                })
+            })
+            .count();
+        assert_eq!(prefetched, if filters.is_empty() { 0 } else { files });
         Ok(())
     }
 
+    #[rstest]
+    #[case::prefetch_zone_maps(true)]
+    #[case::read_zone_maps_in_scan(false)]
     #[tokio::test]
-    async fn query_reads_only_the_unpruned_files() -> anyhow::Result<()> {
+    async fn query_reads_only_the_unpruned_files(#[case] prefetch: bool) -> anyhow::Result<()> {
         let ctx = TestSessionContext::default();
-        ctx.session
-            .register_table("t", Arc::new(table(&ctx).await?))?;
+        ctx.session.register_table(
+            "t",
+            Arc::new(table(&ctx).await?.with_zone_map_prefetch(prefetch)),
+        )?;
         let batches = ctx
             .session
             .sql("SELECT count(*) AS n, min(id) AS lo, max(id) AS hi FROM t WHERE id >= 25")
             .await?
             .collect()
             .await?;
-        assert_snapshot!(pretty_format_batches(&batches)?, @r"
-        +---+----+----+
-        | n | lo | hi |
-        +---+----+----+
-        | 5 | 25 | 29 |
-        +---+----+----+
-        ");
+        let table = pretty_format_batches(&batches)?;
+        allow_duplicates! {
+            assert_snapshot!(table, @r"
+            +---+----+----+
+            | n | lo | hi |
+            +---+----+----+
+            | 5 | 25 | 29 |
+            +---+----+----+
+            ");
+        }
         Ok(())
     }
 }

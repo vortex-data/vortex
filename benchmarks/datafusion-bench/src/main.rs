@@ -374,11 +374,18 @@ async fn register_manifest_tables<B: Benchmark + ?Sized>(
             table_url.object_store(),
             &prefix,
             &manifest,
-        )?;
+        )?
+        .with_zone_map_prefetch(prefetch_zone_maps());
         session.register_table(table.name, Arc::new(provider))?;
     }
 
     Ok(())
+}
+
+/// Whether the manifest table reads the kept files' zone maps while planning. On unless
+/// `VORTEX_MANIFEST_ZONE_PREFETCH=0`.
+fn prefetch_zone_maps() -> bool {
+    std::env::var("VORTEX_MANIFEST_ZONE_PREFETCH").map_or(true, |v| v != "0")
 }
 
 /// Register tables using the V2 `VortexTable` + `MultiFileDataSource` path.

@@ -141,6 +141,16 @@ pub(crate) async fn table(
     manifest.write(&SESSION, &mut buf).await?;
     let read = Manifest::read(&SESSION, Arc::new(buf.freeze())).await?;
     assert_eq!(read.entries(), manifest.entries());
+    // Every file records where the zone maps of both its columns are.
+    for entry in read.entries() {
+        for column in ["id", "name"] {
+            assert!(
+                entry.zone_segments.iter().any(|s| s.column == column),
+                "{} has no zone segments for {column}",
+                entry.path
+            );
+        }
+    }
     let (Some(read_stats), Some(stats)) = (read.stats(), manifest.stats()) else {
         vortex_bail!("the manifest lost its stats");
     };

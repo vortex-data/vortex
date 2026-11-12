@@ -51,8 +51,12 @@ impl ManifestBuilder {
     ) -> VortexResult<()> {
         let size = read.size().await?;
         let region = read_footer_region(read, size, &self.session).await?;
-        self.entries
-            .push(ManifestEntry::new(path, size, &region, self.inline_footers));
+        self.entries.push(ManifestEntry::try_new(
+            path,
+            size,
+            &region,
+            self.inline_footers,
+        )?);
         self.footers.push(region.footer);
         Ok(())
     }
