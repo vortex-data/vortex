@@ -111,8 +111,10 @@ impl VTable for Decimal {
             len,
             "DecimalArray length does not match outer length",
         );
-        let validity =
-            crate::array::child_to_validity(slots[DecimalSlots::VALIDITY].as_ref(), *nullability);
+        let validity = crate::array::child_to_validity(
+            slots[DecimalSlots::VALIDITY_CHILD].as_ref(),
+            *nullability,
+        );
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure_eq!(
                 validity_len,

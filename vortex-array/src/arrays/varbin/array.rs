@@ -71,8 +71,8 @@ pub struct VarBinSlots {
     #[slot(0)]
     pub offsets: ArrayRef,
     /// The validity bitmap indicating which elements are non-null.
-    #[slot(1, accessor = validity_slot)]
-    pub validity: Option<ArrayRef>,
+    #[slot(1)]
+    pub validity_child: Option<ArrayRef>,
 }
 
 #[derive(Clone, Debug)]
@@ -130,7 +130,7 @@ impl VarBinData {
     pub(crate) fn make_slots(offsets: ArrayRef, validity: &Validity, len: usize) -> ArraySlots {
         VarBinSlots {
             offsets,
-            validity: validity_to_child(validity, len),
+            validity_child: validity_to_child(validity, len),
         }
         .into_slots()
     }
@@ -445,7 +445,7 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
 
     fn varbin_validity(&self) -> Validity {
         child_to_validity(
-            self.slots()[VarBinSlots::VALIDITY].as_ref(),
+            self.slots()[VarBinSlots::VALIDITY_CHILD].as_ref(),
             self.nullability(),
         )
     }

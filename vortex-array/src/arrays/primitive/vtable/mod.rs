@@ -108,8 +108,10 @@ impl VTable for Primitive {
             len,
             "PrimitiveArray length does not match outer length",
         );
-        let validity =
-            crate::array::child_to_validity(slots[PrimitiveSlots::VALIDITY].as_ref(), *nullability);
+        let validity = crate::array::child_to_validity(
+            slots[PrimitiveSlots::VALIDITY_CHILD].as_ref(),
+            *nullability,
+        );
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure_eq!(
                 validity_len,

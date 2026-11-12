@@ -128,8 +128,8 @@ pub struct OnPairSlots {
     #[slot(3)]
     pub uncompressed_lengths: ArrayRef,
     /// Optional validity child for the outer string column.
-    #[slot(4, accessor = validity_slot)]
-    pub validity: Option<ArrayRef>,
+    #[slot(4)]
+    pub validity_child: Option<ArrayRef>,
 }
 
 /// Immutable storage for a materialised OnPair dictionary.
@@ -397,7 +397,7 @@ impl OnPair {
             codes,
             codes_offsets,
             uncompressed_lengths,
-            validity: validity_to_child(&validity, len),
+            validity_child: validity_to_child(&validity, len),
         }
         .into_slots();
         unsafe { Array::from_parts_unchecked(ArrayParts::new(OnPair, dtype, len, data, slots)) }
@@ -535,7 +535,7 @@ impl VTable for OnPair {
                 OnPairSlots::DICT_OFFSETS => Primitive
             )
         };
-        require_validity!(array, OnPairSlots::VALIDITY);
+        require_validity!(array, OnPairSlots::VALIDITY_CHILD);
         canonicalize_onpair(array.as_view(), ctx).map(ExecutionResult::done)
     }
 
@@ -614,7 +614,7 @@ where
 impl ValidityVTable<OnPair> for OnPair {
     fn validity(array: ArrayView<'_, OnPair>) -> VortexResult<Validity> {
         Ok(child_to_validity(
-            array.slots()[OnPairSlots::VALIDITY].as_ref(),
+            array.slots()[OnPairSlots::VALIDITY_CHILD].as_ref(),
             array.dtype().nullability(),
         ))
     }
@@ -626,7 +626,7 @@ pub trait OnPairArrayExt: TypedArrayRef<OnPair> {
     /// the outer dtype's nullability.
     fn array_validity(&self) -> Validity {
         child_to_validity(
-            self.slots()[OnPairSlots::VALIDITY].as_ref(),
+            self.slots()[OnPairSlots::VALIDITY_CHILD].as_ref(),
             self.dtype().nullability(),
         )
     }

@@ -51,8 +51,8 @@ use crate::ParquetVariantArray;
 #[array_slots(ParquetVariant)]
 pub struct ParquetVariantSlots {
     /// The validity bitmap indicating which elements are non-null.
-    #[slot(0, accessor = validity_slot)]
-    pub validity: Option<ArrayRef>,
+    #[slot(0)]
+    pub validity_child: Option<ArrayRef>,
     /// The metadata array for the Parquet variant values.
     #[slot(1)]
     pub metadata: ArrayRef,
@@ -78,7 +78,7 @@ impl ParquetVariant {
         let len = metadata.len();
         let dtype = DType::Variant(validity.nullability());
         let slots = ParquetVariantSlots {
-            validity: validity_to_child(&validity, len),
+            validity_child: validity_to_child(&validity, len),
             metadata,
             value,
             typed_value,
@@ -436,7 +436,7 @@ pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
     /// Returns the outer row validity for the Variant values.
     fn parquet_variant_validity(&self) -> Validity {
         child_to_validity(
-            self.slots()[ParquetVariantSlots::VALIDITY].as_ref(),
+            self.slots()[ParquetVariantSlots::VALIDITY_CHILD].as_ref(),
             self.dtype().nullability(),
         )
     }

@@ -60,8 +60,8 @@ pub struct ListViewSlots {
     #[slot(2)]
     pub sizes: ArrayRef,
     /// The validity bitmap indicating which list elements are non-null.
-    #[slot(3, accessor = validity_slot)]
-    pub validity: Option<ArrayRef>,
+    #[slot(3)]
+    pub validity_child: Option<ArrayRef>,
 }
 
 /// The canonical encoding for variable-length list arrays.
@@ -177,7 +177,7 @@ impl ListViewData {
             elements: elements.clone(),
             offsets: offsets.clone(),
             sizes: sizes.clone(),
-            validity: validity_to_child(validity, len),
+            validity_child: validity_to_child(validity, len),
         }
         .into_slots()
     }
@@ -363,7 +363,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
 
     fn listview_validity(&self) -> Validity {
         child_to_validity(
-            self.slots()[ListViewSlots::VALIDITY].as_ref(),
+            self.slots()[ListViewSlots::VALIDITY_CHILD].as_ref(),
             self.nullability(),
         )
     }
