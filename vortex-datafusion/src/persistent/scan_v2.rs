@@ -12,16 +12,23 @@
 //! itself.
 
 use std::future;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::Context;
 use std::task::Poll;
 
 use arrow_array::RecordBatch;
+use futures::FutureExt;
 use futures::SinkExt;
+use futures::Stream;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::channel::mpsc;
+use futures::future::BoxFuture;
 use futures::stream;
 use futures::stream::BoxStream;
+use futures::stream::Fuse;
+use futures::stream::FuturesOrdered;
 use vortex::array::ArrayRef;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -43,8 +50,10 @@ pub(crate) struct ScanDriver {
     handle: Handle,
     /// Chunks run beside each other per worker thread; at 1 they run on the scan's own run.
     concurrency: usize,
-    /// Whether batches are yielded in row order, which holds them until the scan is done.
+    /// Whether batches are yielded in row order, which holds each chunk's until it is done.
     ordered: bool,
+    /// Whether the consumer stops after some rows, so the first chunks may be all it needs.
+    limited: bool,
 }
 
 impl ScanDriver {
@@ -53,7 +62,16 @@ impl ScanDriver {
             handle,
             concurrency,
             ordered,
+            limited: false,
         }
+    }
+
+    /// Marks the scan as read by a consumer that stops after some rows, such as a limit. An
+    /// ordered scan then starts one chunk and runs more beside it only as chunks finish without
+    /// the consumer stopping, doubling up to the driver's concurrency.
+    pub(crate) fn with_limit(mut self, limited: bool) -> Self {
+        self.limited = limited;
+        self
     }
 
     /// Runs `root`, the first planner composed over `scan`, and everything it emits, and
@@ -74,37 +92,120 @@ impl ScanDriver {
         let io = scan.io();
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map));
-        let batches = run_stream(self.handle, root, scope, Arc::clone(&io), map, inline)
-            .map_ok(move |yielded| match yielded {
-                Yielded::Batch(start, batch) => {
-                    stream::once(future::ready(Ok((start, batch)))).boxed()
-                }
-                Yielded::Spawn(scope, chunk) => chunk_stream(
-                    &chunk_handle,
-                    chunk,
-                    scope,
-                    chunk_io.session(),
-                    Arc::clone(&chunk_map),
-                ),
-            })
-            .try_flatten_unordered(in_flight);
+        let yielded = run_stream(self.handle, root, scope, Arc::clone(&io), map, inline);
+        let chunk = move |scope: WorkScope, chunk: Box<dyn Planner>| {
+            chunk_stream(
+                &chunk_handle,
+                chunk,
+                scope,
+                chunk_io.session(),
+                Arc::clone(&chunk_map),
+            )
+        };
+        let batches = if !self.ordered || inline {
+            let batches = yielded
+                .map_ok(move |yielded| match yielded {
+                    Yielded::Batch(start, batch) => {
+                        stream::once(future::ready(Ok((start, batch)))).boxed()
+                    }
+                    Yielded::Spawn(scope, planner) => chunk(scope, planner),
+                })
+                .try_flatten_unordered(in_flight);
+            if !self.ordered {
+                batches.map_ok(|(_, batch)| batch).boxed()
+            } else {
+                // Inline, every chunk runs on the root run, whose morsels finish in whatever
+                // order their reads arrive: only the whole scan can be put in row order.
+                stream::once(async move {
+                    let mut held: Vec<(u64, RecordBatch)> = batches.try_collect().await?;
+                    held.sort_by_key(|(start, _)| *start);
+                    VortexResult::Ok(stream::iter(held.into_iter().map(|(_, batch)| Ok(batch))))
+                })
+                .try_flatten()
+                .boxed()
+            }
+        } else {
+            // The root run spawns its chunks in row order, over rows that do not overlap, so
+            // putting each chunk's batches in order, and the chunks in the order they were
+            // spawned, puts the scan in order. Up to `in_flight` chunks run ahead of the one
+            // being yielded, and a consumer that stops early, such as a limit, stops the scan.
+            let first_window = if self.limited { 1 } else { in_flight };
+            let chunks = yielded
+                .map_ok(move |yielded| match yielded {
+                    Yielded::Batch(start, batch) => future::ready(Ok(vec![(start, batch)])).boxed(),
+                    Yielded::Spawn(scope, planner) => {
+                        let batches = chunk(scope, planner);
+                        async move {
+                            // Morsels finish in whatever order their reads arrive.
+                            let mut held: Vec<(u64, RecordBatch)> = batches.try_collect().await?;
+                            held.sort_by_key(|(start, _)| *start);
+                            Ok(held)
+                        }
+                        .boxed()
+                    }
+                })
+                .boxed();
+            OrderedWindow::new(chunks, first_window, in_flight)
+                .map_ok(|held| stream::iter(held.into_iter().map(|(_, batch)| Ok(batch))))
+                .try_flatten()
+                .boxed()
+        };
         // The prepared scan holds the file's shared cache: keep it until the stream ends, so
         // scans of the file that start meanwhile find it.
-        let batches = batches.chain(stream::poll_fn(move |_| {
-            let _ = &scan;
-            Poll::Ready(None)
-        }));
-        if !self.ordered {
-            return batches.map_ok(|(_, batch)| batch).boxed();
+        batches
+            .chain(stream::poll_fn(move |_| {
+                let _ = &scan;
+                Poll::Ready(None)
+            }))
+            .boxed()
+    }
+}
+
+/// A chunk's batches, put in row order once the chunk is done.
+type HeldChunk = BoxFuture<'static, VortexResult<Vec<(u64, RecordBatch)>>>;
+
+/// Runs the chunks of `source` beside each other and yields their results in the order they were
+/// spawned, like [`TryStreamExt::try_buffered`], with a window that starts at `window` and
+/// doubles each time a chunk is yielded, up to `max`. A consumer that needs only the first rows
+/// stops the scan before chunks it never reads have started.
+struct OrderedWindow {
+    source: Fuse<BoxStream<'static, VortexResult<HeldChunk>>>,
+    running: FuturesOrdered<HeldChunk>,
+    window: usize,
+    max: usize,
+}
+
+impl OrderedWindow {
+    fn new(source: BoxStream<'static, VortexResult<HeldChunk>>, window: usize, max: usize) -> Self {
+        Self {
+            source: source.fuse(),
+            running: FuturesOrdered::new(),
+            window: window.clamp(1, max.max(1)),
+            max: max.max(1),
         }
-        stream::once(async move {
-            let mut held: Vec<(u64, RecordBatch)> = batches.try_collect().await?;
-            // Morsels finish in whatever order their reads arrive.
-            held.sort_by_key(|(start, _)| *start);
-            VortexResult::Ok(stream::iter(held.into_iter().map(|(_, batch)| Ok(batch))))
-        })
-        .try_flatten()
-        .boxed()
+    }
+}
+
+impl Stream for OrderedWindow {
+    type Item = VortexResult<Vec<(u64, RecordBatch)>>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        while this.running.len() < this.window {
+            match this.source.poll_next_unpin(cx) {
+                Poll::Ready(Some(Ok(chunk))) => this.running.push_back(chunk),
+                Poll::Ready(Some(Err(error))) => return Poll::Ready(Some(Err(error))),
+                Poll::Ready(None) | Poll::Pending => break,
+            }
+        }
+        match this.running.poll_next_unpin(cx) {
+            Poll::Ready(Some(held)) => {
+                this.window = (this.window * 2).min(this.max);
+                Poll::Ready(Some(held))
+            }
+            Poll::Ready(None) if this.source.is_done() => Poll::Ready(None),
+            Poll::Ready(None) | Poll::Pending => Poll::Pending,
+        }
     }
 }
 

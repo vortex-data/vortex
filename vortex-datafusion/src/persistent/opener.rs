@@ -555,7 +555,8 @@ impl FileOpener for VortexOpener {
                     chunks(None)
                 };
 
-                let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
+                let driver = ScanDriver::new(handle, concurrency, has_output_ordering)
+                    .with_limit(limit.is_some());
                 Ok(driver.run(scan, root, map_batch))
             } else {
                 // Share V1 layout readers across partitions of the file.
@@ -891,6 +892,7 @@ mod tests {
     use datafusion::arrow::array::StringArray;
     use datafusion::arrow::array::StructArray;
     use datafusion::arrow::datatypes::DataType;
+    use datafusion::arrow::datatypes::Int32Type;
     use datafusion::arrow::datatypes::Schema;
     use datafusion::arrow::datatypes::UInt32Type;
     use datafusion::arrow::util::display::FormatOptions;
@@ -1308,6 +1310,52 @@ mod tests {
             ["+----+", "| a  |", "+----+", "| 20 |", "| 40 |", "+----+"],
             &batches
         );
+        Ok(())
+    }
+
+    /// An ordered scan of several filtered chunks yields every row once, in row order, and with
+    /// a limit yields the first rows.
+    #[rstest]
+    #[tokio::test]
+    async fn test_ordered_scan_spans_chunks(
+        #[values(false, true)] scan_v2: bool,
+        #[values(None, Some(10))] limit: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let values: Vec<i32> = (0..300_000).collect();
+        let batch = record_batch!(("a", Int32, values))?;
+        let size =
+            write_arrow_to_vortex(Arc::clone(&store), "ordered.vortex", batch.clone()).await?;
+        let filter: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(df_expr::Column::new("a", 0)),
+            Operator::GtEq,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(7)))),
+        ));
+        let mut opener = make_opener(store, TableSchema::from(batch.schema()), Some(filter));
+        opener.scan_v2 = scan_v2;
+        opener.has_output_ordering = true;
+        opener.limit = limit;
+        let batches = opener
+            .open(PartitionedFile::new("ordered.vortex", size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        let rows: Vec<i32> = batches
+            .iter()
+            .flat_map(|batch| {
+                batch
+                    .column(0)
+                    .as_primitive::<Int32Type>()
+                    .values()
+                    .to_vec()
+            })
+            .collect();
+        let end = limit.map_or(Ok(300_000), |limit| {
+            i32::try_from(limit).map(|limit| 7 + limit)
+        })?;
+        let expected: Vec<i32> = (7..end).collect();
+        assert_eq!(rows, expected);
         Ok(())
     }
 
