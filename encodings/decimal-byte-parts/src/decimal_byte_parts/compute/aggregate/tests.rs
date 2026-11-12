@@ -14,6 +14,7 @@ use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::first::First;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
+use vortex_array::aggregate_fn::fns::is_sorted::SortDirection;
 use vortex_array::aggregate_fn::fns::max::Max;
 use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::fns::min_max::MinMax;
@@ -86,8 +87,22 @@ fn aggregates() -> Vec<AggregateFnRef> {
         MinMax.bind(options),
         Min.bind(options),
         Max.bind(options),
-        IsSorted.bind(IsSortedOptions { strict: false }),
-        IsSorted.bind(IsSortedOptions { strict: true }),
+        IsSorted.bind(IsSortedOptions {
+            strict: false,
+            direction: SortDirection::Asc,
+        }),
+        IsSorted.bind(IsSortedOptions {
+            strict: true,
+            direction: SortDirection::Asc,
+        }),
+        IsSorted.bind(IsSortedOptions {
+            strict: false,
+            direction: SortDirection::Desc,
+        }),
+        IsSorted.bind(IsSortedOptions {
+            strict: true,
+            direction: SortDirection::Desc,
+        }),
         Sum.bind(options),
     ]
 }
@@ -95,6 +110,7 @@ fn aggregates() -> Vec<AggregateFnRef> {
 #[rstest]
 #[case::ascending(vec![-9, -7, -5, -3, -1, 0, 2, 4, 6, 8], Validity::NonNullable)]
 #[case::duplicate(vec![-9, -7, -5, -3, -1, 0, 2, 4, 6, 6], Validity::AllValid)]
+#[case::descending(vec![8, 6, 4, 2, 0, -1, -3, -5, -7, -9], Validity::NonNullable)]
 #[case::unsorted(vec![8, -7, -5, -3, -1, 0, 2, 4, 6, -9], Validity::NonNullable)]
 #[case::partially_valid(vec![-9, -7, -5, -3, -1, 0, 2, 4, 6, 8], Validity::from_iter([false, true, true, true, true, true, true, true, true, true]))]
 #[case::all_null(vec![0; 10], Validity::AllInvalid)]

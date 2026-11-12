@@ -20,6 +20,8 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::ProbeState;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
+use vortex_array::aggregate_fn::fns::is_sorted::SortDirection;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -380,24 +382,46 @@ impl Sequence {
     /// Whether a sequence `A[i] = base + i * multiplier` of `length` elements is sorted, or
     /// strictly sorted when `strict` is set.
     ///
-    /// With at least two elements it is sorted iff multiplier >= 0, and strictly sorted iff
-    /// multiplier > 0. Zero or one elements have no adjacent pair to compare, so they are
-    /// strictly sorted whatever the multiplier.
-    pub(crate) fn is_sorted(multiplier: PValue, length: usize, strict: bool) -> bool {
+    /// With at least two elements, the multiplier decides the order:
+    ///
+    /// | Direction  | Sorted iff        | Strictly sorted iff |
+    /// |------------|-------------------|---------------------|
+    /// | Ascending  | `multiplier >= 0` | `multiplier > 0`    |
+    /// | Descending | `multiplier <= 0` | `multiplier < 0`    |
+    ///
+    /// Zero or one elements have no adjacent pair to compare, so they are strictly sorted whatever
+    /// the multiplier.
+    pub(crate) fn is_sorted(multiplier: PValue, length: usize, options: IsSortedOptions) -> bool {
         if length <= 1 {
             return true;
         }
         match_each_pvalue!(
             multiplier,
-            uint: |v| { !strict || v > 0 },
-            int: |v| { if strict { v > 0 } else { v >= 0 } },
+            uint: |v| {
+                match options.direction {
+                    SortDirection::Asc => !options.strict || v > 0,
+                    SortDirection::Desc => !options.strict && v == 0,
+                }
+            },
+            int: |v| {
+                match (options.direction, options.strict) {
+                    (SortDirection::Asc, false) => v >= 0,
+                    (SortDirection::Asc, true) => v > 0,
+                    (SortDirection::Desc, false) => v <= 0,
+                    (SortDirection::Desc, true) => v < 0,
+                }
+            },
             float: |_v| { unreachable!("float multiplier not supported") }
         )
     }
 
     fn stats(multiplier: PValue, length: usize) -> StatsSet {
-        let is_sorted = Self::is_sorted(multiplier, length, false);
-        let is_strict_sorted = Self::is_sorted(multiplier, length, true);
+        let is_sorted = Self::is_sorted(multiplier, length, IsSortedOptions::default());
+        let strict = IsSortedOptions {
+            strict: true,
+            ..Default::default()
+        };
+        let is_strict_sorted = Self::is_sorted(multiplier, length, strict);
 
         // SAFETY: we don't have duplicate stats.
         unsafe {

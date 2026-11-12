@@ -34,7 +34,7 @@ impl DynAggregateKernel for SequenceIsSortedKernel {
 
         // `is_sorted` short-circuits on len <= 1, but the Chunked accumulator dispatches this
         // kernel per chunk without that outer check, so the length has to be considered here too.
-        let result = Sequence::is_sorted(array.multiplier(), array.len(), options.strict);
+        let result = Sequence::is_sorted(array.multiplier(), array.len(), *options);
 
         Ok(Some(IsSorted::make_partial(
             batch,
@@ -50,12 +50,15 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
     use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
+    use vortex_array::aggregate_fn::fns::is_sorted::SortDirection;
     use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
+    use vortex_array::aggregate_fn::fns::is_sorted::is_sorted_with_options;
     use vortex_array::aggregate_fn::fns::is_sorted::is_strict_sorted;
     use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
     use vortex_array::arrays::ChunkedArray;
@@ -75,22 +78,24 @@ mod tests {
     });
 
     #[rstest]
-    fn singleton_is_sorted_for_any_multiplier(
+    fn multiplier_sets_direction(
         #[values(-1i64, 0, 3)] multiplier: i64,
+        #[values(1, 2)] length: usize,
         #[values(false, true)] strict: bool,
+        #[values(SortDirection::Asc, SortDirection::Desc)] direction: SortDirection,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let array =
-            Sequence::try_new_typed(10i64, multiplier, Nullability::NonNullable, 1)?.into_array();
+        let options = IsSortedOptions { strict, direction };
+        let array = Sequence::try_new_typed(10i64, multiplier, Nullability::NonNullable, length)?
+            .into_array();
+        let decoded = array.clone().execute::<Canonical>(&mut ctx)?.into_array();
+        let expected = is_sorted_with_options(&decoded, options, &mut ctx)?;
 
-        let result = SequenceIsSortedKernel.aggregate(
-            &IsSorted.bind(IsSortedOptions { strict }),
-            &array,
-            &mut ctx,
-        )?;
-
-        let expected = IsSorted::make_partial(&array, true, strict, &mut ctx)?;
-        assert_eq!(result, Some(expected));
+        let result = SequenceIsSortedKernel.aggregate(&IsSorted.bind(options), &array, &mut ctx)?;
+        assert_eq!(
+            result,
+            Some(IsSorted::make_partial(&array, expected, strict, &mut ctx)?),
+        );
         Ok(())
     }
 
