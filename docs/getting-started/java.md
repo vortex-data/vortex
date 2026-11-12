@@ -10,7 +10,7 @@ Vortex has two Java libraries:
 
 ## Install
 
-The libraries need Java 17 or later. The JARs contain native libraries for Linux (x86_64 and
+The libraries need Java 17 or later. We recommend Java 21. The JARs contain native libraries for Linux (x86_64 and
 aarch64), macOS (aarch64), and Windows (x86_64). The JNI bindings load the native library
 automatically.
 
