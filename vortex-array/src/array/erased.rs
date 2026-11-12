@@ -93,17 +93,17 @@ impl ArrayRef {
         &self.0.data
     }
 
-    /// Returns a mutable reference to the inner if this is the sole owner.
-    ///
-    /// The caller may change the array, so it is no longer known to be optimized.
-    #[allow(clippy::inline_always)]
-    #[inline(always)]
     /// Takes the slots of this array when nothing else holds it, for the iterative drop of deep
     /// trees.
     pub(crate) fn take_slots_if_unique(&mut self) -> Option<ArraySlots> {
         Arc::get_mut(&mut self.0).map(|inner| std::mem::take(&mut *inner.slots))
     }
 
+    /// Returns a mutable reference to the inner if this is the sole owner.
+    ///
+    /// The caller may change the array, so it is no longer known to be optimized.
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
     pub(crate) fn inner_mut(&mut self) -> Option<&mut ArrayInner<dyn DynArrayData>> {
         let inner = Arc::get_mut(&mut self.0)?;
         *inner.optimized.0.get_mut() = false;

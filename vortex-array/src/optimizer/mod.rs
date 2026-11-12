@@ -574,7 +574,10 @@ impl OptimizeFrame {
         while let Some(slot) = self.current.slots().get(self.next_slot) {
             self.next_slot += 1;
 
-            let Some(child) = slot.as_ref().filter(|c| !c.optimized_state().is_optimized()) else {
+            let Some(child) = slot
+                .as_ref()
+                .filter(|c| !c.optimized_state().is_optimized())
+            else {
                 self.keep_slot();
                 continue;
             };
@@ -585,13 +588,10 @@ impl OptimizeFrame {
                 return Some((child.clone(), false));
             }
 
-            let child = child.clone();
-            match rewritten_shared.get(&ArrayByPtr(child.clone())) {
-                Some(rewritten) => {
-                    let rewritten = rewritten.clone();
-                    self.absorb(rewritten);
-                }
-                None => return Some((child, true)),
+            let key = ArrayByPtr(child.clone());
+            match rewritten_shared.get(&key) {
+                Some(rewritten) => self.absorb(rewritten.clone()),
+                None => return Some((key.0, true)),
             }
         }
 

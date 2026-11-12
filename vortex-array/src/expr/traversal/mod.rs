@@ -161,7 +161,7 @@ struct RewriteFrame<T> {
     children: Children<T>,
     next_child: usize,
     /// The rewritten children so far, in order. Stops at the child that returned `Stop`.
-    rewritten: Vec<Transformed<T>>,
+    rewritten: Children<Transformed<T>>,
 }
 
 impl<T: Node> RewriteFrame<T> {
@@ -173,7 +173,7 @@ impl<T: Node> RewriteFrame<T> {
             down,
             children,
             next_child: 0,
-            rewritten: Vec::new(),
+            rewritten: Children::new(),
         }
     }
 
@@ -313,7 +313,7 @@ pub trait NodeExt: Node {
             children: Children<&'a T>,
             next_child: usize,
             /// The orders the visited children returned, replayed through `apply_children`.
-            orders: Vec<TraversalOrder>,
+            orders: Children<TraversalOrder>,
         }
 
         let mut stack: Vec<Frame<'a, Self>> = Vec::new();
@@ -329,7 +329,7 @@ pub trait NodeExt: Node {
                         node,
                         children: child_refs(node)?,
                         next_child: 0,
-                        orders: Vec::new(),
+                        orders: Children::new(),
                     }),
                 }
             }
