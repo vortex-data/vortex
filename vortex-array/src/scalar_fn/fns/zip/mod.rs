@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 pub use kernel::*;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
@@ -210,6 +211,12 @@ fn zip_impl(
     );
 
     let return_type = zip_return_dtype(if_true.dtype(), if_false.dtype())?;
+    if !has_builder(&return_type) {
+        vortex_bail!(
+            "zip of {return_type} arrays with a mixed mask is not supported: the dtype has no \
+             zip kernel and no array builder"
+        );
+    }
 
     // `append_to_builder` requires exact dtype equality, so normalize branch
     // nullability to the output dtype before appending slices into the builder.
@@ -223,6 +230,24 @@ fn zip_impl(
         builder_with_capacity_in(&return_type, if_true.len(), ctx.allocator()),
         ctx,
     )
+}
+
+/// Returns whether [`builder_with_capacity_in`] supports `dtype`, which has no builder when it is
+/// or contains a union or a variant.
+fn has_builder(dtype: &DType) -> bool {
+    match dtype {
+        DType::Union(..) | DType::Variant(_) => false,
+        DType::List(element, _) | DType::FixedSizeList(element, ..) => has_builder(element),
+        DType::Map(map, _) => has_builder(&map.key_dtype()) && has_builder(&map.value_dtype()),
+        DType::Struct(fields, _) => fields.fields().all(|field| has_builder(&field)),
+        DType::Extension(ext) => has_builder(ext.storage_dtype()),
+        DType::Null
+        | DType::Bool(_)
+        | DType::Primitive(..)
+        | DType::Decimal(..)
+        | DType::Utf8(_)
+        | DType::Binary(_) => true,
+    }
 }
 
 fn zip_return_dtype(if_true: &DType, if_false: &DType) -> VortexResult<DType> {
@@ -352,6 +377,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::Constant;
@@ -361,6 +387,7 @@ mod tests {
     use crate::arrays::StructArray;
     use crate::arrays::VarBinView;
     use crate::arrays::VarBinViewArray;
+    use crate::arrays::VariantArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::BufferGrowthStrategy;
@@ -604,5 +631,25 @@ mod tests {
             }
         }));
         assert_arrays_eq!(zipped.array().clone(), expected, &mut ctx);
+    }
+
+    /// Variant arrays have no zip kernel and no builder, so a mixed mask fails with an error
+    /// instead of a panic.
+    #[test]
+    fn test_zip_variant_mixed_mask_errors() -> VortexResult<()> {
+        let variants = |value: i32| -> VortexResult<ArrayRef> {
+            let scalar = Scalar::variant(Scalar::primitive(value, Nullability::NonNullable));
+            let core_storage = ConstantArray::new(scalar, 4).into_array();
+            Ok(VariantArray::try_new(core_storage, None)?.into_array())
+        };
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let error = Mask::from_iter([true, false, true, false])
+            .into_array()
+            .zip(variants(1)?, variants(2)?)?
+            .execute::<Canonical>(&mut ctx)
+            .unwrap_err();
+        assert!(error.to_string().contains("is not supported"), "{error}");
+        Ok(())
     }
 }

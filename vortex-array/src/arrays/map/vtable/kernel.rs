@@ -17,6 +17,8 @@ use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastExecuteAdaptor;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::mask::MaskExecuteAdaptor;
+use crate::scalar_fn::fns::zip::Zip;
+use crate::scalar_fn::fns::zip::ZipExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -25,4 +27,5 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(Filter.id(), Map, FilterExecuteAdaptor(Map));
     kernels.register_execute_parent_kernel(Mask.id(), Map, MaskExecuteAdaptor(Map));
     kernels.register_execute_parent_kernel(Slice.id(), Map, SliceExecuteAdaptor(Map));
+    kernels.register_execute_parent_kernel(Zip.id(), Map, ZipExecuteAdaptor(Map));
 }
