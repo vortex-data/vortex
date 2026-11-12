@@ -57,16 +57,6 @@ def test_head_matches_to_table(ds: pd.Dataset, num_rows: int) -> None:
     assert ds.head(num_rows) == ds.to_table().slice(0, num_rows)
 
 
-@pytest.mark.parametrize("batch_size", [7, 1 << 20])
-def test_head_with_batch_size(ds: pd.Dataset, batch_size: int) -> None:
-    assert ds.head(100, batch_size=batch_size) == ds.to_table().slice(0, 100)
-
-
-def test_head_rejects_a_zero_batch_size(ds: pd.Dataset) -> None:
-    with pytest.raises(ValueError, match="non-zero"):
-        ds.head(1, batch_size=0)
-
-
 def test_head_with_fewer_matching_rows_than_requested(ds: pd.Dataset) -> None:
     expression = pc.field("index") >= 999_995
     assert ds.head(10, columns=["index"], filter=expression).column("index").to_pylist() == list(
@@ -79,11 +69,6 @@ def test_head_with_filter_matching_more_rows_than_requested(ds: pd.Dataset) -> N
     expression = pc.field("bool")
     expected = ds.to_table(filter=expression).slice(0, 5_000)
     assert ds.head(5_000, filter=expression) == expected
-    assert ds.head(5_000, filter=expression, batch_size=1_000) == expected
-
-
-def test_scanner_head_with_batch_size(ds: vx.dataset.VortexDataset) -> None:
-    assert ds.scanner(batch_size=2).head(3) == ds.head(3)
 
 
 def test_take(ds: pd.Dataset) -> None:

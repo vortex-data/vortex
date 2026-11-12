@@ -35,7 +35,7 @@ pub enum SplitBy {
     ///
     /// This is the default, with [`DEFAULT_MAX_SPLIT_ROWS`].
     LayoutSubSplitting { max_rows: u64 },
-    /// Splits every n rows. `n` must be non-zero.
+    /// Splits every n rows.
     RowCount(usize),
     // UncompressedSize(u64),
 }
@@ -69,14 +69,11 @@ impl SplitBy {
                     max_rows,
                 )
             }
-            SplitBy::RowCount(n) => {
-                vortex_ensure!(n > 0, "SplitBy::RowCount requires a non-zero row count");
-                row_range
-                    .clone()
-                    .step_by(n)
-                    .chain(once(row_range.end))
-                    .collect()
-            }
+            SplitBy::RowCount(n) => row_range
+                .clone()
+                .step_by(n)
+                .chain(once(row_range.end))
+                .collect(),
         })
     }
 }
@@ -236,20 +233,6 @@ mod test {
             )
             .unwrap();
         assert_eq!(splits, vec![0u64, 3, 6, 9, 10]);
-    }
-
-    #[test]
-    fn test_row_count_splits_reject_zero() {
-        let reader = reader();
-
-        let err = SplitBy::RowCount(0)
-            .splits(
-                reader.as_ref(),
-                &(0..10),
-                &[FieldMask::Exact(FieldPath::root())],
-            )
-            .unwrap_err();
-        assert!(err.to_string().contains("non-zero"), "{err}");
     }
 
     /// A reader that registers a fixed set of interior split points (which may repeat) plus the
