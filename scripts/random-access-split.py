@@ -19,13 +19,7 @@ BINARY = "target/release_debug/random-access-bench"
 PARTS_DIR = Path("parts")
 
 DATASETS = ["taxi", "feature-vectors", "nested-lists", "nested-structs"]
-# EXPERIMENT (not for merge): cold reopen A/B of read-path variants, Vortex only. Every
-# measurement is one take right after the OS page cache is dropped.
-FORMATS = ["vortex"]
-XP_MODES = ["base", "nogate+idle4096+conc32", "idle4096", "conc32", "nogate", "idle2048"]
-XP_REPS = 8
-# Only this mode's first repetition feeds the results the PR comment compares.
-XP_REPORTED_MODE = "base"
+FORMATS = ["arrow-ipc", "parquet", "lance", "litdata", "vortex"]
 # Formats only benchmarked from local disk. A remote run would silently read them from local disk.
 LOCAL_ONLY_FORMATS = {"arrow-ipc", "litdata"}
 PATTERNS = ["correlated", "uniform"]
@@ -84,24 +78,14 @@ def prepare_data(remote_data_dir: str | None) -> None:
 
 
 def run_combinations(emit_ingest_records: bool, remote_data_dir: str | None) -> None:
-    import os
-    import random
-
     PARTS_DIR.mkdir(parents=True, exist_ok=True)
     formats = benchmark_formats(remote_data_dir)
-    jobs = []
-    for rep in range(XP_REPS):
-        for dataset in DATASETS:
-            for fmt in formats:
-                for pattern in PATTERNS:
-                    modes = list(XP_MODES)
-                    random.shuffle(modes)
-                    jobs += [(rep, dataset, fmt, pattern, "reopen", m) for m in modes]
-    total = len(jobs)
+    total = len(DATASETS) * len(formats) * len(PATTERNS) * len(OPEN_MODES)
     i = 0
-    for n, (rep, dataset, fmt, pattern, open_mode, xp_mode) in enumerate(jobs, 1):
-                    report = rep == 0 and xp_mode == XP_REPORTED_MODE
-                    os.environ["XP_MODE"] = xp_mode
+    for dataset in DATASETS:
+        for fmt in formats:
+            for pattern in PATTERNS:
+                for open_mode in OPEN_MODES:
                     drop_os_caches()
 
                     args = [
@@ -117,21 +101,20 @@ def run_combinations(emit_ingest_records: bool, remote_data_dir: str | None) -> 
                         "--open-mode",
                         open_mode,
                         "--time-limit",
-                        "0",
+                        str(TIME_LIMIT_SECS),
                         "-d",
                         "gh-json",
                         "-o",
-                        str(PARTS_DIR / (f"{i}.gh.json" if report else f"xp{n}.gh.json.skip")),
+                        str(PARTS_DIR / f"{i}.gh.json"),
                     ]
                     if remote_data_dir:
                         args += ["--remote-data-dir", remote_data_dir]
-                    if emit_ingest_records and report:
+                    if emit_ingest_records:
                         args += ["--ingest-jsonl", str(PARTS_DIR / f"{i}.ingest.jsonl")]
-                    with log_group(f"Benchmark [{n}/{total}] round {rep} {xp_mode} {dataset} / {fmt} / {pattern} / {open_mode}"):
-                        print("+", f"XP_MODE={xp_mode}", " ".join(args), flush=True)
+                    with log_group(f"Benchmark [{i + 1}/{total}] {dataset} / {fmt} / {pattern} / {open_mode}"):
+                        print("+", " ".join(args), flush=True)
                         subprocess.run(args, check=True)
-                    if report:
-                        i += 1
+                    i += 1
 
 
 """

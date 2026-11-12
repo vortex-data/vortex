@@ -13,7 +13,6 @@ use std::os::unix::fs::FileExt;
 use std::os::windows::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Instant;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -25,7 +24,6 @@ use vortex_error::VortexResult;
 use crate::CoalesceConfig;
 use crate::VortexReadAt;
 use crate::runtime::Handle;
-use crate::xp;
 
 /// Read exactly `buffer.len()` bytes from `file` starting at `offset`.
 /// This is a platform-specific helper that uses the most efficient method available.
@@ -121,20 +119,11 @@ impl VortexReadAt for FileReadAt {
     }
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
-        // EXPERIMENT: XP_MODE overrides for the cold A/B. Not for merge.
-        let k = xp::knobs();
-        let mut config = CoalesceConfig::file();
-        if let Some(max) = k.max_kib {
-            config.max_size = max << 10;
-        }
-        if let Some(idle) = k.idle_kib {
-            config.idle_max_size = idle << 10;
-        }
-        Some(config)
+        Some(CoalesceConfig::file())
     }
 
     fn concurrency(&self) -> usize {
-        xp::knobs().conc.unwrap_or(DEFAULT_CONCURRENCY)
+        DEFAULT_CONCURRENCY
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
@@ -155,26 +144,16 @@ impl VortexReadAt for FileReadAt {
         let file = Arc::clone(&self.file);
         let handle = self.handle.clone();
         let allocator = self.allocator.clone();
-        let submitted = Instant::now();
         async move {
-            let (result, started, ended) = handle
+            handle
                 .spawn_blocking(move || {
-                    let started = Instant::now();
-                    let result = (|| {
-                        let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
-                        // SAFETY: read_exact_at initializes every byte before the buffer is frozen.
-                        unsafe { buffer.set_len(length) };
-                        read_exact_at(&file, buffer.as_mut_slice(), offset)?;
-                        Ok(BufferHandle::new_host(buffer.freeze()))
-                    })();
-                    (result, started, Instant::now())
+                    let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
+                    // SAFETY: read_exact_at initializes every byte before the buffer is frozen.
+                    unsafe { buffer.set_len(length) };
+                    read_exact_at(&file, buffer.as_mut_slice(), offset)?;
+                    Ok(BufferHandle::new_host(buffer.freeze()))
                 })
-                .await;
-            xp::add(&xp::TASKS, 1);
-            xp::add(&xp::SCHED_NS, (started - submitted).as_nanos() as u64);
-            xp::add(&xp::PREAD_NS, (ended - started).as_nanos() as u64);
-            xp::add(&xp::RETURN_NS, xp::since(ended));
-            result
+                .await
         }
         .boxed()
     }

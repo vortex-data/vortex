@@ -204,7 +204,6 @@ async fn time_accessor_takes(
         }
     }
 
-    vortex_bench::xp_diag::reset();
     let overall_start = Instant::now();
 
     loop {
@@ -223,23 +222,6 @@ async fn time_accessor_takes(
         if overall_start.elapsed() >= time_limit {
             break;
         }
-    }
-
-    // EXPERIMENT: per-take read-path counters for the CI A/B. Not for merge.
-    {
-        let mut sorted = runs.clone();
-        sorted.sort();
-        let median = sorted.get(sorted.len() / 2).copied().unwrap_or_default();
-        let first = runs.first().copied().unwrap_or_default();
-        eprintln!(
-            "XPDIAG mode={} dataset={} format={format:?} reopen={reopen} takes={} median_us={:.1} first_us={:.1} {}",
-            vortex_bench::xp_diag::knobs().name,
-            dataset.name(),
-            runs.len(),
-            median.as_secs_f64() * 1e6,
-            first.as_secs_f64() * 1e6,
-            vortex_bench::xp_diag::summary(runs.len())
-        );
     }
 
     Ok(runs)
