@@ -144,8 +144,7 @@ impl LayoutStrategy for ConstantStrategy {
             };
 
             let constant_stream =
-                SequentialStreamAdapter::new(dtype, stream::iter([Ok(run.into_item())]))
-                    .sendable();
+                SequentialStreamAdapter::new(dtype, stream::iter([Ok(run.into_item())])).sendable();
 
             return self
                 .constant
@@ -173,7 +172,6 @@ impl LayoutStrategy for ConstantStrategy {
 fn supports_constant_detection(dtype: &DType) -> bool {
     !matches!(dtype, DType::Union(..) | DType::Variant(..))
 }
-
 
 #[cfg(test)]
 mod tests {
