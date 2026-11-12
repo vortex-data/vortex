@@ -10,6 +10,7 @@ from functools import reduce
 from typing import final
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.dataset
 from typing_extensions import override
 
@@ -17,7 +18,7 @@ from ._lib import dataset as _dataset
 from ._lib import file as _file
 from ._lib.runtime import set_worker_threads as _set_worker_threads
 from ._lib.runtime import worker_threads as _worker_threads
-from .arrays import array
+from .arrays import Array, array
 from .arrow.expression import ensure_vortex_expression
 from .expr import Expr, and_
 
@@ -34,6 +35,10 @@ def _temporary_worker_threads(use_threads: bool) -> Generator[None]:
         yield
     finally:
         _set_worker_threads(previous_workers)
+
+
+def _is_strictly_increasing(indices: pyarrow.Array) -> bool:
+    return len(indices) < 2 or bool(pc.all(pc.greater(indices[1:], indices[:-1])).as_py())
 
 
 def _read_batches_with_temporary_worker_threads(
@@ -316,7 +321,9 @@ class VortexDataset(pyarrow.dataset.Dataset):
         Parameters
         ----------
         indices : :class:`.pyarrow.Array`
-            A numeric array of absolute indices into `self` indicating which rows to keep.
+            A numeric array of absolute indices into `self` indicating which rows to keep. Rows are
+            returned in the order of `indices`, which may repeat or be unordered. If `filter` is
+            given or this dataset was filtered, `indices` must be strictly increasing.
         columns : list of str
             The columns to keep, identified by name.
         filter : :class:`.pyarrow.dataset.Expression`
@@ -343,13 +350,29 @@ class VortexDataset(pyarrow.dataset.Dataset):
         table : :class:`.pyarrow.Table`
 
         """
-        with _temporary_worker_threads(use_threads):
+        indices = indices.cast(pa.uint64())
+        row_filter = self._filter_expression(filter)
+
+        def scan(scan_indices: pyarrow.Array) -> Array:
             return self._dataset.to_array(
                 columns=columns,
-                row_filter=self._filter_expression(filter),
-                indices=array(indices.cast(pa.uint64())),
+                row_filter=row_filter,
+                indices=array(scan_indices),
                 row_range=_row_range,
-            ).to_arrow_table()
+            )
+
+        with _temporary_worker_threads(use_threads):
+            if row_filter is not None or _is_strictly_increasing(indices):
+                return scan(indices).to_arrow_table()
+
+            # The scan needs strictly increasing indices, so scan the sorted distinct rows once and
+            # gather them back into the requested order.
+            if _row_range is not None:
+                start, end = _row_range
+                indices = indices.filter(pc.and_(pc.greater_equal(indices, start), pc.less(indices, end)))
+            distinct = pc.unique(indices)
+            distinct = distinct.take(pc.sort_indices(distinct))
+            return scan(distinct).take(array(pc.index_in(indices, value_set=distinct))).to_arrow_table()
 
     def to_record_batch_reader(
         self,
