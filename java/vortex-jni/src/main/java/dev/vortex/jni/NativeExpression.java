@@ -46,6 +46,16 @@ public final class NativeExpression {
 
     public static native long listContains(long listPointer, long needlePointer, boolean sqlNullSemantics);
 
+    public static native long dynamic(byte operator, long lhsPointer, long dynamicValuePointer, boolean defaultResult);
+
+    public static native long dynamicValueCreate(long prototypePointer);
+
+    public static native long variantGet(long childPointer, String[] fields, long[] indexes);
+
+    public static native void dynamicValueSet(long dynamicValuePointer, long literalPointer);
+
+    public static native void dynamicValueFree(long dynamicValuePointer);
+
     public static native long literalBool(boolean value, boolean isNull);
 
     public static native long literalI8(byte value, boolean isNull);
@@ -90,6 +100,12 @@ public final class NativeExpression {
 
     public static native long literalList(
             long[] elementPointers, long elementTypePointer, boolean elementsNullable, boolean isNull);
+
+    public static native long literalListI64(
+            long[] values, long elementTypePointer, boolean elementsNullable, boolean withNull);
+
+    public static native long literalListUtf8(
+            String[] values, long elementTypePointer, boolean elementsNullable, boolean withNull);
 
     public static native long literalFixedSizeList(
             long[] elementPointers, long elementTypePointer, boolean elementsNullable, int size, boolean isNull);

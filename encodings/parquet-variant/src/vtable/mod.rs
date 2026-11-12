@@ -199,6 +199,7 @@ mod tests {
     use arrow_array::builder::BinaryViewBuilder;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use futures::StreamExt;
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use rstest::fixture;
     use rstest::rstest;
@@ -209,6 +210,7 @@ mod tests {
     use vortex_array::EqMode;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::VariantArray;
@@ -218,12 +220,16 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::session::DTypeSessionExt;
+    use vortex_array::expr::variant_get;
+    use vortex_array::scalar_fn::fns::variant_get::VariantPath;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySessionExt;
+    use vortex_array::stream::ArrayStream;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
+    use vortex_arrow::ExecuteArrowExt;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
@@ -452,6 +458,111 @@ mod tests {
             .await?;
 
         assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_file_variant_get_extracts_unshredded_paths(
+        parquet_variant_file_session: VortexResult<VortexSession>,
+    ) -> VortexResult<()> {
+        let session = parquet_variant_file_session?;
+        let json: ArrowArrayRef = Arc::new(arrow_array::StringArray::from(vec![
+            Some(r#"{"a": 1, "b": "x"}"#),
+            None,
+            Some(r#"{"a": 3}"#),
+        ]));
+        let variants = ParquetVariant::from_arrow_variant_nullable(
+            &parquet_variant_compute::json_to_variant(&json)?,
+            &SESSION.arrow(),
+        )?;
+        let write_strategy = vortex_file::WriteStrategyBuilder::from_session(&session).build();
+
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(write_strategy)
+            .write(&mut bytes, variants.to_array_stream())
+            .await?;
+
+        let file = session.open_options().open_buffer(bytes)?;
+        let projection = variant_get(vortex_array::expr::root(), VariantPath::field("a"), None)
+            .bind(file.dtype())?;
+        let actual = file
+            .scan()?
+            .with_projection(projection)
+            .into_array_stream()?
+            .read_all()
+            .await?;
+
+        // Extraction keeps Parquet Variant storage, so the result exports to Arrow.
+        let mut ctx = SESSION.create_execution_ctx();
+        let field = SESSION.arrow().to_arrow_field("a", actual.dtype())?;
+        actual
+            .clone()
+            .execute_arrow(Some(&field), &mut ctx)
+            .map_err(|error| vortex_err!("{error}\n{}", actual.display_tree()))?;
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::whole_column(false)]
+    #[case::extracted_path(true)]
+    #[tokio::test]
+    async fn test_file_variants_of_many_chunks_export_to_arrow(
+        parquet_variant_file_session: VortexResult<VortexSession>,
+        #[case] extract: bool,
+    ) -> VortexResult<()> {
+        let session = parquet_variant_file_session?;
+        // Batches of 2048 rows, as the Java writer sends them, which the writer packs into chunks.
+        let padding = "x".repeat(200);
+        let batches = (0..100)
+            .map(|batch| {
+                let json: ArrowArrayRef = Arc::new(arrow_array::StringArray::from_iter_values(
+                    (0..2048)
+                        .map(|i| format!(r#"{{"a": {}, "pad": "{padding}"}}"#, batch * 2048 + i)),
+                ));
+                ParquetVariant::from_arrow_variant_nullable(
+                    &parquet_variant_compute::json_to_variant(&json)?,
+                    &SESSION.arrow(),
+                )
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+        let dtype = batches[0].dtype().clone();
+        let variants = ChunkedArray::try_new(batches, dtype)?.into_array();
+        let write_strategy = vortex_file::WriteStrategyBuilder::from_session(&session).build();
+
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(write_strategy)
+            .write(&mut bytes, variants.to_array_stream())
+            .await?;
+
+        let file = session.open_options().open_buffer(bytes)?;
+        let projection = if extract {
+            variant_get(vortex_array::expr::root(), VariantPath::field("a"), None)
+        } else {
+            vortex_array::expr::root()
+        }
+        .bind(file.dtype())?;
+        let mut stream = file
+            .scan()?
+            .with_projection(projection)
+            .into_array_stream()?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let field = SESSION.arrow().to_arrow_field("v", stream.dtype())?;
+        let mut rows = 0;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            rows += chunk.len();
+            chunk
+                .clone()
+                .execute_arrow(Some(&field), &mut ctx)
+                .map_err(|error| vortex_err!("{error}\n{}", chunk.display_tree()))?;
+        }
+        assert_eq!(rows, 100 * 2048);
         Ok(())
     }
 

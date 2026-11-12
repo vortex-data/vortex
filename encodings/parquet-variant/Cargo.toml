@@ -19,6 +19,7 @@ workspace = true
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
+arrow-select = { workspace = true }
 chrono = { workspace = true }
 parquet-variant = { workspace = true }
 parquet-variant-compute = { workspace = true }
@@ -32,6 +33,7 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
+futures = { workspace = true }
 vortex-edition = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

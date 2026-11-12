@@ -24,6 +24,8 @@ val sparkModules =
     mapOf(
         "3.5" to listOf("2.12", "2.13"),
         "4.0" to listOf("2.13"),
+        "4.1" to listOf("2.13"),
+        "4.2" to listOf("2.13"),
     )
 val requestedSparkVersions =
     System

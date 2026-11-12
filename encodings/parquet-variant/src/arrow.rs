@@ -20,12 +20,14 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Chunked;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::Masked;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::Variant;
+use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::masked::MaskedArrayExt;
 use vortex_array::arrays::masked::MaskedArraySlotsExt;
@@ -132,6 +134,35 @@ pub(crate) fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
     };
     let unshredded_parquet = unshredded_array.as_::<ParquetVariant>();
     export_storage_to_target(&unshredded_parquet, target_fields, options, ctx)
+}
+
+/// The chunks of a variant array whose unshredded core storage is a chunked array, as a file of
+/// several chunks reads back. Each chunk holds its own Parquet Variant storage, so each exports on
+/// its own.
+fn unshredded_variant_chunks(
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Vec<ArrayRef>>> {
+    let Some(variant) = array.as_opt::<Variant>() else {
+        return Ok(None);
+    };
+    if variant.shredded().is_some() {
+        return Ok(None);
+    }
+    if let Some(chunked) = variant.core_storage().as_opt::<Chunked>() {
+        return Ok(Some(chunked.chunks()));
+    }
+
+    // Executing a chunked core storage wraps it in a variant again, so look beneath that too.
+    let core_storage = variant
+        .core_storage()
+        .clone()
+        .execute_until::<ParquetVariant>(ctx)?;
+    if core_storage.is::<Variant>() {
+        unshredded_variant_chunks(&core_storage, ctx)
+    } else {
+        Ok(None)
+    }
 }
 
 /// Stop before canonicalization hides constant and masked storage behind a Variant wrapper.
@@ -336,6 +367,29 @@ impl ArrowExportVTable for ParquetVariant {
             || !array.dtype().is_variant()
         {
             return Ok(ArrowExport::Unsupported(array));
+        }
+
+        let array = array.execute_until::<ParquetVariantExportable>(ctx)?;
+        if let Some(chunks) = unshredded_variant_chunks(&array, ctx)? {
+            let mut exported = Vec::with_capacity(chunks.len());
+            for chunk in chunks {
+                match self.execute_arrow(chunk, target, options, ctx)? {
+                    ArrowExport::Exported(chunk) => exported.push(chunk),
+                    ArrowExport::Unsupported(_) => {
+                        vortex_bail!("cannot export a chunk of a chunked Variant")
+                    }
+                }
+            }
+            if exported.is_empty() {
+                return Ok(ArrowExport::Exported(arrow_array::new_empty_array(
+                    target.data_type(),
+                )));
+            }
+
+            let exported = exported.iter().map(AsRef::as_ref).collect::<Vec<_>>();
+            return Ok(ArrowExport::Exported(arrow_select::concat::concat(
+                &exported,
+            )?));
         }
 
         let parquet_array = prepare_variant_for_export(array, None, ctx)?;

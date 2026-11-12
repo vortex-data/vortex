@@ -269,7 +269,10 @@ public final class DataSource implements AutoCloseable {
                     splitConcurrency);
             return Scan.fromPointer(session, scanPtr);
         } finally {
+            // The Cleaners of an unreachable data source or expression free their native pointers, so keep the
+            // inputs alive until the native call returns.
             Reference.reachabilityFence(options);
+            Reference.reachabilityFence(this);
         }
     }
 
