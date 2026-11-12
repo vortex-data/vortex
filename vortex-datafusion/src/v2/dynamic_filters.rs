@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt;
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::fmt::Result as FmtResult;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
@@ -31,7 +34,6 @@ use vortex::scalar_fn::fns::dynamic_expression::input_field_name;
 use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::convert::ExpressionConverter;
-use crate::convert::exprs::is_infallible;
 
 pub(crate) fn convert_dynamic_filter(
     expression: Arc<dyn PhysicalExpr>,
@@ -39,9 +41,7 @@ pub(crate) fn convert_dynamic_filter(
     converter: Arc<dyn ExpressionConverter>,
 ) -> Expression {
     // A converter can retain a comparison whose producer guarantees a fixed shape.
-    if let Ok(Some(converted)) = converter.try_convert(&expression, &schema)
-        && is_infallible(&converted)
-    {
+    if let Ok(Some(converted)) = converter.try_convert_dynamic(&expression, &schema) {
         return converted;
     }
 
@@ -100,15 +100,15 @@ struct DataFusionDynamicFilter {
     converter: Arc<dyn ExpressionConverter>,
 }
 
-impl fmt::Debug for DataFusionDynamicFilter {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.expression, f)
+impl Debug for DataFusionDynamicFilter {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        Display::fmt(&self.expression, f)
     }
 }
 
-impl fmt::Display for DataFusionDynamicFilter {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.expression, f)
+impl Display for DataFusionDynamicFilter {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        Display::fmt(&self.expression, f)
     }
 }
 
@@ -143,10 +143,9 @@ impl DataFusionDynamicFilter {
             .into_iter()
             .filter_map(|conjunct| {
                 self.converter
-                    .try_convert(conjunct, &self.schema)
+                    .try_convert_dynamic(conjunct, &self.schema)
                     .ok()
                     .flatten()
-                    .filter(is_infallible)
             })
             .reduce(|left, right| binary(Operator::And, left, right))
     }

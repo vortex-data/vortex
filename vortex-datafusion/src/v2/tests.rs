@@ -3,11 +3,14 @@
 
 use std::sync::Arc;
 
+use anyhow::Result;
 use anyhow::anyhow;
 use arrow_array::ArrayRef;
 use arrow_array::Int32Array;
+use arrow_array::Int64Array;
 use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
+use arrow_array::record_batch;
 use arrow_array::types::Int32Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
@@ -18,6 +21,7 @@ use datafusion::assert_batches_eq;
 use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
 use datafusion_common::arrow::compute::concat_batches;
+use datafusion_common::arrow::compute::filter_record_batch;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::stats::Precision;
 use datafusion_common::tree_node::TreeNode;
@@ -30,7 +34,12 @@ use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_plan::ExecutionPlan;
-use datafusion_physical_plan::expressions as df_expr;
+use datafusion_physical_plan::collect;
+use datafusion_physical_plan::expressions::BinaryExpr;
+use datafusion_physical_plan::expressions::Column;
+use datafusion_physical_plan::expressions::InListExpr;
+use datafusion_physical_plan::expressions::Literal;
+use datafusion_physical_plan::expressions::lit;
 use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
 use futures::TryStreamExt;
@@ -41,23 +50,25 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_json::initialize as initialize_json;
 
 use super::VortexDataSource;
+use crate::convert::exprs::mixed_tests::lookup;
+use crate::convert::exprs::mixed_tests::routed;
 
-async fn vortex_source() -> anyhow::Result<VortexDataSource> {
-    let batch =
-        arrow_array::record_batch!(("a", Int32, vec![1, 2, 3]), ("b", Int32, vec![30, 10, 20]))?;
+async fn vortex_source() -> Result<VortexDataSource> {
+    let batch = record_batch!(("a", Int32, vec![1, 2, 3]), ("b", Int32, vec![30, 10, 20]))?;
     vortex_source_from_batch(batch).await
 }
 
-async fn vortex_source_from_batch(batch: RecordBatch) -> anyhow::Result<VortexDataSource> {
+async fn vortex_source_from_batch(batch: RecordBatch) -> Result<VortexDataSource> {
     vortex_source_from_batch_with_session(batch, &VortexSession::default()).await
 }
 
 async fn vortex_source_from_batch_with_session(
     batch: RecordBatch,
     session: &VortexSession,
-) -> anyhow::Result<VortexDataSource> {
+) -> Result<VortexDataSource> {
     let schema = batch.schema();
     let array = session.arrow().from_arrow_record_batch(batch, &schema)?;
     let mut buffer = ByteBufferMut::empty();
@@ -75,15 +86,15 @@ async fn vortex_source_from_batch_with_session(
 }
 
 #[tokio::test]
-async fn projection_filters_use_scan_schema() -> anyhow::Result<()> {
+async fn projection_filters_use_scan_schema() -> Result<()> {
     let source = vortex_source().await?;
     let projection = ProjectionExprs::from(vec![
-        ProjectionExpr::new(Arc::new(df_expr::Column::new("b", 1)), "b"),
+        ProjectionExpr::new(Arc::new(Column::new("b", 1)), "b"),
         ProjectionExpr::new(
-            Arc::new(df_expr::BinaryExpr::new(
-                Arc::new(df_expr::Column::new("a", 0)),
+            Arc::new(BinaryExpr::new(
+                Arc::new(Column::new("a", 0)),
                 Operator::Modulo,
-                Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(2)))),
+                Arc::new(Literal::new(ScalarValue::Int32(Some(2)))),
             )),
             "odd",
         ),
@@ -91,29 +102,28 @@ async fn projection_filters_use_scan_schema() -> anyhow::Result<()> {
     let projected = source
         .try_swapping_with_projection(&projection)?
         .ok_or_else(|| anyhow!("projection was not swapped"))?;
-    let supported: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
-        Arc::new(df_expr::Column::new("b", 0)),
+    let supported: Arc<dyn PhysicalExpr> = Arc::new(BinaryExpr::new(
+        Arc::new(Column::new("b", 0)),
         Operator::Gt,
-        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(15)))),
+        Arc::new(Literal::new(ScalarValue::Int32(Some(15)))),
     ));
-    let unsupported: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
-        Arc::new(df_expr::Column::new("odd", 1)),
+    let modular: Arc<dyn PhysicalExpr> = Arc::new(BinaryExpr::new(
+        Arc::new(Column::new("odd", 1)),
         Operator::Eq,
-        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))),
+        Arc::new(Literal::new(ScalarValue::Int32(Some(1)))),
     ));
 
-    let pushed =
-        projected.try_pushdown_filters(vec![supported, unsupported], &ConfigOptions::new())?;
+    let pushed = projected.try_pushdown_filters(vec![supported, modular], &ConfigOptions::new())?;
     assert!(matches!(
         pushed.filters.as_slice(),
-        [PushedDown::Yes, PushedDown::No]
+        [PushedDown::Yes, PushedDown::Yes]
     ));
     let updated = pushed
         .updated_node
         .ok_or_else(|| anyhow!("filter was not added to the source"))?;
     let plan = Arc::new(DataSourceExec::new(updated)) as Arc<dyn ExecutionPlan>;
     let ctx = SessionContext::new();
-    let batches = datafusion_physical_plan::collect(plan, ctx.task_ctx()).await?;
+    let batches = collect(plan, ctx.task_ctx()).await?;
 
     assert_batches_eq!(
         [
@@ -131,25 +141,23 @@ async fn projection_filters_use_scan_schema() -> anyhow::Result<()> {
 
 #[rstest]
 #[tokio::test]
-async fn projection_preserves_arrow_types(
-    #[values(false, true)] fallback: bool,
-) -> anyhow::Result<()> {
-    let batch = arrow_array::record_batch!(
+async fn projection_preserves_arrow_types(#[values(false, true)] fallback: bool) -> Result<()> {
+    let batch = record_batch!(
         ("a", Int32, vec![1, 2, 3]),
         ("s", Utf8, vec![Some("one"), None, Some("three")])
     )?;
     let source = vortex_source_from_batch(batch).await?;
     let projection = ProjectionExprs::from(vec![
-        ProjectionExpr::new(Arc::new(df_expr::Column::new("s", 1)), "text"),
+        ProjectionExpr::new(Arc::new(Column::new("s", 1)), "text"),
         ProjectionExpr::new(
-            Arc::new(df_expr::BinaryExpr::new(
-                Arc::new(df_expr::Column::new("a", 0)),
+            Arc::new(BinaryExpr::new(
+                Arc::new(Column::new("a", 0)),
                 if fallback {
                     Operator::Modulo
                 } else {
                     Operator::Plus
                 },
-                Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(2)))),
+                Arc::new(Literal::new(ScalarValue::Int32(Some(2)))),
             )),
             "n",
         ),
@@ -160,18 +168,18 @@ async fn projection_preserves_arrow_types(
     let plan = Arc::new(DataSourceExec::new(projected)) as Arc<dyn ExecutionPlan>;
     let expected_schema = plan.schema();
     let ctx = SessionContext::new();
-    let batches = datafusion_physical_plan::collect(plan, ctx.task_ctx()).await?;
+    let batches = collect(plan, ctx.task_ctx()).await?;
     assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 3);
     for batch in &batches {
         assert_eq!(batch.schema(), expected_schema);
     }
     let expected = if fallback {
-        arrow_array::record_batch!(
+        record_batch!(
             ("text", Utf8, vec![Some("one"), None, Some("three")]),
             ("n", Int32, vec![1, 0, 1])
         )?
     } else {
-        arrow_array::record_batch!(
+        record_batch!(
             ("text", Utf8, vec![Some("one"), None, Some("three")]),
             ("n", Int32, vec![3, 4, 5])
         )?
@@ -182,12 +190,12 @@ async fn projection_preserves_arrow_types(
 }
 
 #[tokio::test]
-async fn statistics_follow_filter_and_fetch() -> anyhow::Result<()> {
+async fn statistics_follow_filter_and_fetch() -> Result<()> {
     let source = vortex_source().await?;
-    let filter = Arc::new(df_expr::BinaryExpr::new(
-        Arc::new(df_expr::Column::new("a", 0)),
+    let filter = Arc::new(BinaryExpr::new(
+        Arc::new(Column::new("a", 0)),
         Operator::Gt,
-        df_expr::lit(1_i32),
+        lit(1_i32),
     ));
     let filtered = source
         .try_pushdown_filters(vec![filter], &ConfigOptions::new())?
@@ -200,8 +208,8 @@ async fn statistics_follow_filter_and_fetch() -> anyhow::Result<()> {
     );
     let rejected = limited.try_pushdown_filters(
         vec![
-            df_expr::lit(false),
-            Arc::new(DynamicFilterPhysicalExpr::new(vec![], df_expr::lit(false))),
+            lit(false),
+            Arc::new(DynamicFilterPhysicalExpr::new(vec![], lit(false))),
         ],
         &ConfigOptions::new(),
     )?;
@@ -214,36 +222,37 @@ async fn statistics_follow_filter_and_fetch() -> anyhow::Result<()> {
 }
 
 #[rstest]
-#[case(Operator::And, vec![30, 20], vec![30], vec![20])]
-#[case(Operator::Or, vec![30, 10, 20], vec![30, 20], vec![30, 20])]
+#[case(Operator::And, vec![30, 20], vec![30], vec![20], vec![])]
+#[case(Operator::Or, vec![30, 10, 20], vec![30, 20], vec![30, 20], vec![30, 20])]
 #[tokio::test]
 async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals(
     #[case] operator: Operator,
     #[case] unrestricted: Vec<i32>,
     #[case] above_bound: Vec<i32>,
     #[case] equal_bound: Vec<i32>,
-) -> anyhow::Result<()> {
+    #[case] modular_bound: Vec<i32>,
+) -> Result<()> {
     let source = vortex_source()
         .await?
         .try_swapping_with_projection(&ProjectionExprs::from(vec![ProjectionExpr::new(
-            Arc::new(df_expr::Column::new("b", 1)),
+            Arc::new(Column::new("b", 1)),
             "value",
         )]))?
         .unwrap();
-    let column = Arc::new(df_expr::Column::new("value", 0)) as Arc<dyn PhysicalExpr>;
+    let column = Arc::new(Column::new("value", 0)) as Arc<dyn PhysicalExpr>;
     let above = |value| {
-        Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(BinaryExpr::new(
             Arc::clone(&column),
             Operator::Gt,
-            df_expr::lit(value),
+            lit(value),
         )) as Arc<dyn PhysicalExpr>
     };
     let bound = Arc::new(DynamicFilterPhysicalExpr::new(
         vec![Arc::clone(&column)],
-        df_expr::lit(true),
+        lit(true),
     ));
     let pushed = source.try_pushdown_filters(
-        vec![Arc::new(df_expr::BinaryExpr::new(
+        vec![Arc::new(BinaryExpr::new(
             above(15_i32),
             operator,
             Arc::clone(&bound) as Arc<dyn PhysicalExpr>,
@@ -261,28 +270,29 @@ async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals(
         })
     })?;
     assert!(visited);
-    // An unsupported dynamic predicate must not erase the static AND restriction.
-    let unsupported = Arc::new(df_expr::BinaryExpr::new(
-        Arc::new(df_expr::BinaryExpr::new(
+    // A non-native dynamic predicate now runs in the DF callback, retaining the
+    // static restriction and the outer Boolean operator.
+    let modular = Arc::new(BinaryExpr::new(
+        Arc::new(BinaryExpr::new(
             Arc::clone(&column),
             Operator::Modulo,
-            df_expr::lit(2_i32),
+            lit(2_i32),
         )),
         Operator::Eq,
-        df_expr::lit(1_i32),
+        lit(1_i32),
     ));
     for (predicate, expected) in [
-        (df_expr::lit(true), unrestricted.clone()),
+        (lit(true), unrestricted.clone()),
         (above(25_i32), above_bound),
         (
-            Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(BinaryExpr::new(
                 Arc::clone(&column),
                 Operator::Eq,
-                df_expr::lit(20_i32),
+                lit(20_i32),
             )) as Arc<dyn PhysicalExpr>,
             equal_bound,
         ),
-        (unsupported as Arc<dyn PhysicalExpr>, unrestricted),
+        (modular as Arc<dyn PhysicalExpr>, modular_bound),
     ] {
         let stream = source.open(0, SessionContext::new().task_ctx())?;
         let schema = stream.schema();
@@ -315,9 +325,9 @@ struct ExtensionFilterFixture {
 }
 
 impl ExtensionFilterFixture {
-    fn new(extension_type: ExtensionFilterType) -> anyhow::Result<Self> {
+    fn new(extension_type: ExtensionFilterType) -> Result<Self> {
         let session = VortexSession::default();
-        vortex_json::initialize(&session);
+        initialize_json(&session);
 
         let (field, values) = match extension_type {
             ExtensionFilterType::Uuid => {
@@ -369,23 +379,23 @@ impl ExtensionFilterFixture {
     }
 
     fn column(&self) -> Arc<dyn PhysicalExpr> {
-        Arc::new(df_expr::Column::new(self.batch.schema().field(1).name(), 1))
+        Arc::new(Column::new(self.batch.schema().field(1).name(), 1))
     }
 
     fn literal(&self, index: usize) -> Arc<dyn PhysicalExpr> {
-        Arc::new(df_expr::Literal::new(self.values[index].clone()))
+        Arc::new(Literal::new(self.values[index].clone()))
     }
 
     fn comparison(&self, index: usize) -> Arc<dyn PhysicalExpr> {
-        Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(BinaryExpr::new(
             self.column(),
             Operator::Eq,
             self.literal(index),
         ))
     }
 
-    fn membership(&self) -> anyhow::Result<Arc<dyn PhysicalExpr>> {
-        Ok(Arc::new(df_expr::InListExpr::try_new(
+    fn membership(&self) -> Result<Arc<dyn PhysicalExpr>> {
+        Ok(Arc::new(InListExpr::try_new(
             self.column(),
             vec![self.literal(1), self.literal(1)],
             false,
@@ -393,14 +403,14 @@ impl ExtensionFilterFixture {
         )?))
     }
 
-    async fn source(&self) -> anyhow::Result<VortexDataSource> {
+    async fn source(&self) -> Result<VortexDataSource> {
         vortex_source_from_batch_with_session(self.batch.clone(), &self.session).await
     }
 }
 
 /// Collects row identifiers so the tests compare the scan restriction separately from its residual.
-async fn scan_ids(plan: Arc<dyn ExecutionPlan>) -> anyhow::Result<Vec<i32>> {
-    let batches = datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await?;
+async fn scan_ids(plan: Arc<dyn ExecutionPlan>) -> Result<Vec<i32>> {
+    let batches = collect(plan, SessionContext::new().task_ctx()).await?;
 
     Ok(batches
         .iter()
@@ -422,7 +432,7 @@ async fn scan_ids(plan: Arc<dyn ExecutionPlan>) -> anyhow::Result<Vec<i32>> {
 async fn test_extension_comparison_literals_are_pushed_down(
     #[case] extension_type: ExtensionFilterType,
     #[values(false, true)] reverse_operands: bool,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     let fixture = ExtensionFilterFixture::new(extension_type)?;
     let (left, right) = if reverse_operands {
         (fixture.literal(1), fixture.column())
@@ -430,7 +440,7 @@ async fn test_extension_comparison_literals_are_pushed_down(
         (fixture.column(), fixture.literal(1))
     };
 
-    let filter = Arc::new(df_expr::BinaryExpr::new(left, Operator::Eq, right));
+    let filter = Arc::new(BinaryExpr::new(left, Operator::Eq, right));
     let pushed = fixture
         .source()
         .await?
@@ -451,7 +461,7 @@ async fn test_extension_comparison_literals_are_pushed_down(
 #[tokio::test]
 async fn test_extension_membership_literals_are_pushed_down(
     #[case] extension_type: ExtensionFilterType,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     let fixture = ExtensionFilterFixture::new(extension_type)?;
     let pushed = fixture
         .source()
@@ -473,11 +483,11 @@ async fn test_extension_membership_literals_are_pushed_down(
 #[tokio::test]
 async fn test_dynamic_extension_literals_refresh_and_keep_residuals(
     #[case] extension_type: ExtensionFilterType,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     let fixture = ExtensionFilterFixture::new(extension_type)?;
     let bound = Arc::new(DynamicFilterPhysicalExpr::new(
         vec![fixture.column()],
-        df_expr::lit(true),
+        lit(true),
     ));
     let pushed = fixture.source().await?.try_pushdown_filters(
         vec![Arc::clone(&bound) as Arc<dyn PhysicalExpr>],
@@ -487,23 +497,19 @@ async fn test_dynamic_extension_literals_refresh_and_keep_residuals(
     let source = pushed
         .updated_node
         .ok_or_else(|| anyhow!("dynamic filter was not pushed"))?;
-    let unsupported = Arc::new(df_expr::BinaryExpr::new(
+    let distinct = Arc::new(BinaryExpr::new(
         fixture.column(),
         Operator::IsNotDistinctFrom,
         fixture.literal(1),
     ));
 
     for (predicate, expected_scan, expected_result) in [
-        (df_expr::lit(true), vec![1, 2, 3, 4], vec![1, 2, 3, 4]), //
-        (fixture.comparison(0), vec![1], vec![1]),                //
-        (fixture.comparison(2), vec![3], vec![3]),                //
-        (fixture.comparison(3), vec![], vec![]),                  //
-        (fixture.membership()?, vec![2], vec![2]),                //
-        (
-            unsupported as Arc<dyn PhysicalExpr>,
-            vec![1, 2, 3, 4],
-            vec![2],
-        ), //
+        (lit(true), vec![1, 2, 3, 4], vec![1, 2, 3, 4]), //
+        (fixture.comparison(0), vec![1], vec![1]),       //
+        (fixture.comparison(2), vec![3], vec![3]),       //
+        (fixture.comparison(3), vec![], vec![]),         //
+        (fixture.membership()?, vec![2], vec![2]),       //
+        (distinct as Arc<dyn PhysicalExpr>, vec![2], vec![2]), //
     ] {
         bound.update(predicate)?;
         let scan = Arc::new(DataSourceExec::new(Arc::clone(&source))) as Arc<dyn ExecutionPlan>;
@@ -522,7 +528,7 @@ async fn test_dynamic_extension_literals_refresh_and_keep_residuals(
 /// The V2 source has no schema adapter, so a projection over an extension column must produce
 /// batches with exactly the plan schema.
 #[tokio::test]
-async fn test_extension_projection_preserves_arrow_type() -> anyhow::Result<()> {
+async fn test_extension_projection_preserves_arrow_type() -> Result<()> {
     let fixture = ExtensionFilterFixture::new(ExtensionFilterType::Json)?;
     let projection = ProjectionExprs::from(vec![ProjectionExpr::new(fixture.column(), "value")]);
     let projected = fixture
@@ -533,7 +539,7 @@ async fn test_extension_projection_preserves_arrow_type() -> anyhow::Result<()> 
     let plan = Arc::new(DataSourceExec::new(projected)) as Arc<dyn ExecutionPlan>;
     let plan_schema = plan.schema();
 
-    let batches = datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await?;
+    let batches = collect(plan, SessionContext::new().task_ctx()).await?;
     for batch in &batches {
         assert_eq!(batch.schema(), plan_schema);
     }
@@ -541,5 +547,60 @@ async fn test_extension_projection_preserves_arrow_type() -> anyhow::Result<()> 
     let actual = concat_batches(&plan_schema, &batches)?;
     assert_eq!(actual.column(0), fixture.batch.column(1));
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn dynamic_df_expression_case_refreshes_after_projection() -> Result<()> {
+    let batch = RecordBatch::try_from_iter(vec![(
+        "id",
+        Arc::new(Int64Array::from(vec![
+            Some(1),
+            Some(2),
+            None,
+            Some(3),
+            Some(4),
+        ])) as ArrayRef,
+    )])?;
+    let source = vortex_source_from_batch(batch.clone())
+        .await?
+        .try_swapping_with_projection(&ProjectionExprs::from(vec![ProjectionExpr::new(
+            Arc::new(Column::new("id", 0)),
+            "value",
+        )]))?
+        .unwrap();
+    let reference = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int64,
+            true,
+        )])),
+        batch.columns().to_vec(),
+    )?;
+    let column = Arc::new(Column::new("value", 0)) as Arc<dyn PhysicalExpr>;
+    let bound = Arc::new(DynamicFilterPhysicalExpr::new(
+        vec![Arc::clone(&column)],
+        lit(true),
+    ));
+    let pushed = source.try_pushdown_filters(
+        vec![Arc::clone(&bound) as Arc<dyn PhysicalExpr>],
+        &ConfigOptions::new(),
+    )?;
+    assert!(matches!(pushed.filters.as_slice(), [PushedDown::No]));
+    let source = pushed.updated_node.unwrap();
+    for predicate in [
+        lookup(Arc::new(Int64Array::from(vec![1])), Arc::clone(&column))?,
+        routed(column)?,
+    ] {
+        let expected = predicate
+            .evaluate(&reference)?
+            .into_array_of_size(reference.num_rows())?;
+        let expected = filter_record_batch(&reference, expected.as_boolean())?;
+        let stream = source.open(0, SessionContext::new().task_ctx())?;
+        let schema = stream.schema();
+        bound.update(predicate)?;
+        let actual = concat_batches(&schema, &stream.try_collect::<Vec<_>>().await?)?;
+        assert_eq!(actual, expected);
+    }
     Ok(())
 }
