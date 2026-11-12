@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt;
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::fmt::Result as FmtResult;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
@@ -97,15 +100,15 @@ struct DataFusionDynamicFilter {
     converter: Arc<dyn ExpressionConverter>,
 }
 
-impl fmt::Debug for DataFusionDynamicFilter {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.expression, f)
+impl Debug for DataFusionDynamicFilter {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        Display::fmt(&self.expression, f)
     }
 }
 
-impl fmt::Display for DataFusionDynamicFilter {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.expression, f)
+impl Display for DataFusionDynamicFilter {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        Display::fmt(&self.expression, f)
     }
 }
 

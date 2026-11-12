@@ -11,6 +11,7 @@ mod fallback;
 #[cfg(test)]
 pub(crate) mod mixed_tests;
 
+use std::any::Any;
 use std::sync::Arc;
 
 use arrow_schema::DataType;
@@ -41,7 +42,18 @@ use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::ScalarFunctionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::collect_columns;
-use datafusion_physical_plan::expressions as df_expr;
+use datafusion_physical_plan::expressions::BinaryExpr;
+use datafusion_physical_plan::expressions::CaseExpr;
+use datafusion_physical_plan::expressions::CastExpr;
+use datafusion_physical_plan::expressions::Column;
+use datafusion_physical_plan::expressions::InListExpr;
+use datafusion_physical_plan::expressions::IsNotNullExpr;
+use datafusion_physical_plan::expressions::IsNullExpr;
+use datafusion_physical_plan::expressions::LambdaExpr;
+use datafusion_physical_plan::expressions::LambdaVariable;
+use datafusion_physical_plan::expressions::LikeExpr;
+use datafusion_physical_plan::expressions::Literal as DFLiteral;
+use datafusion_physical_plan::expressions::NotExpr;
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex::VortexSessionDefault;
@@ -81,6 +93,12 @@ use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
+
+use self::fallback::compatible as native_compatible;
+use self::fallback::eager as evaluates_children_eagerly;
+use self::fallback::lower as lower_df_expression;
+use crate::df_expression::contains_higher_order_function;
+use crate::df_expression::eligible;
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
@@ -358,7 +376,7 @@ impl DefaultExpressionConverter {
         schema: &Schema,
     ) -> Conversion<Expression> {
         let mut column_indices = validate_columns(expr, schema)?;
-        if crate::df_expression::contains_higher_order_function(expr) {
+        if contains_higher_order_function(expr) {
             column_indices = (0..schema.fields().len()).collect();
         }
         let input_dtype = self
@@ -430,9 +448,9 @@ impl DefaultExpressionConverter {
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
-        let mut result = if !fallback::compatible(expr, schema)? {
+        let mut result = if !native_compatible(expr, schema)? {
             Err(Unconverted::Unsupported)
-        } else if self.df_fallback && !fallback::eager(expr) {
+        } else if self.df_fallback && !evaluates_children_eagerly(expr) {
             self.native_only()
                 .convert_native_expr(expr, schema, input_dtype)
         } else {
@@ -448,7 +466,7 @@ impl DefaultExpressionConverter {
             Err(Unconverted::Unsupported)
                 if self.df_fallback && matches!(self.scope, Scope::Global) =>
             {
-                fallback::lower(self, expr, schema, false)
+                lower_df_expression(self, expr, schema, false)
             }
             other => other,
         }
@@ -460,7 +478,7 @@ impl DefaultExpressionConverter {
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
-        if let Some(binary_expr) = expr.downcast_ref::<df_expr::BinaryExpr>() {
+        if let Some(binary_expr) = expr.downcast_ref::<BinaryExpr>() {
             let operator =
                 try_operator_from_df(binary_expr.op()).ok_or(Unconverted::Unsupported)?;
             let boolean_operator = matches!(operator, Operator::And | Operator::Or);
@@ -503,14 +521,14 @@ impl DefaultExpressionConverter {
             return Ok(Binary.new_expr(operator, [left, right]));
         }
 
-        if let Some(col_expr) = expr.downcast_ref::<df_expr::Column>() {
+        if let Some(col_expr) = expr.downcast_ref::<Column>() {
             return match self.scope {
                 Scope::Global => Ok(get_item(col_expr.name(), root())),
                 Scope::Lambda(_) => Err(Unconverted::Unsupported),
             };
         }
 
-        if let Some(variable) = expr.downcast_ref::<df_expr::LambdaVariable>() {
+        if let Some(variable) = expr.downcast_ref::<LambdaVariable>() {
             return match &self.scope {
                 Scope::Lambda(params) if params.find(variable.name()).is_some() => {
                     Ok(get_item(variable.name(), root()))
@@ -522,20 +540,20 @@ impl DefaultExpressionConverter {
         }
 
         if let Some(function) = expr.downcast_ref::<HigherOrderFunctionExpr>() {
-            let function_impl: &dyn std::any::Any = function.fun().inner().as_ref();
+            let function_impl: &dyn Any = function.fun().inner().as_ref();
             if function_impl.downcast_ref::<ArrayTransform>().is_some() {
                 return self.convert_array_transform(function, schema, input_dtype);
             }
             return Err(Unconverted::Unsupported);
         }
 
-        if let Some(literal) = expr.downcast_ref::<df_expr::Literal>() {
+        if let Some(literal) = expr.downcast_ref::<DFLiteral>() {
             let field = literal.return_field(schema)?;
 
             return Ok(lit(self.import_literal(literal, &field)?));
         }
 
-        if let Some(cast_expr) = expr.downcast_ref::<df_expr::CastExpr>() {
+        if let Some(cast_expr) = expr.downcast_ref::<CastExpr>() {
             let pushdown = classify_cast(cast_expr, schema)?;
             let child = self.convert_expr(cast_expr.expr(), schema, input_dtype)?;
             // DataFusion casts preserve input nulls even when the target field is declared
@@ -561,7 +579,7 @@ impl DefaultExpressionConverter {
             };
         }
 
-        if let Some(not_expr) = expr.downcast_ref::<df_expr::NotExpr>() {
+        if let Some(not_expr) = expr.downcast_ref::<NotExpr>() {
             if not_expr.arg().data_type(schema)? != DataType::Boolean {
                 return Err(exec_datafusion_err!("NOT requires a Boolean operand: {expr}").into());
             }
@@ -572,17 +590,17 @@ impl DefaultExpressionConverter {
             )?));
         }
 
-        if let Some(is_null_expr) = expr.downcast_ref::<df_expr::IsNullExpr>() {
+        if let Some(is_null_expr) = expr.downcast_ref::<IsNullExpr>() {
             let arg = self.convert_expr(is_null_expr.arg(), schema, input_dtype)?;
             return Ok(is_null(arg));
         }
 
-        if let Some(is_not_null_expr) = expr.downcast_ref::<df_expr::IsNotNullExpr>() {
+        if let Some(is_not_null_expr) = expr.downcast_ref::<IsNotNullExpr>() {
             let arg = self.convert_expr(is_not_null_expr.arg(), schema, input_dtype)?;
             return Ok(is_not_null(arg));
         }
 
-        if let Some(like) = expr.downcast_ref::<df_expr::LikeExpr>() {
+        if let Some(like) = expr.downcast_ref::<LikeExpr>() {
             // Dictionary-encoded strings convert to Utf8 too.
             let child = self.convert_string(like.expr(), schema, input_dtype)?;
             let pattern = self.convert_string(like.pattern(), schema, input_dtype)?;
@@ -595,7 +613,7 @@ impl DefaultExpressionConverter {
             ));
         }
 
-        if let Some(in_list) = expr.downcast_ref::<df_expr::InListExpr>() {
+        if let Some(in_list) = expr.downcast_ref::<InListExpr>() {
             return self.convert_in_list(in_list, schema, input_dtype);
         }
 
@@ -603,7 +621,7 @@ impl DefaultExpressionConverter {
             return self.convert_scalar_function(scalar_fn, schema, input_dtype);
         }
 
-        if let Some(case_expr) = expr.downcast_ref::<df_expr::CaseExpr>() {
+        if let Some(case_expr) = expr.downcast_ref::<CaseExpr>() {
             return self.convert_case_expr(case_expr, schema, input_dtype);
         }
 
@@ -623,7 +641,7 @@ impl DefaultExpressionConverter {
         input_dtype: &DType,
     ) -> Conversion<Expression> {
         if operator.is_comparison()
-            && let Some(literal) = expr.downcast_ref::<df_expr::Literal>()
+            && let Some(literal) = expr.downcast_ref::<DFLiteral>()
         {
             let field = other.return_field(schema)?;
             let scalar = self.import_literal_for_operand(literal, &field, schema)?;
@@ -642,7 +660,7 @@ impl DefaultExpressionConverter {
     /// payload, so the import cannot combine metadata from two different types.
     fn import_literal_for_operand(
         &self,
-        literal: &df_expr::Literal,
+        literal: &DFLiteral,
         operand_field: &Field,
         schema: &Schema,
     ) -> Conversion<Scalar> {
@@ -663,7 +681,7 @@ impl DefaultExpressionConverter {
     }
 
     /// Imports one scalar through the session's Arrow plugins, preserving `field`'s metadata.
-    fn import_literal(&self, literal: &df_expr::Literal, field: &Field) -> Conversion<Scalar> {
+    fn import_literal(&self, literal: &DFLiteral, field: &Field) -> Conversion<Scalar> {
         let array = literal.value().to_array()?;
         if array.len() != 1 {
             return Err(exec_datafusion_err!(
@@ -702,15 +720,12 @@ impl DefaultExpressionConverter {
 
     fn convert_in_list(
         &self,
-        in_list: &df_expr::InListExpr,
+        in_list: &InListExpr,
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
         if in_list.is_empty()
-            || !in_list
-                .list()
-                .iter()
-                .all(|expr| expr.is::<df_expr::Literal>())
+            || !in_list.list().iter().all(|expr| expr.is::<DFLiteral>())
             || !supported_data_types(&in_list.expr().data_type(schema)?)
         {
             return Err(Unconverted::Unsupported);
@@ -728,10 +743,10 @@ impl DefaultExpressionConverter {
         let elements = in_list
             .list()
             .iter()
-            .unique_by(|element| element.downcast_ref::<df_expr::Literal>().cloned())
+            .unique_by(|element| element.downcast_ref::<DFLiteral>().cloned())
             .map(|element| {
                 let literal = element
-                    .downcast_ref::<df_expr::Literal>()
+                    .downcast_ref::<DFLiteral>()
                     .ok_or(Unconverted::Unsupported)?;
 
                 self.import_literal_for_operand(literal, &value_field, schema)
@@ -801,7 +816,7 @@ impl DefaultExpressionConverter {
             };
             // Only a literal needle becomes a LIKE pattern that encodings and stats can use.
             let Some(Some(needle)) = needle
-                .downcast_ref::<df_expr::Literal>()
+                .downcast_ref::<DFLiteral>()
                 .and_then(|literal| literal.value().try_as_str())
             else {
                 return Err(Unconverted::Unsupported);
@@ -831,7 +846,7 @@ impl DefaultExpressionConverter {
             let mut names = Vec::with_capacity(paths.len());
             for path in paths {
                 let name = path
-                    .downcast_ref::<df_expr::Literal>()
+                    .downcast_ref::<DFLiteral>()
                     .and_then(|literal| literal.value().try_as_str().flatten())
                     .ok_or_else(|| {
                         exec_datafusion_err!("get_field path must be a non-null string literal")
@@ -926,7 +941,7 @@ impl DefaultExpressionConverter {
                 exec_datafusion_err!("array_transform requires a list and a lambda").into(),
             );
         };
-        let Some(lambda) = lambda.downcast_ref::<df_expr::LambdaExpr>() else {
+        let Some(lambda) = lambda.downcast_ref::<LambdaExpr>() else {
             return Err(Unconverted::Unsupported);
         };
         let [param] = lambda.params() else {
@@ -954,7 +969,7 @@ impl DefaultExpressionConverter {
 
     fn convert_case_expr(
         &self,
-        case_expr: &df_expr::CaseExpr,
+        case_expr: &CaseExpr,
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
@@ -992,7 +1007,7 @@ impl ExpressionConverter for DefaultExpressionConverter {
         if DynamicFilterTracking::classify(expr).contains_dynamic_filter() {
             return Ok(None);
         }
-        if !crate::df_expression::eligible(expr) {
+        if !eligible(expr) {
             return Ok(None);
         }
         match self.conversion_context().convert_checked(expr, schema) {
@@ -1006,7 +1021,7 @@ impl ExpressionConverter for DefaultExpressionConverter {
         expr: &Arc<dyn PhysicalExpr>,
         schema: &Schema,
     ) -> DFResult<Option<Expression>> {
-        if !crate::df_expression::eligible(expr) || expr.data_type(schema)? != DataType::Boolean {
+        if !eligible(expr) || expr.data_type(schema)? != DataType::Boolean {
             return Ok(None);
         }
         let converter = self.conversion_context();
@@ -1015,7 +1030,7 @@ impl ExpressionConverter for DefaultExpressionConverter {
             Err(Unconverted::Failed(error)) => return Err(error),
             _ => {}
         }
-        match fallback::lower(&converter, expr, schema, true) {
+        match lower_df_expression(&converter, expr, schema, true) {
             Ok(value) => Ok(Some(value)),
             Err(Unconverted::Unsupported) => Ok(None),
             Err(Unconverted::Failed(error)) => Err(error),
@@ -1072,7 +1087,7 @@ enum CastPushdown {
 }
 
 /// Classifies a cast for pushdown; unsupported casts stay in DataFusion.
-fn classify_cast(cast: &df_expr::CastExpr, schema: &Schema) -> Conversion<CastPushdown> {
+fn classify_cast(cast: &CastExpr, schema: &Schema) -> Conversion<CastPushdown> {
     let options = cast.cast_options();
     if options.safe || options.format_options != DEFAULT_FORMAT_OPTIONS {
         return Err(Unconverted::Unsupported);
@@ -1207,7 +1222,7 @@ fn array_length_input(scalar_fn: &ScalarFunctionExpr) -> DFResult<Option<&Arc<dy
         [input] => Ok(Some(input)),
         [input, dimension]
             if dimension
-                .downcast_ref::<df_expr::Literal>()
+                .downcast_ref::<DFLiteral>()
                 .is_some_and(|literal| matches!(literal.value(), ScalarValue::Int64(Some(1)))) =>
         {
             Ok(Some(input))

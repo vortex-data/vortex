@@ -32,6 +32,12 @@ use super::Conversion;
 use super::DefaultExpressionConverter;
 use super::Unconverted;
 use super::is_infallible;
+use super::validate_columns;
+use crate::df_expression::contains_higher_order_function;
+use crate::df_expression::eligible;
+use crate::df_expression::from_inputs;
+use crate::df_expression::preserve_field;
+use crate::df_expression::raw_expression;
 
 pub(super) fn eager(expression: &Arc<dyn PhysicalExpr>) -> bool {
     expression.is::<Column>() || expression.is::<Literal>() || expression.is::<CastExpr>()
@@ -111,18 +117,13 @@ pub(super) fn lower(
     schema: &Schema,
     advisory: bool,
 ) -> Conversion<Expression> {
-    super::validate_columns(expression, schema)?;
-    if !crate::df_expression::eligible(expression) {
+    validate_columns(expression, schema)?;
+    if !eligible(expression) {
         return Err(Unconverted::Unsupported);
     }
-    if crate::df_expression::contains_higher_order_function(expression) {
-        return crate::df_expression::raw_expression(
-            Arc::clone(expression),
-            schema,
-            &converter.session,
-            advisory,
-        )?
-        .ok_or(Unconverted::Unsupported);
+    if contains_higher_order_function(expression) {
+        return raw_expression(Arc::clone(expression), schema, &converter.session, advisory)?
+            .ok_or(Unconverted::Unsupported);
     }
     let native = converter.native_only();
     let mut extraction = Extraction {
@@ -136,7 +137,7 @@ pub(super) fn lower(
         arrays: HashMap::default(),
     };
     let expression = extraction.rewrite(expression, true, false)?;
-    crate::df_expression::from_inputs(
+    from_inputs(
         expression,
         Arc::new(Schema::new(extraction.fields)),
         extraction.inputs,
@@ -253,7 +254,7 @@ impl Extraction<'_> {
             .map(|child| self.rewrite(child, allow, true))
             .collect::<Conversion<Vec<_>>>()?;
         let rewritten = Arc::clone(expression).with_new_children(children)?;
-        crate::df_expression::preserve_field(
+        preserve_field(
             expression,
             rewritten,
             self.schema,
