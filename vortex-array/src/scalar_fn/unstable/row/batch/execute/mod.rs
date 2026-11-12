@@ -5,7 +5,8 @@
 //!
 //! [`BatchInputs::try_execute_without_retry`] finishes every batch that at most one kernel call can
 //! finish, inside the planning visit. The rest come back as a [`PartiallyValidBatch`] for a dense
-//! retry or valid-row execution. The `visitor::fused` module explains why.
+//! retry or valid-row execution. Finishing inside the visit reuses its row closure, avoiding
+//! another dispatch to recover the same kernel.
 
 use vortex_error::VortexResult;
 use vortex_mask::MaskValuesRef;
@@ -33,14 +34,26 @@ impl<'a> BatchInputs<'a> {
     /// Execute this batch under `plan` when at most one call to `kernel` can finish it. Otherwise
     /// return it as a [`PartiallyValidBatch`] that needs a dense retry or valid-row execution.
     ///
+    /// The callback's optional validity argument follows the [dense execution contract]. It lets a
+    /// kernel attach batch validity during output construction, avoiding a second array construction
+    /// for masking. Other kernels leave it unchanged and return all-valid output. All-constant
+    /// execution passes `None` because it evaluates one valid row instead of constructing the full
+    /// batch.
+    ///
     /// A deferred kernel does not report which row failed, and `kernel` returns its failure as an
     /// error. That is correct here because this method runs a deferred kernel only when no row is
     /// null, so the failing row is valid.
+    ///
+    /// [dense execution contract]: super::RowFnExecutionArgs::execute_dense
     pub(crate) fn try_execute_without_retry(
         self,
         arg_dtypes: &[DType],
         plan: BatchPlan,
-        kernel: impl FnOnce(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl FnOnce(
+            BorrowedRowFnArgs<'_>,
+            &mut Option<Validity>,
+            &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Result<ArrayRef, PartiallyValidBatch<'a>>> {
         // Every output row is null, so skip the kernel. Checking `has_null_const` as well keeps
@@ -49,7 +62,8 @@ impl<'a> BatchInputs<'a> {
             return Ok(Ok(self.with_plan(arg_dtypes, plan).all_null()));
         }
 
-        // Every input is constant and no row is null, so one row decides the whole output.
+        // Every input is constant and no row is null, so evaluate one row instead of decoding and
+        // allocating an output for the full batch. An empty batch has no row to evaluate.
         // `all_batch_const` sees through extension and masked wrappers, as argument decoding does.
         if self.probe.row_count > 0
             && self.probe.validity.definitely_no_nulls()
@@ -61,9 +75,9 @@ impl<'a> BatchInputs<'a> {
                 .map(Ok);
         }
 
-        // One kernel call is safe when no row is null or the policy lets the kernel see null rows.
-        // This check does not execute an array-backed validity, because that scans the whole mask.
-        // Each later strategy does so only when it must.
+        // A contiguous loop needs no validity scan when every row is known valid or the policy
+        // permits evaluating null-row payloads. Other policies must resolve validity first so a
+        // null row cannot cause a decode or kernel error that masking would fail to hide.
         if self.probe.validity.definitely_no_nulls() || plan.policy() == RowPolicy::Dense {
             return self
                 .with_plan(arg_dtypes, plan)

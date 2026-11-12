@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Execution over every stored payload, including payloads in null rows.
+//!
+//! When the input types and kernel tolerate null-row payloads, a contiguous row loop avoids
+//! materializing validity, filtering the inputs, or testing validity at each row. Batch validity
+//! makes the results computed from null payloads unobservable.
+//!
+//! Most kernels build all-valid storage that this module masks afterward. The Boolean collector
+//! already controls construction of its final array, so it can attach batch validity in that
+//! constructor. Passing validity into the kernel avoids constructing an all-valid array only to
+//! replace it with a masked array, and keeps array-backed validity lazy.
+
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -20,15 +31,46 @@ use crate::validity::Validity;
 
 impl RowFnExecutionArgs<'_> {
     /// Run every stored payload, then attach the input validity without materializing its mask.
+    ///
+    /// The caller must establish that every row is valid or that the plan permits evaluating
+    /// null-row payloads. The callback receives `Some(batch_validity)` only when that validity is
+    /// array-backed, and must follow one of these paths:
+    ///
+    /// - Leave the option unchanged and return all-valid kernel output. This method validates the
+    ///   output and attaches batch validity afterward.
+    /// - Call `take()` and return a nullable array carrying that exact validity. This method then
+    ///   checks the output's length and dtype without requiring every row to be valid or masking
+    ///   the array again.
+    ///
+    /// An initial `None` must remain `None`, and its kernel output must be all-valid. The callback
+    /// **must not** insert or replace validity. Taking validity without attaching it can produce
+    /// incorrect nulls: the executor trusts the callback and does not compare the returned array's
+    /// validity with the original batch validity.
     pub(super) fn execute_dense(
         &self,
-        kernel: impl FnOnce(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl FnOnce(
+            BorrowedRowFnArgs<'_>,
+            &mut Option<Validity>,
+            &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        // Only array-backed validity carries a per-row mask. The Boolean constructor can attach
+        // it without executing that mask. Known all-valid inputs need no such handoff.
+        let has_array_validity = matches!(self.batch.probe.validity, Validity::Array(_));
+        let mut validity = has_array_validity.then(|| self.batch.probe.validity.clone());
         let values = kernel(
             self.execution_args(&self.batch.inputs, self.batch.probe.row_count),
+            &mut validity,
             ctx,
         )?;
+
+        // If `kernel` took `Some(validity)` and built a nullable result, its contract requires that
+        // it attached that validity. The all-valid kernel check would now execute the validity and
+        // reject propagated input nulls. Only length, dtype, and logical nullability need checking.
+        if has_array_validity && validity.is_none() && values.dtype().is_nullable() {
+            return self.finalize_output(values, self.batch.probe.row_count);
+        }
 
         self.finalize_dense_output(values, ctx)
     }
@@ -121,11 +163,13 @@ impl RowFnExecutionArgs<'_> {
                 self.finalize_output(values, self.batch.probe.row_count)
             }
             Validity::Array(valid) => {
-                // `values.mask(valid)` builds and optimizes a ScalarFnArray to dispatch through
-                // parent-reduce rules. Benchmarks motivated bypassing that setup here, keeping the
-                // exception internal instead of adding canonical-specific dispatch to the generic
-                // builtin. Remove this bypass if `.mask()` gains equivalent direct dispatch.
-                // https://github.com/vortex-data/vortex/pull/10742
+                // `values.mask(valid)` builds and optimizes a scalar-function expression before
+                // reaching canonical masking. Attach validity directly when the output is already
+                // canonical to avoid that setup. Keeping this shortcut here leaves the generic
+                // builtin independent of canonical encodings.
+                // TODO(connor): Replace this shortcut with `values.mask(valid)` once the builtin
+                // can dispatch directly to canonical validity replacement without building and
+                // optimizing a scalar-function expression.
                 let values = match values.as_opt::<AnyCanonical>() {
                     Some(canonical) => mask_validity_canonical(
                         Canonical::from(canonical),
