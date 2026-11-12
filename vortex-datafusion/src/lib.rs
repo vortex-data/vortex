@@ -89,12 +89,14 @@ use datafusion_common::stats::Precision as DFPrecision;
 use vortex::expr::stats::Precision;
 
 pub mod convert;
+mod df_expression;
 mod persistent;
 pub mod v2;
 
 #[cfg(test)]
 mod tests;
 
+pub use df_expression::df_expression;
 pub use persistent::*;
 
 /// Extension trait to convert our [`Precision`] to DataFusion's
