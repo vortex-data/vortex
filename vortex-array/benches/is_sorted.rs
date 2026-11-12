@@ -109,16 +109,12 @@ fn utf8_scan(bencher: Bencher, &(direction, strict): &(SortDirection, bool)) {
     scan(bencher, array, IsSortedOptions { strict, direction });
 }
 
+/// `DictEncoder` assigns ascending codes, so the values carry the direction.
 #[divan::bench(args = CASES)]
 fn dictionary(bencher: Bencher, &(direction, strict): &(SortDirection, bool)) {
-    let dictionary: Buffer<i64> = values(SortDirection::Asc).collect();
+    let dictionary: Buffer<i64> = values(direction).collect();
     let len = u32::try_from(LEN).vortex_expect("valid len");
-    let codes: Buffer<u32> = (0..len)
-        .map(|i| match direction {
-            SortDirection::Asc => i,
-            SortDirection::Desc => len - 1 - i,
-        })
-        .collect();
+    let codes: Buffer<u32> = (0..len).collect();
     bencher
         .counter(ItemsCount::new(LEN))
         .with_inputs(|| {
