@@ -415,6 +415,17 @@ unwrap_in_result = "deny"
 unwrap_used = "deny"
 use_debug = "deny"
 
+# Local builds keep only line tables for workspace crates, so backtraces and stepping still show
+# file and line. Dependencies carry no debuginfo: their DWARF was most of each test executable's
+# bytes and link time. For full debuginfo, pass `--config 'profile.dev.debug=true'` for the
+# workspace, or `--config 'profile.dev.package.<crate>.debug=true'` for one dependency.
+[profile.dev]
+debug = "line-tables-only"
+
+# This rule only applies to dependencies that are not members of the workspace.
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 codegen-units = 1
 # Our general performance should not be dependent on LTO since crates that use

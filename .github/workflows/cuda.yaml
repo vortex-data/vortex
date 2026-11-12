@@ -19,7 +19,10 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
+  # Do not capture backtraces. Each VortexError captures one when it is made, and its Display
+  # resolves it, which reads the test executable's debuginfo. A failed test still shows the
+  # location of its panic. To get backtraces, run the test again with RUST_BACKTRACE=1.
+  RUST_BACKTRACE: 0
   TY_VERSION: 0.0.98
 
 jobs:

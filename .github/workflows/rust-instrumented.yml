@@ -1,11 +1,12 @@
 name: Rust Instrumented
 
 # Concurrency control:
-# - PRs: new commits on a feature branch will cancel in-progress (outdated) runs.
+# - PRs: each run has its own group. The `supersede` job cancels the older runs of the PR. A shared
+#   group makes the new run wait, with no checks on the PR, until the old run stops.
 # - Push to develop: runs queue sequentially, never cancelled.
 # - `workflow_dispatch`: groups by branch and queues if run on develop.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
 on:
   push:
@@ -19,10 +20,35 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
+  # Do not capture backtraces. Each VortexError captures one when it is made, and its Display
+  # resolves it, which reads the test executable's debuginfo. A failed test still shows the
+  # location of its panic. To get backtraces, run the test again with RUST_BACKTRACE=1.
+  RUST_BACKTRACE: 0
   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
 
 jobs:
+  supersede:
+    name: "Cancel superseded runs"
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      actions: write
+    steps:
+      - name: Cancel older runs of this PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.head_ref }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow "$GITHUB_WORKFLOW" --event pull_request \
+            --branch "$HEAD_REF" --limit 50 --json databaseId,status \
+            --jq ".[] | select(.status != \"completed\" and .databaseId < $RUN_ID) | .databaseId" |
+            while read -r id; do
+              echo "Cancelling run $id"
+              gh run cancel "$id" --repo "$GITHUB_REPOSITORY" || true
+            done
+
   rust-coverage:
     name: "Rust tests (coverage) (${{ matrix.suite }})"
     # Coverage only runs on develop; PRs get the same tests uninstrumented in ci.yml.
@@ -76,7 +102,7 @@ jobs:
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         run: |
-          cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-python-cuda
+          cargo nextest run --locked --workspace --all-features --lib --bins --tests --no-fail-fast --exclude vortex-python-cuda
       - name: Generate coverage report
         run: |
           RUST_SYSROOT="$(rustc --print sysroot)"

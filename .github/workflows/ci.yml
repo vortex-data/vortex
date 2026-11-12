@@ -1,11 +1,12 @@
 name: Linters and Tests
 
 # Concurrency control:
-# - PRs: new commits on a feature branch will cancel in-progress (outdated) runs.
+# - PRs: each run has its own group. The `supersede` job cancels the older runs of the PR. A shared
+#   group makes the new run wait, with no checks on the PR, until the old run stops.
 # - Push to develop: runs queue sequentially, never cancelled.
 # - `workflow_dispatch`: groups by branch and queues if run on develop.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
 on:
   push:
@@ -22,11 +23,36 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
+  # Do not capture backtraces. Each VortexError captures one when it is made, and its Display
+  # resolves it, which reads the test executable's debuginfo. A failed test still shows the
+  # location of its panic. To get backtraces, run the test again with RUST_BACKTRACE=1.
+  RUST_BACKTRACE: 0
   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
   TY_VERSION: 0.0.98
 
 jobs:
+  supersede:
+    name: "Cancel superseded runs"
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      actions: write
+    steps:
+      - name: Cancel older runs of this PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.head_ref }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow "$GITHUB_WORKFLOW" --event pull_request \
+            --branch "$HEAD_REF" --limit 50 --json databaseId,status \
+            --jq ".[] | select(.status != \"completed\" and .databaseId < $RUN_ID) | .databaseId" |
+            while read -r id; do
+              echo "Cancelling run $id"
+              gh run cancel "$id" --repo "$GITHUB_REPOSITORY" || true
+            done
+
   duckdb-mirror:
     name: "Mirror DuckDB to R2"
     if: github.event.pull_request.draft != true && github.event_name == 'pull_request'
@@ -418,7 +444,7 @@ jobs:
           || 'windows-latest' }}
     env:
       NEXTEST_WINDOWS_ARGS: >-
-        --cargo-profile ci --locked --workspace --all-features
+        --cargo-profile ci --locked --workspace --all-features --lib --bins --tests
         --exclude vortex-bench
         --exclude vortex-python
         --exclude vortex-fuzz --exclude vortex-cuda --exclude vortex-cuda-ffi
@@ -577,10 +603,10 @@ jobs:
           enable-sccache: "true"
       - name: Rust Tests
         run: |
-          cargo nextest run --cargo-profile ci --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest
+          cargo nextest run --cargo-profile ci --locked --workspace --all-features --lib --bins --tests --no-fail-fast --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest
       - uses: ./.github/actions/check-rebuild
         with:
-          command: "cargo test --profile ci --locked --workspace --all-features --no-run --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest"
+          command: "cargo test --profile ci --locked --workspace --all-features --lib --bins --tests --no-run --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest"
 
       - name: Alert incident.io
         if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
@@ -915,15 +941,16 @@ jobs:
           # edition configurations. Compact compression additionally needs its optional schemes.
           - name: Golden corpus (edition configurations)
             run: |
-              cargo nextest run --cargo-profile ci --locked --no-fail-fast -p vortex-btrblocks --test golden
+              cargo nextest run --cargo-profile ci --locked --no-fail-fast -p vortex-btrblocks --test integration \
+                -E 'test(/^golden::/)'
           - run: cargo build --profile ci --target wasm32-wasip1
             working-directory: ./wasm-test
       - parallel:
           - name: Golden corpus (compact, zstd + pco)
             if: "!cancelled()"
             run: |
-              cargo nextest run --cargo-profile ci --locked --no-fail-fast -p vortex-btrblocks --test golden \
-                --features zstd,pco -E 'test(golden_compact)'
+              cargo nextest run --cargo-profile ci --locked --no-fail-fast -p vortex-btrblocks --test integration \
+                --features zstd,pco -E 'test(/^golden::golden_compact/)'
           - name: Run tests
             if: "!cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')"
             shell: bash
