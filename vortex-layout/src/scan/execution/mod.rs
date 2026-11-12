@@ -46,6 +46,7 @@ use self::projection::ProjectionPlanner;
 pub use self::prune::PruneNext;
 pub use self::prune::PrunePlanner;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::pipeline::RetainedArrays;
 use crate::plan::physical::pipeline::ValueCache;
 use crate::scan::v2::ScanCache;
 use crate::scan::v2::io::SegmentRanges;
@@ -101,6 +102,9 @@ pub struct PreparedScan {
     /// Whole values, such as dictionary values, shared by the chunks of this scan. Their plans
     /// always read the same complete row domain, independently of a chunk's selection.
     pub(super) values: ValueCache,
+    /// Arrays decoded from the file's segments, shared by the chunks of this scan and the file's
+    /// other scans while their rows are claimed.
+    pub(super) arrays: Option<RetainedArrays>,
     /// The liveness the scan's work reports to, if its cache tracks one.
     pub(super) liveness: Option<Liveness>,
     /// The rows of one chunk, the unit of work a chunk planner emits.

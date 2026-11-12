@@ -636,7 +636,8 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
 }
 
 /// Work chunks that each overlap half of a stored segment read it once while the file's cache
-/// retains segments, and once per chunk when it retains nothing.
+/// retains segments and a driver claims the rows still to scan, and once per chunk when it
+/// retains nothing.
 #[rstest]
 #[case::retained(None, 1)]
 #[case::not_retained(Some(0), 2)]
@@ -659,12 +660,49 @@ async fn chunks_sharing_a_segment_read_it_once(
     let chunk_rows = CHUNK_ROWS / 2;
     scan.chunk_rows = chunk_rows;
     let scan = Arc::new(scan);
+    // A driver claims the rows its root has yet to scan, as here.
+    let _remaining = scan
+        .liveness()
+        .map(|liveness| liveness.claim(scan.rows().clone()));
 
     // One chunk at a time, so no read is still in flight when the next chunk starts.
     for rows in row_chunks(scan.rows().clone(), chunk_rows) {
         run_rows(&scan, rows).await?;
     }
     assert_eq!(counted.requests(), CHUNKS * reads_per_segment);
+    Ok(())
+}
+
+/// A chunk's filter and projection of the same column read its segment once, whether or not the
+/// file's cache retains decoded segments: the chunk's scan shares the read itself.
+#[rstest]
+#[case::retained(None)]
+#[case::not_retained(Some(0))]
+#[tokio::test]
+async fn filter_and_projection_of_a_chunk_read_a_segment_once(
+    #[case] retained_bytes: Option<u64>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, chunked_flat().as_ref()).await?;
+    let counted = Arc::new(CountingSegmentSource::new(segments));
+    let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
+    let mut file = scan_file(&segments, &layout)?;
+    file.cache =
+        Some(retained_bytes.map_or_else(ScanCache::default, ScanCache::with_retained_bytes));
+    let ints = get_item("ints", root());
+    let scan = Arc::new(
+        ScanBuilder::new(session, file)
+            .with_projection(ints.bind(layout.dtype())?)
+            .with_some_filter(Some(gt(ints, lit(-1)).bind(layout.dtype())?))
+            .prepare()?,
+    );
+    let rows = scan.rows().clone();
+    let arrays = run_rows(&scan, rows).await?;
+    assert_eq!(
+        arrays.iter().map(|array| array.len()).sum::<usize>(),
+        CHUNKS * CHUNK_ROWS
+    );
+    assert_eq!(counted.requests(), CHUNKS);
     Ok(())
 }
 

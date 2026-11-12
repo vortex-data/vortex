@@ -29,6 +29,7 @@ use super::port::PipelineId;
 use super::port::PortId;
 use super::port::Slab;
 use super::port::SourceEnd;
+use super::retained::RetainedArrays;
 use super::values::ValueCache;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::operator::Cx;
@@ -289,9 +290,15 @@ pub(crate) struct Core {
     pub(crate) segments: Vec<SegmentId>,
     /// Whole values kept for later scans of the same split.
     pub(crate) values: ValueCache,
+    /// Decoded segments kept while live work claims their rows, shared with the file's other
+    /// scans.
+    pub(crate) retained: Option<RetainedArrays>,
     /// The file row of the compiling plan's row zero, or `None` when the plan compiles over a
     /// domain other than the file's rows, such as dictionary values or a zone table.
     pub(crate) domain: Option<u64>,
+    /// The file rows a plan compiling over another domain serves, so the segments it reads live
+    /// while those rows are claimed.
+    pub(crate) serves: Option<Range<u64>>,
 }
 
 impl Core {
@@ -311,7 +318,9 @@ impl Core {
             dirty_flags: Vec::new(),
             segments: Vec::new(),
             values: ValueCache::default(),
+            retained: None,
             domain: Some(0),
+            serves: None,
         }
     }
 
@@ -687,6 +696,12 @@ impl Scan {
     /// Shares whole values, such as dictionary values, with the other scans given `values`.
     pub fn with_value_cache(mut self, values: ValueCache) -> Self {
         self.core.values = values;
+        self
+    }
+
+    /// Shares decoded segments with the other scans given `retained`, or none when `None`.
+    pub fn with_retained_arrays(mut self, retained: Option<RetainedArrays>) -> Self {
+        self.core.retained = retained;
         self
     }
 
