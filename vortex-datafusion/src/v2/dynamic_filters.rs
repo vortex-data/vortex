@@ -39,9 +39,7 @@ pub(crate) fn convert_dynamic_filter(
     converter: Arc<dyn ExpressionConverter>,
 ) -> Expression {
     // A converter can retain a comparison whose producer guarantees a fixed shape.
-    if let Ok(Some(converted)) = converter.try_convert(&expression, &schema)
-        && is_infallible(&converted)
-    {
+    if let Ok(Some(converted)) = converter.try_convert_dynamic(&expression, &schema) {
         return converted;
     }
 
