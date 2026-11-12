@@ -23,9 +23,9 @@ use vortex_btrblocks::schemes::string::FSSTScheme;
 use vortex_btrblocks::schemes::string::NullDominatedSparseScheme;
 use vortex_btrblocks::schemes::string::StringDictScheme;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt as _;
-use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
