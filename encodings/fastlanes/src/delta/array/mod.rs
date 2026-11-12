@@ -17,6 +17,7 @@ use crate::Delta;
 
 pub mod delta_compress;
 pub mod delta_decompress;
+mod transpose;
 
 #[array_slots(Delta)]
 pub struct DeltaSlots {

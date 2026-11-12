@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use fastlanes::BitPacking;
 use fastlanes::Delta;
-use fastlanes::FL_ORDER;
 use fastlanes::FastLanes;
-use fastlanes::Transpose;
+use fearless_simd::Level;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
@@ -36,6 +34,7 @@ use crate::bitpack_decompress::execute_block_offsets;
 use crate::bitpack_decompress::for_each_packed_block;
 use crate::delta::array::DeltaArrayExt;
 use crate::delta::array::DeltaArraySlotsExt;
+use crate::delta::array::transpose::TransposeKernel;
 use crate::unpack_iter::for_each_packed_chunk;
 
 pub fn delta_decompress(
@@ -120,7 +119,7 @@ impl<'a> PackedDeltas<'a> {
 /// All chunks must be full 1024-element chunks (deltas length must be a multiple of 1024).
 pub(crate) fn decompress_primitive<T, const LANES: usize>(bases: &[T], deltas: &[T]) -> Buffer<T>
 where
-    T: NativePType + Delta + Transpose,
+    T: NativePType + Delta,
 {
     let (chunks, remainder) = deltas.as_chunks::<1024>();
     assert!(
@@ -136,6 +135,7 @@ where
     let (output_chunks, _) = output.spare_capacity_mut()[..deltas.len()].as_chunks_mut::<1024>();
 
     // Loop over all the chunks
+    let untranspose = TransposeKernel::untranspose(Level::new());
     let mut transposed: [T; 1024] = [T::default(); 1024];
     for ((i, chunk), output_chunk) in chunks.iter().enumerate().zip_eq(output_chunks.iter_mut()) {
         Delta::undelta::<LANES>(
@@ -144,7 +144,7 @@ where
             &mut transposed,
         );
 
-        untranspose(&transposed, output_chunk);
+        untranspose.apply_uninit(&transposed, output_chunk);
     }
 
     unsafe { output.set_len(deltas.len()) };
@@ -167,7 +167,7 @@ pub(crate) fn fused_decompress_primitive<T, const LANES: usize>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Buffer<T>>
 where
-    T: NativePType + PhysicalPType<Physical = T> + UndeltaPack,
+    T: NativePType + PhysicalPType<Physical = T> + Delta,
 {
     debug_assert!(
         len.is_multiple_of(FL_CHUNK_SIZE),
@@ -184,6 +184,7 @@ where
     let (output_chunks, _) = output.spare_capacity_mut()[..len].as_chunks_mut::<FL_CHUNK_SIZE>();
 
     let mut decoded = 0;
+    let untranspose = TransposeKernel::untranspose(Level::new());
     let mut transposed: [T; FL_CHUNK_SIZE] = [T::default(); FL_CHUNK_SIZE];
     let mut unpacked: [T; FL_CHUNK_SIZE] = [T::default(); FL_CHUNK_SIZE];
     let mut decode_block = |packed: &[T], bit_width: usize, block: usize| {
@@ -191,24 +192,24 @@ where
             return;
         }
         let chunk = block - blocks.start;
-        let base = &bases[chunk * LANES..][..LANES];
+        let base = bases[chunk * LANES..]
+            .first_chunk::<LANES>()
+            .vortex_expect("one base per lane");
         let patched = patches.partition_point(|&(index, _)| index < (chunk + 1) * FL_CHUNK_SIZE);
         let (chunk_patches, rest) = patches.split_at(patched);
         patches = rest;
         if chunk_patches.is_empty() {
-            T::undelta_pack_width(bit_width, packed, base, &mut transposed);
-        } else {
             // SAFETY: the block walk bounds `packed` to one block at `bit_width`.
+            unsafe { Delta::unchecked_undelta_pack(bit_width, packed, base, &mut transposed) };
+        } else {
+            // SAFETY: as above.
             unsafe { BitPacking::unchecked_unpack(bit_width, packed, &mut unpacked) };
             for &(index, value) in chunk_patches {
                 unpacked[index % FL_CHUNK_SIZE] = value;
             }
-            let base = base
-                .first_chunk::<LANES>()
-                .vortex_expect("one base per lane");
             Delta::undelta::<LANES>(&unpacked, base, &mut transposed);
         }
-        untranspose(&transposed, &mut output_chunks[chunk]);
+        untranspose.apply_uninit(&transposed, &mut output_chunks[chunk]);
         decoded += 1;
     };
 
@@ -281,94 +282,3 @@ fn chunk_patches<T: NativePType>(
     chunk_patches.sort_unstable_by_key(|&(position, _)| position);
     Ok(chunk_patches)
 }
-
-/// Reorder a transposed chunk into logical order, like [`Transpose::untranspose`].
-///
-/// Writes the output in order and gathers from the input, which the compiler vectorizes far
-/// better than the scattered writes of `Transpose::untranspose`.
-#[inline]
-pub(crate) fn untranspose<T: Copy>(
-    input: &[T; FL_CHUNK_SIZE],
-    output: &mut [MaybeUninit<T>; FL_CHUNK_SIZE],
-) {
-    // `transpose` maps logical index `row * 128 + order * 16 + lane` to transposed index
-    // `lane * 64 + FL_ORDER[order] * 8 + row`, and FL_ORDER is its own inverse.
-    for lane in 0..16 {
-        for (fl_order, &order) in FL_ORDER.iter().enumerate() {
-            for row in 0..8 {
-                output[lane * 64 + fl_order * 8 + row].write(input[row * 128 + order * 16 + lane]);
-            }
-        }
-    }
-}
-
-/// Runtime bit width dispatch for [`Delta::undelta_pack`].
-pub(crate) trait UndeltaPack: Delta {
-    /// Unpack one chunk of `bit_width`-bit deltas from `packed` and prefix-sum each lane starting
-    /// from its value in `base`, writing the chunk in transposed order to `output`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `bit_width` is wider than `Self`, `packed` does not hold exactly one chunk at
-    /// `bit_width`, or `base` does not hold one value per lane.
-    fn undelta_pack_width(
-        bit_width: usize,
-        packed: &[Self],
-        base: &[Self],
-        output: &mut [Self; FL_CHUNK_SIZE],
-    );
-}
-
-macro_rules! impl_undelta_pack {
-    ($T:ty, [$($W:literal),*]) => {
-        impl UndeltaPack for $T {
-            #[inline]
-            fn undelta_pack_width(
-                bit_width: usize,
-                packed: &[Self],
-                base: &[Self],
-                output: &mut [Self; FL_CHUNK_SIZE],
-            ) {
-                const LANES: usize = <$T as FastLanes>::LANES;
-                let base: &[Self; LANES] = base.try_into().unwrap_or_else(|_| {
-                    panic!("expected {LANES} bases, got {}", base.len())
-                });
-                assert_eq!(
-                    packed.len(),
-                    FL_CHUNK_SIZE * bit_width / <$T as FastLanes>::T,
-                    "packed chunk length does not match bit width {bit_width}"
-                );
-                match bit_width {
-                    $($W => {
-                        const B: usize = FL_CHUNK_SIZE * $W / <$T as FastLanes>::T;
-                        // SAFETY: the length of `packed` was checked against `B` above.
-                        let packed = unsafe { &*packed.as_ptr().cast::<[Self; B]>() };
-                        <$T as Delta>::undelta_pack::<LANES, $W, B>(packed, base, output);
-                    })*
-                    _ => panic!("unsupported bit width {bit_width} for {}", stringify!($T)),
-                }
-            }
-        }
-    };
-}
-
-impl_undelta_pack!(u8, [0, 1, 2, 3, 4, 5, 6, 7, 8]);
-impl_undelta_pack!(
-    u16,
-    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
-);
-impl_undelta_pack!(
-    u32,
-    [
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-        25, 26, 27, 28, 29, 30, 31, 32
-    ]
-);
-impl_undelta_pack!(
-    u64,
-    [
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-        25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
-        48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64
-    ]
-);
