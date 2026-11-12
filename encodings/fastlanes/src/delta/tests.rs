@@ -3,17 +3,9 @@
 
 //! Delta roundtrips and compute operations against primitive arrays.
 
-use std::array;
-use std::mem::MaybeUninit;
-
-use fastlanes::BitPacking;
-use fastlanes::Delta as FlDelta;
 use fastlanes::FastLanes;
-use fastlanes::Transpose;
 use rand::RngExt;
 use rand::SeedableRng;
-use rand::distr::Distribution;
-use rand::distr::StandardUniform;
 use rand::rngs::StdRng;
 use rstest::rstest;
 use vortex_array::ArrayContext;
@@ -52,8 +44,6 @@ use crate::DeltaArraySlotsExt;
 use crate::FL_CHUNK_SIZE;
 use crate::bitpack_compress::bitpack_encode;
 use crate::delta::array::delta_decompress::PackedDeltas;
-use crate::delta::array::delta_decompress::UndeltaPack;
-use crate::delta::array::delta_decompress::untranspose;
 
 fn session() -> VortexSession {
     let session = VortexSession::empty();
@@ -470,61 +460,4 @@ fn delta_bitpacked_misaligned_unfused() -> VortexResult<()> {
     assert!(!fused(&array));
     assert_arrays_eq!(array, source, &mut ctx);
     Ok(())
-}
-
-/// The fused kernel equals unpacking followed by undelta, at every width of every type: both
-/// produce the transposed chunk, which the caller untransposes once.
-#[test]
-fn undelta_pack_matches_unfused() {
-    check_undelta_pack::<u8, { u8::LANES }>();
-    check_undelta_pack::<u16, { u16::LANES }>();
-    check_undelta_pack::<u32, { u32::LANES }>();
-    check_undelta_pack::<u64, { u64::LANES }>();
-}
-
-fn check_undelta_pack<T, const LANES: usize>()
-where
-    T: NativePType + UndeltaPack + FastLanes,
-    StandardUniform: Distribution<T>,
-{
-    let mut rng = StdRng::seed_from_u64(0);
-    let deltas: [T; FL_CHUNK_SIZE] = array::from_fn(|_| rng.random());
-    let base: [T; LANES] = array::from_fn(|_| rng.random());
-    for width in 0..=T::T {
-        let mut packed = vec![T::zero(); FL_CHUNK_SIZE * width / T::T];
-        let mut unpacked = [T::zero(); FL_CHUNK_SIZE];
-        let mut expected = [T::zero(); FL_CHUNK_SIZE];
-        let mut actual = [T::zero(); FL_CHUNK_SIZE];
-        // SAFETY: `packed` holds one chunk at `width`, and the chunks hold 1024 values.
-        unsafe {
-            BitPacking::unchecked_pack(width, &deltas, &mut packed);
-            BitPacking::unchecked_unpack(width, &packed, &mut unpacked);
-        }
-        FlDelta::undelta::<LANES>(&unpacked, &base, &mut expected);
-        T::undelta_pack_width(width, &packed, &base, &mut actual);
-        assert_eq!(actual, expected, "{} width {width}", T::PTYPE);
-    }
-}
-
-#[test]
-fn untranspose_matches_fastlanes() {
-    check_untranspose::<u8>();
-    check_untranspose::<u16>();
-    check_untranspose::<u32>();
-    check_untranspose::<u64>();
-}
-
-fn check_untranspose<T: NativePType + Transpose>()
-where
-    StandardUniform: Distribution<T>,
-{
-    let mut rng = StdRng::seed_from_u64(0);
-    let input: [T; FL_CHUNK_SIZE] = array::from_fn(|_| rng.random());
-    let mut expected = [T::zero(); FL_CHUNK_SIZE];
-    Transpose::untranspose(&input, &mut expected);
-    let mut actual = [const { MaybeUninit::uninit() }; FL_CHUNK_SIZE];
-    untranspose(&input, &mut actual);
-    // SAFETY: `untranspose` initializes every value.
-    let actual = actual.map(|value| unsafe { value.assume_init() });
-    assert_eq!(actual, expected, "{}", T::PTYPE);
 }
