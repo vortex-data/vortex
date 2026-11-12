@@ -16,15 +16,20 @@ use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Dict {
     fn cast(array: ArrayView<'_, Dict>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // A value conversion can fail on an unreferenced dictionary entry. Only change outer
-        // nullability unless every value is referenced; its validity is checked below.
-        if !array.has_all_values_referenced() && array.dtype().as_nullable() != dtype.as_nullable()
-        {
-            return Ok(None);
+        // Casting unused entries must not introduce errors that a cast over the rows would skip.
+        if !array.has_all_values_referenced() {
+            let safe_for_unused_values = match (array.dtype(), dtype) {
+                (DType::Primitive(from, _), DType::Primitive(to, _)) => {
+                    from.casts_losslessly_to(*to)
+                }
+                (from, to) => from.as_nullable() == to.as_nullable(),
+            };
+            if !safe_for_unused_values {
+                return Ok(None);
+            }
         }
 
-        // Can have un-reference null values making the cast of values fail without a possible mask.
-        // TODO(joe): optimize this, could look at accessible values and fill_null not those?
+        // An unused null entry must not make a cast to a non-nullable dtype fail.
         if !dtype.is_nullable() && !array.values().validity()?.definitely_no_nulls() {
             return Ok(None);
         }
@@ -245,10 +250,11 @@ mod tests {
     fn test_cast_dict_after_slice_ignores_unreferenced_values() -> VortexResult<()> {
         let ctx = &mut SESSION.create_execution_ctx();
         let dict = dict_encode(&buffer![1000i64, 1, 1, 1].into_array(), ctx)?;
-        let rows = dict.into_array().slice(1..4)?;
+        let rows = dict.into_array().slice(1..4)?.optimize_ctx(&SESSION)?;
 
         let casted = rows
             .cast(DType::Primitive(PType::I8, Nullability::NonNullable))?
+            .optimize_ctx(&SESSION)?
             .execute::<Canonical>(ctx)?;
 
         assert_arrays_eq!(casted, PrimitiveArray::from_iter([1i8, 1, 1]), ctx);
@@ -264,9 +270,13 @@ mod tests {
         )?
         .into_array();
 
-        let nullable = dict.cast(DType::Primitive(PType::I64, Nullability::Nullable))?;
+        let nullable = dict
+            .cast(DType::Primitive(PType::I64, Nullability::Nullable))?
+            .optimize_ctx(&SESSION)?;
         assert!(nullable.is::<Dict>());
-        let non_nullable = nullable.cast(DType::Primitive(PType::I64, Nullability::NonNullable))?;
+        let non_nullable = nullable
+            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))?
+            .optimize_ctx(&SESSION)?;
         assert!(non_nullable.is::<Dict>());
 
         assert_arrays_eq!(non_nullable, PrimitiveArray::from_iter([1i64, 1, 1]), ctx);
@@ -279,7 +289,8 @@ mod tests {
         let dict = dict_encode(&buffer![1000i64, 1, 1, 1].into_array(), ctx)?;
         let casted = dict
             .into_array()
-            .cast(DType::Primitive(PType::I8, Nullability::NonNullable))?;
+            .cast(DType::Primitive(PType::I8, Nullability::NonNullable))?
+            .optimize_ctx(&SESSION)?;
 
         assert!(casted.is::<Dict>());
         let error = casted.execute::<Canonical>(ctx).unwrap_err();

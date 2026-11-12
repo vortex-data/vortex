@@ -464,16 +464,20 @@ mod tests {
             buffer![7i32, 8].into_array(),
         )?
         .into_array()
-        .slice(1..4)?;
+        .slice(1..4)?
+        .optimize_ctx(&SESSION)?;
         let divisor = DictArray::try_new(
             buffer![0u8, 1, 1, 1].into_array(),
             buffer![0i32, 2].into_array(),
         )?
         .into_array()
-        .slice(1..4)?;
+        .slice(1..4)?
+        .optimize_ctx(&SESSION)?;
         let expr = Binary::try_new(dividend, divisor, Operator::Div)?.into_array();
 
-        let quotient = expr.optimize()?.execute::<Canonical>(&mut ctx)?;
+        let quotient = expr
+            .optimize_ctx(&SESSION)?
+            .execute::<Canonical>(&mut ctx)?;
 
         assert_arrays_eq!(quotient, PrimitiveArray::from_iter([4i32, 4, 4]), &mut ctx);
         Ok(())
@@ -496,7 +500,9 @@ mod tests {
         .into_array();
         let rhs = DictArray::try_new(codes, buffer![2i32, 9].into_array())?.into_array();
 
-        let optimized = Binary::try_new(lhs, rhs, operator)?.into_array().optimize()?;
+        let optimized = Binary::try_new(lhs, rhs, operator)?
+            .into_array()
+            .optimize_ctx(&SESSION)?;
         assert!(optimized.is::<Dict>());
         let mut ctx = SESSION.create_execution_ctx();
         let result = optimized.execute::<Canonical>(&mut ctx)?;
@@ -513,7 +519,7 @@ mod tests {
         let expr = Binary::try_new(dividend, divisor, Operator::Div)?.into_array();
 
         let error = expr
-            .optimize()?
+            .optimize_ctx(&SESSION)?
             .execute::<Canonical>(&mut SESSION.create_execution_ctx())
             .unwrap_err();
         assert!(error.to_string().contains("division by zero"));
