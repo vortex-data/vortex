@@ -21,6 +21,8 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::ProbeState;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
+use vortex_array::aggregate_fn::fns::is_sorted::SortDirection;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -385,24 +387,34 @@ impl Sequence {
     /// Whether a sequence `A[i] = base + i * multiplier` of `length` elements is sorted, or
     /// strictly sorted when `strict` is set.
     ///
-    /// With at least two elements it is sorted iff multiplier >= 0, and strictly sorted iff
-    /// multiplier > 0. Zero or one elements have no adjacent pair to compare, so they are
-    /// strictly sorted whatever the multiplier.
-    pub(crate) fn is_sorted(multiplier: PValue, length: usize, strict: bool) -> bool {
+    /// With at least two elements, the multiplier decides the order:
+    ///
+    /// | Direction  | Sorted iff        | Strictly sorted iff |
+    /// |------------|-------------------|---------------------|
+    /// | Ascending  | `multiplier >= 0` | `multiplier > 0`    |
+    /// | Descending | `multiplier <= 0` | `multiplier < 0`    |
+    ///
+    /// Zero or one elements have no adjacent pair to compare, so they are strictly sorted whatever
+    /// the multiplier.
+    pub(crate) fn is_sorted(multiplier: PValue, length: usize, options: IsSortedOptions) -> bool {
         if length <= 1 {
             return true;
         }
         match_each_pvalue!(
             multiplier,
-            uint: |v| { step_is_sorted(v, strict) },
-            int: |v| { step_is_sorted(v, strict) },
+            uint: |v| { step_is_sorted(v, options) },
+            int: |v| { step_is_sorted(v, options) },
             float: |_v| { unreachable!("float multiplier not supported") }
         )
     }
 
     fn stats(multiplier: PValue, length: usize) -> StatsSet {
-        let is_sorted = Self::is_sorted(multiplier, length, false);
-        let is_strict_sorted = Self::is_sorted(multiplier, length, true);
+        let is_sorted = Self::is_sorted(multiplier, length, IsSortedOptions::default());
+        let strict = IsSortedOptions {
+            strict: true,
+            ..Default::default()
+        };
+        let is_strict_sorted = Self::is_sorted(multiplier, length, strict);
 
         // SAFETY: we don't have duplicate stats.
         unsafe {
@@ -494,12 +506,15 @@ impl Sequence {
     }
 }
 
-/// Whether a sequence of at least two elements with this step is (strictly, if `strict`) sorted.
-fn step_is_sorted<T: PartialOrd + Zero>(step: T, strict: bool) -> bool {
-    if strict {
-        step > T::zero()
-    } else {
-        step >= T::zero()
+/// Whether a sequence of at least two elements with this step is sorted in the direction
+/// and strictness of `options`.
+fn step_is_sorted<T: PartialOrd + Zero>(step: T, options: IsSortedOptions) -> bool {
+    let zero = T::zero();
+    match (options.direction, options.strict) {
+        (SortDirection::Asc, false) => step >= zero,
+        (SortDirection::Asc, true) => step > zero,
+        (SortDirection::Desc, false) => step <= zero,
+        (SortDirection::Desc, true) => step < zero,
     }
 }
 
