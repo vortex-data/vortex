@@ -70,8 +70,8 @@ pub struct UnionDataParts {
 /// Accessors for a canonical sparse union array.
 ///
 /// Slot accessors (`type_ids`, `children`, `slots_view`) live on the generated
-/// [`UnionArraySlotsExt`] supertrait; this trait layers union-specific lookups on top.
-pub trait UnionArrayExt: UnionArraySlotsExt {
+/// [`UnionArraySlotsExt`] trait; this trait layers union-specific lookups on top.
+pub trait UnionArrayExt: TypedArrayRef<Union> {
     /// The union's variant schema.
     fn variants(&self) -> &UnionVariants {
         match self.dtype() {

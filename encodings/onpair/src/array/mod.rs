@@ -24,6 +24,7 @@ use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
+use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
@@ -127,7 +128,7 @@ pub struct OnPairSlots {
     #[slot(3)]
     pub uncompressed_lengths: ArrayRef,
     /// Optional validity child for the outer string column.
-    #[slot(4)]
+    #[slot(4, accessor = validity_slot)]
     pub validity: Option<ArrayRef>,
 }
 
@@ -620,7 +621,7 @@ impl ValidityVTable<OnPair> for OnPair {
 }
 
 /// Convenience methods on top of the macro-generated [`OnPairArraySlotsExt`].
-pub trait OnPairArrayExt: OnPairArraySlotsExt {
+pub trait OnPairArrayExt: TypedArrayRef<OnPair> {
     /// The array's [`Validity`], derived from the optional validity child and
     /// the outer dtype's nullability.
     fn array_validity(&self) -> Validity {
@@ -631,4 +632,4 @@ pub trait OnPairArrayExt: OnPairArraySlotsExt {
     }
 }
 
-impl<T: OnPairArraySlotsExt> OnPairArrayExt for T {}
+impl<T: TypedArrayRef<OnPair>> OnPairArrayExt for T {}

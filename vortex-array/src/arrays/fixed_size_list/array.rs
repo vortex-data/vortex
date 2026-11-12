@@ -36,7 +36,7 @@ pub struct FixedSizeListSlots {
     /// Note that this null map refers to which fixed-size list scalars are null, **not** which
     /// sub-elements of fixed-size list scalars are null. The `elements` array will track
     /// individual value nullability.
-    #[slot(1)]
+    #[slot(1, accessor = validity_slot)]
     pub validity: Option<ArrayRef>,
 }
 
@@ -213,7 +213,7 @@ impl FixedSizeListData {
     }
 }
 
-pub trait FixedSizeListArrayExt: FixedSizeListArraySlotsExt {
+pub trait FixedSizeListArrayExt: TypedArrayRef<FixedSizeList> {
     fn dtype_parts(&self) -> (&DType, u32, crate::dtype::Nullability) {
         match self.dtype() {
             DType::FixedSizeList(element_dtype, list_size, nullability) => {

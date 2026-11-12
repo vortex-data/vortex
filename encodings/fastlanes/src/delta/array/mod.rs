@@ -99,7 +99,7 @@ impl Display for DeltaData {
     }
 }
 
-pub trait DeltaArrayExt: DeltaArraySlotsExt {
+pub trait DeltaArrayExt: TypedArrayRef<Delta> {
     fn offset(&self) -> usize {
         self.offset
     }

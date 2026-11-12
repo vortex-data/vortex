@@ -71,7 +71,7 @@ pub struct VarBinSlots {
     #[slot(0)]
     pub offsets: ArrayRef,
     /// The validity bitmap indicating which elements are non-null.
-    #[slot(1)]
+    #[slot(1, accessor = validity_slot)]
     pub validity: Option<ArrayRef>,
 }
 
@@ -426,7 +426,7 @@ impl VarBinData {
     }
 }
 
-pub trait VarBinArrayExt: VarBinArraySlotsExt {
+pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
     fn dtype_parts(&self) -> (bool, Nullability) {
         match self.dtype() {
             DType::Utf8(nullability) => (true, *nullability),

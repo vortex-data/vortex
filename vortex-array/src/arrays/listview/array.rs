@@ -60,7 +60,7 @@ pub struct ListViewSlots {
     #[slot(2)]
     pub sizes: ArrayRef,
     /// The validity bitmap indicating which list elements are non-null.
-    #[slot(3)]
+    #[slot(3, accessor = validity_slot)]
     pub validity: Option<ArrayRef>,
 }
 
@@ -353,7 +353,7 @@ fn fill_referenced_mask<O: IntegerPType, S: IntegerPType>(
     }
 }
 
-pub trait ListViewArrayExt: ListViewArraySlotsExt {
+pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     fn nullability(&self) -> crate::dtype::Nullability {
         match self.dtype() {
             DType::List(_, nullability) => *nullability,

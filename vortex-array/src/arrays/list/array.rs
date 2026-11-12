@@ -48,7 +48,7 @@ pub struct ListSlots {
     #[slot(1)]
     pub offsets: ArrayRef,
     /// The validity bitmap indicating which list elements are non-null.
-    #[slot(2)]
+    #[slot(2, accessor = validity_slot)]
     pub validity: Option<ArrayRef>,
 }
 
@@ -284,7 +284,7 @@ impl ListData {
     // the offset type and manual subtraction.
 }
 
-pub trait ListArrayExt: ListArraySlotsExt {
+pub trait ListArrayExt: TypedArrayRef<List> {
     fn nullability(&self) -> crate::dtype::Nullability {
         match self.dtype() {
             DType::List(_, nullability) => *nullability,

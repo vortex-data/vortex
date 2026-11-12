@@ -24,7 +24,7 @@ pub struct ExtensionSlots {
     pub storage: ArrayRef,
 }
 
-pub trait ExtensionArrayExt: TypedArrayRef<Extension> + ExtensionArraySlotsExt {
+pub trait ExtensionArrayExt: TypedArrayRef<Extension> {
     fn ext_dtype(&self) -> &ExtDTypeRef {
         self.dtype()
             .as_extension_opt()

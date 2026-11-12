@@ -182,7 +182,7 @@ pub struct RunEndDataParts {
     pub offset: usize,
 }
 
-pub trait RunEndArrayExt: RunEndArraySlotsExt {
+pub trait RunEndArrayExt: TypedArrayRef<RunEnd> {
     fn offset(&self) -> usize {
         self.offset
     }

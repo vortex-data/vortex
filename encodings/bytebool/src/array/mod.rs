@@ -129,7 +129,7 @@ impl VTable for ByteBool {
 #[array_slots(ByteBool)]
 pub struct ByteBoolSlots {
     /// The validity bitmap indicating which elements are non-null.
-    #[slot(0)]
+    #[slot(0, accessor = validity_slot)]
     pub validity: Option<ArrayRef>,
 }
 
@@ -144,7 +144,7 @@ impl Display for ByteBoolData {
     }
 }
 
-pub trait ByteBoolArrayExt: TypedArrayRef<ByteBool> + ByteBoolArraySlotsExt {
+pub trait ByteBoolArrayExt: TypedArrayRef<ByteBool> {
     /// Returns the [`Validity`] derived from the validity slot.
     fn bytebool_validity(&self) -> Validity {
         child_to_validity(

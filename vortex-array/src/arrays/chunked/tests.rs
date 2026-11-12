@@ -23,6 +23,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::chunked::array::ChunkedArraySlotsExt;
 use crate::assert_arrays_eq;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
@@ -306,4 +307,22 @@ pub fn pack_nested_lists() {
     )
     .unwrap();
     assert_arrays_eq!(chunked_list.unwrap(), expected, &mut ctx);
+}
+
+/// Reads slots through a view that is dropped before the returned references are used. This
+/// only compiles because the view accessors borrow for the view's lifetime rather than from the
+/// local view.
+fn view_slots(array: &ArrayRef) -> (&ArrayRef, &ArrayRef) {
+    let view = array.as_::<Chunked>();
+    let chunk = view.chunks().get(1).expect("second chunk");
+    (view.chunk_offsets(), chunk)
+}
+
+#[test]
+fn view_slot_accessors_outlive_local_view() {
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = chunked_array().into_array();
+    let (chunk_offsets, chunk) = view_slots(&array);
+    assert_arrays_eq!(chunk_offsets, buffer![0u64, 3, 6, 9].into_array(), &mut ctx);
+    assert_arrays_eq!(chunk, buffer![4u64, 5, 6].into_array(), &mut ctx);
 }
