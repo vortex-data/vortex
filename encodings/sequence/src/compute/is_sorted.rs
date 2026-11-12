@@ -63,8 +63,10 @@ mod tests {
     use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::NativePType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::scalar::PValue;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -77,16 +79,14 @@ mod tests {
         session
     });
 
-    #[rstest]
-    fn multiplier_sets_direction(
-        #[values(-1i64, 0, 3)] multiplier: i64,
-        #[values(1, 2)] length: usize,
-        #[values(false, true)] strict: bool,
-        #[values(SortDirection::Asc, SortDirection::Desc)] direction: SortDirection,
+    fn assert_kernel_agrees_with_decoded<T: NativePType + Into<PValue>>(
+        base: T,
+        multiplier: T,
+        length: usize,
+        options: IsSortedOptions,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let options = IsSortedOptions { strict, direction };
-        let array = Sequence::try_new_typed(10i64, multiplier, Nullability::NonNullable, length)?
+        let array = Sequence::try_new_typed(base, multiplier, Nullability::NonNullable, length)?
             .into_array();
         let decoded = array.clone().execute::<Canonical>(&mut ctx)?.into_array();
         let expected = is_sorted_with_options(&decoded, options, &mut ctx)?;
@@ -94,9 +94,35 @@ mod tests {
         let result = SequenceIsSortedKernel.aggregate(&IsSorted.bind(options), &array, &mut ctx)?;
         assert_eq!(
             result,
-            Some(IsSorted::make_partial(&array, expected, strict, &mut ctx)?),
+            Some(IsSorted::make_partial(
+                &array,
+                expected,
+                options.strict,
+                &mut ctx
+            )?),
         );
         Ok(())
+    }
+
+    #[rstest]
+    fn multiplier_sets_direction(
+        #[values(-1i64, 0, 3)] multiplier: i64,
+        #[values(1, 2)] length: usize,
+        #[values(false, true)] strict: bool,
+        #[values(SortDirection::Asc, SortDirection::Desc)] direction: SortDirection,
+    ) -> VortexResult<()> {
+        let options = IsSortedOptions { strict, direction };
+        assert_kernel_agrees_with_decoded(10i64, multiplier, length, options)
+    }
+
+    #[rstest]
+    fn unsigned_multiplier_sets_direction(
+        #[values(0u64, 3)] multiplier: u64,
+        #[values(false, true)] strict: bool,
+        #[values(SortDirection::Asc, SortDirection::Desc)] direction: SortDirection,
+    ) -> VortexResult<()> {
+        let options = IsSortedOptions { strict, direction };
+        assert_kernel_agrees_with_decoded(10u64, multiplier, 2, options)
     }
 
     #[rstest]
