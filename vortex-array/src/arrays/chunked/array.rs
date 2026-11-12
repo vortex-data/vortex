@@ -164,34 +164,56 @@ impl Array<Chunked> {
     ) -> VortexResult<ArrayParts<Chunked>> {
         let chunks = chunks.into_iter();
         let (lower, _) = chunks.size_hint();
-        let mut slots = ArraySlots::with_capacity(ChunkedSlots::CHUNKS_OFFSET + lower);
+        Self::parts_from_chunks_with_capacity::<VALIDATE>(chunks, dtype, lower)
+    }
+
+    fn parts_from_chunks_with_capacity<const VALIDATE: bool>(
+        chunks: impl IntoIterator<Item = ArrayRef>,
+        dtype: DType,
+        capacity: usize,
+    ) -> VortexResult<ArrayParts<Chunked>> {
+        let mut slots = ArraySlots::with_capacity(ChunkedSlots::CHUNKS_OFFSET + capacity);
         slots.push(None);
-        let mut chunk_offsets = Vec::with_capacity(lower + 1);
+        let mut chunk_offsets = Vec::with_capacity(capacity + 1);
         chunk_offsets.push(0);
         let mut len = 0usize;
 
         for chunk in chunks {
-            if VALIDATE && chunk.dtype() != &dtype {
-                vortex_bail!(
-                    "expected type: {} but instead got {}",
-                    &dtype,
-                    chunk.dtype()
-                );
+            if VALIDATE {
+                Self::validate_chunk_dtype(&chunk, &dtype)?;
             }
             len += chunk.len();
             chunk_offsets.push(len);
             slots.push(Some(chunk));
         }
 
+        Ok(Self::parts_from_slots(dtype, len, chunk_offsets, slots))
+    }
+
+    /// Checks that the chunk has the dtype of the array.
+    ///
+    /// This function is not generic, so each iterator type does not compile its own copy of the
+    /// error message.
+    fn validate_chunk_dtype(chunk: &ArrayRef, dtype: &DType) -> VortexResult<()> {
+        if chunk.dtype() != dtype {
+            vortex_bail!("expected type: {} but instead got {}", dtype, chunk.dtype());
+        }
+        Ok(())
+    }
+
+    /// Creates the parts from the collected chunk slots and offsets.
+    ///
+    /// This function is not generic, so each iterator type that `parts_from_chunks_with_capacity`
+    /// gets compiled for does not compile its own copy.
+    fn parts_from_slots(
+        dtype: DType,
+        len: usize,
+        chunk_offsets: Vec<usize>,
+        mut slots: ArraySlots,
+    ) -> ArrayParts<Chunked> {
         slots[ChunkedSlots::CHUNK_OFFSETS] =
             Some(ChunkedData::make_chunk_offsets_array(&chunk_offsets));
-        Ok(ArrayParts::new(
-            Chunked,
-            dtype,
-            len,
-            ChunkedData::new(chunk_offsets),
-            slots,
-        ))
+        ArrayParts::new(Chunked, dtype, len, ChunkedData::new(chunk_offsets), slots)
     }
 
     pub(super) fn with_next_builder_slot(mut self, next_builder_slot: usize) -> Self {
@@ -241,7 +263,10 @@ impl Array<Chunked> {
                 && !chunks_to_combine.is_empty()
             {
                 let canonical = unsafe {
-                    Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone())
+                    Array::<Chunked>::new_unchecked(
+                        chunks_to_combine.drain(..),
+                        self.dtype().clone(),
+                    )
                 }
                 .into_array()
                 .execute::<Canonical>(ctx)?
@@ -250,7 +275,6 @@ impl Array<Chunked> {
 
                 new_chunk_n_bytes = 0;
                 new_chunk_n_elements = 0;
-                chunks_to_combine = Vec::new();
             }
 
             if n_bytes > target_bytesize || n_elements > target_rowsize {
@@ -280,8 +304,28 @@ impl Array<Chunked> {
     ///
     /// All chunks must have exactly the same [`DType`] as the provided `dtype`.
     pub unsafe fn new_unchecked(chunks: impl IntoIterator<Item = ArrayRef>, dtype: DType) -> Self {
-        let parts = Self::parts_from_chunks::<false>(chunks, dtype)
+        let chunks = chunks.into_iter();
+        let (expected_nchunks, _) = chunks.size_hint();
+        // SAFETY: the caller guarantees the dtype of every chunk.
+        unsafe { Self::new_unchecked_sized(chunks, dtype, expected_nchunks) }
+    }
+
+    /// Creates a chunked array without validation, reserving space for `expected_nchunks` chunks.
+    ///
+    /// The expected count is only an allocation hint: fewer or more chunks are allowed.
+    /// This is useful when iterator adapters such as `process_results` lose the source size hint.
+    ///
+    /// # Safety
+    ///
+    /// All chunks must have exactly the same [`DType`] as the provided `dtype`.
+    pub unsafe fn new_unchecked_sized(
+        chunks: impl IntoIterator<Item = ArrayRef>,
+        dtype: DType,
+        expected_nchunks: usize,
+    ) -> Self {
+        let parts = Self::parts_from_chunks_with_capacity::<false>(chunks, dtype, expected_nchunks)
             .vortex_expect("unchecked chunked construction cannot fail");
+        // SAFETY: the caller guarantees the dtype of every chunk.
         unsafe { Self::from_chunked_parts_unchecked(parts) }
     }
 
@@ -308,9 +352,9 @@ impl Array<Chunked> {
 
 impl FromIterator<ArrayRef> for Array<Chunked> {
     fn from_iter<T: IntoIterator<Item = ArrayRef>>(iter: T) -> Self {
-        let chunks: Vec<ArrayRef> = iter.into_iter().collect();
+        let mut chunks = iter.into_iter().peekable();
         let dtype = chunks
-            .first()
+            .peek()
             .map(|c| c.dtype().clone())
             .vortex_expect("Cannot infer DType from an empty iterator");
         Array::<Chunked>::try_new(chunks, dtype)
@@ -322,8 +366,11 @@ impl FromIterator<ArrayRef> for Array<Chunked> {
 mod test {
     use std::sync::LazyLock;
 
+    use itertools::Itertools;
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
@@ -338,6 +385,58 @@ mod test {
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[rstest]
+    fn sized_chunks(
+        #[values(0, 1, 17)] nchunks: usize,
+        #[values(0, 1, 17)] expected_nchunks: usize,
+    ) -> VortexResult<()> {
+        let dtype = DType::from(PType::U64);
+        let chunks = (0..nchunks as u64).map(|i| buffer![i].into_array());
+        // SAFETY: every chunk contains non-nullable u64 values.
+        let array =
+            unsafe { ChunkedArray::new_unchecked_sized(chunks, dtype.clone(), expected_nchunks) };
+
+        assert_eq!(array.dtype(), &dtype);
+        assert_eq!(array.nchunks(), nchunks);
+        assert_eq!(
+            array.chunk_offset_values(),
+            (0..=nchunks).collect::<Vec<_>>()
+        );
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(
+            array,
+            PrimitiveArray::from_iter(0..nchunks as u64),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    fn sized_chunks_with_process_results(#[values(0, 1)] error_at: usize) {
+        let mut visited = 0;
+        let chunks = (0..3).map(|i| {
+            visited += 1;
+            if i == error_at {
+                Err(vortex_err!("chunk source failed"))
+            } else {
+                Ok(buffer![1u64].into_array())
+            }
+        });
+        let dtype = DType::from(PType::U64);
+        let result = chunks.process_results(|chunks| {
+            // SAFETY: every successfully yielded chunk contains non-nullable u64 values.
+            unsafe { ChunkedArray::new_unchecked_sized(chunks, dtype, 3) }
+        });
+
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("chunk source failed")
+        );
+        assert_eq!(visited, error_at + 1);
+    }
 
     #[test]
     fn test_rechunk_one_chunk() {

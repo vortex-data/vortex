@@ -106,7 +106,7 @@ pub(crate) fn checked_decimal_numeric(
     op: NumericOperator,
 ) -> Option<DecimalValue> {
     let work = decimal_numeric_work_dtype(input, result, op);
-    match_each_decimal_value_type!(DecimalType::smallest_decimal_value_type(&work), |W| {
+    match_each_decimal_value_type!(work.canonical_values_type(), |W| {
         let value = checked_at_width::<W>(lhs.cast::<W>()?, rhs.cast::<W>()?, result.scale(), op)?;
         DecimalValue::from(value).normalize(result)
     })

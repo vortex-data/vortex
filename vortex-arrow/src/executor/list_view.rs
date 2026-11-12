@@ -24,13 +24,14 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
-use crate::ArrowExporter;
+use crate::ArrowExportOptions;
+use crate::ExecuteArrowExt;
 use crate::executor::validity::to_arrow_null_buffer;
 
 pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     array: ArrayRef,
     elements_field: &FieldRef,
-    exporter: &ArrowExporter<'_>,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
     vortex_ensure!(
@@ -68,13 +69,13 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
         array
     };
 
-    list_view_to_list_view::<O>(array, elements_field, exporter, ctx)
+    list_view_to_list_view::<O>(array, elements_field, options, ctx)
 }
 
 fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     array: ListViewArray,
     elements_field: &FieldRef,
-    exporter: &ArrowExporter<'_>,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
     let ListViewDataParts {
@@ -86,7 +87,8 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     } = array.into_data_parts();
 
     let n_elements = elements.len();
-    let elements = exporter.execute_arrow(elements, Some(elements_field.as_ref()), ctx)?;
+    let elements =
+        elements.execute_arrow_with_options(Some(elements_field.as_ref()), options, ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Elements field is non-nullable but elements array contains nulls"
@@ -142,7 +144,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::ArrowArrayExecutor;
+    use crate::ExecuteArrowExt;
     use crate::executor::list_view::ListViewArray;
     use crate::executor::list_view::PrimitiveArray;
 
@@ -174,7 +176,7 @@ mod tests {
         let arrow_dt = DataType::ListView(field.into());
         let arrow_array = list_array
             .into_array()
-            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
+            .execute_arrow(Some(&Field::new("", arrow_dt, true)), &mut ctx)?;
 
         let listview = arrow_array
             .as_any()
@@ -216,7 +218,7 @@ mod tests {
         let arrow_dt = DataType::ListView(field.into());
         let arrow_array = list_array
             .into_array()
-            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
+            .execute_arrow(Some(&Field::new("", arrow_dt.clone(), true)), &mut ctx)?;
 
         // Verify the type is correct.
         assert_eq!(arrow_array.data_type(), &arrow_dt);
@@ -280,7 +282,7 @@ mod tests {
         let arrow_dt = DataType::LargeListView(field.into());
         let arrow_array = list_array
             .into_array()
-            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
+            .execute_arrow(Some(&Field::new("", arrow_dt.clone(), true)), &mut ctx)?;
 
         // Verify the type is correct.
         assert_eq!(arrow_array.data_type(), &arrow_dt);

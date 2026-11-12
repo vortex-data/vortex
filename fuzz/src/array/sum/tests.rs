@@ -163,14 +163,13 @@ fn test_sum_decimal_storage(#[case] values_type: DecimalType) -> VortexResult<()
         .into_array()
     });
     let sum_dtype = DecimalDType::new(u8::min(76, precision + 10), 0);
-    let expected_value =
-        match_each_decimal_value_type!(DecimalType::smallest_decimal_value_type(&sum_dtype), |R| {
-            DecimalValue::from(
-                DecimalValue::I8(99)
-                    .cast::<R>()
-                    .ok_or_else(|| vortex_err!("99 fits in every decimal storage type"))?,
-            )
-        });
+    let expected_value = match_each_decimal_value_type!(sum_dtype.canonical_values_type(), |R| {
+        DecimalValue::from(
+            DecimalValue::I8(99)
+                .cast::<R>()
+                .ok_or_else(|| vortex_err!("99 fits in every decimal storage type"))?,
+        )
+    });
     let expected = Scalar::decimal(expected_value, sum_dtype, Nullability::Nullable);
     let mut ctx = SESSION.create_execution_ctx();
     assert_eq!(

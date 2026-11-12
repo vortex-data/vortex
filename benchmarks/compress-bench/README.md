@@ -11,7 +11,8 @@ ratios. Parquet provides the established reference for a compressed columnar rep
 
 The suite covers NYC taxi data and several
 [Public BI](https://github.com/cwida/public_bi_benchmark) tables (Arade, Bimbo,
-CMSprovider, Euro2016, Food, HashTags), TPC-H `l_comment` variants, and synthetic nested
+CMSprovider, Euro2016, Food, HashTags), TPC-H `l_comment` variants, the TPC-H `lineitem`,
+`orders`, and `partsupp` tables at scale factor 1 (`TPC-H SF1 <table>`), and synthetic nested
 data. This is the workload behind the `Compression` PR comment.
 
 See [`src/main.rs`](./src/main.rs) for the dataset list and CLI flags (`--formats`,
@@ -62,6 +63,38 @@ cargo run -p compress-bench --profile release_debug
 # single-worker comparison
 cargo run -p compress-bench --profile release_debug -- --threads 1
 ```
+
+## Sparse-wide baseline
+
+The default CPU suite includes five synthetic sparse-wide datasets. They require no downloads
+and use the same preparation, format selection, size reporting, and encode/decode timing as the
+other compression workloads. Run just these datasets with:
+
+```bash
+cargo run -p compress-bench --profile release_debug -- \
+  --datasets '^sparse-wide-' --threads 1 --ingest-jsonl /tmp/sparse-wide-baseline.jsonl
+# Vortex compression only:
+cargo run -p compress-bench --profile release_debug -- \
+  --datasets '^sparse-wide-' --formats vortex --ops compress --threads 1
+```
+
+Each dataset has 100,000 rows, 100 mutually exclusive groups, three fields per group, and seed 42.
+Each row has exactly one present group. Fields hold random integers in `[0, 1_000_000)`, or lists
+of three such integers:
+
+- `sparse-wide-flat-runs`: nullable integer fields with clustered group presence.
+- `sparse-wide-nested-runs`: the integer fields under four nullable struct levels.
+- `sparse-wide-lists-runs`: the same nesting with list fields.
+- `sparse-wide-lists-shuffled`: list groups scattered across rows, with the same per-group values.
+- `sparse-wide-nested-child-nulls`: nested integers with genuine nulls in 10% of present values.
+
+Each workload writes one wide file containing every group and all rows. Follow-up compression
+changes can be measured against the same dataset across commits. Source Parquet files use Zstd
+level 3 and are generated and cached during data preparation, outside the timed operations.
+The normal suite loads these files separately for each selected format; its usual reader batch
+sizes and writer settings apply. This includes measuring both compression and decompression by
+default, with the existing size metrics in the tables and ingestion JSONL. Vortex and Arrow IPC
+count complete files; the current Parquet metric counts bytes before the footer.
 
 ## GPU decompression
 

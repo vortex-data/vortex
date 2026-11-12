@@ -60,7 +60,7 @@ pub struct DecimalSlots {
 ///
 /// Decimals are stored as scaled integers in a supported scalar value type.
 ///
-/// The precisions supported for each scalar type are:
+/// The canonical widths for each precision are:
 /// - **i8**: precision 1-2 digits
 /// - **i16**: precision 3-4 digits
 /// - **i32**: precision 5-9 digits
@@ -68,16 +68,15 @@ pub struct DecimalSlots {
 /// - **i128**: precision 19-38 digits
 /// - **i256**: precision 39-76 digits
 ///
-/// These are just the maximal ranges for each scalar type, but it is perfectly legal to store
-/// values with precision that does not match this exactly. For example, a valid DecimalArray with
-/// precision=39 may store its values in an `i8` if all of the actual values fit into it.
-///
-/// The physical value type must be no wider than
-/// [`DecimalType::smallest_decimal_value_type`] for the array's precision. Thus precision=2
-/// requires `i8` storage, while precision=39 permits any supported storage type. Compute kernels
-/// can widen storage to the type selected by the precision without handling larger inputs.
-/// Checked constructors narrow oversized host buffers to this bound; unchecked constructors
-/// require it already to hold. Device buffers must already satisfy the bound.
+/// The physical value type must be no wider than the canonical width of the precision,
+/// [`DecimalDType::canonical_values_type`]: precision 2 requires `i8` storage, while precision 39
+/// permits any supported storage type. Compute kernels can widen storage to the canonical width
+/// without handling larger inputs. Checked constructors reject wider storage,
+/// [`DecimalArray::try_new_narrowed`] narrows a host buffer to the bound, and unchecked
+/// constructors require it already to hold. Existing `vortex.decimal` nodes and DecimalByteParts
+/// assembly can still produce storage narrower than the canonical width. [`DecimalDataParts`]
+/// preserves the actual width for conversion into canonical decimal leaves, optionally under
+/// [`Widen`](crate::arrays::Widen).
 ///
 /// ## Precision and Scale
 ///
@@ -91,7 +90,7 @@ pub struct DecimalSlots {
 ///
 /// ## Valid Scalar Types
 ///
-/// The underlying storage uses these native types based on precision:
+/// Canonical decimal leaves select one of these native types from precision:
 /// - `DecimalType::I8`, `I16`, `I32`, `I64`, `I128`, `I256`
 /// - Type selection is automatic based on the required precision
 ///
@@ -116,6 +115,7 @@ pub struct DecimalSlots {
 pub struct DecimalData {
     pub(super) decimal_dtype: DecimalDType,
     pub(super) values: BufferHandle,
+    /// Actual storage type, including noncanonical widths still accepted during the migration.
     pub(super) values_type: DecimalType,
 }
 
@@ -129,10 +129,21 @@ impl Display for DecimalData {
     }
 }
 
+/// Decimal storage and validity, as returned by [`DecimalArray::into_data_parts`].
 pub struct DecimalDataParts {
+    /// The precision and scale of the values.
     pub decimal_dtype: DecimalDType,
+    /// Unscaled integers of type `values_type` in host or device memory.
     pub values: BufferHandle,
+    /// Actual storage type, retained to interpret input before canonical conversion.
+    ///
+    /// Legacy `vortex.decimal` nodes and DecimalByteParts assembly can use a different width from
+    /// [`DecimalDType::canonical_values_type`]. Comparing the widths identifies noncanonical
+    /// storage, not the age of the data: current [`WidenPlugin`] writes use that wire form too.
+    ///
+    /// [`WidenPlugin`]: crate::arrays::widen::WidenPlugin
     pub values_type: DecimalType,
+    /// The validity of the values, which also gives the nullability of the array.
     pub validity: Validity,
 }
 
@@ -245,14 +256,15 @@ impl DecimalData {
     ///
     /// # Errors
     ///
-    /// See [`DecimalArray::new_unchecked`] for invariants that are checked.
+    /// Returns an error if the buffer length is not a multiple of the width of `values_type`, or
+    /// if the buffer is not aligned to that width.
     pub fn try_new_handle(
         values: BufferHandle,
         values_type: DecimalType,
         decimal_dtype: DecimalDType,
     ) -> VortexResult<Self> {
         Self::validate(&values, values_type)?;
-        let maximum = DecimalType::smallest_decimal_value_type(&decimal_dtype);
+        let maximum = decimal_dtype.canonical_values_type();
         vortex_ensure!(
             values_type <= maximum,
             "decimal storage {values_type} exceeds precision storage {maximum} for {decimal_dtype}",
@@ -279,7 +291,7 @@ impl DecimalData {
         decimal_dtype: DecimalDType,
     ) -> VortexResult<(BufferHandle, DecimalType)> {
         Self::validate(&values, values_type)?;
-        let maximum = DecimalType::smallest_decimal_value_type(&decimal_dtype);
+        let maximum = decimal_dtype.canonical_values_type();
         if values_type <= maximum {
             return Ok((values, values_type));
         }
@@ -304,17 +316,17 @@ impl DecimalData {
     ///
     /// * `buffer` is a typed buffer containing the decimal values.
     /// * `decimal_dtype` specifies the decimal precision and scale.
-    /// * `validity` holds the null values.
+    ///
+    /// Values are not checked against the precision of `decimal_dtype`, either here, in
+    /// [`DecimalArray::try_new`], or when an array is read from a file. Code that turns stored values
+    /// into scalars must use a fallible path such as
+    /// [`Scalar::try_decimal`](crate::scalar::Scalar::try_decimal).
     ///
     /// # Safety
     ///
-    /// The caller must ensure all of the following invariants are satisfied:
-    ///
-    /// - `T::DECIMAL_TYPE` must be no wider than
-    ///   [`DecimalType::smallest_decimal_value_type`] for `decimal_dtype`.
-    /// - All non-null values in `buffer` must be representable within the specified precision.
-    /// - For example, with precision=5 and scale=2, all values must be in range [-999.99, 999.99].
-    /// - If `validity` is [`Validity::Array`], its length must exactly equal `buffer.len()`.
+    /// `buffer` is a typed [`Buffer<T>`], so the only requirement on the caller is that
+    /// `T::DECIMAL_TYPE` is no wider than [`DecimalDType::canonical_values_type`] for
+    /// `decimal_dtype`.
     pub unsafe fn new_unchecked<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
@@ -331,22 +343,26 @@ impl DecimalData {
 
     /// Create a new array with decimal values backed by the given buffer handle.
     ///
+    /// As with [`DecimalArray::new_unchecked`], values are not checked against the precision of
+    /// `decimal_dtype`.
+    ///
     /// # Safety
     ///
-    /// The caller must ensure all of the following invariants are satisfied:
+    /// - The length of `values` must be a multiple of the byte width of `values_type`.
+    /// - `values` must be aligned to the native type of `values_type`.
     ///
-    /// - `values_type` must be no wider than
-    ///   [`DecimalType::smallest_decimal_value_type`] for `decimal_dtype`.
-    /// - All non-null values in `values` must be representable within the specified precision.
-    /// - For example, with precision=5 and scale=2, all values must be in range [-999.99, 999.99].
-    /// - If `validity` is [`Validity::Array`], its length must exactly equal `buffer.len()`.
+    /// - `values_type` must be no wider than [`DecimalDType::canonical_values_type`] for
+    ///   `decimal_dtype`.
+    ///
+    /// Breaking the first two rules does not cause undefined behavior, but [`DecimalData::buffer`]
+    /// panics; the width bound is asserted in debug builds.
     pub unsafe fn new_unchecked_handle(
         values: BufferHandle,
         values_type: DecimalType,
         decimal_dtype: DecimalDType,
     ) -> Self {
         debug_assert!(
-            values_type <= DecimalType::smallest_decimal_value_type(&decimal_dtype),
+            values_type <= decimal_dtype.canonical_values_type(),
             "decimal storage {values_type} exceeds the storage required by {decimal_dtype}",
         );
         Self {
@@ -356,10 +372,10 @@ impl DecimalData {
         }
     }
 
-    /// Validates the components that would be used to create a [`DecimalArray`] from a byte buffer.
+    /// Validates the layout of a decimal values buffer.
     ///
-    /// This function checks all the invariants required by [`DecimalArray::new_unchecked`].
-    fn validate(buffer: &BufferHandle, values_type: DecimalType) -> VortexResult<()> {
+    /// Checks byte length and alignment for `values_type`. Does not read values or check validity.
+    pub(crate) fn validate(buffer: &BufferHandle, values_type: DecimalType) -> VortexResult<()> {
         let byte_width = values_type.byte_width();
         vortex_ensure!(
             buffer.len().is_multiple_of(byte_width),
@@ -385,10 +401,9 @@ impl DecimalData {
     ///
     /// The caller must ensure:
     /// - `values_type` is no wider than
-    ///   [`DecimalType::smallest_decimal_value_type`] for `decimal_dtype`
+    ///   [`DecimalDType::canonical_values_type`] for `decimal_dtype`
     /// - The `byte_buffer` contains valid data for the specified `values_type`
     /// - The buffer length is compatible with the `values_type` (i.e., divisible by the type size)
-    /// - All non-null values are representable within the specified precision
     /// - If `validity` is [`Validity::Array`], its length must equal the number of elements
     pub unsafe fn new_unchecked_from_byte_buffer(
         byte_buffer: ByteBuffer,

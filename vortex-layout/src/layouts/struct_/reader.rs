@@ -1,21 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-use futures::FutureExt;
-use futures::future::try_join_all;
 use futures::try_join;
 use itertools::Itertools;
-use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
-use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldName;
-use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::RESERVED_VALIDITY_FIELD_NAME;
 use vortex_array::dtype::StructFields;
@@ -29,21 +25,18 @@ use vortex_array::expr::bound::pack;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
+use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::fns::is_null::IsNull;
 use vortex_array::scalar_fn::fns::mask::Mask as MaskFn;
-use vortex_array::scalar_fn::fns::pack::Pack;
-use vortex_array::scalar_fn::fns::select::FieldSelection;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::scalar_fn::fns::select::Select;
-use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_expr::analysis::AnnotationFn;
 use vortex_expr::make_bound_free_field_annotator;
-use vortex_expr::transform::BoundPartitionedExpr;
 use vortex_expr::transform::partition_bound;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -51,12 +44,13 @@ use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayFuture;
+use crate::BoundaryMode;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::RowSplits;
 use crate::SplitRange;
-use crate::layouts::partitioned::BoundPartitionedExprEval;
+use crate::layouts::partitioned::PartitionedEval;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
 
@@ -227,10 +221,6 @@ impl StructReader {
     }
 
     fn compute_partitioned_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
-        if let Some(direct) = self.direct_projection(expr)? {
-            return Ok(Partitioned::Direct(Arc::new(direct)));
-        }
-
         // First, we expand the root scope into the fields of the struct to ensure
         // that partitioning works correctly.
         let expr =
@@ -267,99 +257,9 @@ impl StructReader {
             .into_boxed_slice();
         partitioned.replace_partitions(partitions)?;
 
-        Ok(Partitioned::Multi(Arc::new(partitioned)))
-    }
-
-    /// Recognize projections that pass fields of a non-nullable struct through unchanged: `$`,
-    /// `select(..., $)` and `pack(name: $.field, ...)`.
-    ///
-    /// These read each field with its own root expression and assemble the result directly,
-    /// instead of partitioning a `pack` over every field and evaluating it lazily on top of the
-    /// field arrays, a per-field cost that dominates scans of wide tables.
-    fn direct_projection(&self, expr: &BoundExpression) -> VortexResult<Option<DirectProjection>> {
-        if self.dtype().is_nullable() {
-            return Ok(None);
-        }
-        let fields = self.struct_fields();
-        let field_index = |name: &FieldName| {
-            fields
-                .find(name)
-                .ok_or_else(|| vortex_err!("Field {name} not found in struct layout"))
-        };
-
-        let (names, indices) = if expr.is_root() {
-            (fields.names().clone(), (0..fields.nfields()).collect())
-        } else if let Some(FieldSelection::Include(names)) = expr.as_opt::<Select>()
-            && expr.child(0).is_root()
-        {
-            let indices = names.iter().map(field_index).try_collect()?;
-            (names.clone(), indices)
-        } else if let Some(pack) = expr.as_opt::<Pack>()
-            && !pack.nullability.is_nullable()
-        {
-            let Some(indices) = expr
-                .children()
-                .iter()
-                .map(|child| {
-                    child
-                        .as_opt::<GetItem>()
-                        .filter(|_| child.child(0).is_root())
-                        .map(field_index)
-                })
-                .collect::<Option<VortexResult<Vec<_>>>>()
-            else {
-                return Ok(None);
-            };
-            (pack.names.clone(), indices?)
-        } else {
-            return Ok(None);
-        };
-
-        let fields = indices
-            .into_iter()
-            .map(|idx: usize| -> VortexResult<_> {
-                let dtype = fields
-                    .field_by_index(idx)
-                    .ok_or_else(|| vortex_err!("Field index {idx} out of bounds"))?;
-                Ok((idx, BoundExpression::new_root(dtype)))
-            })
-            .try_collect()?;
-        Ok(Some(DirectProjection { names, fields }))
-    }
-
-    /// Evaluate a [`DirectProjection`] by reading each field and packing the results.
-    fn direct_projection_evaluation(
-        &self,
-        direct: &DirectProjection,
-        row_range: &Range<u64>,
-        mask_fut: MaskFuture,
-    ) -> VortexResult<ArrayFuture> {
-        let field_futs: Vec<_> = direct
-            .fields
-            .iter()
-            .map(|(idx, expr)| {
-                self.field_reader_by_index(*idx)?
-                    .projection_evaluation(row_range, expr, mask_fut.clone())
-                    .map_err(|err| {
-                        err.with_context(format!(
-                            "While evaluating projection of field {}",
-                            self.struct_fields()
-                                .field_name(*idx)
-                                .vortex_expect("field index is in bounds")
-                        ))
-                    })
-            })
-            .try_collect()?;
-        let names = direct.names.clone();
-
-        Ok(async move {
-            let (fields, mask) = try_join!(try_join_all(field_futs), mask_fut)?;
-            Ok(
-                StructArray::try_new(names, fields, mask.true_count(), Validity::NonNullable)?
-                    .into_array(),
-            )
-        }
-        .boxed())
+        Ok(Partitioned::Multi(Arc::new(PartitionedEval::new(
+            partitioned,
+        )?)))
     }
 }
 
@@ -534,18 +434,7 @@ enum Partitioned {
     /// An expression which only operates over a single coordinate
     Single(Item, BoundExpression),
     /// An expression which operates over multiple coordinates
-    Multi(Arc<BoundPartitionedExpr<Item>>),
-    /// A projection that passes fields through unchanged, see
-    /// [`StructReader::direct_projection`].
-    Direct(Arc<DirectProjection>),
-}
-
-/// The fields read by a pass-through projection of a non-nullable struct.
-struct DirectProjection {
-    /// The output field names.
-    names: FieldNames,
-    /// The struct field index for each output field, with the root expression it is read with.
-    fields: Vec<(usize, BoundExpression)>,
+    Multi(Arc<PartitionedEval<Item>>),
 }
 
 impl LayoutReader for StructReader {
@@ -567,19 +456,90 @@ impl LayoutReader for StructReader {
         split_range: &SplitRange,
         splits: &mut RowSplits,
     ) -> VortexResult<()> {
-        // Register splits for the validity child, if there is one
-        if let Some(validity_ref) = self.validity()? {
-            validity_ref.register_splits(field_mask, split_range, splits)?;
+        if splits.mode() == BoundaryMode::PositionsOnly {
+            if let Some(validity_ref) = self.validity()? {
+                validity_ref.register_splits(field_mask, split_range, splits)?;
+            }
+            self.layout.matching_fields(field_mask, |mask, idx| {
+                self.field_reader_by_index(idx)?
+                    .register_splits(&[mask], split_range, splits)
+            })?;
+            // Pushed last so it extends the final field's ascending run.
+            splits.push(split_range.root_row_range().end);
+            return Ok(());
         }
 
+        let end = split_range.root_row_range().end;
+        let validity = self.validity()?;
+        let mut fields = Vec::new();
         self.layout.matching_fields(field_mask, |mask, idx| {
-            self.field_reader_by_index(idx)?
-                .register_splits(&[mask], split_range, splits)
+            fields.push((mask, idx));
+            Ok(())
         })?;
 
-        // In the case of an empty struct, we need to register the end split. Pushed last so it
-        // extends the final field's ascending run rather than starting a run of its own.
-        splits.push(split_range.root_row_range().end);
+        if usize::from(validity.is_some()) + fields.len() <= 1 {
+            if let Some(validity_ref) = validity {
+                validity_ref.register_splits(field_mask, split_range, splits)?;
+            }
+            for (mask, idx) in fields {
+                self.field_reader_by_index(idx)?
+                    .register_splits(&[mask], split_range, splits)?;
+            }
+
+            splits.push(end);
+            return Ok(());
+        }
+
+        // Repeated boundary sets cannot change which positions every child shares. Keep their
+        // inherited soft marks even when their positions match the previous child.
+        let mut children = 0;
+        let mut previous_len = 0;
+        let mut all = Vec::new();
+        let mut soft = Vec::new();
+        let mut add = |child: RowSplits| {
+            let (boundaries, child_soft) = child.into_sorted_deduped_with_soft();
+            if boundaries.is_empty() {
+                return;
+            }
+            soft.extend(child_soft);
+            if children > 0 && all[all.len() - previous_len..] == boundaries[..] {
+                return;
+            }
+            children += 1;
+            previous_len = boundaries.len();
+            all.extend(boundaries);
+        };
+        if let Some(validity_ref) = validity {
+            let mut child = splits.new_like(16);
+            validity_ref.register_splits(field_mask, split_range, &mut child)?;
+            add(child);
+        }
+        for (mask, idx) in fields {
+            let mut child = splits.new_like(16);
+            self.field_reader_by_index(idx)?
+                .register_splits(&[mask], split_range, &mut child)?;
+            add(child);
+        }
+
+        // Each child contributes a position at most once, so its run length counts the children
+        // that share it. With one surviving child, `all` is already sorted.
+        if children > 1 {
+            all.sort_unstable();
+            for run in all.chunk_by(|a, b| a == b) {
+                if run.len() < children && run[0] != end {
+                    soft.push(run[0]);
+                }
+            }
+            all.dedup();
+        }
+        soft.sort_unstable();
+        soft.dedup();
+        splits.extend_ascending(all);
+        splits.mark_soft(soft);
+
+        // Append the struct's end even when its children contributed no boundaries, keeping the
+        // collected positions in one ascending run.
+        splits.push(end);
 
         Ok(())
     }
@@ -602,10 +562,26 @@ impl LayoutReader for StructReader {
                         ))
                     })
             }
-            Partitioned::Multi(_) | Partitioned::Direct(_) => {
-                // TODO(ngates): if all partitions are boolean, we can use a pruning evaluation. Otherwise
-                //  there's not much we can do? Maybe... it's complicated...
-                Ok(MaskFuture::ready(mask))
+            Partitioned::Multi(_) => {
+                // Only split after single-field delegation so field readers see whole predicates.
+                // AND/OR compose conservative "may match" masks, even for nullable predicates;
+                // other multi-field operators cannot generally combine these masks (e.g. NOT).
+                let Some(operator @ (Operator::And | Operator::Or)) =
+                    expr.as_opt::<Binary>().copied()
+                else {
+                    return Ok(MaskFuture::ready(mask));
+                };
+                let lhs = self.pruning_evaluation(row_range, &expr.children()[0], mask.clone())?;
+                let rhs = self.pruning_evaluation(row_range, &expr.children()[1], mask.clone())?;
+                Ok(MaskFuture::new(mask.len(), async move {
+                    let (lhs, rhs) = try_join!(lhs, rhs)?;
+                    let combined = if operator == Operator::And {
+                        &lhs & &rhs
+                    } else {
+                        &lhs | &rhs
+                    };
+                    Ok(mask.bitand(&combined))
+                }))
             }
         }
     }
@@ -648,12 +624,6 @@ impl LayoutReader for StructReader {
                 },
                 self.session.clone(),
             ),
-            Partitioned::Direct(_) => {
-                vortex_bail!(
-                    "Cannot evaluate struct projection {expr} as a filter over {}",
-                    self.name
-                )
-            }
         }
     }
 
@@ -685,9 +655,6 @@ impl LayoutReader for StructReader {
                         })
                 })
             }
-            Partitioned::Direct(direct) => {
-                self.direct_projection_evaluation(direct, row_range, mask_fut)
-            }
         }
     }
 
@@ -698,6 +665,7 @@ impl LayoutReader for StructReader {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
     use std::sync::Arc;
 
     use rstest::fixture;
@@ -708,13 +676,16 @@ mod tests {
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldMask;
     use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::RESERVED_VALIDITY_FIELD_NAME;
@@ -728,6 +699,9 @@ mod tests {
     use vortex_array::expr::is_not_null;
     use vortex_array::expr::is_null;
     use vortex_array::expr::lit;
+    use vortex_array::expr::lt;
+    use vortex_array::expr::mask;
+    use vortex_array::expr::not;
     use vortex_array::expr::or;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
@@ -740,12 +714,27 @@ mod tests {
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
+    use vortex_session::registry::ReadContext;
 
+    use crate::BoundaryMode;
     use crate::LayoutReaderRef;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
+    use crate::children::OwnedLayoutChildren;
+    use crate::layouts::chunked::ChunkedLayout;
+    use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+    use crate::layouts::flat::FlatLayout;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::repartition::RepartitionStrategy;
+    use crate::layouts::repartition::RepartitionWriterOptions;
+    use crate::layouts::struct_::StructLayout;
     use crate::layouts::table::TableStrategy;
+    use crate::layouts::zoned::writer::ZonedLayoutOptions;
+    use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::scan::split_by::SplitBy;
+    use crate::scan::split_by::register_boundaries;
+    use crate::segments::CountingSegmentSource;
+    use crate::segments::SegmentId;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -827,6 +816,289 @@ mod tests {
         .unwrap();
 
         (segments, layout)
+    }
+
+    /// A leaf writer that chunks every `rows` rows.
+    fn chunked_every(rows: usize) -> Arc<dyn LayoutStrategy> {
+        Arc::new(RepartitionStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            RepartitionWriterOptions {
+                block_size_minimum: 0,
+                block_len_multiple: rows,
+                block_size_target: None,
+                canonicalize: false,
+            },
+        ))
+    }
+
+    /// A struct of 12,000 rows whose field `a` chunks every 1,000 rows and `b` every 3,000,
+    /// written in `pieces` pushes. With `chunked`, the struct is itself a chunk of a chunked layout
+    /// per push.
+    fn misaligned_struct_layout(
+        pieces: usize,
+        chunked: bool,
+        nullable: bool,
+    ) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let table = TableStrategy::new(chunked_every(2000), chunked_every(1000))
+            .with_field_writer(FieldPath::from_name("b"), chunked_every(3000));
+        let strategy: Arc<dyn LayoutStrategy> = if chunked {
+            Arc::new(ChunkedLayoutStrategy::new(table))
+        } else {
+            Arc::new(table)
+        };
+        let rows = 12_000 / pieces;
+        let chunks = (0..pieces)
+            .map(|piece| {
+                let start = i32::try_from(piece * rows)?;
+                let end = start + i32::try_from(rows)?;
+                Ok(StructArray::try_from_iter_with_validity(
+                    [
+                        ("a", PrimitiveArray::from_iter(start..end).into_array()),
+                        ("b", PrimitiveArray::from_iter(start..end).into_array()),
+                    ],
+                    if nullable {
+                        Validity::Array(
+                            BoolArray::from_iter((start..end).map(|row| row % 2 == 0)).into_array(),
+                        )
+                    } else {
+                        Validity::NonNullable
+                    },
+                )?
+                .into_array())
+            })
+            .collect::<VortexResult<Vec<ArrayRef>>>()?;
+        let dtype = chunks[0].dtype().clone();
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(
+                    ctx.into(),
+                    segments2,
+                    ChunkedArray::try_new(chunks, dtype)?
+                        .into_array()
+                        .to_array_stream()
+                        .sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await
+        })?;
+        Ok((segments, layout))
+    }
+
+    /// Registers `layout`'s boundaries over its rows, as a scan does.
+    fn boundaries_and_soft(
+        segments: Arc<dyn SegmentSource>,
+        layout: &LayoutRef,
+    ) -> VortexResult<(Vec<u64>, Vec<u64>)> {
+        let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+        Ok(register_boundaries(
+            reader.as_ref(),
+            &(0..reader.row_count()),
+            &[FieldMask::All],
+            BoundaryMode::WithSoftMarks,
+        )?
+        .into_sorted_deduped_with_soft())
+    }
+
+    #[test]
+    fn boundaries_only_some_fields_have_are_soft() -> VortexResult<()> {
+        let (segments, layout) = misaligned_struct_layout(1, false, false)?;
+        let (boundaries, soft) = boundaries_and_soft(segments, &layout)?;
+        // `a` chunks every 1,000 rows and `b` every 3,000, so only `b`'s are shared.
+        assert_eq!(boundaries, (0..=12).map(|k| k * 1000).collect::<Vec<u64>>());
+        assert_eq!(
+            soft,
+            (1..12)
+                .filter(|k| k % 3 != 0)
+                .map(|k| k * 1000)
+                .collect::<Vec<u64>>()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn chunk_ends_above_the_struct_stay_hard() -> VortexResult<()> {
+        // Two top-level chunks of 6,000 rows, each a struct whose `a` chunks every 1,000 rows and
+        // `b` every 3,000: the top-level chunk end at 6,000 is every column's, so it stays hard.
+        let (segments, layout) = misaligned_struct_layout(2, true, false)?;
+        let (boundaries, soft) = boundaries_and_soft(segments, &layout)?;
+        assert_eq!(boundaries, (0..=12).map(|k| k * 1000).collect::<Vec<u64>>());
+        assert!(!soft.contains(&6000), "the chunk end is soft: {soft:?}");
+        assert!(!soft.contains(&3000) && !soft.contains(&9000), "{soft:?}");
+        assert!(soft.contains(&1000) && soft.contains(&7000), "{soft:?}");
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::non_nullable(false, vec![0, 3000, 6000, 9000, 12000])]
+    // Validity chunks every 2,000 rows, so only 6,000 is every child's boundary.
+    #[case::nullable(true, vec![0, 6000, 12000])]
+    fn scan_merges_soft_boundaries_including_validity_boundaries(
+        #[case] nullable: bool,
+        #[case] expected: Vec<u64>,
+    ) -> VortexResult<()> {
+        let (segments, layout) = misaligned_struct_layout(1, false, nullable)?;
+        let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+        assert_eq!(
+            SplitBy::default().splits(
+                reader.as_ref(),
+                &(0..reader.row_count()),
+                &[FieldMask::All],
+            )?,
+            expected,
+        );
+        Ok(())
+    }
+
+    fn split_test_chunks(lengths: &[u64]) -> LayoutRef {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let children = lengths
+            .iter()
+            .map(|&len| {
+                FlatLayout::new(len, dtype.clone(), SegmentId::from(0), ReadContext::new([]))
+                    .into_layout()
+            })
+            .collect();
+        ChunkedLayout::new(
+            lengths.iter().sum(),
+            dtype,
+            OwnedLayoutChildren::layout_children(children),
+        )
+        .into_layout()
+    }
+
+    fn split_test_struct(fields: Vec<(&str, LayoutRef)>) -> LayoutRef {
+        let dtype = DType::Struct(
+            StructFields::from_iter(
+                fields
+                    .iter()
+                    .map(|(name, layout)| (*name, layout.dtype().clone())),
+            ),
+            Nullability::NonNullable,
+        );
+        StructLayout::new(
+            6,
+            dtype,
+            fields.into_iter().map(|(_, layout)| layout).collect(),
+        )
+        .into_layout()
+    }
+
+    const FINE_CHUNKS: &[u64] = &[2, 2, 2];
+    const COARSE_CHUNKS: &[u64] = &[4, 2];
+
+    #[rstest]
+    #[case::consecutive_duplicates(&[FINE_CHUNKS, FINE_CHUNKS, COARSE_CHUNKS], &[2])]
+    #[case::separated_duplicates(&[FINE_CHUNKS, COARSE_CHUNKS, FINE_CHUNKS], &[2])]
+    #[case::all_identical(&[FINE_CHUNKS, FINE_CHUNKS, FINE_CHUNKS], &[])]
+    fn split_collection_repeated_child_boundaries(
+        #[case] chunk_lengths: &[&[u64]],
+        #[case] expected_soft: &[u64],
+        #[values(BoundaryMode::PositionsOnly, BoundaryMode::WithSoftMarks)] mode: BoundaryMode,
+    ) -> VortexResult<()> {
+        let fields = ["a", "b", "c"]
+            .into_iter()
+            .zip(
+                chunk_lengths
+                    .iter()
+                    .map(|lengths| split_test_chunks(lengths)),
+            )
+            .collect();
+        let layout = split_test_struct(fields);
+        let reader = layout.new_reader(
+            "".into(),
+            Arc::new(TestSegments::default()),
+            &SESSION,
+            &Default::default(),
+        )?;
+        let (boundaries, soft) =
+            register_boundaries(reader.as_ref(), &(0..6), &[FieldMask::All], mode)?
+                .into_sorted_deduped_with_soft();
+        assert_eq!(boundaries, vec![0, 2, 4, 6]);
+        assert_eq!(
+            soft,
+            if mode == BoundaryMode::WithSoftMarks {
+                expected_soft
+            } else {
+                &[]
+            }
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::single_child(true, false)]
+    #[case::nested_first(false, true)]
+    #[case::nested_last(false, false)]
+    fn split_collection_preserves_inherited_soft_marks(
+        #[case] single_child: bool,
+        #[case] nested_first: bool,
+        #[values(BoundaryMode::PositionsOnly, BoundaryMode::WithSoftMarks)] mode: BoundaryMode,
+        #[values(0..6, 0..0)] range: std::ops::Range<u64>,
+    ) -> VortexResult<()> {
+        let nested = split_test_struct(vec![
+            ("fine", split_test_chunks(&[2, 2, 2])),
+            ("coarse", split_test_chunks(&[6])),
+        ]);
+        let mut fields = vec![("nested", nested)];
+        if !single_child {
+            // Identical positions, but only the nested child's interior boundaries are soft.
+            fields.push(("aligned", split_test_chunks(&[2, 2, 2])));
+            if !nested_first {
+                fields.reverse();
+            }
+        }
+        let layout = split_test_struct(fields);
+        let reader = layout.new_reader(
+            "".into(),
+            Arc::new(TestSegments::default()),
+            &SESSION,
+            &Default::default(),
+        )?;
+        let (boundaries, soft) =
+            register_boundaries(reader.as_ref(), &range, &[FieldMask::All], mode)?
+                .into_sorted_deduped_with_soft();
+        assert_eq!(
+            boundaries,
+            if range.is_empty() {
+                vec![0]
+            } else {
+                vec![0, 2, 4, 6]
+            }
+        );
+        assert_eq!(
+            soft,
+            if !range.is_empty() && mode == BoundaryMode::WithSoftMarks {
+                vec![2, 4]
+            } else {
+                vec![]
+            }
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    fn split_collection_empty_struct(
+        #[values(BoundaryMode::PositionsOnly, BoundaryMode::WithSoftMarks)] mode: BoundaryMode,
+    ) -> VortexResult<()> {
+        let layout = split_test_struct(vec![]);
+        let reader = layout.new_reader(
+            "".into(),
+            Arc::new(TestSegments::default()),
+            &SESSION,
+            &Default::default(),
+        )?;
+        let (boundaries, soft) =
+            register_boundaries(reader.as_ref(), &(0..6), &[FieldMask::All], mode)?
+                .into_sorted_deduped_with_soft();
+        assert_eq!(boundaries, vec![0, 6]);
+        assert!(soft.is_empty());
+        Ok(())
     }
 
     #[fixture]
@@ -926,6 +1198,142 @@ mod tests {
         .unwrap();
 
         (segments, layout)
+    }
+
+    /// Writes `{id, s: {a, b, c}}`, where the struct `s` is null in row 0.
+    #[fixture]
+    fn table_with_null_struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let strategy = TableStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(FlatLayoutStrategy::default()),
+        );
+        let s = StructArray::try_from_iter_with_validity(
+            [
+                ("a", buffer![7, 2, 3].into_array()),
+                ("b", buffer![4, 5, 6].into_array()),
+                ("c", buffer![8, 9, 10].into_array()),
+            ],
+            Validity::Array(BoolArray::from_iter([false, true, true]).into_array()),
+        )
+        .unwrap();
+        let table = StructArray::try_from_iter([
+            ("id", buffer![0, 1, 2].into_array()),
+            ("s", s.into_array()),
+        ])
+        .unwrap();
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    segments2,
+                    table.into_array().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await
+        })
+        .unwrap();
+
+        (segments, layout)
+    }
+
+    /// Projecting a nullable struct reads only the fields it keeps, plus the struct validity.
+    #[rstest]
+    #[case::select_one_field(select(["b"], root()), 2)]
+    #[case::whole_struct(root(), 4)]
+    fn test_nullable_struct_projection_request_count(
+        #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[case] expr: Expression,
+        #[case] expected_requests: usize,
+    ) -> VortexResult<()> {
+        let source = Arc::new(CountingSegmentSource::new(segments));
+        let reader = layout.new_reader(
+            "".into(),
+            Arc::clone(&source) as _,
+            &SESSION,
+            &Default::default(),
+        )?;
+        let expr = expr.bind(reader.dtype())?;
+        let project = reader.projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?;
+        let result = block_on(move |_| project)?;
+
+        assert_eq!(source.requests(), expected_requests);
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = result.execute::<StructArray>(&mut ctx)?;
+        assert_eq!(
+            result.validity()?.execute_mask(3, &mut ctx)?,
+            Mask::from_iter([false, true, true])
+        );
+        assert_arrays_eq!(
+            result.unmasked_field_by_name("b")?,
+            PrimitiveArray::from_iter([4i32, 5, 6]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Projecting a pruned nullable struct column, with `select` or a masked `pack`, reads only
+    /// the fields it keeps, plus the struct validity.
+    #[rstest]
+    #[case::select(
+        select(["b"], get_item("s", root())),
+        PrimitiveArray::from_iter([4i32, 5, 6]).into_array(),
+    )]
+    // Reading `b` through the nullable `s` also nulls it where `s` is null.
+    #[case::masked_pack(
+        mask(
+            pack([("b", get_item("b", get_item("s", root())))], Nullability::NonNullable),
+            is_not_null(get_item("s", root())),
+        ),
+        PrimitiveArray::from_option_iter([None, Some(5i32), Some(6)]).into_array(),
+    )]
+    fn test_pruned_nullable_struct_column_reads_only_kept_fields(
+        #[from(table_with_null_struct_layout)] (segments, layout): (
+            Arc<dyn SegmentSource>,
+            LayoutRef,
+        ),
+        #[case] s_projection: Expression,
+        #[case] expected_b: ArrayRef,
+    ) -> VortexResult<()> {
+        let source = Arc::new(CountingSegmentSource::new(segments));
+        let reader = layout.new_reader(
+            "".into(),
+            Arc::clone(&source) as _,
+            &SESSION,
+            &Default::default(),
+        )?;
+        let expr = pack(
+            [("id", get_item("id", root())), ("s", s_projection)],
+            Nullability::NonNullable,
+        )
+        .bind(reader.dtype())?;
+        let project = reader.projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?;
+        let result = block_on(move |_| project)?;
+
+        // `id`, `s.b` and the validity of `s`; `s.a` and `s.c` are never requested.
+        assert_eq!(source.requests(), 3);
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = result.execute::<StructArray>(&mut ctx)?;
+        assert_arrays_eq!(
+            result.unmasked_field_by_name("id")?,
+            PrimitiveArray::from_iter([0i32, 1, 2]),
+            &mut ctx
+        );
+        let s = result
+            .unmasked_field_by_name("s")?
+            .clone()
+            .execute::<StructArray>(&mut ctx)?;
+        assert_eq!(s.names().as_ref(), ["b"].map(FieldName::from));
+        assert_eq!(
+            s.validity()?.execute_mask(3, &mut ctx)?,
+            Mask::from_iter([false, true, true])
+        );
+        assert_arrays_eq!(s.unmasked_field_by_name("b")?, expected_b, &mut ctx);
+        Ok(())
     }
 
     #[rstest]
@@ -1042,7 +1450,7 @@ mod tests {
         );
     }
 
-    /// Field pass-through projections take the direct path; the rest must match it.
+    /// Pass-through projections skip evaluating the partition root; the rest must match them.
     #[rstest]
     #[case::root(root(), &[("a", [7, 2]), ("b", [4, 5]), ("c", [4, 5])])]
     #[case::select(select(["c", "a"], root()), &[("c", [4, 5]), ("a", [7, 2])])]
@@ -1774,9 +2182,133 @@ mod tests {
         // DType mismatch: "age" is u8 but literal is i32
         let filt = eq(col("age"), lit(67i32));
 
-        let result = filt.bind(reader.dtype());
-        assert!(result.is_err());
-        let err = result.err().unwrap().to_string();
-        assert!(err.contains("Cannot compare different DTypes"), "{err}");
+        let error = filt
+            .bind(reader.dtype())
+            .expect_err("the u8 column cannot be compared with an i32 literal");
+        assert!(
+            error
+                .to_string()
+                .contains("Comparison requires equal dtypes ignoring nullability")
+        );
+    }
+
+    /// Nine rows sorted by `(a, b)`; three zones of three; `c` copies `b` with nulls.
+    /// All three columns are zoned.
+    #[fixture]
+    fn sorted_zoned_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let zoned = ZonedStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ZonedLayoutOptions {
+                block_size: NonZeroUsize::new(3).unwrap(),
+                ..Default::default()
+            },
+        );
+        let strategy = TableStrategy::new(Arc::new(FlatLayoutStrategy::default()), Arc::new(zoned));
+        let chunk = |a: [i32; 3], b: [i32; 3]| {
+            StructArray::from_fields(
+                [
+                    ("a", buffer![a[0], a[1], a[2]].into_array()),
+                    ("b", buffer![b[0], b[1], b[2]].into_array()),
+                    (
+                        "c",
+                        PrimitiveArray::from_option_iter([Some(b[0]), Some(b[1]), None])
+                            .into_array(),
+                    ),
+                ]
+                .as_slice(),
+            )
+            .unwrap()
+            .into_array()
+        };
+        let array_stream = ChunkedArray::from_iter([
+            chunk([1, 1, 1], [1, 2, 3]),
+            chunk([1, 2, 2], [4, 1, 2]),
+            chunk([2, 2, 3], [3, 4, 1]),
+        ])
+        .into_array()
+        .to_array_stream()
+        .sequenced(ptr);
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(ctx.into(), segments2, array_stream, eof, &session)
+                .await
+        })
+        .unwrap();
+        (segments, layout)
+    }
+
+    #[rstest]
+    #[case::lexicographic_bound(
+        or(
+            gt(col("a"), lit(1)),
+            and(eq(col("a"), lit(1)), gt(col("b"), lit(4))),
+        ),
+        [false, true, true],
+    )]
+    #[case::nested_and_or(
+        and(
+            or(gt(col("a"), lit(1)), gt(col("b"), lit(4))),
+            or(eq(col("a"), lit(1)), gt(col("b"), lit(2))),
+        ),
+        [false, true, true],
+    )]
+    #[case::single_field_compound(
+        or(
+            and(gt(col("a"), lit(1)), eq(col("a"), lit(3))),
+            gt(col("b"), lit(4)),
+        ),
+        [false, false, true],
+    )]
+    #[case::unsupported_and_branch(
+        and(gt(col("a"), lit(1)), gt(col("a"), col("b"))),
+        [false, true, true],
+    )]
+    #[case::unsupported_or_branch(
+        or(gt(col("a"), lit(2)), gt(col("a"), col("b"))),
+        [true, true, true],
+    )]
+    #[case::multi_field_negation(
+        not(or(
+            gt(col("a"), lit(1)),
+            and(eq(col("a"), lit(1)), gt(col("b"), lit(4))),
+        )),
+        [true, true, true],
+    )]
+    #[case::nullable_and(
+        and(lt(col("a"), lit(2)), gt(col("c"), lit(3))),
+        [false, true, false],
+    )]
+    #[case::nullable_or(
+        or(gt(col("a"), lit(2)), gt(col("c"), lit(4))),
+        [false, false, true],
+    )]
+    fn multi_field_predicates_prune(
+        #[from(sorted_zoned_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[case] expr: Expression,
+        #[case] expected_zones: [bool; 3],
+        #[values(
+            Mask::new_true(9),
+            Mask::new_false(9),
+            Mask::from_iter([true, false, true, false, true, false, true, false, true]),
+        )]
+        mask: Mask,
+    ) -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let reader = layout.new_reader("".into(), segments, &session, &Default::default())?;
+            let expr = expr.bind(reader.dtype())?;
+            let result = reader
+                .pruning_evaluation(&(0..layout.row_count()), &expr, mask.clone())?
+                .await?;
+            let expected = Mask::from_iter(expected_zones.into_iter().flat_map(|keep| [keep; 3]));
+            assert_eq!(result, &mask & &expected);
+            Ok(())
+        })
     }
 }

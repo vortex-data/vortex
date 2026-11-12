@@ -10,6 +10,8 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::RunEnd;
+use vortex_array::arrays::runend::compress::runend_encode;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
@@ -21,8 +23,6 @@ use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
-use vortex_runend::RunEnd;
-use vortex_runend::compress::runend_encode;
 
 use super::IntRLEScheme;
 use super::SparseScheme;

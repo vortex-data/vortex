@@ -34,7 +34,11 @@ use crate::DecimalBytePartsArray;
 use crate::DecimalBytePartsArraySlotsExt;
 use crate::decimal_byte_parts::MAX_LOWER_PARTS;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty();
+    crate::initialize(&session);
+    session
+});
 
 #[rstest]
 #[case::no_lower_parts(DecimalByteParts::try_new(
@@ -245,38 +249,6 @@ fn serialization_requires_v2_permission() -> VortexResult<()> {
         "the file's encoding table must carry the v2 format id"
     );
 
-    Ok(())
-}
-
-#[test]
-fn bare_vtable_refuses_serde() -> VortexResult<()> {
-    let session = VortexSession::empty();
-    session.arrays().register(DecimalByteParts);
-    let msp = msp();
-    let array = DecimalByteParts::try_new(msp.clone(), DecimalDType::new(19, 2))?.into_array();
-    let result = session.array_serialize(&array)?;
-    assert!(
-        result.is_none(),
-        "expected unsupported VTable serialization, got {result:?}"
-    );
-
-    let id = VTable::id(&DecimalByteParts);
-    let plugin = session
-        .arrays()
-        .registry()
-        .get(&id)
-        .vortex_expect("registered");
-    let children = vec![msp];
-    let result = plugin.deserialize(
-        ArrayDeserialization::new(id, array.dtype(), array.len(), &[8, 7], &[], &children),
-        &session,
-    );
-    assert!(
-        result.as_ref().is_err_and(|err| err
-            .to_string()
-            .contains("DecimalByteParts deserialization requires DecimalBytePartsPlugin")),
-        "expected unsupported VTable deserialization, got {result:?}"
-    );
     Ok(())
 }
 

@@ -1,0 +1,6 @@
+# Every page is open to crawlers, including AI crawlers.
+# https://docs.vortex.dev/llms.txt indexes the docs for language models.
+User-agent: *
+Allow: /
+
+Sitemap: https://docs.vortex.dev/sitemap.xml

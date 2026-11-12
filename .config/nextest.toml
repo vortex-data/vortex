@@ -1,6 +1,14 @@
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 5 }
 
+# Spatial tests concurrently call INSTALL spatial which fails
+[test-groups]
+duckdb-extension-install = { max-threads = 1 }
+
 [[profile.default.overrides]]
 filter = 'test(compress_large_int | fsst_compress_offsets_overflow_i32)'
 priority = 100
+
+[[profile.default.overrides]]
+filter = 'package(vortex-duckdb) & (test(spatial_) | test(test_geometry))'
+test-group = 'duckdb-extension-install'

@@ -562,12 +562,43 @@ impl BitBuffer {
     ///
     /// Stops and returns the first error from `f`.
     #[inline]
-    pub fn try_for_each_set_index<E, F>(&self, mut f: F) -> Result<(), E>
+    pub fn try_for_each_set_index<E, F>(&self, f: F) -> Result<(), E>
+    where
+        F: FnMut(usize) -> Result<(), E>,
+    {
+        self.try_for_each_index::<false, E, F>(f)
+    }
+
+    /// Invoke `f(index)` for every unset bit, in ascending order, processing a `u64` word at a
+    /// time.
+    ///
+    /// This is the counterpart of [`for_each_set_index`](Self::for_each_set_index) for unset bits.
+    #[inline]
+    pub fn for_each_unset_index<F: FnMut(usize)>(&self, mut f: F) {
+        let Ok(()) = self.try_for_each_index::<true, _, _>(|index| {
+            f(index);
+            Ok::<_, Infallible>(())
+        });
+    }
+
+    /// The scan behind [`try_for_each_set_index`](Self::try_for_each_set_index). With `UNSET`,
+    /// each word is inverted as it is read, so the same scan visits the unset bits instead.
+    #[inline]
+    fn try_for_each_index<const UNSET: bool, E, F>(&self, mut f: F) -> Result<(), E>
     where
         F: FnMut(usize) -> Result<(), E>,
     {
         let mut base = 0usize;
         for word in self.chunks().iter_padded() {
+            let word = if UNSET {
+                // The last word is zero padded past `len`. Setting the padding before inverting
+                // keeps it from being visited.
+                let held = self.len - base;
+                let padding = if held < 64 { u64::MAX << held } else { 0 };
+                !(word | padding)
+            } else {
+                word
+            };
             if word == u64::MAX {
                 for k in 0..64 {
                     f(base + k)?;
@@ -805,7 +836,11 @@ impl<'a> IntoIterator for &'a BitBuffer {
 
 #[cfg(test)]
 mod tests {
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rstest::rstest;
+    use vortex_error::VortexResult;
 
     use crate::ByteBuffer;
     use crate::bit::BitBuffer;
@@ -1148,6 +1183,37 @@ mod tests {
                     .collect::<Vec<_>>()
             );
         }
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(1)]
+    #[case(63)]
+    #[case(64)]
+    #[case(65)]
+    #[case(128)]
+    #[case(200)]
+    fn test_for_each_unset_index_agrees_with_naive(#[case] len: usize) -> VortexResult<()> {
+        let mut rng = StdRng::seed_from_u64(u64::try_from(len)?);
+        let random: BitBuffer = (0..len).map(|_| rng.random_bool(0.5)).collect();
+        // The same kind of bits, starting 3 bits into their buffer.
+        let offset: BitBuffer = (0..len + 3).map(|_| rng.random_bool(0.5)).collect();
+        for bits in [
+            random,
+            offset.slice(3..),
+            BitBuffer::new_set(len),
+            BitBuffer::new_unset(len),
+        ] {
+            let expected: Vec<usize> = bits
+                .iter()
+                .enumerate()
+                .filter_map(|(index, set)| (!set).then_some(index))
+                .collect();
+            let mut found = Vec::new();
+            bits.for_each_unset_index(|index| found.push(index));
+            assert_eq!(found, expected);
+        }
+        Ok(())
     }
 
     #[test]

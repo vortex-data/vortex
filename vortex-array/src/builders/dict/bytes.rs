@@ -7,6 +7,7 @@ use std::mem;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
+use rustc_hash::FxBuildHasher;
 use vortex_array::ExecutionCtx;
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBufferMut;
@@ -19,13 +20,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
-use vortex_utils::aliases::hash_map::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashTable;
 use vortex_utils::aliases::hash_map::HashTableEntry;
-use vortex_utils::aliases::hash_map::RandomState;
 
 use super::DictConstraints;
 use super::DictEncoder;
+use super::codes_ptype_for_max_len;
 use crate::ArrayRef;
 use crate::ArrayView;
 use crate::IntoArray;
@@ -48,7 +48,7 @@ pub struct BytesDictBuilder<Code> {
     views: BufferMut<BinaryView>,
     values: ByteBufferMut,
     values_nulls: BitBufferMut,
-    hasher: RandomState,
+    hasher: FxBuildHasher,
     dtype: DType,
     max_dict_bytes: usize,
     max_dict_len: usize,
@@ -60,18 +60,18 @@ pub fn bytes_dict_builder(
     constraints: &DictConstraints,
     allocator: BufferAllocatorRef,
 ) -> Box<dyn DictEncoder> {
-    match constraints.max_len as u64 {
-        max if max <= u8::MAX as u64 => Box::new(BytesDictBuilder::<u8>::new_in(
+    match codes_ptype_for_max_len(constraints.max_len as u64) {
+        PType::U8 => Box::new(BytesDictBuilder::<u8>::new_in(
             dtype,
             constraints,
             allocator,
         )),
-        max if max <= u16::MAX as u64 => Box::new(BytesDictBuilder::<u16>::new_in(
+        PType::U16 => Box::new(BytesDictBuilder::<u16>::new_in(
             dtype,
             constraints,
             allocator,
         )),
-        max if max <= u32::MAX as u64 => Box::new(BytesDictBuilder::<u32>::new_in(
+        PType::U32 => Box::new(BytesDictBuilder::<u32>::new_in(
             dtype,
             constraints,
             allocator,
@@ -99,7 +99,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
             null_code: OnceCell::new(),
             values: BufferMut::empty_aligned_in(Alignment::of::<u8>(), allocator.clone()),
             values_nulls: BitBufferMut::empty_in(allocator.clone()),
-            hasher: DefaultHashBuilder::default(),
+            hasher: FxBuildHasher,
             dtype,
             max_dict_bytes: constraints.max_bytes.min(u32::MAX as usize),
             max_dict_len: constraints.max_len,
@@ -364,6 +364,7 @@ mod test {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::ByteBuffer;
@@ -371,6 +372,7 @@ mod test {
     use vortex_session::VortexSession;
 
     use super::BytesDictBuilder;
+    use super::bytes_dict_builder;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
@@ -380,11 +382,13 @@ mod test {
     use crate::arrays::varbinview::BinaryView;
     use crate::assert_arrays_eq;
     use crate::buffer::BufferHandle;
+    use crate::builders::dict::DictConstraints;
     use crate::builders::dict::UNCONSTRAINED;
     use crate::builders::dict::dict_encode;
     use crate::builders::dict::dict_encoder_in;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -509,6 +513,25 @@ mod test {
         assert_arrays_eq!(encoder.reset(), second, &mut ctx);
 
         Ok(())
+    }
+
+    #[rstest]
+    #[case(usize::from(u8::MAX) + 1, PType::U8)]
+    #[case(usize::from(u8::MAX) + 2, PType::U16)]
+    #[case(usize::from(u16::MAX) + 1, PType::U16)]
+    #[case(usize::from(u16::MAX) + 2, PType::U32)]
+    fn selects_narrowest_code_type(#[case] max_len: usize, #[case] expected: PType) {
+        let constraints = DictConstraints {
+            max_bytes: usize::MAX,
+            max_len,
+        };
+        let encoder = bytes_dict_builder(
+            DType::Utf8(Nullability::NonNullable),
+            &constraints,
+            BufferAllocatorRef::statically_allocated(),
+        );
+
+        assert_eq!(encoder.codes_ptype(), expected);
     }
 
     #[test]

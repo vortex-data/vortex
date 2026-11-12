@@ -14,6 +14,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -689,6 +690,7 @@ impl Scan {
     pub fn step(&mut self) -> VortexResult<Turn> {
         loop {
             if let Some((split, array)) = self.outputs.pop_front() {
+                let array = array.optimize_ctx(&self.core.exec)?;
                 return Ok(Turn::Output(split, array));
             }
             if let Some(read) = self.core.new_reads.pop_front() {
@@ -749,7 +751,7 @@ impl Scan {
         };
         if self.next == self.splits.len() {
             // Compiled operators own what they need. The last split no longer needs the
-            // lowering tree or the source layouts retained by its lazy children.
+            // lowering tree or the source layouts retained by its lazy slots.
             self.root = None;
         }
         if output.is_some() {

@@ -8,20 +8,25 @@
 //! dispatch. [`row_fn_return_dtype`] and [`execute_rows`] expose the same paths to public vtables
 //! that delegate to a private row kernel.
 
+use smallvec::SmallVec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_mask::MaskValuesRef;
 use vortex_session::VortexSession;
 
+use super::batch::ArrayInputs;
+use super::batch::BatchProbe;
 use super::batch::BorrowedRowFnArgs;
-use super::batch::RowFnExecutionArgs;
+use super::batch::RowInputs;
 use super::batch::finalize_kernel_output;
 use super::row_fn::RowFn;
 use super::visitor::BatchPlanner;
 use super::visitor::ExecuteDenseWithRetry;
 use super::visitor::ExecuteFilteredRows;
+use super::visitor::ExecuteFused;
 use super::visitor::ExecuteRows;
 use super::visitor::ExecuteValidRows;
+use super::visitor::Fused;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
@@ -117,14 +122,61 @@ pub fn execute_rows<F: RowFn>(
     args: &dyn ExecutionArgs,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    ensure_arity(function, args.num_inputs())?;
+    let arrays = (0..args.num_inputs())
+        .map(|index| args.get(index))
+        .collect::<VortexResult<SmallVec<[ArrayRef; 4]>>>()?;
 
-    if args.num_inputs() == 0 {
-        return execute_nullary_rows(function, options, args.row_count(), ctx);
+    execute_row_inputs(
+        function,
+        options,
+        &ArrayInputs::new(&arrays, args.row_count()),
+        ctx,
+    )
+}
+
+/// Execute a row function over borrowed input columns.
+///
+/// Callers that already hold their operands avoid collecting another owned argument list.
+/// Batch inspection validates the lengths before planning or decoding the inputs.
+pub(crate) fn execute_row_inputs<F: RowFn, I: RowInputs + ?Sized>(
+    function: &F,
+    options: &F::Options,
+    inputs: &I,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    ensure_arity(function, inputs.num_inputs())?;
+
+    if inputs.num_inputs() == 0 {
+        return execute_nullary_rows(function, options, inputs.row_count(), ctx);
     }
 
-    let batch = prepare_batch(function, options, args)?;
+    // Classify every input before decoding any, so a null literal in any position skips all
+    // decoding, including an earlier input whose decode could fail or copy from a device.
+    let probe = BatchProbe::new(|| RowFn::id(function), inputs)?;
+    let collected: SmallVec<[DType; 4]>;
+    let arg_dtypes = match inputs.dtypes() {
+        Some(dtypes) => dtypes,
+        None => {
+            collected = (0..inputs.num_inputs())
+                .map(|index| inputs.input(index).dtype().clone())
+                .collect();
+            &collected
+        }
+    };
+
+    // Plan and execute in one dispatch, which `visitor::fused` explains. Only a batch that needs a
+    // dense retry or valid-row execution dispatches again.
+    let batch = match function.dispatch(
+        options,
+        arg_dtypes,
+        ExecuteFused::<F, I>::new(function, inputs, probe, arg_dtypes, ctx),
+    )? {
+        Fused::Done(values) => return Ok(values),
+        Fused::Partial(batch) => batch,
+    };
+
     batch.execute(
+        arg_dtypes,
         |args, ctx| execute_row_kernel(function, options, args, ctx),
         |args, ctx| execute_dense_attempt(function, options, args, ctx),
         |args, valid, ctx| try_execute_valid_rows(function, options, args, valid, ctx),
@@ -216,16 +268,6 @@ fn execute_filtered_rows<F: RowFn>(
         args.dtypes(),
         ExecuteFilteredRows::<F>::new(&args, args.dtypes(), args.plan(), valid, ctx),
     )
-}
-
-fn prepare_batch<F: RowFn>(
-    function: &F,
-    options: &F::Options,
-    args: &dyn ExecutionArgs,
-) -> VortexResult<RowFnExecutionArgs> {
-    RowFnExecutionArgs::new(RowFn::id(function), args, |arg_dtypes| {
-        function.dispatch(options, arg_dtypes, BatchPlanner::<F>::new(arg_dtypes))
-    })
 }
 
 #[cfg(test)]
@@ -337,13 +379,15 @@ mod tests {
             _args: &[DType],
             visitor: V,
         ) -> VortexResult<V::VisitResult> {
+            // Select `DenseWithRetry` first, so a partially valid batch dispatches again for its
+            // dense attempt, and then change the policy or element type on that second dispatch.
             if self.dispatches.fetch_add(1, Ordering::Relaxed) == 0 {
-                visitor.visit::<(i64,), i64>(|(value,)| value)
+                visitor.visit_deferred::<(i64,), i64, bool>(|(value,)| (value, false), |_| Ok(()))
             } else {
                 match self.change {
-                    DispatchChange::Policy => visitor
-                        .visit_deferred::<(i64,), i64, bool>(|(value,)| (value, false), |_| Ok(())),
-                    DispatchChange::Element => visitor.visit::<(u64,), u64>(|(value,)| value),
+                    DispatchChange::Policy => visitor.visit::<(i64,), i64>(|(value,)| value),
+                    DispatchChange::Element => visitor
+                        .visit_deferred::<(u64,), u64, bool>(|(value,)| (value, false), |_| Ok(())),
                 }
             }
         }
@@ -382,12 +426,31 @@ mod tests {
     }
 
     #[test]
+    fn test_execute_dispatches_once_without_retry() -> VortexResult<()> {
+        let dispatches = Arc::new(AtomicUsize::new(0));
+        let function = ChangingDispatchRowFn {
+            dispatches: Arc::clone(&dispatches),
+            change: DispatchChange::Policy,
+        };
+        let input = PrimitiveArray::new(vec![1_i64, 2], Validity::NonNullable).into_array();
+        let args = VecExecutionArgs::new(vec![input.clone()], 2);
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let actual = execute_rows(&function, &EmptyOptions, &args, &mut ctx)?;
+
+        assert_eq!(dispatches.load(Ordering::Relaxed), 1);
+        assert_arrays_eq!(&actual, &input, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
     fn test_execute_rejects_dispatch_that_changes_after_planning() -> VortexResult<()> {
         let function = ChangingDispatchRowFn {
             dispatches: Arc::new(AtomicUsize::new(0)),
             change: DispatchChange::Policy,
         };
-        let input = PrimitiveArray::new(vec![1_i64, 2], Validity::NonNullable).into_array();
+        let validity = Validity::from_iter([true, false]);
+        let input = PrimitiveArray::new(vec![1_i64, 2], validity).into_array();
         let args = VecExecutionArgs::new(vec![input], 2);
         let mut ctx = SESSION.create_execution_ctx();
 
@@ -404,7 +467,7 @@ mod tests {
             "unexpected error: {error}",
         );
         assert!(
-            message.contains("planned Dense, got DenseWithRetry"),
+            message.contains("planned DenseWithRetry, got Dense"),
             "unexpected error: {error}",
         );
         Ok(())
@@ -416,7 +479,8 @@ mod tests {
             dispatches: Arc::new(AtomicUsize::new(0)),
             change: DispatchChange::Element,
         };
-        let input = PrimitiveArray::new(vec![1_i64, 2], Validity::NonNullable).into_array();
+        let validity = Validity::from_iter([true, false]);
+        let input = PrimitiveArray::new(vec![1_i64, 2], validity).into_array();
         let args = VecExecutionArgs::new(vec![input], 2);
         let mut ctx = SESSION.create_execution_ctx();
 

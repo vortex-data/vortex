@@ -20,8 +20,11 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
+use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
@@ -32,6 +35,9 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::Buffer;
+use vortex_datetime_parts::DateTimeParts;
 #[cfg(feature = "zstd")]
 use vortex_edition::EDITION_DECLARATIONS;
 #[cfg(feature = "zstd")]
@@ -45,10 +51,12 @@ use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
 use vortex_fastlanes::Delta;
 use vortex_session::VortexSession;
+use vortex_sparse::Sparse;
 
 use crate::BtrBlocksCompressor;
 use crate::BtrBlocksCompressorBuilder;
 use crate::SESSION;
+use crate::schemes::boolean::BoolRunEndScheme;
 
 #[track_caller]
 fn assert_roundtrip(compressor: &BtrBlocksCompressor, input: &ArrayRef) -> VortexResult<ArrayRef> {
@@ -57,6 +65,113 @@ fn assert_roundtrip(compressor: &BtrBlocksCompressor, input: &ArrayRef) -> Vorte
     assert_arrays_eq!(&compressed, input, &mut ctx);
 
     Ok(compressed)
+}
+
+#[rstest]
+#[case::runs(false)]
+#[case::scattered(true)]
+fn test_sparse_boolean_compression(
+    #[case] scattered: bool,
+    #[values(false, true)] invert: bool,
+    #[values(0, 5)] offset: usize,
+) -> VortexResult<()> {
+    let input = BoolArray::from_iter((0..100_000).map(|i| {
+        let value = if scattered {
+            i % 100 == 0
+        } else {
+            (1000..2000).contains(&i)
+        };
+        value ^ invert
+    }))
+    .into_array();
+    let input = input.slice(offset..99_997)?;
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+    assert!(compressed.nbytes() < input.nbytes() / 4);
+    Ok(())
+}
+
+#[rstest]
+fn test_container_validity_is_compressed(
+    #[values("struct", "list", "listview", "fixed_size_list")] kind: &str,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let validity = Validity::Array(
+        BoolArray::from_iter((0..100_000).map(|i| (1000..2000).contains(&i))).into_array(),
+    );
+    let elements = PrimitiveArray::from_iter(0..100_000i32).into_array();
+    let input = match kind {
+        "struct" => {
+            StructArray::try_new(["value"].into(), [elements], 100_000, validity)?.into_array()
+        }
+        "list" => ListArray::try_new(
+            elements,
+            PrimitiveArray::from_iter(0..=100_000u32).into_array(),
+            validity,
+            &mut ctx,
+        )?
+        .into_array(),
+        "listview" => ListViewArray::try_new(
+            elements,
+            PrimitiveArray::from_iter(0..100_000u32).into_array(),
+            PrimitiveArray::from_iter(iter::repeat_n(1u32, 100_000)).into_array(),
+            validity,
+            &mut ctx,
+        )?
+        .into_array(),
+        "fixed_size_list" => {
+            FixedSizeListArray::try_new(elements, 1, validity, 100_000)?.into_array()
+        }
+        _ => unreachable!(),
+    };
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+    assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
+    Ok(())
+}
+
+#[rstest]
+fn test_leaf_validity_is_compressed(
+    #[values("bool", "integer", "float", "decimal", "string")] kind: &str,
+) -> VortexResult<()> {
+    let validity = Validity::Array(
+        BoolArray::from_iter((0..100_000).map(|i| (1000..2000).contains(&i))).into_array(),
+    );
+    let input = match kind {
+        "bool" => BoolArray::new(
+            BitBuffer::from_iter((0..100_000).map(|i| i % 2 == 0)),
+            validity,
+        )
+        .into_array(),
+        "integer" => PrimitiveArray::new(Buffer::from_iter(0..100_000i64), validity).into_array(),
+        "float" => PrimitiveArray::new(
+            Buffer::from_iter((0..100_000).map(|i| f64::from(i) / 3.0)),
+            validity,
+        )
+        .into_array(),
+        "decimal" => DecimalArray::new(
+            (0..100_000i64).collect(),
+            DecimalDType::new(12, 2),
+            validity,
+        )
+        .into_array(),
+        "string" => VarBinViewArray::from_iter(
+            (0..100_000).map(|i| (1000..2000).contains(&i).then(|| format!("value-{i}"))),
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array(),
+        _ => unreachable!(),
+    };
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&BoolRunEndScheme)
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+    assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
+    Ok(())
 }
 
 #[test]
@@ -112,6 +227,30 @@ fn test_default_compressor_roundtrip() -> VortexResult<()> {
 }
 
 #[rstest]
+#[case::seconds(TimeUnit::Seconds)]
+#[case::milliseconds(TimeUnit::Milliseconds)]
+fn test_extreme_timestamps_roundtrip(#[case] unit: TimeUnit) -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let input = TemporalArray::new_timestamp(
+        PrimitiveArray::from_iter((0..2048i64).map(|i| match i % 3 {
+            0 => i64::MAX - i,
+            1 => i64::MIN + i,
+            _ => 1_700_000_000 + i,
+        }))
+        .into_array(),
+        unit,
+        None,
+    )
+    .into_array();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+    assert!(compressed.is::<DateTimeParts>());
+
+    Ok(())
+}
+
+#[rstest]
 #[case::unaligned({
     let mut rng = StdRng::seed_from_u64(7);
     let mut value = 500_000i32;
@@ -134,6 +273,48 @@ fn test_delta_unaligned_roundtrip(#[case] input: PrimitiveArray) -> VortexResult
 
     let mut ctx = SESSION.create_execution_ctx();
     assert_eq!(sum(&compressed, &mut ctx)?, sum(&input, &mut ctx)?);
+
+    Ok(())
+}
+
+/// Fixed-size lists of random bytes, like UUIDs, with the rows `is_valid` picks valid. The null
+/// rows hold zeros, as Arrow's fixed-size binary arrays do.
+fn random_byte_lists(rows: usize, is_valid: impl Fn(usize) -> bool) -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(42);
+    let elements = (0..rows * 16)
+        .map(|i| {
+            if is_valid(i / 16) {
+                rng.next_u32().to_le_bytes()[0]
+            } else {
+                0
+            }
+        })
+        .collect::<Buffer<u8>>();
+    let validity = Validity::from_iter((0..rows).map(&is_valid));
+    FixedSizeListArray::new(elements.into_array(), 16, validity, rows).into_array()
+}
+
+#[rstest]
+#[case::mostly_null(|row| row % 20 == 0, true)]
+#[case::half_null(|row| row % 2 == 0, true)]
+// Dropping one row in twenty saves less than storing the valid rows' positions costs.
+#[case::few_nulls(|row| row % 20 != 0, false)]
+#[case::all_valid(|_| true, false)]
+fn test_fixed_size_list_drops_null_rows(
+    #[case] is_valid: fn(usize) -> bool,
+    #[case] sparse: bool,
+) -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let input = random_byte_lists(8_000, is_valid);
+    let compressed = assert_roundtrip(&compressor, &input)?;
+    assert_eq!(
+        compressed.is::<Sparse>(),
+        sparse,
+        "{}",
+        compressed.display_tree()
+    );
 
     Ok(())
 }

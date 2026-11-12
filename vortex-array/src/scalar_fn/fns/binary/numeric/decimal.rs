@@ -49,7 +49,6 @@ use crate::arrays::decimal::widened_buffer;
 use crate::dtype::BigCast;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
@@ -95,7 +94,7 @@ pub(super) fn execute_numeric_decimal(
     let valid_rows = validity.execute_mask(len, ctx)?;
 
     let work_dtype = decimal_numeric_work_dtype(*decimal_dtype, result_decimal_dtype, op);
-    match_each_decimal_value_type!(DecimalType::smallest_decimal_value_type(&work_dtype), |W| {
+    match_each_decimal_value_type!(work_dtype.canonical_values_type(), |W| {
         let constants = DecimalOpConstants::<W>::new(result_decimal_dtype, op)?;
         macro_rules! execute_typed {
             ($Op:ty) => {
@@ -410,7 +409,7 @@ fn decimal_array_narrowed<W: NativeDecimalType>(
     validity: Validity,
     allocator: &BufferAllocatorRef,
 ) -> ArrayRef {
-    let target = DecimalType::smallest_decimal_value_type(&decimal_dtype);
+    let target = decimal_dtype.canonical_values_type();
     if target == W::DECIMAL_TYPE {
         return DecimalArray::new(values, decimal_dtype, validity).into_array();
     }

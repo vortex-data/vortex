@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -24,6 +25,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::kernel::ExecuteParentKernel;
+use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::variant_get::VariantGet;
@@ -70,7 +72,7 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
                 typed_shredded_path(shredded, parent.options.path().elements(), ctx)?
                     .map(|typed| {
                         let len = typed.len();
-                        typed.mask(core_validity.to_array(len))
+                        typed.mask(core_validity.to_array(len))?.optimize_ctx(ctx)
                     })
                     .transpose()
             })
@@ -177,9 +179,7 @@ fn merge_typed_as_variant(
     let dtype = DType::Variant(Nullability::Nullable);
     // TODO(variant): replace this with a Variant builder once one exists.
     // Chunked<Variant> canonicalizes to VariantArray, so this row-wise fallback is safe.
-    let mut chunks = Vec::with_capacity(typed.len());
-
-    for idx in 0..typed.len() {
+    let chunks = (0..typed.len()).map(|idx| -> VortexResult<_> {
         let typed_scalar = typed.execute_scalar(idx, ctx)?;
         let fallback_scalar = fallback
             .as_ref()
@@ -187,10 +187,13 @@ fn merge_typed_as_variant(
             .transpose()?;
         let scalar = merge_typed_scalar_as_variant(typed_scalar, fallback_scalar, &dtype)?;
 
-        chunks.push(ConstantArray::new(scalar, 1).into_array());
-    }
-
-    let core_storage = ChunkedArray::try_new(chunks, dtype)?.into_array();
+        Ok(ConstantArray::new(scalar, 1).into_array())
+    });
+    let core_storage = chunks.process_results(|chunks| {
+        // SAFETY: each output scalar is constructed with the requested variant dtype.
+        unsafe { ChunkedArray::new_unchecked_sized(chunks, dtype.clone(), typed.len()) }
+            .into_array()
+    })?;
     VariantArray::try_new(core_storage, None).map(|array| array.into_array())
 }
 

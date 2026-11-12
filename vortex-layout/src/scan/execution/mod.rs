@@ -37,6 +37,8 @@ pub(crate) use self::chunk::ROW_BLOCK_SIZE;
 #[cfg(test)]
 pub(crate) use self::chunk::row_chunks;
 pub(crate) use self::chunk::rows_per_chunk;
+#[cfg(test)]
+pub(crate) use self::chunk::scan_chunks;
 use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;
 use self::projection::ProjectionPlanner;

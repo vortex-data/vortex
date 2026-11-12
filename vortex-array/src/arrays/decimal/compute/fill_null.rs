@@ -15,7 +15,6 @@ use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
-use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
@@ -61,7 +60,7 @@ fn fill_invalid_positions<T: NativeDecimalType>(
     match decimal_value.cast::<T>() {
         Some(fill_val) => fill_buffer::<T>(array, is_invalid, fill_val, result_validity),
         None => {
-            let target = DecimalType::smallest_decimal_value_type(&array.decimal_dtype());
+            let target = array.decimal_dtype().canonical_values_type();
             let upcasted = upcast_decimal_values(array, target)?;
             match_each_decimal_value_type!(upcasted.values_type(), |U| {
                 let upcasted = upcasted.as_view();

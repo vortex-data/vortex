@@ -40,6 +40,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -143,6 +144,26 @@ mod tests {
         );
 
         let expected = PrimitiveArray::from_iter([10u64, 20, 30, 40, 50]);
+        assert_arrays_eq!(casted, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_bool_sparse_to_f64() -> vortex_error::VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let sparse = Sparse::try_new(
+            buffer![1u64, 3].into_array(),
+            BoolArray::from_iter([false, false]).into_array(),
+            5,
+            Scalar::bool(true, Nullability::NonNullable),
+            &mut ctx,
+        )?;
+
+        let casted = sparse
+            .into_array()
+            .cast(DType::Primitive(PType::F64, Nullability::NonNullable))?;
+
+        let expected = PrimitiveArray::from_iter([1.0f64, 0.0, 1.0, 0.0, 1.0]);
         assert_arrays_eq!(casted, expected, &mut ctx);
         Ok(())
     }

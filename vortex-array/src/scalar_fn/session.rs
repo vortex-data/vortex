@@ -29,6 +29,7 @@ use crate::scalar_fn::fns::list_contains::PreparedSet;
 use crate::scalar_fn::fns::list_length::ListLength;
 use crate::scalar_fn::fns::list_sum::ListSum;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::lower::Lower;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::merge::Merge;
 use crate::scalar_fn::fns::not::Not;
@@ -36,6 +37,7 @@ use crate::scalar_fn::fns::pack::Pack;
 use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZone;
 use crate::scalar_fn::fns::select::Select;
 use crate::scalar_fn::fns::stat::StatFn;
+use crate::scalar_fn::fns::strpos::Strpos;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::zip::Zip;
 
@@ -84,6 +86,7 @@ impl Default for ScalarFnSession {
         this.register(ListLength);
         this.register(ListSum);
         this.register(Literal);
+        this.register(Lower);
         this.register(Mask);
         this.register(Merge);
         this.register(Not);
@@ -91,6 +94,7 @@ impl Default for ScalarFnSession {
         this.register(ReplaceTimeZone);
         this.register(Select);
         this.register(StatFn);
+        this.register(Strpos);
         this.register(VariantGet);
         this.register(Zip);
 

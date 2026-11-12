@@ -121,7 +121,8 @@ pub(crate) fn from_arrow_data_type(
             DType::Extension(Time::new(from_arrow_time_unit(*unit), nullability).erased())
         }
         DataType::Timestamp(unit, tz) => DType::Extension(
-            Timestamp::new_with_tz(from_arrow_time_unit(*unit), tz.clone(), nullability).erased(),
+            Timestamp::try_new_with_tz(from_arrow_time_unit(*unit), tz.clone(), nullability)?
+                .erased(),
         ),
         DataType::List(e)
         | DataType::LargeList(e)
@@ -327,9 +328,10 @@ mod test {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
+    use vortex_session::VortexSession;
 
     use super::*;
-    use crate::ArrowSession;
+    use crate::ArrowSessionExt;
 
     #[test]
     fn test_dtype_conversion_success() {
@@ -369,6 +371,12 @@ mod test {
                 FieldRef::from(Field::new("field_b", DataType::Utf8View, true)),
             ]))
         );
+    }
+
+    #[test]
+    fn test_reject_timestamp_invalid_timezone() {
+        let dtype = DataType::Timestamp(ArrowTimeUnit::Second, Some("Not/A/Timezone".into()));
+        assert!(from_arrow_data_type(&dtype, Nullability::Nullable).is_err());
     }
 
     #[rstest]
@@ -449,7 +457,8 @@ mod test {
         let schema_nonnull = DType::Struct(the_struct, Nullability::NonNullable);
 
         assert_eq!(
-            ArrowSession::default()
+            VortexSession::empty()
+                .arrow()
                 .to_arrow_schema(&schema_nonnull)
                 .unwrap(),
             Schema::new(Fields::from(vec![
@@ -623,7 +632,12 @@ mod test {
         let field = Field::new("c0", data_type, true);
         assert!(from_arrow_field_naive(&field).is_err());
         let schema = Schema::new(vec![field]);
-        assert!(ArrowSession::default().from_arrow_schema(&schema).is_err());
+        assert!(
+            VortexSession::empty()
+                .arrow()
+                .from_arrow_schema(&schema)
+                .is_err()
+        );
     }
 
     #[test]

@@ -9,7 +9,6 @@ use vortex_array::CanonicalValidity;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
@@ -43,6 +42,19 @@ use crate::scheme::SchemeId;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
 use crate::trace;
+
+/// A complete compressed output that a scheme produced while estimating its ratio.
+///
+/// An estimate callback may store one in its [`ArrayAndStats`]. Its size is a measurement, while
+/// the winning scheme was picked on an estimate, so the compressor keeps the trial output
+/// whenever it is smaller than what the winner actually produced.
+#[derive(Debug)]
+pub(crate) struct TrialOutput {
+    /// The scheme that produced the output.
+    pub(crate) scheme: SchemeId,
+    /// The compressed array.
+    pub(crate) array: ArrayRef,
+}
 
 /// The outcome of [`CascadingCompressor::choose_and_compress`].
 enum Selection {
@@ -129,6 +141,7 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        let array = self.compress_leaf_validity(array, exec_ctx)?;
         match array {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
             Canonical::Bool(bool_array) => self
@@ -150,7 +163,7 @@ impl CascadingCompressor {
                     struct_array.names().clone(),
                     fields,
                     struct_array.len(),
-                    struct_array.validity()?,
+                    self.compress_validity(struct_array.validity()?, exec_ctx)?,
                 )?
                 .into_array())
             }
@@ -176,12 +189,38 @@ impl CascadingCompressor {
             }
             Canonical::Map(map_array) => self.compress_map_array(map_array, compress_ctx, exec_ctx),
             Canonical::FixedSizeList(fsl_array) => {
+                // Canonicalize the elements first, so that schemes see the list's real size and
+                // their output is accepted only if it beats it.
+                let elements = fsl_array
+                    .elements()
+                    .clone()
+                    .execute::<CanonicalValidity>(exec_ctx)?
+                    .0
+                    .compact(exec_ctx)?
+                    .into_array();
+                let fsl_array = FixedSizeListArray::try_new(
+                    elements,
+                    fsl_array.list_size(),
+                    fsl_array.validity()?,
+                    fsl_array.len(),
+                )?;
+
+                // Schemes over the whole list can drop the elements of null rows, which
+                // compressing the elements alone has to keep.
+                if let Selection::Compressed(compressed) = self.choose_and_compress(
+                    Canonical::FixedSizeList(fsl_array.clone()),
+                    compress_ctx,
+                    exec_ctx,
+                )? {
+                    return Ok(compressed);
+                }
+
                 let compressed_elems = self.compress(fsl_array.elements(), exec_ctx)?;
 
                 Ok(FixedSizeListArray::try_new(
                     compressed_elems,
                     fsl_array.list_size(),
-                    fsl_array.validity()?,
+                    self.compress_validity(fsl_array.validity()?, exec_ctx)?,
                     fsl_array.len(),
                 )?
                 .into_array())
@@ -332,6 +371,12 @@ impl CascadingCompressor {
                 trace::scheme_compress_failed(winner.id(), before_nbytes, error_ctx.as_ref(), err);
             })?;
 
+        // The winner was picked on estimates. A trial output is measured, so it wins when smaller.
+        let compressed = match data.get::<TrialOutput>() {
+            Some(trial) if trial.array.nbytes() < compressed.nbytes() => trial.array.clone(),
+            _ => compressed,
+        };
+
         let after_nbytes = compressed.nbytes();
         let actual_ratio = (after_nbytes != 0).then(|| before_nbytes as f64 / after_nbytes as f64);
 
@@ -355,13 +400,13 @@ impl CascadingCompressor {
 /// The bytes `array`'s rows use once canonical, read from the exact statistic the writer caches
 /// on each chunk and computed otherwise. A dtype that cannot be measured, such as variant, is
 /// sized by the bytes it holds.
-pub(super) fn exact_uncompressed_size(
+pub(crate) fn exact_uncompressed_size(
     array: &ArrayRef,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<u64> {
     if !UncompressedSizeInBytes::supports_dtype(array.dtype()) {
         return Ok(array.nbytes());
     }
-    let size = uncompressed_size_in_bytes(array, UncompressedSizeOpts::exact(), exec_ctx)?;
+    let size = uncompressed_size_in_bytes(array, exec_ctx)?;
     u64::try_from(size).map_err(|e| vortex_err!("uncompressed size does not fit in u64: {e}"))
 }

@@ -27,6 +27,7 @@ use vortex_array::scalar_fn::VecExecutionArgs;
 use vortex_array::scalar_fn::unstable::row::RowFn;
 use vortex_array::scalar_fn::unstable::row::RowVisitor;
 use vortex_array::scalar_fn::unstable::row::execute_rows;
+use vortex_array::test_harness::mark_optimized;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -226,6 +227,10 @@ fn make_args<T: BenchPrimitive>(shape: InputShape) -> VecExecutionArgs {
         InputShape::PerRowConstant => vec![T::per_row(0), T::constant()],
         InputShape::ConstantPerRow => vec![T::constant(), T::per_row(1)],
     };
+
+    for arg in &args {
+        mark_optimized(arg, &SESSION).vortex_expect("optimize the benchmark input");
+    }
 
     VecExecutionArgs::new(args, ROWS)
 }

@@ -86,6 +86,7 @@ mod arrays {
     use vortex_array::VortexSessionExecute;
     use vortex_array::dtype::DecimalType;
     use vortex_array::optimizer::kernels::KernelSession;
+    use vortex_array::test_harness::mark_optimized;
     use vortex_array::validity::Validity;
     use vortex_decimal_byte_parts::split_decimal;
     use vortex_error::VortexExpect;
@@ -116,6 +117,8 @@ mod arrays {
 
     fn bench_split(bencher: Bencher, values_type: DecimalType, len: usize, validity: Validity) {
         let decimal = decimal_array(values_type, len, validity);
+        mark_optimized(decimal.as_array(), &SESSION).vortex_expect("mark the decimal as optimized");
+
         bencher
             .with_inputs(|| SESSION.create_execution_ctx())
             .bench_refs(|ctx| {

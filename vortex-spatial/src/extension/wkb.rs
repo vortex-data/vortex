@@ -26,11 +26,11 @@ use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::ScalarValue;
 use vortex_arrow::ArrowExport;
 use vortex_arrow::ArrowExportOptions;
-use vortex_arrow::ArrowExportVTable;
+use vortex_arrow::ArrowExtVTable;
 use vortex_arrow::ArrowImport;
-use vortex_arrow::ArrowImportVTable;
+use vortex_arrow::ArrowMetadataPolicy;
 use vortex_arrow::ArrowSession;
-use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -168,25 +168,24 @@ impl ExtVTable for WellKnownBinary {
 
 static ARROW_WKB: CachedId = CachedId::new(WkbType::NAME);
 
-impl ArrowExportVTable for WellKnownBinary {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_WKB
+impl ArrowExtVTable for WellKnownBinary {
+    fn metadata_policy() -> ArrowMetadataPolicy {
+        ArrowMetadataPolicy::ArrowNative
     }
 
-    fn vortex_id(&self) -> Id {
-        self.id()
+    fn arrow_ext_id(&self) -> Id {
+        *ARROW_WKB
     }
 
     fn to_arrow_field(
         &self,
         name: &str,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
-        let ext_type = dtype.as_extension();
-        let spatial_metadata = ext_type.metadata::<WellKnownBinary>();
+        let spatial_metadata = ext_dtype.metadata();
 
-        let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
+        let mut field = session.to_arrow_field(name, ext_dtype.storage_dtype())?;
         field.try_with_extension_type(wkb_type(spatial_metadata))?;
 
         Ok(Some(field))
@@ -199,15 +198,6 @@ impl ArrowExportVTable for WellKnownBinary {
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
-        let is_wkb = array
-            .dtype()
-            .as_extension_opt()
-            .map(|ext| ext.is::<WellKnownBinary>())
-            .unwrap_or(false);
-        if !is_wkb {
-            return Ok(ArrowExport::Unsupported(array));
-        }
-
         let Ok(wkb_meta) = target.try_extension_type::<WkbType>() else {
             return Ok(ArrowExport::Unsupported(array));
         };
@@ -220,12 +210,8 @@ impl ArrowExportVTable for WellKnownBinary {
             target.data_type().clone(),
             target.is_nullable(),
         );
-        let session = ctx.session().clone();
         let arrow_storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(&storage_field), ctx)?;
+            storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
         // Round-trip through the GeoArrow WKB array types: this validates that the storage
         // is a binary-family Arrow array and produces the canonical physical representation
@@ -251,41 +237,30 @@ impl ArrowExportVTable for WellKnownBinary {
 
         Ok(ArrowExport::Exported(arrow_ref))
     }
-}
-
-impl ArrowImportVTable for WellKnownBinary {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_WKB
-    }
 
     fn from_arrow_field(
-        &self,
         field: &Field,
         _session: &ArrowSession,
-    ) -> VortexResult<Option<DType>> {
+    ) -> VortexResult<Option<ExtDType<Self>>> {
         let Ok(wkb_meta) = field.try_extension_type::<WkbType>() else {
             return Ok(None);
         };
 
         let storage_dtype = DType::Binary(field.is_nullable().into());
-        Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(WellKnownBinary, spatial_metadata(&wkb_meta), storage_dtype)?
-                .erased(),
-        )))
+        Ok(Some(ExtDType::try_with_vtable(
+            WellKnownBinary,
+            spatial_metadata(&wkb_meta),
+            storage_dtype,
+        )?))
     }
 
     fn from_arrow_array(
-        &self,
         array: ArrowArrayRef,
         field: &Field,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let Some(ext_dtype) = dtype.as_extension_opt() else {
-            return Ok(ArrowImport::Unsupported(array));
-        };
-        if !ext_dtype.is::<WellKnownBinary>()
-            || field.try_extension_type::<WkbType>().is_err()
+        if field.try_extension_type::<WkbType>().is_err()
             || !matches!(
                 array.data_type(),
                 DataType::Binary | DataType::LargeBinary | DataType::BinaryView
@@ -296,7 +271,7 @@ impl ArrowImportVTable for WellKnownBinary {
 
         let storage = session.from_arrow_array(array, field.is_nullable())?;
         Ok(ArrowImport::Imported(
-            ExtensionArray::new(ext_dtype.clone(), storage).into_array(),
+            ExtensionArray::new(ext_dtype.clone().erased(), storage).into_array(),
         ))
     }
 }

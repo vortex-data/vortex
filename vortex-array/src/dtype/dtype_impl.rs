@@ -21,7 +21,6 @@ use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::dtype::UnionVariants;
 use crate::dtype::decimal::DecimalDType;
-use crate::dtype::decimal::DecimalType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::nullability::Nullability;
 
@@ -316,9 +315,7 @@ impl DType {
             Null => Some(0),
             Bool(_) => Some(1),
             Primitive(ptype, _) => Some(ptype.byte_width()),
-            Decimal(decimal, _) => {
-                Some(DecimalType::smallest_decimal_value_type(decimal).byte_width())
-            }
+            Decimal(decimal, _) => Some(decimal.canonical_values_type().byte_width()),
             Utf8(_) | Binary(_) | List(..) | Map(..) => None,
             FixedSizeList(elem_dtype, list_size, _) => {
                 elem_dtype.element_size().map(|s| s * *list_size as usize)
@@ -609,7 +606,8 @@ mod tests {
             Timestamp::new_with_tz(TimeUnit::Seconds, Some("UTC".into()), Nullable).erased(),
         );
         let t2 = DType::Extension(
-            Timestamp::new_with_tz(TimeUnit::Seconds, Some("ET".into()), Nullable).erased(),
+            Timestamp::new_with_tz(TimeUnit::Seconds, Some("America/New_York".into()), Nullable)
+                .erased(),
         );
         assert!(!t1.eq_ignore_nullability(&t2));
     }

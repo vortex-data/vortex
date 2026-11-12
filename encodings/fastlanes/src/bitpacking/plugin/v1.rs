@@ -113,9 +113,9 @@ pub(super) fn deserialize(
                 .map(|dtype| children.get(2, &dtype, p.chunk_offsets_len() as usize))
                 .transpose()?;
 
-            Patches::new(
+            Patches::from_metadata(
                 len,
-                p.offset()?,
+                &p,
                 indices,
                 values,
                 chunk_offsets,

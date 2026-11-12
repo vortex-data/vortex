@@ -199,7 +199,7 @@ fn test_decimal_bitmap_across_storage_widths(
     elements.push(Scalar::null(dtype.clone()));
     let list = Scalar::list(dtype, elements, Nullability::NonNullable);
     // Storage may be any width up to the one the precision requires.
-    let needle_width = needle_width.min(DecimalType::smallest_decimal_value_type(&decimal));
+    let needle_width = needle_width.min(decimal.canonical_values_type());
     let needles = match_each_decimal_value_type!(needle_width, |T| {
         DecimalArray::from_option_iter::<T, _>(
             [Some(-2i8), Some(0), Some(1), None]
@@ -248,15 +248,14 @@ fn test_decimal_wide_values(
         Some(base + i256::from_i128(1i128 << 64)),
         None,
     ];
-    let needles =
-        match_each_decimal_value_type!(DecimalType::smallest_decimal_value_type(&decimal), |T| {
-            DecimalArray::from_option_iter::<T, _>(
-                needle_values
-                    .map(|value| value.map(|value| DecimalValue::from(value).cast::<T>().unwrap())),
-                decimal,
-            )
-            .into_array()
-        });
+    let needles = match_each_decimal_value_type!(decimal.canonical_values_type(), |T| {
+        DecimalArray::from_option_iter::<T, _>(
+            needle_values
+                .map(|value| value.map(|value| DecimalValue::from(value).cast::<T>().unwrap())),
+            decimal,
+        )
+        .into_array()
+    });
     let set = prepare(&list)?;
     assert_arrays_eq!(
         set.contains(&needles, &ListContainsOptions::default(), &mut ctx)?,
@@ -328,12 +327,12 @@ fn test_prepared_set_rows_are_the_constant_list() -> VortexResult<()> {
 
     // A slice and a filter keep the haystack instead of building it again.
     let prepared = PreparedSet::set_of(&set).expect("prepared set");
-    let sliced = set.slice(1..3)?.optimize()?;
+    let sliced = set.slice(1..3)?.optimize_ctx(&SESSION)?;
     assert_eq!(sliced.len(), 2);
     assert!(PreparedSet::set_of(&sliced).is_some_and(|sliced| sliced.shares_set_with(prepared)));
     let filtered = set
         .filter(Mask::from_iter([true, false, true, true]))?
-        .optimize()?;
+        .optimize_ctx(&SESSION)?;
     assert_eq!(filtered.len(), 3);
     assert!(
         PreparedSet::set_of(&filtered).is_some_and(|filtered| filtered.shares_set_with(prepared))
@@ -542,7 +541,7 @@ fn test_constant_list_over_chunked_needles(
     // The list is prepared before the push-down, so every chunk gets a slice of the one set.
     let array = ListContains::try_new_opts(list, needles, options)?
         .into_array()
-        .optimize()?;
+        .optimize_ctx(&SESSION)?;
     assert_chunks_share_one_set(&array);
 
     assert_arrays_eq!(array, BoolArray::from_iter(expected), &mut ctx);
@@ -557,7 +556,7 @@ fn test_optimized_expression_over_chunked_needles() -> VortexResult<()> {
         .bind(needles.dtype())?
         .optimize()?;
 
-    let array = needles.apply_bound(&expr)?;
+    let array = needles.apply_bound(&expr)?.optimize_ctx(&SESSION)?;
     assert_chunks_share_one_set(&array);
 
     assert_arrays_eq!(

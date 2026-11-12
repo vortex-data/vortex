@@ -14,7 +14,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
@@ -279,7 +278,7 @@ fn exact_size(chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
     if !UncompressedSizeInBytes::supports_dtype(chunk.dtype()) {
         return Ok(chunk.nbytes());
     }
-    let size = uncompressed_size_in_bytes(chunk, UncompressedSizeOpts::exact(), ctx)?;
+    let size = uncompressed_size_in_bytes(chunk, ctx)?;
     u64::try_from(size).map_err(|e| vortex_err!("block size does not fit in u64: {e}"))
 }
 

@@ -20,15 +20,17 @@ clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
 indicatif = { workspace = true }
 mimalloc = { workspace = true }
-parquet = { workspace = true }
+parquet = { workspace = true, features = ["async", "object_store", "zstd"] }
 regex = { workspace = true }
 tabled = { workspace = true, features = ["std"] }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
+url = { workspace = true }
 vortex = { workspace = true }
 vortex-arrow = { workspace = true }
 vortex-bench = { workspace = true }
 vortex-btrblocks = { workspace = true }
+vortex-cloud = { workspace = true, features = ["hf"] }
 vortex-fsst = { workspace = true }
 vortex-onpair = { workspace = true }
 

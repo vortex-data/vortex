@@ -5,6 +5,7 @@
 
 use std::any::Any;
 
+use vortex_onpair::DEFAULT_CONFIG;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
@@ -12,7 +13,9 @@ use vortex_session::SessionVar;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::schemes::binary;
+use crate::schemes::boolean;
 use crate::schemes::decimal;
+use crate::schemes::fixed_size_list;
 use crate::schemes::float;
 use crate::schemes::integer;
 use crate::schemes::string;
@@ -23,6 +26,9 @@ use crate::schemes::temporal;
 /// No edition includes `fastlanes.delta` yet, so the session's enabled editions decide whether
 /// the compressor may use it. The CUDA preset excludes it.
 static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
+
+static ONPAIR_SCHEME: string::OnPairScheme =
+    string::OnPairScheme::new(DEFAULT_CONFIG.max_dict_bits);
 
 /// The compression schemes registered on a session, in registration order.
 ///
@@ -41,6 +47,8 @@ impl Default for CompressionSession {
     fn default() -> Self {
         Self {
             schemes: vec![
+                &boolean::BoolRunEndScheme,
+                &boolean::BoolSparseScheme,
                 ////////////////////////////////////////////////////////////////////////////////////
                 // Integer schemes.
                 ////////////////////////////////////////////////////////////////////////////////////
@@ -74,7 +82,7 @@ impl Default for CompressionSession {
                 // Both string-fragmentation schemes are registered; the sample-based
                 // selector keeps whichever is smaller per column.
                 &string::FSSTScheme,
-                &string::OnPairScheme,
+                &ONPAIR_SCHEME,
                 &string::NullDominatedSparseScheme,
                 #[cfg(feature = "zstd")]
                 &string::ZstdScheme,
@@ -91,6 +99,8 @@ impl Default for CompressionSession {
                 &decimal::DECIMAL_V1,
                 // Temporal schemes.
                 &temporal::TemporalScheme,
+                // Fixed-size list schemes.
+                &fixed_size_list::FixedSizeListSparseScheme,
             ],
         }
     }

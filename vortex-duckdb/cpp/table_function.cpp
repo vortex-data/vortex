@@ -13,8 +13,15 @@
 #include "duckdb.h"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/default/default_functions.hpp"
+#include "duckdb/common/enums/file_glob_options.hpp"
+#include "duckdb/common/exception.hpp"
+#include "duckdb/common/identifier.hpp"
 #include "duckdb/common/insertion_order_preserving_map.hpp"
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
+#include "duckdb/common/serializer/binary_deserializer.hpp"
+#include "duckdb/common/serializer/binary_serializer.hpp"
+#include "duckdb/common/serializer/deserializer.hpp"
+#include "duckdb/common/serializer/serializer.hpp"
 #include "duckdb/function/partition_stats.hpp"
 #include "duckdb/function/scalar_macro_function.hpp"
 #include "duckdb/function/table_function.hpp"
@@ -25,6 +32,7 @@
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/storage/storage_index.hpp"
+#include <limits>
 
 using namespace std::string_literals;
 constexpr column_t COLUMN_IDENTIFIER_FILE_INDEX = MultiFileReader::COLUMN_IDENTIFIER_FILE_INDEX;
@@ -45,12 +53,23 @@ idx_t duckdb_vx_aggregate_len(duckdb_vx_agg_input ffi_input) {
     return reinterpret_cast<const TableFunctionUngroupedAggregateInput *>(ffi_input)->projections.size();
 }
 
+idx_t duckdb_vx_aggregate_column_id(duckdb_vx_agg_input ffi_input, idx_t scan_index) {
+    const auto &input = *reinterpret_cast<const TableFunctionUngroupedAggregateInput *>(ffi_input);
+    return input.get.GetColumnIds()[scan_index].GetPrimaryIndex();
+}
+
 duckdb_vx_expr duckdb_vx_aggregate_at(duckdb_vx_agg_input ffi_input, idx_t i, idx_t *proj_idx) {
     const auto &input = *reinterpret_cast<const TableFunctionUngroupedAggregateInput *>(ffi_input);
     const auto &[scan_index, expr] = input.projections[i];
-    *proj_idx = scan_index == COUNT_STAR_PROJ_IDX ? scan_index
-                                                  : input.get.GetColumnIds()[scan_index].GetPrimaryIndex();
+    *proj_idx =
+        scan_index == COUNT_STAR_PROJ_IDX ? scan_index : duckdb_vx_aggregate_column_id(ffi_input, scan_index);
     return get_ffi_expr(expr);
+}
+
+duckdb_vx_table_filter_set duckdb_vx_aggregate_table_filters(duckdb_vx_agg_input ffi_input) {
+    const auto &input = *reinterpret_cast<const TableFunctionUngroupedAggregateInput *>(ffi_input);
+    return reinterpret_cast<duckdb_vx_table_filter_set>(
+        const_cast<TableFilterSet *>(&input.get.table_filters));
 }
 }
 
@@ -64,6 +83,18 @@ bool aggregate_pushdown(ClientContext &, const TableFunctionUngroupedAggregateIn
             continue;
         }
         const idx_t primary_index = input.get.GetColumnIds()[scan_index].GetPrimaryIndex();
+        if (SkipMultiFileReaderColumn(primary_index, filename_idx, hive_indices)) {
+            return false;
+        }
+    }
+    // ClearFilters would drop filters Vortex doesn't see
+    if (input.get.table_filters.HasMultiColumnFilters()) {
+        return false;
+    }
+    // DuckDB evaluates hive and filename filters per file by column_ids, which
+    // the rewrite replaces. Hive columns may override file columns
+    for (const auto &entry : input.get.table_filters) {
+        const idx_t primary_index = input.get.GetColumnIds()[entry.GetIndex()].GetPrimaryIndex();
         if (SkipMultiFileReaderColumn(primary_index, filename_idx, hive_indices)) {
             return false;
         }
@@ -156,8 +187,7 @@ unique_ptr<BaseStatistics> VortexRowGroup::GetColumnStatistics(const StorageInde
 
 static vector<PartitionStatistics> get_partition_stats(ClientContext &, GetPartitionStatsInput &input) {
     const MultiFileBindData &bind_data = input.bind_data->Cast<MultiFileBindData>();
-    VortexBindData &bind = bind_data.bind_data->Cast<VortexBindData>();
-    void *const ffi_bind = bind.ffi_bind_data->DataPtr();
+    void *const ffi_bind = get_ffi_bind(input.bind_data.get());
 
     if (!duckdb_table_function_can_get_partition_stats(ffi_bind)) {
         return {};
@@ -187,6 +217,96 @@ static vector<PartitionStatistics> get_partition_stats(ClientContext &, GetParti
         stats.partition_row_group = make_shared_ptr<VortexRowGroup>(std::move(cdata), bind_data.columns);
     }
     return result;
+}
+
+static void serialize(Serializer &serializer,
+                      const optional_ptr<FunctionData> base_bind_data,
+                      const BoundTableFunction &) {
+    if (!dynamic_cast<BinarySerializer *>(&serializer)) {
+        throw SerializationException("Vortex table function needs a binary serializer");
+    }
+    const MultiFileBindData &bind_data = base_bind_data->Cast<MultiFileBindData>();
+    vector<OpenFileInfo> open_files = bind_data.file_list->GetAllFiles();
+    vector<string> files(open_files.size());
+    for (size_t i = 0; i < files.size(); ++i) {
+        files[i] = open_files[i].path;
+    }
+
+    serializer.WriteProperty(100, "files", files);
+    serializer.WriteProperty(101, "types", bind_data.types);
+    serializer.WriteProperty(102, "names", bind_data.names);
+    serializer.WriteProperty(103, "file_options", bind_data.file_options);
+
+    const uint8_t *state_data = nullptr;
+    size_t state_len = 0;
+    duckdb_vx_error error = nullptr;
+    void *const ffi_bind = get_ffi_bind(base_bind_data.get());
+    duckdb_vx_data raw = duckdb_table_function_serialize(ffi_bind, &state_data, &state_len, &error);
+    const unique_ptr<CData> state_owner(reinterpret_cast<CData *>(raw));
+    if (error) {
+        throw SerializationException(IntoErrString(error));
+    }
+    if (state_len >= std::numeric_limits<uint32_t>::max()) {
+        throw SerializationException("State exceeds uint32_t max value");
+    }
+
+    const string_t vortex_state = {reinterpret_cast<const char *>(state_data),
+                                   static_cast<uint32_t>(state_len)};
+    serializer.WriteProperty(104, "vortex_state", vortex_state);
+}
+
+static unique_ptr<FunctionData> deserialize(Deserializer &deserializer, BoundTableFunction &) {
+    if (!dynamic_cast<BinaryDeserializer *>(&deserializer)) {
+        throw SerializationException("Vortex table function needs a binary deserializer");
+    }
+    auto &context = deserializer.Get<ClientContext &>();
+    auto files = deserializer.ReadProperty<vector<string>>(100, "files");
+    auto types = deserializer.ReadProperty<vector<LogicalType>>(101, "types");
+    auto names = StringsToIdentifiers(deserializer.ReadProperty<vector<string>>(102, "names"));
+    auto file_options = deserializer.ReadProperty<MultiFileOptions>(103, "file_options");
+    string state = deserializer.ReadPropertyWithDefault<string>(104, "vortex_state");
+
+    vector<Value> file_values;
+    file_values.reserve(files.size());
+    for (const string &path : files) {
+        file_values.emplace_back(path);
+    }
+    FileGlobInput glob_input(FileGlobOptions::FALLBACK_GLOB, "vortex");
+    glob_input.allow_empty = true; // We must allow a list reduced to 0 files
+
+    auto multi_file_reader = make_uniq<VortexMultiFileReader>();
+    Value list_input = Value::LIST(LogicalType::VARCHAR, std::move(file_values));
+    auto file_list = multi_file_reader->CreateFileList(context, list_input, glob_input);
+    auto bind_data = MultiFileFunction<VortexReaderInterface>::MultiFileBindInternal( //
+        context,
+        std::move(multi_file_reader),
+        std::move(file_list),
+        types,
+        names,
+        std::move(file_options),
+        make_uniq<BaseFileReaderOptions>(),
+        make_uniq<VortexReaderInterface>());
+    if (state.empty()) {
+        return bind_data;
+    }
+
+    auto &mf_bind = bind_data->Cast<MultiFileBindData>();
+    vector<duckdb_logical_type> ffi_types(mf_bind.types.size());
+    for (size_t i = 0; i < ffi_types.size(); ++i) {
+        ffi_types[i] = reinterpret_cast<duckdb_logical_type>(&mf_bind.types[i]);
+    }
+    duckdb_vx_error error = nullptr;
+    void *const ffi_bind = get_ffi_bind(bind_data.get());
+    duckdb_table_function_deserialize(ffi_bind,
+                                      reinterpret_cast<const uint8_t *>(state.data()),
+                                      state.size(),
+                                      ffi_types.data(),
+                                      ffi_types.size(),
+                                      &error);
+    if (error) {
+        throw SerializationException(IntoErrString(error));
+    }
+    return bind_data;
 }
 
 static bool projection_expression_pushdown(ClientContext &,
@@ -225,11 +345,6 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
 
     fn.filter_pushdown = true;
     fn.filter_prune = true;
-    // Pushed-down filters, projections and aggregates live in the FFI bind data, which has no
-    // serializer. DuckDB's common-subplan optimizer keys scans on their serialized form, so
-    // without this two scans of the same file with different pushed-down filters look identical
-    // and are merged into one shared CTE, returning the wrong rows for one of them.
-    fn.verify_serialization = false;
 
     fn.pushdown_expression = [](auto &, const auto &, Expression &expression) {
         return duckdb_table_function_pushdown_expression(reinterpret_cast<duckdb_vx_expr>(&expression));
@@ -251,27 +366,8 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
     fn.statistics_extended = MultiFileFunction<VortexReaderInterface>::MultiFileScanStatsExtended;
     fn.get_multi_file_reader = get_multi_file_reader;
 
-    /**
-     * duckdb's serialization is broken. If you don't set serialize/deserialize
-     * callbacks, duckdb serializes only the internal state which doesn't work
-     * for Vortex if you have filters pushed down. Worse, duckdb uses this
-     * information for CommonSubplanOptimizer which then merges different
-     * Vortex scans (with different filters pushed down) into one scan in tpcds.
-     *
-     * However, this is a regression on q15 and such where we do have
-     * completely equal scans which can't be merged. This is a reasonable price
-     * for correctness.
-     *
-     * Very unexpectedly verify_serialization doesn't do any verification but
-     * disables serialization at all.
-     */
-    fn.verify_serialization = false;
-    fn.serialize = [](auto &, auto, auto &) {
-        throw NotImplementedException("Can't serialize Vortex state");
-    };
-    fn.deserialize = [](auto &, auto &) -> unique_ptr<FunctionData> {
-        throw NotImplementedException("Can't deserialize Vortex state");
-    };
+    fn.serialize = serialize;
+    fn.deserialize = deserialize;
 
     try {
         auto &system_catalog = Catalog::GetSystemCatalog(db);

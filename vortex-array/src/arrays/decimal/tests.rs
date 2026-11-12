@@ -40,7 +40,7 @@ fn construction_rejects_storage_wider_than_precision(
     storage: DecimalType,
 ) -> VortexResult<()> {
     let dtype = DecimalDType::new(precision, 0);
-    let maximum = DecimalType::smallest_decimal_value_type(&dtype);
+    let maximum = dtype.canonical_values_type();
     let bytes = match_each_decimal_value_type!(storage, |D| {
         [-9i8, 9]
             .into_iter()
@@ -84,7 +84,7 @@ fn narrowing_bounds_storage_by_precision(
     storage: DecimalType,
 ) -> VortexResult<()> {
     let dtype = DecimalDType::new(precision, 0);
-    let maximum = DecimalType::smallest_decimal_value_type(&dtype);
+    let maximum = dtype.canonical_values_type();
     let array = match_each_decimal_value_type!(storage, |D| {
         let buffer = [-9i8, 9]
             .into_iter()

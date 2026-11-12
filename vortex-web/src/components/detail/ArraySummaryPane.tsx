@@ -3,38 +3,32 @@
 
 import type { LayoutTreeNode } from '../swimlane/types';
 import { formatBytes, getNodeDisplayName, shortEncoding } from '../swimlane/utils';
+import { Facts } from './Facts';
 
 interface ArraySummaryPaneProps {
   node: LayoutTreeNode;
 }
 
 export function ArraySummaryPane({ node }: ArraySummaryPaneProps) {
-  const name = getNodeDisplayName(node);
-  const totalBufferBytes = (node.bufferLengths ?? []).reduce((s, b) => s + b, 0);
+  const buffers = node.bufferLengths ?? [];
+  const totalBufferBytes = buffers.reduce((s, b) => s + b, 0);
 
   return (
-    <div className="text-xs space-y-2">
-      <h3 className="font-medium text-vortex-fg-light dark:text-vortex-fg">{name}</h3>
-      <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-vortex-grey-dark">
-        <span>Encoding</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg" title={node.encoding}>
-          {shortEncoding(node.encoding)}
-        </span>
-        <span>Metadata</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg">
-          {formatBytes(node.metadataBytes)}
-        </span>
-        <span>Buffers</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg">
-          {(node.bufferLengths ?? []).length}
-        </span>
-        <span>Buffer data</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg">
-          {formatBytes(totalBufferBytes)}
-        </span>
-        <span>Children</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg">{node.children.length}</span>
+    <>
+      <div className="vx-pane-head">
+        <h2 className="vx-label x-side-title">{getNodeDisplayName(node)}</h2>
       </div>
-    </div>
+      <div className="vx-pane-body">
+        <Facts
+          items={[
+            ['Encoding', shortEncoding(node.encoding), node.encoding],
+            ['Metadata', formatBytes(node.metadataBytes)],
+            ['Buffers', String(buffers.length)],
+            ['Buffer data', formatBytes(totalBufferBytes)],
+            ['Children', String(node.children.length)],
+          ]}
+        />
+      </div>
+    </>
   );
 }

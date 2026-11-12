@@ -60,10 +60,10 @@ impl ScalarFnVTable for Select {
     fn serialize(&self, instance: &FieldSelection) -> VortexResult<Option<Vec<u8>>> {
         let opts = match instance {
             FieldSelection::Include(fields) => Opts::Include(ProtoFieldNames {
-                names: fields.iter().map(|f| f.to_string()).collect(),
+                names: fields.iter().map(|f| f.as_ref().to_owned()).collect(),
             }),
             FieldSelection::Exclude(fields) => Opts::Exclude(ProtoFieldNames {
-                names: fields.iter().map(|f| f.to_string()).collect(),
+                names: fields.iter().map(|f| f.as_ref().to_owned()).collect(),
             }),
         };
 
@@ -366,6 +366,8 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
+    use crate::expr::Expression;
+    use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::root;
     use crate::expr::select;
     use crate::expr::select_exclude;
@@ -384,6 +386,34 @@ mod tests {
             ("b", buffer![4, 5, 6].into_array()),
         ])
         .unwrap()
+    }
+
+    #[test]
+    fn test_roundtrip_preserves_field_names() -> VortexResult<()> {
+        let name = "quote\"slash\\line\n\t\r\0 ♡";
+        let escaped_name = name.escape_debug().to_string();
+        let input = StructArray::from_fields(&[
+            (name, buffer![1i32, 2].into_array()),
+            (escaped_name.as_str(), buffer![3i32, 4].into_array()),
+        ])?
+        .into_array();
+        for (expression, expected_name, expected_values) in [
+            (select([name], root()), name, buffer![1i32, 2].into_array()),
+            (
+                select_exclude([name], root()),
+                escaped_name.as_str(),
+                buffer![3i32, 4].into_array(),
+            ),
+        ] {
+            let restored = Expression::from_proto(&expression.serialize_proto()?, &SESSION)?;
+            let expected = StructArray::from_fields(&[(expected_name, expected_values)])?;
+            assert_arrays_eq!(
+                input.clone().apply(&restored)?,
+                expected,
+                &mut SESSION.create_execution_ctx()
+            );
+        }
+        Ok(())
     }
 
     #[test]

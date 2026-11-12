@@ -23,6 +23,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_fastlanes::FoR;
@@ -74,7 +75,12 @@ fn run<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize, nullable
     bencher
         .counter(ItemsCount::new(len))
         // `encode_chunked` takes the array by value, so each iteration encodes a fresh one.
-        .with_inputs(|| PrimitiveArray::new(buffer.clone(), validity.clone()))
+        .with_inputs(|| {
+            let array = PrimitiveArray::new(buffer.clone(), validity.clone());
+            mark_optimized(array.as_array(), &SESSION).unwrap();
+
+            array
+        })
         .bench_local_values(|array| {
             FoR::encode_chunked(array, &mut SESSION.create_execution_ctx()).unwrap()
         });

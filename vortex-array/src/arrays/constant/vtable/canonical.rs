@@ -10,7 +10,6 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
-use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -40,7 +39,6 @@ use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
-use crate::dtype::DecimalType;
 use crate::dtype::Nullability;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
@@ -92,7 +90,7 @@ pub(crate) fn constant_canonicalize(
             })
         }
         DType::Decimal(decimal_type, ..) => {
-            let size = DecimalType::smallest_decimal_value_type(decimal_type);
+            let size = decimal_type.canonical_values_type();
             let decimal = scalar.as_decimal();
             let Some(value) = decimal.decimal_value() else {
                 let all_null = match_each_decimal_value_type!(size, |D| {
@@ -127,6 +125,7 @@ pub(crate) fn constant_canonicalize(
                 value,
                 array.dtype(),
                 array.len(),
+                ctx.allocator(),
             ))
         }
         DType::Binary(_) => {
@@ -135,6 +134,7 @@ pub(crate) fn constant_canonicalize(
                 value,
                 array.dtype(),
                 array.len(),
+                ctx.allocator(),
             ))
         }
         DType::List(..) => Canonical::List(constant_canonical_list_array(
@@ -220,10 +220,11 @@ fn constant_canonical_byte_view(
     scalar_bytes: Option<ByteBuffer>,
     dtype: &DType,
     len: usize,
+    allocator: &BufferAllocatorRef,
 ) -> VarBinViewArray {
     match scalar_bytes {
         None => {
-            let views = buffer![BinaryView::empty_view(); len];
+            let views = Buffer::full_in(BinaryView::empty_view(), len, allocator.clone());
 
             // SAFETY: for all-null the views and buffers are just zeroed, never accessed.
             unsafe {
@@ -246,7 +247,7 @@ fn constant_canonical_byte_view(
             }
 
             // Clone our constant view `len` times.
-            let views = buffer![view; len];
+            let views = Buffer::full_in(view, len, allocator.clone());
 
             // SAFETY: all the views are identical and point to a constant value.
             unsafe {
@@ -302,7 +303,11 @@ fn constant_canonical_list_array(
     // SAFETY: All views point to the same range [0, list.len()) in the elements array.
     // The elements array contains `len` copies of the same value, offsets are all 0,
     // and sizes are all equal to the list length. The validity matches the scalar's nullability.
-    unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) }
+    // Empty and null lists have no overlapping elements: every view is [0, 0).
+    unsafe {
+        ListViewArray::new_unchecked(elements, offsets, sizes, validity)
+            .with_zero_copy_to_list(list.is_empty())
+    }
 }
 
 /// The elements of a list scalar as an array, one row per element; empty for a null list.
@@ -348,7 +353,7 @@ fn flat_elements(
                 .into_array()
         }),
         DType::Decimal(decimal, nullability) => {
-            let values_type = DecimalType::smallest_decimal_value_type(decimal);
+            let values_type = decimal.canonical_values_type();
             match_each_decimal_value_type!(values_type, |T| {
                 let mut buffer =
                     BufferMut::<T>::with_capacity_in(elements.len(), allocator.clone());
@@ -486,10 +491,7 @@ fn tile_fixed_size_list_elements(
 
             // SAFETY: every chunk is `tile` itself, so they share its dtype and none is empty.
             unsafe {
-                ChunkedArray::new_unchecked(
-                    std::iter::repeat_n(tile, len).collect::<Vec<_>>(),
-                    element_dtype.clone(),
-                )
+                ChunkedArray::new_unchecked(std::iter::repeat_n(tile, len), element_dtype.clone())
             }
             .into_array()
         }
@@ -627,6 +629,7 @@ mod tests {
         );
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
         let canonical_const = const_array.execute::<ListViewArray>(&mut ctx)?;
+        assert!(!canonical_const.is_zero_copy_to_list());
         let list_array =
             canonical_const.rebuild(ListViewRebuildMode::MakeZeroCopyToList, &mut ctx)?;
         assert_arrays_eq!(
@@ -657,6 +660,7 @@ mod tests {
         );
         let const_array = ConstantArray::new(list_scalar.clone(), 2).into_array();
         let canonical_const = const_array.execute::<ListViewArray>(&mut ctx).unwrap();
+        assert!(canonical_const.is_zero_copy_to_list());
         assert_eq!(canonical_const.dtype(), list_scalar.dtype());
         assert_eq!(canonical_const.len(), 2);
         for index in 0..2 {
@@ -691,6 +695,7 @@ mod tests {
         ));
         let const_array = ConstantArray::new(list_scalar.clone(), 2).into_array();
         let canonical_const = const_array.execute::<ListViewArray>(&mut ctx).unwrap();
+        assert!(canonical_const.is_zero_copy_to_list());
         assert_eq!(canonical_const.dtype(), list_scalar.dtype());
         assert_eq!(canonical_const.len(), 2);
         for index in 0..2 {

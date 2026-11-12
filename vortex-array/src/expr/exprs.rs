@@ -18,6 +18,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
+use crate::expr::Lambda;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::EmptyOptions;
@@ -33,6 +34,9 @@ use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::dynamic::DynamicComparison;
 use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
 use crate::scalar_fn::fns::dynamic::Rhs;
+use crate::scalar_fn::fns::dynamic_expression::DynamicExpression;
+use crate::scalar_fn::fns::dynamic_expression::DynamicExpressionOptions;
+use crate::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
 use crate::scalar_fn::fns::ext_storage::ExtStorage;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
@@ -45,7 +49,10 @@ use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_contains::ListContainsOptions;
 use crate::scalar_fn::fns::list_length::ListLength;
 use crate::scalar_fn::fns::list_sum::ListSum;
+use crate::scalar_fn::fns::list_transform::ListTransform;
+use crate::scalar_fn::fns::list_transform::ListTransformOptions;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::lower::Lower;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::merge::DuplicateHandling;
 use crate::scalar_fn::fns::merge::Merge;
@@ -58,6 +65,7 @@ use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZone;
 use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZoneOptions;
 use crate::scalar_fn::fns::select::FieldSelection;
 use crate::scalar_fn::fns::select::Select;
+use crate::scalar_fn::fns::strpos::Strpos;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_get::VariantGetOptions;
 use crate::scalar_fn::fns::variant_get::VariantPath;
@@ -153,8 +161,7 @@ pub fn bound_get_item(field: impl Into<FieldName>, child: BoundExpression) -> Bo
 
 /// Creates an expression that reads the parameter `name` of the enclosing lambda.
 ///
-/// It is only meaningful in the body of a [`Lambda`](crate::expr::Lambda). Anywhere else it fails
-/// to bind.
+/// It is only meaningful in the body of a [`Lambda`]. Anywhere else it fails to bind.
 ///
 /// ```rust
 /// # use vortex_array::dtype::{DType, Nullability, PType};
@@ -1135,6 +1142,29 @@ pub fn bound_dynamic(
     )
 }
 
+/// Creates a dynamic expression that evaluates the current predicate of `source`.
+///
+/// The `inputs` are the expressions that every predicate of the source can read. A predicate
+/// reads input `i` as the field named by
+/// [`input_field_name(i)`](crate::scalar_fn::fns::dynamic_expression::input_field_name) of its
+/// scope.
+pub fn dynamic_expression(
+    source: Arc<dyn DynamicExpressionSource>,
+    inputs: impl IntoIterator<Item = Expression>,
+) -> Expression {
+    DynamicExpression.new_expr(DynamicExpressionOptions::new(source), inputs)
+}
+
+/// Creates a bound dynamic expression that evaluates the current predicate of `source`.
+pub fn bound_dynamic_expression(
+    source: Arc<dyn DynamicExpressionSource>,
+    inputs: impl IntoIterator<Item = BoundExpression>,
+) -> BoundExpression {
+    DynamicExpression
+        .try_new_bound_expr(DynamicExpressionOptions::new(source), inputs)
+        .vortex_expect("dynamic expressions accept any inputs")
+}
+
 // ---- ListContains ----
 
 /// Creates an expression that checks whether a list contains a value.
@@ -1236,11 +1266,14 @@ pub fn in_list_of(
     }
 
     // Ordered elements make equal lists from the same set, so that equal filters deduplicate.
+    // An engine can build a list from the keys of a hash join, which repeat, and each repeat makes
+    // the lookup more costly, so equal elements are removed. One null keeps the SQL semantics.
     if elements
         .windows(2)
         .all(|pair| pair[0].partial_cmp(&pair[1]).is_some())
     {
         elements.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        elements.dedup();
     }
     let list = Scalar::list(Arc::new(element_dtype), elements, Nullability::NonNullable);
     Ok(in_list(needle, lit(list)))
@@ -1252,10 +1285,11 @@ fn contiguous_integer_bounds(scalars: &[Scalar]) -> Option<(&Scalar, &Scalar)> {
     let mut values = scalars
         .iter()
         .map(|scalar| {
-            let primitive = scalar.as_primitive_opt()?;
-            if !primitive.ptype().is_int() {
+            // Viewing a scalar of another type as a primitive builds an error, which is costly.
+            if !matches!(scalar.dtype(), DType::Primitive(ptype, _) if ptype.is_int()) {
                 return None;
             }
+            let primitive = scalar.as_primitive_opt()?;
             let value = if primitive.ptype().is_unsigned_int() {
                 primitive.as_opt::<u64>()??.into()
             } else {
@@ -1308,6 +1342,31 @@ pub fn bound_byte_length(input: BoundExpression) -> BoundExpression {
     ByteLength
         .try_new_bound_expr(EmptyOptions, [input])
         .vortex_expect("byte-length expressions require a variable-length binary child")
+}
+
+// ---- Lower ----
+
+/// Creates an expression that computes the Unicode lowercase of each string, like SQL `lower`.
+///
+/// ```rust
+/// # use vortex_array::expr::{lower, root};
+/// let expr = lower(root());
+/// ```
+pub fn lower(input: Expression) -> Expression {
+    Lower.new_expr(EmptyOptions, [input])
+}
+
+// ---- Strpos ----
+
+/// Creates an expression that computes the one-based character position of `search` in
+/// `input`, or zero when absent, like SQL `strpos`.
+///
+/// ```rust
+/// # use vortex_array::expr::{lit, root, strpos};
+/// let expr = strpos(root(), lit("needle"));
+/// ```
+pub fn strpos(input: Expression, search: Expression) -> Expression {
+    Strpos.new_expr(EmptyOptions, [input, search])
 }
 
 // ---- ExtStorage ----
@@ -1391,6 +1450,22 @@ pub fn bound_list_sum_opts(
         .vortex_expect("list-sum expressions require a numeric list child")
 }
 
+// ---- ListTransform ----
+
+/// Creates an expression that applies a lambda to every element of each list.
+///
+/// The lambda takes one parameter, the element.
+///
+/// ```rust
+/// # use vortex_array::expr::{Lambda, checked_add, col, list_transform, lit, var};
+/// let lambda = Lambda::new(["x"], checked_add(var("x"), lit(1_i32))).unwrap();
+/// let expr = list_transform(col("l"), lambda);
+/// assert_eq!(expr.to_string(), "vortex.list.transform($.l, (x) -> (@x + 1i32))");
+/// ```
+pub fn list_transform(list: Expression, lambda: Lambda) -> Expression {
+    ListTransform.new_expr(ListTransformOptions::Lambda(lambda), [list])
+}
+
 /// Reinterpret timestamp wall times in `options.time_zone`, preserving the time unit.
 ///
 /// `ambiguous` is a UTF-8 expression containing `raise`, `earliest`, `latest`, or `null`.
@@ -1431,6 +1506,7 @@ pub mod bound {
     pub use super::bound_checked_add as checked_add;
     pub use super::bound_col as col;
     pub use super::bound_dynamic as dynamic;
+    pub use super::bound_dynamic_expression as dynamic_expression;
     pub use super::bound_dynamic_with_options as dynamic_with_options;
     pub use super::bound_eq as eq;
     pub use super::bound_ext_storage as ext_storage;
