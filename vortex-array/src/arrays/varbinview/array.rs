@@ -729,10 +729,7 @@ pub trait VarBinViewArrayExt: TypedArrayRef<VarBinView> {
     }
 
     fn varbinview_validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[VarBinViewSlots::VALIDITY_CHILD].as_ref(),
-            self.dtype_parts().1,
-        )
+        child_to_validity(self.validity_child(), self.dtype_parts().1)
     }
 }
 impl<T: TypedArrayRef<VarBinView>> VarBinViewArrayExt for T {}

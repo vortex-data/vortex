@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
+use super::super::InterleaveArraySlotsExt;
 use super::super::InterleaveSlots;
 use super::fixed_width::Source;
 use super::fixed_width::gather;

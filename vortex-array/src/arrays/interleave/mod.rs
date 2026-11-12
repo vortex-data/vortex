@@ -52,8 +52,10 @@ use vortex_session::registry::CachedId;
 
 pub use self::array::InterleaveArray;
 pub use self::array::InterleaveArrayExt;
+pub use self::array::InterleaveArraySlotsExt;
 pub use self::array::InterleaveData;
-use self::array::InterleaveSlots;
+pub use self::array::InterleaveSlots;
+pub use self::array::InterleaveSlotsView;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;

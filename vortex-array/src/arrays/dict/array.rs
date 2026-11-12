@@ -294,7 +294,7 @@ impl DictOwnedExt for Array<Dict> {
                 }
             }
             Err(array) => {
-                let slots = DictSlotsView::from_slots(array.slots());
+                let slots = array.slots_view();
                 DictParts {
                     dtype: array.dtype().clone(),
                     codes: slots.codes.clone(),

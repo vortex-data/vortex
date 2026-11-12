@@ -148,19 +148,15 @@ pub(crate) trait SparseOwnedExt {
 
 impl SparseOwnedExt for Array<Sparse> {
     fn into_parts(self) -> VortexResult<SparseParts> {
-        let chunk_offsets = self.slots()[SparseSlots::PATCH_CHUNK_OFFSETS].clone();
+        let chunk_offsets = self.patch_chunk_offsets().cloned();
         let offset_within_chunk = chunk_offsets.as_ref().map(|_| 0);
         // SAFETY: the patch slots come from a valid sparse array.
         let patches = unsafe {
             Patches::new_unchecked(
                 self.len(),
                 self.patches().offset(),
-                self.slots()[SparseSlots::PATCH_INDICES]
-                    .clone()
-                    .vortex_expect("indices"),
-                self.slots()[SparseSlots::PATCH_VALUES]
-                    .clone()
-                    .vortex_expect("values"),
+                self.patch_indices().clone(),
+                self.patch_values().clone(),
                 chunk_offsets,
                 offset_within_chunk,
             )

@@ -11,14 +11,12 @@ use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexResult;
 
 use crate::Zstd;
-use crate::ZstdSlots;
+use crate::ZstdArraySlotsExt;
 
 impl SliceReduce for Zstd {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let unsliced_validity = child_to_validity(
-            array.slots()[ZstdSlots::VALIDITY_CHILD].as_ref(),
-            array.dtype().nullability(),
-        );
+        let unsliced_validity =
+            child_to_validity(array.validity_child(), array.dtype().nullability());
         Ok(Some(
             Zstd::try_new(
                 array.dtype().clone(),

@@ -230,10 +230,7 @@ pub trait FixedSizeListArrayExt: TypedArrayRef<FixedSizeList> {
 
     fn fixed_size_list_validity(&self) -> Validity {
         let (_, _, nullability) = self.dtype_parts();
-        child_to_validity(
-            self.slots()[FixedSizeListSlots::VALIDITY_CHILD].as_ref(),
-            nullability,
-        )
+        child_to_validity(self.validity_child(), nullability)
     }
 
     #[allow(clippy::disallowed_methods)]
@@ -311,9 +308,7 @@ impl Array<FixedSizeList> {
 
     pub fn into_data_parts(self) -> FixedSizeListDataParts {
         let dtype = self.dtype().clone();
-        let elements = self.slots()[FixedSizeListSlots::ELEMENTS]
-            .clone()
-            .vortex_expect("FixedSizeListArray elements slot");
+        let elements = self.elements().clone();
         let validity = self.fixed_size_list_validity();
         FixedSizeListDataParts {
             elements,
