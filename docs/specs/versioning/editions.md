@@ -6,6 +6,9 @@ earlier editions in the same family. See [Using editions](using-editions.md) for
 
 ## Frozen `core` editions
 
+The default compressor uses only the formats in `core`. If the default compressor must use a format,
+that format must eventually move into a `core` edition.
+
 The origin of every edition below is `vortex`. Each minimum refers to the shared version of the
 Vortex Rust crates, including the `vortex` crate.
 
