@@ -68,7 +68,6 @@ pub enum SortDirection {
 /// | `1`  | Asc  (0)  | Yes (1)|
 /// | `2`  | Desc (1)  | No  (0)|
 /// | `3`  | Desc (1)  | Yes (1)|
-///
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct IsSortedOptions {
     /// If true, require strict order (no duplicates).
@@ -487,7 +486,8 @@ impl AggregateFnVTable for IsSorted {
         let last = partial.last_value.unwrap_or_else(|| first.clone());
 
         if let Some(acc_last) = &acc.last_value
-            && !args.options.boundary_is_sorted(acc_last, &first) {
+            && !args.options.boundary_is_sorted(acc_last, &first)
+        {
             acc.is_sorted = false;
         }
 
@@ -564,8 +564,9 @@ impl AggregateFnVTable for IsSorted {
 
                 // Check boundary with previous chunk.
                 if let Some(self_last) = &partial.last_value
-                    && !args.options.boundary_is_sorted(self_last, &value) {
-                        partial.is_sorted = false;
+                    && !args.options.boundary_is_sorted(self_last, &value)
+                {
+                    partial.is_sorted = false;
                 }
 
                 if partial.first_value.is_none() {
@@ -584,7 +585,8 @@ impl AggregateFnVTable for IsSorted {
                 // Check boundary with previous chunk.
                 let first_value = array_ref.execute_scalar(0, ctx)?.into_nullable();
                 if let Some(self_last) = &partial.last_value
-                    && !args.options.boundary_is_sorted(self_last, &first_value) {
+                    && !args.options.boundary_is_sorted(self_last, &first_value)
+                {
                     partial.is_sorted = false;
                     partial.last_value = Some(
                         array_ref
@@ -1060,7 +1062,6 @@ mod tests {
         assert_arrays_eq!(acc.finish()?, BoolArray::from_iter(expected), &mut ctx);
         Ok(())
     }
-
 
     #[rstest]
     #[case::primitive(PrimitiveArray::from_option_iter([None, Some(3i32), Some(2)]).into_array())]

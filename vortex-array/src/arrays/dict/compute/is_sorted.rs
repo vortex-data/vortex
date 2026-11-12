@@ -7,8 +7,9 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
-use crate::aggregate_fn::fns::is_sorted::is_sorted;
-use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
+use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
+use crate::aggregate_fn::fns::is_sorted::SortDirection;
+use crate::aggregate_fn::fns::is_sorted::is_sorted_with_options;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::Dict;
 use crate::arrays::dict::DictArraySlotsExt;
@@ -16,7 +17,12 @@ use crate::scalar::Scalar;
 
 /// Dict-specific is_sorted kernel.
 ///
-/// If both values and codes are sorted (with the same strictness), then the dict array is sorted.
+/// | Values     | Codes     | Dict array sortedness |
+/// |------------|-----------|-----------------------|
+/// | Ascending  | Ascending | Ascending             |
+/// | Descending | Ascending | Descending            |
+///
+/// Values and codes must be sorted with the same strictness.
 #[derive(Debug)]
 pub(crate) struct DictIsSortedKernel;
 
@@ -31,19 +37,36 @@ impl DynAggregateKernel for DictIsSortedKernel {
             return Ok(None);
         };
 
+        // Early exit for repeated invalids
+        if options.strict && batch.invalid_count(ctx)? > 1 {
+            return Ok(None);
+        }
+
         let Some(dict) = batch.as_opt::<Dict>() else {
             return Ok(None);
         };
 
         let strict = options.strict;
 
-        let result = if strict {
-            is_strict_sorted(dict.values(), ctx)? && is_strict_sorted(dict.codes(), ctx)?
-        } else {
-            is_sorted(dict.values(), ctx)? && is_sorted(dict.codes(), ctx)?
+        let sorted = match options.direction {
+            SortDirection::Asc => {
+                is_sorted_with_options(dict.values(), *options, ctx)?
+                    && is_sorted_with_options(dict.codes(), *options, ctx)?
+            }
+            SortDirection::Desc => {
+                // `DictEncoder` produce incremental asc codes, so a desc
+                // column gets `DESC` values and `ASC` codes. So, using `DESC` codes,
+                // e.g. from `take` or an imported dict, are out of scope.
+                let asc_options = IsSortedOptions {
+                    strict,
+                    direction: SortDirection::Asc,
+                };
+                is_sorted_with_options(dict.values(), *options, ctx)?
+                    && is_sorted_with_options(dict.codes(), asc_options, ctx)?
+            }
         };
 
-        if result {
+        if sorted {
             Ok(Some(IsSorted::make_partial(batch, true, strict, ctx)?))
         } else {
             // We can't definitively say it's NOT sorted without canonicalizing,
