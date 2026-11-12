@@ -12,7 +12,6 @@ use fastlanes::Delta;
 use fearless_simd::Level;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
@@ -31,7 +30,7 @@ use crate::BitPackedArrayExt;
 use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
 use crate::bitpack_decompress::execute_block_offsets;
-use crate::delta::array::DeltaSlots;
+use crate::delta::array::DeltaArraySlotsExt;
 use crate::delta::array::delta_decompress::PackedDeltas;
 use crate::delta::array::transpose::TransposeKernel;
 
@@ -74,9 +73,7 @@ where
         deltas: &'a mut Option<PrimitiveArray>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        let delta_child: &'a ArrayRef = array.slots()[DeltaSlots::DELTAS]
-            .as_ref()
-            .vortex_expect("Delta deltas slot");
+        let delta_child = array.deltas();
         if let Some(packed) = PackedDeltas::try_new(delta_child) {
             return Self::packed(bases, packed, delta_child.len(), ctx);
         }

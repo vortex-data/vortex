@@ -3,6 +3,7 @@
 
 mod array;
 pub use array::ChunkedArrayExt;
+pub use array::ChunkedArraySlotsExt;
 pub use array::ChunkedData;
 pub use array::ChunkedSlots;
 pub use array::ChunkedSlotsView;

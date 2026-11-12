@@ -60,28 +60,18 @@ impl Display for ChunkedData {
 }
 
 pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
-    fn chunk_offsets_array(&self) -> &ArrayRef {
-        self.slots()[ChunkedSlots::CHUNK_OFFSETS]
-            .as_ref()
-            .vortex_expect("validated chunk offsets slot")
-    }
-
     fn nchunks(&self) -> usize {
-        self.slots()
-            .len()
-            .saturating_sub(ChunkedSlots::CHUNKS_OFFSET)
+        ChunkedArraySlotsExt::chunks(self).len()
     }
 
     fn chunk(&self, idx: usize) -> &ArrayRef {
-        self.slots()[ChunkedSlots::CHUNKS_OFFSET + idx]
-            .as_ref()
-            .vortex_expect("validated chunk slot")
+        ChunkedArraySlotsExt::chunks(self)
+            .get(idx)
+            .vortex_expect("chunk index out of bounds")
     }
 
     fn iter_chunks(&self) -> impl Iterator<Item = &ArrayRef> {
-        self.slots()[ChunkedSlots::CHUNKS_OFFSET..]
-            .iter()
-            .map(|slot| slot.as_ref().vortex_expect("validated chunk slot"))
+        ChunkedArraySlotsExt::chunks(self).iter()
     }
 
     fn chunks(&self) -> Vec<ArrayRef> {

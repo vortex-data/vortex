@@ -435,10 +435,7 @@ fn parquet_shredded_field_from_logical(
 pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
     /// Returns the outer row validity for the Variant values.
     fn parquet_variant_validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[ParquetVariantSlots::VALIDITY_CHILD].as_ref(),
-            self.dtype().nullability(),
-        )
+        child_to_validity(self.validity_child(), self.dtype().nullability())
     }
 
     /// Converts this storage array to Arrow's canonical Parquet Variant extension storage.
