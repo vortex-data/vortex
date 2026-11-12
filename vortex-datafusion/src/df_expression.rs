@@ -48,8 +48,9 @@ use vortex_arrow::ExecuteArrowExt;
 
 /// Wrap a synchronous, non-volatile DataFusion expression for Vortex execution.
 ///
-/// Only referenced columns are exported to Arrow, except scoped/lambda expressions
-/// retain the full original input layout to preserve parameter indices.
+/// Only referenced columns are exported to Arrow, except expressions containing
+/// higher-order functions retain the full original input layout to preserve lambda
+/// parameter indices.
 /// The result preserves DataFusion's
 /// type, effective nullability, field metadata and evaluation errors. Runtime state
 /// is retained in-process; the expression cannot be serialized.
@@ -97,8 +98,8 @@ pub(crate) fn raw_expression(
         }
         indices.push(column.index());
     }
-    let scoped = contains_scoped(&expression);
-    if scoped {
+    let has_higher_order_function = contains_higher_order_function(&expression);
+    if has_higher_order_function {
         // Lambda variables are numbered after the ORIGINAL input width. Keep
         // that positional boundary unchanged instead of compacting captures.
         if name_counts.values().any(|count| *count != 1) {
@@ -107,7 +108,7 @@ pub(crate) fn raw_expression(
         indices = (0..schema.fields().len()).collect();
     }
     let projected = Arc::new(schema.project(&indices)?);
-    let expression = if scoped {
+    let expression = if has_higher_order_function {
         expression
     } else {
         rebind_columns(&expression, schema, &projected)?
@@ -121,12 +122,14 @@ pub(crate) fn raw_expression(
     from_inputs(expression, schema, inputs, session, advisory)
 }
 
-pub(crate) fn contains_scoped(expression: &Arc<dyn PhysicalExpr>) -> bool {
+// This structural check includes lambdas without free variables or captures.
+// Lambda-variable binding still depends on the original input schema width.
+pub(crate) fn contains_higher_order_function(expression: &Arc<dyn PhysicalExpr>) -> bool {
     expression.is::<HigherOrderFunctionExpr>()
         || expression
             .children()
             .iter()
-            .any(|child| contains_scoped(child))
+            .any(|child| contains_higher_order_function(child))
 }
 
 // Compacting inputs and extracting native children must not change the Fields
