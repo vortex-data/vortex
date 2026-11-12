@@ -3,7 +3,9 @@
 
 //! Typed, process-local DataFusion expressions inside Vortex expression trees.
 
-use std::fmt;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::fmt::Result as FmtResult;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
@@ -15,12 +17,16 @@ use arrow_schema::DataType;
 use arrow_schema::FieldRef;
 use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
+use datafusion_common::DataFusionError;
 use datafusion_common::HashMap;
 use datafusion_common::Result as DFResult;
+use datafusion_common::plan_datafusion_err;
 use datafusion_common::plan_err;
+use datafusion_expr::ColumnarValue;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::HigherOrderFunctionExpr;
 use datafusion_physical_expr::PhysicalExpr;
+use datafusion_physical_expr::async_scalar_function::AsyncFuncExpr;
 use datafusion_physical_expr::expressions::Column;
 use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr_common::physical_expr::is_volatile;
@@ -198,13 +204,13 @@ impl Hash for BoundField {
         (Arc::as_ptr(&self.original) as *const ()).hash(state);
     }
 }
-impl fmt::Display for BoundField {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.original, f)
+impl Display for BoundField {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        Display::fmt(&self.original, f)
     }
 }
 impl PhysicalExpr for BoundField {
-    fn fmt_sql(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_sql(&self, f: &mut Formatter<'_>) -> FmtResult {
         self.original.fmt_sql(f)
     }
     fn return_field(&self, _schema: &Schema) -> DFResult<FieldRef> {
@@ -213,14 +219,14 @@ impl PhysicalExpr for BoundField {
     fn nullable(&self, _schema: &Schema) -> DFResult<bool> {
         Ok(self.nullable)
     }
-    fn evaluate(&self, batch: &RecordBatch) -> DFResult<datafusion_expr::ColumnarValue> {
+    fn evaluate(&self, batch: &RecordBatch) -> DFResult<ColumnarValue> {
         self.inner.evaluate(batch)
     }
     fn evaluate_selection(
         &self,
         batch: &RecordBatch,
         selection: &BooleanArray,
-    ) -> DFResult<datafusion_expr::ColumnarValue> {
+    ) -> DFResult<ColumnarValue> {
         self.inner.evaluate_selection(batch, selection)
     }
     fn children(&self) -> Vec<&Arc<dyn PhysicalExpr>> {
@@ -230,9 +236,9 @@ impl PhysicalExpr for BoundField {
         self: Arc<Self>,
         children: Vec<Arc<dyn PhysicalExpr>>,
     ) -> DFResult<Arc<dyn PhysicalExpr>> {
-        let [inner]: [Arc<dyn PhysicalExpr>; 1] = children.try_into().map_err(|_| {
-            datafusion_common::plan_datafusion_err!("Bound DF field requires one child")
-        })?;
+        let [inner]: [Arc<dyn PhysicalExpr>; 1] = children
+            .try_into()
+            .map_err(|_| plan_datafusion_err!("Bound DF field requires one child"))?;
         // DF can rebind children into CASE-local schemas. Its rewrites preserve
         // types; the original binding schema is no longer valid here.
         Ok(Arc::new(Self {
@@ -296,7 +302,7 @@ pub(crate) fn from_inputs(
         inputs,
     )
     .map(Some)
-    .map_err(|error| datafusion_common::DataFusionError::External(Box::new(error)))
+    .map_err(|error| DataFusionError::External(Box::new(error)))
 }
 
 fn contains_decimal(dtype: &DataType) -> bool {
@@ -321,7 +327,7 @@ fn contains_decimal(dtype: &DataType) -> bool {
 }
 
 fn contains_async(expression: &Arc<dyn PhysicalExpr>) -> bool {
-    expression.is::<datafusion_physical_expr::async_scalar_function::AsyncFuncExpr>()
+    expression.is::<AsyncFuncExpr>()
         || expression
             .children()
             .iter()
@@ -358,8 +364,8 @@ impl Hash for Options {
         self.advisory.hash(state);
     }
 }
-impl fmt::Display for Options {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for Options {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         self.expression.fmt(f)
     }
 }
@@ -437,6 +443,7 @@ impl ScalarFnVTable for DataFusionExpression {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Result;
     use arrow_array::ArrayRef as ArrowArrayRef;
     use arrow_array::BooleanArray;
     use arrow_array::Int64Array;
@@ -448,15 +455,23 @@ mod tests {
     use datafusion_common::JoinType;
     use datafusion_common::NullEquality;
     use datafusion_common::ScalarValue;
+    use datafusion_common::config::ConfigOptions;
     use datafusion_common::hash_utils::create_hashes;
     use datafusion_datasource::memory::MemorySourceConfig;
+    use datafusion_expr::Operator;
+    use datafusion_expr::Volatility;
+    use datafusion_expr::create_udf;
+    use datafusion_physical_expr::ScalarFunctionExpr;
     use datafusion_physical_expr::expressions::BinaryExpr;
     use datafusion_physical_expr::expressions::Column;
     use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
+    use datafusion_physical_expr::expressions::IsNullExpr;
+    use datafusion_physical_expr::expressions::Literal;
     use datafusion_physical_expr::expressions::lit;
     use datafusion_physical_expr::split_conjunction;
     use datafusion_physical_expr_common::physical_expr::snapshot_physical_expr;
     use datafusion_physical_plan::ExecutionPlan;
+    use datafusion_physical_plan::collect;
     use datafusion_physical_plan::filter::FilterExec;
     use datafusion_physical_plan::joins::HashJoinExec;
     use datafusion_physical_plan::joins::HashTableLookupExpr;
@@ -480,7 +495,7 @@ mod tests {
     #[rstest]
     #[case::single(false)]
     #[case::composite(true)]
-    fn matches_datafusion_with_nullable_keys(#[case] composite: bool) -> anyhow::Result<()> {
+    fn matches_datafusion_with_nullable_keys(#[case] composite: bool) -> Result<()> {
         let ids: ArrowArrayRef = Arc::new(Int64Array::from(vec![Some(2), None, Some(5)]));
         let labels: ArrowArrayRef = Arc::new(StringArray::from(vec![Some("a"), Some("b"), None]));
         let state = SeededRandomState::with_seed(17);
@@ -556,10 +571,10 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn preserves_key_evaluation_errors() -> anyhow::Result<()> {
+    fn preserves_key_evaluation_errors() -> Result<()> {
         let key = Arc::new(BinaryExpr::new(
             lit(1_i64),
-            datafusion_expr::Operator::Divide,
+            Operator::Divide,
             Arc::new(Column::new("id", 0)),
         ));
         let lookup: Arc<dyn PhysicalExpr> = Arc::new(HashTableLookupExpr::new(
@@ -590,7 +605,7 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn rejects_ambiguous_original_column_names() -> anyhow::Result<()> {
+    fn rejects_ambiguous_original_column_names() -> Result<()> {
         let schema = Schema::new(vec![
             Field::new("id", DataType::Int64, false),
             Field::new("id", DataType::Int64, false),
@@ -617,7 +632,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn matches_datafusion_array_map() -> anyhow::Result<()> {
+    async fn matches_datafusion_array_map() -> Result<()> {
         let build = RecordBatch::try_from_iter(vec![(
             "id",
             Arc::new(Int64Array::from(vec![Some(1), Some(2), Some(3), None])) as ArrowArrayRef,
@@ -669,7 +684,7 @@ mod tests {
                 .with_config(config)
                 .build(),
         );
-        datafusion_physical_plan::collect(
+        collect(
             Arc::clone(&join) as Arc<dyn ExecutionPlan>,
             context.task_ctx(),
         )
@@ -711,7 +726,7 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn typed_results_preserve_nulls_wrapping_and_scalar_row_count() -> anyhow::Result<()> {
+    fn typed_results_preserve_nulls_wrapping_and_scalar_row_count() -> Result<()> {
         let batch = RecordBatch::try_from_iter(vec![(
             "id",
             Arc::new(Int64Array::from(vec![Some(i64::MAX), None, Some(0)])) as ArrowArrayRef,
@@ -719,13 +734,11 @@ mod tests {
         let expressions: Vec<Arc<dyn PhysicalExpr>> = vec![
             Arc::new(BinaryExpr::new(
                 Arc::new(Column::new("id", 0)),
-                datafusion_expr::Operator::Plus,
+                Operator::Plus,
                 lit(1_i64),
             )),
             lit(7_i64),
-            Arc::new(datafusion_physical_expr::expressions::IsNullExpr::new(
-                Arc::new(Column::new("id", 0)),
-            )),
+            Arc::new(IsNullExpr::new(Arc::new(Column::new("id", 0)))),
         ];
         let session = VortexSession::default();
         for expression in expressions {
@@ -746,42 +759,32 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_results_and_live_or_volatile_expressions_decline() -> anyhow::Result<()> {
+    fn unsupported_results_and_live_or_volatile_expressions_decline() -> Result<()> {
         let schema = Schema::new(vec![Field::new("id", DataType::Int64, false)]);
         let session = VortexSession::default();
         let decimal: Arc<dyn PhysicalExpr> =
-            Arc::new(datafusion_physical_expr::expressions::Literal::new(
-                ScalarValue::Decimal128(Some(123), 10, 2),
-            ));
+            Arc::new(Literal::new(ScalarValue::Decimal128(Some(123), 10, 2)));
         assert!(df_expression(Arc::clone(&decimal), &schema, &session)?.is_none());
-        let comparison: Arc<dyn PhysicalExpr> = Arc::new(BinaryExpr::new(
-            Arc::clone(&decimal),
-            datafusion_expr::Operator::Eq,
-            decimal,
-        ));
+        let comparison: Arc<dyn PhysicalExpr> =
+            Arc::new(BinaryExpr::new(Arc::clone(&decimal), Operator::Eq, decimal));
         assert!(df_expression(comparison, &schema, &session)?.is_some());
         let live: Arc<dyn PhysicalExpr> = Arc::new(DynamicFilterPhysicalExpr::new(
             vec![Arc::new(Column::new("id", 0))],
             lit(true),
         ));
         assert!(df_expression(live, &schema, &session)?.is_none());
-        let random: Arc<dyn PhysicalExpr> =
-            Arc::new(datafusion_physical_expr::ScalarFunctionExpr::try_new(
-                Arc::new(datafusion_expr::create_udf(
-                    "volatile",
-                    vec![],
-                    DataType::Float64,
-                    datafusion_expr::Volatility::Volatile,
-                    Arc::new(|_| {
-                        Ok(datafusion_expr::ColumnarValue::Scalar(
-                            ScalarValue::Float64(Some(0.5)),
-                        ))
-                    }),
-                )),
+        let random: Arc<dyn PhysicalExpr> = Arc::new(ScalarFunctionExpr::try_new(
+            Arc::new(create_udf(
+                "volatile",
                 vec![],
-                &schema,
-                Arc::new(datafusion_common::config::ConfigOptions::new()),
-            )?);
+                DataType::Float64,
+                Volatility::Volatile,
+                Arc::new(|_| Ok(ColumnarValue::Scalar(ScalarValue::Float64(Some(0.5))))),
+            )),
+            vec![],
+            &schema,
+            Arc::new(ConfigOptions::new()),
+        )?);
         assert!(df_expression(random, &schema, &session)?.is_none());
         Ok(())
     }
@@ -815,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn boolean_result_preserves_original_field_metadata() -> anyhow::Result<()> {
+    fn boolean_result_preserves_original_field_metadata() -> Result<()> {
         let session = VortexSession::default();
         session.dtypes().register(TaggedBool);
         let dtype = DType::Extension(
