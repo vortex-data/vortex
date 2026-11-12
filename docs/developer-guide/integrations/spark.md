@@ -2,7 +2,7 @@
 
 The `vortex-spark` connector is built on Spark's file-source DataSource V2 framework. Shared
 sources compile into Spark 3.5/Scala 2.12, Spark 3.5/Scala 2.13, and Spark 4.0/Scala 2.13
-artifacts; the Spark 4 artifact is also tested on Spark 4.1.
+artifacts; the Spark 4 artifact is also tested on Spark 4.1, 4.2, and 4.3.
 
 The connector uses the public `vortex-jni` API: `Session`, `DataSource`, `Scan`, and
 `VortexWriter`, with the `NativeReadable` and `NativeWritable` I/O interfaces. The
