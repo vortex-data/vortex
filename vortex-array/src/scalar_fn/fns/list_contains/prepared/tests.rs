@@ -139,7 +139,10 @@ fn test_row_set_returns_membership_bits(
     let mut elements = members.clone();
     elements.push(Scalar::null(dtype.clone()));
     let list = Scalar::list(dtype, elements, Nullability::NonNullable);
-    let options = ListContainsOptions { sql_null_semantics };
+    let options = ListContainsOptions {
+        sql_null_semantics,
+        ..Default::default()
+    };
     let set = prepare(&list)?;
     let result = set.contains(&needles, &options, &mut ctx)?;
     // The old fallback returned a lazy OR tree here.
@@ -206,7 +209,10 @@ fn test_decimal_bitmap_across_storage_widths(
         )
         .into_array()
     });
-    let options = ListContainsOptions { sql_null_semantics };
+    let options = ListContainsOptions {
+        sql_null_semantics,
+        ..Default::default()
+    };
     let set = prepare(&list)?;
     let non_match = (!sql_null_semantics).then_some(false);
     assert_arrays_eq!(
@@ -337,7 +343,10 @@ fn test_prepared_set_rows_are_the_constant_list() -> VortexResult<()> {
 #[rstest]
 #[case::default(ListContainsOptions::default(), [Some(false), Some(true), None, Some(false)])]
 #[case::sql(
-    ListContainsOptions { sql_null_semantics: true },
+    ListContainsOptions {
+        sql_null_semantics: true,
+        ..Default::default()
+    },
     [None, Some(true), None, None]
 )]
 fn test_list_contains_looks_up_in_a_prepared_set_list(
@@ -356,7 +365,10 @@ fn test_list_contains_looks_up_in_a_prepared_set_list(
 
 #[rstest]
 #[case::default(ListContainsOptions::default(), Some(false))]
-#[case::sql(ListContainsOptions { sql_null_semantics: true }, None)]
+#[case::sql(ListContainsOptions {
+        sql_null_semantics: true,
+        ..Default::default()
+    }, None)]
 fn test_constant_needle_gives_a_constant(
     #[case] options: ListContainsOptions,
     #[case] expected: Option<bool>,
@@ -400,7 +412,10 @@ fn test_constant_row_needle_looks_up_one_row() -> VortexResult<()> {
 
 #[rstest]
 #[case::default(ListContainsOptions::default(), [Some(true), Some(false), None])]
-#[case::sql(ListContainsOptions { sql_null_semantics: true }, [Some(true), None, None])]
+#[case::sql(ListContainsOptions {
+        sql_null_semantics: true,
+        ..Default::default()
+    }, [Some(true), None, None])]
 fn test_result_from_bits_applies_null_semantics(
     #[case] options: ListContainsOptions,
     #[case] expected: [Option<bool>; 3],
@@ -521,7 +536,10 @@ fn assert_chunks_share_one_set(array: &ArrayRef) {
     [Some(false), Some(true), None, Some(false), Some(true)],
 )]
 #[case::sql(
-    ListContainsOptions { sql_null_semantics: true },
+    ListContainsOptions {
+        sql_null_semantics: true,
+        ..Default::default()
+    },
     [None, Some(true), None, None, Some(true)],
 )]
 fn test_constant_list_over_chunked_needles(

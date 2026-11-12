@@ -42,8 +42,12 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::operators::CompareMode;
 use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::fns::operators::NanOrder;
+use crate::scalar_fn::fns::operators::NestedNulls;
 use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::fns::operators::SignedZeros;
 
 pub mod boolean;
 pub use boolean::BooleanExecuteAdaptor;
@@ -60,9 +64,63 @@ mod primitive_operand;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
 
-/// A binary scalar function parameterized by an [`Operator`].
+/// A binary scalar function parameterized by [`BinaryOptions`].
 #[derive(Clone)]
 pub struct Binary;
+
+/// The options of a [`Binary`] scalar function: an [`Operator`] and, for comparisons, the
+/// [`CompareMode`] that sets how floats are ordered.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct BinaryOptions {
+    operator: Operator,
+    compare_mode: CompareMode,
+}
+
+impl BinaryOptions {
+    /// Returns the options of a comparison that orders floats in `compare_mode`.
+    pub fn compare(operator: CompareOperator, compare_mode: CompareMode) -> Self {
+        Self {
+            operator: operator.into(),
+            compare_mode,
+        }
+    }
+
+    /// Returns the operator.
+    pub fn operator(&self) -> Operator {
+        self.operator
+    }
+
+    /// Returns the float semantics of a comparison. Other operators always use
+    /// [`CompareMode::TOTAL_ORDER`].
+    pub fn compare_mode(&self) -> CompareMode {
+        self.compare_mode
+    }
+}
+
+impl From<Operator> for BinaryOptions {
+    fn from(operator: Operator) -> Self {
+        Self {
+            operator,
+            compare_mode: CompareMode::TOTAL_ORDER,
+        }
+    }
+}
+
+impl PartialEq<Operator> for BinaryOptions {
+    fn eq(&self, other: &Operator) -> bool {
+        self.compare_mode.is_total_order() && self.operator == *other
+    }
+}
+
+impl Display for BinaryOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.compare_mode.is_total_order() {
+            return Display::fmt(&self.operator, f);
+        }
+
+        write!(f, "{}[{}]", self.operator, self.compare_mode)
+    }
+}
 
 impl Binary {
     /// Creates a lazy binary operation over `lhs` and `rhs`.
@@ -78,7 +136,7 @@ impl Binary {
         rhs: ArrayRef,
         operator: Operator,
     ) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(Binary.bind(operator), [lhs, rhs])
+        ScalarFnArray::try_new(Binary.bind(operator.into()), [lhs, rhs])
     }
 }
 
@@ -90,7 +148,7 @@ const KLEENE_LUT: [[[bool; 2]; 2]; 2] = [
 ];
 
 impl ScalarFnVTable for Binary {
-    type Options = Operator;
+    type Options = BinaryOptions;
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("vortex.binary");
@@ -98,9 +156,26 @@ impl ScalarFnVTable for Binary {
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        let signed_zeros = match instance.compare_mode.signed_zeros() {
+            SignedZeros::Distinct => pb::binary_opts::SignedZeros::Distinct,
+            SignedZeros::Equal => pb::binary_opts::SignedZeros::Equal,
+        };
+        let nan_order = match instance.compare_mode.nan_order() {
+            NanOrder::TotalOrder => pb::binary_opts::NanOrder::TotalOrder,
+            NanOrder::Canonical => pb::binary_opts::NanOrder::Canonical,
+            NanOrder::Ieee754 => pb::binary_opts::NanOrder::Ieee754,
+        };
+        let nested_nulls = match instance.compare_mode.nested_nulls() {
+            NestedNulls::First => pb::binary_opts::NestedNulls::First,
+            NestedNulls::Last => pb::binary_opts::NestedNulls::Last,
+        };
+
         Ok(Some(
             pb::BinaryOpts {
-                op: (*instance).into(),
+                op: instance.operator.into(),
+                signed_zeros: signed_zeros.into(),
+                nan_order: nan_order.into(),
+                nested_nulls: nested_nulls.into(),
             }
             .encode_to_vec(),
         ))
@@ -108,11 +183,39 @@ impl ScalarFnVTable for Binary {
 
     fn deserialize(
         &self,
-        _metadata: &[u8],
+        metadata: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        let opts = pb::BinaryOpts::decode(_metadata)?;
-        Operator::try_from(opts.op)
+        let opts = pb::BinaryOpts::decode(metadata)?;
+        let operator = Operator::try_from(opts.op)?;
+
+        let signed_zeros = match pb::binary_opts::SignedZeros::try_from(opts.signed_zeros)? {
+            pb::binary_opts::SignedZeros::Distinct => SignedZeros::Distinct,
+            pb::binary_opts::SignedZeros::Equal => SignedZeros::Equal,
+        };
+        let nan_order = match pb::binary_opts::NanOrder::try_from(opts.nan_order)? {
+            pb::binary_opts::NanOrder::TotalOrder => NanOrder::TotalOrder,
+            pb::binary_opts::NanOrder::Canonical => NanOrder::Canonical,
+            pb::binary_opts::NanOrder::Ieee754 => NanOrder::Ieee754,
+        };
+        let nested_nulls = match pb::binary_opts::NestedNulls::try_from(opts.nested_nulls)? {
+            pb::binary_opts::NestedNulls::First => NestedNulls::First,
+            pb::binary_opts::NestedNulls::Last => NestedNulls::Last,
+        };
+
+        let compare_mode =
+            CompareMode::new(signed_zeros, nan_order).with_nested_nulls(nested_nulls);
+        if compare_mode.is_total_order() {
+            return Ok(operator.into());
+        }
+
+        let Some(operator) = operator.to_compare_operator() else {
+            vortex_bail!(
+                "compare mode {compare_mode} requires a comparison operator, got {operator}"
+            );
+        };
+
+        Ok(BinaryOptions::compare(operator, compare_mode))
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -129,18 +232,19 @@ impl ScalarFnVTable for Binary {
 
     fn fmt_sql(
         &self,
-        operator: &Operator,
+        options: &BinaryOptions,
         expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         write!(f, "(")?;
         Display::fmt(expr.display_child(0), f)?;
-        write!(f, " {} ", operator)?;
+        write!(f, " {} ", options)?;
         Display::fmt(expr.display_child(1), f)?;
         write!(f, ")")
     }
 
-    fn return_dtype(&self, operator: &Operator, arg_dtypes: &[DType]) -> VortexResult<DType> {
+    fn return_dtype(&self, options: &BinaryOptions, arg_dtypes: &[DType]) -> VortexResult<DType> {
+        let operator = &options.operator;
         let lhs = &arg_dtypes[0];
         let rhs = &arg_dtypes[1];
 
@@ -180,20 +284,22 @@ impl ScalarFnVTable for Binary {
 
     fn execute(
         &self,
-        op: &Operator,
+        options: &BinaryOptions,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let lhs = args.get(0)?;
         let rhs = args.get(1)?;
 
-        match op {
-            Operator::Eq => execute_compare(&lhs, &rhs, CompareOperator::Eq, ctx),
-            Operator::NotEq => execute_compare(&lhs, &rhs, CompareOperator::NotEq, ctx),
-            Operator::Lt => execute_compare(&lhs, &rhs, CompareOperator::Lt, ctx),
-            Operator::Lte => execute_compare(&lhs, &rhs, CompareOperator::Lte, ctx),
-            Operator::Gt => execute_compare(&lhs, &rhs, CompareOperator::Gt, ctx),
-            Operator::Gte => execute_compare(&lhs, &rhs, CompareOperator::Gte, ctx),
+        let mode = options.compare_mode;
+
+        match options.operator {
+            Operator::Eq => execute_compare(&lhs, &rhs, CompareOperator::Eq, mode, ctx),
+            Operator::NotEq => execute_compare(&lhs, &rhs, CompareOperator::NotEq, mode, ctx),
+            Operator::Lt => execute_compare(&lhs, &rhs, CompareOperator::Lt, mode, ctx),
+            Operator::Lte => execute_compare(&lhs, &rhs, CompareOperator::Lte, mode, ctx),
+            Operator::Gt => execute_compare(&lhs, &rhs, CompareOperator::Gt, mode, ctx),
+            Operator::Gte => execute_compare(&lhs, &rhs, CompareOperator::Gte, mode, ctx),
             Operator::And => execute_boolean(lhs, rhs, Operator::And, ctx),
             Operator::Or => execute_boolean(lhs, rhs, Operator::Or, ctx),
             Operator::Add => execute_numeric(&lhs, &rhs, NumericOperator::Add, ctx),
@@ -205,9 +311,10 @@ impl ScalarFnVTable for Binary {
 
     fn simplify(
         &self,
-        operator: &Operator,
+        options: &BinaryOptions,
         expr: &BoundExpression,
     ) -> VortexResult<Option<BoundExpression>> {
+        let operator = &options.operator;
         let lhs = expr.child(0);
         let rhs = expr.child(1);
 
@@ -275,7 +382,8 @@ impl ScalarFnVTable for Binary {
         })
     }
 
-    fn reduce<T: ReduceNode>(&self, operator: &Operator, node: &T) -> VortexResult<Option<T>> {
+    fn reduce<T: ReduceNode>(&self, options: &BinaryOptions, node: &T) -> VortexResult<Option<T>> {
+        let operator = &options.operator;
         if !matches!(operator, Operator::And | Operator::Or) {
             return Ok(None);
         }
@@ -322,7 +430,7 @@ impl ScalarFnVTable for Binary {
 
     fn execute_step(
         &self,
-        op: &Operator,
+        options: &BinaryOptions,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ScalarFnExecutionResult> {
@@ -330,7 +438,7 @@ impl ScalarFnVTable for Binary {
         let ready = (columnar(0)? && columnar(1)?)
             // A constant operand can decide the result, such as `false AND x` or `x < null`, so
             // `execute` does not need the other operand executed.
-            || match op {
+            || match options.operator {
                 Operator::And | Operator::Or => {
                     let constant = |idx| args.input_matches(idx, |array| array.is::<Constant>());
                     constant(0)? || constant(1)?
@@ -348,18 +456,18 @@ impl ScalarFnVTable for Binary {
             require_input!(args, 0 => AnyColumnar);
             require_input!(args, 1 => AnyColumnar);
         }
-        self.execute(op, args, ctx)
+        self.execute(options, args, ctx)
             .map(ScalarFnExecutionResult::done)
     }
 
-    fn is_strict(&self, operator: &Operator) -> bool {
-        !matches!(operator, Operator::And | Operator::Or)
+    fn is_strict(&self, options: &BinaryOptions) -> bool {
+        !matches!(options.operator, Operator::And | Operator::Or)
     }
 
-    fn is_infallible(&self, operator: &Operator) -> bool {
+    fn is_infallible(&self, options: &BinaryOptions) -> bool {
         // Arithmetic operations could be better modelled here.
         matches!(
-            operator,
+            options.operator,
             Operator::Eq
                 | Operator::NotEq
                 | Operator::Gt

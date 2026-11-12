@@ -48,7 +48,7 @@ fn binary_add() -> ArrayRef {
         PrimitiveArray::from_option_iter((0..ARRAY_SIZE).map(|i| (i % 7 != 0).then_some(i as i64)))
             .into_array();
     let rhs = PrimitiveArray::from_iter((0..ARRAY_SIZE).map(|i| i as i64)).into_array();
-    let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Add).erased();
+    let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Add.into()).erased();
     let array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])
         .unwrap()
         .into_array();
@@ -63,7 +63,7 @@ fn binary_and() -> ArrayRef {
     let lhs = BoolArray::from_iter((0..ARRAY_SIZE).map(|i| (i % 7 != 0).then_some(i % 2 == 0)))
         .into_array();
     let rhs = BoolArray::from_iter((0..ARRAY_SIZE).map(|i| i % 2 == 0)).into_array();
-    let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::And).erased();
+    let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::And.into()).erased();
     let array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])
         .unwrap()
         .into_array();

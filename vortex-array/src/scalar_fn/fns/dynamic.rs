@@ -34,10 +34,11 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::binary::BinaryOptions;
 use crate::scalar_fn::fns::dynamic_expression::DynamicExpression;
 use crate::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
+use crate::scalar_fn::fns::operators::CompareMode;
 use crate::scalar_fn::fns::operators::CompareOperator;
-use crate::scalar_fn::fns::operators::Operator;
 
 /// A dynamic comparison expression can be used to capture a comparison to a value that can change
 /// during the execution of a query, such as when a compute engine pushes down an ORDER BY + LIMIT
@@ -72,6 +73,9 @@ impl ScalarFnVTable for DynamicComparison {
     ) -> std::fmt::Result {
         Display::fmt(expr.display_child(0), f)?;
         write!(f, " {} dynamic(", dynamic.operator)?;
+        if !dynamic.compare_mode.is_total_order() {
+            write!(f, "mode=[{}], ", dynamic.compare_mode)?;
+        }
         match dynamic.scalar() {
             None => write!(f, "scalar=<none>")?,
             Some(scalar) => write!(f, "scalar={scalar}")?,
@@ -109,7 +113,7 @@ impl ScalarFnVTable for DynamicComparison {
 
             let delegate_args = VecExecutionArgs::new(vec![lhs, rhs], args.row_count());
             return Binary
-                .bind(Operator::from(data.operator))
+                .bind(BinaryOptions::compare(data.operator, data.compare_mode))
                 .execute(&delegate_args, ctx);
         }
         let ret_dtype =
@@ -136,6 +140,7 @@ impl ScalarFnVTable for DynamicComparison {
 #[derive(Clone, Debug)]
 pub struct DynamicComparisonExpr {
     pub(crate) operator: CompareOperator,
+    pub(crate) compare_mode: CompareMode,
     pub(crate) rhs: Arc<Rhs>,
     // Default value for the dynamic comparison.
     pub(crate) default: bool,
@@ -147,15 +152,30 @@ impl DynamicComparisonExpr {
         self.operator
     }
 
+    /// How the comparison orders floats.
+    pub fn compare_mode(&self) -> CompareMode {
+        self.compare_mode
+    }
+
+    /// The same comparison, but with floats ordered in `compare_mode`.
+    pub fn with_compare_mode(&self, compare_mode: CompareMode) -> Self {
+        Self {
+            compare_mode,
+            ..self.clone()
+        }
+    }
+
     /// The result used while the dynamic value is not yet known.
     pub fn default(&self) -> bool {
         self.default
     }
 
-    /// A comparison against the same dynamic value with a different operator and default.
+    /// A comparison against the same dynamic value with a different operator and default. The
+    /// compare mode does not change.
     pub fn with_operator(&self, operator: CompareOperator, default: bool) -> Self {
         Self {
             operator,
+            compare_mode: self.compare_mode,
             rhs: Arc::clone(&self.rhs),
             default,
         }
@@ -184,6 +204,7 @@ impl Display for DynamicComparisonExpr {
 impl PartialEq for DynamicComparisonExpr {
     fn eq(&self, other: &Self) -> bool {
         self.operator == other.operator
+            && self.compare_mode == other.compare_mode
             && Arc::ptr_eq(&self.rhs, &other.rhs)
             && self.default == other.default
     }
@@ -193,6 +214,7 @@ impl Eq for DynamicComparisonExpr {}
 impl Hash for DynamicComparisonExpr {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.operator.hash(state);
+        self.compare_mode.hash(state);
         Arc::as_ptr(&self.rhs).hash(state);
         self.default.hash(state);
     }

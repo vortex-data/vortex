@@ -63,7 +63,7 @@ impl ExecuteParentKernel<Widen> for WidenNumericKernel {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let operator = match parent.options {
+        let operator = match parent.options.operator() {
             Operator::Add => NumericOperator::Add,
             Operator::Sub => NumericOperator::Sub,
             Operator::Mul => NumericOperator::Mul,

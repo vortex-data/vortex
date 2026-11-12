@@ -161,7 +161,7 @@ fn rewrite(
 
     rewrites
         .into_iter()
-        .try_reduce_balanced(|lhs, rhs| Binary.try_new_bound_expr(Operator::Or, [lhs, rhs]))
+        .try_reduce_balanced(|lhs, rhs| Binary.try_new_bound_expr(Operator::Or.into(), [lhs, rhs]))
 }
 
 #[cfg(test)]

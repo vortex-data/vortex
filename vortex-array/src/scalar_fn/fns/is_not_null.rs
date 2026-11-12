@@ -67,7 +67,7 @@ pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResul
     let Some(operator) = child_fn.as_opt::<Binary>() else {
         return Ok(None);
     };
-    let is_and = match operator {
+    let is_and = match operator.operator() {
         Operator::And => true,
         Operator::Or => false,
         _ => return Ok(None),
@@ -100,7 +100,9 @@ pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResul
         non_nullable.new_node(Not.bind(EmptyOptions), std::slice::from_ref(&non_nullable))?
     };
     let combine = if is_null { Operator::And } else { Operator::Or };
-    Ok(Some(node.new_node(Binary.bind(combine), &[left, right])?))
+    Ok(Some(
+        node.new_node(Binary.bind(combine.into()), &[left, right])?,
+    ))
 }
 
 /// Expression that checks for non-null values.

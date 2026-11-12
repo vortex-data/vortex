@@ -8,8 +8,9 @@
 //! `vortex-compute` for primitives and decimals, binary views for strings/bytes, and a row-wise
 //! comparator for nested types. There is no Arrow fallback.
 //!
-//! Floating point values compare with Vortex's total ordering (`NaN` is the largest value,
-//! `-0.0 < +0.0`, and equality is bitwise), matching [`Scalar`] comparison semantics.
+//! By default, floating point values compare with Vortex's total ordering (`NaN` is the largest
+//! value, `-0.0 < +0.0`, and equality is bitwise), matching [`Scalar`] comparison semantics.
+//! Another [`CompareMode`] can make signed zeros equal and order `NaN` values like a query engine.
 //!
 //! Binary scalar functions can execute through encoding-specific kernels before reaching the native
 //! dispatcher. [`CompareExecuteAdaptor`] connects these execution paths to [`CompareKernel`], which
@@ -41,6 +42,7 @@ use crate::dtype::Nullability;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::operators::CompareMode;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::validity::Validity;
 
@@ -58,6 +60,9 @@ mod primitive;
 /// Implementations can compare an encoded array against another array (typically a constant)
 /// without first decompressing. The adaptor normalizes operand order so `array` is always
 /// the left-hand side, swapping the operator when necessary.
+///
+/// Kernels compare in [`CompareMode::TOTAL_ORDER`]. The adaptor calls a kernel for another mode only
+/// when that mode gives the same result (see [`CompareMode::agrees_with_total_order`]).
 pub trait CompareKernel: VTable {
     /// Compares `lhs` with `rhs`, or returns `None` to use the default comparison path.
     ///
@@ -97,9 +102,10 @@ where
     ) -> VortexResult<Option<ArrayRef>> {
         // Non-comparison operators are normal kernel misses, so decline them without constructing
         // an error (which would capture a backtrace, or panic under `VORTEX_PANIC_ON_ERR`).
-        let Some(cmp_op) = parent.options.to_compare_operator() else {
+        let Some(cmp_op) = parent.options.operator().to_compare_operator() else {
             return Ok(None);
         };
+        let mode = parent.options.compare_mode();
 
         // Get the ScalarFnArray to access children
         let Some(scalar_fn_array) = parent.as_opt::<ScalarFn>() else {
@@ -132,6 +138,12 @@ where
             ));
         }
 
+        // Kernels compare in total order. Other modes use the canonical kernels, unless the
+        // results agree.
+        if !mode.agrees_with_total_order(cmp_op, array.dtype(), other.as_constant()) {
+            return Ok(None);
+        }
+
         V::compare(array, other, cmp_op, ctx)
     }
 }
@@ -145,6 +157,7 @@ pub(crate) fn execute_compare(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     op: CompareOperator,
+    mode: CompareMode,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     validate_comparison_dtypes(lhs.dtype(), rhs.dtype())?;
@@ -171,14 +184,16 @@ pub(crate) fn execute_compare(
         );
     }
 
-    // Constant-constant fast path
+    // Constant-constant fast path. Scalars compare in total order, so other modes use it only
+    // when the results agree.
     if let (Some(lhs_const), Some(rhs_const)) = (lhs.as_opt::<Constant>(), rhs.as_opt::<Constant>())
+        && mode.agrees_with_total_order(op, lhs.dtype(), Some(rhs_const.scalar()))
     {
         let result = scalar_cmp(lhs_const.scalar(), rhs_const.scalar(), op)?;
         return Ok(ConstantArray::new(result, lhs.len()).into_array());
     }
 
-    compare_arrays(lhs, rhs, op, ctx)
+    compare_arrays(lhs, rhs, op, mode, ctx)
 }
 
 /// Dispatches operands with matching logical dtypes to their native comparison kernel.
@@ -188,6 +203,7 @@ fn compare_arrays(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     op: CompareOperator,
+    mode: CompareMode,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let nullability = Nullability::from(lhs.dtype().is_nullable() || rhs.dtype().is_nullable());
@@ -196,7 +212,7 @@ fn compare_arrays(
         let lhs = extension_storage(lhs, ctx)?;
         let rhs = extension_storage(rhs, ctx)?;
 
-        return compare_arrays(&lhs, &rhs, op, ctx);
+        return compare_arrays(&lhs, &rhs, op, mode, ctx);
     }
 
     validate_comparison_dtypes(lhs.dtype(), rhs.dtype())?;
@@ -209,11 +225,11 @@ fn compare_arrays(
         )
         .into_array()),
         DType::Bool(_) => boolean::compare_bool(lhs, rhs, op, nullability, ctx),
-        DType::Primitive(..) => primitive::compare_primitive(lhs, rhs, op, nullability, ctx),
+        DType::Primitive(..) => primitive::compare_primitive(lhs, rhs, op, mode, nullability, ctx),
         DType::Decimal(..) => decimal::compare_decimal(lhs, rhs, op, nullability, ctx),
         DType::Utf8(_) | DType::Binary(_) => bytes::compare_bytes(lhs, rhs, op, nullability, ctx),
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) | DType::Map(..) => {
-            nested::compare_nested(lhs, rhs, op, nullability, ctx)
+            nested::compare_nested(lhs, rhs, op, mode, nullability, ctx)
         }
         DType::Union(..) | DType::Variant(_) | DType::Extension(_) => {
             vortex_bail!("compare is not supported for dtype {}", lhs.dtype())

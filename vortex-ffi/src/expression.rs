@@ -251,7 +251,7 @@ pub unsafe extern "C" fn vx_expression_binary(
 ) -> *mut vx_expression {
     let lhs = vx_expression::as_ref(lhs).clone();
     let rhs = vx_expression::as_ref(rhs).clone();
-    vx_expression::new(Binary.new_expr(operator.into(), [lhs, rhs]))
+    vx_expression::new(Binary.new_expr(Operator::from(operator).into(), [lhs, rhs]))
 }
 
 /// Create a logical NOT of the child expression.

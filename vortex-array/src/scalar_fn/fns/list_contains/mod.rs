@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod kernel;
+mod normalize;
 mod prepared;
 
 use std::fmt::Display;
@@ -55,8 +56,13 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::list_contains::normalize::FloatNormalization;
+use crate::scalar_fn::fns::list_contains::normalize::Side;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::operators::CompareMode;
+use crate::scalar_fn::fns::operators::NanOrder;
 use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::fns::operators::SignedZeros;
 use crate::scalar_fn::is_not_null_node;
 use crate::validity::Validity;
 
@@ -78,12 +84,23 @@ pub struct ListContainsOptions {
     /// there is nothing to compare it to: off, that is `false`; on, a null needle is `null` against
     /// any list, which makes [`ListContains`] strict.
     pub sql_null_semantics: bool,
+    /// How the needle and the elements compare floats, at the top level and in nested values.
+    ///
+    /// Membership uses only equality, so [`CompareMode::nested_nulls`] has no effect. The default,
+    /// [`CompareMode::TOTAL_ORDER`], compares the bits of floats.
+    pub compare_mode: CompareMode,
 }
 
 impl Display for ListContainsOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if self.sql_null_semantics {
             write!(f, "sql_null_semantics")?;
+        }
+        if !self.compare_mode.is_total_order() {
+            if self.sql_null_semantics {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", self.compare_mode)?;
         }
         Ok(())
     }
@@ -145,6 +162,17 @@ impl ScalarFnVTable for ListContains {
         Ok(Some(
             pb::ListContainsOpts {
                 sql_null_semantics: instance.sql_null_semantics,
+                signed_zeros: match instance.compare_mode.signed_zeros() {
+                    SignedZeros::Distinct => pb::binary_opts::SignedZeros::Distinct,
+                    SignedZeros::Equal => pb::binary_opts::SignedZeros::Equal,
+                }
+                .into(),
+                nan_order: match instance.compare_mode.nan_order() {
+                    NanOrder::TotalOrder => pb::binary_opts::NanOrder::TotalOrder,
+                    NanOrder::Canonical => pb::binary_opts::NanOrder::Canonical,
+                    NanOrder::Ieee754 => pb::binary_opts::NanOrder::Ieee754,
+                }
+                .into(),
             }
             .encode_to_vec(),
         ))
@@ -156,8 +184,20 @@ impl ScalarFnVTable for ListContains {
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
         let opts = pb::ListContainsOpts::decode(metadata)?;
+
+        let signed_zeros = match pb::binary_opts::SignedZeros::try_from(opts.signed_zeros)? {
+            pb::binary_opts::SignedZeros::Distinct => SignedZeros::Distinct,
+            pb::binary_opts::SignedZeros::Equal => SignedZeros::Equal,
+        };
+        let nan_order = match pb::binary_opts::NanOrder::try_from(opts.nan_order)? {
+            pb::binary_opts::NanOrder::TotalOrder => NanOrder::TotalOrder,
+            pb::binary_opts::NanOrder::Canonical => NanOrder::Canonical,
+            pb::binary_opts::NanOrder::Ieee754 => NanOrder::Ieee754,
+        };
+
         Ok(ListContainsOptions {
             sql_null_semantics: opts.sql_null_semantics,
+            compare_mode: CompareMode::new(signed_zeros, nan_order),
         })
     }
 
@@ -208,8 +248,11 @@ impl ScalarFnVTable for ListContains {
         let value_array = args.get(1)?;
 
         // Borrow the list: a constant list scalar owns every element, so cloning it is not free.
+        // Scalar equality compares the bits of floats, so a compare mode that normalizes them
+        // takes the lookup below.
         if let Some(value_scalar) = value_array.as_constant()
             && let Some(list) = constant_list(&list_array)
+            && FloatNormalization::new(options.compare_mode, value_scalar.dtype()).is_identity()
         {
             let result = compute_contains_scalar(list, value_scalar, options)?;
             return Ok(ConstantArray::new(result, args.row_count()).into_array());
@@ -228,6 +271,7 @@ impl ScalarFnVTable for ListContains {
 
         if let Some(needle) = needle.as_constant()
             && let Some(list) = constant_list_node(&list)
+            && FloatNormalization::new(options.compare_mode, needle.dtype()).is_identity()
         {
             let result = compute_contains_scalar(list, needle, options)?;
             return Ok(Some(node.new_constant(result)));
@@ -357,6 +401,18 @@ fn compute_list_contains(
     // The reduce step has already replaced a constant list with a prepared set.
     if let Some(set) = PreparedSet::set_of(array) {
         return set.contains(value, options, ctx);
+    }
+
+    // After normalization, bitwise equality is the equality of the compare mode.
+    let normalization = FloatNormalization::new(options.compare_mode, value.dtype());
+    if !normalization.is_identity() {
+        let array = normalization.apply(array, Side::Element, ctx)?;
+        let value = normalization.apply(value, Side::Needle, ctx)?;
+        let options = ListContainsOptions {
+            compare_mode: CompareMode::TOTAL_ORDER,
+            ..*options
+        };
+        return compute_list_contains(&array, &value, &options, ctx);
     }
 
     let nullability = options.result_nullability(array.dtype(), value.dtype());
@@ -823,6 +879,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
     use super::process_matches;
@@ -850,6 +907,7 @@ mod tests {
     use crate::expr::col;
     use crate::expr::get_item;
     use crate::expr::in_list;
+    use crate::expr::in_list_with_mode;
     use crate::expr::list_contains;
     use crate::expr::list_contains_opts;
     use crate::expr::lit;
@@ -857,11 +915,15 @@ mod tests {
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::list_contains::ListContains;
     use crate::scalar_fn::fns::list_contains::ListContainsOptions;
     use crate::scalar_fn::fns::list_contains::PreparedSet;
     use crate::scalar_fn::fns::list_contains::PreparedSetData;
     use crate::scalar_fn::fns::literal::Literal;
+    use crate::scalar_fn::fns::operators::CompareMode;
+    use crate::scalar_fn::fns::operators::NanOrder;
+    use crate::scalar_fn::fns::operators::SignedZeros;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -1365,6 +1427,7 @@ mod tests {
 
     const SQL: ListContainsOptions = ListContainsOptions {
         sql_null_semantics: true,
+        compare_mode: CompareMode::TOTAL_ORDER,
     };
 
     #[rstest]
@@ -1488,6 +1551,87 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(result?, BoolArray::from_iter(expected), &mut ctx);
+        Ok(())
+    }
+
+    const ZEROS_EQUAL: CompareMode = CompareMode::new(SignedZeros::Equal, NanOrder::TotalOrder);
+    const CANONICAL: CompareMode = CompareMode::new(SignedZeros::Equal, NanOrder::Canonical);
+    const DISTINCT_CANONICAL: CompareMode =
+        CompareMode::new(SignedZeros::Distinct, NanOrder::Canonical);
+    const IEEE754: CompareMode = CompareMode::new(SignedZeros::Equal, NanOrder::Ieee754);
+
+    /// The needles `-0.0, 0.0, NaN, -NaN, 1.0, null` against the set `{0.0, NaN}`, with the float
+    /// equality of each mode. The prepared set and a list per row give the same answer.
+    #[rstest]
+    #[case::total_order(CompareMode::TOTAL_ORDER, [false, true, true, false, false])]
+    #[case::zeros_equal(ZEROS_EQUAL, [true, true, true, false, false])]
+    #[case::canonical(CANONICAL, [true, true, true, true, false])]
+    #[case::distinct_canonical(DISTINCT_CANONICAL, [false, true, true, true, false])]
+    #[case::ieee754(IEEE754, [true, true, false, false, false])]
+    fn float_membership_in_compare_mode(
+        #[case] mode: CompareMode,
+        #[case] expected: [bool; 5],
+    ) -> VortexResult<()> {
+        let needles = PrimitiveArray::from_option_iter([
+            Some(-0.0f64),
+            Some(0.0),
+            Some(f64::NAN),
+            Some(-f64::NAN),
+            Some(1.0),
+            None,
+        ])
+        .into_array();
+        let expected = expected.map(Some).into_iter().chain([None]);
+
+        let set = f64_set(vec![0.0, f64::NAN]);
+        assert_result(
+            needles
+                .clone()
+                .apply(&in_list_with_mode(root(), lit(set.clone()), mode)),
+            expected.clone(),
+        )?;
+
+        let len = needles.len();
+        let lists = ConstantArray::new(set, len)
+            .into_array()
+            .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())?
+            .into_array();
+        let options = ListContainsOptions {
+            sql_null_semantics: true,
+            compare_mode: mode,
+        };
+        assert_result(
+            ListContains::try_new_opts(lists, needles, options).map(IntoArray::into_array),
+            expected,
+        )
+    }
+
+    /// A constant needle and a constant list do not fold to the bitwise answer of scalar
+    /// equality when the mode normalizes floats.
+    #[test]
+    fn constant_float_needle_in_compare_mode() -> VortexResult<()> {
+        let needle = ConstantArray::new(-0.0f64, 2).into_array();
+        let set = f64_set(vec![0.0]);
+
+        let result = needle.apply(&in_list_with_mode(root(), lit(set), CANONICAL))?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true]), &mut ctx);
+        Ok(())
+    }
+
+    /// The compare mode of a membership check survives serialization.
+    #[test]
+    fn list_contains_options_round_trip() -> VortexResult<()> {
+        let options = ListContainsOptions {
+            sql_null_semantics: true,
+            compare_mode: IEEE754,
+        };
+        let bytes = ListContains
+            .serialize(&options)?
+            .ok_or_else(|| vortex_err!("list contains options serialize"))?;
+
+        assert_eq!(ListContains.deserialize(&bytes, &SESSION)?, options);
         Ok(())
     }
 

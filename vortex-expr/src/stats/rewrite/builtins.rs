@@ -16,13 +16,13 @@ use vortex_array::expr::bound::and;
 use vortex_array::expr::bound::and_collect;
 use vortex_array::expr::bound::binary;
 use vortex_array::expr::bound::cast;
+use vortex_array::expr::bound::compare_with_mode;
 use vortex_array::expr::bound::dynamic_with_options;
 use vortex_array::expr::bound::eq;
 use vortex_array::expr::bound::gt;
 use vortex_array::expr::bound::gt_eq;
 use vortex_array::expr::bound::lit;
 use vortex_array::expr::bound::lt;
-use vortex_array::expr::bound::lt_eq;
 use vortex_array::expr::bound::or;
 use vortex_array::expr::bound::or_collect;
 use vortex_array::expr::stats::Stat;
@@ -45,6 +45,7 @@ use vortex_array::scalar_fn::fns::list_contains::ListContains;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::fns::lower::Lower;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
+use vortex_array::scalar_fn::fns::operators::NestedNulls;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::scalar_fn::internal::lower_bound::LowerBound;
 use vortex_array::scalar_fn::internal::lower_bound::LowerBoundKind;
@@ -158,14 +159,26 @@ fn binary_falsify<P: NonNanProof>(
     expr: &BoundExpression,
     session: &VortexSession,
 ) -> VortexResult<Option<BoundExpression>> {
-    let operator = expr.as_::<Binary>();
+    let options = expr.as_::<Binary>();
     let lhs = expr.child(0);
     let rhs = expr.child(1);
 
-    Ok(match operator {
+    // The statistics are bounds in total order. Each other float order is a coarser order that
+    // total order refines, so these bounds stay valid when the stat comparisons use the mode of
+    // the predicate. Nested nulls that order last do not refine it, so they get no rewrite.
+    if options.compare_mode().nested_nulls() != NestedNulls::First {
+        return Ok(None);
+    }
+    let cmp = |operator, a, b| compare_with_mode(operator, options.compare_mode(), a, b);
+
+    Ok(match options.operator() {
         Operator::Eq => {
-            let left = min(lhs).zip(max(rhs)).map(|(a, b)| gt(a, b));
-            let right = min(rhs).zip(max(lhs)).map(|(a, b)| gt(a, b));
+            let left = min(lhs)
+                .zip(max(rhs))
+                .map(|(a, b)| cmp(CompareOperator::Gt, a, b));
+            let right = min(rhs)
+                .zip(max(lhs))
+                .map(|(a, b)| cmp(CompareOperator::Gt, a, b));
             or_collect(left.into_iter().chain(right))
                 .map(|value_predicate| with_non_nan_guards::<P>([lhs, rhs], value_predicate))
                 .transpose()?
@@ -177,29 +190,32 @@ fn binary_falsify<P: NonNanProof>(
             .map(|((min_lhs, max_rhs), (max_lhs, min_rhs))| {
                 with_non_nan_guards::<P>(
                     [lhs, rhs],
-                    and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs)),
+                    and(
+                        cmp(CompareOperator::Eq, min_lhs, max_rhs),
+                        cmp(CompareOperator::Eq, max_lhs, min_rhs),
+                    ),
                 )
             })
             .transpose()?
             .flatten(),
         Operator::Gt => max(lhs)
             .zip(min(rhs))
-            .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], lt_eq(a, b)))
+            .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], cmp(CompareOperator::Lte, a, b)))
             .transpose()?
             .flatten(),
         Operator::Gte => max(lhs)
             .zip(min(rhs))
-            .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], lt(a, b)))
+            .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], cmp(CompareOperator::Lt, a, b)))
             .transpose()?
             .flatten(),
         Operator::Lt => min(lhs)
             .zip(max(rhs))
-            .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], gt_eq(a, b)))
+            .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], cmp(CompareOperator::Gte, a, b)))
             .transpose()?
             .flatten(),
         Operator::Lte => min(lhs)
             .zip(max(rhs))
-            .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], gt(a, b)))
+            .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], cmp(CompareOperator::Gt, a, b)))
             .transpose()?
             .flatten(),
         Operator::And => {
@@ -880,6 +896,7 @@ mod tests {
     use vortex_array::expr::between;
     use vortex_array::expr::cast;
     use vortex_array::expr::col;
+    use vortex_array::expr::compare_with_mode;
     use vortex_array::expr::dynamic;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
@@ -904,7 +921,10 @@ mod tests {
     use vortex_array::scalar_fn::fns::between::StrictComparison;
     use vortex_array::scalar_fn::fns::binary::Binary;
     use vortex_array::scalar_fn::fns::dynamic::DynamicComparison;
+    use vortex_array::scalar_fn::fns::operators::CompareMode;
     use vortex_array::scalar_fn::fns::operators::CompareOperator;
+    use vortex_array::scalar_fn::fns::operators::NanOrder;
+    use vortex_array::scalar_fn::fns::operators::SignedZeros;
     use vortex_array::scalar_fn::internal::row_count::RowCount;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -1325,6 +1345,28 @@ mod tests {
             Some(DynamicComparison.new_expr(
                 dynamic.with_operator(CompareOperator::Lte, false),
                 [stat(col("a"), Stat::Max)],
+            ))
+        );
+        Ok(())
+    }
+
+    /// Statistics are total-order bounds, so `max = -0.0` must not falsify `f > -0.0` when signed
+    /// zeros are equal. The stat comparison uses the mode of the predicate.
+    #[test]
+    fn comparison_falsifier_keeps_compare_mode() -> VortexResult<()> {
+        let mode = CompareMode::new(SignedZeros::Equal, NanOrder::TotalOrder);
+        let expr = compare_with_mode(CompareOperator::Gt, mode, col("f"), lit(-0.0f32));
+
+        assert_rewrite_eq!(
+            falsify(&expr)?,
+            Some(nan_guarded(
+                col("f"),
+                compare_with_mode(
+                    CompareOperator::Lte,
+                    mode,
+                    stat(col("f"), Stat::Max),
+                    lit(-0.0f32),
+                ),
             ))
         );
         Ok(())

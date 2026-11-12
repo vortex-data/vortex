@@ -98,7 +98,8 @@ fn merge_straddling_pairs(expr: &BoundExpression) -> VortexResult<Option<BoundEx
 }
 
 fn is_and(expr: &BoundExpression) -> bool {
-    expr.as_opt::<Binary>() == Some(&Operator::And)
+    expr.as_opt::<Binary>()
+        .is_some_and(|options| options.operator() == Operator::And)
 }
 
 /// Return the first `Some` produced by `f` over the conjuncts of the `AND` tree rooted at `expr`.
@@ -156,7 +157,14 @@ struct RangeComparison<'a> {
 
 impl<'a> RangeComparison<'a> {
     fn try_new(expr: &'a BoundExpression) -> Option<Self> {
-        let operator = *expr.as_opt::<Binary>()?;
+        let options = expr.as_opt::<Binary>()?;
+
+        // `Between` compares in total order.
+        if !options.compare_mode().is_total_order() {
+            return None;
+        }
+
+        let operator = options.operator();
         let lhs = expr.child(0);
         let rhs = expr.child(1);
 

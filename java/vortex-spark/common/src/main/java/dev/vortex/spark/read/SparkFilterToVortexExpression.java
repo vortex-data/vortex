@@ -5,6 +5,7 @@ package dev.vortex.spark.read;
 
 import dev.vortex.api.Expression;
 import dev.vortex.api.Expression.BinaryOp;
+import dev.vortex.api.Expression.CompareMode;
 import dev.vortex.api.Expression.TimeUnit;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -145,7 +146,7 @@ public final class SparkFilterToVortexExpression {
         Optional<Expression> literal = literal(value, column.get().dataType());
         return literal.map(expression -> {
             Expression field = column.get().expression();
-            Expression comparison = Expression.binary(op, field, expression);
+            Expression comparison = compare(op, column.get().dataType(), field, expression);
             // Null-safe equality must return false for a null field, including beneath NOT.
             return nullSafe ? Expression.and(Expression.isNotNull(field), comparison) : comparison;
         });
@@ -174,11 +175,12 @@ public final class SparkFilterToVortexExpression {
         }
 
         if (elements.size() == 1 && !holdsNull) {
-            return Optional.of(Expression.binary(BinaryOp.EQ, field, elements.get(0)));
+            return Optional.of(compare(BinaryOp.EQ, dataType, field, elements.get(0)));
         }
 
         // A null element keeps SQL's three-valued IN, so a non-match beneath NOT stays null rather than true. The
-        // native set answers a list of any length in one pass, where an OR of equalities grows with the list.
+        // native set answers a list of any length in one pass, where an OR of equalities grows with the list. Float
+        // elements compare with Spark semantics; see compare(...).
         Optional<Expression> elementType = literal(null, dataType);
         if (elementType.isEmpty()) {
             return Optional.empty();
@@ -187,7 +189,24 @@ public final class SparkFilterToVortexExpression {
             elements.add(elementType.get());
         }
         return Optional.of(Expression.in(
-                field, Expression.literalList(elementType.get(), holdsNull, elements.toArray(new Expression[0]))));
+                field,
+                Expression.literalList(elementType.get(), holdsNull, elements.toArray(new Expression[0])),
+                isFloat(dataType) ? CompareMode.SPARK : CompareMode.TOTAL_ORDER));
+    }
+
+    /**
+     * Compare {@code lhs} with {@code rhs} with Spark semantics. Spark makes {@code -0.0} equal to {@code 0.0}, and
+     * makes all {@code NaN} values equal and greater than all other values. Vortex compares floats in total order by
+     * default, and Spark cannot restore rows that the scan drops, so float comparisons use {@link CompareMode#SPARK}.
+     */
+    private static Expression compare(BinaryOp op, DataType dataType, Expression lhs, Expression rhs) {
+        return isFloat(dataType)
+                ? Expression.compare(op, CompareMode.SPARK, lhs, rhs)
+                : Expression.binary(op, lhs, rhs);
+    }
+
+    private static boolean isFloat(DataType dataType) {
+        return dataType instanceof FloatType || dataType instanceof DoubleType;
     }
 
     private static Optional<Expression> stringMatch(
@@ -279,10 +298,12 @@ public final class SparkFilterToVortexExpression {
         if (dataType instanceof LongType) {
             return numericLiteral(value, Expression.DType.I64, number -> Expression.literal(number.longValue()));
         }
-        if (dataType instanceof FloatType || dataType instanceof DoubleType) {
-            // Vortex compares floats in total order, so -0.0 and 0.0 differ, while Spark treats them as equal.
-            // Spark cannot restore rows that Vortex drops, so keep these comparisons in Spark (see #10064).
-            return Optional.empty();
+        // Float comparisons must use CompareMode.SPARK; see compare(...).
+        if (dataType instanceof FloatType) {
+            return numericLiteral(value, Expression.DType.F32, number -> Expression.literal(number.floatValue()));
+        }
+        if (dataType instanceof DoubleType) {
+            return numericLiteral(value, Expression.DType.F64, number -> Expression.literal(number.doubleValue()));
         }
         if (dataType instanceof StringType) {
             if (value == null) {

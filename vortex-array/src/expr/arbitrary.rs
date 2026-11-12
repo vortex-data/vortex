@@ -60,7 +60,7 @@ fn random_comparison(
 ) -> AResult<Expression> {
     let scalar = random_scalar(u, dtype)?;
     Ok(Binary.new_expr(
-        arbitrary_comparison_operator(u)?,
+        arbitrary_comparison_operator(u)?.into(),
         [col(name.clone()), lit(scalar)],
     ))
 }

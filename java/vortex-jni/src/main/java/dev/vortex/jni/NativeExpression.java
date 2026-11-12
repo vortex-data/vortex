@@ -29,6 +29,8 @@ public final class NativeExpression {
 
     public static native long binary(byte operator, long lhs, long rhs);
 
+    public static native long compare(byte operator, byte signedZeros, byte nanOrder, long lhs, long rhs);
+
     public static native long spatial(byte function, long[] operands);
 
     public static native long not(long childPointer);
@@ -44,7 +46,8 @@ public final class NativeExpression {
     public static native long between(
             long valuePointer, long lowerPointer, long upperPointer, boolean lowerStrict, boolean upperStrict);
 
-    public static native long listContains(long listPointer, long needlePointer, boolean sqlNullSemantics);
+    public static native long listContains(
+            long listPointer, long needlePointer, boolean sqlNullSemantics, byte signedZeros, byte nanOrder);
 
     public static native long literalBool(boolean value, boolean isNull);
 

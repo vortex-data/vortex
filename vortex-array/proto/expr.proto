@@ -75,6 +75,28 @@ message ShreddingSpecField {
 // Options for `vortex.binary`
 message BinaryOpts {
   BinaryOp op = 1;
+  // How a comparison treats signed float zeros. Other operators always use `Distinct`.
+  SignedZeros signed_zeros = 2;
+  // How a comparison treats float NaN values. Other operators always use `TotalOrder`.
+  NanOrder nan_order = 3;
+  // How a comparison orders nulls inside nested values. Other operators always use `First`.
+  NestedNulls nested_nulls = 4;
+
+  enum SignedZeros {
+    Distinct = 0;
+    Equal = 1;
+  }
+
+  enum NanOrder {
+    TotalOrder = 0;
+    Canonical = 1;
+    Ieee754 = 2;
+  }
+
+  enum NestedNulls {
+    First = 0;
+    Last = 1;
+  }
 
   enum BinaryOp {
     Eq = 0;
@@ -104,6 +126,10 @@ message LikeOpts {
 
 message ListContainsOpts {
   bool sql_null_semantics = 1;
+  // How the needle and the elements compare signed float zeros.
+  BinaryOpts.SignedZeros signed_zeros = 2;
+  // How the needle and the elements compare float NaN values.
+  BinaryOpts.NanOrder nan_order = 3;
 }
 
 message CastOpts {

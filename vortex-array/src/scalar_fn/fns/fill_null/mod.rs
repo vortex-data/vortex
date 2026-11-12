@@ -301,7 +301,7 @@ mod tests {
     /// A fill of `40 + 2` that is not a [`ConstantArray`] until it executes.
     fn lazy_fill_42(len: usize) -> VortexResult<ArrayRef> {
         Ok(ScalarFnArray::try_new(
-            Binary.bind(Operator::Add),
+            Binary.bind(Operator::Add.into()),
             vec![
                 ConstantArray::new(40i32, len).into_array(),
                 ConstantArray::new(2i32, len).into_array(),

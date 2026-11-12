@@ -120,6 +120,23 @@ public final class Expression {
     }
 
     /**
+     * Compare {@code lhs} with {@code rhs}, ordering floats in {@code mode}.
+     *
+     * <p>{@link #binary(BinaryOp, Expression, Expression)} orders floats in {@link CompareMode#TOTAL_ORDER}. A query
+     * engine that pushes a float comparison down must use its own semantics, for example {@link CompareMode#SPARK} or
+     * {@link CompareMode#ICEBERG}; otherwise the scan can drop rows.
+     */
+    public static Expression compare(BinaryOp op, CompareMode mode, Expression lhs, Expression rhs) {
+        Preconditions.checkArgument(op.isComparison(), "%s is not a comparison operator", op);
+        return new Expression(NativeExpression.compare(
+                op.code(),
+                mode.signedZeros().code(),
+                mode.nanOrder().code(),
+                lhs.nativePointer(),
+                rhs.nativePointer()));
+    }
+
+    /**
      * Apply a spatial function to native geometry operands, each a column or a geometry literal (see
      * {@link #literalGeometry(byte[])}). The number of operands must match the function's arity.
      */
@@ -202,8 +219,21 @@ public final class Expression {
      *     against an empty list with Vortex's default rules, where the result is {@code false}.
      */
     public static Expression listContains(Expression list, Expression needle, boolean sqlNullSemantics) {
-        return new Expression(
-                NativeExpression.listContains(list.nativePointer(), needle.nativePointer(), sqlNullSemantics));
+        return listContains(list, needle, sqlNullSemantics, CompareMode.TOTAL_ORDER);
+    }
+
+    /**
+     * {@link #listContains(Expression, Expression, boolean)} where the needle and the elements compare floats in
+     * {@code mode}. The lookup stays one pass over the needles, however large the list.
+     */
+    public static Expression listContains(
+            Expression list, Expression needle, boolean sqlNullSemantics, CompareMode mode) {
+        return new Expression(NativeExpression.listContains(
+                list.nativePointer(),
+                needle.nativePointer(),
+                sqlNullSemantics,
+                mode.signedZeros().code(),
+                mode.nanOrder().code()));
     }
 
     /**
@@ -212,7 +242,15 @@ public final class Expression {
      * both filter the row out of a scan.
      */
     public static Expression in(Expression value, Expression list) {
-        return listContains(list, value, /* sqlNullSemantics= */ true);
+        return in(value, list, CompareMode.TOTAL_ORDER);
+    }
+
+    /**
+     * {@link #in(Expression, Expression)} where {@code value} and the elements compare floats in {@code mode}, for
+     * example {@link CompareMode#SPARK}.
+     */
+    public static Expression in(Expression value, Expression list, CompareMode mode) {
+        return listContains(list, value, /* sqlNullSemantics= */ true, mode);
     }
 
     /**
@@ -528,6 +566,72 @@ public final class Expression {
 
         public byte code() {
             return code;
+        }
+
+        /** Whether this operator compares its operands. */
+        public boolean isComparison() {
+            return code <= LTE.code;
+        }
+    }
+
+    /** How a comparison treats the two signed zeros of a float; codes must match the Rust JNI table. */
+    public enum SignedZeros {
+        /** {@code -0.0 < +0.0}. */
+        DISTINCT((byte) 0),
+        /** {@code -0.0 = +0.0}. */
+        EQUAL((byte) 1);
+
+        private final byte code;
+
+        SignedZeros(byte code) {
+            this.code = code;
+        }
+
+        public byte code() {
+            return code;
+        }
+    }
+
+    /** How a comparison treats float {@code NaN} values; codes must match the Rust JNI table. */
+    public enum NanOrder {
+        /** {@code NaN} values are ordered by sign and payload, as in Rust's {@code f64::total_cmp}. */
+        TOTAL_ORDER((byte) 0),
+        /** All {@code NaN} values are equal and greater than all other values, as in {@link Double#compare}. */
+        CANONICAL((byte) 1),
+        /** {@code NaN} is unordered, as in IEEE 754: each comparison is false, except {@code !=}. */
+        IEEE754((byte) 2);
+
+        private final byte code;
+
+        NanOrder(byte code) {
+            this.code = code;
+        }
+
+        public byte code() {
+            return code;
+        }
+    }
+
+    /**
+     * How a comparison orders floats. Integer, decimal, boolean, and string comparisons give the same result in each
+     * mode.
+     */
+    public record CompareMode(SignedZeros signedZeros, NanOrder nanOrder) {
+        /** The Vortex default: total order over the bits of a float, so {@code -0.0 < +0.0}. */
+        public static final CompareMode TOTAL_ORDER = new CompareMode(SignedZeros.DISTINCT, NanOrder.TOTAL_ORDER);
+
+        /** Spark SQL: {@code -0.0 = +0.0}, and all {@code NaN} values are equal and greatest. */
+        public static final CompareMode SPARK = new CompareMode(SignedZeros.EQUAL, NanOrder.CANONICAL);
+
+        /**
+         * Apache Iceberg expression evaluation, which uses {@link Double#compare}: {@code -0.0 < +0.0}, and all
+         * {@code NaN} values are equal and greatest.
+         */
+        public static final CompareMode ICEBERG = new CompareMode(SignedZeros.DISTINCT, NanOrder.CANONICAL);
+
+        public CompareMode {
+            Preconditions.checkNotNull(signedZeros, "signedZeros");
+            Preconditions.checkNotNull(nanOrder, "nanOrder");
         }
     }
 

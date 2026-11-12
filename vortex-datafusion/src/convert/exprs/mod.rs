@@ -69,10 +69,14 @@ use vortex::expr::var;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::binary::BinaryOptions;
 use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
+use vortex::scalar_fn::fns::operators::CompareMode;
+use vortex::scalar_fn::fns::operators::NanOrder;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::fns::operators::SignedZeros;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
@@ -336,6 +340,8 @@ impl DefaultExpressionConverter {
             let boolean_operator = matches!(operator, Operator::And | Operator::Or);
             let left_type = binary_expr.left().data_type(schema)?;
             let right_type = binary_expr.right().data_type(schema)?;
+            let compare_mode = comparison_mode(&left_type, &right_type)?;
+
             if boolean_operator {
                 if left_type != DataType::Boolean || right_type != DataType::Boolean {
                     return Err(exec_datafusion_err!(
@@ -370,7 +376,12 @@ impl DefaultExpressionConverter {
             {
                 return Err(Unconverted::Unsupported);
             }
-            return Ok(Binary.new_expr(operator, [left, right]));
+            let options = match operator.to_compare_operator() {
+                Some(operator) => BinaryOptions::compare(operator, compare_mode),
+                None => operator.into(),
+            };
+
+            return Ok(Binary.new_expr(options, [left, right]));
         }
 
         if let Some(col_expr) = expr.downcast_ref::<df_expr::Column>() {
@@ -1018,6 +1029,25 @@ fn try_operator_from_df(value: &DFOperator) -> Option<Operator> {
         | DFOperator::QuestionPipe
         | DFOperator::Colon => None,
     }
+}
+
+/// Returns the [`CompareMode`] that matches a DataFusion comparison of these operand types.
+///
+/// DataFusion replaces `-0.0` with `+0.0` in float arrays and scalars, then compares in total
+/// order. It keeps the sign and payload of `NaN` values. It does not replace zeros in the values of a dictionary, so a comparison of a dictionary
+/// of floats stays in DataFusion.
+fn comparison_mode(left: &DataType, right: &DataType) -> Conversion<CompareMode> {
+    let dictionary_of_floats = |data_type: &DataType| matches!(data_type, DataType::Dictionary(_, values) if values.is_floating());
+
+    if dictionary_of_floats(left) || dictionary_of_floats(right) {
+        return Err(Unconverted::Unsupported);
+    }
+
+    if left.is_floating() || right.is_floating() {
+        return Ok(CompareMode::new(SignedZeros::Equal, NanOrder::TotalOrder));
+    }
+
+    Ok(CompareMode::TOTAL_ORDER)
 }
 
 fn supported_data_types(dt: &DataType) -> bool {

@@ -134,7 +134,7 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPComparisonPushDownRule {
         if parent
             .scalar_fn()
             .as_opt::<Binary>()
-            .is_none_or(|c| !c.is_comparison())
+            .is_none_or(|c| !c.operator().is_comparison())
             && !parent.scalar_fn().is::<Between>()
         {
             return Ok(None);

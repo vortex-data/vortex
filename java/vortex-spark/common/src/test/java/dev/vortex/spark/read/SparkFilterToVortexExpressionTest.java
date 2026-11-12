@@ -77,11 +77,13 @@ final class SparkFilterToVortexExpressionTest {
     }
 
     @Test
-    void rejectsFloatingPointComparisons() {
-        // Vortex orders -0.0 below 0.0, but Spark treats them as equal.
-        assertFalse(SparkFilterToVortexExpression.isPushable(new EqualTo("float", 0.0f), SCHEMA));
-        assertFalse(SparkFilterToVortexExpression.isPushable(new GreaterThan("double", 0.0), SCHEMA));
-        assertFalse(SparkFilterToVortexExpression.isPushable(new In("double", new Object[] {0.0, 1.0}), SCHEMA));
+    void convertsFloatingPointComparisonsWithSparkSemantics() {
+        // Float comparisons push down in Spark's compare mode, where -0.0 equals 0.0 and all NaN values are equal.
+        assertPushable(new EqualTo("float", 0.0f));
+        assertPushable(new GreaterThan("double", 0.0));
+        assertPushable(new EqualNullSafe("double", Double.NaN));
+        assertPushable(new In("double", new Object[] {0.0, 1.0}));
+        assertPushable(new In("float", new Object[] {0.0f, null}));
         assertPushable(new IsNull("double"));
     }
 

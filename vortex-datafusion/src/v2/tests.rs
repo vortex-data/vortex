@@ -300,6 +300,68 @@ async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals(
     Ok(())
 }
 
+// A residual cannot recover rows dropped by a partially converted filter. In particular,
+// DataFusion considers signed zeros equal while Vortex's float comparison distinguishes them.
+#[rstest]
+#[case::static_filter(false)]
+#[case::dynamic_filter(true)]
+#[tokio::test]
+async fn floating_filters_keep_signed_zero_matches(#[case] is_dynamic: bool) -> anyhow::Result<()> {
+    let source = vortex_source_from_batch(arrow_array::record_batch!(
+        ("value", Float64, vec![-0.0, 0.0]),
+        ("id", Int32, vec![1, 1])
+    )?)
+    .await?;
+    let value = Arc::new(df_expr::Column::new("value", 0)) as Arc<dyn PhysicalExpr>;
+    let id = Arc::new(df_expr::Column::new("id", 1)) as Arc<dyn PhysicalExpr>;
+    let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
+        vec![Arc::clone(&value), Arc::clone(&id)],
+        df_expr::lit(true),
+    ));
+    let predicate = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::BinaryExpr::new(
+            value,
+            Operator::Eq,
+            df_expr::lit(0.0_f64),
+        )),
+        Operator::And,
+        Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(df_expr::BinaryExpr::new(
+                id,
+                Operator::Modulo,
+                df_expr::lit(2_i32),
+            )),
+            Operator::Eq,
+            df_expr::lit(1_i32),
+        )),
+    )) as Arc<dyn PhysicalExpr>;
+    let predicate = if is_dynamic {
+        predicate
+    } else {
+        Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(df_expr::Column::new("value", 0)),
+            Operator::Eq,
+            df_expr::lit(0.0_f64),
+        )) as Arc<dyn PhysicalExpr>
+    };
+    let offered = if is_dynamic {
+        Arc::clone(&dynamic) as Arc<dyn PhysicalExpr>
+    } else {
+        Arc::clone(&predicate)
+    };
+    let pushed = source.try_pushdown_filters(vec![offered], &ConfigOptions::new())?;
+    let source = pushed.updated_node.unwrap_or_else(|| Arc::new(source));
+    dynamic.update(Arc::clone(&predicate))?;
+    let residual = Arc::new(FilterExec::try_new(
+        predicate,
+        Arc::new(DataSourceExec::new(source)),
+    )?);
+    let batches =
+        datafusion_physical_plan::collect(residual, SessionContext::new().task_ctx()).await?;
+    assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 2);
+    Ok(())
+}
+
 /// Extension dtypes covered by both static and dynamic filter tests.
 enum ExtensionFilterType {
     Uuid,

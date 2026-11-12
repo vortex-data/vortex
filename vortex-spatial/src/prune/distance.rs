@@ -49,7 +49,12 @@ impl StatsRewriteRule for SpatialDistancePrune {
         // provably empty when `r` lies outside its box's [min, max] distance interval), it's just
         // not implemented. `!= r` cannot: pruning would need every row's distance to equal `r`,
         // which an AABB can't prove.
-        let op = *expr.as_::<Binary>();
+        let options = expr.as_::<Binary>();
+        if !options.compare_mode().is_total_order() {
+            return Ok(None);
+        }
+
+        let op = options.operator();
         if !matches!(
             op,
             Operator::Lte | Operator::Lt | Operator::Gte | Operator::Gt
@@ -171,7 +176,7 @@ mod tests {
         };
         let distance = SpatialDistance.new_expr(EmptyOptions, operands);
         let predicate = Binary
-            .new_expr(operator, [distance, lit(radius.into())])
+            .new_expr(operator.into(), [distance, lit(radius.into())])
             .bind(&scope)?;
 
         SpatialDistancePrune.falsify(&predicate, &session)
@@ -187,7 +192,7 @@ mod tests {
         let null_query = Scalar::null(scope.as_nullable());
         let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(null_query)]);
         let predicate = Binary
-            .new_expr(Operator::Lte, [distance, lit(0.5f64)])
+            .new_expr(Operator::Lte.into(), [distance, lit(0.5f64)])
             .bind(&scope)?;
 
         assert!(
@@ -294,7 +299,7 @@ mod tests {
         let geometry = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
         let scope = geometry.dtype().clone();
         let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(geometry.clone())]);
-        let predicate = Binary.new_expr(Operator::Lte, [distance, lit(geometry)]);
+        let predicate = Binary.new_expr(Operator::Lte.into(), [distance, lit(geometry)]);
         let error = predicate
             .bind(&scope)
             .expect_err("a geometry scalar cannot be compared with a numeric distance");
