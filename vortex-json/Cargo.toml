@@ -26,6 +26,8 @@ vortex-error = { workspace = true, default-features = false }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
+hegeltest = { workspace = true }
 vortex-array = { workspace = true, default-features = false, features = [
     "_test-harness",
 ] }
+vortex-arrow = { workspace = true, features = ["_test-harness-hegel"] }

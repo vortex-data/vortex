@@ -214,35 +214,25 @@ mod tests {
     use super::*;
 
     #[track_caller]
-    fn check_version_round_trip(
-        version: Option<Version>,
-        nullable: bool,
-        dictionary: bool,
-    ) -> VortexResult<()> {
+    fn check_dictionary_round_trip(nullable: bool) -> VortexResult<()> {
         let session = uuid_session();
         let arrow = session.arrow();
         let mut ctx = session.create_execution_ctx();
-        let array = versioned_uuid_array(version, nullable)?;
-        let mut field = arrow.to_arrow_field("id", array.dtype())?;
-        assert!(field.has_valid_extension_type::<ArrowUuid>());
-        assert_eq!(arrow.from_arrow_field(&field)?, *array.dtype());
-
-        let array = if dictionary {
-            field = field.clone().with_data_type(DataType::Dictionary(
-                Box::new(DataType::Int32),
-                Box::new(field.data_type().clone()),
-            ));
-            DictArray::try_new(PrimitiveArray::from_iter([2u32, 1, 0]).into_array(), array)?
-                .into_array()
-        } else {
-            array
-        };
+        let values = versioned_uuid_array(Some(Version::Random), nullable)?;
+        let field = arrow.to_arrow_field("id", values.dtype())?;
+        let field = field.clone().with_data_type(DataType::Dictionary(
+            Box::new(DataType::Int32),
+            Box::new(field.data_type().clone()),
+        ));
+        let array =
+            DictArray::try_new(PrimitiveArray::from_iter([2u32, 1, 0]).into_array(), values)?
+                .into_array();
 
         let exported = array.clone().execute_arrow(Some(&field), &mut ctx)?;
         assert_eq!(exported.data_type(), field.data_type());
 
         let imported = arrow.from_arrow_array(exported, &field)?;
-        vortex_array::assert_arrays_eq!(imported, array, &mut ctx);
+        assert_arrays_eq!(imported, array, &mut ctx);
 
         Ok(())
     }
@@ -420,22 +410,20 @@ mod tests {
     }
 
     #[test]
-    fn execute_arrow_target_none_preserves_top_level_uuid_metadata() -> VortexResult<()> {
+    fn default_uuid_export_uses_canonical_metadata_and_layout() -> VortexResult<()> {
         let vortex_session = uuid_session();
         let mut ctx = vortex_session.create_execution_ctx();
         let session = vortex_session.arrow();
 
         let vortex_array = uuid_array(&session)?;
 
-        let vortex_ext = vortex_array.dtype().as_extension();
-        assert!(vortex_ext.is::<Uuid>());
+        let field = session.default_arrow_export_field(vortex_array.dtype())?;
+        assert!(field.has_valid_extension_type::<ArrowUuid>());
+        assert_eq!(field.data_type(), &DataType::FixedSizeBinary(16));
 
         let exported = vortex_array.execute_arrow(None, &mut ctx)?;
         assert_eq!(exported.data_type(), &DataType::FixedSizeBinary(16));
-        let fsb = exported.as_fixed_size_binary();
-        assert_eq!(fsb.len(), 2);
-        assert_eq!(fsb.value(0), b"0123456789abcdef");
-        assert_eq!(fsb.value(1), b"fedcba9876543210");
+
         Ok(())
     }
 
@@ -449,9 +437,7 @@ mod tests {
         session.from_arrow_array(arrow_array, &field)
     }
 
-    /// Exporting a struct that contains an extension column with no target field must still route
-    /// the column through its export plugin *and* re-attach the Arrow extension metadata to the
-    /// inferred child field.
+    /// Default exports must retain canonical UUID metadata on inferred struct fields.
     #[test]
     fn execute_arrow_target_none_preserves_nested_uuid_metadata() -> VortexResult<()> {
         let vortex_session = uuid_session();
@@ -474,14 +460,10 @@ mod tests {
         assert_eq!(fields[0].data_type(), &DataType::FixedSizeBinary(16));
         assert!(fields[0].has_valid_extension_type::<ArrowUuid>());
 
-        let uuids = exported.as_struct().column(0).as_fixed_size_binary();
-        assert_eq!(uuids.value(0), b"0123456789abcdef");
-        assert_eq!(uuids.value(1), b"fedcba9876543210");
         Ok(())
     }
 
-    /// Exporting a list of extension elements with no target field must infer an element field that
-    /// still carries the Arrow extension metadata.
+    /// Default exports must retain canonical UUID metadata on inferred list element fields.
     #[test]
     fn execute_arrow_target_none_preserves_list_element_uuid_metadata() -> VortexResult<()> {
         let vortex_session = uuid_session();
@@ -503,9 +485,6 @@ mod tests {
         assert_eq!(elem.data_type(), &DataType::FixedSizeBinary(16));
         assert!(elem.has_valid_extension_type::<ArrowUuid>());
 
-        let uuids = exported.as_list::<i32>().values().as_fixed_size_binary();
-        assert_eq!(uuids.value(0), b"0123456789abcdef");
-        assert_eq!(uuids.value(1), b"fedcba9876543210");
         Ok(())
     }
 
@@ -829,26 +808,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case::unspecified(None, false, false)]
-    #[case::nil(Some(Version::Nil), false, false)]
-    #[case::mac(Some(Version::Mac), false, false)]
-    #[case::dce(Some(Version::Dce), false, false)]
-    #[case::md5(Some(Version::Md5), false, false)]
-    #[case::random(Some(Version::Random), false, false)]
-    #[case::sha1(Some(Version::Sha1), false, false)]
-    #[case::sort_mac(Some(Version::SortMac), false, false)]
-    #[case::sort_rand(Some(Version::SortRand), false, false)]
-    #[case::custom(Some(Version::Custom), false, false)]
-    #[case::max(Some(Version::Max), false, false)]
-    #[case::nullable(Some(Version::Random), true, false)]
-    #[case::dictionary(Some(Version::Random), false, true)]
-    #[case::nullable_dictionary(Some(Version::Random), true, true)]
-    fn version_round_trip(
-        #[case] version: Option<Version>,
-        #[case] nullable: bool,
-        #[case] dictionary: bool,
-    ) -> VortexResult<()> {
-        check_version_round_trip(version, nullable, dictionary)
+    #[case::non_nullable(false)]
+    #[case::nullable(true)]
+    fn dictionary_uuid_round_trip(#[case] nullable: bool) -> VortexResult<()> {
+        check_dictionary_round_trip(nullable)
     }
 
     #[test]

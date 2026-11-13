@@ -32,6 +32,8 @@ pub mod editions;
 pub mod matcher;
 pub mod scalar_fns;
 
+#[cfg(test)]
+mod arrow_properties;
 mod types;
 
 pub use types::fixed_shape_tensor;

@@ -10,6 +10,8 @@
 //! Extension type and related functionality for a JSON extension type for Vortex.
 
 mod arrow;
+#[cfg(test)]
+mod arrow_properties;
 mod dtype;
 mod json_to_variant;
 
