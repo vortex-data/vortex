@@ -235,6 +235,8 @@ jobs:
             --opt remote-data-dir="$REMOTE_STORAGE" \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
+      # The `file_size` records join the run's ingest records: develop runs store them in the
+      # benchmarks database (the `file_sizes` table), and PR runs fetch them back as the baseline.
       - name: Capture file sizes
         if: matrix.remote_key == null
         shell: bash
@@ -244,8 +246,10 @@ jobs:
             --benchmark ${{ matrix.subcommand }} \
             --dataset-dir ${{ matrix.dataset_dir }} \
             --commit ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
-            -o sizes.json
+            -o sizes.json \
+            --ingest-jsonl sizes.ingest.jsonl
           cat sizes.json >> results.json
+          cat sizes.ingest.jsonl >> results.ingest.jsonl
 
       - name: Fetch baseline from the benchmarks database
         if: inputs.mode == 'pr'

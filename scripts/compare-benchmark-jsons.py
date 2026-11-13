@@ -208,6 +208,15 @@ def ingest_record_row(record: dict[str, Any]) -> dict[str, Any] | None:
         row["unit"] = "bytes"
         row["value"] = record["value_bytes"]
         return row
+    elif kind == "file_size":
+        dims = ("benchmark", "scale_factor", "format", "file")
+        return {
+            "commit_id": record.get("commit_sha"),
+            "metric": FILE_SIZE_METRIC,
+            "unit": "bytes",
+            "value": record["value_bytes"],
+            "file_size": {dim: record[dim] for dim in dims},
+        }
     else:
         return None
     row["value"] = record["value_ns"]
@@ -711,7 +720,7 @@ def format_size(size_bytes: int) -> str:
 def format_size_change(change_bytes: int) -> str:
     """Format a byte change with a sign."""
 
-    sign = "+" if change_bytes > 0 else ""
+    sign = "+" if change_bytes > 0 else "-" if change_bytes < 0 else ""
     return f"{sign}{format_size(abs(change_bytes))}"
 
 
@@ -1081,9 +1090,11 @@ def main() -> None:
     title = format_title(benchmark_name, pr_results)
     pr_file_sizes, pr = split_file_size_rows(pr_results)
     if args.pr_records:
-        pr_records = read_benchmark_rows(args.pr_records)
+        record_file_sizes, pr_records = split_file_size_rows(read_benchmark_rows(args.pr_records))
         if not pr_records.empty:
             pr = pr_records
+        if not record_file_sizes.empty:
+            pr_file_sizes = record_file_sizes
     base_fetched = os.path.exists(args.base_records)
     base_file_sizes, base = split_file_size_rows(read_benchmark_rows(args.base_records))
 
@@ -1245,7 +1256,7 @@ def main() -> None:
         print("")
         print("</details>")
 
-    # File sizes are not stored in the benchmarks database, so they have no baseline to compare.
+    # Develop runs store file sizes in the database; without baseline rows there is nothing to compare.
     file_size_report = "" if base_file_sizes.empty else format_file_size_report(base_file_sizes, pr_file_sizes)
     if file_size_report:
         print("")

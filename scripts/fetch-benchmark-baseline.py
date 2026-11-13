@@ -32,9 +32,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from psycopg import Connection
 
-# Per record kind: the fact table and the natural-key columns other than
-# `commit_sha`. Rows from different commits match when these columns are equal.
-# `None` compares equal to `None`, as the ingest path stores absent dims as NULL.
+# Per record kind: the fact table, the columns rows from different commits match
+# on, and the columns read back. `None` compares equal to `None`, as the ingest path
+# stores absent dims as NULL. File sizes match on their (benchmark, scale factor,
+# format) scope rather than per file, so a scope is one lookup and the baseline also
+# holds the files the PR no longer writes.
 _KINDS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "query_measurement": (
         "query_measurements",
@@ -55,6 +57,11 @@ _KINDS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
         "random_access_times",
         ("dataset", "format", "open_mode"),
         ("value_ns", "all_runtimes_ns"),
+    ),
+    "file_size": (
+        "file_sizes",
+        ("benchmark", "scale_factor", "format"),
+        ("file", "value_bytes"),
     ),
 }
 
