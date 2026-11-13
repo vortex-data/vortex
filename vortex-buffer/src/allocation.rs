@@ -632,7 +632,13 @@ mod tests {
         assert_eq!(buffer.as_slice(), expected);
         assert!(alignment.is_ptr_aligned(buffer.as_ptr()));
         assert!(buffer.capacity() >= buffer.len());
-        let max_bytes = buffer.len() * size_of::<T>() + alignment.as_usize() - 1;
+        // The data keeps its offset of up to the over-alignment, plus padding to realign it.
+        let max_bytes = buffer.len() * size_of::<T>()
+            + alignment
+                .as_usize()
+                .max(Alignment::DEFAULT_ALIGNMENT.as_usize())
+            + alignment.as_usize()
+            - 1;
         assert!(buffer.allocation.size() <= max_bytes.max(1));
     }
 
@@ -697,7 +703,9 @@ mod tests {
         buffer.shrink_to_fit();
 
         assert_shrunk(&buffer, &values[512..520], alignment);
-        assert_eq!(allocator.shrinks.load(Ordering::Relaxed), 1);
+        // The data sits after a prefix, so it is copied once into a new allocation.
+        assert_eq!(allocator.shrinks.load(Ordering::Relaxed), 0);
+        assert_eq!(allocator.calls.load(Ordering::Relaxed), 2);
         Ok(())
     }
 
@@ -705,11 +713,9 @@ mod tests {
     fn shrink_to_fit_is_idempotent(#[values(1, 64)] alignment: usize) {
         let allocator = Arc::new(MovingAllocator::default());
         let alignment = Alignment::new(alignment);
-        let mut buffer = BufferMut::<u8>::copy_from_aligned_in(
-            [1u8, 2, 3],
-            alignment,
-            BufferAllocatorRef::new(ArcAllocator(Arc::clone(&allocator))),
-        );
+        let mut buffer = BufferAllocatorRef::new(ArcAllocator(Arc::clone(&allocator)))
+            .with_capacity_aligned::<u8>(1024, alignment);
+        buffer.extend_from_slice(&[1, 2, 3]);
 
         buffer.shrink_to_fit();
         let ptr = buffer.as_ptr();

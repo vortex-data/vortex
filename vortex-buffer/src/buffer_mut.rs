@@ -490,8 +490,10 @@ impl<T> BufferMut<T> {
     /// Has the same intent as [`Vec::shrink_to_fit`]: the allocator is asked to shrink the
     /// allocation in place (a `realloc`), which usually avoids copying the data. If the allocation
     /// does not guarantee the buffer's alignment, up to `alignment - 1` bytes of padding are kept so
-    /// the data can be realigned when the allocator moves the block, so the capacity may remain
-    /// slightly larger than the length.
+    /// the data can be realigned when the allocator moves the block. The data also keeps its offset
+    /// within the allocation, so the capacity may remain slightly larger than the length, and a
+    /// buffer whose slack is already that small is left unchanged. A buffer whose data starts after a prefix, such as a slice
+    /// turned back into a `BufferMut`, is copied once into a new allocation instead.
     ///
     /// ```
     /// use vortex_buffer::BufferMut;
@@ -514,48 +516,58 @@ impl<T> BufferMut<T> {
         }
 
         let data_bytes = self.length * size_of::<T>();
-        // A block aligned to the buffer's alignment keeps the data aligned at offset zero wherever
-        // the allocator moves it. A less aligned block needs padding to realign the data afterwards.
+        // A block aligned to the buffer's alignment keeps the data aligned at the same offset
+        // wherever the allocator moves it. A less aligned block needs padding to realign the data
+        // afterwards.
         let padding = if self.allocation.alignment() >= alignment {
             0
         } else {
             alignment - 1
         };
-        let new_size = data_bytes + padding;
-        if new_size >= self.allocation.size() {
+        let offset = self.ptr.cast::<u8>().addr().get() - self.allocation.ptr().addr().get();
+
+        // Constructors place the data at an offset of up to the over-alignment. Leave a buffer
+        // with no more slack than that, which also makes a second call a no-op.
+        let max_offset = alignment.max(Alignment::DEFAULT_ALIGNMENT.as_usize());
+        if self.allocation.size() <= max_offset + data_bytes + padding {
             return;
         }
 
-        // Move the data to the first aligned offset, so it lies within the first `new_size` bytes
-        // that the shrink preserves. The offset is below `alignment`, and zero when the block is
-        // aligned to `alignment`.
-        let old_offset = self.ptr.cast::<u8>().addr().get() - self.allocation.ptr().addr().get();
-        let offset = self.allocation.ptr().as_ptr().align_offset(alignment);
-        if offset != old_offset {
-            // SAFETY: offset <= old_offset because the data pointer is itself aligned, so both
-            // ranges are inside the allocation; copy permits overlap.
-            unsafe {
-                std::ptr::copy(
-                    self.allocation.ptr().as_ptr().add(old_offset),
-                    self.allocation.ptr().as_ptr().add(offset),
-                    data_bytes,
-                );
-            }
+        // A larger offset is a prefix left by slicing, which a shrink would keep, so copy the data
+        // once into a new allocation instead.
+        if offset > max_offset {
+            let new_size = data_bytes + padding;
+            let offset = self.reallocate_exact(new_size, data_bytes);
+            // SAFETY: offset is aligned to the buffer's alignment and the data lies within the
+            // allocation from it.
+            self.ptr = unsafe { self.allocation.ptr().add(offset).cast() };
+            self.capacity = (self.allocation.size() - offset) / size_of::<T>();
+            return;
         }
 
-        let offset = if self.allocation.shrink(new_size) {
+        // Keep the data where it is, so a shrink in place copies nothing.
+        let new_size = offset + data_bytes + padding;
+
+        let offset = if self.allocation.shrink(new_size)
+            && !self
+                .allocation
+                .ptr()
+                .as_ptr()
+                .wrapping_add(offset)
+                .addr()
+                .is_multiple_of(alignment)
+        {
+            // The block moved to an address that misaligns the data, which needs padding.
             let new_offset = self.allocation.ptr().as_ptr().align_offset(alignment);
-            if new_offset != offset {
-                // SAFETY: the shrink preserved the first new_size bytes, which hold the data at
-                // offset. new_offset <= padding, so both ranges fit in new_size bytes; copy
-                // permits overlap.
-                unsafe {
-                    std::ptr::copy(
-                        self.allocation.ptr().as_ptr().add(offset),
-                        self.allocation.ptr().as_ptr().add(new_offset),
-                        data_bytes,
-                    );
-                }
+            // SAFETY: the shrink preserved the first new_size bytes, which hold the data at
+            // offset. new_offset < alignment, so new_offset + data_bytes <= padding + data_bytes
+            // <= new_size; copy permits overlap.
+            unsafe {
+                std::ptr::copy(
+                    self.allocation.ptr().as_ptr().add(offset),
+                    self.allocation.ptr().as_ptr().add(new_offset),
+                    data_bytes,
+                );
             }
             new_offset
         } else {
@@ -566,6 +578,29 @@ impl<T> BufferMut<T> {
         // allocation from it.
         self.ptr = unsafe { self.allocation.ptr().add(offset).cast() };
         self.capacity = (self.allocation.size() - offset) / size_of::<T>();
+    }
+
+    /// Copies the data into a new allocation of `size` bytes with the same layout alignment and
+    /// allocator, and returns the aligned offset of the data in it.
+    fn reallocate_exact(&mut self, size: usize, data_bytes: usize) -> usize {
+        let layout = Layout::from_size_align(size, self.allocation.alignment())
+            .unwrap_or_else(|_| vortex_panic!("buffer capacity exceeds maximum allocation size"));
+        let allocation = Allocation::allocate(layout, self.allocation.allocator().clone());
+        let offset = allocation
+            .ptr()
+            .as_ptr()
+            .align_offset(self.alignment.as_usize());
+        // SAFETY: self.ptr addresses data_bytes of live data. The new allocation is disjoint and
+        // its padding leaves room for those bytes after offset.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                self.ptr.cast::<u8>().as_ptr(),
+                allocation.ptr().as_ptr().add(offset),
+                data_bytes,
+            );
+        }
+        self.allocation = allocation;
+        offset
     }
 
     /// Reserves capacity for at least `additional` more elements to be inserted in the buffer.
