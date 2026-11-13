@@ -260,20 +260,21 @@ fn compose(scan: &Arc<PreparedScan>, rows: Range<u64>) -> Box<dyn Planner> {
 async fn run_batches(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Vec<Batch>> {
     let io = scan.io();
     let mut run = Run::new();
-    run.admit(
+    run.admit_tracked(
         compose(scan, rows.clone()),
         WorkScope {
             file_ordinal: 0,
             rows,
         },
         io.session(),
+        scan.liveness(),
     );
     let mut batches = Vec::new();
     loop {
         match run.advance()? {
             Progress::Batch(batch) => batches.push(batch),
-            Progress::Spawn(scope, chunk) => {
-                run.admit(chunk, scope, io.session());
+            Progress::Spawn(scope, chunk, claim) => {
+                run.admit_spawned(chunk, scope, io.session(), claim);
             }
             Progress::RootDone(_) if run.live_roots() > 0 => {}
             Progress::RootDone(_) | Progress::Idle => break,
@@ -597,6 +598,11 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
     // Without retained segments, so a chunk reads every codes chunk it overlaps.
     file.cache = Some(ScanCache::with_retained_bytes(0));
     let scan = Arc::new(ScanBuilder::new(session.clone(), file).prepare()?);
+    // The scan's rows stay claimed between the chunks, as the root of an engine's scan claims
+    // the rows it has yet to plan.
+    let _scan_claim = scan
+        .liveness()
+        .map(|liveness| liveness.claim(scan.rows().clone()));
     let chunks = row_chunks(scan.rows().clone(), scan.chunk_rows);
     assert_eq!(
         chunks.len(),
@@ -630,7 +636,8 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
 }
 
 /// Work chunks that each overlap half of a stored segment read it once while the file's cache
-/// retains segments, and once per chunk when it retains nothing.
+/// retains segments and a driver claims the rows still to scan, and once per chunk when it
+/// retains nothing.
 #[rstest]
 #[case::retained(None, 1)]
 #[case::not_retained(Some(0), 2)]
@@ -653,12 +660,49 @@ async fn chunks_sharing_a_segment_read_it_once(
     let chunk_rows = CHUNK_ROWS / 2;
     scan.chunk_rows = chunk_rows;
     let scan = Arc::new(scan);
+    // A driver claims the rows its root has yet to scan, as here.
+    let _remaining = scan
+        .liveness()
+        .map(|liveness| liveness.claim(scan.rows().clone()));
 
     // One chunk at a time, so no read is still in flight when the next chunk starts.
     for rows in row_chunks(scan.rows().clone(), chunk_rows) {
         run_rows(&scan, rows).await?;
     }
     assert_eq!(counted.requests(), CHUNKS * reads_per_segment);
+    Ok(())
+}
+
+/// A chunk's filter and projection of the same column read its segment once, whether or not the
+/// file's cache retains decoded segments: the chunk's scan shares the read itself.
+#[rstest]
+#[case::retained(None)]
+#[case::not_retained(Some(0))]
+#[tokio::test]
+async fn filter_and_projection_of_a_chunk_read_a_segment_once(
+    #[case] retained_bytes: Option<u64>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, chunked_flat().as_ref()).await?;
+    let counted = Arc::new(CountingSegmentSource::new(segments));
+    let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
+    let mut file = scan_file(&segments, &layout)?;
+    file.cache =
+        Some(retained_bytes.map_or_else(ScanCache::default, ScanCache::with_retained_bytes));
+    let ints = get_item("ints", root());
+    let scan = Arc::new(
+        ScanBuilder::new(session, file)
+            .with_projection(ints.bind(layout.dtype())?)
+            .with_some_filter(Some(gt(ints, lit(-1)).bind(layout.dtype())?))
+            .prepare()?,
+    );
+    let rows = scan.rows().clone();
+    let arrays = run_rows(&scan, rows).await?;
+    assert_eq!(
+        arrays.iter().map(|array| array.len()).sum::<usize>(),
+        CHUNKS * CHUNK_ROWS
+    );
+    assert_eq!(counted.requests(), CHUNKS);
     Ok(())
 }
 
@@ -762,14 +806,30 @@ async fn chunked_ints(
         .await
 }
 
-/// A shared [`ScanCache`] keeps dictionary values between scans; without one, each scan reads
-/// them again.
+/// How [`scan_cache_reuses_values_between_scans`] shares a cache between its scans.
+#[derive(Clone, Copy, PartialEq)]
+enum Sharing {
+    /// A shared cache, with a claim on every row held across both scans.
+    Claimed,
+    /// A shared cache, with nothing claimed between the scans.
+    Released,
+    /// A shared cache that keeps its values for as long as it lives.
+    Retaining,
+    /// No shared cache.
+    Uncached,
+}
+
+/// A shared [`ScanCache`] keeps dictionary values between scans while their rows are claimed, or
+/// for its whole life when it retains values; once no work claims them, or without a shared
+/// cache, each scan reads them again.
 #[rstest]
-#[case::cached(true, 1)]
-#[case::uncached(false, 4)]
+#[case::claimed(Sharing::Claimed, 1)]
+#[case::released(Sharing::Released, 4)]
+#[case::retaining(Sharing::Retaining, 1)]
+#[case::uncached(Sharing::Uncached, 4)]
 #[tokio::test]
 async fn scan_cache_reuses_values_between_scans(
-    #[case] cached: bool,
+    #[case] sharing: Sharing,
     #[case] second_scan_reads: usize,
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
@@ -781,7 +841,17 @@ async fn scan_cache_reuses_values_between_scans(
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
     let mut file = scan_file(&segments, &layout)?;
     // Without retained segments, so only the values come from the cache.
-    file.cache = cached.then(|| ScanCache::with_retained_bytes(0));
+    file.cache = match sharing {
+        Sharing::Claimed | Sharing::Released => Some(ScanCache::with_retained_bytes(0)),
+        Sharing::Retaining => Some(ScanCache::retaining_values_with_retained_bytes(0)),
+        Sharing::Uncached => None,
+    };
+    let _claim = file
+        .cache
+        .as_ref()
+        .and_then(ScanCache::liveness)
+        .filter(|_| sharing == Sharing::Claimed)
+        .map(|liveness| liveness.claim(0..layout.row_count()));
 
     let mut reads = Vec::new();
     for _ in 0..2 {
@@ -796,7 +866,8 @@ async fn scan_cache_reuses_values_between_scans(
         );
         reads.push(counted.requests() - before);
     }
-    // Every values chunk and the one selected codes chunk, then only the codes chunk if cached.
+    // Every values chunk and the one selected codes chunk, then only the codes chunk if the
+    // values are still claimed or the cache retains them.
     assert_eq!(reads, vec![4, second_scan_reads]);
     Ok(())
 }
@@ -825,7 +896,7 @@ async fn selected_split_scope_is_bounded_before_projection() -> VortexResult<()>
 }
 
 /// A repeated projection reuses its optimized plan, so later scans find the dictionary values the
-/// first one kept instead of reading them again.
+/// first one kept, while their rows are claimed, instead of reading them again.
 #[tokio::test]
 async fn repeated_projections_reuse_their_values() -> VortexResult<()> {
     let session = new_session().with_tokio();
@@ -837,7 +908,11 @@ async fn repeated_projections_reuse_their_values() -> VortexResult<()> {
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
     let mut file = scan_file(&segments, &layout)?;
     // Without retained segments, so only the values come from the cache.
-    file.cache = Some(ScanCache::with_retained_bytes(0));
+    let cache = ScanCache::with_retained_bytes(0);
+    let _claim = cache
+        .liveness()
+        .map(|liveness| liveness.claim(0..layout.row_count()));
+    file.cache = Some(cache);
 
     let projection = gt(root(), lit(15i32)).bind(layout.dtype())?;
     let mut reads = Vec::new();
@@ -939,8 +1014,8 @@ async fn prune(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Optio
     loop {
         match run.advance()? {
             Progress::Batch(_) => vortex_bail!("pruning alone produced a batch"),
-            Progress::Spawn(scope, planner) => {
-                run.admit(planner, scope, io.session());
+            Progress::Spawn(scope, planner, claim) => {
+                run.admit_spawned(planner, scope, io.session(), claim);
             }
             Progress::RootDone(_) if run.live_roots() > 0 => {}
             Progress::RootDone(_) | Progress::Idle => return Ok(kept.lock().take()),

@@ -122,9 +122,10 @@ impl PlanVTable for Share {
             return Ok(None);
         };
         let mask = mask.clone();
+        let file_rows = compiler.file_rows(plan.row_count());
         let source = WholeSource::new(plan.dtype().clone(), move |whole, cx| {
             let whole = whole.optimize_ctx(cx.session())?;
-            let value = cache.insert(&shared, Shared::new(whole).into_array());
+            let value = cache.insert(&shared, Shared::new(whole).into_array(), file_rows.clone());
             selected_rows(&value, &rows, &mask)
         });
         Ok(Some(compiler.join_with(vec![chain], |_| UNBOUNDED, source)))

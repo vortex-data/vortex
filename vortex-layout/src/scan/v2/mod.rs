@@ -240,6 +240,8 @@ impl ScanBuilder {
             None => cache.insert_ranges(segment_ranges(&file.locations)),
         };
         let values = cache.values();
+        let arrays = cache.arrays();
+        let liveness = cache.liveness();
         Ok(PreparedScan {
             session: self.session,
             rows: self.row_range.unwrap_or(0..row_count),
@@ -252,6 +254,8 @@ impl ScanBuilder {
             filter,
             row_offset: self.row_offset,
             values,
+            arrays,
+            liveness,
             chunk_rows,
         })
     }

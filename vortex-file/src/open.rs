@@ -123,7 +123,8 @@ impl VortexOpenOptions {
     ///
     /// This avoids rebuilding the reader tree or lowered scan plan, and re-reading dictionary
     /// values, for repeated scans of the same [`VortexFile`], at the cost of keeping that state
-    /// alive for the lifetime of the file handle.
+    /// alive for the lifetime of the file handle, and the V2 state for as long as any
+    /// [`ScanFile`](vortex_layout::scan::v2::ScanFile) taken from it.
     pub fn with_layout_reader_cache(mut self) -> Self {
         self.cache_layout_reader = true;
         self

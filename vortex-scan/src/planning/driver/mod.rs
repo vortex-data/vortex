@@ -15,6 +15,13 @@
 //! for IO, and the caller decides how to wait, by awaiting [`Run::poll_completion`] or by handing
 //! a completion it took from a source to [`Run::complete`]. [`Driver::run`] is the blocking
 //! convenience for one root.
+//!
+//! A root admitted with a [`Liveness`], through [`Run::admit_tracked`] or
+//! [`Run::admit_with_liveness`], also reports which rows its live work may
+//! still touch, so values pinned to those rows are dropped once no work needs them. See
+//! [`Liveness`].
+
+mod liveness;
 
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
@@ -22,6 +29,9 @@ use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 
+pub use liveness::Lifetime;
+pub use liveness::Liveness;
+pub use liveness::RowClaim;
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -66,8 +76,12 @@ pub enum Progress {
     /// Every item descended from the root has retired, and its IO session was cleared.
     RootDone(RootId),
     /// A planner declared this child independent. The run has not queued it: the owner runs it,
-    /// on this run as another root through [`Run::admit`] or on a run of its own elsewhere.
-    Spawn(WorkScope, Box<dyn Planner>),
+    /// on this run as another root or on a run of its own elsewhere, through
+    /// [`Run::admit_spawned`].
+    ///
+    /// When the parent's root tracks [`Liveness`], the claim already covers the child's rows, so
+    /// values pinned to them survive until the owner admits the child. Dropping it releases them.
+    Spawn(WorkScope, Box<dyn Planner>, Option<RowClaim>),
     /// Every live item waits for IO. Await [`Run::poll_completion`], or pass the next completion
     /// to [`Run::complete`].
     Waiting,
@@ -99,6 +113,10 @@ struct Work {
     next_child: u64,
     /// Published `Fetch` requests not yet delivered, with the target each must be answered with.
     outstanding: HashMap<IoRequestId, IoTarget>,
+    /// The rows this item may still touch, when its root tracks liveness. A child within its
+    /// parent's claim shares it, so spawning and retiring it never touch the liveness; the rows
+    /// are released once every item holding the claim is dropped.
+    claim: Option<Arc<RowClaim>>,
 }
 
 impl Work {
@@ -144,6 +162,40 @@ impl Work {
         self.consumer().set_io_result(request, result);
         Ok(())
     }
+
+    /// Narrows the item's claim to the rows it reports it may still touch.
+    fn narrow(&mut self) -> VortexResult<()> {
+        let Some(claim) = &mut self.claim else {
+            return Ok(());
+        };
+        let remaining = match &self.item {
+            Item::Planner(planner) => planner.remaining_rows(),
+            Item::Morsel(morsel) => morsel.remaining_rows(),
+        };
+        let Some(rows) = remaining else {
+            return Ok(());
+        };
+        let claimed = claim.rows().clone();
+        if rows.start > rows.end {
+            vortex_bail!(
+                "work for scope {:?} reported unordered remaining rows {rows:?}",
+                self.scope
+            );
+        }
+        // A claim only shrinks: rows outside it were never claimed.
+        let end = rows.end.clamp(claimed.start, claimed.end);
+        let start = rows.start.clamp(claimed.start, end);
+        if (start..end) == claimed {
+            return Ok(());
+        }
+        match Arc::get_mut(claim) {
+            Some(claim) => claim.restrict_to(start..end),
+            // Children still hold the claim over their rows: claim the narrower rows afresh and
+            // leave the shared claim to them.
+            None => *claim = Arc::new(claim.liveness().claim(start..end)),
+        }
+        Ok(())
+    }
 }
 
 /// Keeps scheduling order separate from lookup for deliveries to runnable work.
@@ -178,10 +230,21 @@ impl ReadyQueue {
 /// Poll IO even when one high-priority branch keeps producing CPU work.
 const IO_POLL_INTERVAL: usize = 64;
 
-/// One admitted root: the session its descendants read through, and how many of them are live.
+/// One admitted root: the session its descendants read through, how many of them are live, and
+/// the liveness their claims report to.
 struct Root {
     io: Arc<dyn IoSource>,
     live: usize,
+    liveness: Option<Liveness>,
+}
+
+impl Root {
+    /// A claim over `scope`'s rows when the root tracks liveness.
+    fn claim(&self, scope: &WorkScope) -> Option<RowClaim> {
+        self.liveness
+            .as_ref()
+            .map(|liveness| liveness.claim(scope.rows.clone()))
+    }
 }
 
 /// A set of root planners advanced by its caller on one thread at a time.
@@ -233,10 +296,76 @@ impl Run {
         scope: WorkScope,
         io: Arc<dyn IoSource>,
     ) -> RootId {
+        self.admit_tracked(root, scope, io, None)
+    }
+
+    /// Admits `root` like [`admit`](Self::admit), and has the root and every item descended from
+    /// it claim its scope's rows in `liveness` while it is live.
+    ///
+    /// Every root of one file should report to the same liveness, whichever run admits it.
+    pub fn admit_with_liveness(
+        &mut self,
+        root: Box<dyn Planner>,
+        scope: WorkScope,
+        io: Arc<dyn IoSource>,
+        liveness: Liveness,
+    ) -> RootId {
+        self.admit_tracked(root, scope, io, Some(liveness))
+    }
+
+    /// Admits a child a planner spawned, handed over in [`Progress::Spawn`] with its claim.
+    ///
+    /// With a claim, the child and everything descended from it report to the claim's liveness,
+    /// and the child takes the claim over instead of claiming its rows again. Without one, this
+    /// is [`admit`](Self::admit).
+    pub fn admit_spawned(
+        &mut self,
+        child: Box<dyn Planner>,
+        scope: WorkScope,
+        io: Arc<dyn IoSource>,
+        claim: Option<RowClaim>,
+    ) -> RootId {
+        let liveness = claim.as_ref().map(|claim| claim.liveness().clone());
+        self.admit_claimed(child, scope, io, liveness, claim)
+    }
+
+    /// Admits `root` like [`admit_with_liveness`](Self::admit_with_liveness) when `liveness` is
+    /// given, and like [`admit`](Self::admit) otherwise.
+    pub fn admit_tracked(
+        &mut self,
+        root: Box<dyn Planner>,
+        scope: WorkScope,
+        io: Arc<dyn IoSource>,
+        liveness: Option<Liveness>,
+    ) -> RootId {
+        self.admit_claimed(root, scope, io, liveness, None)
+    }
+
+    fn admit_claimed(
+        &mut self,
+        root: Box<dyn Planner>,
+        scope: WorkScope,
+        io: Arc<dyn IoSource>,
+        liveness: Option<Liveness>,
+        claim: Option<RowClaim>,
+    ) -> RootId {
         let id = RootId(self.next_root);
         self.next_root += 1;
-        self.roots.insert(id, Root { io, live: 0 });
-        self.spawn(id, scope, Item::Planner(root), vec![id.0]);
+        self.roots.insert(
+            id,
+            Root {
+                io,
+                live: 0,
+                liveness,
+            },
+        );
+        self.spawn_claimed(
+            id,
+            scope,
+            Item::Planner(root),
+            vec![id.0],
+            claim.map(Arc::new),
+        );
         id
     }
 
@@ -378,11 +507,36 @@ impl Run {
         Ok(())
     }
 
-    fn spawn(&mut self, root: RootId, scope: WorkScope, item: Item, path: Vec<u64>) {
+    /// Queues a child of `parent`, sharing the parent's claim when it covers the child's rows.
+    fn spawn_child(&mut self, parent: &Work, scope: WorkScope, item: Item, path: Vec<u64>) {
+        let claim = parent
+            .claim
+            .as_ref()
+            .filter(|claim| {
+                let claimed = claim.rows();
+                claimed.start <= scope.rows.start && scope.rows.end <= claimed.end
+            })
+            .cloned();
+        self.spawn_claimed(parent.root, scope, item, path, claim);
+    }
+
+    /// Queues `item`, holding `claim` for it, or a new claim over its scope when it has none and
+    /// its root tracks liveness.
+    fn spawn_claimed(
+        &mut self,
+        root: RootId,
+        scope: WorkScope,
+        item: Item,
+        path: Vec<u64>,
+        mut claim: Option<Arc<RowClaim>>,
+    ) {
         let id = IoOwnerId(self.next_owner);
         self.next_owner += 1;
         if let Some(root) = self.roots.get_mut(&root) {
             root.live += 1;
+            if claim.is_none() {
+                claim = root.claim(&scope).map(Arc::new);
+            }
         }
         let work = Box::new(Work {
             id,
@@ -392,6 +546,7 @@ impl Run {
             path,
             next_child: 0,
             outstanding: HashMap::default(),
+            claim,
         });
         self.queue.insert(work);
     }
@@ -448,25 +603,48 @@ impl Run {
                 self.retire(&work);
             }
             Output::Planner(PlannerOutput::Continue) | Output::Morsel(MorselOutput::Continue) => {
+                work.narrow()?;
                 self.queue.insert(work);
             }
             Output::Planner(PlannerOutput::NeedsIO(batch))
             | Output::Morsel(MorselOutput::NeedsIO(batch)) => {
+                work.narrow()?;
                 self.submit(&mut work, batch)?;
                 self.settle(work)?;
             }
+            // A child holds its rows when it is spawned, before its parent narrows, so rows
+            // handed from parent to child are never left unclaimed in between.
             Output::Planner(PlannerOutput::Planner(scope, child)) => {
                 let path = work.child_path();
-                self.spawn(work.root, scope, Item::Planner(child), path);
+                self.spawn_child(&work, scope, Item::Planner(child), path);
+                work.narrow()?;
                 self.queue.insert(work);
             }
             Output::Planner(PlannerOutput::Morsel(scope, morsel)) => {
                 let path = work.child_path();
-                self.spawn(work.root, scope, Item::Morsel(morsel), path);
+                self.spawn_child(&work, scope, Item::Morsel(morsel), path);
+                work.narrow()?;
                 self.queue.insert(work);
             }
+            // The owner admits an independent child later, possibly on another run. The child's
+            // claim travels with it, so its rows stay claimed while the parent narrows. A child
+            // at the front of a claim only its parent holds takes those rows over, which keeps
+            // a planner handing out its rows in order off the liveness lock.
             Output::Planner(PlannerOutput::Spawn(scope, child)) => {
-                self.events.push_back(Progress::Spawn(scope, child));
+                let claim = match work.claim.as_mut().and_then(Arc::get_mut) {
+                    Some(parent)
+                        if parent.rows().start == scope.rows.start
+                            && scope.rows.end <= parent.rows().end =>
+                    {
+                        Some(parent.split_front(scope.rows.end))
+                    }
+                    _ => self
+                        .roots
+                        .get(&work.root)
+                        .and_then(|root| root.claim(&scope)),
+                };
+                self.events.push_back(Progress::Spawn(scope, child, claim));
+                work.narrow()?;
                 self.queue.insert(work);
             }
             Output::Morsel(MorselOutput::Batch(array)) => {
@@ -478,6 +656,7 @@ impl Run {
                     scope: work.scope.clone(),
                     array,
                 }));
+                work.narrow()?;
                 self.queue.insert(work);
             }
         }
@@ -548,8 +727,8 @@ impl Driver {
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => batches.push(batch),
-                Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, Arc::clone(&self.io));
+                Progress::Spawn(scope, child, claim) => {
+                    run.admit_spawned(child, scope, Arc::clone(&self.io), claim);
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(batches),

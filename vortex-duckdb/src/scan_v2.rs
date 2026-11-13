@@ -35,6 +35,7 @@ use vortex::layout::scan::v2::PrunePlanner;
 use vortex::layout::scan::v2::ScanBuilder;
 use vortex::mask::Mask;
 use vortex::scan::planning::driver::Progress;
+use vortex::scan::planning::driver::RowClaim;
 use vortex::scan::planning::driver::Run;
 use vortex::scan::planning::planner::Planner;
 use vortex::scan::planning::planner::PlannerOutput;
@@ -62,8 +63,8 @@ pub(crate) struct FileScan {
 
 /// What a thread takes from the file next.
 enum Work {
-    /// A chunk to run on the thread's run.
-    Chunk(WorkScope, Box<dyn Planner>),
+    /// A chunk to run on the thread's run, with its claim on the file's rows.
+    Chunk(WorkScope, Box<dyn Planner>, Option<RowClaim>),
     /// A batch the root produced itself.
     Batch(ArrayRef),
 }
@@ -88,19 +89,22 @@ impl FileScan {
         let io = scan.io();
         let rows = scan.rows().clone();
         let mut root = Run::new();
-        root.admit(
+        root.admit_tracked(
             compose(&scan, splits, dynamic),
             WorkScope {
                 file_ordinal: 0,
                 rows,
             },
             io.session(),
+            scan.liveness(),
         );
         let mut queue = VecDeque::new();
         loop {
             match root.advance()? {
                 Progress::Batch(batch) => queue.push_back(Work::Batch(batch.array)),
-                Progress::Spawn(scope, chunk) => queue.push_back(Work::Chunk(scope, chunk)),
+                Progress::Spawn(scope, chunk, claim) => {
+                    queue.push_back(Work::Chunk(scope, chunk, claim))
+                }
                 Progress::RootDone(_) if root.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => break,
                 Progress::Waiting => {
@@ -139,8 +143,8 @@ impl FileScan {
         loop {
             while run.live_roots() < CHUNKS_PER_THREAD {
                 match self.next_work() {
-                    Some(Work::Chunk(scope, chunk)) => {
-                        run.admit(chunk, scope, self.io.session());
+                    Some(Work::Chunk(scope, chunk, claim)) => {
+                        run.admit_spawned(chunk, scope, self.io.session(), claim);
                     }
                     Some(Work::Batch(array)) => return Ok(Some(array)),
                     None => break,
@@ -148,8 +152,8 @@ impl FileScan {
             }
             match run.advance()? {
                 Progress::Batch(batch) => return Ok(Some(batch.array)),
-                Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, self.io.session());
+                Progress::Spawn(scope, child, claim) => {
+                    run.admit_spawned(child, scope, self.io.session(), claim);
                 }
                 Progress::RootDone(_) => {}
                 Progress::Idle => return Ok(None),
@@ -167,7 +171,7 @@ impl FileScan {
         if queue.is_empty() {
             self.exhausted.store(true, Ordering::Release);
         }
-        if let Work::Chunk(scope, _) = &work {
+        if let Work::Chunk(scope, ..) = &work {
             self.rows_taken
                 .fetch_add(scope.rows.end - scope.rows.start, Ordering::Relaxed);
         }

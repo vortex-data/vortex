@@ -25,11 +25,11 @@ vortex-utils = { workspace = true }
 
 async-trait = { workspace = true }
 futures = { workspace = true }
+parking_lot = { workspace = true }
 roaring = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-parking_lot = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 

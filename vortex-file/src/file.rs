@@ -61,7 +61,17 @@ pub struct VortexFile {
 #[derive(Clone)]
 struct FileScanCache {
     locations: Arc<[SegmentLocation]>,
+    /// Keeps the values its scans decode, such as dictionary values, for the next scan to reuse.
     plans: ScanCache,
+}
+
+impl FileScanCache {
+    fn new(footer: &Footer) -> Self {
+        Self {
+            locations: segment_locations(footer),
+            plans: ScanCache::retaining_values(),
+        }
+    }
 }
 
 fn segment_locations(footer: &Footer) -> Arc<[SegmentLocation]> {
@@ -123,12 +133,11 @@ impl VortexFile {
     ///
     /// Repeated calls to [`layout_reader`](Self::layout_reader), [`scan`](Self::scan), and
     /// [`data_source`](Self::data_source) will share the same reader tree. Repeated V2 scans of
-    /// [`scan_file`](Self::scan_file) will share its segment locations and a [`ScanCache`].
+    /// [`scan_file`](Self::scan_file) will share its segment locations and a [`ScanCache`] that
+    /// keeps the values its scans decode, such as dictionary values, for as long as any handle
+    /// to it lives, without eviction.
     pub fn with_caching(self) -> Self {
-        let scan_cache = FileScanCache {
-            locations: segment_locations(&self.footer),
-            plans: ScanCache::default(),
-        };
+        let scan_cache = FileScanCache::new(&self.footer);
         Self {
             footer: self.footer,
             segment_source: self.segment_source,
@@ -195,7 +204,7 @@ impl VortexFile {
             self.layout_reader_cache = Some(OnceLock::new());
         }
         if let Some(cache) = &mut self.scan_cache {
-            cache.plans = ScanCache::default();
+            cache.plans = ScanCache::retaining_values();
         }
         self
     }
@@ -262,7 +271,8 @@ impl VortexFile {
     /// where each of its segments lives, and its segment source.
     ///
     /// Pass this to [`vortex_layout::scan::v2::ScanBuilder::new`] to build a V2 scan explicitly.
-    /// With [caching](Self::with_caching), every returned [`ScanFile`] shares one [`ScanCache`].
+    /// With [caching](Self::with_caching), every returned [`ScanFile`] shares one [`ScanCache`],
+    /// which lives as long as the file handle or any [`ScanFile`] or scan built from it.
     pub fn scan_file(&self) -> ScanFile {
         let (locations, cache) = match &self.scan_cache {
             Some(cache) => (Arc::clone(&cache.locations), Some(cache.plans.clone())),
