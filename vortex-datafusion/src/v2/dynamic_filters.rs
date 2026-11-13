@@ -512,8 +512,12 @@ mod tests {
     use datafusion_physical_expr::expressions::Literal;
     use datafusion_physical_expr::expressions::NoOp;
     use datafusion_physical_expr::expressions::lit as df_lit;
+    use datafusion_common::hash_utils::with_hashes;
+    use datafusion_physical_expr::expressions::in_list;
+    use datafusion_physical_plan::joins::BloomFilterExpr;
     use datafusion_physical_plan::joins::HashExpr;
     use datafusion_physical_plan::joins::SeededRandomState;
+    use datafusion_physical_plan::joins::SplitBlockBloomFilter;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
     use vortex::array::VortexSessionExecute;
@@ -615,6 +619,37 @@ mod tests {
         )?))
     }
 
+    /// `key IN (values)`, the membership test of a join with a small build side.
+    fn key_in(values: &[i32]) -> anyhow::Result<Arc<dyn PhysicalExpr>> {
+        Ok(in_list(
+            key(),
+            values
+                .iter()
+                .map(|value| df_lit(ScalarValue::Int32(Some(*value))))
+                .collect(),
+            &false,
+            &schema(),
+        )?)
+    }
+
+    /// A Bloom filter of `values`, the membership test of a join under predicate transfer.
+    fn bloom_filter(values: &[i32]) -> anyhow::Result<Arc<dyn PhysicalExpr>> {
+        let random_state = SeededRandomState::with_seed(0);
+        let mut bloom = SplitBlockBloomFilter::try_with_capacity(values.len(), 16)
+            .ok_or_else(|| anyhow::anyhow!("Bloom filter capacity"))?;
+        let keys = arrow_array::Int32Array::from(values.to_vec());
+        with_hashes([&keys as &dyn arrow_array::Array], random_state.random_state(), |hashes| {
+            bloom.insert_hashes(hashes);
+            Ok(())
+        })?;
+        Ok(Arc::new(BloomFilterExpr::new(
+            vec![key()],
+            random_state,
+            Arc::new(bloom),
+            None,
+        )))
+    }
+
     fn conjuncts(expression: Arc<dyn PhysicalExpr>) -> DynamicConjuncts {
         DynamicConjuncts {
             expression,
@@ -675,6 +710,28 @@ mod tests {
                 .is_some_and(|residual| residual.contains("datafusion(") && residual.contains("%")),
             "{residual:?}"
         );
+    }
+
+    /// DataFusion merges the partitions of a partitioned join into `bounds AND membership`, where
+    /// the membership test is an IN list, a hash table lookup, or a Bloom filter.
+    #[test]
+    fn converts_merged_membership_filters() -> anyhow::Result<()> {
+        // Vortex evaluates the bounds and an IN list itself.
+        let in_list = and(bounds(1, 9), key_in(&[1, 4, 9])?);
+        assert!(native(Arc::clone(&in_list)).is_some());
+        assert_eq!(exact(in_list), None);
+
+        // DataFusion evaluates a Bloom filter, while Vortex keeps the bounds for zone pruning.
+        let bloom = and(bounds(1, 9), bloom_filter(&[1, 4, 9])?);
+        assert_eq!(native(Arc::clone(&bloom)), native(bounds(1, 9)));
+        let residual = exact(bloom).map(|expr| expr.to_string());
+        assert!(
+            residual
+                .as_ref()
+                .is_some_and(|residual| residual.contains("bloom_filter")),
+            "{residual:?}"
+        );
+        Ok(())
     }
 
     #[rstest]
@@ -775,6 +832,9 @@ mod tests {
                 ],
                 df_lit(false),
             )?,
+            // A partitioned join merged into one IN list, or one Bloom filter.
+            and(bounds(4, 40), key_in(&[4, 9, 16, 25, 36])?),
+            and(bounds(4, 40), bloom_filter(&[4, 9, 16, 25, 36])?),
             // A null-aware join keeps the probe side's null keys.
             or(is_null, and(bounds(8, 60), multiple_of(4))),
         ] {

@@ -15,6 +15,7 @@ use datafusion_datasource::file_sink_config::FileSink;
 use datafusion_datasource::file_sink_config::FileSinkConfig;
 use datafusion_datasource::sink::DataSink;
 use datafusion_datasource::write::demux::DemuxedStreamReceiver;
+use datafusion_datasource::write::demux::FileMetadata;
 use datafusion_datasource::write::get_writer_schema;
 use datafusion_execution::SendableRecordBatchStream;
 use datafusion_execution::TaskContext;
@@ -135,7 +136,9 @@ impl FileSink for VortexSink {
 
         // TODO(adamg):
         // 1. We can probably be better at signaling how much memory we're consuming (potentially when reading too), see ParquetSink::spawn_writer_tasks_and_join.
-        while let Some((path, rx)) = file_stream_rx.recv().await {
+        // The demuxer's byte counter of each file is not updated, so a soft maximum output file
+        // size does not split Vortex output files.
+        while let Some((FileMetadata { path, .. }, rx)) = file_stream_rx.recv().await {
             let session = self.session.clone();
             let object_store = Arc::clone(&object_store);
 

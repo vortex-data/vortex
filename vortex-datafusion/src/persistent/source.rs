@@ -573,7 +573,7 @@ impl FileSource for VortexSource {
         }
 
         let mut source = self.clone();
-        source.default_filter_selectivity = config.optimizer.default_filter_selectivity;
+        source.default_filter_selectivity = config.optimizer.default_filter_selectivity.get();
 
         // Combine new filters with existing predicate for file pruning.
         // This full predicate is used by FilePruner to eliminate files.
