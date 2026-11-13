@@ -108,7 +108,7 @@ impl CascadingCompressor {
                     let score = estimate_compression_ratio_with_sampling(
                         self,
                         scheme,
-                        data.array(),
+                        data,
                         compress_ctx.clone(),
                         exec_ctx,
                     )?;

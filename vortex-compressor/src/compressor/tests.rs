@@ -844,7 +844,7 @@ fn all_null_sample_gives_no_estimate() -> VortexResult<()> {
     let score = estimate_compression_ratio_with_sampling(
         &compressor,
         &FiniteSamplingScheme,
-        &array,
+        &ArrayAndStats::new(array, GenerateStatsOptions::default()),
         CompressorContext::new(),
         &mut exec_ctx,
     )?;
@@ -921,7 +921,7 @@ fn sampling_uses_scheme_stats_options() -> VortexResult<()> {
     let score = estimate_compression_ratio_with_sampling(
         &compressor,
         &FloatDictScheme,
-        &array,
+        &ArrayAndStats::new(array, GenerateStatsOptions::default()),
         ctx,
         &mut exec_ctx,
     )?;

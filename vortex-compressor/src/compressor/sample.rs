@@ -3,6 +3,8 @@
 
 //! Sampling utilities for compression ratio estimation.
 
+use std::sync::Arc;
+
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
@@ -21,6 +23,7 @@ use crate::scheme::EstimateScore;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
+use crate::stats::GenerateStatsOptions;
 use crate::trace;
 
 /// The size of each sampled run.
@@ -53,6 +56,64 @@ pub(crate) fn sample(input: &ArrayRef, sample_size: u32, sample_count: u32) -> A
     });
     // SAFETY: all chunks are slices of `input`, so they share its dtype.
     unsafe { ChunkedArray::new_unchecked(chunks, input.dtype().clone()) }.into_array()
+}
+
+/// Samples `chunk_count` whole chunks of `chunk_len` rows that start at multiples of
+/// `chunk_len`, one from each of `chunk_count` equal partitions of the array's full chunks.
+///
+/// Use this instead of the default compression sample for schemes that encode each chunk
+/// independently, such as the FastLanes encodings with `chunk_len = 1024`. The default sample
+/// joins short runs from across the array, so a chunk of it mixes rows that were never adjacent;
+/// an aligned chunk here holds exactly the rows the scheme would encode together.
+///
+/// Returns `None` when the array has no more than `chunk_count` full chunks, in which case the
+/// caller should use the whole array. The trailing partial chunk is never sampled. Sampling is
+/// deterministic.
+///
+/// # Panics
+///
+/// Panics if `chunk_len` or `chunk_count` is zero.
+pub fn sample_aligned_chunks(
+    input: &ArrayRef,
+    chunk_len: usize,
+    chunk_count: u32,
+) -> Option<ArrayRef> {
+    let slices = aligned_chunk_slices(input.len(), chunk_len, chunk_count)?;
+
+    let chunks = slices.into_iter().map(|(start, end)| {
+        input
+            .slice(start..end)
+            .vortex_expect("slice should succeed")
+    });
+    // SAFETY: all chunks are slices of `input`, so they share its dtype.
+    Some(unsafe { ChunkedArray::new_unchecked(chunks, input.dtype().clone()) }.into_array())
+}
+
+/// Returns the deterministic ranges [`sample_aligned_chunks`] slices, or `None` when the array
+/// has no more than `chunk_count` full chunks.
+fn aligned_chunk_slices(
+    length: usize,
+    chunk_len: usize,
+    chunk_count: u32,
+) -> Option<Vec<(usize, usize)>> {
+    assert!(chunk_len > 0, "chunk_len must be positive");
+    assert!(chunk_count > 0, "chunk_count must be positive");
+
+    let full_chunks = length / chunk_len;
+    if full_chunks <= chunk_count as usize {
+        return None;
+    }
+
+    let mut rng = StdRng::seed_from_u64(SAMPLE_SEED);
+    Some(
+        partition_indices(full_chunks, chunk_count)
+            .into_iter()
+            .map(|(start, stop)| {
+                let chunk = rng.random_range(start..stop);
+                (chunk * chunk_len, (chunk + 1) * chunk_len)
+            })
+            .collect(),
+    )
 }
 
 /// Returns deterministic stratified sample ranges for an array length.
@@ -148,10 +209,102 @@ fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> 
         .collect()
 }
 
-/// Estimates compression ratio by compressing a ~1% sample of the data.
+/// The sample every sampled scheme compresses to estimate its ratio on one array.
 ///
-/// Creates a new [`ArrayAndStats`] for the sample so that stats are generated from the sample, not
-/// the full array.
+/// It is built once per array and cached in the array's [`ArrayAndStats`], so the rows are copied,
+/// their stats generated and their size measured once, however many schemes sample them.
+struct CompressionSample {
+    /// The sampled rows and their stats cache.
+    data: ArrayAndStats,
+    /// The bytes the sampled rows reference.
+    before: u64,
+    /// Whether every sampled row is null.
+    all_invalid: bool,
+}
+
+/// Returns the compression sample of `data`, building and caching it on first use.
+///
+/// The compressor builds `data` with the merged stats options of every scheme it considers, so
+/// the cached sample serves them all. A caller whose scheme needs more stats gets an uncached
+/// sample.
+fn compression_sample(
+    data: &ArrayAndStats,
+    scheme_opts: GenerateStatsOptions,
+    compress_ctx: &CompressorContext,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<Arc<CompressionSample>> {
+    let opts = data.stats_options();
+    // Inside sample compression the sample is `data` itself, which shares its stats cache.
+    // Caching it there would make the cache own a handle to itself.
+    if compress_ctx.is_sample() || opts.merge(scheme_opts) != opts {
+        return build_sample(data, opts.merge(scheme_opts), compress_ctx, exec_ctx).map(Arc::new);
+    }
+    if let Some(sample) = data.get::<CompressionSample>() {
+        return Ok(sample);
+    }
+    let sample = build_sample(data, opts, compress_ctx, exec_ctx)?;
+    Ok(data.get_or_insert_with(|| sample))
+}
+
+/// Builds the compression sample of `data` with stats generated using `opts`.
+///
+/// Inside sample compression the array is already a sample, so it is used whole, sharing the
+/// stats cache when the options match.
+fn build_sample(
+    data: &ArrayAndStats,
+    opts: GenerateStatsOptions,
+    compress_ctx: &CompressorContext,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<CompressionSample> {
+    let sample_data = if !compress_ctx.is_sample() {
+        // `ArrayAndStats` expects a canonical array (so that it can easily compute lazy stats).
+        let canonical: Canonical = sample_rows(data.array()).execute(exec_ctx)?;
+        ArrayAndStats::new(canonical.into_array(), opts)
+    } else if opts == data.stats_options() {
+        data.clone()
+    } else {
+        ArrayAndStats::new(data.array().clone(), opts)
+    };
+
+    // Sampled slices still hold the full array's buffers, so measure what their rows reference.
+    let before = exact_uncompressed_size(sample_data.array(), exec_ctx)?;
+    let all_invalid = !compress_ctx.is_sample() && sample_data.array().all_invalid(exec_ctx)?;
+    Ok(CompressionSample {
+        data: sample_data,
+        before,
+        all_invalid,
+    })
+}
+
+/// Rows in each chunk of a long array's sample: one FastLanes chunk.
+const SAMPLE_CHUNK_LEN: usize = 1024;
+
+/// Fewest chunks a sample takes as aligned chunks. With fewer, a few contiguous chunks cover too
+/// little of the array, so the sample takes short runs from across the array instead.
+const MIN_SAMPLE_CHUNKS: usize = 8;
+
+/// Selects the rows of `array` that sampled schemes compress: about 1% of them.
+///
+/// When that 1% spans at least [`MIN_SAMPLE_CHUNKS`] chunks, the sample takes those rows as
+/// whole, aligned FastLanes chunks. A sampled chunk then holds the rows the FastLanes encodings
+/// would encode together, and the sample is cut from far fewer slices, which matters when slicing
+/// is costly, as for an array with compressed validity. Shorter arrays take short runs from
+/// across the array.
+fn sample_rows(array: &ArrayRef) -> ArrayRef {
+    let sample_count = sample_count_approx_one_percent(array.len());
+    let chunk_count = sample_count as usize * SAMPLE_SIZE as usize / SAMPLE_CHUNK_LEN;
+    if chunk_count >= MIN_SAMPLE_CHUNKS {
+        let chunk_count = u32::try_from(chunk_count).vortex_expect("chunk count fits in u32");
+        if let Some(sampled) = sample_aligned_chunks(array, SAMPLE_CHUNK_LEN, chunk_count) {
+            return sampled;
+        }
+    }
+    sample(array, SAMPLE_SIZE, sample_count)
+}
+
+/// Estimates a scheme's compression ratio by compressing the array's compression sample.
+///
+/// The sample is shared by every sampled scheme on the array; see [`compression_sample`].
 ///
 /// # Errors
 ///
@@ -159,30 +312,22 @@ fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> 
 pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     compressor: &CascadingCompressor,
     scheme: &S,
-    array: &ArrayRef,
+    data: &ArrayAndStats,
     compress_ctx: CompressorContext,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<EstimateScore> {
-    let sample_array = if compress_ctx.is_sample() {
-        array.clone()
-    } else {
-        let sample_count = sample_count_approx_one_percent(array.len());
-        // `ArrayAndStats` expects a canonical array (so that it can easily compute lazy stats).
-        let canonical: Canonical = sample(array, SAMPLE_SIZE, sample_count).execute(exec_ctx)?;
-        canonical.into_array()
-    };
+    let sample = compression_sample(data, scheme.stats_options(), &compress_ctx, exec_ctx)?;
 
     // A sample of only nulls compresses to almost nothing whatever the scheme, so its ratio says
     // nothing about how the scheme handles the array's values.
-    if !compress_ctx.is_sample() && sample_array.all_invalid(exec_ctx)? {
+    if sample.all_invalid {
         return Ok(EstimateScore::ZeroBytes);
     }
 
-    let sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
     let error_ctx = trace::enabled_error_context(&compress_ctx);
     let sample_ctx = compress_ctx.with_sampling();
 
-    let compressed = match scheme.compress(compressor, &sample_data, sample_ctx, exec_ctx) {
+    let compressed = match scheme.compress(compressor, &sample.data, sample_ctx, exec_ctx) {
         Ok(compressed) => compressed,
         Err(err) => {
             trace::sample_compress_failed(scheme.id(), error_ctx.as_ref(), &err);
@@ -191,13 +336,10 @@ pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     };
 
     let after = compressed.nbytes();
-    // Sampled slices still hold the full array's buffers, so measure what their rows reference.
-    let before = exact_uncompressed_size(sample_data.array(), exec_ctx)?;
-
-    let score = EstimateScore::from_sample_sizes(before, after);
+    let score = EstimateScore::from_sample_sizes(sample.before, after);
 
     if matches!(score, EstimateScore::ZeroBytes) {
-        trace::zero_byte_sample_result(scheme.id(), before);
+        trace::zero_byte_sample_result(scheme.id(), sample.before);
     }
 
     Ok(score)
@@ -207,9 +349,14 @@ pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::Chunked;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::chunked::ChunkedArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -235,6 +382,96 @@ mod tests {
             assert_eq!(first.nbytes(), again.nbytes());
             assert_arrays_eq!(&first, &again, &mut ctx);
         }
+        Ok(())
+    }
+
+    /// Returns the lengths of the slices a sample joined.
+    fn sampled_slice_lens(sampled: &ArrayRef) -> Vec<usize> {
+        sampled
+            .as_::<Chunked>()
+            .iter_chunks()
+            .map(|chunk| chunk.len())
+            .collect()
+    }
+
+    #[rstest]
+    // 1% of a million rows is ten chunks, enough to sample as aligned chunks, whatever the dtype.
+    #[case::long_ints(PrimitiveArray::from_iter(0..1_000_000u32).into_array(), 1024, 10_240)]
+    #[case::long_floats(
+        PrimitiveArray::from_iter((0..1_000_000u32).map(|i| i as f32)).into_array(),
+        1024,
+        10_240
+    )]
+    // 1% of 200,000 rows is two chunks, too few, so the sample takes short runs.
+    #[case::short_ints(PrimitiveArray::from_iter(0..200_000u32).into_array(), 64, 2048)]
+    #[case::long_bools(
+        BoolArray::from_iter((0..1_000_000).map(|i| i % 3 == 0)).into_array(),
+        1024,
+        10_240
+    )]
+    #[case::long_strings(
+        VarBinViewArray::from_iter_str((0..1_000_000).map(|i| if i % 2 == 0 { "a" } else { "b" }))
+            .into_array(),
+        1024,
+        10_240
+    )]
+    #[case::short_bools(
+        BoolArray::from_iter((0..200_000).map(|i| i % 3 == 0)).into_array(),
+        64,
+        2048
+    )]
+    fn sample_rows_shape(
+        #[case] array: ArrayRef,
+        #[case] slice_len: usize,
+        #[case] sample_len: usize,
+    ) {
+        let sampled = sample_rows(&array);
+        assert_eq!(sampled.len(), sample_len);
+        assert!(
+            sampled_slice_lens(&sampled)
+                .iter()
+                .all(|&len| len == slice_len)
+        );
+    }
+
+    #[test]
+    fn aligned_chunk_slices_are_whole_aligned_and_spread() {
+        let slices = aligned_chunk_slices(100 * 1024 + 7, 1024, 4).unwrap();
+        assert_eq!(slices.len(), 4);
+        for (i, &(start, end)) in slices.iter().enumerate() {
+            assert_eq!(start % 1024, 0);
+            assert_eq!(end - start, 1024);
+            // One chunk from each quarter of the 100 full chunks; the partial tail is excluded.
+            assert!((i * 25 * 1024..(i + 1) * 25 * 1024).contains(&start));
+        }
+    }
+
+    #[test]
+    fn aligned_chunks_need_more_full_chunks_than_requested() {
+        assert!(aligned_chunk_slices(4 * 1024 + 1023, 1024, 4).is_none());
+        assert!(aligned_chunk_slices(5 * 1024, 1024, 4).is_some());
+    }
+
+    #[test]
+    fn sample_aligned_chunks_matches_source_rows() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = 64 * 1024;
+        let array = PrimitiveArray::new(
+            Buffer::from_iter(0..u32::try_from(len)?),
+            Validity::NonNullable,
+        )
+        .into_array();
+
+        let sampled = sample_aligned_chunks(&array, 1024, 4).unwrap();
+        assert_eq!(sampled.len(), 4 * 1024);
+
+        let chunks = aligned_chunk_slices(len, 1024, 4)
+            .unwrap()
+            .into_iter()
+            .map(|(start, end)| array.slice(start..end))
+            .collect::<VortexResult<Vec<_>>>()?;
+        let expected = ChunkedArray::try_new(chunks, array.dtype().clone())?.into_array();
+        assert_arrays_eq!(sampled, expected, &mut ctx);
         Ok(())
     }
 }
