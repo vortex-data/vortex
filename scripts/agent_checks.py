@@ -21,10 +21,12 @@ Subcommands:
     finalize                   Validate the results, revert out-of-scope edits, format, verify.
     decide                     From live GitHub state, decide what a shard publishes and dedup findings.
     record                     Merge state updates and suppressions into the state store, with CAS.
+    archive                    Keep a write-once record of a run under each check's `runs/` prefix.
     run                        Local convenience: plan, prompt, invoke `claude -p`, finalize, record.
 
-State is one JSON document per check, at `<store>/<check>/state.json`. CI keeps it in S3
-(`--state s3://bucket/prefix`); locally it defaults to the directory `target/agent-checks-state`.
+Each check owns a storage prefix, `<store>/<check>/`: the mutable `state.json`, and write-once run
+records under `runs/<run>/`. CI keeps it in S3 (`--state s3://bucket/prefix`); locally it defaults
+to the directory `target/agent-checks-state`.
 Writes are compare-and-swap (S3 conditional writes on the ETag), so concurrent writers never lose
 each other's updates. CI records every published shard once, at the end of the run. For every
 reviewed file the state keeps the git blob hashes that were reviewed (before and after the agent's
@@ -356,55 +358,88 @@ class StateConflict(Exception):
     """Another writer changed the state since it was read."""
 
 
-class StateStore:
-    """One JSON document per check, read with a version token and written with compare-and-swap.
+class CheckStore:
+    """Per-check storage: everything a check keeps lives under its own prefix, `<root>/<check>/`.
 
-    `read` returns the state and a token for the version read (None if there is no state yet).
-    `write` stores the new state only if the stored version still matches the token, and raises
-    `StateConflict` otherwise.
+    Objects are bytes under a relative key. Two write modes cover everything the runner stores:
+    - compare-and-swap (`put` with the token from `get`), for the mutable `state.json`;
+    - write-once (`put_new`), for the immutable run records under `runs/`.
+
+    `get` returns the object and a version token (None if it does not exist). `put` stores the
+    object only if the stored version still matches the token, None meaning "must not exist yet",
+    and raises `StateConflict` otherwise.
     """
 
-    def read(self, check_id: str) -> tuple[dict[str, Any], str | None]:
+    def get(self, check_id: str, key: str) -> tuple[bytes | None, str | None]:
         raise NotImplementedError
+
+    def put(self, check_id: str, key: str, data: bytes, token: str | None) -> None:
+        raise NotImplementedError
+
+    def put_new(self, check_id: str, key: str, data: bytes) -> bool:
+        """Write an object that must not exist yet. Returns False, writing nothing, if it does."""
+        try:
+            self.put(check_id, key, data, None)
+            return True
+        except StateConflict:
+            return False
+
+    def read(self, check_id: str) -> tuple[dict[str, Any], str | None]:
+        raw, token = self.get(check_id, STATE_KEY)
+        return _parse_state(raw, check_id, self.where(check_id, STATE_KEY)), token
 
     def write(self, check_id: str, state: dict[str, Any], token: str | None) -> None:
+        self.put(check_id, STATE_KEY, _dump_state(state), token)
+
+    def where(self, check_id: str, key: str) -> str:
         raise NotImplementedError
 
 
-class DirStore(StateStore):
-    """`<dir>/<check>/state.json` on disk, for local runs and tests. The token is a content hash."""
+STATE_KEY = "state.json"
+_KEY_RE = re.compile(r"[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*")
+
+
+def _check_key(check_id: str, key: str) -> None:
+    if not CHECK_ID_RE.fullmatch(check_id) or not _KEY_RE.fullmatch(key) or ".." in key.split("/"):
+        raise CheckError(f"invalid storage key {check_id!r}/{key!r}")
+
+
+class DirStore(CheckStore):
+    """`<dir>/<check>/<key>` on disk, for local runs and tests. The token is a content hash."""
 
     def __init__(self, root: Path) -> None:
         self.root = root
 
-    def _path(self, check_id: str) -> Path:
-        return self.root / check_id / "state.json"
+    def where(self, check_id: str, key: str) -> str:
+        return str(self.root / check_id / key)
 
-    def read(self, check_id: str) -> tuple[dict[str, Any], str | None]:
-        path = self._path(check_id)
+    def get(self, check_id: str, key: str) -> tuple[bytes | None, str | None]:
+        _check_key(check_id, key)
+        path = self.root / check_id / key
         raw = path.read_bytes() if path.exists() else None
-        token = hashlib.sha256(raw).hexdigest() if raw is not None else None
-        return _parse_state(raw, check_id, str(path)), token
+        return raw, hashlib.sha256(raw).hexdigest() if raw is not None else None
 
-    def write(self, check_id: str, state: dict[str, Any], token: str | None) -> None:
-        path = self._path(check_id)
+    def put(self, check_id: str, key: str, data: bytes, token: str | None) -> None:
+        _check_key(check_id, key)
+        path = self.root / check_id / key
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path.parent / ".lock", "w") as lock:
+        (self.root / check_id).mkdir(parents=True, exist_ok=True)
+        with open(self.root / check_id / ".lock", "w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             current = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
             if current != token:
                 raise StateConflict(str(path))
-            tmp = path.with_suffix(".tmp")
-            tmp.write_bytes(_dump_state(state))
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_bytes(data)
             os.replace(tmp, path)
 
 
-class S3Store(StateStore):
-    """`s3://<bucket>/<prefix>/<check>/state.json`, written with S3 conditional writes.
+class S3Store(CheckStore):
+    """`s3://<bucket>/<prefix>/<check>/<key>`, written with S3 conditional writes.
 
     The token is the object's ETag. A write sends `If-Match: <etag>`, or `If-None-Match: *` when
-    the object did not exist, so S3 itself rejects a write based on a stale read (HTTP 412, or
-    409 for a concurrent conditional write). Uses the AWS CLI so the runner needs no packages;
+    the object must not exist yet, so S3 itself rejects a write based on a stale read (HTTP 412,
+    or 409 for a concurrent conditional write). Uses the AWS CLI so the runner needs no packages;
     credentials and region come from the environment.
     """
 
@@ -414,42 +449,45 @@ class S3Store(StateStore):
             raise CheckError(f"not an s3:// URI: {uri!r}")
         self.bucket, self.prefix, self.aws = m.group(1), m.group(2).strip("/"), aws
 
-    def key(self, check_id: str) -> str:
-        return "/".join(p for p in (self.prefix, check_id, "state.json") if p)
+    def key(self, check_id: str, key: str = STATE_KEY) -> str:
+        return "/".join(p for p in (self.prefix, check_id, key) if p)
+
+    def where(self, check_id: str, key: str) -> str:
+        return f"s3://{self.bucket}/{self.key(check_id, key)}"
 
     def _s3api(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run([self.aws, "s3api", *args, "--output", "json"], capture_output=True, text=True)
 
-    def read(self, check_id: str) -> tuple[dict[str, Any], str | None]:
-        key = self.key(check_id)
+    def get(self, check_id: str, key: str) -> tuple[bytes | None, str | None]:
+        _check_key(check_id, key)
         with tempfile.TemporaryDirectory() as tmp:
-            body = Path(tmp) / "state.json"
-            r = self._s3api("get-object", "--bucket", self.bucket, "--key", key, str(body))
+            body = Path(tmp) / "object"
+            r = self._s3api("get-object", "--bucket", self.bucket, "--key", self.key(check_id, key), str(body))
             if r.returncode != 0:
-                # Only a missing object means "no state yet". AccessDenied (for example without
+                # Only a missing object means "not there". AccessDenied (for example without
                 # s3:ListBucket, S3 answers 403 for a missing key) must not reset the state.
                 if "NoSuchKey" in r.stderr:
-                    return empty_state(check_id), None
-                raise CheckError(f"s3://{self.bucket}/{key}: get-object failed: {r.stderr.strip()}")
-            etag = json.loads(r.stdout)["ETag"]
-            return _parse_state(body.read_bytes(), check_id, f"s3://{self.bucket}/{key}"), etag
+                    return None, None
+                raise CheckError(f"{self.where(check_id, key)}: get-object failed: {r.stderr.strip()}")
+            return body.read_bytes(), str(json.loads(r.stdout)["ETag"])
 
-    def write(self, check_id: str, state: dict[str, Any], token: str | None) -> None:
-        key = self.key(check_id)
+    def put(self, check_id: str, key: str, data: bytes, token: str | None) -> None:
+        _check_key(check_id, key)
         condition = ["--if-match", token] if token is not None else ["--if-none-match", "*"]
+        content_type = "application/json" if key.endswith(".json") else "text/plain; charset=utf-8"
         with tempfile.TemporaryDirectory() as tmp:
-            body = Path(tmp) / "state.json"
-            body.write_bytes(_dump_state(state))
+            body = Path(tmp) / "object"
+            body.write_bytes(data)
             r = self._s3api(
                 "put-object",
                 "--bucket",
                 self.bucket,
                 "--key",
-                key,
+                self.key(check_id, key),
                 "--body",
                 str(body),
                 "--content-type",
-                "application/json",
+                content_type,
                 *condition,
             )
         if r.returncode != 0:
@@ -457,23 +495,23 @@ class S3Store(StateStore):
             # object deleted since it was read (NoSuchKey), is a conflict: re-read and try again.
             conflicts = ("PreconditionFailed", "ConditionalRequestConflict", "NoSuchKey", "(412)", "(409)")
             if any(code in r.stderr for code in conflicts):
-                raise StateConflict(f"s3://{self.bucket}/{key}")
-            raise CheckError(f"s3://{self.bucket}/{key}: put-object failed: {r.stderr.strip()}")
+                raise StateConflict(self.where(check_id, key))
+            raise CheckError(f"{self.where(check_id, key)}: put-object failed: {r.stderr.strip()}")
 
 
-def open_store(spec: str | Path) -> StateStore:
+def open_store(spec: str | Path) -> CheckStore:
     """`s3://bucket/prefix` for S3, anything else is a local directory."""
     return S3Store(str(spec)) if str(spec).startswith("s3://") else DirStore(Path(spec))
 
 
-def load_state(store: StateStore, check_id: str) -> dict[str, Any]:
+def load_state(store: CheckStore, check_id: str) -> dict[str, Any]:
     return store.read(check_id)[0]
 
 
 CAS_ATTEMPTS = 8
 
 
-def update_state(store: StateStore, check_id: str, change: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+def update_state(store: CheckStore, check_id: str, change: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
     """Apply `change` to the stored state with compare-and-swap, retrying on conflicts."""
     for attempt in range(CAS_ATTEMPTS):
         state, token = store.read(check_id)
@@ -802,7 +840,7 @@ def plan_check(
 def build_plan(
     checks: list[Check],
     root: Path,
-    store: StateStore,
+    store: CheckStore,
     *,
     now: dt.datetime,
     github: GitHubView | None = None,
@@ -1406,7 +1444,7 @@ def render_body(
 
 
 def record(
-    store: StateStore,
+    store: CheckStore,
     updates: list[dict[str, Any]],
     *,
     plan: dict[str, Any] | None = None,
@@ -1467,6 +1505,79 @@ def record(
 
 
 # --------------------------------------------------------------------------------------------------
+# Run archive
+# --------------------------------------------------------------------------------------------------
+
+# What a shard keeps of each run, under `<check>/runs/<run>/<shard>/`. Anything else in a handed-over
+# directory is ignored.
+ARCHIVED_FILES = (
+    "results.json",
+    "patch.diff",
+    "outcome",
+    "summary.json",
+    "decision.json",
+    "body.md",
+    "pr.md",
+    "issue.md",
+)
+MAX_ARCHIVED_BYTES = 5 * 1024 * 1024
+
+
+def run_key(plan: dict[str, Any], run_id: str) -> str:
+    """`<plan time>_<run id>`, so a check's runs list in time order."""
+    stamp = dt.datetime.fromisoformat(plan["generated_at"]).astimezone(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
+    key = f"{stamp}_{run_id}"
+    if not _KEY_RE.fullmatch(key):
+        raise CheckError(f"invalid run id {run_id!r}")
+    return key
+
+
+def archive(store: CheckStore, plan: dict[str, Any], run_id: str, dirs: Sequence[Path]) -> list[str]:
+    """Keep a write-once record of the run under each check's `runs/<run>/` prefix.
+
+    For every planned check this stores the check's part of the plan, and for every handed-over
+    directory (one per shard and job, tagged by its `meta.json`) the files in ARCHIVED_FILES.
+    Objects are created with `put_new`, so a re-run never overwrites history; existing objects are
+    skipped. Directories naming a check or shard that is not in the plan are ignored. Returns the
+    keys written.
+    """
+    key = run_key(plan, run_id)
+    written: list[str] = []
+    for check_id, entry in plan["checks"].items():
+        if not entry.get("shards"):
+            continue
+        snapshot = {
+            "base_commit": plan["base_commit"],
+            "generated_at": plan["generated_at"],
+            "version": entry["definition"]["version"],
+            "shards": entry["shards"],
+        }
+        if store.put_new(check_id, f"runs/{key}/plan.json", (json.dumps(snapshot, indent=2) + "\n").encode()):
+            written.append(f"{check_id}/runs/{key}/plan.json")
+    for directory in dirs:
+        try:
+            meta = json.loads((directory / "meta.json").read_text())
+            check_id, shard_id = str(meta["check"]), str(meta["shard"])
+        except (OSError, ValueError, KeyError, TypeError):
+            print(f"archive: skipping {directory}: no valid meta.json", file=sys.stderr)
+            continue
+        shards = {sh["id"] for sh in plan["checks"].get(check_id, {}).get("shards", [])}
+        if shard_id not in shards:
+            print(f"archive: skipping {directory}: {check_id}/{shard_id} is not in the plan", file=sys.stderr)
+            continue
+        for name in ARCHIVED_FILES:
+            path = directory / name
+            if not path.is_file() or path.is_symlink():
+                continue
+            if path.stat().st_size > MAX_ARCHIVED_BYTES:
+                print(f"archive: skipping {path}: larger than {MAX_ARCHIVED_BYTES} bytes", file=sys.stderr)
+                continue
+            if store.put_new(check_id, f"runs/{key}/{shard_slug(shard_id)}/{name}", path.read_bytes()):
+                written.append(f"{check_id}/runs/{key}/{shard_slug(shard_id)}/{name}")
+    return written
+
+
+# --------------------------------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------------------------------
 
@@ -1505,7 +1616,7 @@ def _github_view(args: argparse.Namespace) -> GitHubView:
     return GitHubView(_read_items(getattr(args, "github", None)), trusted or None)
 
 
-def _store(args: argparse.Namespace) -> StateStore:
+def _store(args: argparse.Namespace) -> CheckStore:
     return open_store(args.state if args.state is not None else Path(args.root) / DEFAULT_LOCAL_STATE)
 
 
@@ -1659,6 +1770,9 @@ def cmd_decide(args: argparse.Namespace) -> int:
     decision = decide(check, plan, shard, final, _github_view(args))
     (out_dir / "pr.md").write_text(decision["pr_body"])
     (out_dir / "issue.md").write_text(decision["issue_body"])
+    summary = {k: decision[k] for k in ("pr", "issue", "issue_number")}
+    summary["fingerprints"] = sorted(f["fingerprint"] for f in decision["findings"])
+    (out_dir / "decision.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(
         f"{check.id}/{shard['id']}: pr={decision['pr']} issue={decision['issue']} "
         f"({len(decision['findings'])} of {len(final['findings'])} findings are new or fixed)",
@@ -1678,6 +1792,12 @@ def cmd_apply(args: argparse.Namespace) -> int:
     print(f"applied {applied}; rejected {rejected}", file=sys.stderr)
     if rejected:
         Path(args.notes).write_text(json.dumps([f"patch paths outside the shard were not applied: {rejected}"]))
+    return 0
+
+
+def cmd_archive(args: argparse.Namespace) -> int:
+    written = archive(_store(args), _read_dict(args.plan), args.run_id, [Path(d) for d in args.dirs])
+    print(f"archived {len(written)} objects", file=sys.stderr)
     return 0
 
 
@@ -1733,6 +1853,12 @@ def cmd_run(args: argparse.Namespace) -> int:
         )
         body_path = work / f"{shard_slug(shard['id'])}.md"
         body_path.write_text(out["body"])
+        handed = work / shard_slug(shard["id"])
+        handed.mkdir(exist_ok=True)
+        (handed / "meta.json").write_text(json.dumps({"check": check.id, "shard": shard["id"]}))
+        (handed / "body.md").write_text(out["body"])
+        shutil.copy(results_path, handed / "results.json")
+        archive(store, plan, f"local-{os.getpid()}", [handed])
         print(f"wrote {body_path}; edits left in the working tree: {out['edits']}", file=sys.stderr)
         updates.append(out["state_update"])
         if len(shards) > 1 and working_tree_changes(root):
@@ -1828,6 +1954,13 @@ def main(argv: list[str] | None = None) -> int:
         help="login whose markers count (repeatable; default: every author)",
     )
     p.set_defaults(func=cmd_record)
+
+    p = sub.add_parser("archive", help="keep a write-once record of a run in each check's storage")
+    p.add_argument("--state", help="s3://bucket/prefix or a directory (default: <root>/target/agent-checks-state)")
+    p.add_argument("--plan", required=True)
+    p.add_argument("--run-id", required=True, help="unique per run attempt, such as `<run id>-<attempt>`")
+    p.add_argument("dirs", nargs="*", help="handed-over directories, each with a meta.json")
+    p.set_defaults(func=cmd_archive)
 
     p = sub.add_parser("run", help="run a check locally with the `claude` CLI")
     p.add_argument("check")

@@ -10,8 +10,8 @@ name: Agent Checks
 # - review: agent-checks-review.yml, called once per check; checks run in parallel. It reviews the
 #   check's crates one after another through agent-checks-shard.yml, which runs the agent on one
 #   runner and publishes from a separate, fresh runner.
-# - record: merges the published shards' reviews, rejected findings and `last_run` into the state
-#   store, with compare-and-swap.
+# - record: merges the published shards' reviews, rejected findings and `last_run` into each
+#   check's `state.json` with compare-and-swap, and archives the run under the check's `runs/`.
 #
 # Fault tolerance: a shard that fails or times out records nothing and is offered again on the
 # next run; the other shards are unaffected. A partial results file still records the files the
@@ -234,3 +234,24 @@ jobs:
           # reported at the end, after every other check is recorded.
           python3 scripts/agent_checks.py record --state "$STATE" --trusted-author "$TRUSTED_AUTHOR" \
             --plan plan/plan.json --github plan/github.json updates/*.json
+
+      # One directory per artifact under archive/, each tagged with its check and shard by meta.json.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        if: ${{ !cancelled() }}
+        with:
+          pattern: agent-checks-agent-*
+          path: archive
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        if: ${{ !cancelled() }}
+        with:
+          pattern: agent-checks-out-*
+          path: archive
+
+      - name: Archive the run
+        # Write-once records under <prefix>/<check>/runs/<run>/, so a re-run never rewrites history.
+        if: ${{ !cancelled() }}
+        run: |
+          shopt -s nullglob
+          python3 scripts/agent_checks.py archive --state "$STATE" --plan plan/plan.json \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" archive/*/

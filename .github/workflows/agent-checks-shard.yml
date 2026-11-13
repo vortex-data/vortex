@@ -107,6 +107,8 @@ jobs:
           git diff --cached --binary > "$RUNNER_TEMP/agent/patch.diff"
           cp "$RESULTS" "$RUNNER_TEMP/agent/results.json" 2>/dev/null || true
           echo "$AGENT_OUTCOME" > "$RUNNER_TEMP/agent/outcome"
+          jq -n --arg check "$CHECK" --arg shard "$SHARD" '{check: $check, shard: $shard}' \
+            > "$RUNNER_TEMP/agent/meta.json"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         if: ${{ !cancelled() }}
@@ -163,6 +165,7 @@ jobs:
       - name: Apply the agent's patch within the shard's scope
         run: |
           mkdir -p "$OUT"
+          jq -n --arg check "$CHECK" --arg shard "$SHARD" '{check: $check, shard: $shard}' > "$OUT/meta.json"
           python3 -I scripts/agent_checks.py --root "$GITHUB_WORKSPACE" apply --plan "$PLAN" \
             --check "$CHECK" --shard "$SHARD" --patch "$AGENT/patch.diff" --notes "$OUT/apply-notes.json"
 
@@ -311,7 +314,7 @@ jobs:
           path: ${{ github.workspace }}/target/agent-checks/out/state-update/
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
-        # The bodies, decision inputs and results, for auditing the run.
+        # The bodies and the decision. The record job keeps them in the check's storage.
         if: ${{ !cancelled() }}
         with:
           name: agent-checks-out-${{ inputs.check }}-${{ inputs.shard }}

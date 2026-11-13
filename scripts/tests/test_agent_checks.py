@@ -613,15 +613,16 @@ elif args[1] == "put-object":
 """
 
 
-class TestStores:
-    @pytest.fixture
-    def s3(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ac.S3Store:
-        aws = tmp_path / "aws"
-        aws.write_text(FAKE_AWS)
-        aws.chmod(0o755)
-        monkeypatch.setenv("FAKE_S3_ROOT", str(tmp_path / "s3"))
-        return ac.S3Store("s3://bucket/agent-checks", aws=str(aws))
+@pytest.fixture
+def s3(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ac.S3Store:
+    aws = tmp_path / "aws"
+    aws.write_text(FAKE_AWS)
+    aws.chmod(0o755)
+    monkeypatch.setenv("FAKE_S3_ROOT", str(tmp_path / "s3"))
+    return ac.S3Store("s3://bucket/agent-checks", aws=str(aws))
 
+
+class TestStores:
     def test_open_store_picks_the_backend(self, tmp_path: Path):
         assert isinstance(ac.open_store("s3://b/p"), ac.S3Store)
         assert isinstance(ac.open_store(tmp_path), ac.DirStore)
@@ -864,6 +865,51 @@ class TestApplyPatch:
             [],
             [],
         )
+
+
+class TestArchive:
+    def handed(self, tmp_path: Path, name: str, check: str, shard: str, files: dict[str, str]) -> Path:
+        d = tmp_path / name
+        d.mkdir()
+        (d / "meta.json").write_text(json.dumps({"check": check, "shard": shard}))
+        for file, text in files.items():
+            (d / file).write_text(text)
+        return d
+
+    def test_keeps_a_write_once_record_per_check_and_shard(self, repo: Path, tmp_path: Path):
+        p = plan(repo, tmp_path / "plan-state")
+        store = ac.DirStore(tmp_path / "store")
+        dirs = [
+            self.handed(tmp_path, "agent", "bench", "beta", {"results.json": "{}", "patch.diff": "d", "junk.sh": "x"}),
+            self.handed(tmp_path, "out", "bench", "beta", {"decision.json": "{}", "pr.md": "pr"}),
+            self.handed(tmp_path, "forged", "bench", "not-planned", {"results.json": "{}"}),
+        ]
+        written = ac.archive(store, p, "123-1", dirs)
+        key = ac.run_key(p, "123-1")
+        assert key == "20261113T120000Z_123-1"
+        assert sorted(written) == sorted(
+            f"bench/runs/{key}/{name}"
+            for name in ("plan.json", "beta/results.json", "beta/patch.diff", "beta/decision.json", "beta/pr.md")
+        )
+        assert store.get("bench", f"runs/{key}/beta/pr.md")[0] == b"pr"
+        assert store.get("bench", f"runs/{key}/beta/junk.sh")[0] is None
+
+        # Re-running the record job writes nothing and changes nothing.
+        (dirs[1] / "pr.md").write_text("changed")
+        assert ac.archive(store, p, "123-1", dirs) == []
+        assert store.get("bench", f"runs/{key}/beta/pr.md")[0] == b"pr"
+
+    def test_s3_put_new_is_write_once(self, s3: ac.S3Store):
+        assert s3.put_new("bench", "runs/r/x/results.json", b"1")
+        assert not s3.put_new("bench", "runs/r/x/results.json", b"2")
+        assert s3.get("bench", "runs/r/x/results.json")[0] == b"1"
+
+    @pytest.mark.parametrize(
+        ("check", "key"), [("bench", "../other/state.json"), ("../x", "state.json"), ("bench", "a//b")]
+    )
+    def test_rejects_keys_outside_the_checks_prefix(self, tmp_path: Path, check: str, key: str):
+        with pytest.raises(ac.CheckError, match="invalid storage key"):
+            ac.DirStore(tmp_path).get(check, key)
 
 
 def test_plan_carries_the_check_definition(repo: Path, tmp_path: Path):

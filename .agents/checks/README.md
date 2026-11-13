@@ -56,10 +56,11 @@ plan ──► per check, in parallel: shard ──► shard ──► … (one 
    4. mints the App token, and opens the PR and/or posts to the issue;
    5. hands the shard's state update to the record job, but only if everything it had to
       publish was published.
-4. **Record.** The record job merges the handed-over reviews into each check's state document in
+4. **Record.** The record job merges the handed-over reviews into each check's `state.json` in
    S3 with compare-and-swap. For each file it stores the blob before and after the agent's fix,
    so merging the fix does not trigger a re-review. It also adds the findings that maintainers
-   rejected, and moves the weekly clock.
+   rejected, and moves the weekly clock. Then it archives the run: every shard's results, patch,
+   decision, and published bodies, under the check's `runs/` (see [Storage](#storage)).
 
 ### Publishing
 
@@ -188,9 +189,30 @@ which still need a human to review and merge the draft PR.
 
 ### Storage
 
-State is one JSON document per check, at `s3://<bucket>/<prefix>/<check-id>/state.json`. Each
-check has its own prefix, so writers to different checks never contend. Locally, `--state`
-defaults to the directory `target/agent-checks-state`, with the same layout.
+Each check owns a storage prefix, `s3://<bucket>/<prefix>/<check-id>/`. Writers to different
+checks never touch the same objects. Locally, `--state` defaults to the directory
+`target/agent-checks-state`, with the same layout:
+
+```text
+<check-id>/
+  state.json                                  mutable, compare-and-swap
+  runs/<plan time>_<run id>-<attempt>/        write-once, one per run
+    plan.json                                 this check's part of the plan
+    <crate>/
+      results.json  patch.diff  outcome       what the agent handed over
+      summary.json  body.md                   what finalize kept, and why
+      decision.json  pr.md  issue.md          what decide published
+```
+
+**`state.json`** drives planning. For each reviewed file it holds:
+
+- the reviewed blob hashes,
+- the commit and time of the review,
+- the rubric version,
+- the fingerprints of its findings.
+
+It also holds the suppressed fingerprints, the rejected PRs and issues already processed
+(`suppression_refs`), and the check's `last_run`.
 
 Every write is compare-and-swap:
 
@@ -200,22 +222,17 @@ Every write is compare-and-swap:
 4. If another writer got there first, S3 rejects the write, and `record` re-reads and tries again.
 
 Merges are idempotent, and a file keeps its newest review, so a retry can never roll the state
-back. Only the record job writes; the plan job reads.
+back.
 
-Each file's entry holds:
+**`runs/`** is the history: what each agent saw, did, and published. It is for auditing and
+debugging, and for whatever a check needs to learn from its past runs. The record job writes it
+with `If-None-Match: *` only, so a re-run never rewrites history. Only these files are kept, each
+up to 5 MB; everything else in an artifact is ignored, as is any directory naming a check or crate
+that was not planned.
 
-- the reviewed blob hashes,
-- the commit and time of the review,
-- the rubric version,
-- the fingerprints of its findings.
-
-The document also holds:
-
-- the suppressed fingerprints,
-- the numbers of the rejected PRs and issues already processed (`suppression_refs`),
-- the check's `last_run`.
-
-Turn on bucket versioning to keep the history and to roll back a bad write.
+Only the plan and record jobs touch the store: plan reads, and record writes. Turn on bucket
+versioning to roll back a bad `state.json`. An S3 lifecycle rule on `*/runs/` can expire old
+history.
 
 ## Setup
 
@@ -241,8 +258,8 @@ retried the next week.
 | `AGENT_CHECKS_AWS_ROLE_ARN` | A role for GitHub's OIDC provider whose trust policy requires `token.actions.githubusercontent.com:sub` = `repo:vortex-data/vortex:ref:refs/heads/develop` and `aud` = `sts.amazonaws.com` |
 | `AGENT_CHECKS_AWS_REGION` | The bucket's region (default `us-east-1`) |
 
-The role needs `s3:GetObject` and `s3:PutObject` on `<prefix>/*`, and `s3:ListBucket` on the
-bucket for that prefix. Without `ListBucket`, S3 answers a missing key with 403 instead of 404,
+The role needs `s3:GetObject` and `s3:PutObject` on `<prefix>/*` (each check's `state.json`
+and `runs/`), and `s3:ListBucket` on the bucket for that prefix. Without `ListBucket`, S3 answers a missing key with 403 instead of 404,
 and the runner refuses to treat 403 as empty state. Using S3 locally needs an AWS CLI v2 recent
 enough to support `put-object --if-match` (late 2024 or newer).
 
@@ -346,4 +363,4 @@ In CI, run one check or one crate with **Actions → Agent Checks → Run workfl
 - **Review a check's files again:** bump the check's `version`.
 - **Forget a suppression:** delete its entry from `suppressed` in
   `s3://<bucket>/<prefix>/<check-id>/state.json`. It stays deleted.
-- **Start a check over:** delete that object.
+- **Start a check over:** delete `state.json`. The `runs/` history stays.
