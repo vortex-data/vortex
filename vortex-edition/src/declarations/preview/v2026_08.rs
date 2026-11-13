@@ -18,7 +18,8 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         immutable: true,
         min_library_version: None,
     },
-    added: &[EditionMember::aggregate(
-        &"vortex.uncompressed_size_in_bytes",
-    )],
+    added: &[
+        EditionMember::array(&"fastlanes.delta"),
+        EditionMember::aggregate(&"vortex.uncompressed_size_in_bytes"),
+    ],
 };
