@@ -11784,6 +11784,7 @@ dependencies = [
  "futures",
  "tempfile",
  "vortex",
+ "vortex-array",
  "vortex-cuda",
  "vortex-cuda-driver",
  "vortex-cuda-macros",
