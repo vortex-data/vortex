@@ -106,13 +106,26 @@ fn check_filled_values<T: NativePType>(
     valid: &Mask,
     ctx: &mut ExecutionCtx,
 ) {
+    // Nulls repeat the last valid value, except that nulls before a chunk's first valid value
+    // take that value instead.
     let mut filled = Vec::with_capacity(values.len());
     let mut previous = T::default();
-    for (&value, is_valid) in values.iter().zip(valid.iter()) {
-        if is_valid {
-            previous = value;
+    for (chunk, chunk_valid) in values.chunks(FL_CHUNK_SIZE).zip(
+        valid
+            .to_bit_buffer()
+            .iter()
+            .collect::<Vec<_>>()
+            .chunks(FL_CHUNK_SIZE),
+    ) {
+        if let Some(first_valid) = chunk_valid.iter().position(|&is_valid| is_valid) {
+            previous = chunk[first_valid];
         }
-        filled.push(previous);
+        for (&value, &is_valid) in chunk.iter().zip(chunk_valid) {
+            if is_valid {
+                previous = value;
+            }
+            filled.push(previous);
+        }
     }
     assert_arrays_eq!(
         PrimitiveArray::new(decoded, Validity::NonNullable),
@@ -224,7 +237,8 @@ fn delta_stats_include_null_slot_residuals() -> VortexResult<()> {
     let delta = check_roundtrip(&source, &mut ctx)?;
     let deltas = delta.deltas().clone().execute::<PrimitiveArray>(&mut ctx)?;
     assert_eq!(deltas.statistics().compute_min::<u32>(&mut ctx), Some(0));
-    assert_eq!(deltas.statistics().compute_max::<u32>(&mut ctx), Some(1001));
+    // The leading null takes the first valid value, so no residual jumps from zero to 1001.
+    assert_eq!(deltas.statistics().compute_max::<u32>(&mut ctx), Some(2));
     assert_eq!(delta.statistics().compute_min::<u32>(&mut ctx), Some(1001));
     assert_eq!(delta.statistics().compute_max::<u32>(&mut ctx), Some(2023));
     Ok(())

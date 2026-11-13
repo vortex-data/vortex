@@ -32,8 +32,12 @@ pub fn delta_compress(
     let array = array.reinterpret_cast(original_ptype.to_unsigned());
 
     Ok(match_each_unsigned_integer_ptype!(array.ptype(), |T| {
-        let filled =
-            fill_forward_nulls(array.to_buffer::<T>(), &validity, ChunkBoundary::Carry, ctx)?;
+        let filled = fill_forward_nulls(
+            array.to_buffer::<T>(),
+            &validity,
+            ChunkBoundary::Backfill,
+            ctx,
+        )?;
         let (bases, deltas) = compress_primitive::<T, { T::LANES }>(&filled);
         (
             PrimitiveArray::new(bases, Validity::NonNullable).reinterpret_cast(original_ptype),
