@@ -7,6 +7,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "sample-file-trees.py"
@@ -26,7 +27,7 @@ def load_module() -> ModuleType:
 sft = load_module()
 
 
-def files(*specs: tuple[str, int]) -> list:
+def files(*specs: tuple[str, int]) -> list[Any]:
     return [sft.VortexFile(Path(name), size) for name, size in specs]
 
 
