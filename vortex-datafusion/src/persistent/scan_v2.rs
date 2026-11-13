@@ -7,9 +7,9 @@
 //! opener composes the planners over a [`PreparedScan`] and hands the driver the first; the
 //! driver runs it and everything it emits on planning runs it owns: the root run stepped on
 //! `spawn_cpu` tasks as the stream is polled, each spawned chunk on a task of its own, or on the
-//! root run when the engine's partitions already fill the cores. Every read is a `spawn_io` task
-//! of the file's segment source. The DataFusion thread polling the stream does no scan work
-//! itself.
+//! root run when the scan runs one chunk at a time and need not keep row order. Every read is a
+//! `spawn_io` task of the file's segment source. The DataFusion thread polling the stream does
+//! no scan work itself.
 
 use std::future;
 use std::sync::Arc;
@@ -43,7 +43,8 @@ pub(crate) struct ScanDriver {
     handle: Handle,
     /// Chunks run beside each other per worker thread; at 1 they run on the scan's own run.
     concurrency: usize,
-    /// Whether batches are yielded in row order, which holds them until the scan is done.
+    /// Whether batches are yielded in row order: each chunk's batches are held until the chunk
+    /// is done, and chunks are yielded in the order they were planned.
     ordered: bool,
 }
 
@@ -66,7 +67,9 @@ impl ScanDriver {
     ) -> BoxStream<'static, VortexResult<RecordBatch>> {
         let map: MapBatch = Arc::new(map);
         let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
-        let inline = in_flight <= 1;
+        // Inline chunks interleave on one run, so an ordered scan runs each on a task of its own.
+        let inline = in_flight <= 1 && !self.ordered;
+        let ordered = self.ordered;
         let scope = WorkScope {
             file_ordinal: 0,
             rows: scan.rows().clone(),
@@ -74,8 +77,8 @@ impl ScanDriver {
         let io = scan.io();
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map));
-        let batches = run_stream(self.handle, root, scope, Arc::clone(&io), map, inline)
-            .map_ok(move |yielded| match yielded {
+        let chunks = run_stream(self.handle, root, scope, Arc::clone(&io), map, inline).map_ok(
+            move |yielded| match yielded {
                 Yielded::Batch(start, batch) => {
                     stream::once(future::ready(Ok((start, batch)))).boxed()
                 }
@@ -85,26 +88,28 @@ impl ScanDriver {
                     scope,
                     chunk_io.session(),
                     Arc::clone(&chunk_map),
+                    ordered,
                 ),
-            })
-            .try_flatten_unordered(in_flight);
+            },
+        );
+        let batches = if ordered {
+            // The chunk planner spawns chunks in row order. Up to `in_flight` of them run ahead
+            // while the first is drained, so rows come out in order without holding the scan.
+            chunks
+                .map_ok(|chunk| future::ready(VortexResult::Ok(chunk)))
+                .try_buffered(in_flight.max(1))
+                .try_flatten()
+                .boxed()
+        } else {
+            chunks.try_flatten_unordered(in_flight).boxed()
+        };
         // The prepared scan holds the file's shared cache: keep it until the stream ends, so
         // scans of the file that start meanwhile find it.
         let batches = batches.chain(stream::poll_fn(move |_| {
             let _ = &scan;
             Poll::Ready(None)
         }));
-        if !self.ordered {
-            return batches.map_ok(|(_, batch)| batch).boxed();
-        }
-        stream::once(async move {
-            let mut held: Vec<(u64, RecordBatch)> = batches.try_collect().await?;
-            // Morsels finish in whatever order their reads arrive.
-            held.sort_by_key(|(start, _)| *start);
-            VortexResult::Ok(stream::iter(held.into_iter().map(|(_, batch)| Ok(batch))))
-        })
-        .try_flatten()
-        .boxed()
+        batches.map_ok(|(_, batch)| batch).boxed()
     }
 }
 
@@ -207,6 +212,8 @@ fn run_stream(
 /// Runs a spawned chunk's `root` over `scope` on a planning run of its own, on one task that
 /// drives the run to its end and awaits only its reads, and yields its mapped batches with the
 /// row each starts at. A planner the chunk spawns in turn runs as another root of the same run.
+/// When `ordered`, the batches are held until the chunk is done and yielded in row order: a
+/// chunk's morsels finish in whatever order their reads arrive.
 ///
 /// One task per chunk, not one per step: a chunk's run waits for reads many times, and a task
 /// hop at each wait is latency on the chunk's critical path that no other chunk's work fills.
@@ -216,18 +223,21 @@ fn chunk_stream(
     scope: WorkScope,
     io: Arc<dyn IoSource>,
     map: MapBatch,
+    ordered: bool,
 ) -> BoxStream<'static, VortexResult<(u64, RecordBatch)>> {
     let (mut send, recv) = mpsc::channel(1);
     let task = handle.spawn(async move {
         let mut run = Run::new();
         run.admit(root, scope, Arc::clone(&io));
+        let mut held = Vec::new();
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => {
                     let start = batch.scope.rows.start;
-                    let batch = map(batch.array);
-                    let failed = batch.is_err();
-                    if send.send(batch.map(|batch| (start, batch))).await.is_err() || failed {
+                    let batch = map(batch.array)?;
+                    if ordered {
+                        held.push((start, batch));
+                    } else if send.send(Ok((start, batch))).await.is_err() {
                         return Ok(());
                     }
                 }
@@ -235,10 +245,17 @@ fn chunk_stream(
                     run.admit(child, scope, Arc::clone(&io));
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
-                Progress::RootDone(_) | Progress::Idle => return Ok(()),
+                Progress::RootDone(_) | Progress::Idle => break,
                 Progress::Waiting => future::poll_fn(|cx| run.poll_completion(cx)).await?,
             }
         }
+        held.sort_by_key(|(start, _)| *start);
+        for batch in held {
+            if send.send(Ok(batch)).await.is_err() {
+                return Ok(());
+            }
+        }
+        Ok(())
     });
     let errors = stream::once(task)
         .filter_map(|result: VortexResult<()>| future::ready(result.err().map(Err)));

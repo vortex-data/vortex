@@ -1156,6 +1156,32 @@ mod tests {
         Ok(())
     }
 
+    /// An ordered V2 scan yields its chunks in row order however many run beside each other,
+    /// including when they would otherwise run inline on the scan's own run.
+    #[rstest]
+    #[tokio::test]
+    async fn test_ordered_v2_scan_yields_chunks_in_row_order(
+        #[values(0, 1, 4)] scan_concurrency: usize,
+    ) -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "ordered/file.vortex";
+        let values: Vec<Option<i32>> = (0..300_000).map(Some).collect();
+        let batch = record_batch!(("a", Int32, values)).unwrap();
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+        let file = PartitionedFile::new(file_path.to_string(), data_size);
+
+        let mut opener = make_opener(object_store, TableSchema::from(batch.schema()), None);
+        opener.scan_v2 = true;
+        opener.has_output_ordering = true;
+        opener.scan_concurrency = Some(scan_concurrency);
+        let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+
+        assert!(batches.len() > 1, "the scan should span several chunks");
+        assert_eq!(concat_batches(&batch.schema(), &batches)?, batch);
+        Ok(())
+    }
+
     async fn write_arrow_to_vortex(
         object_store: Arc<dyn ObjectStore>,
         path: &str,
