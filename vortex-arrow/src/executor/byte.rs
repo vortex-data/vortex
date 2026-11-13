@@ -149,11 +149,8 @@ fn validate_live_values_utf8<T: ByteArrayType>(
         // With no nulls every byte the offsets span belongs to a value, so a single pass validates
         // all of them at once. The offsets then only have to land on character boundaries, which
         // is what stops `value(i)` from slicing a multi-byte character in half.
-        let (Some(first), Some(last)) = (offsets.first(), offsets.last()) else {
-            return Ok(());
-        };
-        let start = first.as_usize();
-        let bytes = value_at(0, start, last.as_usize())?;
+        let start = offsets.first().as_usize();
+        let bytes = value_at(0, start, offsets.last().as_usize())?;
         let validated = utf8_from_bytes(bytes)
             .map_err(|err| vortex_err!("Encountered non UTF-8 data: {err}"))?;
         for (index, offset) in offsets.iter().enumerate() {

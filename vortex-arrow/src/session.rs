@@ -39,6 +39,7 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::FieldRef;
 use arrow_schema::Fields;
+use arrow_schema::Metadata;
 use arrow_schema::Schema;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use tracing::debug;
@@ -361,11 +362,7 @@ impl ArrowSession {
                     dtype.is_nullable(),
                 )
                 .with_metadata(
-                    [(
-                        EXTENSION_TYPE_NAME_KEY.to_string(),
-                        "arrow.parquet.variant".to_string(),
-                    )]
-                    .into(),
+                    Metadata::new().with(EXTENSION_TYPE_NAME_KEY, "arrow.parquet.variant"),
                 ))
             }
             _ => Ok(Field::new(

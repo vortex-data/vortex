@@ -25,7 +25,7 @@ pub fn canonical_varbinview_to_arrow<T: ByteViewType>(
 ) -> VortexResult<ArrowArrayRef> {
     let views = Buffer::<u128>::from_byte_buffer(array.views_handle().as_host().clone())
         .into_arrow_scalar_buffer();
-    let buffers: Vec<_> = array
+    let buffers: Arc<[_]> = array
         .data_buffers()
         .iter()
         .map(|buffer| buffer.as_host().clone().into_arrow_buffer())

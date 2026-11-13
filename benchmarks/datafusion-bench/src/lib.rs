@@ -39,8 +39,14 @@ pub fn get_session_context() -> SessionContext {
 
     let factory = VortexFormatFactory::new().with_options(vortex_table_options());
 
+    let mut config = SessionConfig::from_env().expect("shouldn't fail");
+    // Predicate transfer sends a Bloom filter of each join's build keys to the probe-side scans.
+    if env_flag("DF_PREDICATE_TRANSFER") {
+        config.options_mut().optimizer.enable_predicate_transfer = true;
+    }
+
     let mut session_state_builder = SessionStateBuilder::new()
-        .with_config(SessionConfig::from_env().expect("shouldn't fail"))
+        .with_config(config)
         .with_runtime_env(rt)
         .with_default_features();
 

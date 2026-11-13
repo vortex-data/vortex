@@ -434,7 +434,7 @@ impl VortexSource {
             natural_splits: Arc::clone(&self.natural_splits),
             file_schemas: Arc::clone(&self.file_schemas),
             dynamic_filters: Arc::clone(&self.dynamic_filters),
-            has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,
+            has_output_ordering: base_config.preserves_file_order() || self.ordered,
             expression_converter: Arc::clone(&self.expression_converter),
             file_metadata_cache: self.file_metadata_cache.clone(),
             segment_cache: self.segment_cache.clone(),
@@ -478,6 +478,14 @@ impl FileSource for VortexSource {
 
     fn filter(&self) -> Option<Arc<dyn PhysicalExpr>> {
         self.vortex_predicate.clone()
+    }
+
+    /// The accepted conjuncts without dynamic filters. Each runs natively or as a residual
+    /// filter on every row, so `FileScanConfig` may derive constants and equal columns from them.
+    /// A dynamic filter is left out because its value changes while the query runs, and the
+    /// predicate used only for file pruning is not part of the pushed predicate.
+    fn exact_filter(&self) -> Option<Arc<dyn PhysicalExpr>> {
+        self.static_predicate()
     }
 
     fn metrics(&self) -> &ExecutionPlanMetricsSet {

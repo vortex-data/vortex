@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_array::RecordBatchReader;
-use arrow_array::ffi_stream::ArrowArrayStreamReader;
+use arrow_array::ffi_stream::RecordBatchStreamReader;
 use arrow_array::make_array;
 use arrow_data::ArrayData as ArrowArrayData;
 use arrow_schema::DataType;
@@ -84,7 +84,7 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
         })?;
         Ok(PyArrayRef::from(array.into_array()))
     } else if obj.is_instance(table)? {
-        let array_stream = ArrowArrayStreamReader::from_pyarrow(&obj.as_borrowed())?;
+        let array_stream = RecordBatchStreamReader::from_pyarrow(&obj.as_borrowed())?;
         let dtype = session()
             .arrow()
             .from_arrow_schema(array_stream.schema().as_ref())

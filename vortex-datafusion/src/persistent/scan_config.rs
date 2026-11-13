@@ -201,12 +201,6 @@ impl DataSource for VortexScanConfig {
         Ok(self.inner.try_pushdown_sort(order)?.map(Self::wrap))
     }
 
-    fn with_preserve_order(&self, preserve_order: bool) -> Option<Arc<dyn DataSource>> {
-        self.inner
-            .with_preserve_order(preserve_order)
-            .map(Self::wrap)
-    }
-
     fn apply_expressions(
         &self,
         f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> DFResult<TreeNodeRecursion>,
