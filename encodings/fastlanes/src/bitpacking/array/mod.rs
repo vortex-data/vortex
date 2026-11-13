@@ -93,17 +93,37 @@ pub(crate) fn validate_block_offsets(
         num_blocks + 1,
         offsets.len()
     );
-    if cfg!(debug_assertions)
-        && let Some(primitive) = offsets.as_opt::<Primitive>()
-        && primitive.buffer_handle().is_on_host()
-    {
-        let max_bit_width = ptype.bit_width() as u64;
-        match_each_unsigned_integer_ptype!(primitive.ptype(), |T| {
-            validate_primitive_offsets(primitive.as_slice::<T>(), max_bit_width, packed_len)
-                .vortex_expect("invalid BitPacked block offsets")
-        })
+    if cfg!(debug_assertions) {
+        validate_host_block_offsets(offsets, ptype, packed_len)
+            .vortex_expect("invalid BitPacked block offsets");
     }
     Ok(())
+}
+
+/// Check that host-resident primitive block `offsets` span `packed_len` bytes, each block a whole
+/// number of 128-byte rows with a bit width supported by `ptype`.
+///
+/// Other offsets are not checked, so decoders must bounds-check them.
+pub(crate) fn validate_host_block_offsets(
+    offsets: &ArrayRef,
+    ptype: PType,
+    packed_len: usize,
+) -> VortexResult<()> {
+    let Some(primitive) = offsets.as_opt::<Primitive>() else {
+        return Ok(());
+    };
+    if !primitive.buffer_handle().is_on_host() {
+        return Ok(());
+    }
+    vortex_ensure!(
+        primitive.ptype().is_unsigned_int(),
+        "Expected unsigned integer block offsets, got {}",
+        primitive.ptype()
+    );
+    let max_bit_width = ptype.bit_width() as u64;
+    match_each_unsigned_integer_ptype!(primitive.ptype(), |T| {
+        validate_primitive_offsets(primitive.as_slice::<T>(), max_bit_width, packed_len)
+    })
 }
 
 /// Check that each block between `boundaries` is a whole number of 128-byte rows of at most
