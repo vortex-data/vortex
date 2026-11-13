@@ -17,7 +17,11 @@
 #include <cudf/strings/attributes.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/table/table.hpp>
+#include <cudf/utilities/default_stream.hpp>
+#include <cudf/utilities/memory_resource.hpp>
 #include <cudf/utilities/traits.hpp>
+#include <rmm/cuda_stream_view.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <cstdint>
 #include <limits>
@@ -140,8 +144,8 @@ inline cudf::size_type fixed_string_width(string_dictionary_inputs const &inputs
         }
         rows += batch.size();
     }
-    auto lengths = cudf::strings::count_bytes(cudf::strings_column_view {buffers.all_keys->view()},
-                                              buffers.stream);
+    auto lengths =
+        cudf::strings::count_bytes(cudf::strings_column_view {buffers.all_keys->view()}, buffers.stream);
     auto bounds = cudf::minmax(lengths->view(), buffers.stream);
     auto const width =
         static_cast<cudf::numeric_scalar<cudf::size_type> &>(*bounds.first).value(buffers.stream);
@@ -208,9 +212,8 @@ inline void gather_dictionary_strings(string_dictionary_inputs const &inputs,
     if (buffers.all_codes->null_count() != 0) {
         // Gather maps cannot contain nulls. An out-of-range sentinel creates
         // null output rows without dereferencing their arbitrary codes.
-        buffers.sentinel = std::make_unique<cudf::numeric_scalar<cudf::size_type>>(inputs.key_count,
-                                                                                   true,
-                                                                                   buffers.stream);
+        buffers.sentinel =
+            std::make_unique<cudf::numeric_scalar<cudf::size_type>>(inputs.key_count, true, buffers.stream);
         buffers.nonnull_codes = cudf::replace_nulls(map, *buffers.sentinel, buffers.stream);
         map = buffers.nonnull_codes->view();
     }

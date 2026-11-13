@@ -20,7 +20,6 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
-
 #include <utility>
 #include <vector>
 
@@ -68,12 +67,13 @@ void expect_values(cudf::column_view actual, cudf::column_view expected) {
  * Total allocations must remain live with the result and be released with it.
  */
 void expect_output_only_allocations(std::vector<cudf::column_view> const &batches,
-                                   cudf::column_view expected) {
+                                    cudf::column_view expected) {
     rmm::mr::statistics_resource_adaptor output_mr {
         cuda::mr::any_resource<cuda::mr::device_accessible> {cudf::get_current_device_resource_ref()}};
     auto const stream = cudf::test::get_default_stream();
-    auto result = vortex::cuda::concatenate_string_dictionaries(
-        batches, stream, rmm::device_async_resource_ref {output_mr});
+    auto result = vortex::cuda::concatenate_string_dictionaries(batches,
+                                                                stream,
+                                                                rmm::device_async_resource_ref {output_mr});
     stream.synchronize();
     auto const bytes = output_mr.get_bytes_counter();
     EXPECT_GT(bytes.value, 0);
@@ -207,7 +207,6 @@ TEST_F(ConcatenateStringDictionaries, OwnedOutputAndDefaultsAcrossTranslationUni
             cudf::get_default_stream().synchronize();
         }
         strings single {"z", "a"};
-
         strings combined {"z", "a", "b"};
         expect_values(result->view(), multiple ? cudf::column_view(combined) : cudf::column_view(single));
     }
@@ -276,8 +275,7 @@ TEST_F(ConcatenateStringDictionaries, OutputResourceForVariableWidthStrings) {
 }
 
 TEST_F(ConcatenateStringDictionaries, OutputResourceForNullableStrings) {
-    auto a = dictionary(strings {"zz", "a"}.release(),
-                        numbers<int8_t> {{1, 0}, {true, false}}.release());
+    auto a = dictionary(strings {"zz", "a"}.release(), numbers<int8_t> {{1, 0}, {true, false}}.release());
     auto b = dictionary(strings {"bbb"}.release(), numbers<int16_t> {0}.release());
     strings expected({"a", "", "bbb"}, {true, false, true});
     expect_output_only_allocations({a->view(), b->view()}, expected);
