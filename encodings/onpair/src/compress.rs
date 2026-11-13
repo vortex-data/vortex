@@ -82,7 +82,12 @@ pub fn onpair_compress(
         total_bytes,
     };
     let column = onpair::compress_rows::<_, u64>(&rows, config);
-    let (dict, codes, row_offsets) = column.into_raw();
+    let (dict, mut codes, row_offsets) = column.into_raw();
+    // The library grows the codes from empty, so up to half of their allocation can be spare.
+    // The buffer keeps that allocation, which `nbytes` does not count.
+    if codes.capacity() - codes.len() > codes.len() / 4 {
+        codes.shrink_to_fit();
+    }
     let (dict_bytes, dict_offsets) = dict.into_raw();
     let codes_offsets = codes_offsets_array(&row_offsets);
     let codes = Buffer::from(codes).into_array();
