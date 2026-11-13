@@ -89,8 +89,8 @@ jobs:
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/spot=false/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=mutants-{1}', github.run_id, matrix.shard)
           || 'ubuntu-latest' }}
     # Shards run for up to two hours, so they use on-demand instances that are not reclaimed
-    # mid-run. sccache stays off: it disables incremental compilation, which makes each
-    # mutant's rebuild of the crate several times slower.
+    # mid-run. sccache stays off: it cannot cache incremental builds, and every mutant's rebuild
+    # is incremental (see the Run cargo-mutants step).
     steps:
       - parallel:
           - uses: runs-on/action@v2
@@ -108,6 +108,10 @@ jobs:
 
       - name: Run cargo-mutants
         env:
+          # Each mutant rebuilds only the mutated crate, so incremental compilation makes the
+          # rebuild several times faster. The runner image turns it off by default.
+          CARGO_INCREMENTAL: "1"
+          RUSTC_WRAPPER: ""
           MODE: ${{ needs.plan.outputs.mode }}
           SHARD: ${{ matrix.shard }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -130,6 +134,7 @@ jobs:
             args+=(--shard "$SHARD/$SHARD_COUNT" --sharding round-robin)
           fi
 
+          echo "CARGO_INCREMENTAL=$CARGO_INCREMENTAL RUSTC_WRAPPER=${RUSTC_WRAPPER:-<unset>}"
           echo "::group::Mutants in this job"
           cargo mutants "${args[@]}" --list
           echo "::endgroup::"
