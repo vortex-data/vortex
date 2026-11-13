@@ -1,0 +1,21 @@
+name: Setup cuDF
+description: Install locked cuDF test environments without activating them globally
+
+inputs:
+  environments:
+    description: Space-separated Pixi environments to install (cpp, python)
+    required: false
+    default: cpp
+
+runs:
+  using: composite
+  steps:
+    - uses: prefix-dev/setup-pixi@9936258fee697aff89b3fed6ca1f80a382ef694e  # v0.11.3
+      with:
+        pixi-version: v0.84.2
+        manifest-path: vortex-cuda/cudf/pixi.toml
+        environments: ${{ inputs.environments }}
+        locked: true
+        cache: true
+        cache-key: pixi-cudf-v2-${{ inputs.environments }}-
+        cache-write: ${{ github.event_name == 'push' && github.ref_name == 'develop' }}
