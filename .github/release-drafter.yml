@@ -4,6 +4,9 @@ categories:
   - title: "⚠️ Breaks"
     labels:
       - "changelog/break"
+  - title: "📜 Editions"
+    labels:
+      - "changelog/edition"
   - title: "🚧 Deprecation"
     labels:
       - "changelog/deprecation"
@@ -36,6 +39,7 @@ version-resolver:
       # Any features or breaks will trigger a minor version bump (while we are 0.x)
       - "changelog/feature"
       - "changelog/break"
+      - "changelog/edition"
   default: patch
 
 exclude-labels:
