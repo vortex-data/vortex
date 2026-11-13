@@ -138,6 +138,32 @@ def identity_condition(kind: str, identity: tuple) -> tuple[str, list]:
     return " AND ".join(conditions), params
 
 
+def commit_selection_identities(identities: dict[str, list[tuple]]) -> dict[str, list[tuple]]:
+    """Return the identities that choose the baseline commit.
+
+    File sizes are written by the same job as the measurements beside them, so the commit
+    those measurements pick has them too. Leaving them out keeps the commit search off the
+    file-size scopes, whose rows (one per file per commit) make paging back through history slow.
+    """
+
+    others = {kind: keys for kind, keys in identities.items() if kind != "file_size"}
+    return others or identities
+
+
+def existing_kinds(conn: Connection, identities: dict[str, list[tuple]]) -> dict[str, list[tuple]]:
+    """Drop the kinds whose table the database does not have yet, so a new kind's table
+    being missing loses that kind alone and not the whole baseline."""
+
+    kept = {}
+    for kind, keys in identities.items():
+        table = _KINDS[kind][0]
+        if conn.execute("SELECT to_regclass(%s)", [f"public.{table}"]).fetchone()[0] is not None:
+            kept[kind] = keys
+        else:
+            print(f"The benchmarks database has no {table} table; reporting {kind} rows without a baseline.")
+    return kept
+
+
 def newest_baseline_commit(
     conn: Connection, identities: dict[str, list[tuple]], reachable: set[str]
 ) -> tuple[str, object] | None:
@@ -236,7 +262,8 @@ def main() -> None:
     if identities:
         commits = reachable_commits()
         with connect_postgres(args.postgres, args.region) as conn:
-            newest = newest_baseline_commit(conn, identities, set(commits))
+            identities = existing_kinds(conn, identities)
+            newest = newest_baseline_commit(conn, commit_selection_identities(identities), set(commits))
             if newest is not None:
                 commit_sha, commit_timestamp = newest
                 records = baseline_records(conn, identities, commit_sha, commit_timestamp)

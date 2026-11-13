@@ -729,7 +729,8 @@ def test_report_compares_ingest_records(tmp_path: Path) -> None:
     assert markdown_row(report, "random-access/taxi/uniform/parquet-cached")[1] == "105 / 100 / +5.0%"
     assert markdown_row(report, "random-access/taxi/uniform/lance-cached")[1] == "300 / — / no baseline"
     assert "<summary>random-access / lance / ns " in report
-    assert "File Size" not in report
+    assert "File Size Changes" not in report
+    assert "_No baseline file sizes found for base commit._" in report
 
 
 def test_report_compares_file_size_records_from_the_database(tmp_path: Path) -> None:
@@ -749,6 +750,31 @@ def test_report_compares_file_size_records_from_the_database(tmp_path: Path) -> 
     assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed")[1] == "80 / 80 / +0.0%"
     assert "<summary>File Size Changes (2 files changed, -16.7% overall, 1↑ 1↓)</summary>" in report
     assert "| part-1.vortex | 10 | vortex-file-compressed | 50 B | 0 B | -50 B | -100.0% |" in report
+
+
+def test_report_handles_a_baseline_of_only_file_sizes(tmp_path: Path) -> None:
+    base_records = [file_size_ingest_record("base-sha", 100, "part-0.vortex")]
+    pr_records = [
+        query_record("pr-sha", 1, "datafusion", "vortex-file-compressed", 80),
+        file_size_ingest_record("pr-sha", 125, "part-0.vortex"),
+    ]
+    pr_results = [stored_timing_row("pr-sha", "ignored when records exist", 1) | {"doc": "benchmarks/tpch.md"}]
+
+    report = render_report(tmp_path, base_records, pr_results, "TPC-H", pr_records)
+
+    assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed")[1] == "80 / — / no baseline"
+    assert "<summary>File Size Changes (1 files changed, +25.0% overall, 1↑ 0↓)</summary>" in report
+
+
+def test_baseline_commit_is_chosen_without_file_sizes() -> None:
+    fetch = load_module("fetch_benchmark_baseline", FETCH_BASELINE_SCRIPT)
+    query = ("tpch", None, "1", 1, "nvme", "datafusion", "parquet")
+    scope = ("tpch", "10", "vortex-file-compressed")
+
+    assert fetch.commit_selection_identities({"query_measurement": [query], "file_size": [scope]}) == {
+        "query_measurement": [query]
+    }
+    assert fetch.commit_selection_identities({"file_size": [scope]}) == {"file_size": [scope]}
 
 
 def test_report_says_when_the_baseline_could_not_be_read(tmp_path: Path) -> None:

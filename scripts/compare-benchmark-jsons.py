@@ -57,6 +57,8 @@ import pandas as pd
 Z_SCORE_99 = 2.5758293035489004
 CONTROL_FORMAT = "parquet"
 FILE_SIZE_METRIC = "file_size"
+# The columns of a JSONL file with no benchmark rows.
+EMPTY_ROW_COLUMNS = ["commit_id", "name", "storage", "unit", "value", "all_runtimes", "target"]
 QUERY_TARGET_PATTERN = re.compile(r"_q(\d+)/([^:]+):(.+)$")
 FORMAT_DISPLAY_NAMES = {
     "vortex": "vortex-file-compressed",
@@ -93,7 +95,9 @@ def split_file_size_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     metric = df["metric"] if "metric" in df.columns else pd.Series(pd.NA, index=df.index)
     file_size = df["file_size"] if "file_size" in df.columns else pd.Series(pd.NA, index=df.index)
     mask = metric.eq(FILE_SIZE_METRIC) | file_size.notna()
-    return df[mask].copy(), df[~mask].copy()
+    rest = df[~mask].copy()
+    # A file of only file sizes leaves no benchmark rows; give them the columns of an empty file.
+    return df[mask].copy(), rest if not rest.empty else pd.DataFrame(columns=EMPTY_ROW_COLUMNS)
 
 
 def identity_value(value: object) -> object:
@@ -242,7 +246,7 @@ def read_benchmark_rows(path: str) -> pd.DataFrame:
                 if row is not None:
                     rows.append(row)
     if not rows:
-        return pd.DataFrame(columns=["commit_id", "name", "storage", "unit", "value", "all_runtimes", "target"])
+        return pd.DataFrame(columns=EMPTY_ROW_COLUMNS)
     return pd.DataFrame(rows)
 
 
@@ -1256,8 +1260,8 @@ def main() -> None:
         print("")
         print("</details>")
 
-    # Develop runs store file sizes in the database; without baseline rows there is nothing to compare.
-    file_size_report = "" if base_file_sizes.empty else format_file_size_report(base_file_sizes, pr_file_sizes)
+    # Says so when the PR measured file sizes and the baseline has none, rather than dropping the section.
+    file_size_report = format_file_size_report(base_file_sizes, pr_file_sizes)
     if file_size_report:
         print("")
         print("---")
