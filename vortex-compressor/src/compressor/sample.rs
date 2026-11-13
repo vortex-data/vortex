@@ -3,6 +3,8 @@
 
 //! Sampling utilities for compression ratio estimation.
 
+use std::sync::Arc;
+
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
@@ -21,6 +23,7 @@ use crate::scheme::EstimateScore;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
+use crate::stats::GenerateStatsOptions;
 use crate::trace;
 
 /// The size of each sampled run.
@@ -206,10 +209,85 @@ fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> 
         .collect()
 }
 
-/// Estimates compression ratio by compressing a ~1% sample of the data.
+/// The sample every sampled scheme compresses to estimate its ratio on one array.
 ///
-/// Creates a new [`ArrayAndStats`] for the sample so that stats are generated from the sample, not
-/// the full array.
+/// It is built once per array and cached in the array's [`ArrayAndStats`], so the rows are copied,
+/// their stats generated and their size measured once, however many schemes sample them.
+struct CompressionSample {
+    /// The sampled rows and their stats cache.
+    data: ArrayAndStats,
+    /// The bytes the sampled rows reference.
+    before: u64,
+    /// Whether every sampled row is null.
+    all_invalid: bool,
+}
+
+/// Returns the compression sample of `data`, building and caching it on first use.
+///
+/// The compressor builds `data` with the merged stats options of every scheme it considers, so
+/// the cached sample serves them all. A caller whose scheme needs more stats gets an uncached
+/// sample.
+fn compression_sample(
+    data: &ArrayAndStats,
+    scheme_opts: GenerateStatsOptions,
+    compress_ctx: &CompressorContext,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<Arc<CompressionSample>> {
+    let opts = data.stats_options();
+    // Inside sample compression the sample is `data` itself, which shares its stats cache.
+    // Caching it there would make the cache own a handle to itself.
+    if compress_ctx.is_sample() || opts.merge(scheme_opts) != opts {
+        return build_sample(data, opts.merge(scheme_opts), compress_ctx, exec_ctx).map(Arc::new);
+    }
+    if let Some(sample) = data.get::<CompressionSample>() {
+        return Ok(sample);
+    }
+    let sample = build_sample(data, opts, compress_ctx, exec_ctx)?;
+    Ok(data.get_or_insert_with(|| sample))
+}
+
+/// Builds the compression sample of `data` with stats generated using `opts`.
+///
+/// Inside sample compression the array is already a sample, so it is used whole, sharing the
+/// stats cache when the options match.
+fn build_sample(
+    data: &ArrayAndStats,
+    opts: GenerateStatsOptions,
+    compress_ctx: &CompressorContext,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<CompressionSample> {
+    let sample_data = if !compress_ctx.is_sample() {
+        // `ArrayAndStats` expects a canonical array (so that it can easily compute lazy stats).
+        let canonical: Canonical = sample_rows(data.array()).execute(exec_ctx)?;
+        ArrayAndStats::new(canonical.into_array(), opts)
+    } else if opts == data.stats_options() {
+        data.clone()
+    } else {
+        ArrayAndStats::new(data.array().clone(), opts)
+    };
+
+    // Sampled slices still hold the full array's buffers, so measure what their rows reference.
+    let before = exact_uncompressed_size(sample_data.array(), exec_ctx)?;
+    let all_invalid = !compress_ctx.is_sample() && sample_data.array().all_invalid(exec_ctx)?;
+    Ok(CompressionSample {
+        data: sample_data,
+        before,
+        all_invalid,
+    })
+}
+
+/// Selects the rows of `array` that sampled schemes compress: about 1% of them.
+fn sample_rows(array: &ArrayRef) -> ArrayRef {
+    sample(
+        array,
+        SAMPLE_SIZE,
+        sample_count_approx_one_percent(array.len()),
+    )
+}
+
+/// Estimates a scheme's compression ratio by compressing the array's compression sample.
+///
+/// The sample is shared by every sampled scheme on the array; see [`compression_sample`].
 ///
 /// # Errors
 ///
@@ -217,30 +295,22 @@ fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> 
 pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     compressor: &CascadingCompressor,
     scheme: &S,
-    array: &ArrayRef,
+    data: &ArrayAndStats,
     compress_ctx: CompressorContext,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<EstimateScore> {
-    let sample_array = if compress_ctx.is_sample() {
-        array.clone()
-    } else {
-        let sample_count = sample_count_approx_one_percent(array.len());
-        // `ArrayAndStats` expects a canonical array (so that it can easily compute lazy stats).
-        let canonical: Canonical = sample(array, SAMPLE_SIZE, sample_count).execute(exec_ctx)?;
-        canonical.into_array()
-    };
+    let sample = compression_sample(data, scheme.stats_options(), &compress_ctx, exec_ctx)?;
 
     // A sample of only nulls compresses to almost nothing whatever the scheme, so its ratio says
     // nothing about how the scheme handles the array's values.
-    if !compress_ctx.is_sample() && sample_array.all_invalid(exec_ctx)? {
+    if sample.all_invalid {
         return Ok(EstimateScore::ZeroBytes);
     }
 
-    let sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
     let error_ctx = trace::enabled_error_context(&compress_ctx);
     let sample_ctx = compress_ctx.with_sampling();
 
-    let compressed = match scheme.compress(compressor, &sample_data, sample_ctx, exec_ctx) {
+    let compressed = match scheme.compress(compressor, &sample.data, sample_ctx, exec_ctx) {
         Ok(compressed) => compressed,
         Err(err) => {
             trace::sample_compress_failed(scheme.id(), error_ctx.as_ref(), &err);
@@ -249,13 +319,10 @@ pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     };
 
     let after = compressed.nbytes();
-    // Sampled slices still hold the full array's buffers, so measure what their rows reference.
-    let before = exact_uncompressed_size(sample_data.array(), exec_ctx)?;
-
-    let score = EstimateScore::from_sample_sizes(before, after);
+    let score = EstimateScore::from_sample_sizes(sample.before, after);
 
     if matches!(score, EstimateScore::ZeroBytes) {
-        trace::zero_byte_sample_result(scheme.id(), before);
+        trace::zero_byte_sample_result(scheme.id(), sample.before);
     }
 
     Ok(score)

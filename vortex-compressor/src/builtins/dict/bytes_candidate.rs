@@ -240,13 +240,8 @@ fn sample_verdict(
     compress_ctx: CompressorContext,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<EstimateVerdict> {
-    let score = estimate_compression_ratio_with_sampling(
-        compressor,
-        scheme,
-        data.array(),
-        compress_ctx,
-        exec_ctx,
-    )?;
+    let score =
+        estimate_compression_ratio_with_sampling(compressor, scheme, data, compress_ctx, exec_ctx)?;
     if score_is_best(score, best_so_far) {
         Ok(score_verdict(score))
     } else {
