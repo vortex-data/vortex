@@ -77,6 +77,18 @@ jobs:
             packages+=(--bin lance-bench)
           fi
           cargo build "${packages[@]}" --profile release_debug
+      # duckdb-bench loads libduckdb.so through an absolute rpath into vortex-duckdb's build cache,
+      # so the bench jobs need it at the same path. The cache sits two levels above the build
+      # script's OUT_DIR, which moves with the cargo build-dir layout, so search for it. Without
+      # this check a missing library is left out of the artifact silently, and every DuckDB
+      # benchmark fails later.
+      - name: Check libduckdb is packaged
+        shell: bash
+        run: |
+          if [ -z "$(find target/release_debug/build -path '*/vortex-duckdb-cache/duckdb-lib-*/libduckdb.so' -print -quit)" ]; then
+            echo "::error::libduckdb.so not found under target/release_debug/build"
+            exit 1
+          fi
       - name: Upload binaries
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
@@ -87,7 +99,7 @@ jobs:
             target/release_debug/duckdb-bench
             target/release_debug/lance-bench
             target/release_debug/vx
-            target/release_debug/build/vortex-duckdb-cache/duckdb-lib-*-prebuilt/libduckdb.so
+            target/release_debug/build/**/vortex-duckdb-cache/duckdb-lib-*/libduckdb.so
 
   # The debuginfo upload takes several minutes. Running it in its own job keeps it off the path
   # to the bench jobs; Polar Signals matches debuginfo to profiles by build ID whenever it lands.
