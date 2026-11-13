@@ -154,9 +154,13 @@ writers from choosing it, but readers must retain support because existing files
 
 ## Maintaining edition records
 
-Each change to an edition, such as adding, moving, or removing a member or freezing an edition, goes
-in its own pull request labeled `changelog/edition`, so it appears under its own heading in the
-release notes.
+Changes to editions, such as adding, moving, or removing a member or freezing an edition, go in
+dedicated pull requests so they appear under their own heading in the release notes:
+
+- Label the pull request `changelog/edition` and no other `changelog/*` label.
+- The edition change must be the only change in the pull request. Land the format's
+  implementation, fixes, and tests in separate pull requests first.
+- Keep each pull request to one edition change, or a few closely related ones.
 
 Default declarations live in `vortex-edition/src/declarations/`. Optional modules keep declarations
 with their implementation code. The exported TOML records are under `vortex/editions/`, grouped by
