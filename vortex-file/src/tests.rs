@@ -119,6 +119,7 @@ use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 use vortex_zigzag::ZigZag;
 
+use crate::MAX_METADATA_SEGMENTS;
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::OpenOptionsSessionExt;
 use crate::V1_FOOTER_FBS_SIZE;
@@ -2734,6 +2735,123 @@ async fn test_file_metadata_roundtrip() -> VortexResult<()> {
     };
     let resolved = file.metadata_segment("json").vortex_expect("json");
     assert!(!file_range.contains(&(resolved.as_ptr() as usize)));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_file_metadata_added_at_finish() -> VortexResult<()> {
+    let dtype = DType::Struct(
+        StructFields::from_iter([("numbers", DType::from(PType::U32))]),
+        Nullability::NonNullable,
+    );
+
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = SESSION
+        .write_options()
+        .with_metadata_segment("schema", ByteBuffer::copy_from(b"create"))
+        .with_metadata_segment("bloom", ByteBuffer::copy_from(b"placeholder"))
+        .writer(&mut buf, dtype);
+
+    writer
+        .push(
+            StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3].into_array())])?
+                .into_array(),
+        )
+        .await?;
+
+    // The finish-time value replaces the create-time value for the same key.
+    let summary = writer
+        .finish_with_metadata([
+            ("bloom", ByteBuffer::copy_from(b"bloom-bits")),
+            ("min_key", ByteBuffer::copy_from(b"a")),
+        ])
+        .await?;
+    assert_eq!(summary.footer().metadata_segments().count(), 3);
+
+    let file = SESSION
+        .open_options()
+        .include_metadata()
+        .open_buffer(ByteBuffer::from(buf))?;
+    assert_eq!(file.row_count(), 3);
+    assert_eq!(file.metadata_segments().count(), 3);
+    assert_eq!(
+        file.metadata_segment("schema").map(ByteBuffer::as_slice),
+        Some(b"create".as_slice())
+    );
+    assert_eq!(
+        file.metadata_segment("bloom").map(ByteBuffer::as_slice),
+        Some(b"bloom-bits".as_slice())
+    );
+    assert_eq!(
+        file.metadata_segment("min_key").map(ByteBuffer::as_slice),
+        Some(b"a".as_slice())
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_deferred_metadata_with_stream_write() -> VortexResult<()> {
+    let array =
+        StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3].into_array())])?.into_array();
+
+    let options = SESSION.write_options();
+    let deferred = options.deferred_metadata();
+
+    // The write reads the handle only after the input stream ends, so a stream can add segments
+    // while it produces chunks.
+    let stream = array.to_array_stream().map(move |chunk| {
+        deferred.insert("seen", ByteBuffer::copy_from(b"yes"));
+        chunk
+    });
+    let stream = ArrayStreamAdapter::new(array.dtype().clone(), stream);
+
+    let mut buf = ByteBufferMut::empty();
+    options.write(&mut buf, stream).await?;
+
+    let file = SESSION
+        .open_options()
+        .include_metadata()
+        .open_buffer(ByteBuffer::from(buf))?;
+    assert_eq!(
+        file.metadata_segment("seen").map(ByteBuffer::as_slice),
+        Some(b"yes".as_slice())
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_file_metadata_added_at_finish_is_validated() -> VortexResult<()> {
+    let dtype = DType::Struct(
+        StructFields::from_iter([("numbers", DType::from(PType::U32))]),
+        Nullability::NonNullable,
+    );
+
+    // Each set is in the limits, but the merged set has one segment too many.
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = SESSION
+        .write_options()
+        .with_metadata_segments(
+            (0..MAX_METADATA_SEGMENTS).map(|idx| (format!("create-{idx}"), ByteBuffer::empty())),
+        )
+        .writer(&mut buf, dtype);
+
+    writer
+        .push(StructArray::from_fields(&[("numbers", buffer![1u32].into_array())])?.into_array())
+        .await?;
+
+    let Err(error) = writer
+        .finish_with_metadata([("finish", ByteBuffer::empty())])
+        .await
+    else {
+        panic!("the merged metadata must be rejected");
+    };
+    assert!(
+        error.to_string().contains("metadata segments"),
+        "unexpected error: {error}"
+    );
 
     Ok(())
 }
