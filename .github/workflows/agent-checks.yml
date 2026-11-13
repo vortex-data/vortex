@@ -1,0 +1,305 @@
+name: Agent Checks
+
+# Periodic agent-driven code checks. Each check is `.agents/checks/<id>/CHECK.md`; the runner is
+# `scripts/agent_checks.py`. See `.agents/checks/README.md`.
+#
+# Jobs
+# - plan: reads the state branch and the PR list, picks shards that need review (new or changed
+#   files, rubric version bumps, checks whose `cadence_days` has passed) and emits a matrix.
+# - review: one job per shard. Claude reviews the assigned files and writes a results file; the
+#   runner validates it, reverts out-of-scope edits, and the job opens a draft PR (or an issue
+#   when there is nothing to commit).
+# - record: merges reviewed-file hashes and PR-derived suppressions into the state branch.
+#
+# Setup: the same `claude-automation` environment, App secrets and Anthropic variables as
+# fuzzer-fix-automation.yml. State lives on the orphan branch `agent-checks-state`, created on
+# the first run.
+
+on:
+  schedule:
+    # Daily; each check's `cadence_days` decides whether it actually runs.
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+    inputs:
+      check:
+        description: "Check id (empty: all enabled checks)"
+        required: false
+        type: string
+      shard:
+        description: "Only this shard, e.g. vortex-array"
+        required: false
+        type: string
+      max_shards:
+        description: "Override max_shards_per_run"
+        required: false
+        type: string
+      force:
+        description: "Ignore cadence_days"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  # Runs read and write the same state branch, so never overlap them.
+  group: agent-checks
+  cancel-in-progress: false
+
+permissions: { }
+
+env:
+  STATE_BRANCH: agent-checks-state
+  STATE_DIR: ${{ github.workspace }}/.agent-checks-state
+  PR_LABEL: agent-checks
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+
+      - name: Fetch state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$STATE_DIR"
+          if git ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null; then
+            git fetch --depth=1 origin "$STATE_BRANCH"
+            git archive FETCH_HEAD | tar -x -C "$STATE_DIR"
+          else
+            echo "No $STATE_BRANCH branch yet; starting from empty state."
+          fi
+
+      - name: List agent-check pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr list --repo "$GITHUB_REPOSITORY" --label "$PR_LABEL" --state all --limit 500 \
+            --json number,state,body,mergedAt,headRefName > prs.json
+
+      - name: Plan
+        id: plan
+        env:
+          CHECK: ${{ inputs.check }}
+          SHARD: ${{ inputs.shard }}
+          MAX_SHARDS: ${{ inputs.max_shards }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          args=(plan --state-dir "$STATE_DIR" --prs prs.json --out plan.json)
+          [[ -n "$CHECK" ]] && args+=(--check "$CHECK")
+          [[ -n "$SHARD" ]] && args+=(--shard "$SHARD")
+          [[ -n "$MAX_SHARDS" ]] && args+=(--max-shards "$MAX_SHARDS")
+          [[ "$FORCE" == "true" ]] && args+=(--force)
+          python3 scripts/agent_checks.py "${args[@]}"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: agent-checks-plan
+          path: |
+            plan.json
+            prs.json
+
+  review:
+    name: "Review ${{ matrix.check }} / ${{ matrix.shard }}"
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+
+    environment:
+      # The App private key lives only in this environment. The App token (not GITHUB_TOKEN)
+      # makes the draft PRs trigger normal CI.
+      name: claude-automation
+      deployment: false
+
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      CHECK: ${{ matrix.check }}
+      SHARD: ${{ matrix.shard }}
+      WORK: ${{ github.workspace }}/target/agent-checks
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          # Full history so the agent can `git diff <last-reviewed-commit> -- <file>`.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: agent-checks-plan
+          path: ${{ env.WORK }}
+
+      - name: Setup Rust toolchain
+        uses: ./.github/actions/setup-rust
+
+      - name: Render prompt
+        id: prompt
+        run: |
+          python3 scripts/agent_checks.py prompt --plan "$WORK/plan.json" \
+            --check "$CHECK" --shard "$SHARD" --results "$WORK/results.json" --out "$WORK/prompt.md"
+
+      - name: Generate short-lived GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: Run Claude
+        id: claude
+        uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d  # v1.0.266
+        with:
+          # The claude-automation environment puts `environment:claude-automation` in the OIDC
+          # subject, which only the `vortex-claude-write` rule matches.
+          anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_WRITE }}
+          anthropic_organization_id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          github_token: ${{ steps.app-token.outputs.token }}
+          show_full_output: true
+          prompt: ${{ steps.prompt.outputs.prompt }}
+          claude_args: |
+            --model ${{ steps.prompt.outputs.model || 'claude-opus-5-5' }}
+            --max-turns ${{ steps.prompt.outputs.max_turns }}
+            --allowedTools "${{ steps.prompt.outputs.allowed_tools }}"
+
+      - name: Finalize
+        id: finalize
+        if: ${{ !cancelled() && steps.prompt.outcome == 'success' }}
+        run: |
+          python3 scripts/agent_checks.py finalize --plan "$WORK/plan.json" \
+            --check "$CHECK" --shard "$SHARD" --results "$WORK/results.json" \
+            --out-dir "$WORK/out" --run-url "$RUN_URL" --revert-out-of-scope
+          mkdir -p "$WORK/state-update"
+          cp "$WORK/out/state-update.json" "$WORK/state-update/$CHECK--${SHARD//\//-}.json"
+
+      - name: Open draft pull request
+        if: steps.finalize.outputs.has_edits == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          BRANCH: ${{ steps.finalize.outputs.branch }}
+          TITLE: ${{ steps.finalize.outputs.title }}
+          LABELS: ${{ steps.finalize.outputs.labels }}
+        run: |
+          git config user.name "vortex-claude[bot]"
+          git config user.email "274007616+vortex-claude[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          jq -r '.edits[]' "$WORK/out/summary.json" | xargs -d '\n' git add --
+          git commit -s -m "$TITLE" -m "Automated agent check \`$CHECK\`. $RUN_URL"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "HEAD:refs/heads/$BRANCH"
+
+          gh label create "$PR_LABEL" --repo "$GITHUB_REPOSITORY" --color "5319e7" \
+            --description "Opened by the scheduled agent checks" 2>/dev/null || true
+          label_args=(--label "$PR_LABEL")
+          IFS=',' read -ra extra <<< "$LABELS"
+          for l in "${extra[@]}"; do [[ -n "$l" ]] && label_args+=(--label "$l"); done
+
+          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json url --jq '.[0].url // ""')"
+          if [[ -n "$existing" ]]; then
+            gh pr edit "$existing" --repo "$GITHUB_REPOSITORY" --body-file "$WORK/out/body.md"
+            echo "Updated $existing"
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" --draft --base "$BASE_BRANCH" --head "$BRANCH" \
+              --title "$TITLE" --body-file "$WORK/out/body.md" "${label_args[@]}"
+          fi
+
+      - name: Open issue for unfixed findings
+        if: steps.finalize.outputs.has_edits == 'false' && steps.finalize.outputs.has_findings == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TITLE: ${{ steps.finalize.outputs.title }}
+        run: |
+          gh label create "$PR_LABEL" --repo "$GITHUB_REPOSITORY" --color "5319e7" \
+            --description "Opened by the scheduled agent checks" 2>/dev/null || true
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --label "$PR_LABEL" --state open \
+            --search "\"$TITLE\" in:title" --json number,title --jq "map(select(.title == \"$TITLE\")) | .[0].number // \"\"")"
+          if [[ -n "$existing" ]]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body-file "$WORK/out/body.md"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --label "$PR_LABEL" \
+              --body-file "$WORK/out/body.md"
+          fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        if: steps.finalize.outcome == 'success'
+        with:
+          name: agent-checks-state-${{ strategy.job-index }}
+          path: ${{ env.WORK }}/state-update/
+
+  record:
+    name: Record state
+    needs: [plan, review]
+    # Record whatever finished, including after partial review failures. Shards that failed
+    # upload no state update and are offered again next run.
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: agent-checks-plan
+          path: plan
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          pattern: agent-checks-state-*
+          path: updates
+          merge-multiple: true
+
+      - name: Update state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git init -q "$STATE_DIR"
+          cd "$STATE_DIR"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads "$remote" "$STATE_BRANCH" >/dev/null; then
+            git fetch -q --depth=1 "$remote" "$STATE_BRANCH"
+            git checkout -q -b "$STATE_BRANCH" FETCH_HEAD
+          else
+            git checkout -q --orphan "$STATE_BRANCH"
+          fi
+          cd "$GITHUB_WORKSPACE"
+
+          shopt -s nullglob
+          python3 scripts/agent_checks.py record --state-dir "$STATE_DIR" \
+            --plan plan/plan.json --prs plan/prs.json updates/*.json
+
+          cd "$STATE_DIR"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "State unchanged."
+            exit 0
+          fi
+          git commit -q -m "Record agent checks run ${GITHUB_RUN_ID}"
+          git push -q "$remote" "HEAD:refs/heads/$STATE_BRANCH"

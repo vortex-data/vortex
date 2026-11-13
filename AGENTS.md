@@ -4,6 +4,9 @@ Guidance for Claude, Codex and other coding agents working in the Vortex reposit
 
 ## Task Routing
 
+- Scheduled agent checks (periodic reviews that open PRs) live in `.agents/checks/<id>/CHECK.md`
+  and are run by `scripts/agent_checks.py`. Read `.agents/checks/README.md` before adding or
+  changing one.
 - When asked to investigate a CI failure, especially via `/ci-failure-analysis`, use the
   `.agents/skills/ci-failure-analysis` skill. It is the source of truth for fetching logs,
   classifying failures, and attributing causation.
