@@ -284,7 +284,7 @@ fn delta_serde_sliced_signed() -> VortexResult<()> {
     let sliced = Delta::try_new(
         delta.bases().clone(),
         delta.deltas().clone(),
-        source.validity()?.slice(offset..offset + sliced_len)?,
+        Validity::from_iter((offset..offset + sliced_len).map(|index| index % 7 != 0)),
         offset,
         sliced_len,
     )?
@@ -367,7 +367,7 @@ fn delta_deserialize_rejects_malformed_parts() -> VortexResult<()> {
     assert_arrays_eq!(restored, source, &mut ctx);
 
     // The metadata declares a validity child that is missing.
-    assert!(deserialize(&dtype, &metadata, &[bases.clone(), deltas.clone()]).is_err());
+    assert!(deserialize(&dtype, &metadata, &[bases, deltas]).is_err());
 
     // A validity child on a non-nullable dtype.
     assert!(deserialize(&dtype.as_nonnullable(), &metadata, &all).is_err());
@@ -379,7 +379,7 @@ fn delta_deserialize_rejects_malformed_parts() -> VortexResult<()> {
     // The offset must lie in the first chunk.
     let offset_past_chunk = DeltaMetadata {
         offset: 1024,
-        ..metadata.clone()
+        ..metadata
     };
     assert!(deserialize(&dtype, &offset_past_chunk, &all).is_err());
 
@@ -387,7 +387,7 @@ fn delta_deserialize_rejects_malformed_parts() -> VortexResult<()> {
     for deltas_len in [0, 1024, 2000, 3072, u64::MAX] {
         let wrong_len = DeltaMetadata {
             deltas_len,
-            ..metadata.clone()
+            ..metadata
         };
         assert!(deserialize(&dtype, &wrong_len, &all).is_err());
     }
