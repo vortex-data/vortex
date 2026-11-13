@@ -468,22 +468,41 @@ fn test_zero_row_batch_and_fused_eos() -> VortexResult<()> {
     let empty = PrimitiveArray::from_iter([] as [i32; 0]).into_array();
     let mut handle = batches(
         &session,
-        vec![
-            empty.clone(),
-            PrimitiveArray::from_iter([7i32]).into_array(),
-        ],
+        vec![empty, PrimitiveArray::from_iter([7i32]).into_array()],
     )?;
     let output = next(&mut handle)?;
     assert!(!output.is_eos());
     assert_eq!(output.array.array.length, 0);
     assert_eq!(next(&mut handle)?.array.array.length, 1);
-    for _ in 0..2 {
-        assert!(next(&mut handle)?.is_eos());
-    }
+    let device_id = handle.ctx.stream().context().ordinal() as i64;
+    let first_eos = next(&mut handle)?;
+    assert_eos(&first_eos, device_id);
+    let repeated_eos = next(&mut handle)?;
+    assert_eos(&repeated_eos, device_id);
+    Ok(())
+}
+
+#[cuda_test]
+fn test_empty_stream_and_fused_eos() -> VortexResult<()> {
+    let session = session()?;
+    let empty = PrimitiveArray::from_iter([] as [i32; 0]).into_array();
     let stream = ArrayStreamAdapter::new(empty.dtype().clone(), stream::empty()).boxed();
     let mut handle = vx_cuda_device_batches::new(stream, &session, ffi_runtime())?;
-    assert!(next(&mut handle)?.is_eos());
+    let device_id = handle.ctx.stream().context().ordinal() as i64;
+    let first_eos = next(&mut handle)?;
+    assert_eos(&first_eos, device_id);
+    let repeated_eos = next(&mut handle)?;
+    assert_eos(&repeated_eos, device_id);
     Ok(())
+}
+
+/// Assert released outputs with the expected CUDA device metadata.
+///
+/// Device fields remain populated even though end-of-stream carries no data.
+fn assert_eos(output: &Output, device_id: i64) {
+    assert!(output.is_eos());
+    assert_eq!(output.array.device_type, ARROW_DEVICE_CUDA);
+    assert_eq!(output.array.device_id, device_id);
 }
 
 fn assert_terminal(

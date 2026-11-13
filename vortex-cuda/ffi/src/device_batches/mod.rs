@@ -17,6 +17,7 @@ use vortex::session::VortexSession;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
 use vortex_cuda::DictionaryExport;
+use vortex_cuda::arrow::ARROW_DEVICE_CUDA;
 use vortex_cuda::arrow::ArrowDeviceArray;
 use vortex_cuda::arrow::ArrowDeviceArrayWithSchema;
 use vortex_cuda::arrow::DeviceArrayExt;
@@ -75,16 +76,27 @@ impl vx_cuda_device_batches {
         })
     }
 
+    /// Return released outputs carrying this scan's CUDA device metadata.
+    ///
+    /// Matches the decoded stream; release callbacks still determine end-of-stream.
+    fn eos(&self) -> ArrowDeviceArrayWithSchema {
+        ArrowDeviceArrayWithSchema {
+            schema: FFI_ArrowSchema::empty(),
+            array: ArrowDeviceArray {
+                device_id: self.ctx.stream().context().ordinal() as i64,
+                device_type: ARROW_DEVICE_CUDA,
+                ..ArrowDeviceArray::empty()
+            },
+        }
+    }
+
     fn next(&mut self) -> VortexResult<ArrowDeviceArrayWithSchema> {
         vortex_ensure!(
             !matches!(self.state, State::Failed),
             "CUDA device batches are terminal after an earlier scan or export error"
         );
         if matches!(self.state, State::End) {
-            return Ok(ArrowDeviceArrayWithSchema {
-                schema: FFI_ArrowSchema::empty(),
-                array: ArrowDeviceArray::empty(),
-            });
+            return Ok(self.eos());
         }
 
         // Poison before polling/exporting so errors and panics caught at the FFI boundary cannot
@@ -92,10 +104,7 @@ impl vx_cuda_device_batches {
         self.state = State::Failed;
         let Some(array) = self.array_iter.next() else {
             self.state = State::End;
-            return Ok(ArrowDeviceArrayWithSchema {
-                schema: FFI_ArrowSchema::empty(),
-                array: ArrowDeviceArray::empty(),
-            });
+            return Ok(self.eos());
         };
         let array = array?;
         vortex_ensure_eq!(
