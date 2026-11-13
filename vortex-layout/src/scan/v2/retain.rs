@@ -3,12 +3,15 @@
 
 //! Keeps recently read segments so the chunks of a scan that share a segment read it once.
 
-use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
 use futures::TryFutureExt;
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
 use vortex_array::buffer::BufferHandle;
 
@@ -16,17 +19,31 @@ use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
-/// The host bytes of recently read segments, evicting the least recently used past a budget.
+/// The host bytes of recently read segments, evicting segments that have gone unused the longest
+/// once past a budget.
 ///
 /// A V2 scan cuts its rows into chunks that each read through a session of their own, and a
 /// stored segment that spans a chunk boundary is read by every chunk it overlaps. The file's segment
 /// source shares a read only while it is in flight, so a chunk that starts after its neighbour
 /// finished would read the segment again. Neighbouring chunks run close together, so a small
 /// budget is enough to read each such segment once.
+///
+/// Every segment request of every chunk looks a segment up here, from many threads at once.
+/// Segments are spread over shards, each behind its own lock, and a hit takes only a shared lock
+/// on its shard: it marks the segment used rather than reordering anything. Eviction gives a
+/// segment that was used since it was queued a second chance at the back of its shard's queue,
+/// which approximates least-recently-used order without a hit ever waiting for another. The
+/// budget is shared: an insert evicts from its own shard until the retained bytes of all shards
+/// fit, and a shard left holding only the inserted segment leaves the rest to later inserts.
 pub(super) struct RetainedSegments {
     budget: u64,
-    state: Mutex<State>,
+    /// The retained bytes of every shard.
+    bytes: AtomicU64,
+    shards: Box<[RwLock<State>]>,
 }
+
+/// The shards a file's retained segments are spread over.
+const SHARDS: usize = 16;
 
 /// The bytes a file's scans retain by default.
 const DEFAULT_RETAINED_BYTES: u64 = 64 << 20;
@@ -39,32 +56,42 @@ impl Default for RetainedSegments {
 
 #[derive(Default)]
 struct State {
-    bytes: u64,
-    tick: u64,
-    /// Each retained segment and the tick of its last use.
-    segments: FxHashMap<SegmentId, (BufferHandle, u64)>,
-    /// Retained segments by the tick of their last use, oldest first.
-    by_use: BTreeMap<u64, SegmentId>,
+    segments: FxHashMap<SegmentId, Retained>,
+    /// Retained segments in the order they were queued, oldest first.
+    queue: VecDeque<SegmentId>,
+}
+
+struct Retained {
+    buffer: BufferHandle,
+    /// Whether the segment was used since it was last queued.
+    used: AtomicBool,
 }
 
 impl RetainedSegments {
     pub(super) fn new(budget: u64) -> Self {
+        Self::with_shards(budget, SHARDS)
+    }
+
+    fn with_shards(budget: u64, shards: usize) -> Self {
         Self {
             budget,
-            state: Mutex::default(),
+            bytes: AtomicU64::new(0),
+            shards: (0..shards.max(1)).map(|_| RwLock::default()).collect(),
         }
     }
 
+    fn shard(&self, id: SegmentId) -> &RwLock<State> {
+        &self.shards[*id as usize % self.shards.len()]
+    }
+
     fn get(&self, id: SegmentId) -> Option<BufferHandle> {
-        let mut state = self.state.lock();
-        state.tick += 1;
-        let tick = state.tick;
-        let (buffer, used) = state.segments.get_mut(&id)?;
-        let buffer = buffer.clone();
-        let previous = std::mem::replace(used, tick);
-        state.by_use.remove(&previous);
-        state.by_use.insert(tick, id);
-        Some(buffer)
+        let state = self.shard(id).read();
+        let retained = state.segments.get(&id)?;
+        // Skip the store when already set, so hits on a shared segment do not keep writing to it.
+        if !retained.used.load(Ordering::Relaxed) {
+            retained.used.store(true, Ordering::Relaxed);
+        }
+        Some(retained.buffer.clone())
     }
 
     fn insert(&self, id: SegmentId, buffer: &BufferHandle) {
@@ -72,21 +99,39 @@ impl RetainedSegments {
         if !buffer.is_on_host() || len > self.budget / 4 {
             return;
         }
-        let mut state = self.state.lock();
+        let mut state = self.shard(id).write();
         if state.segments.contains_key(&id) {
             return;
         }
-        state.tick += 1;
-        let tick = state.tick;
-        state.segments.insert(id, (buffer.clone(), tick));
-        state.by_use.insert(tick, id);
-        state.bytes += len;
-        while state.bytes > self.budget {
-            let Some((_, oldest)) = state.by_use.pop_first() else {
+        state.segments.insert(
+            id,
+            Retained {
+                buffer: buffer.clone(),
+                used: AtomicBool::new(false),
+            },
+        );
+        state.queue.push_back(id);
+        self.bytes.fetch_add(len, Ordering::Relaxed);
+        // Two passes over the shard's queue clear every mark once, so the loop ends even when
+        // the shard holds only the inserted segment.
+        let mut visits = 2 * state.queue.len();
+        while visits > 0 && self.bytes.load(Ordering::Relaxed) > self.budget {
+            visits -= 1;
+            let Some(oldest) = state.queue.pop_front() else {
                 break;
             };
-            if let Some((evicted, _)) = state.segments.remove(&oldest) {
-                state.bytes -= evicted.len() as u64;
+            let Some(retained) = state.segments.get(&oldest) else {
+                continue;
+            };
+            // The segment being inserted is about to be used, and a segment used since it was
+            // queued goes to the back once, unmarked.
+            if oldest == id || retained.used.swap(false, Ordering::Relaxed) {
+                state.queue.push_back(oldest);
+                continue;
+            }
+            if let Some(evicted) = state.segments.remove(&oldest) {
+                self.bytes
+                    .fetch_sub(evicted.buffer.len() as u64, Ordering::Relaxed);
             }
         }
     }
@@ -126,7 +171,7 @@ mod tests {
 
     #[test]
     fn evicts_least_recently_used_past_budget() {
-        let retained = RetainedSegments::new(400);
+        let retained = RetainedSegments::with_shards(400, 1);
         retained.insert(SegmentId::from(0), &buffer(100));
         retained.insert(SegmentId::from(1), &buffer(100));
         retained.insert(SegmentId::from(2), &buffer(100));
@@ -142,8 +187,39 @@ mod tests {
     }
 
     #[test]
+    fn evicts_within_budget_when_every_segment_was_used() {
+        let retained = RetainedSegments::with_shards(400, 1);
+        for id in 0..4 {
+            retained.insert(SegmentId::from(id), &buffer(100));
+        }
+        for id in 0..4 {
+            assert!(retained.get(SegmentId::from(id)).is_some(), "segment {id}");
+        }
+        // Every queued segment was used, so each gets its second chance, and the oldest goes.
+        retained.insert(SegmentId::from(4), &buffer(100));
+
+        assert!(retained.get(SegmentId::from(0)).is_none());
+        for id in 1..5 {
+            assert!(retained.get(SegmentId::from(id)).is_some(), "segment {id}");
+        }
+    }
+
+    #[test]
+    fn shards_share_one_budget() {
+        let retained = RetainedSegments::with_shards(400, 4);
+        for id in 0..8 {
+            retained.insert(SegmentId::from(id), &buffer(100));
+        }
+        let kept = (0..8)
+            .filter(|id| retained.get(SegmentId::from(*id)).is_some())
+            .count();
+        assert_eq!(kept, 4);
+        assert!(retained.get(SegmentId::from(7)).is_some());
+    }
+
+    #[test]
     fn skips_segments_over_a_quarter_of_the_budget() {
-        let retained = RetainedSegments::new(400);
+        let retained = RetainedSegments::with_shards(400, 1);
         retained.insert(SegmentId::from(0), &buffer(101));
         assert!(retained.get(SegmentId::from(0)).is_none());
     }
