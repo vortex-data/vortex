@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# IS [NOT] DISTINCT FROM, which DuckDB also uses for IS [NOT] TRUE/FALSE
+
+include ./setup.slt.no
+
+statement ok
+COPY (SELECT * FROM (VALUES
+    (1, 1, 1, true),
+    (2, 2, 3, false),
+    (3, NULL, NULL, NULL),
+    (4, 1, NULL, NULL),
+    (5, NULL, 2, true)
+) AS t(id, x, y, flag)) TO '${WORK_DIR}/is_distinct_from.vortex';
+
+onlyif duckdb
+query TT
+EXPLAIN (FORMAT JSON)
+SELECT id FROM '${WORK_DIR}/is_distinct_from.vortex' WHERE x IS DISTINCT FROM 1;
+----
+<!REGEX>:.*FILTER.*
+
+query I
+SELECT id FROM '${WORK_DIR}/is_distinct_from.vortex' WHERE x IS DISTINCT FROM 1 ORDER BY id;
+----
+2
+3
+5
+
+query I
+SELECT id FROM '${WORK_DIR}/is_distinct_from.vortex' WHERE x IS NOT DISTINCT FROM NULL ORDER BY id;
+----
+3
+5
+
+onlyif duckdb
+query TT
+EXPLAIN (FORMAT JSON)
+SELECT id FROM '${WORK_DIR}/is_distinct_from.vortex' WHERE x IS NOT DISTINCT FROM y;
+----
+<!REGEX>:.*FILTER.*
+
+query I
+SELECT id FROM '${WORK_DIR}/is_distinct_from.vortex' WHERE x IS NOT DISTINCT FROM y ORDER BY id;
+----
+1
+3
+
+query I
+SELECT id FROM '${WORK_DIR}/is_distinct_from.vortex' WHERE NOT (x IS DISTINCT FROM 1) ORDER BY id;
+----
+1
+4
+
+onlyif duckdb
+query TT
+EXPLAIN (FORMAT JSON)
+SELECT id FROM '${WORK_DIR}/is_distinct_from.vortex' WHERE flag IS TRUE;
+----
+<!REGEX>:.*FILTER.*
+
+query I
+SELECT id FROM '${WORK_DIR}/is_distinct_from.vortex' WHERE flag IS TRUE ORDER BY id;
+----
+1
+5
+
+query I
+SELECT id FROM '${WORK_DIR}/is_distinct_from.vortex' WHERE flag IS NOT TRUE ORDER BY id;
+----
+2
+3
+4
