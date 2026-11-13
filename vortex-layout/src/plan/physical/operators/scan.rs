@@ -21,6 +21,7 @@ use crate::plan::physical::operator::Source;
 use crate::plan::physical::operator::SourceBlocked;
 use crate::plan::physical::operator::SourceReady;
 use crate::plan::physical::operator::Step;
+use crate::plan::physical::pipeline::DecodedSegments;
 use crate::segments::SegmentId;
 
 /// Decodes the whole of a scan's segment.
@@ -58,12 +59,20 @@ fn select(
 }
 
 /// Reads one segment, decodes it, and emits its rows of `slice`, filtered by `filter`.
+///
+/// A decode another reader of the file kept in `decoded` is used without reading the segment,
+/// and this reader's own decode is kept there for the readers after it.
 pub(crate) struct ScanSource {
     plan: SegmentScanPlan,
     slice: Option<Range<usize>>,
     filter: Option<Mask>,
+    decoded: DecodedSegments,
+    /// The root rows of the split reading the segment, which its decode is kept for.
+    reader_rows: Range<u64>,
     /// The segment to read, until it has been asked for.
     unread: Option<SegmentId>,
+    /// The whole segment, already decoded by another reader.
+    kept: Option<ArrayRef>,
     /// The segment has been emitted.
     done: bool,
 }
@@ -73,12 +82,17 @@ impl ScanSource {
         plan: SegmentScanPlan,
         slice: Option<Range<usize>>,
         filter: Option<Mask>,
+        decoded: DecodedSegments,
+        reader_rows: Range<u64>,
     ) -> Self {
         Self {
             unread: Some(plan.segment_id()),
             plan,
             slice,
             filter,
+            decoded,
+            reader_rows,
+            kept: None,
             done: false,
         }
     }
@@ -87,10 +101,16 @@ impl ScanSource {
 impl Source for ScanSource {
     fn ready(&mut self, cx: &mut Cx<'_>) -> VortexResult<SourceReady> {
         if let Some(segment) = self.unread.take() {
+            if let Some(array) = self.decoded.get(segment, &self.reader_rows)
+                && array.len() as u64 == self.plan.row_count()
+            {
+                self.kept = Some(array);
+                return Ok(SourceReady::Ready);
+            }
             cx.request_read(segment);
             return Ok(SourceReady::Blocked(SourceBlocked::Io));
         }
-        Ok(if self.done || cx.has_bytes() {
+        Ok(if self.done || self.kept.is_some() || cx.has_bytes() {
             SourceReady::Ready
         } else {
             SourceReady::Blocked(SourceBlocked::Io)
@@ -103,11 +123,18 @@ impl Operator for ScanSource {
         if self.done {
             return Ok(Step::End);
         }
-        let (_, bytes) = cx
-            .take_segment()
-            .ok_or_else(|| vortex_err!("Segment scan ran without its bytes"))?;
         self.done = true;
-        let array = decode(&self.plan, bytes, cx.session())?;
+        let array = match self.kept.take() {
+            Some(array) => array,
+            None => {
+                let (_, bytes) = cx
+                    .take_segment()
+                    .ok_or_else(|| vortex_err!("Segment scan ran without its bytes"))?;
+                let array = decode(&self.plan, bytes, cx.session())?;
+                self.decoded
+                    .insert(self.plan.segment_id(), array, &self.reader_rows)
+            }
+        };
         Ok(Step::Final(select(
             array,
             self.slice.as_ref(),

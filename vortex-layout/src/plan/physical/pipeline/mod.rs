@@ -39,6 +39,7 @@
 //! lives only as long as a split that may still read it.
 
 mod compile;
+mod decoded;
 mod port;
 mod scan;
 pub mod synthetic;
@@ -47,6 +48,7 @@ mod values;
 pub use self::compile::Chain;
 pub use self::compile::Compiler;
 pub(crate) use self::compile::overlapping;
+pub use self::decoded::DecodedSegments;
 pub(super) use self::port::Arena;
 pub use self::port::Inlet;
 pub(super) use self::port::PortId;
