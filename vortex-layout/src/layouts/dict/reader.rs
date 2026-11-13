@@ -24,6 +24,7 @@ use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::bound::pack as bound_pack;
 use vortex_array::expr::root;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -41,6 +42,8 @@ use crate::LayoutReaderRef;
 use crate::RowSplits;
 use crate::SplitRange;
 use crate::arrays::shared::Shared;
+use crate::arrays::shared::SharedArrayExt;
+use crate::arrays::shared::SharedArraySlotsExt;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 
@@ -164,7 +167,13 @@ impl DictReader {
             .or_insert_with(|| {
                 self.values_array_uncanonical()
                     .map(move |array| {
-                        let array = array?.apply_bound(&expr)?;
+                        let array = array?;
+                        let array = if expr.contains::<Like>()? {
+                            array
+                        } else {
+                            unshared(array)
+                        };
+                        let array = array.apply_bound(&expr)?;
                         Ok(Shared::new(array).into_array())
                     })
                     .boxed()
@@ -173,6 +182,44 @@ impl DictReader {
             .clone()
     }
 }
+
+/// A [`Shared`] values array decodes all of its values the first time any of them is needed,
+/// which blocks the kernels its source encoding has for the expression applied over it. Until
+/// it is decoded, apply the expression to the source instead.
+///
+/// `LIKE` keeps the shared array: string sources such as OnPair have no `LIKE` kernel, so
+/// matching on the source would decode every value without caching them, and a projection of
+/// the same column would decode them again.
+fn unshared(values: ArrayRef) -> ArrayRef {
+    match values.as_opt::<Shared>() {
+        Some(shared) => shared.current_array_ref().clone(),
+        None => values,
+    }
+}
+
+/// The shared values array decodes every value the first time a projection needs any of them,
+/// to reuse them across the layout's splits. A selective filter can leave a projection
+/// referencing only a few values, which the source encoding's take kernel decodes on their own.
+///
+/// When this projection covers the whole layout, other splits of a scan do not reuse its
+/// decoded values, so take from the undecoded source if its codes are fewer than
+/// `1 / SPARSE_TAKE_DENOMINATOR` of the values. The shared array stays undecoded, so a later
+/// projection of the whole layout takes from the source again rather than reusing a decode.
+/// Across several splits, a source without a sparse take kernel would decode every value once
+/// per split, so those keep the shared array.
+fn sparse_values(values: &ArrayRef, codes_len: usize, whole_layout: bool) -> Option<ArrayRef> {
+    if !whole_layout {
+        return None;
+    }
+    let shared = values.as_opt::<Shared>()?;
+    if shared.is_computed() {
+        return None;
+    }
+    (codes_len.saturating_mul(SPARSE_TAKE_DENOMINATOR) < values.len())
+        .then(|| shared.source().clone())
+}
+
+const SPARSE_TAKE_DENOMINATOR: usize = 4;
 
 // On expression pushdown, "inner" is packed as field with this name.
 // "outer" expects this name as input.
@@ -329,8 +376,10 @@ impl LayoutReader for DictReader {
         };
         let all_values_referenced = self.layout.has_all_values_referenced();
         let session = self.session.clone();
+        let whole_layout = row_range.start == 0 && row_range.end == self.layout.row_count();
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
+            let values = sparse_values(&values, codes.len(), whole_layout).unwrap_or(values);
 
             // SAFETY: Layout was validated at write time.
             //  * The codes dtype is guaranteed to be an integer type from the layout
@@ -369,6 +418,7 @@ mod tests {
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldNames;
@@ -385,6 +435,7 @@ mod tests {
     use vortex_array::expr::is_not_null;
     use vortex_array::expr::like;
     use vortex_array::expr::lit;
+    use vortex_array::expr::not_eq;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::validity::Validity;
@@ -394,11 +445,16 @@ mod tests {
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::LayoutId;
+    use crate::LayoutReaderRef;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
+    use crate::arrays::shared::Shared;
+    use crate::arrays::shared::SharedArrayExt;
+    use crate::layouts::dict::reader::DictReader;
     use crate::layouts::dict::reader::PUSHDOWN_ANNOTATION;
     use crate::layouts::dict::reader::split_expression_for_pushdown;
     use crate::layouts::dict::writer::DictLayoutOptions;
@@ -743,6 +799,127 @@ mod tests {
                 .unwrap()
                 .into_array();
             assert_arrays_eq!(actual, expected, &mut ctx);
+        })
+    }
+
+    /// Whether the dictionary reader's shared values array has decoded every value.
+    fn shared_values_decoded(reader: &LayoutReaderRef) -> bool {
+        reader
+            .as_any()
+            .downcast_ref::<DictReader>()
+            .and_then(|dict| dict.values_array.get())
+            .and_then(|values| values.peek().cloned())
+            .and_then(Result::ok)
+            .is_some_and(|values| {
+                values
+                    .as_opt::<Shared>()
+                    .is_some_and(|shared| shared.is_computed())
+            })
+    }
+
+    fn many_values() -> ArrayRef {
+        VarBinArray::from_iter(
+            (0..16384)
+                .map(|i| (i % 7 != 0).then(|| format!("https://example.com/page/{}", i % 256))),
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array()
+    }
+
+    /// A selective mask projects through the undecoded values; a dense one afterwards still sees
+    /// every value.
+    #[test]
+    fn sparse_then_dense_projection() -> VortexResult<()> {
+        let array = many_values();
+        block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
+            let (layout, segments) = write_dict_layout(array.clone(), &session).await;
+            assert_eq!(layout.encoding_id().as_ref(), "vortex.dict");
+            let reader = layout.new_reader("".into(), segments, &session, &Default::default())?;
+            let expression = root().bind(reader.dtype())?;
+            let rows = 0..layout.row_count();
+
+            let sparse = Mask::from_indices(array.len(), [3, 1000, 9001, 16383]);
+            let actual = reader
+                .projection_evaluation(&rows, &expression, MaskFuture::ready(sparse.clone()))?
+                .await?;
+            assert_arrays_eq!(actual, array.filter(sparse)?, &mut ctx);
+            assert!(!shared_values_decoded(&reader));
+
+            let actual = reader
+                .projection_evaluation(&rows, &expression, MaskFuture::new_true(array.len()))?
+                .await?;
+            assert_arrays_eq!(actual, array, &mut ctx);
+            assert!(shared_values_decoded(&reader));
+            Ok(())
+        })
+    }
+
+    /// A filter over the dictionary values applies to the undecoded source once a projection has
+    /// shared them.
+    #[test]
+    fn filter_after_projection() -> VortexResult<()> {
+        let array = many_values();
+        let expected = array
+            .clone()
+            .apply(&not_eq(root(), lit("https://example.com/page/5")))?;
+        block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
+            let (layout, segments) = write_dict_layout(array.clone(), &session).await;
+            assert_eq!(layout.encoding_id().as_ref(), "vortex.dict");
+            let reader = layout.new_reader("".into(), segments, &session, &Default::default())?;
+            let rows = 0..layout.row_count();
+
+            let projection = root().bind(reader.dtype())?;
+            drop(reader.projection_evaluation(
+                &rows,
+                &projection,
+                MaskFuture::new_true(array.len()),
+            )?);
+
+            let filter = not_eq(root(), lit("https://example.com/page/5")).bind(reader.dtype())?;
+            let actual = reader
+                .filter_evaluation(&rows, &filter, MaskFuture::new_true(array.len()))?
+                .await?;
+            let expected = expected.fill_null(false)?.execute::<Mask>(&mut ctx)?;
+            assert_eq!(actual, expected);
+            assert!(!shared_values_decoded(&reader));
+            Ok(())
+        })
+    }
+
+    /// A `LIKE` filter decodes the shared values once, so a projection of the same layout reuses
+    /// them instead of decoding them again.
+    #[test]
+    fn like_filter_shares_decoded_values() -> VortexResult<()> {
+        let array = many_values();
+        let pattern = like(root(), lit("%/page/1%"));
+        let expected = array.clone().apply(&pattern)?;
+        block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
+            let (layout, segments) = write_dict_layout(array.clone(), &session).await;
+            assert_eq!(layout.encoding_id().as_ref(), "vortex.dict");
+            let reader = layout.new_reader("".into(), segments, &session, &Default::default())?;
+            let rows = 0..layout.row_count();
+
+            let projection = root().bind(reader.dtype())?;
+            drop(reader.projection_evaluation(
+                &rows,
+                &projection,
+                MaskFuture::new_true(array.len()),
+            )?);
+
+            let filter = pattern.bind(reader.dtype())?;
+            let actual = reader
+                .filter_evaluation(&rows, &filter, MaskFuture::new_true(array.len()))?
+                .await?;
+            let expected = expected.fill_null(false)?.execute::<Mask>(&mut ctx)?;
+            assert_eq!(actual, expected);
+            assert!(shared_values_decoded(&reader));
+            Ok(())
         })
     }
 

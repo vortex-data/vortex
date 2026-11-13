@@ -53,6 +53,11 @@ pub trait SharedArrayExt: TypedArrayRef<Shared> {
         }
     }
 
+    /// Whether the shared result has been computed, successfully or not.
+    fn is_computed(&self) -> bool {
+        self.cached.get().is_some()
+    }
+
     fn get_or_compute(
         &self,
         f: impl FnOnce(&ArrayRef) -> VortexResult<Canonical>,
