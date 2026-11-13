@@ -204,6 +204,9 @@ jobs:
         env:
           RUST_BACKTRACE: full
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+          # Authenticated Hub reads get a higher rate limit than anonymous ones. Only
+          # string-bench reads from the Hub; without the secret (e.g. fork PRs) reads are anonymous.
+          HF_TOKEN: ${{ matrix.benchmark.id == 'string-bench' && secrets.HF_TOKEN || '' }}
         run: |
           bench="${{ matrix.benchmark.id }}"
           python3 "scripts/${bench%-bench}-split.py" --prepare-data \
