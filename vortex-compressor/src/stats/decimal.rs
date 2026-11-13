@@ -3,13 +3,13 @@
 
 //! Decimal compression statistics.
 //!
-//! Decimals stored in integer types take the integer statistics pass. `i128` decimals take the
-//! chunked scan of that pass for runs and distinct values, without its bounds. `i256` decimals,
-//! which are not primitive integers, take a scalar pass.
+//! Decimals stored in integer types take the integer statistics pass. When the distinct values
+//! are counted, `i128` decimals take the chunked scan of that pass, without its bounds, and `i256`
+//! decimals, which are not primitive integers, take a scalar pass. Both count the runs with the
+//! distinct values, which the dictionary cost model reads, as the integer statistics do.
 
 use std::hash::Hash;
 
-use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::DecimalArray;
@@ -22,12 +22,12 @@ use vortex_array::dtype::i256;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
-use vortex_utils::aliases::hash_map::HashMap;
+use vortex_mask::Mask;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use super::GenerateStatsOptions;
 use super::IntegerStats;
 use super::integer::Counter;
-use super::integer::NoCounter;
 use super::integer::scan;
 
 /// Decimal array statistics for compression.
@@ -37,10 +37,17 @@ pub struct DecimalStats {
     null_count: u32,
     /// Cache for `validity.true_count()`.
     value_count: u32,
-    /// The average run length.
+    /// The distinct valid values and runs, or `None` if not computed.
+    distinct: Option<Distinct>,
+}
+
+/// The distinct valid values of a decimal array and its runs.
+#[derive(Debug, Clone, Copy)]
+struct Distinct {
+    /// The count of distinct valid values.
+    count: u32,
+    /// The average length of runs of equal consecutive valid values.
     average_run_length: u32,
-    /// The count of distinct valid values, or `None` if not computed.
-    distinct_count: Option<u32>,
 }
 
 impl DecimalStats {
@@ -70,8 +77,8 @@ impl DecimalStats {
             DecimalType::I16 => integer_stats::<i16>(input, opts, ctx),
             DecimalType::I32 => integer_stats::<i32>(input, opts, ctx),
             DecimalType::I64 => integer_stats::<i64>(input, opts, ctx),
-            DecimalType::I128 => wide_stats::<i128>(input, opts, ctx),
-            DecimalType::I256 => i256_stats(input, opts, ctx),
+            DecimalType::I128 => wide_stats(input, opts, ctx, i128_distinct),
+            DecimalType::I256 => wide_stats(input, opts, ctx, i256_distinct),
         }
     }
 
@@ -85,14 +92,15 @@ impl DecimalStats {
         self.value_count
     }
 
-    /// Returns the average run length.
-    pub fn average_run_length(&self) -> u32 {
-        self.average_run_length
-    }
-
     /// Returns the count of distinct valid values, if computed.
     pub fn distinct_count(&self) -> Option<u32> {
-        self.distinct_count
+        self.distinct.map(|distinct| distinct.count)
+    }
+
+    /// Returns the average length of runs of equal consecutive valid values, if computed with the
+    /// distinct values.
+    pub fn average_run_length(&self) -> Option<u32> {
+        self.distinct.map(|distinct| distinct.average_run_length)
     }
 }
 
@@ -108,80 +116,73 @@ fn integer_stats<T: NativeDecimalType + NativePType>(
     Ok(DecimalStats {
         null_count: stats.null_count(),
         value_count: stats.value_count(),
-        average_run_length: stats.average_run_length(),
-        distinct_count: stats.distinct_count(),
+        distinct: stats.distinct_count().map(|count| Distinct {
+            count,
+            average_run_length: stats.average_run_length(),
+        }),
     })
 }
 
-/// Computes the stats of decimals wider than any integer type with the chunked scan of the
-/// integer statistics, which counts their runs and, if requested, their distinct values.
-fn wide_stats<T: NativeDecimalType + Hash + PrimInt>(
+/// Computes the stats of decimals stored wider than 64 bits, counting the distinct values and
+/// runs with `distinct` when requested.
+fn wide_stats(
     input: &DecimalArray,
     opts: GenerateStatsOptions,
     ctx: &mut ExecutionCtx,
+    distinct: fn(&DecimalArray, &Mask) -> VortexResult<(u32, u32)>,
 ) -> VortexResult<DecimalStats> {
     let validity = input.validity()?.execute_mask(input.len(), ctx)?;
     let value_count = u32::try_from(validity.true_count())?;
     let null_count = u32::try_from(validity.false_count())?;
 
-    if value_count == 0 {
-        return Ok(DecimalStats {
-            null_count,
-            value_count,
+    let distinct = if !opts.count_distinct_values {
+        None
+    } else if value_count == 0 {
+        Some(Distinct {
+            count: 0,
             average_run_length: 0,
-            distinct_count: opts.count_distinct_values.then_some(0),
-        });
-    }
-
-    let buffer = input.buffer::<T>();
-    let values = buffer.as_slice();
-    let (runs, distinct_count) = if opts.count_distinct_values {
-        let mut counter = DistinctCounter::<T>::new(values.len());
-        let runs = scan::<T, _, false, true>(values, &validity, &mut counter).runs;
-        (runs, Some(u32::try_from(counter.0.len())?))
+        })
     } else {
-        (
-            scan::<T, _, false, true>(values, &validity, &mut NoCounter).runs,
-            None,
-        )
+        let (count, runs) = distinct(input, &validity)?;
+        Some(Distinct {
+            count,
+            average_run_length: value_count / runs,
+        })
     };
 
     Ok(DecimalStats {
         null_count,
         value_count,
-        average_run_length: value_count / runs,
-        distinct_count,
+        distinct,
     })
 }
 
-/// Computes the stats of `i256` decimals.
+/// Returns the count of distinct valid `i128` values and the runs, with the chunked scan of the
+/// integer statistics. `validity` has at least one valid value.
+fn i128_distinct(input: &DecimalArray, validity: &Mask) -> VortexResult<(u32, u32)> {
+    let buffer = input.buffer::<i128>();
+    let mut distinct = DistinctSet::with_capacity(buffer.len());
+    let runs = scan::<i128, _, false, true>(buffer.as_slice(), validity, &mut distinct).runs;
+    Ok((u32::try_from(distinct.0.len())?, runs))
+}
+
+/// Returns the count of distinct valid `i256` values and the runs. `validity` has at least one
+/// valid value.
 ///
-/// `i256` is not a primitive integer, so it cannot take the chunked integer pass, which keeps
-/// integer bounds. Making that pass generic over the bounds slowed the integer statistics, so
-/// `i256` takes this scalar pass, which also counts each run once.
-fn i256_stats(
-    input: &DecimalArray,
-    opts: GenerateStatsOptions,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<DecimalStats> {
-    let validity = input.validity()?.execute_mask(input.len(), ctx)?;
-    let value_count = u32::try_from(validity.true_count())?;
-    let null_count = u32::try_from(validity.false_count())?;
+/// `i256` is not a primitive integer, so it cannot take the chunked scan of the integer
+/// statistics, which keeps integer bounds. Making that scan generic over the bounds slowed the
+/// integer statistics, so `i256` takes this scalar pass, which also visits the set once per run.
+fn i256_distinct(input: &DecimalArray, validity: &Mask) -> VortexResult<(u32, u32)> {
     let buffer = input.buffer::<i256>();
     let values = buffer.as_slice();
-
-    let mut counter = opts
-        .count_distinct_values
-        .then(|| DistinctCounter::<i256>::new(values.len()));
+    let mut distinct = DistinctSet::with_capacity(values.len());
     let mut runs = 0u32;
     let mut prev = None;
     let mut visit = |value: i256| {
         if prev != Some(value) {
             runs += 1;
             prev = Some(value);
-            if let Some(counter) = counter.as_mut() {
-                counter.add(value, 1);
-            }
+            distinct.add(value, 1);
         }
     };
     match validity.indices() {
@@ -189,32 +190,24 @@ fn i256_stats(
         AllOr::None => {}
         AllOr::Some(indices) => indices.iter().for_each(|&idx| visit(values[idx])),
     }
-
-    Ok(DecimalStats {
-        null_count,
-        value_count,
-        average_run_length: value_count.checked_div(runs).unwrap_or(0),
-        distinct_count: counter
-            .map(|counter| u32::try_from(counter.0.len()))
-            .transpose()?,
-    })
+    Ok((u32::try_from(distinct.0.len())?, runs))
 }
 
-/// Counts the occurrences of each distinct wide decimal value.
-struct DistinctCounter<T>(HashMap<T, u32, FxBuildHasher>);
+/// The distinct values of a wide decimal array.
+struct DistinctSet<T>(HashSet<T, FxBuildHasher>);
 
-impl<T> DistinctCounter<T> {
-    /// Creates a counter sized like the integer statistics' hash counter.
-    fn new(len: usize) -> Self {
-        Self(HashMap::with_capacity_and_hasher(len / 2, FxBuildHasher))
+impl<T> DistinctSet<T> {
+    /// Creates a set sized like the integer statistics' hash counter.
+    fn with_capacity(len: usize) -> Self {
+        Self(HashSet::with_capacity_and_hasher(len / 2, FxBuildHasher))
     }
 }
 
-impl<T: Eq + Hash> Counter<T> for DistinctCounter<T> {
+impl<T: Eq + Hash> Counter<T> for DistinctSet<T> {
     #[allow(clippy::inline_always)]
     #[inline(always)]
-    fn add(&mut self, value: T, count: u32) {
-        *self.0.entry(value).or_insert(0) += count;
+    fn add(&mut self, value: T, _count: u32) {
+        self.0.insert(value);
     }
 }
 
@@ -334,25 +327,35 @@ mod tests {
         DecimalDType::new(76, 2),
         Validity::NonNullable,
     ))]
+    #[case::i128(DecimalArray::new(
+        buffer![1i128, 1, 1, 2, 2, 3, 3, 3],
+        DecimalDType::new(38, 2),
+        Validity::NonNullable,
+    ))]
     fn counts_runs(#[case] array: DecimalArray) {
         let mut ctx = SESSION.create_execution_ctx();
-        let stats = DecimalStats::generate(&array, &mut ctx);
+        let stats = DecimalStats::generate_opts(&array, COUNT_DISTINCT, &mut ctx);
         // 8 values in 3 runs.
-        assert_eq!(stats.average_run_length(), 2);
-        assert_eq!(stats.distinct_count(), None);
+        assert_eq!(stats.average_run_length(), Some(2));
+        assert_eq!(stats.distinct_count(), Some(3));
     }
 
-    #[test]
-    fn skips_distinct_values_unless_requested() {
+    #[rstest]
+    #[case::i128(DecimalArray::new(
+        buffer![5i128, 7, 5],
+        DecimalDType::new(38, 2),
+        Validity::NonNullable,
+    ))]
+    #[case::i256(DecimalArray::new(
+        Buffer::copy_from([5, 7, 5].map(|v| i256::from_parts(v, 1))),
+        DecimalDType::new(76, 2),
+        Validity::NonNullable,
+    ))]
+    fn skips_distinct_values_unless_requested(#[case] array: DecimalArray) {
         let mut ctx = SESSION.create_execution_ctx();
-        let array = DecimalArray::new(
-            buffer![5i64, 7, 5],
-            DecimalDType::new(18, 2),
-            Validity::NonNullable,
-        );
-        assert_eq!(
-            DecimalStats::generate(&array, &mut ctx).distinct_count(),
-            None
-        );
+        let stats = DecimalStats::generate(&array, &mut ctx);
+        assert_eq!(stats.value_count(), 3);
+        assert_eq!(stats.distinct_count(), None);
+        assert_eq!(stats.average_run_length(), None);
     }
 }

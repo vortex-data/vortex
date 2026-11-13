@@ -12,7 +12,6 @@ mod string;
 
 pub use binary::BinaryDictScheme;
 pub use decimal::DecimalDictScheme;
-pub use decimal::low_cardinality_decimal;
 pub use float::FloatDictScheme;
 pub use float::dictionary_encode as float_dictionary_encode;
 pub use integer::IntDictScheme;
