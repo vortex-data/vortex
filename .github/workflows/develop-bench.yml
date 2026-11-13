@@ -110,7 +110,7 @@ jobs:
             build_args: "--features lance"
             v4_ingest: true
             remote_data_dir: >-
-              s3://vortex-ci-benchmark-datasets/develop/random-access/
+              s3://vortex-ci-benchmark-datasets/develop/${{ github.run_id }}-${{ github.run_attempt }}/random-access/
           - id: compress-bench
             name: Compression
             build_args: "--features lance"
