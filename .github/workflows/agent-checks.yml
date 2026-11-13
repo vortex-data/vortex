@@ -215,6 +215,9 @@ jobs:
         # files it finished and reverts edits to the rest.
         continue-on-error: true
         timeout-minutes: 80
+        env:
+          # TEMPORARY, with the push trigger: the action rejects `push` events.
+          GITHUB_EVENT_NAME: ${{ github.event_name == 'push' && 'workflow_dispatch' || github.event_name }}
         uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d  # v1.0.266
         with:
           # The claude-automation environment puts `environment:claude-automation` in the OIDC
