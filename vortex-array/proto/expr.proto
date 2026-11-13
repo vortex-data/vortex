@@ -32,6 +32,21 @@ message NumericalAggregateOpts {
   bool skip_nans = 1;
 }
 
+// A declared lexicographic ordering, checked by `vortex.is_compound_sorted`.
+message IsCompoundSortedOpts {
+  repeated SortField fields = 1;
+
+  message SortField {
+    string name = 1;
+    SortDirection direction = 2;
+  }
+
+  enum SortDirection {
+    ASC = 0;
+    DESC = 1;
+  }
+}
+
 // Options for `vortex.literal`
 message LiteralOpts {
   vortex.scalar.Scalar value = 1;

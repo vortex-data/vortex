@@ -31,6 +31,58 @@ pub struct NumericalAggregateOpts {
     #[prost(bool, tag = "1")]
     pub skip_nans: bool,
 }
+/// A declared lexicographic ordering, checked by `vortex.is_compound_sorted`.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct IsCompoundSortedOpts {
+    #[prost(message, repeated, tag = "1")]
+    pub fields: ::prost::alloc::vec::Vec<is_compound_sorted_opts::SortField>,
+}
+/// Nested message and enum types in `IsCompoundSortedOpts`.
+pub mod is_compound_sorted_opts {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct SortField {
+        #[prost(string, tag = "1")]
+        pub name: ::prost::alloc::string::String,
+        #[prost(enumeration = "SortDirection", tag = "2")]
+        pub direction: i32,
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum SortDirection {
+        Asc = 0,
+        Desc = 1,
+    }
+    impl SortDirection {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Asc => "ASC",
+                Self::Desc => "DESC",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "ASC" => Some(Self::Asc),
+                "DESC" => Some(Self::Desc),
+                _ => None,
+            }
+        }
+    }
+}
 /// Options for `vortex.literal`
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LiteralOpts {
