@@ -34,22 +34,23 @@ jobs:
     outputs:
       version: ${{ steps.detect.outputs.version }}
     steps:
-      - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex'
-        with:
-          sccache: s3
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
-        with:
-          role-to-assume: "arn:aws:iam::245040174862:role/GitHubCompatUploadRole"
-          aws-region: us-east-1
+      - parallel:
+          - uses: runs-on/action@v2
+            if: github.repository == 'vortex-data/vortex'
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              fetch-depth: 0
+      - parallel:
+          - uses: ./.github/actions/setup-prebuild
+            with:
+              enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+          - name: Configure AWS credentials
+            uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+            with:
+              role-to-assume: "arn:aws:iam::245040174862:role/GitHubCompatUploadRole"
+              aws-region: us-east-1
 
       - name: Detect version
         id: detect
@@ -86,22 +87,23 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex'
-        with:
-          sccache: s3
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
-        with:
-          role-to-assume: "arn:aws:iam::245040174862:role/GitHubCompatUploadRole"
-          aws-region: us-east-1
+      - parallel:
+          - uses: runs-on/action@v2
+            if: github.repository == 'vortex-data/vortex'
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              fetch-depth: 0
+      - parallel:
+          - uses: ./.github/actions/setup-prebuild
+            with:
+              enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+          - name: Configure AWS credentials
+            uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+            with:
+              role-to-assume: "arn:aws:iam::245040174862:role/GitHubCompatUploadRole"
+              aws-region: us-east-1
 
       - name: Upload fixtures for v${{ needs.dry-run.outputs.version }}
         run: |

@@ -77,29 +77,36 @@ jobs:
             packages+=(--bin lance-bench)
           fi
           cargo build "${packages[@]}" --profile release_debug
-      # duckdb-bench loads libduckdb.so through an absolute rpath into vortex-duckdb's build cache,
-      # so the bench jobs need it at the same path. The cache sits two levels above the build
-      # script's OUT_DIR, which moves with the cargo build-dir layout, so search for it. Without
-      # this check a missing library is left out of the artifact silently, and every DuckDB
-      # benchmark fails later.
-      - name: Check libduckdb is packaged
+      # upload-artifact would zip these with single-threaded zlib, which took 89s. Multi-threaded
+      # zstd is much faster, and the tar keeps the executable bits.
+      - name: Package binaries
         shell: bash
         run: |
-          if [ -z "$(find target/release_debug/build -path '*/vortex-duckdb-cache/duckdb-lib-*/libduckdb.so' -print -quit)" ]; then
+          set -Eeuo pipefail
+          cd target/release_debug
+          files=(data-gen datafusion-bench duckdb-bench vx)
+          # lance-bench is not built for PRs.
+          if [ -f lance-bench ]; then
+            files+=(lance-bench)
+          fi
+          # duckdb-bench loads libduckdb.so through an absolute rpath into vortex-duckdb's build
+          # cache, so it must be unpacked at the same path. That cache sits two levels above the
+          # build script's OUT_DIR, and the cargo build-dir layout decides where that is: search
+          # for it rather than hard-code it.
+          mapfile -t libduckdb < <(find build -path '*/vortex-duckdb-cache/duckdb-lib-*/libduckdb.so')
+          if [ "${#libduckdb[@]}" -eq 0 ]; then
             echo "::error::libduckdb.so not found under target/release_debug/build"
             exit 1
           fi
+          files+=("${libduckdb[@]}")
+          tar -I 'zstd -T0 -3' -cf "$GITHUB_WORKSPACE/bench-binaries.tar.zst" "${files[@]}"
       - name: Upload binaries
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: bench-binaries
-          path: |
-            target/release_debug/data-gen
-            target/release_debug/datafusion-bench
-            target/release_debug/duckdb-bench
-            target/release_debug/lance-bench
-            target/release_debug/vx
-            target/release_debug/build/**/vortex-duckdb-cache/duckdb-lib-*/libduckdb.so
+          path: bench-binaries.tar.zst
+          compression-level: 0
+          if-no-files-found: error
 
   # The debuginfo upload takes several minutes. Running it in its own job keeps it off the path
   # to the bench jobs; Polar Signals matches debuginfo to profiles by build ID whenever it lands.
@@ -122,7 +129,13 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: bench-binaries
-          path: target/release_debug/
+      - name: Unpack binaries
+        shell: bash
+        run: |
+          command -v zstd >/dev/null || { sudo apt-get update && sudo apt-get install -y zstd; }
+          mkdir -p target/release_debug
+          tar -C target/release_debug --zstd -xf bench-binaries.tar.zst
+          rm bench-binaries.tar.zst
       - name: Pre-upload SQL benchmark debuginfo to Polar Signals
         uses: ./.github/actions/upload-parca-debuginfo
         continue-on-error: true
@@ -177,7 +190,6 @@ jobs:
             uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
             with:
               name: bench-binaries
-              path: target/release_debug/
           - name: Setup AWS CLI
             if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
             uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
@@ -187,9 +199,13 @@ jobs:
               # Expand session window, otherwise some large scale runs time out.
               role-duration-seconds: 7200
 
-      - name: Make binaries executable
+      - name: Unpack binaries
         shell: bash
-        run: chmod +x target/release_debug/*
+        run: |
+          command -v zstd >/dev/null || { sudo apt-get update && sudo apt-get install -y zstd; }
+          mkdir -p target/release_debug
+          tar -C target/release_debug --zstd -xf bench-binaries.tar.zst
+          rm bench-binaries.tar.zst
 
       # Base data that vx-bench caches (statpopgen, sorted ClickBench) is restored
       # from, or saved to, an S3 cache. Fork PRs have no AWS credentials and always regenerate.
