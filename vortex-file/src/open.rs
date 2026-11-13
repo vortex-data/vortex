@@ -512,14 +512,14 @@ impl VortexOpenOptions {
 
 #[cfg(test)]
 mod tests {
+    use std::alloc::AllocError;
+    use std::alloc::Allocator;
+    use std::alloc::Global;
     use std::alloc::Layout;
     use std::ptr::NonNull;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
-    use allocator_api2::alloc::AllocError;
-    use allocator_api2::alloc::Allocator;
-    use allocator_api2::alloc::Global;
     use futures::future::BoxFuture;
     use parking_lot::Mutex;
     use vortex_array::IntoArray;

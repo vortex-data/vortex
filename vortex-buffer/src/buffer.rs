@@ -20,6 +20,7 @@ use vortex_error::vortex_panic;
 
 use crate::Alignment;
 use crate::Allocation;
+use crate::BufferAllocator;
 use crate::BufferAllocatorRef;
 use crate::BufferBacking;
 use crate::BufferMut;
@@ -775,11 +776,17 @@ impl<T> FromIterator<T> for Buffer<T> {
     }
 }
 
-impl<T> From<Vec<T>> for Buffer<T>
+/// Adopts the vector's storage without copying.
+///
+/// `A` can be [`Global`](std::alloc::Global), [`StaticBufferAllocator`](crate::StaticBufferAllocator),
+/// or a [`BufferAllocatorRef`], so a `Vec` built with `Vec::with_capacity_in(n, allocator.clone())`
+/// keeps its allocator when it becomes a buffer.
+impl<T, A> From<Vec<T, A>> for Buffer<T>
 where
     T: Send + Sync + 'static,
+    A: BufferAllocator + Into<BufferAllocatorRef>,
 {
-    fn from(value: Vec<T>) -> Self {
+    fn from(value: Vec<T, A>) -> Self {
         const { assert!(size_of::<T>() != 0, "ZSTs are not supported") };
         let length = value.len();
         let alignment = Alignment::of::<T>();

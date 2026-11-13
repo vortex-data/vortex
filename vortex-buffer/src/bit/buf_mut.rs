@@ -816,7 +816,8 @@ impl FromIterator<bool> for BitBufferMut {
 
 #[cfg(test)]
 mod tests {
-    use allocator_api2::alloc::Global;
+    use std::alloc::Global;
+
     use rstest::rstest;
 
     use crate::BufferAllocatorRef;

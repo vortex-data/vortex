@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::alloc::AllocError;
+use std::alloc::Allocator;
+use std::alloc::Global;
 use std::alloc::Layout;
 use std::ptr::NonNull;
 use std::sync::Arc;
@@ -8,9 +11,6 @@ use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
-use allocator_api2::alloc::AllocError;
-use allocator_api2::alloc::Allocator;
-use allocator_api2::alloc::Global;
 use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
