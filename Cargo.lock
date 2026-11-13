@@ -4433,9 +4433,9 @@ dependencies = [
 
 [[package]]
 name = "fastlanes"
-version = "0.7.2"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fcb34a73abd2872401096bf65d13e8d26e0c9ca6166d5e2b11a314ba017cdef"
+checksum = "72b17a9745105c3ee766915d6e26989b7594e97f3c0cbcf7b28b116d4f2b4739"
 dependencies = [
  "const_for",
  "cpufeatures 0.3.1",
@@ -11322,7 +11322,7 @@ dependencies = [
  "arrow-array 59.3.2",
  "arrow-schema 59.3.2",
  "codspeed-divan-compat",
- "fastlanes 0.7.2",
+ "fastlanes 0.8.0",
  "mimalloc",
  "parquet 59.3.2",
  "rand 0.10.3",
@@ -11735,7 +11735,7 @@ dependencies = [
  "async-trait",
  "bindgen",
  "codspeed-criterion-compat-walltime",
- "fastlanes 0.7.2",
+ "fastlanes 0.8.0",
  "futures",
  "itertools 0.14.0",
  "memmap2",
@@ -11977,7 +11977,8 @@ name = "vortex-fastlanes"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
- "fastlanes 0.7.2",
+ "fastlanes 0.8.0",
+ "fearless_simd",
  "hegeltest",
  "itertools 0.14.0",
  "lending-iterator",
