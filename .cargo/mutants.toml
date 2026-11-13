@@ -1,0 +1,21 @@
+# cargo-mutants configuration (https://mutants.rs/), read by `cargo mutants`, the mutation
+# testing workflow and the mutation-testing agent skill (.agents/skills/mutation-testing).
+
+# Mutants that cannot change any observable result, so no test can catch them. Each entry says
+# why. Patterns match the mutant's name, `path:line:col: description`: name the file, the change
+# and the function, and match the line and column with `\d+` so the entry survives edits.
+exclude_re = [
+    # Choosing between decoding the whole chunk and decoding single indices: both return the same
+    # values, so moving the sparse/dense crossover only changes speed. `chunked_positions` caps
+    # each group at a chunk's length, so either path fits its buffers.
+    'encodings/fastlanes/src/take_chunks\.rs:\d+:\d+: replace > with (==|<|>=) in take_in_order$',
+    # `take_grouped` groups are not capped, and selective decoding fits only `FL_CHUNK_SIZE`
+    # values, so only moving the crossover by one (`>=`) is equivalent.
+    'encodings/fastlanes/src/take_chunks\.rs:\d+:\d+: replace > with >= in take_grouped$',
+    # A benchmark-tuned crossover: every use picks between decode paths with equal results or
+    # sizes a buffer by the same threshold, so replacing it changes only speed.
+    'encodings/fastlanes/src/bitpacking/compute/mod\.rs:\d+:\d+: replace unpack_chunk_threshold -> usize with ',
+    # With the first valid value at index 0, `chunk[..0].fill(..)` does nothing, so `> 0` and
+    # `>= 0` behave the same.
+    'encodings/fastlanes/src/lib\.rs:\d+:\d+: replace > with >= in backfill_leading_nulls$',
+]

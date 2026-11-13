@@ -7,6 +7,9 @@ Guidance for Claude, Codex and other coding agents working in the Vortex reposit
 - When asked to investigate a CI failure, especially via `/ci-failure-analysis`, use the
   `.agents/skills/ci-failure-analysis` skill. It is the source of truth for fetching logs,
   classifying failures, and attributing causation.
+- When asked to mutation-test code or close test gaps with cargo-mutants, especially via
+  `/mutation-testing`, use the `.agents/skills/mutation-testing` skill. It defines the scope
+  contract, the triage rules, and the report the caller reads.
 
 ## Overview
 

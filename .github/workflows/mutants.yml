@@ -34,6 +34,7 @@ permissions:
   contents: read
 
 env:
+  # Keep in step with CARGO_MUTANTS_VERSION in .agents/skills/mutation-testing/scripts/mutants.py.
   CARGO_MUTANTS_VERSION: "27.1.0"
   PACKAGE: ${{ inputs.package || 'vortex-fastlanes' }}
   SHARD_COUNT: 4
