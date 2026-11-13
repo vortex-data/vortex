@@ -9,7 +9,10 @@
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/default_stream.hpp>
 #include <rmm/cuda_stream.hpp>
+#include <rmm/mr/statistics_resource_adaptor.hpp>
+#include <rmm/resource_ref.hpp>
 
+#include <cuda/memory_resource>
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -57,6 +60,29 @@ void expect_values(cudf::column_view actual, cudf::column_view expected) {
     ASSERT_EQ(actual.type().id(), cudf::type_id::STRING);
     // Compare values and validity, allowing an otherwise redundant all-valid mask.
     CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(actual, expected);
+}
+
+/**
+ * Check that the caller's resource funds only returned buffers.
+ *
+ * Total allocations must remain live with the result and be released with it.
+ */
+void expect_output_only_allocations(std::vector<cudf::column_view> const &batches,
+                                   cudf::column_view expected) {
+    rmm::mr::statistics_resource_adaptor output_mr {
+        cuda::mr::any_resource<cuda::mr::device_accessible> {cudf::get_current_device_resource_ref()}};
+    auto const stream = cudf::test::get_default_stream();
+    auto result = vortex::cuda::concatenate_string_dictionaries(
+        batches, stream, rmm::device_async_resource_ref {output_mr});
+    stream.synchronize();
+    auto const bytes = output_mr.get_bytes_counter();
+    EXPECT_GT(bytes.value, 0);
+    EXPECT_EQ(bytes.total, bytes.value);
+    EXPECT_EQ(bytes.value, static_cast<int64_t>(result->alloc_size()));
+    expect_values(result->view(), expected);
+    result.reset();
+    stream.synchronize();
+    EXPECT_EQ(output_mr.get_bytes_counter().value, 0);
 }
 
 template <typename T>
@@ -233,6 +259,28 @@ TEST_F(ConcatenateStringDictionaries, PreflightOverflowAndIgnoredEmptyBatchKeys)
     expect_values(concatenate({metadata(0, max), source})->view(), single);
     strings combined {"key", "key"};
     expect_values(concatenate({source, metadata(0, max), source})->view(), combined);
+}
+
+TEST_F(ConcatenateStringDictionaries, OutputResourceForFixedWidthStrings) {
+    auto a = dictionary(strings {"z", "a"}.release(), numbers<int8_t> {1, 0}.release());
+    auto b = dictionary(strings {"b"}.release(), numbers<int16_t> {0}.release());
+    strings expected {"a", "z", "b"};
+    expect_output_only_allocations({a->view(), b->view()}, expected);
+}
+
+TEST_F(ConcatenateStringDictionaries, OutputResourceForVariableWidthStrings) {
+    auto a = dictionary(strings {"zz", "a"}.release(), numbers<int8_t> {1, 0}.release());
+    auto b = dictionary(strings {"bbb"}.release(), numbers<int16_t> {0}.release());
+    strings expected {"a", "zz", "bbb"};
+    expect_output_only_allocations({a->view(), b->view()}, expected);
+}
+
+TEST_F(ConcatenateStringDictionaries, OutputResourceForNullableStrings) {
+    auto a = dictionary(strings {"zz", "a"}.release(),
+                        numbers<int8_t> {{1, 0}, {true, false}}.release());
+    auto b = dictionary(strings {"bbb"}.release(), numbers<int16_t> {0}.release());
+    strings expected({"a", "", "bbb"}, {true, false, true});
+    expect_output_only_allocations({a->view(), b->view()}, expected);
 }
 
 TEST_F(ConcatenateStringDictionaries, NonDefaultConsumerStream) {
