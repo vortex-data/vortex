@@ -41,5 +41,6 @@ See `vortex_cuda.h` for ownership, synchronization, and error contracts.
 
 ## Generated header
 
-`build.rs` generates `cinclude/vortex_cuda.h` with cbindgen. Edit the Rust declarations in `src/` or `cbindgen.toml`
-and commit the regenerated header. It skips clang-format; CUDA CI checks for header drift.
+`build.rs` generates `cinclude/vortex_cuda.h` with cbindgen. Edit the Rust declarations in `src/`
+or `cbindgen.toml` and commit the regenerated header. It skips clang-format; CUDA CI checks for
+header drift.
