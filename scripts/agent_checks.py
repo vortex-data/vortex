@@ -702,7 +702,7 @@ Rules the runner enforces:
 
 def render_prompt(check: Check, plan: dict[str, Any], shard: dict[str, Any], results: str) -> str:
     base = plan["base_commit"]
-    out = [f"# Agent check `{check.id}` (version {check.version}): {check.title}\n", check.body]
+    out = [f"Agent check `{check.id}`, rubric version {check.version}.\n\n", check.body]
     if check.skills:
         names = ", ".join(f"`{s}`" for s in check.skills)
         out.append(f"\nLoad these skills before you start: {names}.\n")
@@ -1158,6 +1158,11 @@ def cmd_finalize(args: argparse.Namespace) -> int:
     plan = _read_dict(args.plan)
     check = check_from_plan(plan, args.check, now=_now(args))
     shard = find_shard(plan, args.check, args.shard)
+    if not Path(args.results).exists():
+        raise CheckError(
+            f"the agent wrote no results to {args.results}, so nothing is recorded and the shard is retried "
+            "on the next run; the agent step's log says why"
+        )
     results = validate_results(_read_json(args.results))
     out = finalize(
         check,

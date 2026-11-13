@@ -18,7 +18,9 @@ name: Agent Checks
 # agent finished. The state push retries against concurrent updates.
 #
 # Setup: the same `claude-automation` environment, App secrets and Anthropic variables as
-# fuzzer-fix-automation.yml. State lives on the orphan branch `agent-checks-state`, created on
+# fuzzer-fix-automation.yml. The `vortex-claude-write` federation rule must also allow this file as
+# `job_workflow_ref` (vortex-data/vortex/.github/workflows/agent-checks.yml@refs/heads/develop);
+# otherwise the agent's token exchange fails with 401. State lives on the orphan branch `agent-checks-state`, created on
 # the first run. TODO: replace the state branch with a store that supports atomic per-shard writes.
 
 on:
@@ -255,13 +257,19 @@ jobs:
           cp "$TRUSTED/out/state-update.json" "$TRUSTED/state-update/$CHECK--$SHARD.json"
 
       - name: Job summary
-        if: ${{ !cancelled() && steps.finalize.outcome == 'success' }}
+        if: ${{ !cancelled() }}
         env:
           HAS_EDITS: ${{ steps.finalize.outputs.has_edits }}
+          AGENT_OUTCOME: ${{ steps.claude.outcome }}
         run: |
           {
             echo "## $CHECK / $SHARD"
             echo
+            if [[ ! -f "$TRUSTED/out/body.md" ]]; then
+              echo "No results: the agent step finished with outcome \`$AGENT_OUTCOME\` and nothing was"
+              echo "recorded. The shard is offered again on the next run. See the **Run Claude** step."
+              exit 0
+            fi
             cat "$TRUSTED/out/body.md"
             if [[ "$HAS_EDITS" == "true" ]]; then
               echo

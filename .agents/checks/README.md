@@ -149,6 +149,14 @@ the record job writes it. Each file's entry holds:
 The state also holds the suppressed fingerprints. **TODO:** replace the branch with a store that
 supports atomic per-shard writes, so a run does not need serializing.
 
+## Setup
+
+The workflow uses the `claude-automation` environment, the GitHub App secrets, and the Anthropic
+variables that `fuzzer-fix-automation.yml` uses. The `vortex-claude-write` federation rule must
+list this workflow as an allowed `job_workflow_ref`,
+`vortex-data/vortex/.github/workflows/agent-checks.yml@refs/heads/develop`. Without it, every
+agent fails its token exchange with a 401, records nothing, and is retried the next day.
+
 ## Adding a check
 
 Create `.agents/checks/<id>/CHECK.md`, where `<id>` matches the `id` key. The file is TOML

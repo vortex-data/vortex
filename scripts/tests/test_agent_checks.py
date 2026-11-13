@@ -512,6 +512,7 @@ def test_prompt_lists_assignment_and_suppressions(repo: Path, tmp_path: Path):
     check = ac.load_checks(repo)["bench"]
     prompt = ac.render_prompt(check, p, ac.find_shard(p, "bench", "beta"), "/tmp/results.json")
     assert "Review the benchmarks." in prompt
+    assert prompt.startswith("Agent check `bench`, rubric version 1.")
     assert "`enc/beta/benches/x.rs` (1 lines): never reviewed" in prompt
     assert "`/tmp/results.json`" in prompt
     assert "Edits may touch only your assigned files." in prompt
