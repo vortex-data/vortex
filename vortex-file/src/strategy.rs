@@ -20,6 +20,7 @@ use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::collect::CollectStrategy;
 use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::compressed::CompressorPlugin;
+use vortex_layout::layouts::constant::ConstantStrategy;
 use vortex_layout::layouts::dict::writer::DictLayoutOptions;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -246,7 +247,8 @@ impl WriteStrategyBuilder {
         let full_compressor = compressors.full;
 
         // 2.1. | 3.1. compress stats tables and dict values.
-        let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&full_compressor));
+        let compress_then_flat =
+            CompressingStrategy::new(Arc::clone(&flat), Arc::clone(&full_compressor));
 
         // 3. apply dict encoding or fallback
         let probe_compressor = if let Some(probe_compressor) = self.probe_compressor {
@@ -290,12 +292,16 @@ impl WriteStrategyBuilder {
             },
         );
 
+        // 0.1. write a column with one value in all rows as one constant chunk, without the
+        // repartition steps that follow
+        let constant = ConstantStrategy::new(repartition, Arc::clone(&flat));
+
         // 0. start with splitting columns
         let validity_strategy = CollectStrategy::new(compress_then_flat.clone());
 
         // Take any field overrides from the builder and apply them to the final strategy.
         let mut table_strategy =
-            TableStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
+            TableStrategy::new(Arc::new(validity_strategy), Arc::new(constant))
                 .with_field_writers(self.field_writers);
 
         if self.use_list_layout {
