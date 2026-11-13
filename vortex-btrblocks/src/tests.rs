@@ -253,8 +253,8 @@ fn unique_prose(rows: usize, seed: u64) -> ArrayRef {
         "ac", "count", "pack", "age", "re", "quest", "de", "pos", "it", "in", "struct", "ion",
         "the", "od", "ol", "ite", "pin", "to", "bean", "fox", "id", "ea", "pend", "enc", "ex",
         "cuse", "plate", "let", "asym", "ptote", "court", "dol", "phin", "mul", "ti", "pli", "er",
-        "saut", "erne", "wart", "hog", "fret", "din", "os", "at", "tain", "ment", "som", "as",
-        "braid", "hock", "ey", "play", "fur", "ious", "ly", "care", "ful", "quick", "sly",
+        "saut", "erne", "wart", "hog", "fret", "din", "os", "at", "tain", "mint", "sum", "as",
+        "braid", "hock", "ey", "play", "fur", "ious", "ly", "care", "fill", "quick", "sly",
     ];
 
     let mut rng = StdRng::seed_from_u64(seed);
