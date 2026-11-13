@@ -65,10 +65,10 @@ impl Output {
 
     fn is_eos(&self) -> bool {
         assert_eq!(
-            self.schema.release.is_none(),
+            self.schema.release().is_none(),
             self.array.array.release.is_none()
         );
-        self.schema.release.is_none()
+        self.schema.release().is_none()
     }
 }
 
@@ -602,7 +602,7 @@ fn test_invalid_output_pointers_do_not_consume_or_poison() -> VortexResult<()> {
             unsafe { vx_cuda_device_batches_next(&raw mut handle, schema, array, &raw mut error) };
         assert_eq!(status, VX_CUDA_ERR);
         assert!(take_error(error).is_some());
-        assert!(output.schema.release.is_none());
+        assert!(output.schema.release().is_none());
         assert_eq!(output.array.array.length, 123);
     }
     assert_eq!(next(&mut handle)?.array.array.length, 1);
@@ -630,7 +630,7 @@ fn test_null_and_unaligned_handles_without_cuda() {
         };
         assert_eq!(status, VX_CUDA_ERR);
         assert!(take_error(error).is_some());
-        assert!(output.schema.release.is_none());
+        assert!(output.schema.release().is_none());
         assert_eq!(output.array.array.length, 123);
     }
     // SAFETY: Null is explicitly supported, including when error details are discarded.

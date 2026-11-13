@@ -30,7 +30,7 @@ LIMIT 100;
 ----
 logical_plan
 01)Sort: order count ASC NULLS LAST, fetch=100
-02)--Projection: count(alias1) AS order count, sum(alias2) AS total shipping cost, sum(alias3) AS total net profit
+02)--Projection: count(alias1) AS order count, CAST(sum(alias2) AS Decimal128(17, 2)) AS total shipping cost, CAST(sum(alias3) AS Decimal128(17, 2)) AS total net profit
 03)----Aggregate: groupBy=[[]], aggr=[[count(alias1), sum(alias2), sum(alias3)]]
 04)------Aggregate: groupBy=[[ws1.ws_order_number AS alias1]], aggr=[[sum(ws1.ws_ext_ship_cost) AS alias2, sum(ws1.ws_net_profit) AS alias3]]
 05)--------LeftAnti Join: ws1.ws_order_number = __correlated_sq_2.wr_order_number
@@ -60,7 +60,7 @@ logical_plan
 29)------------SubqueryAlias: wr1
 30)--------------TableScan: web_returns projection=[wr_order_number]
 physical_plan
-01)ProjectionExec: expr=[count(alias1)@0 as order count, sum(alias2)@1 as total shipping cost, sum(alias3)@2 as total net profit]
+01)ProjectionExec: expr=[count(alias1)@0 as order count, CAST(sum(alias2)@1 AS Decimal128(17, 2)) as total shipping cost, CAST(sum(alias3)@2 AS Decimal128(17, 2)) as total net profit]
 02)--GlobalLimitExec: skip=0, fetch=100
 03)----AggregateExec: mode=Final, gby=[], aggr=[count(alias1), sum(alias2), sum(alias3)]
 04)------CoalescePartitionsExec

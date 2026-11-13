@@ -19,8 +19,8 @@ use arrow_array::StructArray;
 use arrow_array::ffi;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::FFI_ArrowSchema;
-use arrow_array::ffi_stream::ArrowArrayStreamReader;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
+use arrow_array::ffi_stream::RecordBatchStreamReader;
 use arrow_data::ArrayData;
 use arrow_schema::ArrowError;
 use arrow_schema::DataType;
@@ -302,8 +302,8 @@ impl ToPyArrow for RecordBatch {
     }
 }
 
-/// Supports conversion from `pyarrow.RecordBatchReader` to [ArrowArrayStreamReader].
-impl<'py> FromPyArrow<'_, 'py> for ArrowArrayStreamReader {
+/// Supports conversion from `pyarrow.RecordBatchReader` to [RecordBatchStreamReader].
+impl<'py> FromPyArrow<'_, 'py> for RecordBatchStreamReader {
     fn from_pyarrow(value: &Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = value.py();
         if !value.hasattr(intern!(py, "__arrow_c_stream__"))? {
@@ -322,7 +322,7 @@ impl<'py> FromPyArrow<'_, 'py> for ArrowArrayStreamReader {
 
         let stream = unsafe { FFI_ArrowArrayStream::from_raw(array_ptr) };
 
-        let stream_reader = ArrowArrayStreamReader::try_new(stream)
+        let stream_reader = RecordBatchStreamReader::try_new(stream)
             .map_err(|err| PyValueError::new_err(err.to_string()))?;
 
         Ok(stream_reader)
