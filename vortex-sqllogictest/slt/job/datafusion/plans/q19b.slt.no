@@ -1,0 +1,128 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT MIN(n.name) AS voicing_actress,
+       MIN(t.title) AS kung_fu_panda
+FROM aka_name AS an,
+     char_name AS chn,
+     cast_info AS ci,
+     company_name AS cn,
+     info_type AS it,
+     movie_companies AS mc,
+     movie_info AS mi,
+     name AS n,
+     role_type AS rt,
+     title AS t
+WHERE ci.note = '(voice)'
+  AND cn.country_code ='[us]'
+  AND it.info = 'release dates'
+  AND mc.note LIKE '%(200%)%'
+  AND (mc.note LIKE '%(USA)%'
+       OR mc.note LIKE '%(worldwide)%')
+  AND mi.info IS NOT NULL
+  AND (mi.info LIKE 'Japan:%2007%'
+       OR mi.info LIKE 'USA:%2008%')
+  AND n.gender ='f'
+  AND n.name LIKE '%Angel%'
+  AND rt.role ='actress'
+  AND t.production_year BETWEEN 2007 AND 2008
+  AND t.title LIKE '%Kung%Fu%Panda%'
+  AND t.id = mi.movie_id
+  AND t.id = mc.movie_id
+  AND t.id = ci.movie_id
+  AND mc.movie_id = ci.movie_id
+  AND mc.movie_id = mi.movie_id
+  AND mi.movie_id = ci.movie_id
+  AND cn.id = mc.company_id
+  AND it.id = mi.info_type_id
+  AND n.id = ci.person_id
+  AND rt.id = ci.role_id
+  AND n.id = an.person_id
+  AND ci.person_id = an.person_id
+  AND chn.id = ci.person_role_id;
+----
+logical_plan
+01)Projection: min(n.name) AS voicing_actress, min(t.title) AS kung_fu_panda
+02)--Aggregate: groupBy=[[]], aggr=[[min(n.name), min(t.title)]]
+03)----Projection: n.name, t.title
+04)------Inner Join: mi.movie_id = t.id, mc.movie_id = t.id, ci.movie_id = t.id
+05)--------Projection: ci.movie_id, mc.movie_id, mi.movie_id, n.name
+06)----------Inner Join: ci.role_id = rt.id
+07)------------Projection: ci.movie_id, ci.role_id, mc.movie_id, mi.movie_id, n.name
+08)--------------Inner Join: ci.person_id = n.id, an.person_id = n.id
+09)----------------Projection: an.person_id, ci.person_id, ci.movie_id, ci.role_id, mc.movie_id, mi.movie_id
+10)------------------Inner Join: mi.info_type_id = it.id
+11)--------------------Inner Join: mc.movie_id = mi.movie_id, ci.movie_id = mi.movie_id
+12)----------------------Projection: an.person_id, ci.person_id, ci.movie_id, ci.role_id, mc.movie_id
+13)------------------------Inner Join: mc.company_id = cn.id
+14)--------------------------Inner Join: ci.movie_id = mc.movie_id
+15)----------------------------Projection: an.person_id, ci.person_id, ci.movie_id, ci.role_id
+16)------------------------------Inner Join: ci.person_role_id = CAST(chn.id AS Float64)
+17)--------------------------------Inner Join: an.person_id = ci.person_id
+18)----------------------------------SubqueryAlias: an
+19)------------------------------------TableScan: aka_name projection=[person_id]
+20)----------------------------------SubqueryAlias: ci
+21)------------------------------------Projection: cast_info.person_id, cast_info.movie_id, cast_info.person_role_id, cast_info.role_id
+22)--------------------------------------Filter: cast_info.note = Utf8View("(voice)")
+23)----------------------------------------TableScan: cast_info projection=[person_id, movie_id, person_role_id, note, role_id], partial_filters=[cast_info.note = Utf8View("(voice)")]
+24)--------------------------------SubqueryAlias: chn
+25)----------------------------------TableScan: char_name projection=[id]
+26)----------------------------SubqueryAlias: mc
+27)------------------------------Projection: movie_companies.movie_id, movie_companies.company_id
+28)--------------------------------Filter: movie_companies.note LIKE Utf8View("%(200%)%") AND (movie_companies.note LIKE Utf8View("%(USA)%") OR movie_companies.note LIKE Utf8View("%(worldwide)%"))
+29)----------------------------------TableScan: movie_companies projection=[movie_id, company_id, note], partial_filters=[movie_companies.note LIKE Utf8View("%(200%)%"), movie_companies.note LIKE Utf8View("%(USA)%") OR movie_companies.note LIKE Utf8View("%(worldwide)%")]
+30)--------------------------SubqueryAlias: cn
+31)----------------------------Projection: company_name.id
+32)------------------------------Filter: company_name.country_code = Utf8View("[us]")
+33)--------------------------------TableScan: company_name projection=[id, country_code], partial_filters=[company_name.country_code = Utf8View("[us]")]
+34)----------------------SubqueryAlias: mi
+35)------------------------Projection: movie_info.movie_id, movie_info.info_type_id
+36)--------------------------Filter: movie_info.info IS NOT NULL AND (movie_info.info LIKE Utf8View("Japan:%2007%") OR movie_info.info LIKE Utf8View("USA:%2008%"))
+37)----------------------------TableScan: movie_info projection=[movie_id, info_type_id, info], partial_filters=[movie_info.info IS NOT NULL, movie_info.info LIKE Utf8View("Japan:%2007%") OR movie_info.info LIKE Utf8View("USA:%2008%")]
+38)--------------------SubqueryAlias: it
+39)----------------------Projection: info_type.id
+40)------------------------Filter: info_type.info = Utf8View("release dates")
+41)--------------------------TableScan: info_type projection=[id, info], partial_filters=[info_type.info = Utf8View("release dates")]
+42)----------------SubqueryAlias: n
+43)------------------Projection: name.id, name.name
+44)--------------------Filter: name.gender = Utf8View("f") AND name.name LIKE Utf8View("%Angel%")
+45)----------------------TableScan: name projection=[id, name, gender], partial_filters=[name.gender = Utf8View("f"), name.name LIKE Utf8View("%Angel%")]
+46)------------SubqueryAlias: rt
+47)--------------Projection: role_type.id
+48)----------------Filter: role_type.role = Utf8View("actress")
+49)------------------TableScan: role_type projection=[id, role], partial_filters=[role_type.role = Utf8View("actress")]
+50)--------SubqueryAlias: t
+51)----------Projection: title.id, title.title
+52)------------Filter: title.production_year >= Float64(2007) AND title.production_year <= Float64(2008) AND title.title LIKE Utf8View("%Kung%Fu%Panda%")
+53)--------------TableScan: title projection=[id, title, production_year], partial_filters=[title.production_year >= Float64(2007), title.production_year <= Float64(2008), title.title LIKE Utf8View("%Kung%Fu%Panda%")]
+physical_plan
+01)ProjectionExec: expr=[min(n.name)@0 as voicing_actress, min(t.title)@1 as kung_fu_panda]
+02)--AggregateExec: mode=Final, gby=[], aggr=[min(n.name), min(t.title)]
+03)----CoalescePartitionsExec
+04)------AggregateExec: mode=Partial, gby=[], aggr=[min(n.name), min(t.title)]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@2, id@0), (movie_id@1, id@0), (movie_id@0, id@0)], projection=[name@3, title@5]
+06)----------CoalescePartitionsExec
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, role_id@1)], projection=[movie_id@1, movie_id@3, movie_id@4, name@5]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/role_type.vortex]]}, projection=[id], file_type=vortex, predicate: role@1 = actress
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@1, id@0), (person_id@0, id@0)], projection=[movie_id@2, role_id@3, movie_id@4, movie_id@5, name@7]
+10)----------------CoalescePartitionsExec
+11)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, info_type_id@6)], projection=[person_id@1, person_id@2, movie_id@3, role_id@4, movie_id@5, movie_id@6]
+12)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/info_type.vortex]]}, projection=[id], file_type=vortex, predicate: info@1 = release dates
+13)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@4, movie_id@0), (movie_id@2, movie_id@0)]
+14)----------------------CoalescePartitionsExec
+15)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, company_id@5)], projection=[person_id@1, person_id@2, movie_id@3, role_id@4, movie_id@5]
+16)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/company_name.vortex]]}, projection=[id], file_type=vortex, predicate: country_code@2 = [us]
+17)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, movie_id@2)], projection=[person_id@2, person_id@3, movie_id@4, role_id@5, movie_id@0, company_id@1]
+18)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_companies.vortex]]}, projection=[movie_id, company_id], file_type=vortex, predicate: note@4 LIKE %(200%)% AND (note@4 LIKE %(USA)% OR note@4 LIKE %(worldwide)%)
+19)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_role_id@3, CAST(chn.id AS Float64)@1)], projection=[person_id@0, person_id@1, movie_id@2, role_id@4]
+20)------------------------------CoalescePartitionsExec
+21)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@0, person_id@0)]
+22)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/aka_name.vortex]]}, projection=[person_id], file_type=vortex
+23)----------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/cast_info.vortex:0..900462], [${WORK_DIR}/cast_info.vortex:900462..1800924], [${WORK_DIR}/cast_info.vortex:1800924..2701386], [${WORK_DIR}/cast_info.vortex:2701386..3601848]]}, projection=[person_id, movie_id, person_role_id, role_id], file_type=vortex, predicate: note@4 = (voice)
+24)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/char_name.vortex:0..321254], [${WORK_DIR}/char_name.vortex:321254..642508], [${WORK_DIR}/char_name.vortex:642508..963762], [${WORK_DIR}/char_name.vortex:963762..1285016]]}, projection=[id, CAST(id@0 AS Float64) as CAST(chn.id AS Float64)], file_type=vortex
+25)----------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+26)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_info.vortex]]}, projection=[movie_id, info_type_id], file_type=vortex, predicate: info@3 IS NOT NULL AND (info@3 LIKE Japan:%2007% OR info@3 LIKE USA:%2008%)
+27)----------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/name.vortex:0..423440], [${WORK_DIR}/name.vortex:423440..846880], [${WORK_DIR}/name.vortex:846880..1270320], [${WORK_DIR}/name.vortex:1270320..1693760]]}, projection=[id, name], file_type=vortex, predicate: gender@4 = f AND name@1 LIKE %Angel%
+28)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id, title], file_type=vortex, predicate: production_year@4 >= 2007 AND production_year@4 <= 2008 AND title@1 LIKE %Kung%Fu%Panda%

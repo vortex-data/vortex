@@ -1,0 +1,112 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Keep fixture paths under WORK_DIR so EXPLAIN output can normalize them.
+# Plans ignore byte ranges because they depend on the generated fixture sizes.
+system ok
+cp slt/job/data/*.$FILE_FORMAT "$WORK_DIR/"
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS aka_name
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/aka_name.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS aka_title
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/aka_title.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS cast_info
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/cast_info.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS char_name
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/char_name.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS comp_cast_type
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/comp_cast_type.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS company_name
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/company_name.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS company_type
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/company_type.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS complete_cast
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/complete_cast.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS info_type
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/info_type.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS keyword
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/keyword.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS kind_type
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/kind_type.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS link_type
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/link_type.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS movie_companies
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/movie_companies.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS movie_info
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/movie_info.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS movie_info_idx
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/movie_info_idx.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS movie_keyword
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/movie_keyword.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS movie_link
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/movie_link.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS name
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/name.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS person_info
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/person_info.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS role_type
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/role_type.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS title
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/title.${FILE_FORMAT}';

@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT MIN(mi_idx.info) AS rating,
+       MIN(t.title) AS movie_title
+FROM info_type AS it,
+     keyword AS k,
+     movie_info_idx AS mi_idx,
+     movie_keyword AS mk,
+     title AS t
+WHERE it.info ='rating'
+  AND k.keyword LIKE '%sequel%'
+  AND mi_idx.info > '9.0'
+  AND t.production_year > 2010
+  AND t.id = mi_idx.movie_id
+  AND t.id = mk.movie_id
+  AND mk.movie_id = mi_idx.movie_id
+  AND k.id = mk.keyword_id
+  AND it.id = mi_idx.info_type_id;
+----
+logical_plan
+01)Projection: min(mi_idx.info) AS rating, min(t.title) AS movie_title
+02)--Aggregate: groupBy=[[]], aggr=[[min(mi_idx.info), min(t.title)]]
+03)----Projection: mi_idx.info, t.title
+04)------Inner Join: mi_idx.movie_id = t.id, mk.movie_id = t.id
+05)--------Projection: mi_idx.movie_id, mi_idx.info, mk.movie_id
+06)----------Inner Join: mk.keyword_id = k.id
+07)------------Inner Join: mi_idx.movie_id = mk.movie_id
+08)--------------Projection: mi_idx.movie_id, mi_idx.info
+09)----------------Inner Join: it.id = mi_idx.info_type_id
+10)------------------SubqueryAlias: it
+11)--------------------Projection: info_type.id
+12)----------------------Filter: info_type.info = Utf8View("rating")
+13)------------------------TableScan: info_type projection=[id, info], partial_filters=[info_type.info = Utf8View("rating")]
+14)------------------SubqueryAlias: mi_idx
+15)--------------------Filter: movie_info_idx.info > Utf8View("9.0")
+16)----------------------TableScan: movie_info_idx projection=[movie_id, info_type_id, info], partial_filters=[movie_info_idx.info > Utf8View("9.0")]
+17)--------------SubqueryAlias: mk
+18)----------------TableScan: movie_keyword projection=[movie_id, keyword_id]
+19)------------SubqueryAlias: k
+20)--------------Projection: keyword.id
+21)----------------Filter: keyword.keyword LIKE Utf8View("%sequel%")
+22)------------------TableScan: keyword projection=[id, keyword], partial_filters=[keyword.keyword LIKE Utf8View("%sequel%")]
+23)--------SubqueryAlias: t
+24)----------Projection: title.id, title.title
+25)------------Filter: title.production_year > Float64(2010)
+26)--------------TableScan: title projection=[id, title, production_year], partial_filters=[title.production_year > Float64(2010)]
+physical_plan
+01)ProjectionExec: expr=[min(mi_idx.info)@0 as rating, min(t.title)@1 as movie_title]
+02)--AggregateExec: mode=Final, gby=[], aggr=[min(mi_idx.info), min(t.title)]
+03)----CoalescePartitionsExec
+04)------AggregateExec: mode=Partial, gby=[], aggr=[min(mi_idx.info), min(t.title)]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, id@0), (movie_id@2, id@0)], projection=[info@1, title@4]
+06)----------CoalescePartitionsExec
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, keyword_id@3)], projection=[movie_id@1, info@2, movie_id@3]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/keyword.vortex]]}, projection=[id], file_type=vortex, predicate: keyword@1 LIKE %sequel%
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, movie_id@0)]
+10)----------------CoalescePartitionsExec
+11)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, info_type_id@1)], projection=[movie_id@1, info@3]
+12)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/info_type.vortex]]}, projection=[id], file_type=vortex, predicate: info@1 = rating
+13)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+14)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_info_idx.vortex]]}, projection=[movie_id, info_type_id, info], file_type=vortex, predicate: info@3 > 9.0
+15)----------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+16)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_keyword.vortex]]}, projection=[movie_id, keyword_id], file_type=vortex
+17)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id, title], file_type=vortex, predicate: production_year@4 > 2010

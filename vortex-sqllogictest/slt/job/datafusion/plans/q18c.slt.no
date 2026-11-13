@@ -1,0 +1,97 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT MIN(mi.info) AS movie_budget,
+       MIN(mi_idx.info) AS movie_votes,
+       MIN(t.title) AS movie_title
+FROM cast_info AS ci,
+     info_type AS it1,
+     info_type AS it2,
+     movie_info AS mi,
+     movie_info_idx AS mi_idx,
+     name AS n,
+     title AS t
+WHERE ci.note IN ('(writer)',
+                  '(head writer)',
+                  '(written by)',
+                  '(story)',
+                  '(story editor)')
+  AND it1.info = 'genres'
+  AND it2.info = 'votes'
+  AND mi.info IN ('Horror',
+                  'Action',
+                  'Sci-Fi',
+                  'Thriller',
+                  'Crime',
+                  'War')
+  AND n.gender = 'm'
+  AND t.id = mi.movie_id
+  AND t.id = mi_idx.movie_id
+  AND t.id = ci.movie_id
+  AND ci.movie_id = mi.movie_id
+  AND ci.movie_id = mi_idx.movie_id
+  AND mi.movie_id = mi_idx.movie_id
+  AND n.id = ci.person_id
+  AND it1.id = mi.info_type_id
+  AND it2.id = mi_idx.info_type_id;
+----
+logical_plan
+01)Projection: min(mi.info) AS movie_budget, min(mi_idx.info) AS movie_votes, min(t.title) AS movie_title
+02)--Aggregate: groupBy=[[]], aggr=[[min(mi.info), min(mi_idx.info), min(t.title)]]
+03)----Projection: mi.info, mi_idx.info, t.title
+04)------Inner Join: mi.movie_id = t.id, mi_idx.movie_id = t.id, ci.movie_id = t.id
+05)--------Projection: ci.movie_id, mi.movie_id, mi.info, mi_idx.movie_id, mi_idx.info
+06)----------Inner Join: ci.person_id = n.id
+07)------------Projection: ci.person_id, ci.movie_id, mi.movie_id, mi.info, mi_idx.movie_id, mi_idx.info
+08)--------------Inner Join: mi_idx.info_type_id = it2.id
+09)----------------Inner Join: ci.movie_id = mi_idx.movie_id, mi.movie_id = mi_idx.movie_id
+10)------------------Projection: ci.person_id, ci.movie_id, mi.movie_id, mi.info
+11)--------------------Inner Join: mi.info_type_id = it1.id
+12)----------------------Inner Join: ci.movie_id = mi.movie_id
+13)------------------------SubqueryAlias: ci
+14)--------------------------Projection: cast_info.person_id, cast_info.movie_id
+15)----------------------------Filter: cast_info.note IN ([Utf8View("(writer)"), Utf8View("(head writer)"), Utf8View("(written by)"), Utf8View("(story)"), Utf8View("(story editor)")])
+16)------------------------------TableScan: cast_info projection=[person_id, movie_id, note], partial_filters=[cast_info.note IN ([Utf8View("(writer)"), Utf8View("(head writer)"), Utf8View("(written by)"), Utf8View("(story)"), Utf8View("(story editor)")])]
+17)------------------------SubqueryAlias: mi
+18)--------------------------Filter: movie_info.info IN ([Utf8View("Horror"), Utf8View("Action"), Utf8View("Sci-Fi"), Utf8View("Thriller"), Utf8View("Crime"), Utf8View("War")])
+19)----------------------------TableScan: movie_info projection=[movie_id, info_type_id, info], partial_filters=[movie_info.info IN ([Utf8View("Horror"), Utf8View("Action"), Utf8View("Sci-Fi"), Utf8View("Thriller"), Utf8View("Crime"), Utf8View("War")])]
+20)----------------------SubqueryAlias: it1
+21)------------------------Projection: info_type.id
+22)--------------------------Filter: info_type.info = Utf8View("genres")
+23)----------------------------TableScan: info_type projection=[id, info], partial_filters=[info_type.info = Utf8View("genres")]
+24)------------------SubqueryAlias: mi_idx
+25)--------------------TableScan: movie_info_idx projection=[movie_id, info_type_id, info]
+26)----------------SubqueryAlias: it2
+27)------------------Projection: info_type.id
+28)--------------------Filter: info_type.info = Utf8View("votes")
+29)----------------------TableScan: info_type projection=[id, info], partial_filters=[info_type.info = Utf8View("votes")]
+30)------------SubqueryAlias: n
+31)--------------Projection: name.id
+32)----------------Filter: name.gender = Utf8View("m")
+33)------------------TableScan: name projection=[id, gender], partial_filters=[name.gender = Utf8View("m")]
+34)--------SubqueryAlias: t
+35)----------TableScan: title projection=[id, title]
+physical_plan
+01)ProjectionExec: expr=[min(mi.info)@0 as movie_budget, min(mi_idx.info)@1 as movie_votes, min(t.title)@2 as movie_title]
+02)--AggregateExec: mode=Final, gby=[], aggr=[min(mi.info), min(mi_idx.info), min(t.title)]
+03)----CoalescePartitionsExec
+04)------AggregateExec: mode=Partial, gby=[], aggr=[min(mi.info), min(mi_idx.info), min(t.title)]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@1, id@0), (movie_id@3, id@0), (movie_id@0, id@0)], projection=[info@2, info@4, title@6]
+06)----------CoalescePartitionsExec
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@0, id@0)], projection=[movie_id@1, movie_id@2, info@3, movie_id@4, info@5]
+08)--------------CoalescePartitionsExec
+09)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(info_type_id@5, id@0)], projection=[person_id@0, movie_id@1, movie_id@2, info@3, movie_id@4, info@6]
+10)------------------CoalescePartitionsExec
+11)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, movie_id@1), (movie_id@0, movie_id@2)], projection=[person_id@3, movie_id@4, movie_id@5, info@6, movie_id@0, info_type_id@1, info@2]
+12)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_info_idx.vortex]]}, projection=[movie_id, info_type_id, info], file_type=vortex
+13)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, info_type_id@3)], projection=[person_id@1, movie_id@2, movie_id@3, info@5]
+14)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/info_type.vortex]]}, projection=[id], file_type=vortex, predicate: info@1 = genres
+15)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, movie_id@1)], projection=[person_id@3, movie_id@4, movie_id@0, info_type_id@1, info@2]
+16)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_info.vortex]]}, projection=[movie_id, info_type_id, info], file_type=vortex, predicate: info@3 IN (SET) ([Horror, Action, Sci-Fi, Thriller, Crime, War])
+17)--------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/cast_info.vortex:0..900462], [${WORK_DIR}/cast_info.vortex:900462..1800924], [${WORK_DIR}/cast_info.vortex:1800924..2701386], [${WORK_DIR}/cast_info.vortex:2701386..3601848]]}, projection=[person_id, movie_id], file_type=vortex, predicate: note@4 IN (SET) ([(writer), (head writer), (written by), (story), (story editor)])
+18)------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+19)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/info_type.vortex]]}, projection=[id], file_type=vortex, predicate: info@1 = votes
+20)--------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/name.vortex:0..423440], [${WORK_DIR}/name.vortex:423440..846880], [${WORK_DIR}/name.vortex:846880..1270320], [${WORK_DIR}/name.vortex:1270320..1693760]]}, projection=[id], file_type=vortex, predicate: gender@4 = m
+21)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id, title], file_type=vortex

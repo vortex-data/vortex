@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT MIN(mc.note) AS production_note,
+       MIN(t.title) AS movie_title,
+       MIN(t.production_year) AS movie_year
+FROM company_type AS ct,
+     info_type AS it,
+     movie_companies AS mc,
+     movie_info_idx AS mi_idx,
+     title AS t
+WHERE ct.kind = 'production companies'
+  AND it.info = 'top 250 rank'
+  AND mc.note NOT LIKE '%(as Metro-Goldwyn-Mayer Pictures)%'
+  AND (mc.note LIKE '%(co-production)%')
+  AND t.production_year >2010
+  AND ct.id = mc.company_type_id
+  AND t.id = mc.movie_id
+  AND t.id = mi_idx.movie_id
+  AND mc.movie_id = mi_idx.movie_id
+  AND it.id = mi_idx.info_type_id;
+----
+logical_plan
+01)Projection: min(mc.note) AS production_note, min(t.title) AS movie_title, min(t.production_year) AS movie_year
+02)--Aggregate: groupBy=[[]], aggr=[[min(mc.note), min(t.title), min(t.production_year)]]
+03)----Projection: mc.note, t.title, t.production_year
+04)------Inner Join: mc.movie_id = t.id, mi_idx.movie_id = t.id
+05)--------Projection: mc.movie_id, mc.note, mi_idx.movie_id
+06)----------Inner Join: mi_idx.info_type_id = it.id
+07)------------Inner Join: mc.movie_id = mi_idx.movie_id
+08)--------------Projection: mc.movie_id, mc.note
+09)----------------Inner Join: ct.id = mc.company_type_id
+10)------------------SubqueryAlias: ct
+11)--------------------Projection: company_type.id
+12)----------------------Filter: company_type.kind = Utf8View("production companies")
+13)------------------------TableScan: company_type projection=[id, kind], partial_filters=[company_type.kind = Utf8View("production companies")]
+14)------------------SubqueryAlias: mc
+15)--------------------Filter: movie_companies.note NOT LIKE Utf8View("%(as Metro-Goldwyn-Mayer Pictures)%") AND movie_companies.note LIKE Utf8View("%(co-production)%")
+16)----------------------TableScan: movie_companies projection=[movie_id, company_type_id, note], partial_filters=[movie_companies.note NOT LIKE Utf8View("%(as Metro-Goldwyn-Mayer Pictures)%"), movie_companies.note LIKE Utf8View("%(co-production)%")]
+17)--------------SubqueryAlias: mi_idx
+18)----------------TableScan: movie_info_idx projection=[movie_id, info_type_id]
+19)------------SubqueryAlias: it
+20)--------------Projection: info_type.id
+21)----------------Filter: info_type.info = Utf8View("top 250 rank")
+22)------------------TableScan: info_type projection=[id, info], partial_filters=[info_type.info = Utf8View("top 250 rank")]
+23)--------SubqueryAlias: t
+24)----------Filter: title.production_year > Float64(2010)
+25)------------TableScan: title projection=[id, title, production_year], partial_filters=[title.production_year > Float64(2010)]
+physical_plan
+01)ProjectionExec: expr=[min(mc.note)@0 as production_note, min(t.title)@1 as movie_title, min(t.production_year)@2 as movie_year]
+02)--AggregateExec: mode=Final, gby=[], aggr=[min(mc.note), min(t.title), min(t.production_year)]
+03)----CoalescePartitionsExec
+04)------AggregateExec: mode=Partial, gby=[], aggr=[min(mc.note), min(t.title), min(t.production_year)]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, movie_id@0), (id@0, movie_id@2)], projection=[note@4, title@1, production_year@2]
+06)----------CoalescePartitionsExec
+07)------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id, title, production_year], file_type=vortex, predicate: production_year@4 > 2010
+08)----------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, info_type_id@3)], projection=[movie_id@1, note@2, movie_id@3]
+09)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/info_type.vortex]]}, projection=[id], file_type=vortex, predicate: info@1 = top 250 rank
+10)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, movie_id@0)]
+11)--------------CoalescePartitionsExec
+12)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, company_type_id@1)], projection=[movie_id@1, note@3]
+13)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/company_type.vortex]]}, projection=[id], file_type=vortex, predicate: kind@1 = production companies
+14)------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+15)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_companies.vortex]]}, projection=[movie_id, company_type_id, note], file_type=vortex, predicate: note@4 NOT LIKE %(as Metro-Goldwyn-Mayer Pictures)% AND note@4 LIKE %(co-production)%
+16)--------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+17)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_info_idx.vortex]]}, projection=[movie_id, info_type_id], file_type=vortex

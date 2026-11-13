@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT *
+  FROM (SELECT "CHROM", "POS", "REF", "ALT", "GT",
+               1.0 - CAST(LIST_SUM("GT") AS DOUBLE) / (2 * LIST_SUM(LIST_TRANSFORM("GT", lambda g: g IS NOT NULL))) AS reference_allele_frequency
+          FROM statpopgen)
+ WHERE reference_allele_frequency > 0.9 OR reference_allele_frequency < 0.1;
+----
+logical_plan
+01)Projection: statpopgen.CHROM, statpopgen.POS, statpopgen.REF, statpopgen.ALT, statpopgen.GT, Float64(1) - CAST(array_sum(CAST(statpopgen.GT AS List(Float64))) AS Float64) / Float64(2) * array_sum(CAST(array_transform(statpopgen.GT, (g) -> g IS NOT NULL) AS List(non-null Float64))) AS reference_allele_frequency
+02)--Filter: Float64(1) - __common_expr_3 / Float64(2) * array_sum(CAST(array_transform(statpopgen.GT, (g) -> g IS NOT NULL) AS List(non-null Float64))) > Float64(0.9) OR Float64(1) - __common_expr_3 / Float64(2) * array_sum(CAST(array_transform(statpopgen.GT, (g) -> g IS NOT NULL) AS List(non-null Float64))) < Float64(0.1)
+03)----Projection: CAST(array_sum(CAST(statpopgen.GT AS List(Float64))) AS list_sum(statpopgen.GT) AS Float64) AS __common_expr_3, statpopgen.CHROM, statpopgen.POS, statpopgen.REF, statpopgen.ALT, statpopgen.GT
+04)------TableScan: statpopgen projection=[CHROM, POS, REF, ALT, GT], partial_filters=[Float64(1) - CAST(array_sum(CAST(statpopgen.GT AS List(Float64))) AS list_sum(statpopgen.GT) AS Float64) / Float64(2) * array_sum(CAST(array_transform(statpopgen.GT, (g) -> g IS NOT NULL) AS list_transform(statpopgen.GT,(g) -> g IS NOT NULL) AS List(non-null Float64))) AS list_sum(array_transform(statpopgen.GT, (g) -> g IS NOT NULL) AS list_transform(statpopgen.GT,(g) -> g IS NOT NULL)) > Float64(0.9) OR Float64(1) - CAST(array_sum(CAST(statpopgen.GT AS List(Float64))) AS list_sum(statpopgen.GT) AS Float64) / Float64(2) * array_sum(CAST(array_transform(statpopgen.GT, (g) -> g IS NOT NULL) AS list_transform(statpopgen.GT,(g) -> g IS NOT NULL) AS List(non-null Float64))) AS list_sum(array_transform(statpopgen.GT, (g) -> g IS NOT NULL) AS list_transform(statpopgen.GT,(g) -> g IS NOT NULL)) < Float64(0.1), Float64(1) - CAST(array_sum(CAST(statpopgen.GT AS List(Float64))) AS list_sum(statpopgen.GT) AS Float64) / Float64(2) * array_sum(CAST(array_transform(statpopgen.GT, (g) -> g IS NOT NULL) AS List(non-null Float64))) > Float64(0.9) OR Float64(1) - CAST(array_sum(CAST(statpopgen.GT AS List(Float64))) AS list_sum(statpopgen.GT) AS Float64) / Float64(2) * array_sum(CAST(array_transform(statpopgen.GT, (g) -> g IS NOT NULL) AS List(non-null Float64))) < Float64(0.1)]
+physical_plan
+01)ProjectionExec: expr=[CHROM@1 as CHROM, POS@2 as POS, REF@3 as REF, ALT@4 as ALT, GT@5 as GT, 1 - array_sum(CAST(GT@5 AS List(Float64))) / 2 * array_sum(CAST(array_transform(GT@5, (g) -> g@6 IS NOT NULL) AS List(non-null Float64))) as reference_allele_frequency]
+02)--RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+03)----FilterExec: 1 - __common_expr_3@0 / 2 * array_sum(CAST(array_transform(GT@5, (g) -> g@6 IS NOT NULL) AS List(non-null Float64))) > 0.9 OR 1 - __common_expr_3@0 / 2 * array_sum(CAST(array_transform(GT@5, (g) -> g@6 IS NOT NULL) AS List(non-null Float64))) < 0.1
+04)------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/statpopgen.vortex]]}, projection=[array_sum(CAST(GT@1181 AS List(Float64))) as __common_expr_3, CHROM, POS, REF, ALT, GT], file_type=vortex

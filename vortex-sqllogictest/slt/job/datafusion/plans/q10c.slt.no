@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT MIN(chn.name) AS character,
+       MIN(t.title) AS movie_with_american_producer
+FROM char_name AS chn,
+     cast_info AS ci,
+     company_name AS cn,
+     company_type AS ct,
+     movie_companies AS mc,
+     role_type AS rt,
+     title AS t
+WHERE ci.note LIKE '%(producer)%'
+  AND cn.country_code = '[us]'
+  AND t.production_year > 1990
+  AND t.id = mc.movie_id
+  AND t.id = ci.movie_id
+  AND ci.movie_id = mc.movie_id
+  AND chn.id = ci.person_role_id
+  AND rt.id = ci.role_id
+  AND cn.id = mc.company_id
+  AND ct.id = mc.company_type_id;
+----
+logical_plan
+01)Projection: min(chn.name) AS character, min(t.title) AS movie_with_american_producer
+02)--Aggregate: groupBy=[[]], aggr=[[min(chn.name), min(t.title)]]
+03)----Projection: chn.name, t.title
+04)------Inner Join: mc.movie_id = t.id, ci.movie_id = t.id
+05)--------Projection: chn.name, ci.movie_id, mc.movie_id
+06)----------Inner Join: ci.role_id = rt.id
+07)------------Projection: chn.name, ci.movie_id, ci.role_id, mc.movie_id
+08)--------------Inner Join: mc.company_type_id = ct.id
+09)----------------Projection: chn.name, ci.movie_id, ci.role_id, mc.movie_id, mc.company_type_id
+10)------------------Inner Join: mc.company_id = cn.id
+11)--------------------Inner Join: ci.movie_id = mc.movie_id
+12)----------------------Projection: chn.name, ci.movie_id, ci.role_id
+13)------------------------Inner Join: CAST(chn.id AS Float64) = ci.person_role_id
+14)--------------------------SubqueryAlias: chn
+15)----------------------------TableScan: char_name projection=[id, name]
+16)--------------------------SubqueryAlias: ci
+17)----------------------------Projection: cast_info.movie_id, cast_info.person_role_id, cast_info.role_id
+18)------------------------------Filter: cast_info.note LIKE Utf8View("%(producer)%")
+19)--------------------------------TableScan: cast_info projection=[movie_id, person_role_id, note, role_id], partial_filters=[cast_info.note LIKE Utf8View("%(producer)%")]
+20)----------------------SubqueryAlias: mc
+21)------------------------TableScan: movie_companies projection=[movie_id, company_id, company_type_id]
+22)--------------------SubqueryAlias: cn
+23)----------------------Projection: company_name.id
+24)------------------------Filter: company_name.country_code = Utf8View("[us]")
+25)--------------------------TableScan: company_name projection=[id, country_code], partial_filters=[company_name.country_code = Utf8View("[us]")]
+26)----------------SubqueryAlias: ct
+27)------------------TableScan: company_type projection=[id]
+28)------------SubqueryAlias: rt
+29)--------------TableScan: role_type projection=[id]
+30)--------SubqueryAlias: t
+31)----------Projection: title.id, title.title
+32)------------Filter: title.production_year > Float64(1990)
+33)--------------TableScan: title projection=[id, title, production_year], partial_filters=[title.production_year > Float64(1990)]
+physical_plan
+01)ProjectionExec: expr=[min(chn.name)@0 as character, min(t.title)@1 as movie_with_american_producer]
+02)--AggregateExec: mode=Final, gby=[], aggr=[min(chn.name), min(t.title)]
+03)----CoalescePartitionsExec
+04)------AggregateExec: mode=Partial, gby=[], aggr=[min(chn.name), min(t.title)]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@2, id@0), (movie_id@1, id@0)], projection=[name@0, title@4]
+06)----------CoalescePartitionsExec
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, role_id@2)], projection=[name@1, movie_id@2, movie_id@4]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/role_type.vortex]]}, projection=[id], file_type=vortex
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, company_type_id@4)], projection=[name@1, movie_id@2, role_id@3, movie_id@4]
+10)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/company_type.vortex]]}, projection=[id], file_type=vortex
+11)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, company_id@4)], projection=[name@1, movie_id@2, role_id@3, movie_id@4, company_type_id@6]
+12)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/company_name.vortex]]}, projection=[id], file_type=vortex, predicate: country_code@2 = [us]
+13)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, movie_id@1)], projection=[name@3, movie_id@4, role_id@5, movie_id@0, company_id@1, company_type_id@2]
+14)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_companies.vortex]]}, projection=[movie_id, company_id, company_type_id], file_type=vortex
+15)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(CAST(chn.id AS Float64)@2, person_role_id@1)], projection=[name@1, movie_id@3, role_id@5]
+16)----------------------CoalescePartitionsExec
+17)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/char_name.vortex:0..321254], [${WORK_DIR}/char_name.vortex:321254..642508], [${WORK_DIR}/char_name.vortex:642508..963762], [${WORK_DIR}/char_name.vortex:963762..1285016]]}, projection=[id, name, CAST(id@0 AS Float64) as CAST(chn.id AS Float64)], file_type=vortex
+18)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/cast_info.vortex:0..900462], [${WORK_DIR}/cast_info.vortex:900462..1800924], [${WORK_DIR}/cast_info.vortex:1800924..2701386], [${WORK_DIR}/cast_info.vortex:2701386..3601848]]}, projection=[movie_id, person_role_id, role_id], file_type=vortex, predicate: note@4 LIKE %(producer)%
+19)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id, title], file_type=vortex, predicate: production_year@4 > 1990

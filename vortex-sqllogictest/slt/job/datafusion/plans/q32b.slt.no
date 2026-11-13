@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT MIN(lt.link) AS link_type,
+       MIN(t1.title) AS first_movie,
+       MIN(t2.title) AS second_movie
+FROM keyword AS k,
+     link_type AS lt,
+     movie_keyword AS mk,
+     movie_link AS ml,
+     title AS t1,
+     title AS t2
+WHERE k.keyword ='character-name-in-title'
+  AND mk.keyword_id = k.id
+  AND t1.id = mk.movie_id
+  AND ml.movie_id = t1.id
+  AND ml.linked_movie_id = t2.id
+  AND lt.id = ml.link_type_id
+  AND mk.movie_id = t1.id;
+----
+logical_plan
+01)Projection: min(lt.link) AS link_type, min(t1.title) AS first_movie, min(t2.title) AS second_movie
+02)--Aggregate: groupBy=[[]], aggr=[[min(lt.link), min(t1.title), min(t2.title)]]
+03)----Projection: lt.link, t1.title, t2.title
+04)------Inner Join: ml.linked_movie_id = t2.id
+05)--------Projection: t1.title, ml.linked_movie_id, lt.link
+06)----------Inner Join: ml.link_type_id = lt.id
+07)------------Projection: t1.title, ml.linked_movie_id, ml.link_type_id
+08)--------------Inner Join: t1.id = ml.movie_id
+09)----------------Projection: t1.id, t1.title
+10)------------------Inner Join: mk.movie_id = t1.id
+11)--------------------Projection: mk.movie_id
+12)----------------------Inner Join: k.id = mk.keyword_id
+13)------------------------SubqueryAlias: k
+14)--------------------------Projection: keyword.id
+15)----------------------------Filter: keyword.keyword = Utf8View("character-name-in-title")
+16)------------------------------TableScan: keyword projection=[id, keyword], partial_filters=[keyword.keyword = Utf8View("character-name-in-title")]
+17)------------------------SubqueryAlias: mk
+18)--------------------------TableScan: movie_keyword projection=[movie_id, keyword_id]
+19)--------------------SubqueryAlias: t1
+20)----------------------TableScan: title projection=[id, title]
+21)----------------SubqueryAlias: ml
+22)------------------TableScan: movie_link projection=[movie_id, linked_movie_id, link_type_id]
+23)------------SubqueryAlias: lt
+24)--------------TableScan: link_type projection=[id, link]
+25)--------SubqueryAlias: t2
+26)----------TableScan: title projection=[id, title]
+physical_plan
+01)ProjectionExec: expr=[min(lt.link)@0 as link_type, min(t1.title)@1 as first_movie, min(t2.title)@2 as second_movie]
+02)--AggregateExec: mode=Final, gby=[], aggr=[min(lt.link), min(t1.title), min(t2.title)]
+03)----CoalescePartitionsExec
+04)------AggregateExec: mode=Partial, gby=[], aggr=[min(lt.link), min(t1.title), min(t2.title)]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(linked_movie_id@1, id@0)], projection=[link@2, title@0, title@4]
+06)----------CoalescePartitionsExec
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, link_type_id@2)], projection=[title@2, linked_movie_id@3, link@1]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/link_type.vortex]]}, projection=[id, link], file_type=vortex
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, id@0)], projection=[title@4, linked_movie_id@1, link_type_id@2]
+10)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_link.vortex]]}, projection=[movie_id, linked_movie_id, link_type_id], file_type=vortex
+11)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, id@0)], projection=[id@1, title@2]
+12)------------------CoalescePartitionsExec
+13)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, keyword_id@1)], projection=[movie_id@1]
+14)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/keyword.vortex]]}, projection=[id], file_type=vortex, predicate: keyword@1 = character-name-in-title
+15)----------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+16)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_keyword.vortex]]}, projection=[movie_id, keyword_id], file_type=vortex
+17)------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id, title], file_type=vortex
+18)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id, title], file_type=vortex

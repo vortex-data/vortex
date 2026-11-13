@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT MIN(t.title) AS american_movie
+FROM company_type AS ct,
+     info_type AS it,
+     movie_companies AS mc,
+     movie_info AS mi,
+     title AS t
+WHERE ct.kind = 'production companies'
+  AND mc.note NOT LIKE '%(TV)%'
+  AND mc.note LIKE '%(USA)%'
+  AND mi.info IN ('Sweden',
+                  'Norway',
+                  'Germany',
+                  'Denmark',
+                  'Swedish',
+                  'Denish',
+                  'Norwegian',
+                  'German',
+                  'USA',
+                  'American')
+  AND t.production_year > 1990
+  AND t.id = mi.movie_id
+  AND t.id = mc.movie_id
+  AND mc.movie_id = mi.movie_id
+  AND ct.id = mc.company_type_id
+  AND it.id = mi.info_type_id;
+----
+logical_plan
+01)Projection: min(t.title) AS american_movie
+02)--Aggregate: groupBy=[[]], aggr=[[min(t.title)]]
+03)----Projection: t.title
+04)------Inner Join: mi.movie_id = t.id, mc.movie_id = t.id
+05)--------Projection: mc.movie_id, mi.movie_id
+06)----------Inner Join: mi.info_type_id = it.id
+07)------------Inner Join: mc.movie_id = mi.movie_id
+08)--------------Projection: mc.movie_id
+09)----------------Inner Join: ct.id = mc.company_type_id
+10)------------------SubqueryAlias: ct
+11)--------------------Projection: company_type.id
+12)----------------------Filter: company_type.kind = Utf8View("production companies")
+13)------------------------TableScan: company_type projection=[id, kind], partial_filters=[company_type.kind = Utf8View("production companies")]
+14)------------------SubqueryAlias: mc
+15)--------------------Projection: movie_companies.movie_id, movie_companies.company_type_id
+16)----------------------Filter: movie_companies.note NOT LIKE Utf8View("%(TV)%") AND movie_companies.note LIKE Utf8View("%(USA)%")
+17)------------------------TableScan: movie_companies projection=[movie_id, company_type_id, note], partial_filters=[movie_companies.note NOT LIKE Utf8View("%(TV)%"), movie_companies.note LIKE Utf8View("%(USA)%")]
+18)--------------SubqueryAlias: mi
+19)----------------Projection: movie_info.movie_id, movie_info.info_type_id
+20)------------------Filter: movie_info.info IN ([Utf8View("Sweden"), Utf8View("Norway"), Utf8View("Germany"), Utf8View("Denmark"), Utf8View("Swedish"), Utf8View("Denish"), Utf8View("Norwegian"), Utf8View("German"), Utf8View("USA"), Utf8View("American")])
+21)--------------------TableScan: movie_info projection=[movie_id, info_type_id, info], partial_filters=[movie_info.info IN ([Utf8View("Sweden"), Utf8View("Norway"), Utf8View("Germany"), Utf8View("Denmark"), Utf8View("Swedish"), Utf8View("Denish"), Utf8View("Norwegian"), Utf8View("German"), Utf8View("USA"), Utf8View("American")])]
+22)------------SubqueryAlias: it
+23)--------------TableScan: info_type projection=[id]
+24)--------SubqueryAlias: t
+25)----------Projection: title.id, title.title
+26)------------Filter: title.production_year > Float64(1990)
+27)--------------TableScan: title projection=[id, title, production_year], partial_filters=[title.production_year > Float64(1990)]
+physical_plan
+01)ProjectionExec: expr=[min(t.title)@0 as american_movie]
+02)--AggregateExec: mode=Final, gby=[], aggr=[min(t.title)]
+03)----CoalescePartitionsExec
+04)------AggregateExec: mode=Partial, gby=[], aggr=[min(t.title)]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@1, id@0), (movie_id@0, id@0)], projection=[title@3]
+06)----------CoalescePartitionsExec
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, info_type_id@2)], projection=[movie_id@1, movie_id@2]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/info_type.vortex]]}, projection=[id], file_type=vortex
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, movie_id@0)]
+10)----------------CoalescePartitionsExec
+11)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, company_type_id@1)], projection=[movie_id@1]
+12)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/company_type.vortex]]}, projection=[id], file_type=vortex, predicate: kind@1 = production companies
+13)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+14)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_companies.vortex]]}, projection=[movie_id, company_type_id], file_type=vortex, predicate: note@4 NOT LIKE %(TV)% AND note@4 LIKE %(USA)%
+15)----------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+16)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_info.vortex]]}, projection=[movie_id, info_type_id], file_type=vortex, predicate: info@3 IN (SET) ([Sweden, Norway, Germany, Denmark, Swedish, Denish, Norwegian, German, USA, American])
+17)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id, title], file_type=vortex, predicate: production_year@4 > 1990

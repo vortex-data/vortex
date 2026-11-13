@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT "CHROM", "POS", "REF", "ALT", CAST(LIST_SUM("GT") AS DOUBLE) / (2 * LIST_SUM(LIST_TRANSFORM("GT", lambda g: g IS NOT NULL))) AS alternate_allele_frequency FROM statpopgen;
+----
+logical_plan
+01)Projection: statpopgen.CHROM, statpopgen.POS, statpopgen.REF, statpopgen.ALT, CAST(array_sum(CAST(statpopgen.GT AS List(Float64))) AS list_sum(statpopgen.GT) AS Float64) / Float64(2) * array_sum(CAST(array_transform(statpopgen.GT, (g) -> g IS NOT NULL) AS list_transform(statpopgen.GT,(g) -> g IS NOT NULL) AS List(non-null Float64))) AS list_sum(array_transform(statpopgen.GT, (g) -> g IS NOT NULL) AS list_transform(statpopgen.GT,(g) -> g IS NOT NULL)) AS alternate_allele_frequency
+02)--TableScan: statpopgen projection=[CHROM, POS, REF, ALT, GT]
+physical_plan DataSourceExec: file_groups={1 group: [[${WORK_DIR}/statpopgen.vortex]]}, projection=[CHROM, POS, REF, ALT, array_sum(CAST(GT@1181 AS List(Float64))) / 2 * array_sum(CAST(array_transform(GT@1181, (g) -> g@5 IS NOT NULL) AS List(non-null Float64))) as alternate_allele_frequency], file_type=vortex

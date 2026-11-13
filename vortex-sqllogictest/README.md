@@ -2,8 +2,10 @@
 
 This crate tests correctness of our DuckDB and DataFusion integrations. It runs
 [.slt](https://github.com/risinglightdb/sqllogictest-rs) tests with our queries
-as well as 0.1 scale of TPC-H, TPC-DS, and 1 shard of partitioned ClickBench.
-For last three query sets, tests also verify each query's `EXPLAIN` result.
+as well as 0.1 scale of TPC-H, TPC-DS, 1 shard of partitioned ClickBench,
+the first 1,000 variants of StatPopGen, and a 1% proportional sample of the
+Join Order Benchmark (JOB) IMDB tables. For these query sets, tests also verify
+each query's `EXPLAIN` result.
 
 ## Running tests
 
@@ -11,7 +13,7 @@ For last three query sets, tests also verify each query's `EXPLAIN` result.
 # For running our own queries
 cargo test -p vortex-sqllogictest --test sqllogictests
 
-# For running TPC-H, TPC-DS, or ClickBench you need to generate data first
+# For running TPC-H, TPC-DS, ClickBench, StatPopGen, or JOB you need to generate data first
 ./slt/generate_data.sh
 # You can generate data for a specific dataset
 ./slt/generate_data.sh tpcds

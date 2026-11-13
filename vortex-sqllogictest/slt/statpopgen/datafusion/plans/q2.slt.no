@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT "GT" FROM statpopgen;
+----
+logical_plan TableScan: statpopgen projection=[GT]
+physical_plan DataSourceExec: file_groups={1 group: [[${WORK_DIR}/statpopgen.vortex]]}, projection=[GT], file_type=vortex
