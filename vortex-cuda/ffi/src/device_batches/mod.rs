@@ -37,14 +37,12 @@ use crate::scan_options;
 use crate::session_with_cuda;
 use crate::vx_cuda_scan_options;
 
-/// Opaque scan handle returning an independently owned schema for every CUDA batch.
+/// Dictionary-preserving CUDA scan with an owned Arrow schema per batch.
 ///
-/// The logical dtype is fixed, but physical Arrow schemas, dictionary values, and index widths
-/// may vary between batches. Dictionaries are exported using `DictionaryExport::Preserve`.
-/// Plain batches stay plain; dictionaries are not synthesized. All batches use the handle's CUDA
-/// device; exports with a different device type or ID are rejected.
-/// The handle retains its runtime and session resources. Use and free it on the creating thread,
-/// without concurrent or reentrant calls. Free with `vx_cuda_device_batches_free`.
+/// Logical dtype and CUDA device are fixed; physical schemas, dictionary values, and index widths
+/// may vary. Uses `DictionaryExport::Preserve`; plain batches remain plain.
+/// Retains runtime/session resources. Use and free only on the creating thread, without concurrent
+/// or reentrant calls. Free with `vx_cuda_device_batches_free`.
 #[allow(non_camel_case_types)]
 pub struct vx_cuda_device_batches {
     array_iter: Box<dyn Iterator<Item = VortexResult<ArrayRef>>>,
@@ -101,8 +99,7 @@ impl vx_cuda_device_batches {
             return Ok(self.eos());
         }
 
-        // Poison before polling/exporting so errors and panics caught at the FFI boundary cannot
-        // silently skip a consumed batch on retry. Pointer validation happens before this method.
+        // Poison before polling/exporting so a failure or caught panic cannot skip a batch on retry.
         self.state = State::Failed;
         let Some(array) = self.array_iter.next() else {
             self.state = State::End;
@@ -144,26 +141,21 @@ impl vx_cuda_device_batches {
     }
 }
 
-/// Scan a local CUDA-readable file with a native per-batch-schema iterator.
+/// Open a local CUDA scan that preserves per-batch dictionaries.
 ///
-/// Returns an owned handle, or null on error. Uses the same options, ordered top-level projection,
-/// direct I/O, and batch splitting as `vx_cuda_scan_path_arrow_device_stream_projected`, but
-/// preserves dictionaries. Null options selects defaults;
-/// zero `ncolumns` ignores `columns` and selects all columns. Names are literal, case-sensitive,
-/// unique UTF-8; unknown names fail and nonempty projections require a struct file.
+/// Returns an owned handle, or null on error. Options, projection, and splitting match
+/// `vx_cuda_scan_path_arrow_device_stream_projected`: null options use defaults; zero `ncolumns`
+/// ignores `columns` and selects all. Names must be unique, literal, case-sensitive UTF-8;
+/// unknown names fail, and nonempty projections require a struct file.
 ///
-/// The session handle, path, options, and column names are borrowed only for this call. The result
-/// retains the runtime and session resources, and must be used and freed on the creating thread.
-/// Non-null `error_out` is cleared on success or receives an owned error on failure; free errors
-/// with `vx_error_free`.
+/// Inputs are borrowed for this call; the handle retains runtime/session resources.
+/// Non-null `error_out` is cleared on success or receives an error to free with `vx_error_free`.
 ///
 /// # Safety
 ///
-/// `session` must be a live borrowed Vortex FFI handle; `path` must contain readable UTF-8.
-/// Non-null `options` must point to an initialized, aligned `vx_cuda_scan_options`.
-/// For nonzero `ncolumns`, `columns` must reference that many valid, aligned `vx_view` values.
-/// Name bytes must be readable for this call; null is allowed only for zero length.
-/// Non-null `error_out` must be writable for one error pointer.
+/// Borrow a live `session` and readable UTF-8 `path`. Non-null `options` must be aligned and
+/// initialized. For nonzero `ncolumns`, `columns` must reference that many valid, aligned views
+/// with readable name bytes (null only for zero length). Non-null `error_out` must be writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_cuda_scan_path_device_batches(
     session: *const vx_session,
@@ -193,28 +185,24 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_device_batches(
     })
 }
 
-/// Return the next independently owned Arrow schema and CUDA array. Returns `0` on success,
-/// `1` on error. Each batch has its own physical schema; never reuse an earlier batch's schema.
+/// Return the next owned Arrow schema and CUDA array (`0` on success, `1` on error).
 ///
-/// End of stream returns both outputs empty/released (both release callbacks null), including on
-/// repeated calls. A zero-row batch has live release callbacks and is not end of stream.
-/// Errors leave both outputs unchanged. Null or unaligned handle/output pointers are rejected
-/// before consuming input. A scan, logical dtype, export error, or panic makes the handle terminal:
-/// later calls fail rather than skipping the failed batch. Free the handle after such an error.
-/// Non-null `error_out` is cleared on success or receives an owned error; free with `vx_error_free`.
+/// Use each batch's own schema. EOS (including repeated calls) sets both release callbacks to null;
+/// live zero-row batches are not EOS. Errors leave outputs unchanged. Null/unaligned handle or
+/// output pointers are rejected before polling; scan/export failures, dtype/device mismatches,
+/// and panics make the handle terminal (later calls fail). Free it after a terminal error.
+/// Non-null `error_out` is cleared on success or receives an error to free with `vx_error_free`.
 ///
-/// Successful outputs outlive the handle and the original session handle. Release the schema via
-/// `out_schema->release` and the array via `out_array->array.release`, independently, exactly once.
-/// Export is stream-ordered: wait on `out_array->sync_event` before consuming device buffers.
-/// The event and device buffers remain valid until the array is released. Releasing the schema
-/// or handle does not release the array. The caller owns the output storage itself.
+/// Outputs outlive the handle/session. Release each independently, exactly once, via its Arrow
+/// callback. Wait on `out_array->sync_event` before consuming buffers; retain the array until GPU
+/// consumers finish. The event/buffers live until array release; output storage is caller-owned.
 ///
 /// # Safety
 ///
-/// Use a live handle on its creating thread, without concurrent or reentrant calls. Non-null,
-/// aligned output pointers must reference writable, non-overlapping storage, not aliasing the
-/// handle or `error_out`. Output storage may be uninitialized; release any previous contents before
-/// a successful call overwrites them. Non-null `error_out` must be writable for one error pointer.
+/// Use a live handle exclusively on its creating thread, without reentrancy. Non-null, aligned
+/// output pointers must reference writable storage, disjoint from each other, the handle, and
+/// `error_out`. Outputs may be uninitialized; release previous contents before overwriting them.
+/// Non-null `error_out` must be writable for one error pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_cuda_device_batches_next(
     handle: *mut vx_cuda_device_batches,
@@ -242,13 +230,13 @@ pub unsafe extern "C-unwind" fn vx_cuda_device_batches_next(
     })
 }
 
-/// Free a device-batches handle. Null is a no-op. Previously returned schemas and arrays remain
-/// owned by the caller and must still be released independently via their Arrow callbacks.
+/// Free the handle; null is a no-op.
+///
+/// Returned outputs remain caller-owned and must be released via their Arrow callbacks.
 ///
 /// # Safety
 ///
-/// A non-null handle must be live, exclusively owned, and freed exactly once on its creating
-/// thread, without a concurrent or reentrant call.
+/// Free a live, exclusively owned handle exactly once on its creating thread, without reentrancy.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_cuda_device_batches_free(handle: *mut vx_cuda_device_batches) {
     if !handle.is_null() {

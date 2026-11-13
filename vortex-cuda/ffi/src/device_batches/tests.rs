@@ -92,6 +92,14 @@ fn take_error(error: *mut vx_error) -> Option<String> {
 
 fn next(handle: &mut vx_cuda_device_batches) -> VortexResult<Output> {
     let mut output = Output::empty();
+    next_into(handle, &mut output)?;
+    Ok(output)
+}
+
+/// Advance into existing output storage through the public ABI.
+///
+/// Shared by success and error tests so both check status codes and error ownership.
+fn next_into(handle: &mut vx_cuda_device_batches, output: &mut Output) -> VortexResult<()> {
     let mut error = ptr::null_mut();
     // SAFETY: The handle is exclusively borrowed and outputs are live, disjoint, and writable.
     let status = unsafe {
@@ -107,7 +115,7 @@ fn next(handle: &mut vx_cuda_device_batches) -> VortexResult<Output> {
         return Err(vortex_err!("{error}"));
     }
     assert_eq!(status, VX_CUDA_OK);
-    Ok(output)
+    Ok(())
 }
 
 fn session() -> VortexResult<VortexSession> {
@@ -123,6 +131,13 @@ fn batches(session: &VortexSession, arrays: Vec<ArrayRef>) -> VortexResult<vx_cu
     let dtype = arrays[0].dtype().clone();
     let stream = ArrayStreamAdapter::new(dtype, stream::iter(arrays.into_iter().map(Ok))).boxed();
     vx_cuda_device_batches::new(stream, session, ffi_runtime())
+}
+
+/// Build a primitive fixture for a mixed-encoding batch stream.
+///
+/// Keeps the element type explicit at call sites while returning an erased array.
+fn primitive<T: NativePType>(values: impl IntoIterator<Item = T>) -> ArrayRef {
+    PrimitiveArray::from_iter(values).into_array()
 }
 
 fn strings(values: &[Option<&str>]) -> ArrayRef {
@@ -257,23 +272,14 @@ unsafe fn read_strings(array: &ArrowArray, dtype: &DataType) -> VortexResult<Vec
 #[cuda_test]
 fn test_per_batch_dictionaries_widths_plain_and_owned_lifetimes() -> VortexResult<()> {
     let session = session()?;
-    let first = dictionary(
-        PrimitiveArray::from_iter([1u8, 0, 1]).into_array(),
-        &[Some("red"), Some("blue")],
-    )?;
+    let first = dictionary(primitive([1u8, 0, 1]), &[Some("red"), Some("blue")])?;
     let second = dictionary(
-        PrimitiveArray::from_iter([0u8, 1, 0]).into_array(),
+        primitive([0u8, 1, 0]),
         &[Some("green"), Some("a longer dictionary value")],
     )?;
     let third = strings(&[Some("plain"), None, Some("no identity dictionary")]);
-    let fourth = dictionary(
-        PrimitiveArray::from_iter([1u16, 0, 1]).into_array(),
-        &[Some("small"), Some("wide")],
-    )?;
-    let fifth = dictionary(
-        PrimitiveArray::from_iter([0u32, 1, 0]).into_array(),
-        &[Some("widest"), Some("last")],
-    )?;
+    let fourth = dictionary(primitive([1u16, 0, 1]), &[Some("small"), Some("wide")])?;
+    let fifth = dictionary(primitive([0u32, 1, 0]), &[Some("widest"), Some("last")])?;
     let inputs = vec![first, second, third, fourth, fifth];
     let expected = [
         strings(&[Some("blue"), Some("red"), Some("blue")]),
@@ -321,12 +327,7 @@ fn test_per_batch_dictionaries_widths_plain_and_owned_lifetimes() -> VortexResul
         // SAFETY: This live table batch has one child, described by the checked schema.
         let actual = unsafe { read_strings(&**output.array.array.children, dtype) }?;
         assert_arrays_eq!(
-            strings(
-                &actual
-                    .iter()
-                    .map(|value| value.as_deref())
-                    .collect::<Vec<_>>()
-            ),
+            VarBinViewArray::from_iter_nullable_str(actual).into_array(),
             expected,
             &mut ctx
         );
@@ -359,12 +360,8 @@ fn upload(array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<ArrayRef>
 fn test_numeric_dictionary_preserved_alongside_strings() -> VortexResult<()> {
     let session = session()?;
     let mut ctx = CudaSession::create_execution_ctx(&session)?;
-    let codes = PrimitiveArray::from_iter([1u8, 0, 1]).into_array();
-    let numbers = DictArray::try_new(
-        codes.clone(),
-        PrimitiveArray::from_iter([10i32, 30]).into_array(),
-    )?
-    .into_array();
+    let codes = primitive([1u8, 0, 1]);
+    let numbers = DictArray::try_new(codes.clone(), primitive([10i32, 30]))?.into_array();
     let text = dictionary(codes, &[Some("red"), Some("blue")])?;
     let input = StructArray::new(
         ["number", "text"].into(),
@@ -409,12 +406,7 @@ fn test_numeric_dictionary_preserved_alongside_strings() -> VortexResult<()> {
     // SAFETY: The second field describes the live, synchronized string dictionary.
     let actual = unsafe { read_strings(text, schema.field(1).data_type()) }?;
     assert_arrays_eq!(
-        strings(
-            &actual
-                .iter()
-                .map(|value| value.as_deref())
-                .collect::<Vec<_>>()
-        ),
+        VarBinViewArray::from_iter_nullable_str(actual).into_array(),
         strings(&[Some("blue"), Some("red"), Some("blue")]),
         ctx.execution_ctx()
     );
@@ -437,12 +429,7 @@ fn test_null_dictionary_values_and_codes() -> VortexResult<()> {
     // SAFETY: The schema describes this live, synchronized dictionary array.
     let actual = unsafe { read_strings(&output.array.array, field.data_type()) }?;
     assert_arrays_eq!(
-        strings(
-            &actual
-                .iter()
-                .map(|value| value.as_deref())
-                .collect::<Vec<_>>()
-        ),
+        VarBinViewArray::from_iter_nullable_str(actual).into_array(),
         strings(&[Some("valid"), None, None, Some("also valid"), None]),
         handle.ctx.execution_ctx()
     );
@@ -465,11 +452,8 @@ fn test_null_dictionary_values_and_codes() -> VortexResult<()> {
 #[cuda_test]
 fn test_zero_row_batch_and_fused_eos() -> VortexResult<()> {
     let session = session()?;
-    let empty = PrimitiveArray::from_iter([] as [i32; 0]).into_array();
-    let mut handle = batches(
-        &session,
-        vec![empty, PrimitiveArray::from_iter([7i32]).into_array()],
-    )?;
+    let empty = primitive::<i32>([]);
+    let mut handle = batches(&session, vec![empty, primitive([7i32])])?;
     let output = next(&mut handle)?;
     assert!(!output.is_eos());
     assert_eq!(output.array.array.length, 0);
@@ -485,7 +469,7 @@ fn test_zero_row_batch_and_fused_eos() -> VortexResult<()> {
 #[cuda_test]
 fn test_empty_stream_and_fused_eos() -> VortexResult<()> {
     let session = session()?;
-    let empty = PrimitiveArray::from_iter([] as [i32; 0]).into_array();
+    let empty = primitive::<i32>([]);
     let stream = ArrayStreamAdapter::new(empty.dtype().clone(), stream::empty()).boxed();
     let mut handle = vx_cuda_device_batches::new(stream, &session, ffi_runtime())?;
     let device_id = handle.ctx.stream().context().ordinal() as i64;
@@ -514,19 +498,8 @@ fn assert_terminal(
     let schema = Field::try_from(&output.schema)?;
     let private_data = output.array.array.private_data;
     for expected in [expected_error, "terminal", "terminal"] {
-        let mut error = ptr::null_mut();
-        // SAFETY: Error paths must leave these live, owned output values untouched.
-        let status = unsafe {
-            vx_cuda_device_batches_next(
-                handle,
-                &raw mut output.schema,
-                &raw mut output.array,
-                &raw mut error,
-            )
-        };
-        assert_eq!(status, VX_CUDA_ERR);
-        let error = take_error(error).expect("missing error");
-        assert!(error.contains(expected), "{error}");
+        let error = next_into(handle, &mut output).expect_err("failed batch must return an error");
+        assert!(error.to_string().contains(expected), "{error}");
         assert_eq!(Field::try_from(&output.schema)?, schema);
         assert_eq!(output.array.array.private_data, private_data);
         assert_eq!(
@@ -545,12 +518,12 @@ fn test_scan_dtype_export_errors_and_panics_are_terminal() -> VortexResult<()> {
         let seed = if failure == "export" {
             DecimalArray::from_iter([1i64], DecimalDType::new(10, 2)).into_array()
         } else {
-            PrimitiveArray::from_iter([1i32]).into_array()
+            primitive([1i32])
         };
         let mut handle = batches(&session, vec![seed.clone()])?;
         let bad = match failure {
             "scan" | "panic" => Err(vortex_err!("injected scan failure")),
-            "dtype" => Ok(PrimitiveArray::from_iter([1i64]).into_array()),
+            "dtype" => Ok(primitive([1i64])),
             // Same logical decimal dtype, but its physical storage requires unsupported narrowing.
             "export" => Ok(DecimalArray::from_iter([1i128], DecimalDType::new(10, 2)).into_array()),
             _ => unreachable!(),
@@ -583,10 +556,7 @@ fn test_scan_dtype_export_errors_and_panics_are_terminal() -> VortexResult<()> {
 #[cuda_test]
 fn test_device_check_rejects_non_cuda_export() -> VortexResult<()> {
     let session = session()?;
-    let mut handle = batches(
-        &session,
-        vec![PrimitiveArray::from_iter([42i32]).into_array()],
-    )?;
+    let mut handle = batches(&session, vec![primitive([42i32])])?;
     let mut output = next(&mut handle)?;
     handle.check_device(&output.array)?;
     output.array.device_type = 0;
@@ -600,10 +570,7 @@ fn test_device_check_rejects_non_cuda_export() -> VortexResult<()> {
 #[cuda_test]
 fn test_device_check_rejects_different_cuda_device() -> VortexResult<()> {
     let session = session()?;
-    let mut handle = batches(
-        &session,
-        vec![PrimitiveArray::from_iter([42i32]).into_array()],
-    )?;
+    let mut handle = batches(&session, vec![primitive([42i32])])?;
     let mut output = next(&mut handle)?;
     handle.check_device(&output.array)?;
     output.array.device_id += 1;
@@ -617,10 +584,7 @@ fn test_device_check_rejects_different_cuda_device() -> VortexResult<()> {
 #[cuda_test]
 fn test_invalid_output_pointers_do_not_consume_or_poison() -> VortexResult<()> {
     let session = session()?;
-    let mut handle = batches(
-        &session,
-        vec![PrimitiveArray::from_iter([42i32]).into_array()],
-    )?;
+    let mut handle = batches(&session, vec![primitive([42i32])])?;
     let mut output = Output::empty();
     output.array.array.length = 123;
     let schema = &raw mut output.schema;
@@ -740,8 +704,8 @@ fn test_path_projection_batch_rows_and_session_lifetime() -> VortexResult<()> {
     let input = StructArray::new(
         ["unused", "ids"].into(),
         vec![
-            PrimitiveArray::from_iter([90i32, 91, 92, 93, 94]).into_array(),
-            PrimitiveArray::from_iter([0i32, 1, 2, 3, 4]).into_array(),
+            primitive([90i32, 91, 92, 93, 94]),
+            primitive([0i32, 1, 2, 3, 4]),
         ],
         5,
         Validity::NonNullable,
@@ -817,15 +781,9 @@ fn test_existing_device_stream_still_decodes_mixed_batches() -> VortexResult<()>
         DictionaryExport::Preserve
     );
     let arrays = vec![
-        dictionary(
-            PrimitiveArray::from_iter([0u8]).into_array(),
-            &[Some("dictionary")],
-        )?,
+        dictionary(primitive([0u8]), &[Some("dictionary")])?,
         strings(&[Some("plain")]),
-        dictionary(
-            PrimitiveArray::from_iter([0u16]).into_array(),
-            &[Some("wide")],
-        )?,
+        dictionary(primitive([0u16]), &[Some("wide")])?,
     ];
     let stream = ArrayStreamAdapter::new(
         arrays[0].dtype().clone(),
