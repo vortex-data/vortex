@@ -14,6 +14,7 @@ use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
+use vortex_compressor::sample_aligned_chunks;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
@@ -71,6 +72,9 @@ const DELTA_PENALTY: f64 = 0.95;
 
 /// Minimum length before Delta is worth considering (one FastLanes chunk).
 const MIN_DELTA_LEN: usize = 1024;
+
+/// Number of whole FastLanes chunks Delta's estimate delta-encodes, instead of the whole array.
+const SAMPLE_CHUNKS: u32 = 4;
 
 /// Penalized compression ratio for `len` values of `full_width` bits whose transposed residuals
 /// need `delta_bits` bits each.
@@ -153,13 +157,12 @@ impl Scheme for DeltaScheme {
         }
 
         // Estimating Delta needs the real transposed-delta span, so defer to a callback that
-        // delta-encodes the array and measures the residual range.
+        // delta-encodes a sample of whole FastLanes chunks and measures the residual range.
         let min_ratio = self.min_ratio;
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            move |_compressor, data, best_so_far, _ctx, exec_ctx| {
-                let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
-                let full_width = primitive.ptype().bit_width() as f64;
-                let len = primitive.len();
+            move |_compressor, data, best_so_far, ctx, exec_ctx| {
+                let full_width = data.array().dtype().as_ptype().bit_width() as f64;
+                let len = data.array_len();
 
                 // Delta's best case is residuals collapsing to a single bit. If even that, after
                 // the penalty, can't beat the incumbent, skip before doing the encode work.
@@ -167,6 +170,21 @@ impl Scheme for DeltaScheme {
                 if threshold.is_some_and(|t| penalized_ratio(len, full_width, 1.0) <= t) {
                     return Ok(EstimateVerdict::Skip);
                 }
+
+                // Delta encodes each FastLanes chunk on its own, with fresh bases, so whole
+                // aligned chunks have the same residuals as those rows in the full encode (except
+                // where leading nulls are filled from the previous chunk). A sample can miss rare
+                // outliers, such as a series restarting, but the cascade under Delta patches
+                // those rather than widening every residual for them. Inside another scheme's
+                // sample the array is already small, so measure it whole.
+                let sampled = if ctx.is_sample() {
+                    None
+                } else {
+                    sample_aligned_chunks(data.array(), FL_CHUNK_SIZE, SAMPLE_CHUNKS)
+                };
+                let primitive = sampled
+                    .unwrap_or_else(|| data.array().clone())
+                    .execute::<PrimitiveArray>(exec_ctx)?;
 
                 // Measure the actual FastLanes transposed-delta span. This is the lane-stride
                 // difference that gets bit-packed, not the lag-1 difference (which the transpose

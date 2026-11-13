@@ -277,6 +277,37 @@ fn test_delta_unaligned_roundtrip(#[case] input: PrimitiveArray) -> VortexResult
     Ok(())
 }
 
+/// Series of 30-second timestamps, each with an occasional missed scrape, that restart in the
+/// middle of a FastLanes chunk. Each restart leaves one large negative residual, which used to
+/// inflate Delta's estimated span to the full width, although the cascade under Delta patches
+/// those few outliers.
+#[test]
+fn test_delta_chosen_for_restarting_series() -> VortexResult<()> {
+    let mut rng = StdRng::seed_from_u64(7);
+    let mut ts = 0i64;
+    let input = PrimitiveArray::from_iter((0..131_072).map(|i| {
+        if i % 30_000 == 0 {
+            ts = 1_700_000_000_000;
+        }
+        ts += if rng.next_u32() % 1000 == 0 {
+            60_000
+        } else {
+            30_000
+        };
+        ts
+    }))
+    .into_array();
+
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+    assert!(compressed.is::<Delta>());
+    assert!(compressed.nbytes() * 16 < input.nbytes());
+
+    Ok(())
+}
+
 /// Fixed-size lists of random bytes, like UUIDs, with the rows `is_valid` picks valid. The null
 /// rows hold zeros, as Arrow's fixed-size binary arrays do.
 fn random_byte_lists(rows: usize, is_valid: impl Fn(usize) -> bool) -> ArrayRef {
