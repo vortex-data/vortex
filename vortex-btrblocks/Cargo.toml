@@ -39,11 +39,6 @@ vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
-arrow-array = { workspace = true }
-parquet = { workspace = true }
-tpchgen = { workspace = true }
-tpchgen-arrow = { workspace = true }
-vortex-arrow = { workspace = true }
 divan = { workspace = true }
 enum-iterator = { workspace = true }
 insta = { workspace = true }

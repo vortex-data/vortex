@@ -11560,21 +11560,16 @@ dependencies = [
 name = "vortex-btrblocks"
 version = "0.1.0"
 dependencies = [
- "arrow-array 59.3.2",
  "codspeed-divan-compat",
  "enum-iterator",
  "insta",
  "itertools 0.14.0",
  "mimalloc",
- "parquet 59.3.2",
  "pco",
  "rand 0.10.3",
  "rstest",
- "tpchgen",
- "tpchgen-arrow",
  "vortex-alp",
  "vortex-array",
- "vortex-arrow",
  "vortex-buffer",
  "vortex-compressor",
  "vortex-datetime-parts",

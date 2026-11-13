@@ -55,18 +55,27 @@ pub(crate) fn sample(input: &ArrayRef, sample_size: u32, sample_count: u32) -> A
     unsafe { ChunkedArray::new_unchecked(chunks, input.dtype().clone()) }.into_array()
 }
 
-/// Rows in one FastLanes chunk.
-pub const CHUNK_LEN: usize = 1024;
-
-/// Samples `chunk_count` whole, 1024-aligned chunks of `input`, one from each of `chunk_count`
-/// equal partitions of its full chunks.
+/// Samples `chunk_count` whole chunks of `chunk_len` rows that start at multiples of
+/// `chunk_len`, one from each of `chunk_count` equal partitions of the array's full chunks.
 ///
-/// Returns `input` unchanged when it has no more than `chunk_count` full chunks.
-pub(crate) fn sample_chunks(input: &ArrayRef, chunk_count: u32) -> ArrayRef {
-    let slices = chunk_slices(input.len(), chunk_count);
-    if slices.is_empty() {
-        return input.clone();
-    }
+/// Use this instead of the default compression sample for schemes that encode each chunk
+/// independently, such as the FastLanes encodings with `chunk_len = 1024`. The default sample
+/// joins short runs from across the array, so a chunk of it mixes rows that were never adjacent;
+/// an aligned chunk here holds exactly the rows the scheme would encode together.
+///
+/// Returns `None` when the array has no more than `chunk_count` full chunks, in which case the
+/// caller should use the whole array. The trailing partial chunk is never sampled. Sampling is
+/// deterministic.
+///
+/// # Panics
+///
+/// Panics if `chunk_len` or `chunk_count` is zero.
+pub fn sample_aligned_chunks(
+    input: &ArrayRef,
+    chunk_len: usize,
+    chunk_count: u32,
+) -> Option<ArrayRef> {
+    let slices = aligned_chunk_slices(input.len(), chunk_len, chunk_count)?;
 
     let chunks = slices.into_iter().map(|(start, end)| {
         input
@@ -74,25 +83,34 @@ pub(crate) fn sample_chunks(input: &ArrayRef, chunk_count: u32) -> ArrayRef {
             .vortex_expect("slice should succeed")
     });
     // SAFETY: all chunks are slices of `input`, so they share its dtype.
-    unsafe { ChunkedArray::new_unchecked(chunks, input.dtype().clone()) }.into_array()
+    Some(unsafe { ChunkedArray::new_unchecked(chunks, input.dtype().clone()) }.into_array())
 }
 
-/// Returns deterministic 1024-aligned chunk ranges, one per partition of the full chunks, or no
-/// ranges when the array has no more than `chunk_count` full chunks.
-pub(crate) fn chunk_slices(length: usize, chunk_count: u32) -> Vec<(usize, usize)> {
-    let full_chunks = length / CHUNK_LEN;
+/// Returns the deterministic ranges [`sample_aligned_chunks`] slices, or `None` when the array
+/// has no more than `chunk_count` full chunks.
+fn aligned_chunk_slices(
+    length: usize,
+    chunk_len: usize,
+    chunk_count: u32,
+) -> Option<Vec<(usize, usize)>> {
+    assert!(chunk_len > 0, "chunk_len must be positive");
+    assert!(chunk_count > 0, "chunk_count must be positive");
+
+    let full_chunks = length / chunk_len;
     if full_chunks <= chunk_count as usize {
-        return Vec::new();
+        return None;
     }
 
     let mut rng = StdRng::seed_from_u64(SAMPLE_SEED);
-    partition_indices(full_chunks, chunk_count)
-        .into_iter()
-        .map(|(start, stop)| {
-            let chunk = rng.random_range(start..stop);
-            (chunk * CHUNK_LEN, (chunk + 1) * CHUNK_LEN)
-        })
-        .collect()
+    Some(
+        partition_indices(full_chunks, chunk_count)
+            .into_iter()
+            .map(|(start, stop)| {
+                let chunk = rng.random_range(start..stop);
+                (chunk * chunk_len, (chunk + 1) * chunk_len)
+            })
+            .collect(),
+    )
 }
 
 /// Returns deterministic stratified sample ranges for an array length.
@@ -206,12 +224,9 @@ pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     let sample_array = if compress_ctx.is_sample() {
         array.clone()
     } else {
+        let sample_count = sample_count_approx_one_percent(array.len());
         // `ArrayAndStats` expects a canonical array (so that it can easily compute lazy stats).
-        let sampled = match experiment_chunk_count(scheme.scheme_name()) {
-            Some(chunks) => sample_chunks(array, chunks),
-            None => sample(array, SAMPLE_SIZE, sample_count_approx_one_percent(array.len())),
-        };
-        let canonical: Canonical = sampled.execute(exec_ctx)?;
+        let canonical: Canonical = sample(array, SAMPLE_SIZE, sample_count).execute(exec_ctx)?;
         canonical.into_array()
     };
 
@@ -246,15 +261,6 @@ pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     Ok(score)
 }
 
-// EXPERIMENT ONLY, not for commit.
-fn experiment_chunk_count(scheme: &str) -> Option<u32> {
-    let chunks: u32 = std::env::var("VX_SAMPLE_CHUNKS").ok()?.parse().ok()?;
-    match std::env::var("VX_SAMPLE_CHUNK_SCHEMES") {
-        Ok(list) if !list.is_empty() => list.split(',').any(|s| s == scheme).then_some(chunks),
-        _ => Some(chunks),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
@@ -287,6 +293,47 @@ mod tests {
             assert_eq!(first.nbytes(), again.nbytes());
             assert_arrays_eq!(&first, &again, &mut ctx);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn aligned_chunk_slices_are_whole_aligned_and_spread() {
+        let slices = aligned_chunk_slices(100 * 1024 + 7, 1024, 4).unwrap();
+        assert_eq!(slices.len(), 4);
+        for (i, &(start, end)) in slices.iter().enumerate() {
+            assert_eq!(start % 1024, 0);
+            assert_eq!(end - start, 1024);
+            // One chunk from each quarter of the 100 full chunks; the partial tail is excluded.
+            assert!((i * 25 * 1024..(i + 1) * 25 * 1024).contains(&start));
+        }
+    }
+
+    #[test]
+    fn aligned_chunks_need_more_full_chunks_than_requested() {
+        assert!(aligned_chunk_slices(4 * 1024 + 1023, 1024, 4).is_none());
+        assert!(aligned_chunk_slices(5 * 1024, 1024, 4).is_some());
+    }
+
+    #[test]
+    fn sample_aligned_chunks_matches_source_rows() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = 64 * 1024;
+        let array = PrimitiveArray::new(
+            Buffer::from_iter(0..u32::try_from(len)?),
+            Validity::NonNullable,
+        )
+        .into_array();
+
+        let sampled = sample_aligned_chunks(&array, 1024, 4).unwrap();
+        assert_eq!(sampled.len(), 4 * 1024);
+
+        let chunks = aligned_chunk_slices(len, 1024, 4)
+            .unwrap()
+            .into_iter()
+            .map(|(start, end)| array.slice(start..end))
+            .collect::<VortexResult<Vec<_>>>()?;
+        let expected = ChunkedArray::try_new(chunks, array.dtype().clone())?.into_array();
+        assert_arrays_eq!(sampled, expected, &mut ctx);
         Ok(())
     }
 }
