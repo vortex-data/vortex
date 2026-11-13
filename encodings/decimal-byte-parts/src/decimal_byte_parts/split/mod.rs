@@ -207,6 +207,7 @@ pub fn split_wide<T: Copy, const N: usize>(
             part.set_len(len);
         }
     }
+
     (msp.freeze(), lower.map(BufferMut::freeze))
 }
 

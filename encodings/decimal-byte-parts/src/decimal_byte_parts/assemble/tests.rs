@@ -33,6 +33,18 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
+fn round_trip(decimal: DecimalArray) -> VortexResult<DecimalArray> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let parts = split_decimal(&decimal, &mut ctx)?;
+    assemble_decimal(
+        &parts.msp,
+        &parts.lower_parts,
+        decimal.decimal_dtype(),
+        &mut ctx,
+    )?
+    .execute::<DecimalArray>(&mut ctx)
+}
+
 #[rstest]
 #[case::empty_non_nullable(0, Validity::NonNullable)]
 #[case::empty_nullable(0, Validity::AllValid)]
@@ -71,6 +83,7 @@ fn test_split_without_valid_rows(
     let round_tripped = round_trip(decimal.clone())?;
     assert_eq!(round_tripped.values_type(), values_type);
     assert_arrays_eq!(round_tripped, decimal, &mut ctx);
+
     Ok(())
 }
 
@@ -116,59 +129,37 @@ fn test_split_zeroes_null_words(
         assert_arrays_eq!(lower, expected.clone(), &mut ctx);
     }
     assert_arrays_eq!(round_trip(decimal.clone())?, decimal, &mut ctx);
-    Ok(())
-}
 
-fn round_trip(decimal: DecimalArray) -> VortexResult<DecimalArray> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let parts = split_decimal(&decimal, &mut ctx)?;
-    assemble_decimal(
-        &parts.msp,
-        &parts.lower_parts,
-        decimal.decimal_dtype(),
-        &mut ctx,
-    )?
-    .execute::<DecimalArray>(&mut ctx)
-}
-
-#[rstest]
-#[case::zero(0)]
-#[case::one(1)]
-#[case::minus_one(-1)]
-#[case::limb_boundary(1i128 << 64)]
-#[case::just_below_limb_boundary((1i128 << 64) - 1)]
-#[case::negative_limb_boundary(-(1i128 << 64))]
-#[case::max(i128::MAX)]
-#[case::min(i128::MIN)]
-fn test_split_assemble_i128(#[case] value: i128) -> VortexResult<()> {
-    let decimal = DecimalArray::new(
-        Buffer::from(vec![value]),
-        DecimalDType::new(38, 2),
-        Validity::NonNullable,
-    );
-    let round_tripped = round_trip(decimal)?;
-    assert_eq!(round_tripped.buffer::<i128>().as_slice(), &[value]);
     Ok(())
 }
 
 #[rstest]
-#[case::zero(i256::ZERO)]
-#[case::one(i256::ONE)]
-#[case::minus_one(i256::ZERO - i256::ONE)]
-#[case::max(i256::MAX)]
-#[case::min(i256::MIN)]
-#[case::word_1(i256::from_parts(1u128 << 64, 0))]
-#[case::word_2(i256::from_parts(0, 1))]
-#[case::word_3(i256::from_parts(0, 1i128 << 64))]
-#[case::mixed(i256::from_parts(u128::MAX, -3))]
-fn test_split_assemble_i256(#[case] value: i256) -> VortexResult<()> {
+#[case::i128_zero(0i128)]
+#[case::i128_one(1i128)]
+#[case::i128_minus_one(-1i128)]
+#[case::i128_limb_boundary(1i128 << 64)]
+#[case::i128_just_below_limb_boundary((1i128 << 64) - 1)]
+#[case::i128_negative_limb_boundary(-(1i128 << 64))]
+#[case::i128_max(i128::MAX)]
+#[case::i128_min(i128::MIN)]
+#[case::i256_zero(i256::ZERO)]
+#[case::i256_one(i256::ONE)]
+#[case::i256_minus_one(i256::ZERO - i256::ONE)]
+#[case::i256_max(i256::MAX)]
+#[case::i256_min(i256::MIN)]
+#[case::i256_word_1(i256::from_parts(1u128 << 64, 0))]
+#[case::i256_word_2(i256::from_parts(0, 1))]
+#[case::i256_word_3(i256::from_parts(0, 1i128 << 64))]
+#[case::i256_mixed(i256::from_parts(u128::MAX, -3))]
+fn test_split_assemble<T: NativeDecimalType>(#[case] value: T) -> VortexResult<()> {
     let decimal = DecimalArray::new(
         Buffer::from(vec![value]),
-        DecimalDType::new(76, 2),
+        DecimalDType::new(T::MAX_PRECISION, 2),
         Validity::NonNullable,
     );
     let round_tripped = round_trip(decimal)?;
-    assert_eq!(round_tripped.buffer::<i256>().as_slice(), &[value]);
+    assert_eq!(round_tripped.buffer::<T>().as_slice(), &[value]);
+
     Ok(())
 }
 

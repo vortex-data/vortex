@@ -112,6 +112,7 @@ impl DecimalBytePartsData {
             );
             vortex_ensure_eq!(part.len(), len, "lower part {idx} length mismatch");
         }
+
         Ok(())
     }
 }

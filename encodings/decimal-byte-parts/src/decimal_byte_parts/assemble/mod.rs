@@ -179,6 +179,7 @@ where
             .zip(lower)
             .map(|(&value, parts)| assemble_wide_decimal_value(value.into(), parts)),
     );
+
     out.freeze()
 }
 
@@ -196,6 +197,7 @@ where
     for part in lower {
         value = (value << LOWER_PART_BITS) | part.into();
     }
+
     value
 }
 

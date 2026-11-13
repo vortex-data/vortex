@@ -19,9 +19,6 @@ use vortex_session::registry::CachedId;
 use super::DecimalByteParts;
 use super::DecimalBytePartsArraySlotsExt;
 
-#[cfg(test)]
-mod tests;
-
 mod v1;
 mod v2;
 
@@ -100,3 +97,6 @@ impl ArrayPlugin for DecimalBytePartsPlugin {
         Ok(array.into_array())
     }
 }
+
+#[cfg(test)]
+mod tests;

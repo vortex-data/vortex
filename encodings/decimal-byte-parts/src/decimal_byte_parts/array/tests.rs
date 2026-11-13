@@ -22,7 +22,6 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar::ScalarValue;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -42,43 +41,39 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
+fn msp() -> ArrayRef {
+    buffer![1i64, 2, 3].into_array()
+}
+
+fn lower_part() -> ArrayRef {
+    buffer![1u64, 2, 3].into_array()
+}
+
 #[test]
-fn test_scalar_at_decimal_parts() {
+fn test_scalar_at_decimal_parts() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let decimal_dtype = DecimalDType::new(8, 2);
     let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
     let array = DecimalByteParts::try_new(
         PrimitiveArray::new(
-            buffer![100i32, 200i32, 400i32],
-            Validity::Array(BoolArray::from_iter(vec![false, true, true]).into_array()),
+            buffer![100i32, 200, 400],
+            Validity::from_iter([false, true, true]),
         )
         .into_array(),
         decimal_dtype,
-    )
-    .unwrap()
+    )?
     .into_array();
+    let expected = [
+        Scalar::null(dtype),
+        Scalar::decimal(DecimalValue::I64(200), decimal_dtype, Nullability::Nullable),
+        Scalar::decimal(DecimalValue::I64(400), decimal_dtype, Nullability::Nullable),
+    ];
 
-    assert_eq!(
-        Scalar::null(dtype.clone()),
-        array
-            .execute_scalar(0, &mut SESSION.create_execution_ctx())
-            .unwrap()
-    );
-    assert_eq!(
-        Scalar::try_new(
-            dtype.clone(),
-            Some(ScalarValue::Decimal(DecimalValue::I64(200)))
-        )
-        .unwrap(),
-        array
-            .execute_scalar(1, &mut SESSION.create_execution_ctx())
-            .unwrap()
-    );
-    assert_eq!(
-        Scalar::try_new(dtype, Some(ScalarValue::Decimal(DecimalValue::I64(400)))).unwrap(),
-        array
-            .execute_scalar(2, &mut SESSION.create_execution_ctx())
-            .unwrap()
-    );
+    for (row, expected) in expected.into_iter().enumerate() {
+        assert_eq!(array.execute_scalar(row, &mut ctx)?, expected);
+    }
+
+    Ok(())
 }
 
 #[test]
@@ -95,6 +90,7 @@ fn test_lower_part_layout_i128() -> VortexResult<()> {
         .execute::<PrimitiveArray>(&mut ctx)?;
     assert_eq!(msp.as_slice::<i64>(), &[3]);
     assert_eq!(lower.as_slice::<u64>(), &[7]);
+
     Ok(())
 }
 
@@ -113,6 +109,7 @@ fn test_lower_part_layout_i256() -> VortexResult<()> {
         let part = part.clone().execute::<PrimitiveArray>(&mut ctx)?;
         assert_eq!(part.as_slice::<u64>(), &[expected]);
     }
+
     Ok(())
 }
 
@@ -168,6 +165,7 @@ fn test_scalar_at_null_with_lower_parts() -> VortexResult<()> {
             Nullability::Nullable
         )
     );
+
     Ok(())
 }
 
@@ -243,14 +241,6 @@ fn test_independently_narrowed_parts(
         );
     }
     Ok(())
-}
-
-fn msp() -> ArrayRef {
-    buffer![1i64, 2, 3].into_array()
-}
-
-fn lower_part() -> ArrayRef {
-    buffer![1u64, 2, 3].into_array()
 }
 
 #[rstest]
@@ -355,5 +345,6 @@ fn test_unused_buffer_of_values_is_ignored_for_null_rows() -> VortexResult<()> {
         ),
         &mut ctx
     );
+
     Ok(())
 }
