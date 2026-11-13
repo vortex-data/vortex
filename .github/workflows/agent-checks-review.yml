@@ -265,9 +265,10 @@ jobs:
           fi
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
-        # Record the review only once its decision is carried out. `blocked` and failed publish
-        # steps record nothing, so the files are offered again rather than marked reviewed with
-        # the fix or findings lost.
+        # Hand the review to the record job only once its decision is carried out. `blocked` and
+        # failed publish steps hand over nothing, so the files are offered again rather than
+        # marked reviewed with the fix or findings lost. This workflow never touches the state
+        # store: the agent runs here, and only agent-checks.yml may assume the store's role.
         if: >-
           !cancelled() && steps.decide.outcome == 'success' && (
             env.DRY_RUN == 'true' ||
@@ -276,7 +277,13 @@ jobs:
             (startsWith(steps.decide.outputs.action, 'issue_') && steps.issue.outcome == 'success'))
         with:
           name: agent-checks-state-${{ inputs.check }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/agent-checks/state-update/
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        # The agent's results and what was published, for auditing the run.
+        if: ${{ !cancelled() && steps.finalize.outcome == 'success' }}
+        with:
+          name: agent-checks-out-${{ inputs.check }}-${{ strategy.job-index }}
           path: |
-            ${{ runner.temp }}/agent-checks/state-update/
             ${{ runner.temp }}/agent-checks/out/
             ${{ runner.temp }}/agent-checks/results.json

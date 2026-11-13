@@ -95,7 +95,14 @@ def plan(
 ) -> dict[str, Any]:
     checks = list(ac.load_checks(root).values())
     return ac.build_plan(
-        checks, root, state_dir, now=now, items=items, max_shards=max_shards, force=force, only_shards=shards
+        checks,
+        root,
+        ac.DirStore(state_dir),
+        now=now,
+        items=items,
+        max_shards=max_shards,
+        force=force,
+        only_shards=shards,
     )
 
 
@@ -115,7 +122,7 @@ def marker(**fields: object) -> str:
 
 
 def last_run(state_dir: Path) -> str | None:
-    path = state_dir / "bench.json"
+    path = state_dir / "bench" / "state.json"
     return json.loads(path.read_text())["last_run"] if path.exists() else None
 
 
@@ -189,7 +196,7 @@ class TestPlan:
         shard = ac.find_shard(p, "bench", "alpha")
         results = {"reviewed": ["alpha/benches/a.rs", "alpha/benches/b.rs"], "findings": []}
         out = ac.finalize(ac.load_checks(repo)["bench"], p, shard, results, repo, now=NOW)
-        ac.record(state_dir, [out["state_update"]])
+        ac.record(ac.DirStore(state_dir), [out["state_update"]])
         assert shard_files(plan(repo, state_dir))["alpha"] == ["alpha/benches/c.rs"]
 
     def test_max_shards_and_busy_branches(self, repo: Path, tmp_path: Path):
@@ -231,7 +238,7 @@ class TestPlan:
         shard = ac.find_shard(p, "bench", "beta")
         results = {"reviewed": ["enc/beta/benches/x.rs"], "findings": [], "summary": ""}
         out = ac.finalize(ac.load_checks(repo)["bench"], p, shard, results, repo, now=NOW)
-        ac.record(state_dir, [out["state_update"]], plan=p)
+        ac.record(ac.DirStore(state_dir), [out["state_update"]], plan=p)
 
         # Cadence: nothing runs again within cadence_days unless forced.
         assert shard_files(plan(repo, state_dir)) == {}
@@ -249,7 +256,7 @@ class TestPlan:
         check = ac.load_checks(repo)["bench"]
         shard = ac.find_shard(p, "bench", "beta")
         out = ac.finalize(check, p, shard, {"reviewed": ["enc/beta/benches/x.rs"], "findings": []}, repo, now=NOW)
-        ac.record(state_dir, [out["state_update"]])
+        ac.record(ac.DirStore(state_dir), [out["state_update"]])
 
         write(repo, ".agents/checks/bench/CHECK.md", CHECK_MD.replace("cadence_days = 7", "version = 2"))
         status = ac.find_shard(plan(repo, state_dir), "bench", "beta")["files"][0]["status"]
@@ -280,7 +287,7 @@ class TestPlan:
     def test_crates_rotate_by_their_last_review(self, repo: Path, tmp_path: Path):
         state_dir = tmp_path / "state"
         p = plan(repo, state_dir)
-        ac.record(state_dir, [review(repo, p, "alpha", ["alpha/benches/a.rs", "alpha/benches/b.rs"])])
+        ac.record(ac.DirStore(state_dir), [review(repo, p, "alpha", ["alpha/benches/a.rs", "alpha/benches/b.rs"])])
         # alpha still has a deferred file, but beta has waited longer, so it goes first.
         assert list(shard_files(plan(repo, state_dir, force=True))) == ["beta", "alpha"]
 
@@ -289,14 +296,14 @@ class TestCadence:
     def test_runs_weekly_not_once(self, repo: Path, tmp_path: Path):
         state_dir = tmp_path / "state"
         p = plan(repo, state_dir)
-        ac.record(state_dir, [review(repo, p, "beta", ["enc/beta/benches/x.rs"])], plan=p)
+        ac.record(ac.DirStore(state_dir), [review(repo, p, "beta", ["enc/beta/benches/x.rs"])], plan=p)
         assert last_run(state_dir) == NOW.isoformat()
 
         # The daily runs in between plan nothing and must not move the clock.
         for day in range(1, 7):
             later = plan(repo, state_dir, now=NOW + dt.timedelta(days=day))
             assert shard_files(later) == {}
-            ac.record(state_dir, [], plan=later)
+            ac.record(ac.DirStore(state_dir), [], plan=later)
         assert last_run(state_dir) == NOW.isoformat()
 
         # A week later the check is due again, even if this run starts a little earlier in the day.
@@ -307,7 +314,7 @@ class TestCadence:
     def test_failed_shards_leave_the_clock_for_tomorrow(self, repo: Path, tmp_path: Path):
         state_dir = tmp_path / "state"
         p = plan(repo, state_dir)
-        ac.record(state_dir, [], plan=p)
+        ac.record(ac.DirStore(state_dir), [], plan=p)
         assert last_run(state_dir) is None
         assert plan(repo, state_dir, now=NOW + dt.timedelta(days=1))["checks"]["bench"]["due"]
 
@@ -315,7 +322,7 @@ class TestCadence:
         state_dir = tmp_path / "state"
         p = plan(repo, state_dir, shards=["beta"])
         assert list(shard_files(p)) == ["beta"]
-        ac.record(state_dir, [review(repo, p, "beta", ["enc/beta/benches/x.rs"])], plan=p)
+        ac.record(ac.DirStore(state_dir), [review(repo, p, "beta", ["enc/beta/benches/x.rs"])], plan=p)
         assert last_run(state_dir) is None
 
 
@@ -544,8 +551,8 @@ class TestRecord:
             },
             {"number": 4, "state": "CLOSED", "stateReason": "COMPLETED", "body": self.FP.replace("bench:x", "bench:w")},
         ]
-        ac.record(tmp_path, [], items=items)
-        state = json.loads((tmp_path / "bench.json").read_text())
+        ac.record(ac.DirStore(tmp_path), [], items=items)
+        state = json.loads((tmp_path / "bench" / "state.json").read_text())
         assert state["suppressed"] == {"bench:x": {"file": "x.rs", "ref": 1}, "bench:z": {"file": "x.rs", "ref": 3}}
         assert state["last_run"] is None
 
@@ -554,14 +561,103 @@ class TestRecord:
             entry = {"blobs": [at], "commit": "c", "reviewed_at": at, "version": 1, "findings": []}
             return {"check": "bench", "files": {"x.rs": entry}}
 
-        ac.record(tmp_path, [update("2026-11-13T00:00:00")])
-        ac.record(tmp_path, [update("2026-11-01T00:00:00")])  # a re-run of an old workflow run
-        state = json.loads((tmp_path / "bench.json").read_text())
+        ac.record(ac.DirStore(tmp_path), [update("2026-11-13T00:00:00")])
+        ac.record(ac.DirStore(tmp_path), [update("2026-11-01T00:00:00")])  # a re-run of an old workflow run
+        state = json.loads((tmp_path / "bench" / "state.json").read_text())
         assert state["files"]["x.rs"]["reviewed_at"] == "2026-11-13T00:00:00"
 
     def test_rejects_invalid_check_ids(self, tmp_path: Path):
         with pytest.raises(ac.CheckError, match="invalid check id"):
-            ac.record(tmp_path, [{"check": "../escape", "files": {}}])
+            ac.record(ac.DirStore(tmp_path), [{"check": "../escape", "files": {}}])
+
+
+FAKE_AWS = r"""#!/usr/bin/env python3
+# A stand-in for `aws s3api get-object/put-object` with S3's ETag and conditional-write semantics.
+import hashlib, json, os, sys
+from pathlib import Path
+
+args = sys.argv[1:]
+def opt(name):
+    return args[args.index(name) + 1] if name in args else None
+def fail(code, op):
+    sys.stderr.write(f"An error occurred ({code}) when calling the {op} operation: fake\n")
+    sys.exit(254)
+
+root = Path(os.environ["FAKE_S3_ROOT"])
+obj = root / opt("--bucket") / opt("--key")
+etag = lambda data: '"' + hashlib.md5(data).hexdigest() + '"'
+if os.environ.get("FAKE_S3_DENY"):
+    fail("AccessDenied", "GetObject")
+if args[1] == "get-object":
+    if not obj.exists():
+        fail("NoSuchKey", "GetObject")
+    Path(args[args.index("--key") + 2]).write_bytes(obj.read_bytes())
+    print(json.dumps({"ETag": etag(obj.read_bytes())}))
+elif args[1] == "put-object":
+    body = Path(opt("--body")).read_bytes()
+    if opt("--if-none-match") == "*" and obj.exists():
+        fail("PreconditionFailed", "PutObject")
+    if opt("--if-match") is not None and (not obj.exists() or etag(obj.read_bytes()) != opt("--if-match")):
+        fail("PreconditionFailed", "PutObject")
+    obj.parent.mkdir(parents=True, exist_ok=True)
+    obj.write_bytes(body)
+    print(json.dumps({"ETag": etag(body)}))
+"""
+
+
+class TestStores:
+    @pytest.fixture
+    def s3(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ac.S3Store:
+        aws = tmp_path / "aws"
+        aws.write_text(FAKE_AWS)
+        aws.chmod(0o755)
+        monkeypatch.setenv("FAKE_S3_ROOT", str(tmp_path / "s3"))
+        return ac.S3Store("s3://bucket/agent-checks", aws=str(aws))
+
+    def test_open_store_picks_the_backend(self, tmp_path: Path):
+        assert isinstance(ac.open_store("s3://b/p"), ac.S3Store)
+        assert isinstance(ac.open_store(tmp_path), ac.DirStore)
+        assert ac.S3Store("s3://b/p/").key("bench") == "p/bench/state.json"
+
+    @pytest.mark.parametrize("backend", ["dir", "s3"])
+    def test_writes_are_compare_and_swap(self, backend: str, tmp_path: Path, s3: ac.S3Store):
+        store = s3 if backend == "s3" else ac.DirStore(tmp_path / "dir")
+        state, token = store.read("bench")
+        assert (state, token) == (ac.empty_state("bench"), None)
+        store.write("bench", {**state, "last_run": "a"}, token)
+        with pytest.raises(ac.StateConflict):
+            store.write("bench", {**state, "last_run": "stale"}, token)  # created by someone else
+        state, token = store.read("bench")
+        store.write("bench", {**state, "last_run": "b"}, token)
+        with pytest.raises(ac.StateConflict):
+            store.write("bench", {**state, "last_run": "stale"}, token)  # changed since this read
+        assert store.read("bench")[0]["last_run"] == "b"
+
+    def test_access_denied_is_not_treated_as_empty_state(self, s3: ac.S3Store, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("FAKE_S3_DENY", "1")
+        with pytest.raises(ac.CheckError, match="AccessDenied"):
+            s3.read("bench")
+
+    def test_concurrent_records_both_land(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        store = ac.DirStore(tmp_path)
+        real_write = store.write
+        raced = []
+
+        def racing_write(check_id: str, state: dict[str, Any], token: str | None) -> None:
+            if not raced:  # another shard records between this writer's read and its write
+                raced.append(True)
+                other, other_token = store.read(check_id)
+                real_write(check_id, {**other, "files": {**other["files"], "other.rs": entry("t1")}}, other_token)
+            real_write(check_id, state, token)
+
+        monkeypatch.setattr(store, "write", racing_write)
+        monkeypatch.setattr(ac.time, "sleep", lambda _: None)
+        ac.record(store, [{"check": "bench", "files": {"mine.rs": entry("t2")}}])
+        assert set(store.read("bench")[0]["files"]) == {"other.rs", "mine.rs"}
+
+
+def entry(at: str) -> dict[str, Any]:
+    return {"blobs": [at], "commit": "c", "reviewed_at": at, "version": 1, "findings": []}
 
 
 def test_plan_carries_the_check_definition(repo: Path, tmp_path: Path):

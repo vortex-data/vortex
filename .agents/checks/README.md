@@ -18,7 +18,7 @@ change, or one issue per shard for findings it could not fix. CI runs it weekly 
 plan ──► review (checks in parallel; each check's crates one at a time) ──► record
 ```
 
-1. **Plan.** The plan job reads the state branch `agent-checks-state`, all open PRs, and the
+1. **Plan.** The plan job reads each check's state from S3, all open PRs, and the
    closed PRs and issues labelled `agent-checks`. It skips checks that are not due (see
    [Cadence](#cadence)). For each remaining check:
    - It collects the in-scope files that need review. A file needs review if it is:
@@ -46,8 +46,8 @@ plan ──► review (checks in parallel; each check's crates one at a time) �
    - If edits remain, the job opens a draft PR on the shard's branch; its body also lists the
      unfixed findings. With no edits but unfixed findings, it opens the shard's issue, or comments
      on it if it is already open. The job summary shows the findings and the diff either way.
-3. **Record.** The record job merges each shard's reviewed files into the state branch, but only
-   for shards whose PR or issue was published. For each file it stores the blob before and after
+3. **Record.** The record job merges each shard's reviewed files into the check's state document
+   in S3, with compare-and-swap, but only for shards whose decision was carried out. For each file it stores the blob before and after
    the agent's fix (after formatting), so merging the fix does not trigger a re-review.
 
 Maintainers reject findings in two ways: by closing an agent PR without merging it, or by
@@ -119,9 +119,9 @@ files. With `"crate"`, it is the crate directory. Scopes never overlap:
 | Formatting, opening the PR, or opening the issue fails. | No state is recorded, so the review is redone rather than the fix or findings lost. |
 | The App token would expire during a long agent run. | It is minted only after finalize, just before publishing. |
 | One shard fails. | The other shards are unaffected (`fail-fast: false`), and `record` still records them. |
-| Another update to the state branch wins the push race. | `record` starts again from the remote state, up to five times. |
-| The state push fails for good. | The run's reviews are redone next time. Open PRs still claim their files, so no duplicate PRs are opened. |
-| The state branch cannot be read. | The plan job fails instead of re-planning everything as new. |
+| Another writer changes a state document between `record`'s read and write. | S3 rejects the conditional write (412 or 409), and `record` re-reads, merges again, and retries, up to 8 times with backoff. |
+| The state write fails for good. | The run's reviews are redone next time. Open PRs still claim their files, and `decide` dedups findings by fingerprint, so nothing is published twice. |
+| The state cannot be read: access denied, corrupt, or an unknown schema. | The plan job fails instead of re-planning everything as new. Only `NoSuchKey` counts as "no state yet". |
 | An old workflow run is re-run. | Plans older than 20 hours are refused, and a file keeps its newest review when state merges. |
 | A maintainer removes the label from an open agent PR. | Its branch name still marks the crate as busy, and the PR step refuses to push onto a branch with an open PR. |
 
@@ -136,22 +136,39 @@ The agent can run cargo, which runs build scripts, and can write anywhere in the
   finalize, for the publish steps.
 - The runner, the plan, and every output used to build PRs and state are copied to
   `$RUNNER_TEMP` before the agent starts.
+- The agent never has AWS credentials. Only the plan and record jobs of `agent-checks.yml`
+  touch the state store, and the store's role should trust only that file as
+  `job_workflow_ref`. The agent's job needs `id-token: write` for the Anthropic token exchange,
+  and runs in `agent-checks-review.yml`, which therefore cannot assume the role.
 - PR and issue bodies neutralize HTML comments in agent-written text. Planning reads only the
   last marker in each body, the one the runner appends, and only from PRs on `agent-checks/`
   branches.
 
 ### Storage
 
-State is one JSON file per check (`<id>.json`) on the orphan branch `agent-checks-state`. Only
-the record job writes it. Each file's entry holds:
+State is one JSON document per check, at `s3://<bucket>/<prefix>/<check-id>/state.json`. Each
+check has its own prefix, so writers to different checks never contend. Locally, `--state` defaults
+to the directory `target/agent-checks-state`, with the same layout.
+
+Every write is compare-and-swap:
+
+1. `record` reads the document and its ETag.
+2. It merges the update.
+3. It writes with `If-Match: <etag>`, or `If-None-Match: *` when the document does not exist yet.
+4. If another writer got there first, S3 rejects the write, and `record` re-reads and tries again.
+
+Merges are idempotent, and a file keeps its newest review, so a retry can never roll the state
+back. Only the record job writes; the plan job reads.
+
+Each file's entry holds:
 
 - the reviewed blob hashes,
 - the commit and time of the review,
 - the rubric version,
 - the fingerprints of its findings.
 
-The state also holds the suppressed fingerprints. **TODO:** replace the branch with a store that
-supports atomic per-shard writes, so a run does not need serializing.
+The document also holds the suppressed fingerprints and the check's `last_run`. Turn on bucket
+versioning to keep the history and to roll back a bad write.
 
 ## Setup
 
@@ -160,6 +177,19 @@ variables that `fuzzer-fix-automation.yml` uses. The `vortex-claude-write` feder
 list the reusable review workflow as an allowed `job_workflow_ref`,
 `vortex-data/vortex/.github/workflows/agent-checks-review.yml@refs/heads/develop`. Without it,
 every agent fails its token exchange with a 401, records nothing, and is retried the next week.
+
+The state store needs these repository variables:
+
+| Variable | Value |
+| --- | --- |
+| `AGENT_CHECKS_STATE_URI` | `s3://<bucket>/<prefix>`, for example `s3://vortex-ci/agent-checks` |
+| `AGENT_CHECKS_AWS_ROLE_ARN` | A role that this repository's GitHub OIDC token can assume, trusted only for `job_workflow_ref` `vortex-data/vortex/.github/workflows/agent-checks.yml@refs/heads/develop` |
+| `AGENT_CHECKS_AWS_REGION` | The bucket's region (default `us-east-1`) |
+
+The role needs `s3:GetObject` and `s3:PutObject` on `<prefix>/*`, and `s3:ListBucket` on the
+bucket for that prefix. Without `ListBucket`, S3 answers a missing key with 403 instead of 404,
+and the runner refuses to treat 403 as empty state. Dry runs without `AGENT_CHECKS_STATE_URI`
+plan from empty state.
 
 ## Adding a check
 
@@ -242,4 +272,5 @@ opening PRs or issues or updating the state. Dry runs may start from any branch.
 ## Resetting state
 
 To make a check review everything again, bump its `version`. To forget a suppression, delete its
-entry from the check's `suppressed` map on the `agent-checks-state` branch.
+entry from the `suppressed` map in `s3://<bucket>/<prefix>/<check-id>/state.json`. To start a
+check over, delete that object.

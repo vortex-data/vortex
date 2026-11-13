@@ -19,16 +19,16 @@ Subcommands:
     prompt                     Render the agent prompt for one shard of a plan.
     finalize                   Validate an agent's results file and build the PR body and state update.
     decide                     From live GitHub state, decide what a shard publishes and dedup findings.
-    record                     Merge state updates (and PR-derived suppressions) into the state dir.
+    record                     Merge state updates and suppressions into the state store, with CAS.
     run                        Local convenience: plan, prompt, invoke `claude -p`, finalize, record.
 
-State is one JSON file per check (`<state-dir>/<id>.json`). CI keeps it on the orphan branch
-`agent-checks-state`; locally it defaults to `target/agent-checks-state`. For every reviewed file it
-records the git blob hashes that were reviewed (before and after the agent's own fix), so unchanged
-files are skipped and a merged fix does not trigger its own re-review.
-
-TODO: replace the state branch with a store that supports atomic per-shard writes, so runs need no
-branch-level serialization and a failed push cannot lose a run's reviews.
+State is one JSON document per check, at `<store>/<check>/state.json`. CI keeps it in S3
+(`--state s3://bucket/prefix`); locally it defaults to the directory `target/agent-checks-state`.
+Writes are compare-and-swap (S3 conditional writes on the ETag), so every shard records its own
+review as soon as it is published, and concurrent writers never lose each other's updates. For
+every reviewed file it records the git blob hashes that were reviewed (before and after the
+agent's own fix), so unchanged files are skipped and a merged fix does not trigger its own
+re-review.
 
 Run the tests with:
 
@@ -40,15 +40,20 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import fcntl
+import hashlib
 import json
 import os
+import random
 import re
 import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 import tomllib
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -324,20 +329,156 @@ def empty_state(check_id: str) -> dict[str, Any]:
     return {"schema": STATE_SCHEMA, "check": check_id, "last_run": None, "files": {}, "suppressed": {}}
 
 
-def load_state(state_dir: Path, check_id: str) -> dict[str, Any]:
-    path = state_dir / f"{check_id}.json"
-    if not path.exists():
+def _parse_state(raw: bytes | None, check_id: str, where: str) -> dict[str, Any]:
+    if raw is None:
         return empty_state(check_id)
-    state = json.loads(path.read_text())
-    if state.get("schema") != STATE_SCHEMA:
-        raise CheckError(f"{path}: unsupported state schema {state.get('schema')}")
+    try:
+        state = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise CheckError(f"{where}: corrupt state: {e}") from None
+    if not isinstance(state, dict) or state.get("schema") != STATE_SCHEMA:
+        raise CheckError(
+            f"{where}: unsupported state schema {state.get('schema') if isinstance(state, dict) else state!r}"
+        )
     return state
 
 
-def save_state(state_dir: Path, state: dict[str, Any]) -> None:
-    state_dir.mkdir(parents=True, exist_ok=True)
-    path = state_dir / f"{state['check']}.json"
-    path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+def _dump_state(state: dict[str, Any]) -> bytes:
+    return (json.dumps(state, indent=2, sort_keys=True) + "\n").encode()
+
+
+class StateConflict(Exception):
+    """Another writer changed the state since it was read."""
+
+
+class StateStore:
+    """One JSON document per check, read with a version token and written with compare-and-swap.
+
+    `read` returns the state and a token for the version read (None if there is no state yet).
+    `write` stores the new state only if the stored version still matches the token, and raises
+    `StateConflict` otherwise.
+    """
+
+    def read(self, check_id: str) -> tuple[dict[str, Any], str | None]:
+        raise NotImplementedError
+
+    def write(self, check_id: str, state: dict[str, Any], token: str | None) -> None:
+        raise NotImplementedError
+
+
+class DirStore(StateStore):
+    """`<dir>/<check>/state.json` on disk, for local runs and tests. The token is a content hash."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def _path(self, check_id: str) -> Path:
+        return self.root / check_id / "state.json"
+
+    def read(self, check_id: str) -> tuple[dict[str, Any], str | None]:
+        path = self._path(check_id)
+        raw = path.read_bytes() if path.exists() else None
+        token = hashlib.sha256(raw).hexdigest() if raw is not None else None
+        return _parse_state(raw, check_id, str(path)), token
+
+    def write(self, check_id: str, state: dict[str, Any], token: str | None) -> None:
+        path = self._path(check_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path.parent / ".lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            current = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+            if current != token:
+                raise StateConflict(str(path))
+            tmp = path.with_suffix(".tmp")
+            tmp.write_bytes(_dump_state(state))
+            os.replace(tmp, path)
+
+
+class S3Store(StateStore):
+    """`s3://<bucket>/<prefix>/<check>/state.json`, written with S3 conditional writes.
+
+    The token is the object's ETag. A write sends `If-Match: <etag>`, or `If-None-Match: *` when
+    the object did not exist, so S3 itself rejects a write based on a stale read (HTTP 412, or
+    409 for a concurrent conditional write). Uses the AWS CLI so the runner needs no packages;
+    credentials and region come from the environment.
+    """
+
+    def __init__(self, uri: str, aws: str = "aws") -> None:
+        m = re.fullmatch(r"s3://([^/]+)/?(.*)", uri)
+        if not m:
+            raise CheckError(f"not an s3:// URI: {uri!r}")
+        self.bucket, self.prefix, self.aws = m.group(1), m.group(2).strip("/"), aws
+
+    def key(self, check_id: str) -> str:
+        return "/".join(p for p in (self.prefix, check_id, "state.json") if p)
+
+    def _s3api(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run([self.aws, "s3api", *args, "--output", "json"], capture_output=True, text=True)
+
+    def read(self, check_id: str) -> tuple[dict[str, Any], str | None]:
+        key = self.key(check_id)
+        with tempfile.TemporaryDirectory() as tmp:
+            body = Path(tmp) / "state.json"
+            r = self._s3api("get-object", "--bucket", self.bucket, "--key", key, str(body))
+            if r.returncode != 0:
+                # Only a missing object means "no state yet". AccessDenied (for example without
+                # s3:ListBucket, S3 answers 403 for a missing key) must not reset the state.
+                if "NoSuchKey" in r.stderr:
+                    return empty_state(check_id), None
+                raise CheckError(f"s3://{self.bucket}/{key}: get-object failed: {r.stderr.strip()}")
+            etag = json.loads(r.stdout)["ETag"]
+            return _parse_state(body.read_bytes(), check_id, f"s3://{self.bucket}/{key}"), etag
+
+    def write(self, check_id: str, state: dict[str, Any], token: str | None) -> None:
+        key = self.key(check_id)
+        condition = ["--if-match", token] if token is not None else ["--if-none-match", "*"]
+        with tempfile.TemporaryDirectory() as tmp:
+            body = Path(tmp) / "state.json"
+            body.write_bytes(_dump_state(state))
+            r = self._s3api(
+                "put-object",
+                "--bucket",
+                self.bucket,
+                "--key",
+                key,
+                "--body",
+                str(body),
+                "--content-type",
+                "application/json",
+                *condition,
+            )
+        if r.returncode != 0:
+            if any(code in r.stderr for code in ("PreconditionFailed", "ConditionalRequestConflict", "(412)", "(409)")):
+                raise StateConflict(f"s3://{self.bucket}/{key}")
+            raise CheckError(f"s3://{self.bucket}/{key}: put-object failed: {r.stderr.strip()}")
+
+
+def open_store(spec: str | Path) -> StateStore:
+    """`s3://bucket/prefix` for S3, anything else is a local directory."""
+    return S3Store(str(spec)) if str(spec).startswith("s3://") else DirStore(Path(spec))
+
+
+def load_state(store: StateStore, check_id: str) -> dict[str, Any]:
+    return store.read(check_id)[0]
+
+
+CAS_ATTEMPTS = 8
+
+
+def update_state(store: StateStore, check_id: str, change: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+    """Apply `change` to the stored state with compare-and-swap, retrying on conflicts."""
+    for attempt in range(CAS_ATTEMPTS):
+        state, token = store.read(check_id)
+        before = _dump_state(state)
+        change(state)
+        if _dump_state(state) == before:
+            return state
+        try:
+            store.write(check_id, state, token)
+            return state
+        except StateConflict:
+            time.sleep(min(30.0, 0.5 * 2**attempt) * (0.5 + random.random()))
+    raise CheckError(f"state for `{check_id}` kept changing underneath; gave up after {CAS_ATTEMPTS} attempts")
 
 
 def is_pr(item: dict[str, Any]) -> bool:
@@ -583,7 +724,7 @@ def plan_check(
 def build_plan(
     checks: list[Check],
     root: Path,
-    state_dir: Path,
+    store: StateStore,
     *,
     now: dt.datetime,
     items: list[dict[str, Any]] | None = None,
@@ -607,7 +748,7 @@ def build_plan(
         "checks": {},
     }
     for check in checks:
-        state = load_state(state_dir, check.id)
+        state = load_state(store, check.id)
         due = is_due(check, state, now)
         suppressed = {**state.get("suppressed", {}), **new_suppressed.get(check.id, {})}
         shards = []
@@ -1067,19 +1208,22 @@ def render_body(
 
 
 def record(
-    state_dir: Path,
+    store: StateStore,
     updates: list[dict[str, Any]],
     *,
     plan: dict[str, Any] | None = None,
     items: list[dict[str, Any]] | None = None,
 ) -> list[str]:
-    """Merge state updates and suppressions into `state_dir`. Returns the touched check ids.
+    """Merge state updates and suppressions into the store. Returns the touched check ids.
+
+    Each check's document is updated with compare-and-swap, so concurrent writers (shards of
+    different checks, or overlapping runs) never lose each other's updates.
 
     A due check gets `last_run` set to the plan's start time if at least one of its shards was
     recorded, or if it had nothing to review. When every shard failed, the clock is left alone so
     the next scheduled run tries again.
 
-    Merging is idempotent, and a file keeps whichever review is newer, so retrying a push or
+    Merging is idempotent, and a file keeps whichever review is newer, so retrying a write or
     re-running an old run never rolls the state back.
     """
     suppressed = suppressions_from_items(items or [])
@@ -1090,20 +1234,22 @@ def record(
     for check_id in touched:
         if not CHECK_ID_RE.fullmatch(check_id):
             raise CheckError(f"invalid check id {check_id!r} in a state update")
-        state = load_state(state_dir, check_id)
-        for update in updates:
-            if update["check"] != check_id:
-                continue
-            for path, entry in update["files"].items():
-                current = state["files"].get(path)
-                if current is None or str(entry["reviewed_at"]) >= str(current.get("reviewed_at", "")):
-                    state["files"][path] = entry
-        state["suppressed"].update(suppressed.get(check_id, {}))
-        if check_id in stamped:
-            stamp = str((plan or {})["generated_at"])
-            if not state.get("last_run") or stamp > state["last_run"]:
-                state["last_run"] = stamp
-        save_state(state_dir, state)
+
+        def change(state: dict[str, Any], check_id: str = check_id) -> None:
+            for update in updates:
+                if update["check"] != check_id:
+                    continue
+                for path, entry in update["files"].items():
+                    current = state["files"].get(path)
+                    if current is None or str(entry["reviewed_at"]) >= str(current.get("reviewed_at", "")):
+                        state["files"][path] = entry
+            state["suppressed"].update(suppressed.get(check_id, {}))
+            if check_id in stamped:
+                stamp = str((plan or {})["generated_at"])
+                if not state.get("last_run") or stamp > state["last_run"]:
+                    state["last_run"] = stamp
+
+        update_state(store, check_id, change)
     return touched
 
 
@@ -1141,8 +1287,8 @@ def _read_items(path: str | None) -> list[dict[str, Any]]:
     return data
 
 
-def _state_dir(args: argparse.Namespace) -> Path:
-    return Path(args.state_dir) if args.state_dir is not None else Path(args.root) / DEFAULT_LOCAL_STATE
+def _store(args: argparse.Namespace) -> StateStore:
+    return open_store(args.state if args.state is not None else Path(args.root) / DEFAULT_LOCAL_STATE)
 
 
 def _select(checks: dict[str, Check], ids: list[str] | None) -> list[Check]:
@@ -1182,7 +1328,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
     plan = build_plan(
         checks,
         args.root,
-        _state_dir(args),
+        _store(args),
         now=_now(args),
         items=_read_items(args.github),
         only_shards=args.shard,
@@ -1296,7 +1442,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
 def cmd_record(args: argparse.Namespace) -> int:
     updates = [_read_dict(p) for p in args.updates]
     plan = _read_dict(args.plan) if args.plan else None
-    touched = record(args.state_dir, updates, plan=plan, items=_read_items(args.github))
+    touched = record(_store(args), updates, plan=plan, items=_read_items(args.github))
     print(f"updated state for {touched}", file=sys.stderr)
     return 0
 
@@ -1308,8 +1454,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     now = _now(args)
     work = root / "target" / "agent-checks" / check.id
     work.mkdir(parents=True, exist_ok=True)
-    state_dir = _state_dir(args)
-    plan = build_plan([check], root, state_dir, now=now, only_shards=args.shard, max_shards=args.max_shards, force=True)
+    store = _store(args)
+    plan = build_plan([check], root, store, now=now, only_shards=args.shard, max_shards=args.max_shards, force=True)
     shards = plan["checks"][check.id]["shards"]
     if not shards:
         print("nothing to review", file=sys.stderr)
@@ -1350,7 +1496,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         if len(shards) > 1 and working_tree_changes(root):
             print("stopping after the first shard with edits; review and commit them, then rerun", file=sys.stderr)
             break
-    record(state_dir, updates, plan=plan)
+    record(store, updates, plan=plan)
     return 0
 
 
@@ -1364,7 +1510,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("plan", help="choose shards to review")
     p.add_argument("--check", action="append", help="check id (repeatable; default: all enabled)")
-    p.add_argument("--state-dir", type=Path, help="default: <root>/target/agent-checks-state")
+    p.add_argument("--state", help="s3://bucket/prefix or a directory (default: <root>/target/agent-checks-state)")
     p.add_argument(
         "--github",
         help="JSON list of `gh pr list` / `gh issue list` items (number, state, body; PRs: headRefName, "
@@ -1404,7 +1550,7 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_decide)
 
     p = sub.add_parser("record", help="merge state updates into the state dir")
-    p.add_argument("--state-dir", type=Path, required=True)
+    p.add_argument("--state", help="s3://bucket/prefix or a directory (default: <root>/target/agent-checks-state)")
     p.add_argument("--plan", help="the run's plan; its due checks get `last_run` stamped")
     p.add_argument(
         "--github",
@@ -1418,7 +1564,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("check")
     p.add_argument("--shard", action="append", help="review only this crate (repeatable)")
     p.add_argument("--max-shards", type=int, default=1)
-    p.add_argument("--state-dir", type=Path, help="default: <root>/target/agent-checks-state")
+    p.add_argument("--state", help="s3://bucket/prefix or a directory (default: <root>/target/agent-checks-state)")
     p.add_argument("--dry-run", action="store_true", help="print prompts without running the agent")
     p.set_defaults(func=cmd_run)
 

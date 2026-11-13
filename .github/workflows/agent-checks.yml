@@ -14,18 +14,23 @@ name: Agent Checks
 #   check's `verify` commands. Then, on its own and from live GitHub state, it decides whether to
 #   open a draft PR, add new findings to the shard's issue, or publish nothing, deduplicating
 #   findings against open agent PRs and issues.
-# - record: merges reviewed-file hashes and PR-derived suppressions into the state branch.
+# - record: merges the published shards' reviews, the rejected findings and `last_run` into the
+#   state store, with compare-and-swap.
 #
 # Fault tolerance: a shard that fails or times out records nothing and is offered again on the
 # next run; the other shards are unaffected. A partial results file still records the files the
-# agent finished. The state push retries against concurrent updates.
+# agent finished. State writes are compare-and-swap on the S3 object's ETag and retry on conflict.
 #
 # Setup: the same `claude-automation` environment, App secrets and Anthropic variables as
 # fuzzer-fix-automation.yml. The `vortex-claude-write` federation rule must also allow the reusable
 # review workflow as `job_workflow_ref`
 # (vortex-data/vortex/.github/workflows/agent-checks-review.yml@refs/heads/develop); otherwise the
-# agent's token exchange fails with 401. State lives on the orphan branch `agent-checks-state`,
-# created on the first run. TODO: replace the state branch with a store that supports atomic per-shard writes.
+# agent's token exchange fails with 401. State lives in S3: set the variables
+# AGENT_CHECKS_STATE_URI (s3://bucket/prefix), AGENT_CHECKS_AWS_ROLE_ARN (a role this repository's
+# OIDC token can assume, with s3:GetObject, s3:PutObject and s3:ListBucket on that prefix) and,
+# optionally, AGENT_CHECKS_AWS_REGION. Turn on bucket versioning to keep the history. The role's
+# trust policy should admit only this file as `job_workflow_ref`: agents run in
+# agent-checks-review.yml, which can then never write the state.
 
 on:
   # TEMPORARY: dry-run trial of a few shards on the PR that adds this workflow. Remove before merging.
@@ -61,7 +66,7 @@ on:
         default: false
 
 concurrency:
-  # Runs read and write the same state branch, so never overlap them.
+  # Overlapping runs would plan the same crates. State writes are compare-and-swap either way.
   group: agent-checks
   cancel-in-progress: false
 
@@ -69,8 +74,8 @@ permissions: { }
 
 env:
   NIGHTLY_TOOLCHAIN: nightly-2026-11-13
-  STATE_BRANCH: agent-checks-state
-  STATE_DIR: ${{ github.workspace }}/.agent-checks-state
+  # s3://bucket/prefix; each check's state is <prefix>/<check>/state.json.
+  STATE: ${{ vars.AGENT_CHECKS_STATE_URI }}
   PR_LABEL: agent-checks
   DRY_RUN: ${{ inputs.dry_run == true || github.event_name == 'pull_request' }}
 
@@ -84,6 +89,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      # The state store's AWS role.
+      id-token: write
     outputs:
       check_matrix: ${{ steps.plan.outputs.check_matrix }}
       count: ${{ steps.plan.outputs.count }}
@@ -98,20 +105,22 @@ jobs:
           echo "::error::Only dry runs may start from $GITHUB_REF_NAME: PRs and state must come from the default branch."
           exit 1
 
-      - name: Fetch state branch
+      - name: Configure AWS credentials for the state store
+        if: vars.AGENT_CHECKS_STATE_URI != ''
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: ${{ vars.AGENT_CHECKS_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AGENT_CHECKS_AWS_REGION || 'us-east-1' }}
+
+      - name: Choose the state store
         run: |
-          mkdir -p "$STATE_DIR"
-          # Exit code 2 means the branch does not exist yet. Any other failure must stop the run:
-          # planning against empty state would re-review everything.
-          status=0
-          git ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null || status=$?
-          if [[ $status -eq 0 ]]; then
-            git fetch --depth=1 origin "$STATE_BRANCH"
-            git archive FETCH_HEAD | tar -x -C "$STATE_DIR"
-          elif [[ $status -eq 2 ]]; then
-            echo "No $STATE_BRANCH branch yet; starting from empty state."
+          if [[ -n "$STATE" ]]; then
+            echo "STATE_SPEC=$STATE" >> "$GITHUB_ENV"
+          elif [[ "$DRY_RUN" == "true" ]]; then
+            echo "::warning::AGENT_CHECKS_STATE_URI is not set; this dry run plans from empty state."
+            echo "STATE_SPEC=$RUNNER_TEMP/empty-state" >> "$GITHUB_ENV"
           else
-            echo "::error::git ls-remote failed with exit code $status"
+            echo "::error::Set the AGENT_CHECKS_STATE_URI variable (s3://bucket/prefix)."
             exit 1
           fi
 
@@ -137,7 +146,7 @@ jobs:
           FORCE: ${{ inputs.force }}
           EVENT: ${{ github.event_name }}
         run: |
-          args=(plan --state-dir "$STATE_DIR" --github github.json --out plan.json)
+          args=(plan --state "$STATE_SPEC" --github github.json --out plan.json)
           [[ -n "$CHECK" ]] && args+=(--check "$CHECK")
           [[ -n "$SHARD" ]] && args+=(--shard "$SHARD")
           [[ -n "$MAX_SHARDS" ]] && args+=(--max-shards "$MAX_SHARDS")
@@ -179,13 +188,14 @@ jobs:
   record:
     name: Record state
     needs: [plan, review]
-    # Record whatever finished, including after partial review failures. Shards that failed
-    # upload no state update and are offered again next run.
+    # Record whatever finished, including after partial review failures. Shards that failed hand
+    # over no state update and are offered again next run.
     if: ${{ !cancelled() && needs.plan.result == 'success' && inputs.dry_run != true && github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
@@ -202,41 +212,17 @@ jobs:
           path: updates
           merge-multiple: true
 
-      - name: Update state branch
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Configure AWS credentials for the state store
+        if: vars.AGENT_CHECKS_STATE_URI != ''
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: ${{ vars.AGENT_CHECKS_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AGENT_CHECKS_AWS_REGION || 'us-east-1' }}
+
+      - name: Record
         run: |
-          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           shopt -s nullglob
-          updates=(updates/state-update/*.json)
-
-          # Merging is idempotent, so on a rejected push start again from the remote state.
-          for attempt in 1 2 3 4 5; do
-            rm -rf "$STATE_DIR"
-            git init -q "$STATE_DIR"
-            git -C "$STATE_DIR" config user.name "github-actions[bot]"
-            git -C "$STATE_DIR" config user.email "41898283+github-actions[bot]@users.noreply.github.com"
-            if git ls-remote --exit-code --heads "$remote" "$STATE_BRANCH" >/dev/null; then
-              git -C "$STATE_DIR" fetch -q --depth=1 "$remote" "$STATE_BRANCH"
-              git -C "$STATE_DIR" checkout -q -b "$STATE_BRANCH" FETCH_HEAD
-            else
-              git -C "$STATE_DIR" checkout -q --orphan "$STATE_BRANCH"
-            fi
-
-            python3 scripts/agent_checks.py record --state-dir "$STATE_DIR" \
-              --plan plan/plan.json --github plan/github.json "${updates[@]}"
-
-            git -C "$STATE_DIR" add -A
-            if git -C "$STATE_DIR" diff --cached --quiet; then
-              echo "State unchanged."
-              exit 0
-            fi
-            git -C "$STATE_DIR" commit -q -m "Record agent checks run ${GITHUB_RUN_ID}"
-            if git -C "$STATE_DIR" push -q "$remote" "HEAD:refs/heads/$STATE_BRANCH"; then
-              exit 0
-            fi
-            echo "Push rejected (attempt $attempt); retrying from the remote state."
-            sleep $((attempt * 5))
-          done
-          echo "Could not update $STATE_BRANCH; the next run reviews these files again."
-          exit 1
+          # Compare-and-swap per check document, retried on conflict, so overlapping writers
+          # never lose each other's updates.
+          python3 scripts/agent_checks.py record --state "$STATE" \
+            --plan plan/plan.json --github plan/github.json updates/*.json
