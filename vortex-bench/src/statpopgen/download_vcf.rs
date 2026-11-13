@@ -222,3 +222,27 @@ fn parse_lines(header: &Header, schema: SchemaRef, lines: &[u8]) -> Result<Recor
     }
     Ok(builder.finish()?)
 }
+
+#[cfg(test)]
+mod tests {
+    use arrow_array::cast::AsArray;
+    use arrow_array::types::Int32Type;
+
+    use super::*;
+
+    /// A no-call that drops trailing FORMAT fields still gets a null in each of their lists.
+    #[test]
+    fn dropped_sample_fields_are_null() -> Result<()> {
+        let vcf = b"##fileformat=VCFv4.3\n\
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"\">\n\
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tA\tB\tC\n";
+        let header = VcfReader::new(&vcf[..]).read_header()?;
+        let record = b"chr21\t1\t.\tA\tC\t.\tPASS\t.\tGT:DP\t0/0:12\t./.\t0/1:7\n";
+        let batch = parse_lines(&header, schema_from_vcf_header(&header), record)?;
+        let dp = batch["DP"].as_list::<i32>().value(0);
+        let dp: Vec<_> = dp.as_primitive::<Int32Type>().iter().collect();
+        assert_eq!(dp, [Some(12), None, Some(7)]);
+        Ok(())
+    }
+}

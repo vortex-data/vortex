@@ -50,6 +50,15 @@ def records(commit) -> list[dict[str, object]]:
         {**common, "kind": "compression_size", "value_bytes": 10, "uncompressed_bytes": 100},
         {**common, **timing, "kind": "random_access_time", "open_mode": "cached"},
         {
+            "kind": "file_size",
+            "commit_sha": commit["sha"],
+            "benchmark": "tpch",
+            "scale_factor": "1.0",
+            "format": "vortex-file-compressed",
+            "file": "lineitem.vortex",
+            "value_bytes": 1024,
+        },
+        {
             "kind": "vector_search_run",
             "commit_sha": commit["sha"],
             "dataset": "test",
@@ -71,7 +80,14 @@ def records(commit) -> list[dict[str, object]]:
 def test_late_invalid_record_never_starts_transaction(writer, commit, records, invalid):
     records[-1] = None if invalid is None else {**records[-1], **invalid}
     # A connection with no methods proves validation precedes even BEGIN, including the commit upsert.
-    with pytest.raises(SystemExit, match="record 4"):
+    with pytest.raises(SystemExit, match="record 5"):
+        writer.ingest_postgres(object(), commit, records)
+
+
+@pytest.mark.parametrize("invalid", [{"scale_factor": None}, {"value_bytes": 1.5}, {"file": 3}])
+def test_invalid_file_size_never_starts_transaction(writer, commit, records, invalid):
+    records[4] = {**records[4], **invalid}
+    with pytest.raises(SystemExit, match=r"record 4 \(file_size\)"):
         writer.ingest_postgres(object(), commit, records)
 
 

@@ -466,7 +466,7 @@ fn validate_parts(
     Ok(())
 }
 
-pub trait ALPRDArrayExt: ALPRDArraySlotsExt {
+pub trait ALPRDArrayExt: TypedArrayRef<ALPRD> {
     fn right_bit_width(&self) -> u8 {
         ALPRDData::right_bit_width(self)
     }

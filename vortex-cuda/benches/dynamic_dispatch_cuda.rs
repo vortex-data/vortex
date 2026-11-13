@@ -625,9 +625,11 @@ mod standalone {
             {
                 let mut launch = cuda_ctx.stream().launch_builder(&self.dict_fn);
                 let codes_len = self.codes_len as u64;
+                let values_len = self.values_len as u64;
                 launch.arg(&self.codes_buf);
                 launch.arg(&codes_len);
                 launch.arg(&self.values_alp_buf);
+                launch.arg(&values_len);
                 launch.arg(&mut self.output_buf);
                 unsafe {
                     launch
@@ -686,7 +688,7 @@ fn bench_dict_bp_codes_alp_for_bp_values_composed_standalone(c: &mut Criterion) 
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .vortex_expect("to primitive");
-        let for_arr = FoRData::encode(alp_encoded.clone(), &mut ctx).vortex_expect("for encode");
+        let for_arr = FoRData::encode(alp_encoded, &mut ctx).vortex_expect("for encode");
         let bp = BitPackedData::encode(for_arr.encoded(), values_bit_width, &mut ctx)
             .vortex_expect("bitpack values");
         let values_bp = bp;

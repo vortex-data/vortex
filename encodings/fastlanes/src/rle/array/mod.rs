@@ -83,7 +83,7 @@ impl RLEData {
     }
 }
 
-pub trait RLEArrayExt: RLEArraySlotsExt {
+pub trait RLEArrayExt: TypedArrayRef<crate::RLE> {
     /// Values index offset relative to the first chunk.
     ///
     /// Offsets in `values_idx_offsets` are absolute and need to be shifted

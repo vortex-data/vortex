@@ -35,7 +35,7 @@ use crate::validity::Validity;
 pub struct BoolSlots {
     /// The validity bitmap indicating which elements are non-null.
     #[slot(0)]
-    pub validity: Option<ArrayRef>,
+    pub validity_child: Option<ArrayRef>,
 }
 
 /// Inner data for a boolean array that stores true/false values in a compact bit-packed format.
@@ -99,7 +99,7 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
 
     fn validity(&self) -> Validity {
         child_to_validity(
-            self.slots()[BoolSlots::VALIDITY].as_ref(),
+            self.slots()[BoolSlots::VALIDITY_CHILD].as_ref(),
             self.nullability(),
         )
     }

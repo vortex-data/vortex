@@ -7,28 +7,40 @@ use std::hash::Hash;
 
 use vortex_error::VortexResult;
 
+use crate::dtype::DType;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::scalar::ScalarValue;
 
-/// The public API for defining new extension types.
+/// Defines an extension type's identity, metadata, storage dtype, and scalar interpretation.
 ///
-/// This is the non-object-safe trait that plugin authors implement to define a new extension type.
-/// It specifies the type's identity, metadata, serialization, storage compatibility, and scalar
-/// compatibility.
+/// An extension dtype wraps a storage [`DType`] with metadata that gives its values their meaning.
+/// [`storage_dtype`](Self::storage_dtype) derives the storage dtype from the in-memory metadata,
+/// which **must** contain every fact needed for that declaration. Serializing valid metadata and
+/// reconstructing it with the declared storage **must** preserve the metadata.
 ///
-/// An extension dtype is not a new physical array layout. It is a logical wrapper around a storage
-/// [`DType`](crate::dtype::DType) plus metadata. Implementations should keep
-/// [`validate_dtype`](Self::validate_dtype)
-/// strict enough that every valid storage scalar can be interpreted by
-/// [`unpack_native`](Self::unpack_native).
+/// [`ExtDType`] applies the top-level nullability. Nested nullability is part of the type's
+/// declaration: a nested level is nullable exactly when the type accepts nulls at that level.
+/// Reads require the stored storage dtype to match the declaration, including nested nullability.
 pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
-    /// Associated type containing the deserialized metadata for this extension type.
+    /// The in-memory metadata used to declare storage and interpret values.
+    ///
+    /// Serialized metadata may omit facts that are recorded in the stored storage dtype.
+    /// [`metadata_from_storage`](Self::metadata_from_storage) reconstructs the complete metadata.
     type Metadata: 'static + Send + Sync + Clone + Debug + Display + Eq + Hash;
+
+    /// Metadata stored alongside the storage dtype, in its in-memory form.
+    ///
+    /// Callers can construct this directly or decode it through [`deserialize_metadata`]. Storage
+    /// supplies the remaining facts needed to reconstruct [`Self::Metadata`].
+    ///
+    /// [`deserialize_metadata`]: Self::deserialize_metadata
+    type StoredMetadata;
 
     /// A native Rust value that represents a scalar of the extension type.
     ///
-    /// The value only represents non-null values. We denote nullable values as `Option<Value>`.
+    /// Represents a non-null scalar value. Nullable scalar views use
+    /// `Option<Self::NativeValue<'a>>`.
     type NativeValue<'a>: Display;
 
     /// Returns the ID for this extension type.
@@ -36,30 +48,43 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
 
     // Methods related to the extension `DType`.
 
-    /// Serialize the metadata into a byte vector.
+    /// Serializes the metadata for storage alongside the storage dtype.
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>>;
 
-    /// Deserialize the metadata from a byte slice.
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata>;
+    /// Decodes the stored metadata from serialized bytes.
+    fn deserialize_metadata(&self, bytes: &[u8]) -> VortexResult<Self::StoredMetadata>;
 
-    /// Validate that the given storage type is compatible with this extension type.
+    /// Reconstructs complete metadata from the stored metadata and storage dtype.
     ///
-    /// This is called when constructing an [`ExtDType`] and should check both storage dtype and
-    /// extension metadata.
+    /// Checked constructors pass storage with a nullable top level. Implementations **must**
+    /// preserve the stored metadata's semantic information and infer only facts represented by storage.
+    /// The framework validates the result and compares its declaration with the supplied storage,
+    /// including nested nullability, before constructing an extension dtype.
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata>;
+
+    /// Declares the storage dtype for valid metadata.
     ///
-    /// The result **must not** depend on the top-level nullability of the storage dtype. Array
-    /// operations control whether values can be null, so extension types must accept either
-    /// nullability. [`ExtDType::with_nullability`] relies on this contract to change nullability
-    /// without validating again. Validators can still constrain nullability inside nested storage
-    /// types.
+    /// The declaration determines the storage structure, element types, and nested nullability.
+    /// [`ExtDType::try_with_vtable`] applies its requested top-level nullability to the result.
+    /// Callers **must** pass metadata accepted by [`validate_metadata`](Self::validate_metadata).
+    /// Implementations may panic on invalid metadata.
+    fn storage_dtype(metadata: &Self::Metadata) -> DType;
+
+    /// Checks that the metadata describes a valid dtype of this extension type.
     ///
-    /// Violating this contract can produce a dtype that the validator rejects. It does not cause
-    /// undefined behavior.
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()>;
+    /// Dtype constructors call this before requesting the storage declaration. File reads use
+    /// the same checked construction path. The default accepts every metadata value.
+    fn validate_metadata(_metadata: &Self::Metadata) -> VortexResult<()> {
+        Ok(())
+    }
 
     // Methods related to the extension scalar values.
 
-    /// Validate the given storage value is compatible with the extension type.
+    /// Checks that the storage value belongs to the extension type.
     ///
     /// By default, this calls [`unpack_native()`](ExtVTable::unpack_native) and discards the
     /// result.
@@ -74,11 +99,11 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
         Self::unpack_native(ext_dtype, storage_value).map(|_| ())
     }
 
-    /// Validate and unpack a native value from the storage [`ScalarValue`].
+    /// Validates a storage [`ScalarValue`] and unpacks its native value.
     ///
-    /// The storage dtype and metadata satisfy [`Self::validate_dtype`].
-    /// [`Scalar`](crate::scalar::Scalar) construction also verifies that the storage value is
-    /// compatible with the storage dtype.
+    /// The metadata satisfies [`Self::validate_metadata`], and the storage dtype is the one that it
+    /// declares. [`Scalar`](crate::scalar::Scalar) construction also verifies that the storage
+    /// value is compatible with the storage dtype.
     ///
     /// # Errors
     ///

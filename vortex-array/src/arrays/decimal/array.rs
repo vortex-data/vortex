@@ -47,7 +47,7 @@ use crate::validity::Validity;
 pub struct DecimalSlots {
     /// The validity bitmap indicating which elements are non-null.
     #[slot(0)]
-    pub validity: Option<ArrayRef>,
+    pub validity_child: Option<ArrayRef>,
 }
 
 /// A decimal array that stores fixed-precision decimal numbers with configurable scale.
@@ -159,12 +159,12 @@ pub trait DecimalArrayExt: TypedArrayRef<Decimal> {
     }
 
     fn validity_child(&self) -> Option<&ArrayRef> {
-        self.slots()[DecimalSlots::VALIDITY].as_ref()
+        self.slots()[DecimalSlots::VALIDITY_CHILD].as_ref()
     }
 
     fn validity(&self) -> Validity {
         child_to_validity(
-            self.slots()[DecimalSlots::VALIDITY].as_ref(),
+            self.slots()[DecimalSlots::VALIDITY_CHILD].as_ref(),
             self.nullability(),
         )
     }

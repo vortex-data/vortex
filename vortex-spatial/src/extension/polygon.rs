@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The [`Polygon`] geometry extension type (`vortex.st.polygon`): rings of the
-//! [`Point`](super::Point) coordinate struct, stored as `List<List<Struct<x, y[, z][, m]>>>` and tagged with
-//! [`SpatialMetadata`] (CRS). The first ring is the exterior boundary; the rest are holes.
+//! Native polygon geometry (`vortex.st.polygon`).
+//!
+//! [`Polygon`] stores rings as `List<List<Struct<x, y[, z][, m]>>>`. The first ring is the exterior
+//! boundary and the remaining rings are holes. [`SpatialMetadata`] declares the coordinate
+//! dimension and optional coordinate reference system. Coordinates use non-nullable `f64` fields.
+//! Only the outer list can be nullable.
 
 use std::sync::Arc;
 
@@ -19,7 +22,6 @@ use geoarrow::array::IntoArrow;
 use geoarrow::array::PolygonArray;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::PolygonType;
-use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -38,16 +40,16 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowExport;
 use vortex_arrow::ArrowExportOptions;
-use vortex_arrow::ArrowExportVTable;
+use vortex_arrow::ArrowExtVTable;
 use vortex_arrow::ArrowImport;
-use vortex_arrow::ArrowImportVTable;
+use vortex_arrow::ArrowMetadataPolicy;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -66,6 +68,7 @@ pub struct Polygon;
 
 impl ExtVTable for Polygon {
     type Metadata = SpatialMetadata;
+    type StoredMetadata = super::SpatialStoredMetadata;
     // No cheap owned value like Point's `Coordinate`; expose the raw storage scalar.
     type NativeValue<'a> = &'a ScalarValue;
 
@@ -75,15 +78,30 @@ impl ExtVTable for Polygon {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(metadata.encode_to_vec())
+        Ok(metadata.serialize())
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(SpatialMetadata::decode(metadata)?)
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
+        super::SpatialStoredMetadata::deserialize(metadata)
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        polygon_dimension(ext_dtype.storage_dtype()).map(|_| ())
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(SpatialMetadata::from_stored_metadata(
+            stored_metadata,
+            Some(polygon_dimension(storage_dtype)?),
+        ))
+    }
+
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        polygon_storage_dtype(metadata.native_dimension(), Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
+        metadata.validate_native(Polygon.id())
     }
 
     fn unpack_native<'a>(
@@ -101,24 +119,18 @@ pub(crate) fn polygon_storage_dtype(dim: Dimension, nullability: Nullability) ->
     DType::List(Arc::new(ring), nullability)
 }
 
-/// Validate that `dtype` equals [`polygon_storage_dtype`] for its [`Dimension`] and top-level
-/// nullability, and return that dimension. As in GeoArrow, only the outer `List` can be nullable.
+/// Infers the coordinate [`Dimension`] of `List<List<coordinate-struct>>` storage.
+///
+/// Checks the list nesting and delegates coordinate field-name inference to
+/// [`coordinate_dimension`]. Reads validate the complete storage dtype against the declaration.
 pub(crate) fn polygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(ring, _) = dtype else {
-        vortex_bail!("polygon storage must be a List of rings, was {dtype}");
+        vortex_bail!("polygon storage must be a List of rings, got {dtype}");
     };
     let DType::List(coords, _) = ring.as_ref() else {
-        vortex_bail!("polygon ring storage must be a List of coordinates, was {ring}");
+        vortex_bail!("polygon ring storage must be a List of coordinates, got {ring}");
     };
-    let dimension = coordinate_dimension(coords)?;
-
-    vortex_ensure_eq!(
-        *dtype,
-        polygon_storage_dtype(dimension, dtype.nullability()),
-        "polygon storage can be nullable only at its outer List"
-    );
-
-    Ok(dimension)
+    coordinate_dimension(coords)
 }
 
 static ARROW_POLYGON: CachedId = CachedId::new(PolygonType::NAME);
@@ -213,8 +225,7 @@ fn polygon_array(storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Pol
         &SpatialMetadata::default(),
         polygon_dimension(storage.dtype())?,
     );
-    let session = ctx.session().clone();
-    let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
+    let arrow = storage.clone().execute_arrow(None, ctx)?;
     PolygonArray::try_from((arrow.as_ref(), polygon_type))
         .map_err(|e| vortex_err!("failed to construct PolygonArray: {e}"))
 }
@@ -244,27 +255,31 @@ impl PolygonData {
     }
 }
 
-impl ArrowExportVTable for Polygon {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_POLYGON
+impl ArrowExtVTable for Polygon {
+    fn metadata_policy() -> ArrowMetadataPolicy {
+        ArrowMetadataPolicy::ArrowNative
     }
 
-    fn vortex_id(&self) -> Id {
-        self.id()
+    fn arrow_ext_id(&self) -> Id {
+        *ARROW_POLYGON
     }
 
     fn to_arrow_field(
         &self,
         name: &str,
-        dtype: &DType,
-        session: &ArrowSession,
+        ext_dtype: &ExtDType<Self>,
+        _session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
-        let ext_type = dtype.as_extension();
-        let spatial_metadata = ext_type.metadata::<Polygon>();
-        let dimension = polygon_dimension(ext_type.storage_dtype())?;
+        let spatial_metadata = ext_dtype.metadata();
+        let dimension = spatial_metadata.native_dimension();
 
-        let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
-        field.try_with_extension_type(polygon_type(spatial_metadata, dimension))?;
+        let arrow_type = polygon_type(spatial_metadata, dimension);
+        let mut field = Field::new(
+            name,
+            arrow_type.data_type(),
+            ext_dtype.storage_dtype().is_nullable(),
+        );
+        field.try_with_extension_type(arrow_type)?;
 
         Ok(Some(field))
     }
@@ -276,15 +291,6 @@ impl ArrowExportVTable for Polygon {
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
-        let is_polygon = array
-            .dtype()
-            .as_extension_opt()
-            .map(|ext| ext.is::<Polygon>())
-            .unwrap_or(false);
-        if !is_polygon {
-            return Ok(ArrowExport::Unsupported(array));
-        }
-
         let Ok(polygon_meta) = target.try_extension_type::<PolygonType>() else {
             return Ok(ArrowExport::Unsupported(array));
         };
@@ -300,12 +306,8 @@ impl ArrowExportVTable for Polygon {
             target.data_type().clone(),
             target.is_nullable(),
         );
-        let session = ctx.session().clone();
         let arrow_storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(&storage_field), ctx)?;
+            storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
         // Round-trip through GeoArrow's polygon array; `into_arrow` is concrete, so wrap in `Arc`.
         let polygons = PolygonArray::try_from((arrow_storage.as_ref(), polygon_meta))
@@ -313,22 +315,11 @@ impl ArrowExportVTable for Polygon {
 
         Ok(ArrowExport::Exported(Arc::new(polygons.into_arrow())))
     }
-}
 
-impl ArrowImportVTable for Polygon {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_POLYGON
-    }
-
-    /// Import a `geoarrow.polygon` field as the [`Polygon`] dtype. Keyed off the standard GeoArrow
-    /// name, so any producer (DataFusion, DuckDB, geoarrow-rs, …) resolves here. Accepts the full
-    /// `PolygonType` extension, or — for a metadata-less geometry literal — the name alone, inferring
-    /// the dimension from the coordinate field names.
     fn from_arrow_field(
-        &self,
         field: &Field,
         session: &ArrowSession,
-    ) -> VortexResult<Option<DType>> {
+    ) -> VortexResult<Option<ExtDType<Self>>> {
         let (dimension, metadata) =
             if let Ok(polygon_meta) = field.try_extension_type::<PolygonType>() {
                 vortex_ensure!(
@@ -364,24 +355,20 @@ impl ArrowImportVTable for Polygon {
                 (dimension, SpatialMetadata::default())
             };
 
-        let storage_dtype = polygon_storage_dtype(dimension, field.is_nullable().into());
-        Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(Polygon, metadata, storage_dtype)?.erased(),
-        )))
+        Ok(Some(ExtDType::try_with_vtable(
+            Polygon,
+            metadata.with_dimension(dimension),
+            field.is_nullable().into(),
+        )?))
     }
 
     fn from_arrow_array(
-        &self,
         array: ArrowArrayRef,
         field: &Field,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let Some(ext_dtype) = dtype.as_extension_opt() else {
-            return Ok(ArrowImport::Unsupported(array));
-        };
-        if !ext_dtype.is::<Polygon>()
-            || field.try_extension_type::<PolygonType>().is_err()
+        if field.try_extension_type::<PolygonType>().is_err()
             || !matches!(array.data_type(), DataType::List(_))
         {
             return Ok(ArrowImport::Unsupported(array));
@@ -389,7 +376,7 @@ impl ArrowImportVTable for Polygon {
 
         let storage = session.from_arrow_array(array, field.is_nullable())?;
         Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(ext_dtype.clone(), storage)?.into_array(),
+            ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array(),
         ))
     }
 }
@@ -402,7 +389,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtDTypePlugin;
     use vortex_error::VortexResult;
 
     use super::Polygon;
@@ -412,34 +399,39 @@ mod tests {
     use crate::extension::coordinate::coordinate_storage_dtype;
 
     fn spatial_meta() -> SpatialMetadata {
-        SpatialMetadata {
-            crs: Some("EPSG:4326".to_string()),
-        }
+        SpatialMetadata::new(Some("EPSG:4326".to_string()))
     }
 
-    /// `Polygon` accepts the canonical `List<List<coordinate-struct>>` storage of every dimension.
+    /// `Polygon` reads the canonical `List<List<coordinate-struct>>` storage of every dimension.
     #[rstest]
     #[case::xy(Dimension::Xy)]
     #[case::xyz(Dimension::Xyz)]
     #[case::xym(Dimension::Xym)]
     #[case::xyzm(Dimension::Xyzm)]
-    fn polygon_validates_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
+    fn polygon_reads_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
         let storage = polygon_storage_dtype(dim, Nullability::NonNullable);
-        ExtDType::<Polygon>::try_new(spatial_meta(), storage)?;
+        Polygon.deserialize(&spatial_meta().serialize(), storage)?;
         Ok(())
     }
 
-    /// Non-polygon storage is rejected at dtype construction: a bare struct (point) and a single
-    /// list (linestring) both fail.
+    /// Non-polygon storage fails to read, for example `f64` or a single list (linestring).
     #[test]
     fn polygon_rejects_invalid_storage() -> VortexResult<()> {
         let primitive = DType::Primitive(PType::F64, Nullability::NonNullable);
-        assert!(ExtDType::<Polygon>::try_new(spatial_meta(), primitive).is_err());
+        assert!(
+            Polygon
+                .deserialize(&spatial_meta().serialize(), primitive)
+                .is_err()
+        );
 
         // A single list of coordinates is a LineString, not a Polygon.
         let coords = coordinate_storage_dtype(Dimension::Xy, Nullability::NonNullable);
         let line = DType::List(Arc::new(coords), Nullability::NonNullable);
-        assert!(ExtDType::<Polygon>::try_new(spatial_meta(), line).is_err());
+        assert!(
+            Polygon
+                .deserialize(&spatial_meta().serialize(), line)
+                .is_err()
+        );
         Ok(())
     }
 }

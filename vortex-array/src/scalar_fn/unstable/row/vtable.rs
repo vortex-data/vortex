@@ -164,8 +164,9 @@ pub(crate) fn execute_row_inputs<F: RowFn, I: RowInputs + ?Sized>(
         }
     };
 
-    // Plan and execute in one dispatch, which `visitor::fused` explains. Only a batch that needs a
-    // dense retry or valid-row execution dispatches again.
+    // Execute while the planning visit still holds the selected row closure. Returning only its
+    // plan would require another dispatch to recover that closure. Batches that need a dense retry
+    // or valid-row execution retain a plan for later visits to reproduce.
     let batch = match function.dispatch(
         options,
         arg_dtypes,

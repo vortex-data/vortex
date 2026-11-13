@@ -29,7 +29,6 @@ use vortex_array::dtype::session::DTypeSession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::test_harness::mark_optimized;
-use vortex_arrow::ArrowSession;
 use vortex_edition::EditionSession;
 use vortex_edition::EnabledEditions;
 use vortex_expr::stats::session::StatsSession;
@@ -49,7 +48,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<DTypeSession>()
         .with::<ScalarFnSession>()
         .with::<AggregateFnSession>()
-        .with::<ArrowSession>()
         .with::<StatsSession>()
         .with::<EditionSession>()
         .with::<EnabledEditions>();

@@ -39,13 +39,8 @@ use vortex_array::session::ArraySession;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
-#[expect(
-    deprecated,
-    reason = "benchmark comparing deprecated method with new one"
-)]
-use vortex_arrow::ArrowArrayExecutor;
-use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_buffer::Buffer;
 use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_fsst::fsst_compress;
@@ -68,12 +63,16 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<ArraySession>()
         .with::<KernelSession>()
         .with::<AggregateFnSession>()
-        .with::<MemorySession>()
-        .with::<ArrowSession>();
+        .with::<MemorySession>();
     vortex_decimal_byte_parts::initialize(&session);
     vortex_fsst::initialize(&session);
     vortex_onpair::initialize(&session);
     session.arrays().register(Zstd);
+
+    // The Arrow session is otherwise created on its first use, which would be inside the first
+    // benchmark that exports to Arrow, and so part of its measurement.
+    session.arrow();
+
     session
 });
 
@@ -426,12 +425,7 @@ fn string_export(bencher: Bencher, case: StringExportCase) {
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .input_counter(|(array, _)| ItemsCount::new(array.len()))
-        .bench_values(|(array, mut ctx)| {
-            SESSION
-                .arrow()
-                .execute_arrow(array, Some(&field), &mut ctx)
-                .unwrap()
-        });
+        .bench_values(|(array, mut ctx)| array.execute_arrow(Some(&field), &mut ctx).unwrap());
 }
 
 /// Measures a direct append to an offset builder.
@@ -629,22 +623,7 @@ fn decimal_export(bencher: Bencher, case: DecimalExportCase) {
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .input_counter(|(array, _)| ItemsCount::new(array.len()))
-        .bench_values(|(array, mut ctx)| {
-            SESSION
-                .arrow()
-                .execute_arrow(array, Some(&field), &mut ctx)
-                .unwrap()
-        });
-}
-
-#[divan::bench]
-fn to_arrow_array(bencher: Bencher) {
-    bencher
-        .with_inputs(|| (array(), SESSION.create_execution_ctx()))
-        .bench_values(|(array, mut ctx)| {
-            #[expect(deprecated, reason = "benchmarking deprecated code path")]
-            array.execute_arrow(None, &mut ctx).unwrap()
-        });
+        .bench_values(|(array, mut ctx)| array.execute_arrow(Some(&field), &mut ctx).unwrap());
 }
 
 #[allow(non_snake_case)]
@@ -652,10 +631,5 @@ fn to_arrow_array(bencher: Bencher) {
 fn ArrowExportVTable_execute_arrow(bencher: Bencher) {
     bencher
         .with_inputs(|| (array(), SESSION.create_execution_ctx()))
-        .bench_values(|(array, mut ctx)| {
-            SESSION
-                .arrow()
-                .execute_arrow(array, None, &mut ctx)
-                .unwrap()
-        })
+        .bench_values(|(array, mut ctx)| array.execute_arrow(None, &mut ctx).unwrap())
 }

@@ -22,6 +22,7 @@ pub mod sparse_wide;
 pub mod struct_list_of_ints;
 pub mod taxi_data;
 pub mod tpch_l_comment;
+pub mod tpch_sf1;
 
 use std::path::PathBuf;
 

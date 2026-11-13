@@ -17,12 +17,12 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::runend::RunEnd;
 use crate::arrays::runend::array::RunEndArrayExt;
 use crate::arrays::runend::array::RunEndArraySlotsExt;
-use crate::arrays::runend::iter::trimmed_ends_iter;
+use crate::arrays::runend::iter::slice_relative_ends;
 use crate::dtype::UnsignedPType;
-use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
@@ -44,10 +44,14 @@ impl TakeExecute for RunEnd {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let primitive_indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
+        // Indices are non-negative; read them through their unsigned reinterpretation so the
+        // kernel monomorphizes over 4 index widths instead of 8.
+        let primitive_indices =
+            primitive_indices.reinterpret_cast(primitive_indices.ptype().to_unsigned());
         let indices_validity = primitive_indices.validity()?;
         let indices_mask = indices_validity.execute_mask(primitive_indices.len(), ctx)?;
 
-        let taken = match_each_integer_ptype!(primitive_indices.ptype(), |P| {
+        let taken = match_each_unsigned_integer_ptype!(primitive_indices.ptype(), |P| {
             take_indices(
                 array,
                 primitive_indices.as_slice::<P>(),
@@ -378,7 +382,7 @@ where
 {
     let mut table = BufferMut::with_capacity(len);
     let mut run_start = 0;
-    for (run_idx, run_end) in trimmed_ends_iter(ends, offset, len).enumerate() {
+    for (run_idx, run_end) in slice_relative_ends(ends, offset, len).enumerate() {
         table.push_n(run_idx.as_(), run_end - run_start);
         run_start = run_end;
     }

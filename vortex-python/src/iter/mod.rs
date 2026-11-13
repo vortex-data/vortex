@@ -28,6 +28,7 @@ use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 
 use crate::arrays::ArrowExport;
 use crate::arrays::PyArrayRef;
@@ -170,11 +171,7 @@ impl PyArrayIterator {
             Box::new(RecordBatchIterator::new(
                 iter.map(move |chunk| {
                     let target = target.clone();
-                    session().arrow().execute_arrow(
-                        chunk?,
-                        Some(&target),
-                        &mut session().create_execution_ctx(),
-                    )
+                    chunk?.execute_arrow(Some(&target), &mut session().create_execution_ctx())
                 })
                 .map(|chunk| chunk.map_err(|e| ArrowError::ExternalError(Box::new(e))))
                 .map(|array| array.map(|a| RecordBatch::from(a.as_struct().clone()))),

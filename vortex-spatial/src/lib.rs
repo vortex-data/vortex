@@ -3,8 +3,6 @@
 
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
-use std::sync::Arc;
-
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
@@ -23,6 +21,7 @@ use crate::extension::Point;
 use crate::extension::Polygon;
 use crate::extension::Rect;
 use crate::extension::WellKnownBinary;
+use crate::prune::SpatialContainsPrune;
 use crate::prune::SpatialDistancePrune;
 use crate::prune::SpatialIntersectsPrune;
 use crate::scalar_fn::area::SpatialArea;
@@ -47,31 +46,25 @@ mod tests;
 
 /// Set up a session with spatial extension types, Arrow interop, functions, and pruning.
 pub fn initialize(session: &VortexSession) {
-    // Register the spatial extension types.
-    session.dtypes().register(WellKnownBinary);
-    session.arrow().register_exporter(Arc::new(WellKnownBinary));
-    session.arrow().register_importer(Arc::new(WellKnownBinary));
-    session.dtypes().register(Point);
-    session.arrow().register_exporter(Arc::new(Point));
-    session.arrow().register_importer(Arc::new(Point));
-    session.dtypes().register(LineString);
-    session.arrow().register_exporter(Arc::new(LineString));
-    session.arrow().register_importer(Arc::new(LineString));
-    session.dtypes().register(MultiPoint);
-    session.arrow().register_exporter(Arc::new(MultiPoint));
-    session.arrow().register_importer(Arc::new(MultiPoint));
-    session.dtypes().register(Polygon);
-    session.arrow().register_exporter(Arc::new(Polygon));
-    session.arrow().register_importer(Arc::new(Polygon));
-    session.dtypes().register(MultiLineString);
-    session.arrow().register_exporter(Arc::new(MultiLineString));
-    session.arrow().register_importer(Arc::new(MultiLineString));
-    session.dtypes().register(MultiPolygon);
-    session.arrow().register_exporter(Arc::new(MultiPolygon));
-    session.arrow().register_importer(Arc::new(MultiPolygon));
-    session.dtypes().register(Rect);
-    session.arrow().register_exporter(Arc::new(Rect));
-    session.arrow().register_importer(Arc::new(Rect));
+    let dtypes = session.dtypes();
+    let arrow = session.arrow();
+
+    dtypes.register(WellKnownBinary);
+    arrow.register_extension(WellKnownBinary);
+    dtypes.register(Point);
+    arrow.register_extension(Point);
+    dtypes.register(LineString);
+    arrow.register_extension(LineString);
+    dtypes.register(MultiPoint);
+    arrow.register_extension(MultiPoint);
+    dtypes.register(Polygon);
+    arrow.register_extension(Polygon);
+    dtypes.register(MultiLineString);
+    arrow.register_extension(MultiLineString);
+    dtypes.register(MultiPolygon);
+    arrow.register_extension(MultiPolygon);
+    dtypes.register(Rect);
+    arrow.register_extension(Rect);
 
     // Register the geometry scalar functions.
     session.scalar_fns().register(SpatialArea);
@@ -89,6 +82,7 @@ pub fn initialize(session: &VortexSession) {
     session.aggregate_fns().register(GeometryAabb);
 
     // Register the spatial pruning rules that use that AABB.
+    session.stats().register_rewrite(SpatialContainsPrune);
     session.stats().register_rewrite(SpatialDistancePrune);
     session.stats().register_rewrite(SpatialIntersectsPrune);
 

@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The [`Rect`] bounding-box extension type (`vortex.st.box`): an axis-aligned envelope stored
-//! columnarly as `Struct<xmin, ymin[, zmin][, mmin], xmax, ymax[, zmax][, mmax]>` of non-nullable
-//! `f64` — the lower corner's ordinates followed by the upper corner's — tagged with
-//! [`SpatialMetadata`] (CRS). Its GeoArrow wire type is `geoarrow.box`.
+//! Native bounding-box geometry (`vortex.st.box`).
 //!
-//! Decoding to `geo_types` yields a 2D [`Geometry::Rect`]; any `z`/`m`
-//! bounds are dropped, as for the other geometry types.
+//! [`Rect`] stores the lower corner's ordinates followed by the upper corner's ordinates as
+//! `Struct<xmin, ymin[, zmin][, mmin], xmax, ymax[, zmax][, mmax]>` of non-nullable `f64` fields.
+//! [`SpatialMetadata`] declares the coordinate dimension and optional coordinate reference system.
+//! Its GeoArrow wire type is `geoarrow.box`.
+//!
+//! Decoding to [`Geometry::Rect`] produces a 2D rectangle and drops any `z` and `m` bounds.
 
 use std::sync::Arc;
 
@@ -21,7 +22,6 @@ use geoarrow::array::GeoArrowArrayAccessor;
 use geoarrow::array::IntoArrow;
 use geoarrow::array::RectArray;
 use geoarrow::datatypes::BoxType;
-use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -40,14 +40,13 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowExport;
 use vortex_arrow::ArrowExportOptions;
-use vortex_arrow::ArrowExportVTable;
+use vortex_arrow::ArrowExtVTable;
 use vortex_arrow::ArrowImport;
-use vortex_arrow::ArrowImportVTable;
+use vortex_arrow::ArrowMetadataPolicy;
 use vortex_arrow::ArrowSession;
-use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -64,6 +63,7 @@ pub struct Rect;
 
 impl ExtVTable for Rect {
     type Metadata = SpatialMetadata;
+    type StoredMetadata = super::SpatialStoredMetadata;
     // No cheap owned value; expose the raw storage scalar like `Polygon`.
     type NativeValue<'a> = &'a ScalarValue;
 
@@ -73,15 +73,30 @@ impl ExtVTable for Rect {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(metadata.encode_to_vec())
+        Ok(metadata.serialize())
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(SpatialMetadata::decode(metadata)?)
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
+        super::SpatialStoredMetadata::deserialize(metadata)
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        box_dimension(ext_dtype.storage_dtype()).map(|_| ())
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(SpatialMetadata::from_stored_metadata(
+            stored_metadata,
+            Some(box_dimension(storage_dtype)?),
+        ))
+    }
+
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        box_storage_dtype(metadata.native_dimension(), Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
+        metadata.validate_native(Rect.id())
     }
 
     fn unpack_native<'a>(
@@ -137,21 +152,14 @@ pub(crate) fn box_storage_dtype(dim: Dimension, nullability: Nullability) -> DTy
     )
 }
 
-/// Validate `dtype` is a box `Struct` of non-nullable `f64` min/max fields, returning its
-/// [`Dimension`].
+/// Returns the [`Dimension`] from a box `Struct`'s field names, as [`box_field_names`] names them.
+///
+/// Field dtypes and nullability are not checked. Reads compare the complete storage dtype with
+/// the declaration after recovering the dimension, so a mismatch reports both storage dtypes.
 pub(crate) fn box_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::Struct(fields, _) = dtype else {
-        vortex_bail!("box storage must be a Struct, was {dtype}");
+        vortex_bail!("box storage must be a Struct, got {dtype}");
     };
-    for (name, field) in fields.names().iter().zip(fields.fields()) {
-        vortex_ensure!(
-            matches!(
-                field,
-                DType::Primitive(PType::F64, Nullability::NonNullable)
-            ),
-            "box field {name} must be non-nullable f64, was {field}"
-        );
-    }
     box_dimension_from_names(fields.names())
         .ok_or_else(|| vortex_err!("not a valid geoarrow.box dimension: {:?}", fields.names()))
 }
@@ -163,7 +171,7 @@ pub(crate) fn build_rect_array(
     len: usize,
     validity: Validity,
 ) -> VortexResult<ArrayRef> {
-    let dimension = box_dimension(ext_dtype.storage_dtype())?;
+    let dimension = ext_dtype.metadata().native_dimension();
     let storage = StructArray::try_new(
         FieldNames::from(box_field_names(dimension)),
         corners,
@@ -184,8 +192,7 @@ fn box_type(spatial_metadata: &SpatialMetadata, dimension: Dimension) -> BoxType
 /// Build a geoarrow `RectArray` from a `Rect`'s box `Struct` storage.
 fn rect_array(storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<RectArray> {
     let box_type = box_type(&SpatialMetadata::default(), box_dimension(storage.dtype())?);
-    let session = ctx.session().clone();
-    let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
+    let arrow = storage.clone().execute_arrow(None, ctx)?;
     RectArray::try_from((arrow.as_ref(), box_type))
         .map_err(|e| vortex_err!("failed to construct RectArray: {e}"))
 }
@@ -206,26 +213,25 @@ pub(crate) fn rect_geometries(
         .collect()
 }
 
-impl ArrowExportVTable for Rect {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_BOX
+impl ArrowExtVTable for Rect {
+    fn metadata_policy() -> ArrowMetadataPolicy {
+        ArrowMetadataPolicy::ArrowNative
     }
 
-    fn vortex_id(&self) -> Id {
-        self.id()
+    fn arrow_ext_id(&self) -> Id {
+        *ARROW_BOX
     }
 
     fn to_arrow_field(
         &self,
         name: &str,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
-        let ext_type = dtype.as_extension();
-        let spatial_metadata = ext_type.metadata::<Rect>();
-        let dimension = box_dimension(ext_type.storage_dtype())?;
+        let spatial_metadata = ext_dtype.metadata();
+        let dimension = spatial_metadata.native_dimension();
 
-        let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
+        let mut field = session.to_arrow_field(name, ext_dtype.storage_dtype())?;
         field.try_with_extension_type(box_type(spatial_metadata, dimension))?;
 
         Ok(Some(field))
@@ -238,15 +244,6 @@ impl ArrowExportVTable for Rect {
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
-        let is_box = array
-            .dtype()
-            .as_extension_opt()
-            .map(|ext| ext.is::<Rect>())
-            .unwrap_or(false);
-        if !is_box {
-            return Ok(ArrowExport::Unsupported(array));
-        }
-
         let Ok(box_meta) = target.try_extension_type::<BoxType>() else {
             return Ok(ArrowExport::Unsupported(array));
         };
@@ -259,12 +256,8 @@ impl ArrowExportVTable for Rect {
             target.data_type().clone(),
             target.is_nullable(),
         );
-        let session = ctx.session().clone();
         let arrow_storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(&storage_field), ctx)?;
+            storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
         // Round-trip through GeoArrow's rect array; `into_arrow` is concrete, so wrap in `Arc`.
         let rects = RectArray::try_from((arrow_storage.as_ref(), box_meta))
@@ -272,21 +265,11 @@ impl ArrowExportVTable for Rect {
 
         Ok(ArrowExport::Exported(Arc::new(rects.into_arrow())))
     }
-}
 
-impl ArrowImportVTable for Rect {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_BOX
-    }
-
-    /// Import a `geoarrow.box` field as the [`Rect`] dtype. Keyed off the standard GeoArrow name,
-    /// so any producer resolves here. Accepts the full `BoxType` extension, or — for a
-    /// metadata-less literal — the name alone, inferring the dimension from the field names.
     fn from_arrow_field(
-        &self,
         field: &Field,
         session: &ArrowSession,
-    ) -> VortexResult<Option<DType>> {
+    ) -> VortexResult<Option<ExtDType<Self>>> {
         let (dimension, metadata) = if let Ok(box_meta) = field.try_extension_type::<BoxType>() {
             (
                 box_meta.dimension().into(),
@@ -309,24 +292,20 @@ impl ArrowImportVTable for Rect {
             (dimension, SpatialMetadata::default())
         };
 
-        let storage_dtype = box_storage_dtype(dimension, field.is_nullable().into());
-        Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(Rect, metadata, storage_dtype)?.erased(),
-        )))
+        Ok(Some(ExtDType::try_with_vtable(
+            Rect,
+            metadata.with_dimension(dimension),
+            field.is_nullable().into(),
+        )?))
     }
 
     fn from_arrow_array(
-        &self,
         array: ArrowArrayRef,
         field: &Field,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let Some(ext_dtype) = dtype.as_extension_opt() else {
-            return Ok(ArrowImport::Unsupported(array));
-        };
-        if !ext_dtype.is::<Rect>()
-            || field.try_extension_type::<BoxType>().is_err()
+        if field.try_extension_type::<BoxType>().is_err()
             || !matches!(array.data_type(), DataType::Struct(_))
         {
             return Ok(ArrowImport::Unsupported(array));
@@ -334,7 +313,7 @@ impl ArrowImportVTable for Rect {
 
         let storage = session.from_arrow_array(array, field.is_nullable())?;
         Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(ext_dtype.clone(), storage)?.into_array(),
+            ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array(),
         ))
     }
 }
@@ -351,7 +330,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtDTypePlugin;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -365,31 +344,31 @@ mod tests {
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn spatial_meta() -> SpatialMetadata {
-        SpatialMetadata {
-            crs: Some("EPSG:4326".to_string()),
-        }
+        SpatialMetadata::new(Some("EPSG:4326".to_string()))
     }
 
-    /// `Rect` accepts the canonical box storage of every GeoArrow dimension, and the storage dtype
+    /// `Rect` reads the canonical box storage of every GeoArrow dimension, and the storage dtype
     /// round-trips back to that dimension.
     #[rstest]
     #[case::xy(Dimension::Xy)]
     #[case::xyz(Dimension::Xyz)]
     #[case::xym(Dimension::Xym)]
     #[case::xyzm(Dimension::Xyzm)]
-    fn box_validates_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
+    fn box_reads_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
         let storage = box_storage_dtype(dim, Nullability::NonNullable);
-        ExtDType::<Rect>::try_new(spatial_meta(), storage.clone())?;
+        Rect.deserialize(&spatial_meta().serialize(), storage.clone())?;
         assert_eq!(box_dimension(&storage)?, dim);
         Ok(())
     }
 
-    /// Invalid storage is rejected at dtype construction: non-struct storage, a struct with the
-    /// wrong field names, and a struct with a nullable field.
+    /// Invalid storage fails to read: non-struct storage and a struct with the wrong field names.
     #[test]
     fn box_rejects_invalid_storage() -> VortexResult<()> {
         let primitive = DType::Primitive(PType::F64, Nullability::NonNullable);
-        assert!(ExtDType::<Rect>::try_new(spatial_meta(), primitive).is_err());
+        assert!(
+            Rect.deserialize(&spatial_meta().serialize(), primitive)
+                .is_err()
+        );
 
         let point_like = box_storage_dtype(Dimension::Xy, Nullability::NonNullable);
         let DType::Struct(fields, _) = &point_like else {
@@ -403,7 +382,10 @@ mod tests {
             ),
             Nullability::NonNullable,
         );
-        assert!(ExtDType::<Rect>::try_new(spatial_meta(), renamed).is_err());
+        assert!(
+            Rect.deserialize(&spatial_meta().serialize(), renamed)
+                .is_err()
+        );
         Ok(())
     }
 

@@ -71,7 +71,7 @@ impl VTable for Struct {
             );
         }
 
-        let validity = child_to_validity(slots[StructSlots::VALIDITY].as_ref(), *nullability);
+        let validity = child_to_validity(slots[StructSlots::VALIDITY_CHILD].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len()
             && validity_len != len
         {
@@ -128,7 +128,7 @@ impl VTable for Struct {
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
-        if idx == StructSlots::VALIDITY {
+        if idx == StructSlots::VALIDITY_CHILD {
             "validity".to_string()
         } else {
             array.dtype().as_struct_fields().names()[idx - StructSlots::FIELDS_OFFSET].to_string()

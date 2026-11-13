@@ -67,13 +67,13 @@ layout plugins, and extension DTypes.
 
 ## Per-Language Status
 
-| Language      | Current Tier | Technology |
-|---------------|--------------|------------|
-| Rust          | 3            | Native     |
-| Python        | ~2           | PyO3       |
-| C             | ~1           | cbindgen   |
-| C++           | ~1           | C API      |
-| Java (JNI)    | ~1           | JNI        |
+| Language   | Current Tier | Technology |
+|------------|--------------|------------|
+| Rust       | 3            | Native     |
+| Python     | ~2           | PyO3       |
+| C          | ~1           | cbindgen   |
+| C++        | ~1           | C API      |
+| Java (JNI) | ~1           | JNI        |
 
 ### Rust
 
@@ -98,5 +98,5 @@ inspection, compute execution, and stabilized error handling and memory ownershi
 ### Java (JNI)
 
 Java JNI bindings provide Tier ~1 capabilities today (Arrow I/O and basic scan). JNI will remain
-at Tier 1 for broad JDK compatibility. This is the current integration point for Spark and Trino
-connectors.
+at Tier 1 for broad JDK compatibility. This is the current integration point for the Spark
+connector.

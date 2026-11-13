@@ -24,6 +24,8 @@ public final class VortexOutputWriterFactory extends OutputWriterFactory {
     private final VortexOptions options;
 
     public VortexOutputWriterFactory(StructType schema, VortexOptions options) {
+        // Spark builds the factory on the driver, so a malformed value fails once there rather than in every task.
+        options.getBoolean(VortexOutputWriter.COMPACT_OPTION, false);
         this.schema = schema;
         this.options = options;
     }

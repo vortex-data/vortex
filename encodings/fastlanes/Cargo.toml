@@ -20,6 +20,7 @@ workspace = true
 
 [dependencies]
 fastlanes = { workspace = true }
+fearless_simd = { workspace = true }
 itertools = { workspace = true }
 lending-iterator = { workspace = true }
 num-traits = { workspace = true }
@@ -89,6 +90,10 @@ required-features = ["_test-harness"]
 
 [[bench]]
 name = "for_encode"
+harness = false
+
+[[bench]]
+name = "delta_decode"
 harness = false
 
 [[bench]]

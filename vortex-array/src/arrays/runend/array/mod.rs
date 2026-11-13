@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Run-end arrays and their execution into logical values.
+//!
+//! Each end is an exclusive logical index paired with the value for its preceding run. Decoding
+//! **must** apply a slice's logical offset before expanding those values. Specialized decoders
+//! handle common storage types. The generic fallback gathers values to retain their logical dtype.
+
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -31,6 +37,7 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::TypedArrayRef;
 use crate::array_slots;
+use crate::arrays::Bool;
 use crate::arrays::DecimalArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::Primitive;
@@ -41,6 +48,7 @@ use crate::arrays::runend::compress::runend_decode_decimal;
 use crate::arrays::runend::compress::runend_decode_primitive;
 use crate::arrays::runend::compress::runend_decode_varbinview;
 use crate::arrays::runend::compress::runend_encode;
+use crate::arrays::runend::compress::runend_encode_bool;
 use crate::arrays::runend::decompress_bool::runend_decode_bools;
 use crate::arrays::runend::ops::find_physical_index;
 use crate::arrays::runend::ops::find_physical_range;
@@ -54,6 +62,7 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
 mod plugin;
+mod to_dict;
 
 /// A [`RunEnd`]-encoded Vortex array.
 pub type RunEndArray = Array<RunEnd>;
@@ -175,7 +184,7 @@ pub struct RunEndDataParts {
     pub offset: usize,
 }
 
-pub trait RunEndArrayExt: RunEndArraySlotsExt {
+pub trait RunEndArrayExt: TypedArrayRef<RunEnd> {
     fn offset(&self) -> usize {
         self.offset
     }
@@ -261,9 +270,17 @@ impl RunEnd {
     }
 
     /// Run the array through run-end encoding.
+    ///
+    /// Accepts primitive arrays, and boolean arrays without nulls.
     pub fn encode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<RunEndArray> {
-        if let Some(parray) = array.as_opt::<Primitive>() {
-            let (ends, values) = runend_encode(parray, ctx);
+        let encoded = if let Some(parray) = array.as_opt::<Primitive>() {
+            Some(runend_encode(parray, ctx))
+        } else if let Some(barray) = array.as_opt::<Bool>() {
+            Some(runend_encode_bool(barray, ctx)?)
+        } else {
+            None
+        };
+        if let Some((ends, values)) = encoded {
             let ends = ends.into_array();
             let len = array.len();
             let dtype = values.dtype().clone();
@@ -271,7 +288,7 @@ impl RunEnd {
             let data = unsafe { RunEndData::new_unchecked(0) };
             Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data, slots))
         } else {
-            vortex_bail!("REE can only encode primitive arrays")
+            vortex_bail!("REE can only encode primitive and boolean arrays")
         }
     }
 }
@@ -495,7 +512,7 @@ pub(super) fn run_end_canonicalize(
                 .execute_as::<ListViewArray>("values", ctx)?;
             runend_decode_listview(pends, values, array.offset(), array.len())?.into_array()
         }
-        _ => vortex_bail!("Unsupported RunEnd value type: {}", array.dtype()),
+        _ => array.to_dict(ctx)?.into_array(),
     })
 }
 
@@ -931,6 +948,66 @@ mod tests {
         };
         assert_eq!(known.get_ends_ptype()?, PType::U32);
 
+        Ok(())
+    }
+
+    // On 32-bit targets, a crafted num_runs / offset above usize::MAX used to panic via
+    // vortex_expect. Keep a regression that only builds where the conversion can fail.
+    #[cfg(target_pointer_width = "32")]
+    #[test]
+    fn test_deserialize_rejects_num_runs_overflow() -> VortexResult<()> {
+        let metadata = RunEndMetadata {
+            ends_ptype: PType::U32 as i32,
+            num_runs: u64::from(u32::MAX) + 1,
+            offset: 0,
+        }
+        .encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = ArrayPlugin::deserialize(
+            &RunEnd,
+            ArrayDeserialization::new(
+                VTable::id(&RunEnd),
+                &DType::Primitive(PType::I32, Nullability::NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string().contains("RunEndMetadata num_runs")
+                && err.to_string().contains("exceeds usize range")
+        }));
+        Ok(())
+    }
+
+    #[cfg(target_pointer_width = "32")]
+    #[test]
+    fn test_deserialize_rejects_offset_overflow() -> VortexResult<()> {
+        let metadata = RunEndMetadata {
+            ends_ptype: PType::U32 as i32,
+            num_runs: 0,
+            offset: u64::from(u32::MAX) + 1,
+        }
+        .encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = ArrayPlugin::deserialize(
+            &RunEnd,
+            ArrayDeserialization::new(
+                VTable::id(&RunEnd),
+                &DType::Primitive(PType::I32, Nullability::NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string().contains("RunEndMetadata offset")
+                && err.to_string().contains("exceeds usize range")
+        }));
         Ok(())
     }
 }

@@ -15,6 +15,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::ArrowSessionExt;
+use crate::ExecuteArrowExt;
 
 /// A wrapper around a generic Arrow array that can be used as a Datum in Arrow compute.
 ///
@@ -33,17 +34,14 @@ pub struct Datum {
 impl Datum {
     /// Create a new [`Datum`] from an [`ArrayRef`], which can then be passed to Arrow compute.
     pub fn try_new(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        let session = ctx.session().clone();
         if array.is::<Constant>() {
             Ok(Self {
-                array: session
-                    .arrow()
-                    .execute_arrow(array.slice(0..1)?, None, ctx)?,
+                array: array.slice(0..1)?.execute_arrow(None, ctx)?,
                 is_scalar: true,
             })
         } else {
             Ok(Self {
-                array: session.arrow().execute_arrow(array.clone(), None, ctx)?,
+                array: array.clone().execute_arrow(None, ctx)?,
                 is_scalar: false,
             })
         }
@@ -52,9 +50,8 @@ impl Datum {
     /// Create a new [`Datum`] from an `DynArrayData`, which can then be passed to Arrow compute.
     /// This not try and convert the array to a scalar if it is constant.
     pub fn try_new_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        let session = ctx.session().clone();
         Ok(Self {
-            array: session.arrow().execute_arrow(array.clone(), None, ctx)?,
+            array: array.clone().execute_arrow(None, ctx)?,
             is_scalar: false,
         })
     }
@@ -64,7 +61,6 @@ impl Datum {
         target_datatype: &DataType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        let session = ctx.session().clone();
         let target_field = Field::new(
             String::new(),
             target_datatype.clone(),
@@ -73,18 +69,12 @@ impl Datum {
 
         if array.is::<Constant>() {
             Ok(Self {
-                array: session.arrow().execute_arrow(
-                    array.slice(0..1)?,
-                    Some(&target_field),
-                    ctx,
-                )?,
+                array: array.slice(0..1)?.execute_arrow(Some(&target_field), ctx)?,
                 is_scalar: true,
             })
         } else {
             Ok(Self {
-                array: session
-                    .arrow()
-                    .execute_arrow(array.clone(), Some(&target_field), ctx)?,
+                array: array.clone().execute_arrow(Some(&target_field), ctx)?,
                 is_scalar: false,
             })
         }

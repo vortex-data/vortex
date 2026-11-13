@@ -24,7 +24,7 @@ pub struct ExtensionSlots {
     pub storage: ArrayRef,
 }
 
-pub trait ExtensionArrayExt: TypedArrayRef<Extension> + ExtensionArraySlotsExt {
+pub trait ExtensionArrayExt: TypedArrayRef<Extension> {
     fn ext_dtype(&self) -> &ExtDTypeRef {
         self.dtype()
             .as_extension_opt()
@@ -39,6 +39,36 @@ pub trait ExtensionArrayExt: TypedArrayRef<Extension> + ExtensionArraySlotsExt {
 impl<T: TypedArrayRef<Extension>> ExtensionArrayExt for T {}
 
 impl Array<Extension> {
+    /// Reconstructs an extension array from stored metadata and its storage array.
+    ///
+    /// See [`try_from_storage_with_vtable`](Self::try_from_storage_with_vtable) for the checks.
+    pub fn try_from_storage<V: ExtVTable + Default>(
+        stored_metadata: V::StoredMetadata,
+        storage: ArrayRef,
+    ) -> VortexResult<Self> {
+        Self::try_from_storage_with_vtable(V::default(), stored_metadata, storage)
+    }
+
+    /// Reconstructs metadata and checks its declaration against the storage array's dtype.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if metadata reconstruction or validation fails, or storage differs from
+    /// the declaration, including nested nullability.
+    pub fn try_from_storage_with_vtable<V: ExtVTable>(
+        vtable: V,
+        stored_metadata: V::StoredMetadata,
+        storage: ArrayRef,
+    ) -> VortexResult<Self> {
+        let dtype = ExtDType::try_from_storage_with_vtable(
+            vtable,
+            stored_metadata,
+            storage.dtype().clone(),
+        )?;
+
+        Self::try_new(dtype.erased(), storage)
+    }
+
     /// Constructs a new `ExtensionArray`.
     ///
     /// # Panics
@@ -48,12 +78,17 @@ impl Array<Extension> {
         Self::try_new(ext_dtype, storage_array).vortex_expect("Unable to create `ExtensionArray`")
     }
 
-    /// Tries to construct a new `ExtensionArray`.
+    /// Constructs an extension array whose storage dtype exactly matches `ext_dtype`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the storage dtypes differ, including top-level or nested nullability.
     pub fn try_new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> VortexResult<Self> {
         vortex_ensure_eq!(
             ext_dtype.storage_dtype(),
             storage_array.dtype(),
-            "Tried to create an `ExtensionArray` with an incompatible storage array"
+            "{} storage must match its declaration",
+            ext_dtype.id()
         );
 
         let dtype = DType::Extension(ext_dtype);
@@ -75,13 +110,21 @@ impl Array<Extension> {
 
     /// Creates a new [`ExtensionArray`](crate::arrays::ExtensionArray) from a vtable, metadata, and
     /// a storage array.
+    ///
+    /// Uses the storage array's top-level nullability when constructing the dtype. The complete
+    /// storage dtype must match the metadata's declaration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if metadata validation fails or the storage dtype differs from the
+    /// declaration, including nested nullability.
     pub fn try_new_from_vtable<V: ExtVTable>(
         vtable: V,
         metadata: V::Metadata,
         storage_array: ArrayRef,
     ) -> VortexResult<Self> {
         let ext_dtype =
-            ExtDType::<V>::try_with_vtable(vtable, metadata, storage_array.dtype().clone())?
+            ExtDType::<V>::try_with_vtable(vtable, metadata, storage_array.dtype().nullability())?
                 .erased();
 
         Self::try_new(ext_dtype, storage_array)

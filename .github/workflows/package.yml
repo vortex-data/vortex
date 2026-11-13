@@ -122,13 +122,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad  # v6
-        with:
-          distribution: "corretto"
-          java-version: "17"
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - parallel:
+          - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad  # v6
+            with:
+              distribution: "corretto"
+              java-version: "17"
+          - uses: ./.github/actions/setup-rust
+            with:
+              repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: cargo build --release --package vortex-jni
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
@@ -143,21 +144,30 @@ jobs:
           && format('runs-on={0}/region=us-east-1/pool=windows-x64-pre/extras=s3-cache', github.run_id)
           || 'windows-latest' }}
     timeout-minutes: 90
+    env:
+      # Cargo 1.100 passes rustc one `-L dependency=` per crate in its new build-dir layout, so
+      # large crates exceed the Windows command line limit. Cargo falls back to an argfile, but
+      # sccache expands it and fails with os error 206 (mozilla/sccache#2397). Keep the old layout
+      # until sccache passes an argfile to rustc on Windows.
+      __CARGO_TEMPORARY_BUILD_DIR_NEW_LAYOUT_OPT_OUT: "1"
     steps:
-      - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex'
-        with:
-          sccache: s3
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad  # v6
-        with:
-          distribution: "corretto"
-          java-version: "17"
-      - name: Setup (Windows)
-        run: |
-          echo "C:\rust\cargo\bin" >> $env:GITHUB_PATH
+      - parallel:
+          - uses: runs-on/action@v2
+            if: github.repository == 'vortex-data/vortex'
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              fetch-depth: 0
+      # setup-prebuild needs the cargo bin directory that "Setup (Windows)" puts on PATH.
+      - parallel:
+          - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad  # v6
+            with:
+              distribution: "corretto"
+              java-version: "17"
+          - name: Setup (Windows)
+            run: |
+              echo "C:\rust\cargo\bin" >> $env:GITHUB_PATH
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
@@ -187,23 +197,25 @@ jobs:
             runner: runs-on=${{ github.run_id }}/region=us-east-1/runner=arm64-medium/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=prepare-java-linux-arm64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex'
-        with:
-          sccache: s3
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad  # v6
-        with:
-          distribution: "corretto"
-          java-version: "17"
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
-      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2.2.1
-        with:
-          version: 0.17.0
+      - parallel:
+          - uses: runs-on/action@v2
+            if: github.repository == 'vortex-data/vortex'
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              fetch-depth: 0
+      - parallel:
+          - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad  # v6
+            with:
+              distribution: "corretto"
+              java-version: "17"
+          - uses: ./.github/actions/setup-prebuild
+            with:
+              enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+          - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2.2.1
+            with:
+              version: 0.17.0
       - name: Install cargo-zigbuild
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:

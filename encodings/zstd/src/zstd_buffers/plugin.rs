@@ -56,7 +56,7 @@ impl ArrayPlugin for ZstdBuffers {
             child_dtypes,
             child_lens,
             inner_child_count: Some(u32::try_from(array.inner_child_count)?),
-            validity_child: array.validity_slot.map(u32::try_from).transpose()?,
+            validity_child: array.validity_child.map(u32::try_from).transpose()?,
         }
         .encode_to_vec();
         Ok(Some(ArraySerialization::from_array(
@@ -108,14 +108,14 @@ impl ArrayPlugin for ZstdBuffers {
             uncompressed_sizes: metadata.uncompressed_sizes.clone(),
             buffer_alignments: metadata.buffer_alignments.clone(),
             inner_child_count: children.len(),
-            validity_slot: None,
+            validity_child: None,
         };
         data.validate()?;
 
         match metadata.inner_child_count {
             Some(inner_child_count) => {
                 data.inner_child_count = usize::try_from(inner_child_count)?;
-                data.validity_slot = metadata.validity_child.map(usize::try_from).transpose()?;
+                data.validity_child = metadata.validity_child.map(usize::try_from).transpose()?;
             }
             // Arrays written before the validity was lifted out of the wrapped array only hold
             // its children, so rebuild it once here to find its validity.
@@ -129,7 +129,7 @@ impl ArrayPlugin for ZstdBuffers {
                 ))?;
                 let validity =
                     ZstdBuffers::decompress_and_build_inner(&legacy, session)?.validity()?;
-                data.validity_slot = lift_validity(&validity, len, &mut slots);
+                data.validity_child = lift_validity(&validity, len, &mut slots);
             }
             None => {}
         }

@@ -8,6 +8,7 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::AnyColumnar;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -17,11 +18,13 @@ use crate::arrays::VarBinViewArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::require_input;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 
@@ -117,6 +120,18 @@ impl ScalarFnVTable for Strpos {
         Ok(PrimitiveArray::new(positions, validity).into_array())
     }
 
+    fn execute_step(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        require_input!(args, 0 => AnyColumnar);
+        require_input!(args, 1 => AnyColumnar);
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
+    }
+
     fn is_strict(&self, _options: &Self::Options) -> bool {
         true
     }
@@ -152,6 +167,7 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::RunEnd;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
@@ -222,6 +238,28 @@ mod tests {
         assert_eq!(
             Expression::from_proto(&expr.serialize_proto()?, &SESSION)?,
             expr
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn preserves_runs_of_a_slice() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = RunEnd::try_new(
+            PrimitiveArray::from_iter([2u32, 5, 6]).into_array(),
+            VarBinViewArray::from_iter_nullable_str([Some("cat"), None, Some("a")]).into_array(),
+            &mut ctx,
+        )?
+        .into_array()
+        .slice(1..6)?;
+        let result = input
+            .apply(&strpos(root(), lit("a")))?
+            .execute_until::<RunEnd>(&mut ctx)?;
+        assert!(result.is::<RunEnd>());
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(2i64), None, None, None, Some(1)]),
+            &mut ctx
         );
         Ok(())
     }
