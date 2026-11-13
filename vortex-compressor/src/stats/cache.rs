@@ -31,6 +31,7 @@ type StatsEntry = (TypeId, Arc<dyn Any + Send + Sync>);
 /// The cache is interior-mutable: entries can be inserted through a shared [`StatsCache`]
 /// borrow. Values are stored as [`Arc<dyn Any + Send + Sync>`] so that cached entries can be
 /// cloned out of the lock cheaply and handed back to callers as [`Arc<T>`].
+#[derive(Clone)]
 struct StatsCache {
     // TODO(connor): We could further optimize this with a `SmallVec` here.
     /// The cache entries, keyed by [`TypeId`].
@@ -94,10 +95,13 @@ impl StatsCache {
 ///
 /// Extension schemes can use [`get_or_insert_with`] for custom stats types.
 ///
+/// Clones share the stats cache, so stats generated through one are visible through the others.
+///
 /// [`integer_stats`]: ArrayAndStats::integer_stats
 /// [`float_stats`]: ArrayAndStats::float_stats
 /// [`varbinview_stats`]: ArrayAndStats::varbinview_stats
 /// [`get_or_insert_with`]: ArrayAndStats::get_or_insert_with
+#[derive(Clone)]
 pub struct ArrayAndStats {
     /// The array. This is always in canonical form.
     array: ArrayRef,
@@ -158,6 +162,11 @@ impl ArrayAndStats {
     /// Consumes the bundle and returns the array.
     pub fn into_array(self) -> ArrayRef {
         self.array
+    }
+
+    /// Returns the options stats are generated with.
+    pub(crate) fn stats_options(&self) -> GenerateStatsOptions {
+        self.opts
     }
 
     /// Returns the length of the array.
