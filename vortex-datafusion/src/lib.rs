@@ -89,12 +89,16 @@ use datafusion_common::stats::Precision as DFPrecision;
 use vortex::expr::stats::Precision;
 
 pub mod convert;
+#[cfg(feature = "memory-pool")]
+pub mod memory;
 mod persistent;
 pub mod v2;
 
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "memory-pool")]
+pub use memory::MemoryPoolAllocator;
 pub use persistent::*;
 
 /// Extension trait to convert our [`Precision`] to DataFusion's

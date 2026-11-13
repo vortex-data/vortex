@@ -12,6 +12,10 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[features]
+# Exposes `MemoryPoolAllocator`, which accounts Vortex buffer memory in a DataFusion memory pool.
+memory-pool = []
+
 [dependencies]
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
