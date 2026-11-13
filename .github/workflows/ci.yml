@@ -698,7 +698,8 @@ jobs:
             with:
               command: check bans licenses sources
       - name: Warn on advisory failures
-        if: steps.advisories.outcome == 'failure'
+        # `!cancelled()` keeps the warning when bans/licenses/sources fails alongside it.
+        if: "!cancelled() && steps.advisories.outcome == 'failure'"
         run: >-
           echo "::warning title=cargo deny advisories::cargo deny check advisories
           failed; see the 'cargo deny check advisories' step log."
