@@ -66,7 +66,8 @@ use crate::sequence::SequentialStreamExt;
 /// cardinality, the fallback encoding strategy should be used instead.
 #[derive(Clone)]
 pub struct DictLayoutConstraints {
-    /// Maximum size of the dictionary in bytes.
+    /// Maximum size of the dictionary in bytes, measured on the values before compression. Once a
+    /// dictionary reaches it, the remaining rows start a new dictionary.
     pub max_bytes: usize,
     /// Maximum dictionary length. Limited to `u16` because dictionaries with more than 64k unique
     /// values provide diminishing compression returns given typical chunk sizes (~8k elements).
@@ -92,7 +93,7 @@ impl From<DictLayoutConstraints> for DictConstraints {
 impl Default for DictLayoutConstraints {
     fn default() -> Self {
         Self {
-            max_bytes: 1024 * 1024,
+            max_bytes: 2 * 1024 * 1024,
             max_len: u16::MAX,
         }
     }
