@@ -103,6 +103,8 @@ fn compare_constant_wide(
             .vortex_expect("every DecimalValue fits i256")
     });
 
+    // TODO(connor): Check the constant MSP against the Widen child's range to restore the
+    // whole-answer shortcut for narrow storage next to lower parts.
     let split = match split_constant(constant, lower_parts.len(), msp_ptype) {
         Ok(split) => split,
         Err(sign) => {
@@ -316,6 +318,7 @@ mod tests {
     use crate::DecimalBytePartsArray;
     use crate::decimal_byte_parts::testing::i128_parts;
     use crate::decimal_byte_parts::testing::i256_parts;
+    use crate::decimal_byte_parts::testing::widen_msp;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -418,12 +421,17 @@ mod tests {
         let decimal_dtype = DecimalDType::new(40, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
         let lhs = DecimalByteParts::try_new(
-            PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).into_array(),
+            widen_msp(
+                PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid)
+                    .into_array(),
+                decimal_dtype,
+            )
+            .unwrap(),
             decimal_dtype,
         )
         .unwrap()
         .into_array();
-        // This cannot be converted to a i32.
+        // This cannot be converted to an i64.
         let rhs = ConstantArray::new(
             Scalar::try_new(
                 dtype.clone(),
@@ -445,7 +453,7 @@ mod tests {
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
-        // This cannot be converted to a i32.
+        // This cannot be converted to an i64.
         let rhs = ConstantArray::new(
             Scalar::try_new(dtype, Some(DecimalValue::I128(9999999999999965304).into())).unwrap(),
             lhs.len(),
@@ -589,13 +597,30 @@ mod tests {
         )
     }
 
+    /// A `Widen` MSP with no lower parts compares at its logical `i64` width, so constants outside
+    /// the range of the `i8` child still compare the values.
+    #[test]
+    fn widen_msp_matches_decimal_outside_child_range() -> VortexResult<()> {
+        let dtype = DecimalDType::new(10, 0);
+        let msp = PrimitiveArray::from_option_iter([Some(1i8), Some(-1), None]).into_array();
+        let array = DecimalByteParts::try_new(widen_msp(msp, dtype)?, dtype)?;
+        let baseline = DecimalArray::from_option_iter([Some(1i64), Some(-1), None], dtype);
+
+        assert_matches_decimal(
+            &array,
+            &baseline,
+            [1000i64, -1000, 127, 128, -128, -129].map(DecimalValue::I64),
+        )
+    }
+
     /// A differing middle word decides the answer before the less significant parts. Constant MSPs
-    /// outside the range of the `i8` MSP answer by their sign.
+    /// outside the range of the `i8` child still compare at the logical `i64` width.
     #[test]
     fn middle_parts_match_decimal() -> VortexResult<()> {
         let dtype = DecimalDType::new(76, 2);
         let validity = Validity::from_iter([true, false, true, true]);
         let msp = PrimitiveArray::new(buffer![1i8, 0, -1, 3], validity.clone()).into_array();
+        let msp = widen_msp(msp, dtype)?;
         let upper = buffer![5u64, 7, u64::from(u8::MAX), 0].into_array();
         let middle = buffer![9u64, u64::from(u16::MAX), 0, 3].into_array();
         let lower = buffer![2u64, u64::MAX, 4, 0].into_array();

@@ -9,14 +9,17 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::decimal::narrowed_decimal;
-use vortex_array::dtype::DecimalType;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Widen;
+use vortex_array::arrays::WidenArray;
+use vortex_array::arrays::widen::WidenArraySlotsExt;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_decimal_byte_parts::DecimalBytePartsSlots;
 use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
+use vortex_decimal_byte_parts::lower_part_count;
 use vortex_decimal_byte_parts::split_decimal;
 use vortex_error::VortexResult;
 
@@ -42,10 +45,11 @@ pub(crate) static DECIMAL_V2: DecimalScheme = DecimalScheme::v2();
 
 /// Compression scheme for decimal arrays via byte-part decomposition.
 ///
-/// Narrows the decimal to the smallest integer type and compresses its byte parts independently.
-/// The v1 mode leaves values wider than `i64` canonical; v2 splits them into a signed most
-/// significant part and up to three unsigned lower parts. Single-part arrays serialize as v1
-/// in either mode, while arrays with lower parts serialize as v2.
+/// Uses the [part layout](vortex_decimal_byte_parts) and wraps each MSP whose valid values fit a
+/// narrower integer in an integer [`Widen`], including MSPs next to lower parts.
+///
+/// The v1 mode leaves an array canonical when a valid value needs lower parts. Single-part
+/// arrays serialize as v1 in either mode, while arrays with lower parts serialize as v2.
 ///
 /// The default uses v1. [`refine`](Scheme::refine) picks v2 when the v2 ID is allowed and v1
 /// otherwise.
@@ -57,7 +61,7 @@ pub struct DecimalScheme {
 impl DecimalScheme {
     /// Creates a decimal scheme configured for v1, disallowing splitting of wide decimals.
     ///
-    /// Values that remain wider than `i64` after narrowing stay canonical.
+    /// Arrays with a valid value wider than `i64` stay canonical.
     pub const fn v1() -> Self {
         Self {
             mode: DecimalSchemeMode::V1,
@@ -118,7 +122,7 @@ impl Scheme for DecimalScheme {
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        // Decimal compression is almost always beneficial (narrowing + primitive compression).
+        // Decimal compression is almost always beneficial (MSP narrowing + primitive compression).
         CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
     }
 
@@ -130,21 +134,38 @@ impl Scheme for DecimalScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let decimal = data.array().clone().execute::<DecimalArray>(exec_ctx)?;
-        let decimal = narrowed_decimal(decimal);
-        if self.mode == DecimalSchemeMode::V1
-            && matches!(decimal.values_type(), DecimalType::I128 | DecimalType::I256)
-        {
-            return Ok(decimal.into_array());
+        let mask = decimal.validity()?.execute_mask(decimal.len(), exec_ctx)?;
+        let lower_part_count = lower_part_count(&decimal, &mask)?;
+
+        // v1 cannot carry lower parts. Returning the input leaves it canonical, because the cascade
+        // keeps its input when the output is not smaller.
+        if self.mode == DecimalSchemeMode::V1 && lower_part_count > 0 {
+            return Ok(data.array().clone());
         }
 
-        let parts = split_decimal(&decimal, exec_ctx)?;
-        let msp = compressor.compress_child(
-            &parts.msp,
+        let parts = split_decimal(&decimal, &mask, lower_part_count)?;
+
+        let canonical_msp = parts.msp.execute::<PrimitiveArray>(exec_ctx)?;
+        let msp = WidenArray::encode(canonical_msp, exec_ctx)?;
+
+        // NB: Compress the narrow child, then wrap it. `CascadingCompressor::compress_child`
+        // executes its input to canonical form, which would undo the `Widen`.
+        let (stored_msp, widen_dtype) = match msp.as_opt::<Widen>() {
+            Some(widen) => (widen.values().clone(), Some(msp.dtype().clone())),
+            None => (msp, None),
+        };
+        let compressed_msp = compressor.compress_child(
+            &stored_msp,
             &compress_ctx,
             self.id(),
             DecimalBytePartsSlots::MSP,
             exec_ctx,
         )?;
+        let msp = match widen_dtype {
+            Some(dtype) => WidenArray::try_new(compressed_msp, dtype)?.into_array(),
+            None => compressed_msp,
+        };
+
         let lower_parts = parts
             .lower_parts
             .iter()

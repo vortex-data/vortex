@@ -24,8 +24,10 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
+use vortex::array::arrays::WidenArray;
 use vortex::array::arrays::varbin::VarBinArraySlotsExt;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::array::dtype::Nullability;
 use vortex::array::memory::MemorySession;
 use vortex::array::optimizer::kernels::KernelSession;
 use vortex::array::scalar::Scalar;
@@ -437,8 +439,8 @@ mod setup {
         .into_array()
     }
 
-    /// Create DecimalByteParts <- BitPacked encoding tree, the tree that the compressor builds for
-    /// the golden `decimal_prices` column.
+    /// Create the DecimalByteParts <- Widen <- BitPacked encoding tree that the compressor builds
+    /// for the golden `decimal_prices` column.
     pub fn dbp_bp_i32() -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(115);
         let msp =
@@ -448,7 +450,14 @@ mod setup {
         let mut ctx = SESSION.create_execution_ctx();
         let msp_bp = BitPacked::encode(&msp, 24, &mut ctx).unwrap();
 
-        DecimalByteParts::try_new(msp_bp.into_array(), DecimalDType::new(12, 2))
+        let msp = WidenArray::try_new(
+            msp_bp.into_array(),
+            DType::Primitive(PType::I64, Nullability::NonNullable),
+        )
+        .vortex_expect("benchmark MSP is narrower than i64")
+        .into_array();
+
+        DecimalByteParts::try_new(msp, DecimalDType::new(12, 2))
             .unwrap()
             .into_array()
     }
