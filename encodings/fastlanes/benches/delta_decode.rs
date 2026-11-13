@@ -5,13 +5,13 @@
 //!
 //! - `decode_bitpacked_deltas` decodes a Delta array whose deltas are bit-packed, and
 //!   `decode_primitive_deltas` one whose deltas are a primitive array.
-//! - The probe benchmarks read single rows, through a one-off probe for each row or through one
-//!   repeated probe.
+//! - The probe benchmarks read 8 single rows from two chunks, through a one-off probe for each
+//!   row or through one repeated probe.
 //! - `filter` selects one row in `stride`, and `take` takes scattered rows.
 //!
 //! Only `decode_bitpacked_deltas` carries `#[cpu_features]`, so it is measured on each walltime
 //! CPU-feature leg: the build decides which transpose and decode kernels it runs. The others are
-//! measured once, in simulation.
+//! measured once, in simulation, on smaller arrays.
 //!
 //! Run with `cargo bench -p vortex-fastlanes --bench delta_decode`.
 
@@ -58,8 +58,12 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-/// Bytes of values per input array.
+/// Bytes of values per input array of the walltime decode benchmark.
 const INPUT_BYTES: &[usize] = &[512 * 1024];
+
+/// Bytes of values per input array of the simulation benchmarks: eight chunks of `u32`, which
+/// keeps each under a millisecond in simulation.
+const SIMULATION_BYTES: usize = 32 * 1024;
 
 /// Enough bits for the deltas between consecutive values.
 const BIT_WIDTH: u8 = 4;
@@ -101,9 +105,9 @@ fn decode_bitpacked_deltas<T: NativePType + TryFrom<usize>>(bencher: Bencher, by
         .bench_refs(|(array, ctx)| (*array).clone().execute::<PrimitiveArray>(ctx).unwrap());
 }
 
-#[divan::bench(args = INPUT_BYTES)]
-fn decode_primitive_deltas(bencher: Bencher, bytes: usize) {
-    let len = bytes / size_of::<u32>();
+#[divan::bench]
+fn decode_primitive_deltas(bencher: Bencher) {
+    let len = SIMULATION_BYTES / size_of::<u32>();
     let mut ctx = SESSION.create_execution_ctx();
     let array = PrimitiveArray::new(values::<u32>(len), Validity::NonNullable);
     let array = Delta::try_from_primitive_array(&array, &mut ctx)
@@ -115,18 +119,23 @@ fn decode_primitive_deltas(bencher: Bencher, bytes: usize) {
         .bench_refs(|(array, ctx)| (*array).clone().execute::<PrimitiveArray>(ctx).unwrap());
 }
 
-/// Rows read by the probe benchmarks: the first four chunks, in order.
-const PROBE_ROWS: usize = 4096;
+/// Rows in the arrays the probe benchmarks read: two chunks.
+const PROBE_LEN: usize = 2048;
+
+/// Rows the probe benchmarks read, in order: every 256th row, four in each chunk.
+fn probe_rows() -> impl Iterator<Item = usize> {
+    (0..PROBE_LEN).step_by(256)
+}
 
 /// Reads each row with a one-off probe.
 #[divan::bench]
 fn probe_once(bencher: Bencher) {
-    let array = delta_bitpacked::<u32>(PROBE_ROWS).into_array();
+    let array = delta_bitpacked::<u32>(PROBE_LEN).into_array();
     bencher
-        .counter(ItemsCount::new(PROBE_ROWS))
+        .counter(ItemsCount::new(probe_rows().count()))
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
         .bench_refs(|(array, ctx)| {
-            for index in 0..PROBE_ROWS {
+            for index in probe_rows() {
                 divan::black_box(array.probe().execute_scalar(index, ctx).unwrap());
             }
         });
@@ -135,20 +144,20 @@ fn probe_once(bencher: Bencher) {
 /// Reads each row through one repeated probe.
 #[divan::bench]
 fn probe_repeated(bencher: Bencher) {
-    let array = delta_bitpacked::<u32>(PROBE_ROWS).into_array();
+    let array = delta_bitpacked::<u32>(PROBE_LEN).into_array();
     bencher
-        .counter(ItemsCount::new(PROBE_ROWS))
+        .counter(ItemsCount::new(probe_rows().count()))
         .with_inputs(|| (array.repeated_probe(), SESSION.create_execution_ctx()))
         .bench_refs(|(probe, ctx)| {
-            for index in 0..PROBE_ROWS {
+            for index in probe_rows() {
                 divan::black_box(probe.execute_scalar(index, ctx).unwrap());
             }
         });
 }
 
-/// A u32 Delta array of `INPUT_BYTES` over bit-packed deltas.
+/// A u32 Delta array of `SIMULATION_BYTES` over bit-packed deltas.
 fn delta_bitpacked_u32() -> ArrayRef {
-    delta_bitpacked::<u32>(INPUT_BYTES[0] / size_of::<u32>()).into_array()
+    delta_bitpacked::<u32>(SIMULATION_BYTES / size_of::<u32>()).into_array()
 }
 
 /// A mask that selects one row in `stride`.
@@ -181,7 +190,7 @@ fn scattered_indices(len: usize, count: usize) -> ArrayRef {
 }
 
 /// Takes from the Delta array.
-#[divan::bench(args = [1024])]
+#[divan::bench(args = [128])]
 fn take(bencher: Bencher, count: usize) {
     let array = delta_bitpacked_u32();
     let indices = scattered_indices(array.len(), count);
