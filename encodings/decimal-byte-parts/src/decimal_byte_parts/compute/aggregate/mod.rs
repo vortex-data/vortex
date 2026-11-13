@@ -10,8 +10,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
-use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
-use vortex_array::aggregate_fn::fns::is_sorted::is_strict_sorted;
+use vortex_array::aggregate_fn::fns::is_sorted::is_sorted_with_options;
 use vortex_array::aggregate_fn::fns::max::Max;
 use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::fns::min_max::MinMax;
@@ -49,9 +48,10 @@ impl DynAggregateKernel for DecimalBytePartsAggregateKernel {
         }
 
         if let Some(options) = aggregate_fn.as_opt::<IsSorted>() {
-            return Ok(Some(is_sorted_partial(
+            let sorted = is_sorted_with_options(array.msp(), *options, ctx)?;
+            return Ok(Some(IsSorted::make_partial(
                 batch,
-                array.msp(),
+                sorted,
                 options.strict,
                 ctx,
             )?));
@@ -63,21 +63,6 @@ impl DynAggregateKernel for DecimalBytePartsAggregateKernel {
 
         extrema_partial(aggregate_fn, batch, array.msp(), ctx)
     }
-}
-
-fn is_sorted_partial(
-    batch: &ArrayRef,
-    msp: &ArrayRef,
-    strict: bool,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Scalar> {
-    let sorted = if strict {
-        is_strict_sorted(msp, ctx)?
-    } else {
-        is_sorted(msp, ctx)?
-    };
-
-    IsSorted::make_partial(batch, sorted, strict, ctx)
 }
 
 /// Returns `None` to decline, so the accumulator falls back to decoding the batch.

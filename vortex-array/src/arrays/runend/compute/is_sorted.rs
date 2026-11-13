@@ -9,8 +9,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray as _;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
-use crate::aggregate_fn::fns::is_sorted::is_sorted;
-use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
+use crate::aggregate_fn::fns::is_sorted::is_sorted_with_options;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::runend::RunEnd;
 use crate::arrays::runend::array::RunEndArraySlotsExt;
@@ -41,16 +40,17 @@ impl DynAggregateKernel for RunEndIsSortedKernel {
         let result = if options.strict {
             // Strict sort with run-end encoding means we need to canonicalize
             // since run-end encoding repeats values.
-            is_strict_sorted(
+            is_sorted_with_options(
                 &array
                     .array()
                     .clone()
                     .execute::<Canonical>(ctx)?
                     .into_array(),
+                *options,
                 ctx,
             )?
         } else {
-            is_sorted(array.values(), ctx)?
+            is_sorted_with_options(array.values(), *options, ctx)?
         };
 
         Ok(Some(IsSorted::make_partial(
