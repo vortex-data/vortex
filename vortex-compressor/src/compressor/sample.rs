@@ -55,6 +55,46 @@ pub(crate) fn sample(input: &ArrayRef, sample_size: u32, sample_count: u32) -> A
     unsafe { ChunkedArray::new_unchecked(chunks, input.dtype().clone()) }.into_array()
 }
 
+/// Rows in one FastLanes chunk.
+pub const CHUNK_LEN: usize = 1024;
+
+/// Samples `chunk_count` whole, 1024-aligned chunks of `input`, one from each of `chunk_count`
+/// equal partitions of its full chunks.
+///
+/// Returns `input` unchanged when it has no more than `chunk_count` full chunks.
+pub(crate) fn sample_chunks(input: &ArrayRef, chunk_count: u32) -> ArrayRef {
+    let slices = chunk_slices(input.len(), chunk_count);
+    if slices.is_empty() {
+        return input.clone();
+    }
+
+    let chunks = slices.into_iter().map(|(start, end)| {
+        input
+            .slice(start..end)
+            .vortex_expect("slice should succeed")
+    });
+    // SAFETY: all chunks are slices of `input`, so they share its dtype.
+    unsafe { ChunkedArray::new_unchecked(chunks, input.dtype().clone()) }.into_array()
+}
+
+/// Returns deterministic 1024-aligned chunk ranges, one per partition of the full chunks, or no
+/// ranges when the array has no more than `chunk_count` full chunks.
+pub(crate) fn chunk_slices(length: usize, chunk_count: u32) -> Vec<(usize, usize)> {
+    let full_chunks = length / CHUNK_LEN;
+    if full_chunks <= chunk_count as usize {
+        return Vec::new();
+    }
+
+    let mut rng = StdRng::seed_from_u64(SAMPLE_SEED);
+    partition_indices(full_chunks, chunk_count)
+        .into_iter()
+        .map(|(start, stop)| {
+            let chunk = rng.random_range(start..stop);
+            (chunk * CHUNK_LEN, (chunk + 1) * CHUNK_LEN)
+        })
+        .collect()
+}
+
 /// Returns deterministic stratified sample ranges for an array length.
 pub(crate) fn sample_slices(
     length: usize,
@@ -166,9 +206,12 @@ pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     let sample_array = if compress_ctx.is_sample() {
         array.clone()
     } else {
-        let sample_count = sample_count_approx_one_percent(array.len());
         // `ArrayAndStats` expects a canonical array (so that it can easily compute lazy stats).
-        let canonical: Canonical = sample(array, SAMPLE_SIZE, sample_count).execute(exec_ctx)?;
+        let sampled = match experiment_chunk_count(scheme.scheme_name()) {
+            Some(chunks) => sample_chunks(array, chunks),
+            None => sample(array, SAMPLE_SIZE, sample_count_approx_one_percent(array.len())),
+        };
+        let canonical: Canonical = sampled.execute(exec_ctx)?;
         canonical.into_array()
     };
 
@@ -201,6 +244,15 @@ pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     }
 
     Ok(score)
+}
+
+// EXPERIMENT ONLY, not for commit.
+fn experiment_chunk_count(scheme: &str) -> Option<u32> {
+    let chunks: u32 = std::env::var("VX_SAMPLE_CHUNKS").ok()?.parse().ok()?;
+    match std::env::var("VX_SAMPLE_CHUNK_SCHEMES") {
+        Ok(list) if !list.is_empty() => list.split(',').any(|s| s == scheme).then_some(chunks),
+        _ => Some(chunks),
+    }
 }
 
 #[cfg(test)]
