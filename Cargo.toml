@@ -474,6 +474,24 @@ debug = false
 debug-assertions = true
 incremental = false
 
+# vortex-duckdb's build script downloads and unzips DuckDB on every CI run. Build scripts are
+# built without optimization, and unoptimized inflate is about 3x slower. Optimizing only the
+# crates that do the unzip gets nearly all of the speed-up.
+[profile.ci.package.zip]
+opt-level = 3
+
+[profile.ci.package.flate2]
+opt-level = 3
+
+[profile.ci.package.zlib-rs]
+opt-level = 3
+
+[profile.ci.package.miniz_oxide]
+opt-level = 3
+
+[profile.ci.package.crc32fast]
+opt-level = 3
+
 # This improved build times significantly for default common cases that we use locally
 [profile.dev.package.vortex-fastlanes]
 debug = false
