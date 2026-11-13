@@ -276,13 +276,34 @@ fn build_sample(
     })
 }
 
+/// Rows in each chunk of an integer or float array's sample: one FastLanes chunk.
+const NUMERIC_SAMPLE_CHUNK_LEN: usize = 1024;
+
+/// Fewest chunks an integer or float array's sample takes as aligned chunks. With fewer, a few
+/// contiguous chunks cover too little of the array, so the sample takes short runs from across
+/// the array instead.
+const MIN_NUMERIC_SAMPLE_CHUNKS: usize = 8;
+
 /// Selects the rows of `array` that sampled schemes compress: about 1% of them.
+///
+/// Integer and float arrays whose 1% spans at least [`MIN_NUMERIC_SAMPLE_CHUNKS`] chunks sample
+/// that many rows as whole, aligned FastLanes chunks, so a sampled chunk holds the rows the
+/// FastLanes encodings would encode together. Other arrays take short runs from across the array.
 fn sample_rows(array: &ArrayRef) -> ArrayRef {
-    sample(
-        array,
-        SAMPLE_SIZE,
-        sample_count_approx_one_percent(array.len()),
-    )
+    let sample_count = sample_count_approx_one_percent(array.len());
+    if array.dtype().is_int() || array.dtype().is_float() {
+        let sample_rows = sample_count as usize * SAMPLE_SIZE as usize;
+        let chunk_count = sample_rows / NUMERIC_SAMPLE_CHUNK_LEN;
+        if chunk_count >= MIN_NUMERIC_SAMPLE_CHUNKS {
+            let chunk_count = u32::try_from(chunk_count).vortex_expect("chunk count fits in u32");
+            if let Some(sampled) =
+                sample_aligned_chunks(array, NUMERIC_SAMPLE_CHUNK_LEN, chunk_count)
+            {
+                return sampled;
+            }
+        }
+    }
+    sample(array, SAMPLE_SIZE, sample_count)
 }
 
 /// Estimates a scheme's compression ratio by compressing the array's compression sample.
@@ -332,9 +353,13 @@ pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::Chunked;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::chunked::ChunkedArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -361,6 +386,44 @@ mod tests {
             assert_arrays_eq!(&first, &again, &mut ctx);
         }
         Ok(())
+    }
+
+    /// Returns the lengths of the slices a sample joined.
+    fn sampled_slice_lens(sampled: &ArrayRef) -> Vec<usize> {
+        sampled
+            .as_::<Chunked>()
+            .iter_chunks()
+            .map(|chunk| chunk.len())
+            .collect()
+    }
+
+    #[rstest]
+    // 1% of a million rows is ten chunks, enough to sample as aligned chunks.
+    #[case::long_ints(PrimitiveArray::from_iter(0..1_000_000u32).into_array(), 1024, 10_240)]
+    #[case::long_floats(
+        PrimitiveArray::from_iter((0..1_000_000u32).map(|i| i as f32)).into_array(),
+        1024,
+        10_240
+    )]
+    // 1% of 200,000 rows is two chunks, too few, so the sample takes short runs.
+    #[case::short_ints(PrimitiveArray::from_iter(0..200_000u32).into_array(), 64, 2048)]
+    #[case::long_bools(
+        BoolArray::from_iter((0..1_000_000).map(|i| i % 3 == 0)).into_array(),
+        64,
+        10_240
+    )]
+    fn sample_rows_shape(
+        #[case] array: ArrayRef,
+        #[case] slice_len: usize,
+        #[case] sample_len: usize,
+    ) {
+        let sampled = sample_rows(&array);
+        assert_eq!(sampled.len(), sample_len);
+        assert!(
+            sampled_slice_lens(&sampled)
+                .iter()
+                .all(|&len| len == slice_len)
+        );
     }
 
     #[test]
