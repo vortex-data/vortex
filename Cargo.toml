@@ -291,7 +291,7 @@ wasm-bindgen-futures = "0.4.58"
 wkb = "0.9.2"
 xshell = "0.2.6"
 zigzag = "0.1.0"
-zip = "8.0.0"
+zip = "9.0.0"
 zstd = { version = "0.13.3", default-features = false, features = [
     "zdict_builder",
 ] }
