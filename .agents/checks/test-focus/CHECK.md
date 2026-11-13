@@ -30,10 +30,9 @@ exclude = [
   "wasm-test/**",
   "xtask/**",
 ]
-shard_by = "crate"
 max_files_per_shard = 12
 max_lines_per_shard = 6000
-max_shards_per_run = 5
+max_shards_per_run = 8
 cadence_days = 7
 action = "pr"
 labels = ["changelog/chore"]
@@ -48,8 +47,9 @@ allowed_tools = [
   "Bash(git status:*)",
   "Bash(git restore:*)",
 ]
-# Designed but not yet switched on. Run it by name from workflow_dispatch to trial it.
-enabled = false
+# The runner checks edits with these after the agent finishes. If one fails, every edit is
+# reverted and the findings are reported unfixed.
+verify = ["cargo clippy -p {crate} --tests --all-features -- -D warnings"]
 +++
 # Test focus
 

@@ -3,9 +3,8 @@ id = "benchmark-usefulness"
 title = "Benchmark usefulness"
 description = "Benchmarks measure what they claim, without setup, teardown or dead-code contamination, at a reasonable CodSpeed cost."
 include = ["**/benches/**/*.rs"]
-shard_by = "crate"
 max_files_per_shard = 12
-max_shards_per_run = 4
+max_shards_per_run = 8
 cadence_days = 7
 action = "pr"
 labels = ["changelog/chore"]
@@ -18,6 +17,9 @@ allowed_tools = [
   "Bash(RUSTFLAGS=* cargo check:*)",
   "Bash(git status:*)",
 ]
+# The runner checks edits with these after the agent finishes. If one fails, every edit is
+# reverted and the findings are reported unfixed.
+verify = ["cargo clippy -p {crate} --benches --all-features -- -D warnings"]
 +++
 # Benchmark usefulness
 

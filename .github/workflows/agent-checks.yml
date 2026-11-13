@@ -4,16 +4,21 @@ name: Agent Checks
 # `scripts/agent_checks.py`. See `.agents/checks/README.md`.
 #
 # Jobs
-# - plan: reads the state branch and the PR list, picks shards that need review (new or changed
-#   files, rubric version bumps, checks whose `cadence_days` has passed) and emits a matrix.
-# - review: one job per shard. Claude reviews the assigned files and writes a results file; the
-#   runner validates it, reverts out-of-scope edits, and the job opens a draft PR (or an issue
-#   when there is nothing to commit).
+# - plan: reads the state branch and the PR list, picks the crates that need review (new or
+#   changed files, rubric version bumps) for every check whose `cadence_days` has passed, and
+#   emits one matrix entry per (check, crate).
+# - review: one runner per shard. Claude reviews the assigned files and writes a results file.
+#   The runner validates it, reverts edits outside the shard's scope, compiles the edits with the
+#   check's `verify` commands, and opens or updates one draft PR per shard if anything changed.
 # - record: merges reviewed-file hashes and PR-derived suppressions into the state branch.
+#
+# Fault tolerance: a shard that fails or times out records nothing and is offered again on the
+# next run; the other shards are unaffected. A partial results file still records the files the
+# agent finished. The state push retries against concurrent updates.
 #
 # Setup: the same `claude-automation` environment, App secrets and Anthropic variables as
 # fuzzer-fix-automation.yml. State lives on the orphan branch `agent-checks-state`, created on
-# the first run.
+# the first run. TODO: replace the state branch with a store that supports atomic per-shard writes.
 
 on:
   schedule:
@@ -26,7 +31,7 @@ on:
         required: false
         type: string
       shard:
-        description: "Only this shard, e.g. vortex-array"
+        description: "Only this crate, e.g. vortex-array"
         required: false
         type: string
       max_shards:
@@ -35,6 +40,11 @@ on:
         type: string
       force:
         description: "Ignore cadence_days"
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: "Review and report in the job summary only: no PRs, no state update"
         required: false
         type: boolean
         default: false
@@ -51,6 +61,7 @@ env:
   STATE_BRANCH: agent-checks-state
   STATE_DIR: ${{ github.workspace }}/.agent-checks-state
   PR_LABEL: agent-checks
+  DRY_RUN: ${{ inputs.dry_run == true }}
 
 jobs:
   plan:
@@ -69,8 +80,6 @@ jobs:
           persist-credentials: false
 
       - name: Fetch state branch
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$STATE_DIR"
           if git ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null; then
@@ -114,10 +123,10 @@ jobs:
     needs: plan
     if: needs.plan.outputs.count != '0'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
+      # Each shard runs on its own runner; one failing shard never stops the others.
       fail-fast: false
-      max-parallel: 4
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     environment:
@@ -168,11 +177,14 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           permission-contents: write
-          permission-issues: write
           permission-pull-requests: write
 
       - name: Run Claude
         id: claude
+        # A failed or timed-out agent still leaves a partial results file; finalize records the
+        # files it finished and reverts edits to the rest.
+        continue-on-error: true
+        timeout-minutes: 75
         uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d  # v1.0.266
         with:
           # The claude-automation environment puts `environment:claude-automation` in the OIDC
@@ -190,13 +202,12 @@ jobs:
 
       - name: Finalize
         id: finalize
-        if: ${{ !cancelled() && steps.prompt.outcome == 'success' }}
         run: |
           python3 scripts/agent_checks.py finalize --plan "$WORK/plan.json" \
             --check "$CHECK" --shard "$SHARD" --results "$WORK/results.json" \
-            --out-dir "$WORK/out" --run-url "$RUN_URL" --revert-out-of-scope
+            --out-dir "$WORK/out" --run-url "$RUN_URL" --revert-out-of-scope --verify
           mkdir -p "$WORK/state-update"
-          cp "$WORK/out/state-update.json" "$WORK/state-update/$CHECK--${SHARD//\//-}.json"
+          cp "$WORK/out/state-update.json" "$WORK/state-update/$CHECK--$SHARD.json"
 
       - name: Format edited Rust files
         if: steps.finalize.outputs.has_edits == 'true'
@@ -205,8 +216,30 @@ jobs:
             | while IFS= read -r f; do [[ -f "$f" ]] && echo "$f"; done \
             | xargs -r -d '\n' rustup run "$NIGHTLY_TOOLCHAIN" rustfmt --edition 2024
 
-      - name: Open draft pull request
-        if: steps.finalize.outputs.has_edits == 'true'
+      - name: Job summary
+        if: ${{ !cancelled() && steps.finalize.outcome == 'success' }}
+        env:
+          HAS_EDITS: ${{ steps.finalize.outputs.has_edits }}
+        run: |
+          {
+            echo "## $CHECK / $SHARD"
+            echo
+            cat "$WORK/out/body.md"
+            if [[ "$HAS_EDITS" == "true" ]]; then
+              echo
+              echo '<details><summary>Diff</summary>'
+              echo
+              echo '```diff'
+              git diff
+              echo '```'
+              echo
+              echo '</details>'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open or update the shard's draft pull request
+        id: pr
+        if: steps.finalize.outputs.has_edits == 'true' && env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           BASE_BRANCH: ${{ github.event.repository.default_branch }}
@@ -219,6 +252,8 @@ jobs:
           git checkout -b "$BRANCH"
           jq -r '.edits[]' "$WORK/out/summary.json" | xargs -d '\n' git add --
           git commit -s -m "$TITLE" -m "Automated agent check \`$CHECK\`. $RUN_URL"
+          # The branch is stable per (check, crate). The planner skips crates with an open PR, so
+          # this force push only replaces branches whose PR was merged or closed.
           git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
             "HEAD:refs/heads/$BRANCH"
 
@@ -228,7 +263,8 @@ jobs:
           IFS=',' read -ra extra <<< "$LABELS"
           for l in "${extra[@]}"; do [[ -n "$l" ]] && label_args+=(--label "$l"); done
 
-          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json url --jq '.[0].url // ""')"
+          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open \
+            --json url --jq '.[0].url // ""')"
           if [[ -n "$existing" ]]; then
             gh pr edit "$existing" --repo "$GITHUB_REPOSITORY" --body-file "$WORK/out/body.md"
             echo "Updated $existing"
@@ -237,35 +273,23 @@ jobs:
               --title "$TITLE" --body-file "$WORK/out/body.md" "${label_args[@]}"
           fi
 
-      - name: Open issue for unfixed findings
-        if: steps.finalize.outputs.has_edits == 'false' && steps.finalize.outputs.has_findings == 'true'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          TITLE: ${{ steps.finalize.outputs.title }}
-        run: |
-          gh label create "$PR_LABEL" --repo "$GITHUB_REPOSITORY" --color "5319e7" \
-            --description "Opened by the scheduled agent checks" 2>/dev/null || true
-          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --label "$PR_LABEL" --state open \
-            --search "\"$TITLE\" in:title" --json number,title --jq "map(select(.title == \"$TITLE\")) | .[0].number // \"\"")"
-          if [[ -n "$existing" ]]; then
-            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body-file "$WORK/out/body.md"
-          else
-            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --label "$PR_LABEL" \
-              --body-file "$WORK/out/body.md"
-          fi
-
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
-        if: steps.finalize.outcome == 'success'
+        # Record the review only if its PR, when one was needed, exists. Otherwise the files are
+        # offered again next run rather than being marked reviewed with the fix lost.
+        if: ${{ !cancelled() && steps.finalize.outcome == 'success' && steps.pr.outcome != 'failure' }}
         with:
           name: agent-checks-state-${{ strategy.job-index }}
-          path: ${{ env.WORK }}/state-update/
+          path: |
+            ${{ env.WORK }}/state-update/
+            ${{ env.WORK }}/out/
+            ${{ env.WORK }}/results.json
 
   record:
     name: Record state
     needs: [plan, review]
     # Record whatever finished, including after partial review failures. Shards that failed
     # upload no state update and are offered again next run.
-    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && inputs.dry_run != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -291,27 +315,36 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git init -q "$STATE_DIR"
-          cd "$STATE_DIR"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
-          if git ls-remote --exit-code --heads "$remote" "$STATE_BRANCH" >/dev/null; then
-            git fetch -q --depth=1 "$remote" "$STATE_BRANCH"
-            git checkout -q -b "$STATE_BRANCH" FETCH_HEAD
-          else
-            git checkout -q --orphan "$STATE_BRANCH"
-          fi
-          cd "$GITHUB_WORKSPACE"
-
           shopt -s nullglob
-          python3 scripts/agent_checks.py record --state-dir "$STATE_DIR" \
-            --plan plan/plan.json --prs plan/prs.json updates/*.json
+          updates=(updates/state-update/*.json)
 
-          cd "$STATE_DIR"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "State unchanged."
-            exit 0
-          fi
-          git commit -q -m "Record agent checks run ${GITHUB_RUN_ID}"
-          git push -q "$remote" "HEAD:refs/heads/$STATE_BRANCH"
+          # Merging is idempotent, so on a rejected push start again from the remote state.
+          for attempt in 1 2 3 4 5; do
+            rm -rf "$STATE_DIR"
+            git init -q "$STATE_DIR"
+            git -C "$STATE_DIR" config user.name "github-actions[bot]"
+            git -C "$STATE_DIR" config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+            if git ls-remote --exit-code --heads "$remote" "$STATE_BRANCH" >/dev/null; then
+              git -C "$STATE_DIR" fetch -q --depth=1 "$remote" "$STATE_BRANCH"
+              git -C "$STATE_DIR" checkout -q -b "$STATE_BRANCH" FETCH_HEAD
+            else
+              git -C "$STATE_DIR" checkout -q --orphan "$STATE_BRANCH"
+            fi
+
+            python3 scripts/agent_checks.py record --state-dir "$STATE_DIR" \
+              --plan plan/plan.json --prs plan/prs.json "${updates[@]}"
+
+            git -C "$STATE_DIR" add -A
+            if git -C "$STATE_DIR" diff --cached --quiet; then
+              echo "State unchanged."
+              exit 0
+            fi
+            git -C "$STATE_DIR" commit -q -m "Record agent checks run ${GITHUB_RUN_ID}"
+            if git -C "$STATE_DIR" push -q "$remote" "HEAD:refs/heads/$STATE_BRANCH"; then
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt); retrying from the remote state."
+            sleep $((attempt * 5))
+          done
+          echo "Could not update $STATE_BRANCH; the next run reviews these files again."
+          exit 1

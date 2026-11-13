@@ -144,57 +144,53 @@ def test_glob(pattern: str, path: str, matches: bool):
 
 
 class TestPlan:
-    def test_shards_by_crate_and_splits_large_crates(self, repo: Path, tmp_path: Path):
+    def test_one_shard_per_crate_with_the_rest_deferred(self, repo: Path, tmp_path: Path):
         p = plan(repo, tmp_path / "state")
+        # alpha has 3 pending files but a budget of 2: one shard, and c.rs waits for a later run.
         assert shard_files(p) == {
-            "alpha-1": ["alpha/benches/a.rs", "alpha/benches/b.rs"],
-            "alpha-2": ["alpha/benches/c.rs"],
+            "alpha": ["alpha/benches/a.rs", "alpha/benches/b.rs"],
             "beta": ["enc/beta/benches/x.rs"],
         }
+        alpha = ac.find_shard(p, "bench", "alpha")
+        assert alpha["deferred"] == 1
+        assert alpha["branch"] == "agent-checks/bench/alpha"
         beta = ac.find_shard(p, "bench", "beta")
-        assert beta["crate_dirs"] == ["enc/beta"]
-        assert beta["branch"] == "agent-checks/bench/beta"
-        assert ac.matrix(p)["include"][0] == {"check": "bench", "shard": "alpha-1"}
+        assert (beta["crate"], beta["crate_dir"]) == ("beta", "enc/beta")
+        assert ac.matrix(p)["include"] == [{"check": "bench", "shard": "alpha"}, {"check": "bench", "shard": "beta"}]
+
+    def test_deferred_files_come_first_next_run(self, repo: Path, tmp_path: Path):
+        state_dir = tmp_path / "state"
+        p = plan(repo, state_dir)
+        shard = ac.find_shard(p, "bench", "alpha")
+        results = {"reviewed": ["alpha/benches/a.rs", "alpha/benches/b.rs"], "findings": []}
+        out = ac.finalize(ac.load_checks(repo)["bench"], p, shard, results, repo, now=NOW)
+        ac.record(state_dir, [out["state_update"]], now=NOW)
+        assert shard_files(plan(repo, state_dir))["alpha"] == ["alpha/benches/c.rs"]
 
     def test_max_shards_and_busy_branches(self, repo: Path, tmp_path: Path):
-        prs = [{"number": 1, "state": "OPEN", "headRefName": "agent-checks/bench/alpha-1", "body": ""}]
-        p = plan(repo, tmp_path / "state", prs=prs, max_shards=1)
-        assert list(shard_files(p)) == ["alpha-2"]
+        prs = [{"number": 1, "state": "OPEN", "headRefName": "agent-checks/bench/alpha", "body": ""}]
+        assert list(shard_files(plan(repo, tmp_path / "state", prs=prs))) == ["beta"]
+        assert list(shard_files(plan(repo, tmp_path / "state", max_shards=1))) == ["alpha"]
 
-    def test_files_in_open_prs_are_skipped(self, repo: Path, tmp_path: Path):
-        marker = '<!-- agent-check: {"check": "bench", "shard": "x", "files": ["alpha/benches/a.rs"]} -->'
-        prs = [{"number": 1, "state": "OPEN", "headRefName": "agent-checks/bench/x", "body": marker}]
+    def test_files_claimed_by_open_prs_are_skipped(self, repo: Path, tmp_path: Path):
+        marker = '<!-- agent-check: {"check": "other", "shard": "x", "claims": ["alpha/benches/a.rs"]} -->'
+        prs = [{"number": 1, "state": "OPEN", "headRefName": "agent-checks/other/alpha", "body": marker}]
         assert shard_files(plan(repo, tmp_path / "state", prs=prs))["alpha"] == [
             "alpha/benches/b.rs",
             "alpha/benches/c.rs",
         ]
 
-    def test_chunks_of_one_crate_never_share_an_edit_scope(self, repo: Path, tmp_path: Path):
-        # Files scope: each chunk may edit only its own files, so both chunks of alpha can run.
-        p = plan(repo, tmp_path / "state")
-        scopes = [s["edit_scope"] for s in p["checks"]["bench"]["shards"]]
-        assert scopes == [
-            ["alpha/benches/a.rs", "alpha/benches/b.rs"],
-            ["alpha/benches/c.rs"],
-            ["enc/beta/benches/x.rs"],
-        ]
+    def test_crate_scope_claims_the_crate_across_checks(self, repo: Path, tmp_path: Path):
+        marker = '<!-- agent-check: {"check": "other", "shard": "beta", "claims": ["enc/beta"]} -->'
+        prs = [{"number": 1, "state": "OPEN", "headRefName": "agent-checks/other/beta", "body": marker}]
+        assert "beta" not in shard_files(plan(repo, tmp_path / "state", prs=prs))
 
-        # Crate scope: the chunks would share alpha/, so only the first runs this time.
         write(
             repo,
             ".agents/checks/bench/CHECK.md",
-            CHECK_MD.replace('shard_by = "crate"', "").replace(
-                "max_files_per_shard", 'edit_scope = "crate"\nmax_files_per_shard'
-            ),
+            CHECK_MD.replace("max_files_per_shard", 'edit_scope = "crate"\nmax_files_per_shard'),
         )
-        p = plan(repo, tmp_path / "state")
-        assert list(shard_files(p)) == ["alpha-1", "beta"]
-        assert ac.find_shard(p, "bench", "beta")["edit_scope"] == ["enc/beta"]
-
-    def test_open_pr_claims_apply_across_checks(self, repo: Path, tmp_path: Path):
-        marker = '<!-- agent-check: {"check": "other", "shard": "x", "claims": ["enc/beta"]} -->'
-        prs = [{"number": 1, "state": "OPEN", "headRefName": "agent-checks/other/x", "body": marker}]
-        assert "beta" not in shard_files(plan(repo, tmp_path / "state", prs=prs))
+        assert ac.find_shard(plan(repo, tmp_path / "state"), "bench", "beta")["edit_scope"] == ["enc/beta"]
 
     def test_reviewed_files_are_skipped_until_they_change(self, repo: Path, tmp_path: Path):
         state_dir = tmp_path / "state"
@@ -237,13 +233,22 @@ class TestPlan:
 
 
 class TestFinalize:
-    def finalize(self, repo: Path, results, revert_out_of_scope: bool = False) -> dict[str, Any]:
+    def finalize(
+        self, repo: Path, results, shard_id: str = "beta", revert_out_of_scope: bool = True, run_verify: bool = False
+    ) -> dict[str, Any]:
         p = plan(repo, Path(repo) / "no-state")
         p["checks"]["bench"]["suppressed"] = {"bench:old": {"file": "enc/beta/benches/x.rs", "pr": 9}}
-        shard = ac.find_shard(p, "bench", "beta")
+        shard = ac.find_shard(p, "bench", shard_id)
         check = ac.load_checks(repo)["bench"]
         return ac.finalize(
-            check, p, shard, ac.validate_results(results), repo, now=NOW, revert_out_of_scope=revert_out_of_scope
+            check,
+            p,
+            shard,
+            ac.validate_results(results),
+            repo,
+            now=NOW,
+            revert_out_of_scope=revert_out_of_scope,
+            run_verify=run_verify,
         )
 
     def finding(self, **overrides: object) -> dict[str, object]:
@@ -269,12 +274,14 @@ class TestFinalize:
                 self.finding(),
                 self.finding(fingerprint="bench:old"),
                 self.finding(file="alpha/benches/a.rs", fingerprint="bench:a"),
+                self.finding(severity="critical", fingerprint="bench:bad"),
             ],
             "summary": "Black-boxed a result.",
         }
-        out = self.finalize(repo, results, revert_out_of_scope=True)
+        out = self.finalize(repo, results)
 
         assert [f["fingerprint"] for f in out["findings"]] == ["bench:x", "bench:low"]
+        assert any("malformed finding 4" in n for n in out["notes"])
         assert out["edits"] == ["enc/beta/benches/x.rs"]
         assert (repo / "alpha/benches/a.rs").read_text() == "fn a() {}\n"
         record = out["state_update"]["files"]["enc/beta/benches/x.rs"]
@@ -284,35 +291,52 @@ class TestFinalize:
         assert "### Not fixed" in out["body"]
         [marker] = ac.parse_markers(out["body"])
         assert marker["fingerprints"] == {"bench:x": "enc/beta/benches/x.rs", "bench:low": "enc/beta/benches/x.rs"}
+        assert marker["claims"] == ["enc/beta/benches/x.rs"]
 
-    def test_reverts_edits_to_a_sibling_chunks_files(self, repo: Path):
-        p = plan(repo, Path(repo) / "no-state")
-        shard = ac.find_shard(p, "bench", "alpha-2")
-        write(repo, "alpha/benches/c.rs", "fn c() { fixed() }\n")
-        write(repo, "alpha/benches/a.rs", "fn a() { also_mine() }\n")  # assigned to alpha-1
-        results = {"reviewed": ["alpha/benches/c.rs"], "findings": []}
-        check = ac.load_checks(repo)["bench"]
-        out = ac.finalize(check, p, shard, results, repo, now=NOW, revert_out_of_scope=True)
-        assert out["edits"] == ["alpha/benches/c.rs"]
-        assert (repo / "alpha/benches/a.rs").read_text() == "fn a() {}\n"
-        assert ac.parse_markers(out["body"])[0]["claims"] == ["alpha/benches/c.rs"]
+    def test_partial_results_keep_finished_files_and_revert_the_rest(self, repo: Path):
+        # The agent finished a.rs, then hit its turn limit halfway through editing b.rs.
+        write(repo, "alpha/benches/a.rs", "fn a() { fixed() }\n")
+        write(repo, "alpha/benches/b.rs", "fn b() { half_do\n")
+        results = {"reviewed": ["alpha/benches/a.rs"], "findings": []}
+        out = self.finalize(repo, results, shard_id="alpha")
+        assert out["edits"] == ["alpha/benches/a.rs"]
+        assert (repo / "alpha/benches/b.rs").read_text() == "fn b() {}\n"
+        assert list(out["state_update"]["files"]) == ["alpha/benches/a.rs"]
+
+    @pytest.mark.parametrize(("command", "kept"), [("true {crate}", True), ("false {crate}", False)])
+    def test_verify_failure_reverts_all_edits(self, repo: Path, command: str, kept: bool):
+        write(
+            repo,
+            ".agents/checks/bench/CHECK.md",
+            CHECK_MD.replace("cadence_days = 7", f'verify = ["{command}"]'),
+        )
+        write(repo, "enc/beta/benches/x.rs", "fn x() { broken( }\n")
+        results = {"reviewed": ["enc/beta/benches/x.rs"], "findings": [self.finding()]}
+        out = self.finalize(repo, results, run_verify=True)
+        assert bool(out["edits"]) is kept
+        assert out["findings"][0]["fixed"] is kept
+        assert ((repo / "enc/beta/benches/x.rs").read_text() == "fn x() {}\n") is not kept
+        # The review still counts: the files are not offered again until they change.
+        assert list(out["state_update"]["files"]) == ["enc/beta/benches/x.rs"]
 
     @pytest.mark.parametrize(
         "results",
         [
             [],
             {"findings": []},
-            {"reviewed": [], "findings": [{"file": "x"}]},
+            {"reviewed": "x.rs", "findings": []},
+            {"reviewed": [], "findings": [], "summary": 3},
         ],
     )
     def test_rejects_malformed_results(self, results):
         with pytest.raises(ac.CheckError):
             ac.validate_results(results)
 
-    def test_rejects_unknown_severity(self):
-        results = {"reviewed": [], "findings": [self.finding(severity="critical")]}
-        with pytest.raises(ac.CheckError, match="unknown severity"):
-            ac.validate_results(results)
+    def test_drops_only_the_malformed_findings(self):
+        results = {"reviewed": [], "findings": [self.finding(), self.finding(severity="critical"), {"file": "x"}]}
+        validated = ac.validate_results(results)
+        assert len(validated["findings"]) == 1
+        assert len(validated["invalid"]) == 2
 
 
 def test_closed_unmerged_prs_become_suppressions(tmp_path: Path):

@@ -26,6 +26,9 @@ State is one JSON file per check (`<state-dir>/<id>.json`). CI keeps it on the o
 records the git blob hashes that were reviewed (before and after the agent's own fix), so unchanged
 files are skipped and a merged fix does not trigger its own re-review.
 
+TODO: replace the state branch with a store that supports atomic per-shard writes, so runs need no
+branch-level serialization and a failed push cannot lose a run's reviews.
+
 Run the tests with:
 
     uv run --no-project --with pytest pytest scripts/tests/test_agent_checks.py
@@ -38,6 +41,7 @@ import datetime as dt
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -88,7 +92,6 @@ class Check:
     include: tuple[str, ...]
     exclude: tuple[str, ...] = ()
     content_match: str | None = None
-    shard_by: str = "crate"
     edit_scope: str = "files"
     max_files_per_shard: int = 10
     max_lines_per_shard: int | None = None
@@ -101,6 +104,7 @@ class Check:
     labels: tuple[str, ...] = ()
     skills: tuple[str, ...] = ()
     allowed_tools: tuple[str, ...] = ()
+    verify: tuple[str, ...] = ()
     max_findings: int = 20
     model: str | None = None
     max_turns: int = 80
@@ -118,7 +122,6 @@ _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "include": list,
     "exclude": list,
     "content_match": str,
-    "shard_by": str,
     "edit_scope": str,
     "max_files_per_shard": int,
     "max_lines_per_shard": int,
@@ -131,13 +134,13 @@ _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "labels": list,
     "skills": list,
     "allowed_tools": list,
+    "verify": list,
     "max_findings": int,
     "model": str,
     "max_turns": int,
     "enabled": bool,
 }
 _CHOICES = {
-    "shard_by": ("crate", "file", "none"),
     "edit_scope": ("files", "crate"),
     "mode": ("incremental", "full"),
     "action": ("pr", "report"),
@@ -185,7 +188,7 @@ def parse_check(text: str, source: str = "<check>") -> Check:
         except re.error as e:
             raise CheckError(f"{source}: invalid `content_match`: {e}") from None
 
-    for key in ("include", "exclude", "labels", "skills", "allowed_tools"):
+    for key in ("include", "exclude", "labels", "skills", "allowed_tools", "verify"):
         if key in meta:
             meta[key] = tuple(meta[key])
     return Check(body="".join(lines[end + 1 :]).strip() + "\n", **meta)
@@ -412,20 +415,20 @@ def file_status(check: Check, record: dict[str, Any] | None, blob: str, now: dt.
     return None
 
 
-def chunk(files: list[dict[str, Any]], max_files: int, max_lines: int | None) -> list[list[dict[str, Any]]]:
-    chunks: list[list[dict[str, Any]]] = []
-    current: list[dict[str, Any]] = []
+def take_budget(files: list[dict[str, Any]], max_files: int, max_lines: int | None) -> list[dict[str, Any]]:
+    """The longest prefix of `files` within the per-shard budget, and always at least one file."""
+    taken: list[dict[str, Any]] = []
     lines = 0
     for f in files:
-        too_many_lines = max_lines is not None and current and lines + f["lines"] > max_lines
-        if len(current) >= max_files or too_many_lines:
-            chunks.append(current)
-            current, lines = [], 0
-        current.append(f)
+        if taken and (len(taken) >= max_files or (max_lines is not None and lines + f["lines"] > max_lines)):
+            break
+        taken.append(f)
         lines += f["lines"]
-    if current:
-        chunks.append(current)
-    return chunks
+    return taken
+
+
+def _file_priority(f: dict[str, Any]) -> tuple[int, str, str]:
+    return STATUS_RANK[str(f["status"])], str(f["last_reviewed"] or ""), str(f["path"])
 
 
 def plan_check(
@@ -442,9 +445,13 @@ def plan_check(
 ) -> list[dict[str, Any]]:
     """Return the shards of `check` to review this run, highest priority first.
 
+    A shard is one crate and is never split: at most one agent works on a crate per check at a
+    time, on a stable branch `agent-checks/<check>/<crate>`. When a crate has more pending files
+    than one shard's budget, the most urgent ones are taken and the rest wait for later runs.
+
     `claimed` holds paths that open PRs or shards already planned this run may edit. Files inside
-    it are not reviewed, a shard whose edit scope overlaps it is deferred to a later run, and the
-    selected shards' scopes are added to it. The selected shards' edit scopes are thus disjoint.
+    it are not reviewed, a shard whose edit scope overlaps it waits for a later run, and the
+    selected shards' scopes are added to it, so the scopes of selected shards are disjoint.
     """
     claimed = set() if claimed is None else claimed
     if not force:
@@ -463,9 +470,7 @@ def plan_check(
         if status is None:
             continue
         name, crate_dir = crate_of(path, roots)
-        key = {"crate": name, "file": path, "none": "all"}[check.shard_by]
-        group = groups.setdefault(key, {"crate_dirs": set(), "files": []})
-        group["crate_dirs"].add(crate_dir)
+        group = groups.setdefault(name, {"crate_dir": crate_dir, "files": []})
         group["files"].append(
             {
                 "path": path,
@@ -478,35 +483,28 @@ def plan_check(
         )
 
     shards: list[dict[str, Any]] = []
-    for key, group in groups.items():
-        parts = chunk(group["files"], check.max_files_per_shard, check.max_lines_per_shard)
-        for n, files in enumerate(parts, 1):
-            shard_id = key if len(parts) == 1 else f"{key}-{n}"
-            shards.append(
-                {
-                    "id": shard_id,
-                    "branch": branch_name(check.id, shard_id),
-                    "crate_dirs": sorted(group["crate_dirs"]),
-                    "edit_scope": (
-                        sorted(group["crate_dirs"]) if check.edit_scope == "crate" else [f["path"] for f in files]
-                    ),
-                    "files": files,
-                }
-            )
+    for name, group in groups.items():
+        pending = sorted(group["files"], key=_file_priority)
+        files = take_budget(pending, check.max_files_per_shard, check.max_lines_per_shard)
+        shards.append(
+            {
+                "id": name,
+                "crate": name,
+                "branch": branch_name(check.id, name),
+                "crate_dir": group["crate_dir"],
+                "edit_scope": [group["crate_dir"]] if check.edit_scope == "crate" else [f["path"] for f in files],
+                "files": files,
+                "deferred": len(pending) - len(files),
+            }
+        )
 
-    def priority(shard: dict[str, Any]) -> tuple[int, str, str]:
-        rank = min(STATUS_RANK[str(f["status"])] for f in shard["files"])
-        oldest = min(str(f["last_reviewed"] or "") for f in shard["files"])
-        return rank, oldest, str(shard["id"])
-
-    shards.sort(key=priority)
+    shards.sort(key=lambda shard: (*_file_priority(shard["files"][0])[:2], shard["id"]))
     if only_shard is not None:
         shards = [s for s in shards if s["id"] == only_shard]
     selected: list[dict[str, Any]] = []
     for shard in shards:
         if len(selected) >= (max_shards or check.max_shards_per_run):
             break
-        # With edit_scope = "crate", two chunks of one crate share a scope, so only one runs.
         if shard["branch"] in busy or overlaps(shard["edit_scope"], claimed):
             continue
         selected.append(shard)
@@ -571,8 +569,9 @@ def find_shard(plan: dict[str, Any], check_id: str, shard_id: str) -> dict[str, 
 RESULTS_CONTRACT = """\
 ## Output contract
 
-Write your results as JSON to `{results}` before you finish. The runner rejects the run, and
-records nothing as reviewed, if the file is missing or malformed.
+Write your results as JSON to `{results}`. Rewrite the whole file each time you finish a file, not
+only at the end: a run cut short by a timeout or turn limit keeps what that file records. If the
+file is missing or malformed, the runner records nothing as reviewed.
 
 ```json
 {{
@@ -598,7 +597,8 @@ Rules the runner enforces:
 - Only files assigned below may be reviewed or reported on. Findings about other files are dropped.
 - {edit_rule} Edits elsewhere are reverted. Never edit `Cargo.lock`.
 - Do not run `git commit`, `git push`, or open pull requests or issues: the runner does that.
-- List a file in `reviewed` only if you reviewed all of it. Files you skip are offered again next run.
+- List a file in `reviewed` only if you reviewed all of it, and finished and checked any edits to
+  it. Edits to files missing from `reviewed` are reverted. Files you skip are offered again later.
 - `fixed: true` only for findings your working-tree edits resolve. Leave the rest `false`.
 - Precision over recall. Zero findings is a good result when the code is fine.
 - At most {max_findings} findings are kept, most severe first.
@@ -659,15 +659,30 @@ def validate_results(data: object) -> dict[str, Any]:
     _require(isinstance(data.get("reviewed"), list), "`reviewed` must be a list")
     _require(all(isinstance(p, str) for p in data["reviewed"]), "`reviewed` must hold paths")
     _require(isinstance(data.get("findings"), list), "`findings` must be a list")
-    for i, f in enumerate(data["findings"]):
-        _require(isinstance(f, dict), f"finding {i} must be an object")
-        for key in ("file", "severity", "category", "title", "detail", "fingerprint"):
-            _require(isinstance(f.get(key), str) and f[key], f"finding {i} needs string `{key}`")
-        _require(f["severity"] in SEVERITIES, f"finding {i} has unknown severity {f['severity']!r}")
-        _require(isinstance(f.get("line", 0), int), f"finding {i} `line` must be an integer")
-        _require(isinstance(f.get("fixed", False), bool), f"finding {i} `fixed` must be a boolean")
     _require(isinstance(data.get("summary", ""), str), "`summary` must be a string")
-    return data
+    # One malformed finding must not throw away the whole review: drop it and say so.
+    valid, invalid = [], []
+    for i, f in enumerate(data["findings"]):
+        if problem := finding_problem(f):
+            invalid.append(f"dropped malformed finding {i}: {problem}")
+        else:
+            valid.append(f)
+    return {**data, "findings": valid, "invalid": invalid}
+
+
+def finding_problem(f: object) -> str | None:
+    if not isinstance(f, dict):
+        return "not an object"
+    for key in ("file", "severity", "category", "title", "detail", "fingerprint"):
+        if not (isinstance(f.get(key), str) and f[key]):
+            return f"needs string `{key}`"
+    if f["severity"] not in SEVERITIES:
+        return f"unknown severity {f['severity']!r}"
+    if not isinstance(f.get("line", 0), int) or isinstance(f.get("line", 0), bool):
+        return "`line` must be an integer"
+    if not isinstance(f.get("fixed", False), bool):
+        return "`fixed` must be a boolean"
+    return None
 
 
 def working_tree_changes(root: Path) -> list[str]:
@@ -712,10 +727,11 @@ def finalize(
     now: dt.datetime,
     run_url: str | None = None,
     revert_out_of_scope: bool = False,
+    run_verify: bool = False,
 ) -> dict[str, Any]:
     assigned = {f["path"]: f for f in shard["files"]}
     suppressed = plan["checks"][check.id].get("suppressed", {})
-    notes: list[str] = []
+    notes: list[str] = list(results.get("invalid", []))
 
     reviewed = [p for p in dict.fromkeys(results["reviewed"]) if p in assigned]
     if extra := sorted(set(results["reviewed"]) - set(assigned)):
@@ -734,14 +750,26 @@ def finalize(
         notes.append(f"kept {check.max_findings} of {len(findings)} findings")
         findings = findings[: check.max_findings]
 
+    # With file scope, only files the agent finished may change: an edit to a file it did not list
+    # as reviewed may be half done, for example when the run hit its time or turn limit.
+    scope = reviewed if check.edit_scope == "files" else shard["edit_scope"]
     changed = working_tree_changes(root)
-    allowed = [p for p in changed if _within(p, shard["edit_scope"]) and not p.endswith("Cargo.lock")]
+    allowed = [p for p in changed if _within(p, scope) and not p.endswith("Cargo.lock")]
     rejected = [p for p in changed if p not in allowed]
     if rejected:
-        notes.append(f"out-of-scope edits {'reverted' if revert_out_of_scope else 'excluded'}: {rejected}")
+        notes.append(f"edits outside the scope {'reverted' if revert_out_of_scope else 'excluded'}: {rejected}")
         if revert_out_of_scope:
             revert(root, rejected)
     edits = allowed if check.action == "pr" else []
+
+    if edits and run_verify and check.verify:
+        failure = verify_edits(check, shard, root)
+        if failure:
+            notes.append(f"{failure}; all edits were reverted and their findings are reported unfixed")
+            revert(root, edits)
+            edits = []
+    if not edits:
+        findings = [{**f, "fixed": False} for f in findings]
 
     reviewed_at = now.isoformat(timespec="seconds")
     update_files = {}
@@ -770,6 +798,20 @@ def finalize(
         "body": render_body(check, plan, shard, results.get("summary", ""), findings, edits, notes, run_url),
         "state_update": {"check": check.id, "run_at": reviewed_at, "files": update_files},
     }
+
+
+def verify_edits(check: Check, shard: dict[str, Any], root: Path) -> str | None:
+    """Run the check's `verify` commands; return a description of the first failure, if any."""
+    for template in check.verify:
+        command = template.format(crate=shard["crate"])
+        print(f"verify: {command}", file=sys.stderr, flush=True)
+        try:
+            result = subprocess.run(shlex.split(command), cwd=root, check=False)
+        except OSError as e:
+            return f"verification `{command}` could not start: {e}"
+        if result.returncode != 0:
+            return f"verification `{command}` failed with exit code {result.returncode}"
+    return None
 
 
 def render_body(
@@ -911,7 +953,7 @@ def cmd_list(args: argparse.Namespace) -> int:
     for check in load_checks(args.root).values():
         flag = "" if check.enabled else " (disabled)"
         print(
-            f"{check.id}{flag}: {check.title}\n  shard_by={check.shard_by} mode={check.mode} "
+            f"{check.id}{flag}: {check.title}\n  edit_scope={check.edit_scope} mode={check.mode} "
             f"action={check.action} cadence={check.cadence_days}d "
             f"max_shards_per_run={check.max_shards_per_run} include={list(check.include)}"
         )
@@ -980,6 +1022,7 @@ def cmd_finalize(args: argparse.Namespace) -> int:
         now=_now(args),
         run_url=args.run_url,
         revert_out_of_scope=args.revert_out_of_scope,
+        run_verify=args.verify,
     )
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1054,6 +1097,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             validate_results(_read_json(str(results_path)) if results_path.exists() else None),
             root,
             now=now,
+            run_verify=True,
         )
         body_path = work / f"{shard_slug(shard['id'])}.md"
         body_path.write_text(out["body"])
@@ -1100,6 +1144,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out-dir", required=True)
     p.add_argument("--run-url")
     p.add_argument("--revert-out-of-scope", action="store_true")
+    p.add_argument("--verify", action="store_true", help="run the check's `verify` commands on edits")
     p.set_defaults(func=cmd_finalize)
 
     p = sub.add_parser("record", help="merge state updates into the state dir")
