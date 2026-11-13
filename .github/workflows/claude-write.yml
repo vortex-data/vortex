@@ -178,7 +178,7 @@ jobs:
 
       - name: Generate short-lived GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -196,7 +196,7 @@ jobs:
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d  # v1.0.266
+        uses: anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc  # v1.0.276
         with:
           # The environment puts `environment:claude-automation` in the OIDC subject,
           # which is all the `vortex-claude-write` rule matches. Unreachable elsewhere.
@@ -206,15 +206,24 @@ jobs:
 
           github_token: ${{ steps.app-token.outputs.token }}
 
+          # The action treats every bot-authored pull request as untrusted and denies
+          # `cargo` and `uv` there. The gate only lets through issues and same-repo
+          # pull requests that the Claude App opened, whose branches only Claude and
+          # people with write access can push to, so keep those commands available.
+          restrict_untrusted_prs: "false"
+
           # Claude may inspect CI state on related PRs, but this workflow is otherwise
           # issue-driven and is the only place with write-capable GitHub credentials.
           additional_permissions: |
             actions: read
 
+          # The action defaults to auto mode, where a safety review can approve calls
+          # that --allowedTools does not list. Keep the allowlist strict instead.
           claude_args: |
             --model claude-opus-5-5
+            --permission-mode acceptEdits
             --allowedTools "Bash(cargo nextest:*),Bash(cargo check:*),Bash(cargo clippy:*),Bash(cargo fmt:*),Bash(uv run:*)"
-            --system-prompt "You implement changes for this repository from trusted issues, and from trusted comments on same-repository pull requests that the repository's Claude GitHub App opened. Create or update branches and pull requests with the provided GitHub App token."
+            --append-system-prompt "You implement changes for this repository from trusted issues, and from trusted comments on same-repository pull requests that the repository's Claude GitHub App opened. Create or update branches and pull requests with the provided GitHub App token."
 
       - name: Open pull request for issue branch
         if: ${{ steps.claude.outputs.branch_name != '' && !github.event.issue.pull_request }}
