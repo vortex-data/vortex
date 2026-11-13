@@ -25,7 +25,7 @@ jobs:
   dry-run:
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=compat-gen-dry-run', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=compat-gen-dry-run', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     permissions:
@@ -78,7 +78,7 @@ jobs:
     if: inputs.confirm_upload == 'yes'
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=compat-gen-upload', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=compat-gen-upload', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     environment: compat-upload
