@@ -215,7 +215,7 @@ impl VTable for Patched {
         let offset = array.offset;
         let slots = match array.try_into_parts() {
             Ok(parts) => PatchedSlots::from_slots(parts.slots),
-            Err(array) => PatchedSlotsView::from_slots(array.slots()).to_owned(),
+            Err(array) => array.slots_view().to_owned(),
         };
 
         // TODO(joe): use iterative execution

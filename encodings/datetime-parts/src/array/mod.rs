@@ -184,7 +184,7 @@ impl DateTimePartsOwnedExt for Array<DateTimeParts> {
                 }
             }
             Err(array) => {
-                let view = DateTimePartsSlotsView::from_slots(array.as_ref().slots());
+                let view = array.slots_view();
                 DateTimePartsParts {
                     days: view.days.clone(),
                     seconds: view.seconds.clone(),

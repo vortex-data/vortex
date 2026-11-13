@@ -158,15 +158,8 @@ pub trait DecimalArrayExt: TypedArrayRef<Decimal> {
         }
     }
 
-    fn validity_child(&self) -> Option<&ArrayRef> {
-        self.slots()[DecimalSlots::VALIDITY_CHILD].as_ref()
-    }
-
     fn validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[DecimalSlots::VALIDITY_CHILD].as_ref(),
-            self.nullability(),
-        )
+        child_to_validity(self.validity_child(), self.nullability())
     }
 
     fn values_type(&self) -> DecimalType {
