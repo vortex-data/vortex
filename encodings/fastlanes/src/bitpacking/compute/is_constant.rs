@@ -191,28 +191,81 @@ fn apply_patches_idx_typed<T: BitPackedUnpack, I: IntegerPType>(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
+    use std::ops::Range;
 
+    use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::EmptyOptions;
+    use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
     use vortex_array::aggregate_fn::fns::is_constant::is_constant;
-    use vortex_buffer::buffer;
+    use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::slice::SliceKernel;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
+    use super::BitPackedIsConstantKernel;
+    use crate::BitPacked;
     use crate::BitPackedData;
+    use crate::test::SESSION;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty();
-        crate::initialize(&session);
-        session
-    });
-
-    #[test]
-    fn is_constant_with_patches() -> VortexResult<()> {
+    /// The kernel's answer for `array`, or `None` when it leaves the answer to the generic path.
+    fn kernel(array: &ArrayRef) -> VortexResult<Option<bool>> {
         let mut ctx = SESSION.create_execution_ctx();
-        let array = BitPackedData::encode(&buffer![4; 1025].into_array(), 2, &mut ctx)?;
-        assert!(is_constant(&array.into_array(), &mut ctx)?);
+        let aggregate = IsConstant.bind(EmptyOptions);
+        let Some(partial) = BitPackedIsConstantKernel.aggregate(&aggregate, array, &mut ctx)?
+        else {
+            return Ok(None);
+        };
+        let mut accumulator = aggregate.accumulator(array.dtype())?;
+        accumulator.combine_partials(&partial)?;
+        Ok(accumulator.finish()?.as_bool().value())
+    }
+
+    /// `len` rows of 1, with 9 at `outliers`. At bit width 2, every 9 is a patch.
+    fn ones_with(len: usize, outliers: &[usize]) -> PrimitiveArray {
+        PrimitiveArray::from_iter((0..len).map(|i| if outliers.contains(&i) { 9u32 } else { 1 }))
+    }
+
+    /// 4 in rows 100 to 2900, which is a patch at bit width 2, and a packed 1 around them.
+    fn patched_inside() -> PrimitiveArray {
+        PrimitiveArray::from_iter((0..3000).map(|i| if (100..2900).contains(&i) { 4u32 } else { 1 }))
+    }
+
+    // At bit width 2, 3000 rows hold two full chunks and a trailer; the slice 100..2900 adds a
+    // partial first chunk. Each case puts patches in a different part.
+    #[rstest]
+    #[case::all_patched(PrimitiveArray::from_iter([4u32; 3000]), 0..3000, true)]
+    #[case::all_patched_sliced(PrimitiveArray::from_iter([4u32; 3000]), 100..2900, true)]
+    #[case::patch_in_only_chunk(ones_with(500, &[300]), 0..500, false)]
+    #[case::patch_in_first_chunk(ones_with(3000, &[500]), 0..3000, false)]
+    #[case::patch_in_second_chunk(ones_with(3000, &[1500]), 0..3000, false)]
+    #[case::patch_in_trailer(ones_with(3000, &[2500]), 0..3000, false)]
+    #[case::patch_in_one_row_trailer(ones_with(1025, &[1024]), 0..1025, false)]
+    #[case::patch_in_sliced_header(ones_with(3000, &[150]), 100..2900, false)]
+    #[case::patch_in_sliced_trailer(ones_with(3000, &[2850]), 100..2900, false)]
+    #[case::patches_outside_slice(ones_with(3000, &[50, 2950]), 100..2900, true)]
+    #[case::patched_inside_sliced(patched_inside(), 100..2900, true)]
+    #[case::patched_inside_unsliced(patched_inside(), 0..3000, false)]
+    fn kernel_applies_patches(
+        #[case] source: PrimitiveArray,
+        #[case] range: Range<usize>,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let source = source.into_array();
+        let packed = BitPackedData::encode(&source, 2, &mut ctx)?;
+        // `ArrayRef::slice` stays a lazy `SliceArray` over patched arrays, so slice with the
+        // kernel, which also slices the patches.
+        let array = <BitPacked as SliceKernel>::slice(packed.as_view(), range.clone(), &mut ctx)?
+            .expect("the slice kernel slices patched arrays");
+        assert_eq!(kernel(&array)?, Some(expected));
+        assert_eq!(
+            is_constant(&array, &mut ctx)?,
+            is_constant(&source.slice(range)?, &mut ctx)?
+        );
         Ok(())
     }
 }
