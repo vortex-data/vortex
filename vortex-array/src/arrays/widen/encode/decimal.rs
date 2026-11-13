@@ -3,9 +3,9 @@
 
 //! Decimal encoding and conversion of legacy storage into canonical decimal leaves.
 //!
-//! The legacy `vortex.decimal` format stores integer width independently of logical precision.
-//! DecimalByteParts assembly can also produce such buffers, but we now require canonical
-//! `vortex.decimal` leaves to have a width determined and fixed by their precision.
+//! The legacy `vortex.decimal` format stores integer width independently of logical precision,
+//! but we now require canonical `vortex.decimal` leaves to have a width determined and fixed by
+//! their precision.
 //!
 //! In this new world, we can retain narrow storage as a [`WidenArray`] over a canonical child.
 //! Current [`WidenPlugin`] writes still use the legacy format, so this conversion can also apply
@@ -89,9 +89,9 @@ impl WidenArray {
 
     /// Converts stored decimals into a canonical leaf or a [`WidenArray`] over one.
     ///
-    /// Legacy decimal readers and DecimalByteParts assembly can give us a buffer whose width does
-    /// not match the logical precision. We need a canonical leaf without changing the logical
-    /// dtype or widening narrow storage unnecessarily.
+    /// Legacy decimal readers can give us a buffer whose width does not match the logical
+    /// precision. We need a canonical leaf without changing the logical dtype or widening narrow
+    /// storage unnecessarily.
     ///
     /// If the width is already canonical, we trust the declared precision and reuse the buffer
     /// without reading its values. This also lets device buffers stay on the device. Otherwise,
