@@ -31,9 +31,6 @@ only when all of the following hold.
 - **Errors follow Vortex conventions.** Invalid input that a caller can supply returns a
   `VortexError` (`vortex_bail!`, `vortex_ensure!`, `vortex_ensure_eq!`) instead of panicking. A
   violated internal invariant stays a panic, and the fix then belongs where the invariant was broken.
-  If the same defect exists in sibling code, such as the other kernels of the same encoding or the
-  other branches of the same `match`, say so. Do not ask for it to be fixed in this change unless
-  the fuzz input reaches it.
 - **A regression test covers the crash and passes.** It reproduces the crash through the smallest
   input that triggers it, with the crash bytes or the minimal array in the test itself, and it
   follows the test conventions in `AGENTS.md`. Run it with `cargo test -p <crate> <test name>`.
@@ -43,8 +40,14 @@ only when all of the following hold.
   change, no edited or removed existing assertions, and no added per-element cost in hot loops
   (`STYLE.md` lists the accessors with hidden costs).
 
-Use `git diff` and `git status` to see the change, including untracked new files. Read the callers
-of each changed function when the fix relies on an invariant they share.
+Use `git diff` and `git status` to see the change, including untracked new files, all of which
+will be committed. Read the callers of each changed function when the fix relies on an invariant
+they share. If the same defect exists in sibling code, such as the other kernels of the same
+encoding or the other branches of the same `match`, report it as a nit; it blocks only if the fuzz
+input reaches it.
+
+If the verdict file already exists, Read it before you write it: it holds the previous review, and
+each of its blocking findings must be resolved or convincingly rebutted before you approve.
 
 Do not edit source or test files. The only file you write is the verdict file, as JSON with exactly
 these fields:
