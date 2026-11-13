@@ -334,10 +334,13 @@ fn dictionary_codes_ptype(layout: &LayoutRef) -> VortexResult<Option<PType>> {
 }
 
 /// The Arrow dictionary key type for dictionary codes of `ptype`.
+///
+/// Keys are at least 32 bits wide: DataFusion concatenates dictionary batches (for example when
+/// coalescing or sorting), which merges their values arrays, so the combined dictionary can
+/// outgrow the codes of any single Vortex chunk. `UInt16` keys overflow there.
 fn dictionary_key_type(ptype: PType) -> Option<DataType> {
     match ptype {
-        PType::U8 | PType::U16 => Some(DataType::UInt16),
-        PType::U32 => Some(DataType::UInt32),
+        PType::U8 | PType::U16 | PType::U32 => Some(DataType::UInt32),
         PType::U64 => Some(DataType::UInt64),
         _ => None,
     }

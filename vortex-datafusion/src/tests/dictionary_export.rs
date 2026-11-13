@@ -135,7 +135,7 @@ async fn dictionary_columns_are_inferred(#[values(false, true)] scan_v2: bool) -
         .schema()
         .as_arrow()
         .clone();
-    let dict = |values| DataType::Dictionary(Box::new(DataType::UInt16), Box::new(values));
+    let dict = |values| DataType::Dictionary(Box::new(DataType::UInt32), Box::new(values));
     assert_eq!(
         schema.field_with_name("store")?.data_type(),
         &dict(DataType::Utf8View)
