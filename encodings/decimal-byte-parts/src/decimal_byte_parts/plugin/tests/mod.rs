@@ -467,7 +467,9 @@ fn legacy_msp_widths(
     );
     let msp = store_msp(msp, stored_ptype, &mut ctx)?;
     let decoded = deserialize_stored_msp(msp, DecimalDType::new(precision, 0), false, &session)?;
-    let array = decoded.as_opt::<DecimalByteParts>().unwrap();
+    let array = decoded
+        .as_opt::<DecimalByteParts>()
+        .vortex_expect("byte parts array");
     let logical_ptype = crate::decimal_byte_parts::msp_ptype(DecimalDType::new(precision, 0));
     assert_eq!(
         array.msp().dtype(),
@@ -475,7 +477,9 @@ fn legacy_msp_widths(
     );
     let stored_is_narrower = stored_ptype.byte_width() < logical_ptype.byte_width();
     assert_eq!(array.msp().is::<Widen>(), stored_is_narrower);
-    let written = session.array_serialize(&decoded)?.unwrap();
+    let written = session
+        .array_serialize(&decoded)?
+        .vortex_expect("byte parts arrays are serializable");
     assert_eq!(
         written.children[0].dtype().as_ptype(),
         if stored_is_narrower {
@@ -525,7 +529,10 @@ fn wider_legacy_msp_checks_precision(
         &mut ctx,
     )?;
     let decoded = deserialize_stored_msp(msp, decimal_dtype, v2, &session)?;
-    let msp = decoded.as_opt::<DecimalByteParts>().unwrap().msp();
+    let msp = decoded
+        .as_opt::<DecimalByteParts>()
+        .vortex_expect("byte parts array")
+        .msp();
     assert_eq!(
         msp.dtype(),
         &DType::Primitive(logical_ptype, Nullability::NonNullable)
@@ -583,7 +590,7 @@ fn wider_legacy_msp_zeroes_null_slots(
     let decoded = deserialize_stored_msp(msp, decimal_dtype, v2, &session)?;
     let msp = decoded
         .as_opt::<DecimalByteParts>()
-        .unwrap()
+        .vortex_expect("byte parts array")
         .msp()
         .clone()
         .execute::<PrimitiveArray>(&mut ctx)?;

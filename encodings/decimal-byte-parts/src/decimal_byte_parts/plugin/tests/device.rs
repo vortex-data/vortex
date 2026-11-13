@@ -21,6 +21,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -89,7 +90,9 @@ fn read_device_msp(
     let result = deserialize_stored_msp(msp, DecimalDType::new(precision, 0), v2, &session());
     if accepted {
         let array = result?;
-        let array = array.as_opt::<DecimalByteParts>().unwrap();
+        let array = array
+            .as_opt::<DecimalByteParts>()
+            .vortex_expect("byte parts array");
         let stored = stored_msp(array.msp());
         assert!(stored.as_::<Primitive>().buffer_handle().is_on_device());
     } else {
