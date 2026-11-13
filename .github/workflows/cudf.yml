@@ -1,0 +1,43 @@
+name: cuDF environment tests
+
+on:
+  pull_request:
+    paths:
+      - "vortex-cuda/cudf/**"
+      - ".github/actions/setup-cudf/**"
+      - ".github/workflows/cudf.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "vortex-cuda/cudf/**"
+      - ".github/actions/setup-cudf/**"
+      - ".github/workflows/cudf.yml"
+  workflow_dispatch: { }
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: github.repository == 'vortex-data/vortex'
+    name: "cuDF C++ and Python environment smoke"
+    timeout-minutes: 30
+    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/extras=s3-cache/tag=cudf-env
+    steps:
+      - uses: runs-on/action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - name: Show GPU driver
+        run: nvidia-smi
+      - uses: ./.github/actions/setup-cudf
+        with:
+          environments: cpp python
+      - name: Show pinned CUDA compiler
+        run: pixi run --locked --manifest-path vortex-cuda/cudf/pixi.toml -e cpp nvcc --version
+      - name: Build and run C++ cuDF smoke tests
+        run: pixi run --locked --manifest-path vortex-cuda/cudf/pixi.toml -e cpp test
+      - name: Run Python cuDF smoke tests
+        run: pixi run --locked --manifest-path vortex-cuda/cudf/pixi.toml -e python test

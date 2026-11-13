@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[workspace]
+name = "vortex-cudf-tests"
+channels = ["rapidsai", "conda-forge"]
+platforms = [
+  { platform = "linux-64", cuda = "13.0" },
+  { platform = "linux-aarch64", cuda = "13.0" },
+]
+
+[dependencies]
+libcudf = { version = "==26.06.01", build = "cuda13_*" }
+# CI's driver supports CUDA 13.0; newer compiler/NVRTC PTX may not load.
+cuda-version = "13.0.*"
+cuda-nvrtc = "13.0.*"
+
+[feature.cpp.dependencies]
+cuda-nvcc = "13.0.*"
+cuda-cudart-dev = "13.0.*"
+cxx-compiler = "*"
+gtest = ">=1.15,<2"
+cmake = ">=3.30.4,<4"
+ninja = ">=1.12,<2"
+
+[feature.cpp.tasks]
+configure = "cmake -S . -B build/cpp -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_COMPILER=nvcc -DCMAKE_CUDA_ARCHITECTURES=native"
+build = { cmd = "cmake --build build/cpp --parallel 4", depends-on = ["configure"] }
+test = { cmd = "ctest --test-dir build/cpp --output-on-failure --no-tests=error", depends-on = ["build"] }
+
+[feature.python.dependencies]
+python = "3.12.*"
+cudf = "==26.06.01"
+
+[feature.python.tasks]
+test = "python smoke.py"
+
+[environments]
+cpp = { features = ["cpp"], solve-group = "cudf" }
+python = { features = ["python"], solve-group = "cudf" }
