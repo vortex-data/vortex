@@ -11,7 +11,6 @@ use vortex_array::ArraySerialization;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -23,6 +22,7 @@ use crate::DecimalByteParts;
 use crate::DecimalBytePartsArray;
 use crate::DecimalBytePartsArraySlotsExt;
 use crate::DecimalBytePartsData;
+use crate::decimal_byte_parts::LOWER_PART_DTYPE;
 use crate::decimal_byte_parts::MAX_LOWER_PARTS;
 
 /// Metadata for decimal byte parts with lower parts.
@@ -96,7 +96,7 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
         vortex_ensure_eq!(ptype, PType::U64, "lower part {idx} ptype");
         slots.push(Some(parts.children.get(
             1 + idx,
-            &DType::Primitive(ptype, Nullability::NonNullable),
+            &LOWER_PART_DTYPE,
             parts.len,
         )?));
     }
