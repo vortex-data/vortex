@@ -98,7 +98,19 @@ impl ChunkPlanner {
         selection: Selection,
         kept: Option<Mask>,
     ) -> Self {
-        let chunks = scan_chunks(rows.clone(), scan.chunk_rows).into_iter();
+        // Heavy pruning leaves few chunks to run in parallel. Subdivide those scans while
+        // retaining the larger chunks chosen to amortize cheap single-column filters.
+        let chunk_rows = if scan.filter.is_some()
+            && scan.chunk_rows == FILTERED_ROWS_PER_CHUNK
+            && kept
+                .as_ref()
+                .is_some_and(|mask| mask.true_count() <= mask.len() / 2)
+        {
+            4 * ROW_BLOCK_SIZE
+        } else {
+            scan.chunk_rows
+        };
+        let chunks = scan_chunks(rows.clone(), chunk_rows).into_iter();
         Self {
             scan,
             rows,
