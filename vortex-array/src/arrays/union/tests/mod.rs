@@ -13,6 +13,9 @@ use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 use crate::ArrayContext;
+use crate::ArrayDeserialization;
+use crate::ArrayPlugin;
+use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
@@ -23,6 +26,8 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::Union;
 use crate::arrays::UnionArray;
 use crate::arrays::union::UnionArrayExt;
+use crate::arrays::union::UnionDataParts;
+use crate::buffer::BufferHandle;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -319,40 +324,146 @@ fn constant_union_reports_uncompressed_size() -> VortexResult<()> {
     Ok(())
 }
 
+/// Serialize `array` into its wire form and the context that resolves its encoding IDs.
+fn serialize(array: &UnionArray) -> VortexResult<(SerializedArray, ReadContext)> {
+    let array_ctx = ArrayContext::empty();
+    let mut concat = ByteBufferMut::empty();
+    for buffer in
+        array
+            .clone()
+            .into_array()
+            .serialize(&array_ctx, &SESSION, &SerializeOptions::default())?
+    {
+        concat.extend_from_slice(buffer.as_ref());
+    }
+    Ok((
+        SerializedArray::try_from(concat.freeze())?,
+        ReadContext::new(array_ctx.to_ids()),
+    ))
+}
+
+/// Assert that `actual` is a union holding the same rows as `expected`.
+///
+/// This compares row by row because `assert_arrays_eq!` cannot compare union arrays yet.
+#[track_caller]
+fn assert_same_rows(actual: &ArrayRef, expected: &UnionArray) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_eq!(actual.len(), expected.len());
+    assert_eq!(actual.dtype(), expected.dtype());
+    assert_eq!(actual.as_::<Union>().variants(), expected.variants());
+    for index in 0..expected.len() {
+        assert_eq!(
+            actual.execute_scalar(index, &mut ctx)?,
+            expected.execute_scalar(index, &mut ctx)?
+        );
+    }
+    Ok(())
+}
+
+/// The `variants` schema with a third variant, so it expects one more child.
+fn variants_with_extra() -> VortexResult<UnionVariants> {
+    UnionVariants::try_new(
+        ["number", "flag", "extra"].into(),
+        vec![
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Bool(Nullability::NonNullable),
+            DType::Primitive(PType::U16, Nullability::NonNullable),
+        ],
+        vec![5, 9, 11],
+    )
+}
+
 #[test]
 fn serde_roundtrip() -> VortexResult<()> {
-    let session = VortexSession::empty();
-    let mut execution_ctx = session.create_execution_ctx();
     for array in [union_array()?, nullable_union_array()?] {
-        let dtype = array.dtype().clone();
-        let len = array.len();
-        let array_ctx = ArrayContext::empty();
-        let serialized = array.clone().into_array().serialize(
-            &array_ctx,
-            &session,
-            &SerializeOptions::default(),
-        )?;
-        let mut concat = ByteBufferMut::empty();
-        for buffer in serialized {
-            concat.extend_from_slice(buffer.as_ref());
-        }
-        let decoded = SerializedArray::try_from(concat.freeze())?.decode(
-            &dtype,
-            len,
-            &ReadContext::new(array_ctx.to_ids()),
-            &session,
-        )?;
-        assert_eq!(decoded.len(), len);
-        assert_eq!(decoded.dtype(), &dtype);
-        let decoded = decoded.as_::<Union>();
+        let (serialized, read_ctx) = serialize(&array)?;
+        let decoded = serialized.decode(array.dtype(), array.len(), &read_ctx, &SESSION)?;
+        assert_same_rows(&decoded, &array)?;
+    }
 
-        assert_eq!(decoded.variants(), array.variants());
-        for index in 0..len {
-            assert_eq!(
-                decoded.array().execute_scalar(index, &mut execution_ctx)?,
-                array.execute_scalar(index, &mut execution_ctx)?
-            );
-        }
+    Ok(())
+}
+
+#[test]
+fn deserialize_rejects_malformed_parts() -> VortexResult<()> {
+    let array = union_array()?;
+    let dtype = array.dtype().clone();
+    let len = array.len();
+    let UnionDataParts {
+        type_ids, children, ..
+    } = array.clone().into_data_parts();
+    let mut all = vec![type_ids.clone()];
+    all.extend(children);
+    let deserialize =
+        |dtype: &DType, metadata: &[u8], buffers: &[BufferHandle], children: &[ArrayRef]| {
+            Union.deserialize(
+                ArrayDeserialization::new(
+                    ArrayPlugin::id(&Union),
+                    dtype,
+                    len,
+                    metadata,
+                    buffers,
+                    &children,
+                ),
+                &SESSION,
+            )
+        };
+
+    let restored = deserialize(&dtype, &[], &[], &all)?;
+    assert_same_rows(&restored, &array)?;
+
+    // Readers ignore children that follow the type IDs and one child per variant.
+    let mut with_trailing = all.clone();
+    with_trailing.push(type_ids);
+    let restored = deserialize(&dtype, &[], &[], &with_trailing)?;
+    assert_same_rows(&restored, &array)?;
+
+    // Too few children for the variants the dtype declares.
+    for count in 0..all.len() {
+        assert!(deserialize(&dtype, &[], &[], &all[..count]).is_err());
+    }
+    let extra = DType::Union(variants_with_extra()?, Nullability::NonNullable);
+    assert!(deserialize(&extra, &[], &[], &all).is_err());
+
+    // A dtype that is not a union.
+    let not_union = DType::Primitive(PType::U8, Nullability::NonNullable);
+    assert!(deserialize(&not_union, &[], &[], &all).is_err());
+
+    // Union arrays have empty metadata and no buffers.
+    assert!(deserialize(&dtype, &[0], &[], &all).is_err());
+    let buffer = BufferHandle::new_host(buffer![0u8]);
+    assert!(deserialize(&dtype, &[], &[buffer], &all).is_err());
+
+    Ok(())
+}
+
+/// Decoding the wire form against a dtype or length it was not written with returns an error.
+#[test]
+fn decode_rejects_mismatched_dtype_and_len() -> VortexResult<()> {
+    let array = union_array()?;
+    let len = array.len();
+    let (serialized, read_ctx) = serialize(&array)?;
+
+    assert!(
+        serialized
+            .decode(array.dtype(), len + 1, &read_ctx, &SESSION)
+            .is_err()
+    );
+
+    let wider_variant = UnionVariants::try_new(
+        ["number", "flag"].into(),
+        vec![
+            DType::Primitive(PType::I64, Nullability::NonNullable),
+            DType::Bool(Nullability::NonNullable),
+        ],
+        vec![5, 9],
+    )?;
+    for dtype in [
+        DType::Union(wider_variant, Nullability::NonNullable),
+        DType::Union(variants_with_extra()?, Nullability::NonNullable),
+        DType::Primitive(PType::U8, Nullability::NonNullable),
+    ] {
+        assert!(serialized.decode(&dtype, len, &read_ctx, &SESSION).is_err());
     }
 
     Ok(())

@@ -68,7 +68,12 @@ impl ArrayPlugin for Union {
         let DType::Union(variants, nullability) = dtype else {
             vortex_bail!("Expected union dtype, found {dtype}")
         };
-        vortex_ensure_eq!(children.len(), UnionSlots::CHILDREN_OFFSET + variants.len());
+        let required_children = UnionSlots::CHILDREN_OFFSET + variants.len();
+        vortex_ensure!(
+            children.len() >= required_children,
+            "UnionArray expects at least {required_children} children, got {}",
+            children.len()
+        );
 
         let type_ids = children.get(
             UnionSlots::TYPE_IDS,
