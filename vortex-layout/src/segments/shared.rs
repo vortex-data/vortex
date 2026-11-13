@@ -2,11 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::task::Poll;
+use std::task::Waker;
 
 use futures::FutureExt;
 use futures::TryFutureExt;
 use futures::future::BoxFuture;
+use futures::future::Shared;
 use futures::future::WeakShared;
+use futures::future::poll_fn;
+use parking_lot::Mutex;
 use vortex_array::buffer::BufferHandle;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexError;
@@ -22,10 +27,66 @@ use crate::segments::SegmentSource;
 /// request.
 pub struct SharedSegmentSource<S> {
     inner: S,
-    in_flight: DashMap<SegmentId, WeakShared<SharedSegmentFuture>>,
+    in_flight: DashMap<SegmentId, InFlight>,
 }
 
 type SharedSegmentFuture = BoxFuture<'static, SharedVortexResult<BufferHandle>>;
+
+struct InFlight {
+    future: WeakShared<SharedSegmentFuture>,
+    gate: Arc<Mutex<PollState>>,
+}
+
+#[derive(Default)]
+struct PollState {
+    polling: bool,
+    waiters: Vec<Waker>,
+}
+
+struct PollGuard<'a>(&'a Mutex<PollState>);
+
+impl Drop for PollGuard<'_> {
+    fn drop(&mut self) {
+        let waiters = {
+            let mut state = self.0.lock();
+            state.polling = false;
+            std::mem::take(&mut state.waiters)
+        };
+        for waker in waiters {
+            waker.wake();
+        }
+    }
+}
+
+fn shared_request(
+    mut future: Shared<SharedSegmentFuture>,
+    gate: Arc<Mutex<PollState>>,
+) -> SegmentFuture {
+    poll_fn(move |cx| {
+        let mut state = gate.lock();
+        if state.polling {
+            if !state
+                .waiters
+                .iter()
+                .any(|waker| waker.will_wake(cx.waker()))
+            {
+                state.waiters.push(cx.waker().clone());
+            }
+            return Poll::Pending;
+        }
+        state.polling = true;
+        drop(state);
+
+        // A temporary prefetch poll can consume a wake and then stop being driven. A reader
+        // racing that poll must be woken after Shared releases its internal polling state.
+        // The guard also releases the gate during unwinding, and never wakes under its lock.
+        let guard = PollGuard(&gate);
+        let result = future.poll_unpin(cx);
+        drop(guard);
+        result.map(|result| result.map_err(VortexError::from))
+    })
+    .boxed()
+}
 
 impl<S: SegmentSource> SharedSegmentSource<S> {
     /// Create a new `SharedSegmentSource` wrapping the provided inner source.
@@ -42,8 +103,8 @@ impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
         loop {
             match self.in_flight.entry(id) {
                 Entry::Occupied(e) => {
-                    if let Some(shared_future) = e.get().upgrade() {
-                        return shared_future.map_err(VortexError::from).boxed();
+                    if let Some(shared_future) = e.get().future.upgrade() {
+                        return shared_request(shared_future, Arc::clone(&e.get().gate));
                     } else {
                         // The future has been dropped, remove the entry and try again.
                         e.remove();
@@ -51,12 +112,14 @@ impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
                 }
                 Entry::Vacant(e) => {
                     let future = self.inner.request(id).map_err(Arc::new).boxed().shared();
-                    e.insert(
-                        future
+                    let gate = Arc::new(Mutex::new(PollState::default()));
+                    e.insert(InFlight {
+                        future: future
                             .downgrade()
                             .vortex_expect("just created, cannot be polled to completion"),
-                    );
-                    return future.map_err(VortexError::from).boxed();
+                        gate: Arc::clone(&gate),
+                    });
+                    return shared_request(future, gate);
                 }
             }
         }
