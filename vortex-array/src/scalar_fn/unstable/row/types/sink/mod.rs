@@ -119,7 +119,8 @@ pub unsafe trait OutputSink: 'static + Sized {
     /// construction wrap themselves in [`Preinitialized`](super::Preinitialized) to skip it.
     /// Override this method only when one batch-wide pass over the rows is the wrong operation.
     ///
-    /// Dense execution never calls this method because it visits every row.
+    /// Dense execution never calls this method because its callbacks initialize every row.
+    /// Pre-filling those rows would add a redundant write pass over the output.
     fn initialize_skipped_rows(rows: &mut Self::Rows<'_>) {
         rows.fill_default();
     }

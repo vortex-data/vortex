@@ -86,9 +86,10 @@ impl ArrayPlugin for RLE {
             "RLEArray expects 0 buffers, got {}",
             buffers.len()
         );
+        let values_ptype = PType::try_from(dtype)?;
         let values = children.get(
             0,
-            &DType::Primitive(dtype.as_ptype(), Nullability::NonNullable),
+            &DType::Primitive(values_ptype, Nullability::NonNullable),
             usize::try_from(metadata.values_len)?,
         )?;
 

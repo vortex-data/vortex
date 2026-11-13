@@ -4521,9 +4521,9 @@ dependencies = [
 
 [[package]]
 name = "fastlanes"
-version = "0.7.2"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fcb34a73abd2872401096bf65d13e8d26e0c9ca6166d5e2b11a314ba017cdef"
+checksum = "72b17a9745105c3ee766915d6e26989b7594e97f3c0cbcf7b28b116d4f2b4739"
 dependencies = [
  "const_for",
  "cpufeatures 0.3.1",
@@ -8311,9 +8311,9 @@ dependencies = [
 
 [[package]]
 name = "pco"
-version = "1.0.4"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52f01ab51a847e7002371c2384b2c88f50dd45982cc2764e7997751971f1bfbf"
+checksum = "195dc59a2713f074331d6a5338b22d0795b9fc3f6e304f53b6aa24e3d8cb7d9e"
 dependencies = [
  "better_io",
  "dtype_dispatch",
@@ -11371,7 +11371,7 @@ dependencies = [
  "arrow-array 60.1.0",
  "arrow-schema 60.1.0",
  "codspeed-divan-compat",
- "fastlanes 0.7.2",
+ "fastlanes 0.8.0",
  "mimalloc",
  "parquet 60.1.0",
  "rand 0.10.3",
@@ -11390,6 +11390,7 @@ dependencies = [
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-edition",
+ "vortex-elias-fano",
  "vortex-error",
  "vortex-expr",
  "vortex-fastlanes",
@@ -11627,6 +11628,7 @@ dependencies = [
  "vortex-error",
  "vortex-fastlanes",
  "vortex-fsst",
+ "vortex-mask",
  "vortex-onpair",
  "vortex-pco",
  "vortex-sequence",
@@ -11782,7 +11784,7 @@ dependencies = [
  "async-trait",
  "bindgen",
  "codspeed-criterion-compat-walltime",
- "fastlanes 0.7.2",
+ "fastlanes 0.8.0",
  "futures",
  "itertools 0.14.0",
  "memmap2",
@@ -11832,6 +11834,7 @@ dependencies = [
  "futures",
  "tempfile",
  "vortex",
+ "vortex-array",
  "vortex-cuda",
  "vortex-cuda-driver",
  "vortex-cuda-macros",
@@ -12023,7 +12026,8 @@ name = "vortex-fastlanes"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
- "fastlanes 0.7.2",
+ "fastlanes 0.8.0",
+ "fearless_simd",
  "hegeltest",
  "itertools 0.14.0",
  "lending-iterator",
@@ -12064,6 +12068,7 @@ dependencies = [
  "vortex",
  "vortex-array",
  "vortex-arrow",
+ "vortex-edition",
 ]
 
 [[package]]
@@ -12503,6 +12508,7 @@ name = "vortex-sequence"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
+ "hegeltest",
  "mimalloc",
  "num-traits",
  "prost 0.14.4",
@@ -12566,6 +12572,8 @@ dependencies = [
  "vortex-edition",
  "vortex-error",
  "vortex-expr",
+ "vortex-file",
+ "vortex-io",
  "vortex-layout",
  "vortex-mask",
  "vortex-session",

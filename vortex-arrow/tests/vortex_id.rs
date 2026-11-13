@@ -6,6 +6,8 @@
 //! Tests for the Arrow export and import of an extension type without an Arrow plugin. Such a type
 //! exports its storage, plus Arrow extension metadata that holds its Vortex ID.
 
+use std::fmt;
+use std::fmt::Display;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -49,9 +51,9 @@ use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::validity::Validity;
-use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::Datum;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_arrow::ext_metadata::EXTENSION_METADATA_ENCODING_KEY;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -67,7 +69,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .dtypes()
         .registry()
         .insert(*TAGGED_ALIAS_ID, Arc::new(Tagged));
-    vortex_arrow::initialize(&session);
     session
 });
 
@@ -77,32 +78,58 @@ static TAGGED_ID: CachedId = CachedId::new("test.tagged");
 const TAGGED_ALIAS: &str = "test.tagged.alias";
 static TAGGED_ALIAS_ID: CachedId = CachedId::new(TAGGED_ALIAS);
 
-/// An extension type without an Arrow plugin. It accepts any storage, and its metadata is one tag
-/// byte.
+/// An extension type with a serialized tag byte and a storage dtype held in its metadata.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Tagged;
 
+/// The metadata of [`Tagged`]. Only the tag is serialized, and a read takes the storage dtype from
+/// the stored storage, so the tests can wrap any storage dtype. The storage dtype is in its nullable
+/// form, because the extension dtype applies the top-level nullability.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct TaggedMetadata {
+    tag: u8,
+    storage_dtype: DType,
+}
+
+impl Display for TaggedMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.tag)
+    }
+}
+
 impl ExtVTable for Tagged {
-    type Metadata = u8;
+    type Metadata = TaggedMetadata;
+    type StoredMetadata = u8;
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
         *TAGGED_ID
     }
 
-    fn serialize_metadata(&self, tag: &u8) -> VortexResult<Vec<u8>> {
-        Ok(vec![*tag])
+    fn serialize_metadata(&self, metadata: &TaggedMetadata) -> VortexResult<Vec<u8>> {
+        Ok(vec![metadata.tag])
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<u8> {
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
         match metadata {
             [tag] => Ok(*tag),
             _ => vortex_bail!("Tagged metadata must be one byte, got {metadata:?}"),
         }
     }
 
-    fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        Ok(())
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(TaggedMetadata {
+            tag: stored_metadata,
+            storage_dtype: storage_dtype.clone(),
+        })
+    }
+
+    fn storage_dtype(metadata: &TaggedMetadata) -> DType {
+        metadata.storage_dtype.clone()
     }
 
     fn unpack_native<'a>(
@@ -114,11 +141,11 @@ impl ExtVTable for Tagged {
 }
 
 fn tagged(tag: u8, storage_dtype: DType) -> VortexResult<ExtDTypeRef> {
-    Ok(ExtDType::try_with_vtable(Tagged, tag, storage_dtype)?.erased())
+    Ok(ExtDType::try_from_storage_with_vtable(Tagged, tag, storage_dtype)?.erased())
 }
 
 fn tagged_array(tag: u8, storage: ArrayRef) -> VortexResult<ArrayRef> {
-    Ok(ExtensionArray::try_new_from_vtable(Tagged, tag, storage)?.into_array())
+    Ok(ExtensionArray::try_from_storage_with_vtable(Tagged, tag, storage)?.into_array())
 }
 
 /// A [`Tagged`] array over the nullable `i64` storage `[1, null, 3]`.
@@ -156,6 +183,8 @@ fn tagged_timestamps() -> VortexResult<ArrayRef> {
 
 /// The field from [`ArrowSession::to_arrow_storage_field`] for the type of `array`, with the Arrow
 /// type `data_type`. It takes a [`VortexResult`] so that an rstest case can pass a fixture call.
+///
+/// [`ArrowSession::to_arrow_storage_field`]: vortex_arrow::ArrowSession::to_arrow_storage_field
 fn storage_field_as(array: VortexResult<ArrayRef>, data_type: DataType) -> VortexResult<Field> {
     let field = SESSION
         .arrow()
@@ -227,9 +256,8 @@ fn export_rejects_target_that_changes_the_type(
     #[case] target: VortexResult<Field>,
     #[case] message: &str,
 ) -> VortexResult<()> {
-    let err = SESSION
-        .arrow()
-        .execute_arrow(array?, Some(&target?), &mut SESSION.create_execution_ctx())
+    let err = array?
+        .execute_arrow(Some(&target?), &mut SESSION.create_execution_ctx())
         .expect_err("a target that changes the type must be rejected");
     assert!(err.to_string().contains(message), "unexpected error: {err}");
 
@@ -263,7 +291,7 @@ fn export_rejects_storage_with_extension_name() -> VortexResult<()> {
     SESSION.arrow().to_arrow_datatype(array.dtype()).map(drop)
 })]
 #[case::execute_arrow(|array: &ArrayRef, ctx: &mut ExecutionCtx| {
-    SESSION.arrow().execute_arrow(array.clone(), None, ctx).map(drop)
+    array.clone().execute_arrow(None, ctx).map(drop)
 })]
 #[case::datum(|array: &ArrayRef, ctx: &mut ExecutionCtx| Datum::try_new(array, ctx).map(drop))]
 fn exports_without_a_field_reject_types_without_a_plugin(
@@ -287,7 +315,7 @@ fn nested_export_without_a_target_keeps_ext_metadata() -> VortexResult<()> {
     let array = struct_of_tagged()?;
     let field = SESSION.arrow().to_arrow_field("", array.dtype())?;
     let mut ctx = SESSION.create_execution_ctx();
-    let exported = SESSION.arrow().execute_arrow(array, None, &mut ctx)?;
+    let exported = array.execute_arrow(None, &mut ctx)?;
 
     assert_eq!(exported.data_type(), field.data_type());
 
@@ -306,7 +334,7 @@ fn round_trip_keeps_the_extension_type(#[case] array: VortexResult<ArrayRef>) ->
     let session = SESSION.arrow();
     let mut ctx = SESSION.create_execution_ctx();
     let field = session.to_arrow_field("t", array.dtype())?;
-    let exported = session.execute_arrow(array.clone(), Some(&field), &mut ctx)?;
+    let exported = array.clone().execute_arrow(Some(&field), &mut ctx)?;
 
     assert_eq!(session.from_arrow_field(&field)?, *array.dtype());
     assert_arrays_eq!(session.from_arrow_array(exported, &field)?, array, &mut ctx);
@@ -326,9 +354,7 @@ fn timestamp_round_trips_through_a_vortex_id_field(
     let field = storage_field_as(Ok(timestamps.clone()), data_type.clone())?;
     let mut ctx = SESSION.create_execution_ctx();
 
-    let exported = SESSION
-        .arrow()
-        .execute_arrow(timestamps.clone(), Some(&field), &mut ctx)?;
+    let exported = timestamps.clone().execute_arrow(Some(&field), &mut ctx)?;
     assert_eq!(exported.data_type(), &data_type);
 
     assert_eq!(
@@ -351,9 +377,7 @@ fn alias_of_vortex_id_round_trips() -> VortexResult<()> {
         .insert(EXTENSION_TYPE_NAME_KEY.to_owned(), TAGGED_ALIAS.to_owned());
     let mut ctx = SESSION.create_execution_ctx();
 
-    let exported = SESSION
-        .arrow()
-        .execute_arrow(array.clone(), Some(&field), &mut ctx)?;
+    let exported = array.clone().execute_arrow(Some(&field), &mut ctx)?;
     let imported = SESSION.arrow().from_arrow_array(exported, &field)?;
     assert_arrays_eq!(imported, array, &mut ctx);
 
@@ -368,9 +392,7 @@ fn plain_array_exports_to_a_vortex_id_field() -> VortexResult<()> {
     let field = storage_field_as(tagged_i64s(0xff), DataType::Int64)?;
     let mut ctx = SESSION.create_execution_ctx();
 
-    let exported = SESSION
-        .arrow()
-        .execute_arrow(storage.clone(), Some(&field), &mut ctx)?;
+    let exported = storage.clone().execute_arrow(Some(&field), &mut ctx)?;
     let plain_field = Field::new("t", DataType::Int64, true);
     let imported = SESSION.arrow().from_arrow_array(exported, &plain_field)?;
     assert_arrays_eq!(imported, storage, &mut ctx);
@@ -389,12 +411,9 @@ fn export_compares_nested_extension_types_by_storage() -> VortexResult<()> {
         .arrow()
         .to_arrow_storage_field("t", array.dtype().as_extension())?;
     let session = VortexSession::empty();
-    vortex_arrow::initialize(&session);
     let mut ctx = session.create_execution_ctx();
 
-    let exported = session
-        .arrow()
-        .execute_arrow(array.clone(), Some(&field), &mut ctx)?;
+    let exported = array.clone().execute_arrow(Some(&field), &mut ctx)?;
     let imported = SESSION.arrow().from_arrow_array(exported, &field)?;
     assert_arrays_eq!(imported, array, &mut ctx);
 
@@ -408,7 +427,8 @@ fn unknown_vortex_id_imports_as_storage() -> VortexResult<()> {
         .arrow()
         .to_arrow_field("t", tagged_i64s(0xff)?.dtype())?;
     let arrow: ArrowArrayRef = Arc::new(Int64Array::from(vec![Some(1), None, Some(3)]));
-    let session = ArrowSession::default();
+    let unaware_session = VortexSession::empty();
+    let session = unaware_session.arrow();
 
     let storage = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]);
     assert_eq!(session.from_arrow_field(&field)?, *storage.dtype());
@@ -417,6 +437,21 @@ fn unknown_vortex_id_imports_as_storage() -> VortexResult<()> {
         storage,
         &mut SESSION.create_execution_ctx()
     );
+
+    Ok(())
+}
+
+/// The Arrow session of a Vortex session knows the extension types of its dtype session, including
+/// the ones that are registered after the Arrow session is created.
+#[test]
+fn vortex_id_imports_types_registered_after_the_arrow_session() -> VortexResult<()> {
+    let array = tagged_i64s(0xff)?;
+    let session = VortexSession::empty();
+    let field = session.arrow().to_arrow_field("t", array.dtype())?;
+
+    session.dtypes().register(Tagged);
+
+    assert_eq!(session.arrow().from_arrow_field(&field)?, *array.dtype());
 
     Ok(())
 }
@@ -548,11 +583,21 @@ fn import_rejects_bad_metadata(
     #[case] metadata: &[(&str, &str)],
     #[case] message: &str,
 ) -> VortexResult<()> {
-    let err = SESSION
-        .arrow()
-        .from_arrow_field(&tagged_int64_field(metadata))
-        .expect_err("invalid metadata must be rejected");
-    assert!(err.to_string().contains(message), "unexpected error: {err}");
+    let field = tagged_int64_field(metadata);
+    let array: ArrowArrayRef = Arc::new(Int64Array::from(vec![1]));
+
+    for err in [
+        SESSION
+            .arrow()
+            .from_arrow_field(&field)
+            .expect_err("invalid field metadata must be rejected"),
+        SESSION
+            .arrow()
+            .from_arrow_array(array, &field)
+            .expect_err("invalid array metadata must be rejected"),
+    ] {
+        assert!(err.to_string().contains(message), "unexpected error: {err}");
+    }
 
     Ok(())
 }

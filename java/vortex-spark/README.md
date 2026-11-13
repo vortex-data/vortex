@@ -6,11 +6,11 @@ extensions or custom catalogs.
 
 Choose the artifact matching both Spark and Scala:
 
-| Artifact                           | Spark         | Scala |
-|------------------------------------|---------------|-------|
-| `dev.vortex:vortex-spark-3.5_2.12` | 3.5.x         | 2.12  |
-| `dev.vortex:vortex-spark-3.5_2.13` | 3.5.x         | 2.13  |
-| `dev.vortex:vortex-spark-4.0_2.13` | 4.0.x and 4.1.x | 2.13 |
+| Artifact                           | Spark          | Scala |
+|------------------------------------|----------------|-------|
+| `dev.vortex:vortex-spark-3.5_2.12` | 3.5.x          | 2.12  |
+| `dev.vortex:vortex-spark-3.5_2.13` | 3.5.x          | 2.13  |
+| `dev.vortex:vortex-spark-4.0_2.13` | 4.0.x to 4.3.x | 2.13  |
 
 Use the `all` classifier JAR. It bundles the Vortex JNI bindings, native libraries, and
 relocated Arrow, Guava, and Jackson dependencies. The unclassified thin JAR is not usable by
@@ -20,6 +20,16 @@ For example, with version `VERSION`:
 
 ```shell
 spark-shell --jars https://repo1.maven.org/maven2/dev/vortex/vortex-spark-4.0_2.13/VERSION/vortex-spark-4.0_2.13-VERSION-all.jar
+```
+
+Or configure it on the session builder, for example in PySpark:
+
+```python
+spark = (
+    SparkSession.builder
+    .config("spark.jars", "/path/to/vortex-spark-4.0_2.13-VERSION-all.jar")
+    .getOrCreate()
+)
 ```
 
 Or add the classified artifact to a JVM project:
@@ -65,6 +75,31 @@ Catalog tables read and write through the V1 file format;
 `spark.sql.sources.useV1SourceList=vortex` puts every path on it, which is what the `_metadata`
 column and dynamic partition pruning need.
 
+## Read coalescing
+
+Nearby storage reads can be merged to reduce requests. Set the maximum gap and merged span in bytes:
+
+```java
+Dataset<Row> result = spark.read()
+    .format("vortex")
+    .option("vortex.read.coalesce.distance", 262144)
+    .option("vortex.read.coalesce.maxSize", 16777216)
+    .load("s3a://bucket/path");
+```
+
+The defaults remain a 1 MiB gap and a 16 MiB maximum merged span. The gap must be non-negative
+(zero merges only adjacent or overlapping reads); the maximum span must be positive. Both accept
+integers up to 2147483647 bytes. The native reader caps maximums near that limit to leave room
+for alignment padding (up to 64 KiB minus one byte). Individual reads can exceed the maximum
+merged span, and merged reads may include leading alignment padding.
+A wider gap trades fewer storage requests for more bytes read, including segments already held
+in the file's segment cache.
+
+Options are case-insensitive and work with both V1 and V2 reads.
+
+Java callers supplying their own `NativeReadable` can override `coalesceDistance()` and
+`coalesceMaxSize()`. Native code captures these limits once when registering each source.
+
 ## Benchmarks
 
 JMH benchmarks live in `common/src/jmh/java`. They measure the per-file open cost of the
@@ -78,4 +113,6 @@ cd java
 ```
 
 See the [Spark user guide](https://docs.vortex.dev/user-guide/spark.html) for supported types,
-options, partitioning, and remote storage details.
+options, partitioning, and remote storage details. The
+[Java quickstart](https://docs.vortex.dev/getting-started/java.html) covers the underlying
+`vortex-jni` API.

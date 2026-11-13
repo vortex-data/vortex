@@ -14,6 +14,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::Masked;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
@@ -23,6 +24,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
@@ -32,12 +34,15 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+use super::detach_scalar;
 use super::is_constant_for_compression;
 use crate::CascadingCompressor;
 use crate::builtins::FloatDictScheme;
@@ -78,6 +83,96 @@ fn constant_int_with_nulls_compresses_to_masked_constant() -> VortexResult<()> {
 #[test]
 fn constant_string_compresses_without_schemes() -> VortexResult<()> {
     let array = VarBinViewArray::from_iter_str(std::iter::repeat_n("hello", 100)).into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let compressed = empty_compressor().compress(&array, &mut ctx)?;
+    assert!(compressed.is::<Constant>());
+    assert_arrays_eq!(compressed, array, &mut ctx);
+    Ok(())
+}
+
+/// A constant must own its bytes: a slice of the source buffers would keep them all alive.
+#[rstest]
+#[case::utf8_inlined(VarBinViewArray::from_iter_str(std::iter::repeat_n("short", 1000)))]
+#[case::utf8_out_of_line(VarBinViewArray::from_iter_str(std::iter::repeat_n(
+    "a constant longer than twelve bytes",
+    1000
+)))]
+#[case::binary_out_of_line(VarBinViewArray::from_iter_bin(std::iter::repeat_n(
+    b"a constant longer than twelve bytes",
+    1000
+)))]
+#[case::utf8_nullable(VarBinViewArray::from_iter_nullable_str(
+    (0..1000).map(|i| (i % 10 != 0).then_some("a constant longer than twelve bytes"))
+))]
+fn constant_does_not_alias_source_buffers(#[case] source: VarBinViewArray) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let compressed = empty_compressor().compress(&source.clone().into_array(), &mut ctx)?;
+    let constant = if compressed.is::<Masked>() {
+        compressed.children()[0].clone()
+    } else {
+        compressed
+    };
+    let scalar = constant
+        .as_constant()
+        .ok_or_else(|| vortex_err!("expected a constant"))?;
+    let value: &[u8] = match scalar.value() {
+        Some(ScalarValue::Utf8(value)) => value.as_bytes(),
+        Some(ScalarValue::Binary(value)) => value.as_slice(),
+        other => panic!("unexpected constant value {other:?}"),
+    };
+
+    let address = value.as_ptr() as usize;
+    for buffer in std::iter::once(source.views_handle()).chain(source.data_buffers().iter()) {
+        let buffer = buffer.as_host().as_slice();
+        let start = buffer.as_ptr() as usize;
+        vortex_ensure!(
+            !(start..start + buffer.len()).contains(&address),
+            "the constant points into a buffer of the array it was built from"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn detach_scalar_copies_bytes_nested_in_lists() -> VortexResult<()> {
+    let source = ByteBuffer::copy_from(b"....hello, world....");
+    let element =
+        || BufferString::try_from(source.slice(4..16)).map(|value| Some(ScalarValue::Utf8(value)));
+    let scalar = Scalar::try_new(
+        DType::FixedSizeList(
+            Arc::new(DType::Utf8(Nullability::NonNullable)),
+            2,
+            Nullability::NonNullable,
+        ),
+        Some(ScalarValue::Tuple(vec![element()?, element()?])),
+    )?;
+
+    let detached = detach_scalar(scalar.clone());
+
+    assert_eq!(detached, scalar);
+    let Some(ScalarValue::Tuple(elements)) = detached.value() else {
+        panic!("expected a tuple value");
+    };
+    let source_range = source.as_ptr() as usize..source.as_ptr() as usize + source.len();
+    for element in elements {
+        let Some(ScalarValue::Utf8(value)) = element else {
+            panic!("expected a string element");
+        };
+        vortex_ensure!(!source_range.contains(&(value.as_ptr() as usize)));
+    }
+    Ok(())
+}
+
+#[test]
+fn constant_fixed_size_list_of_strings_compresses_to_constant() -> VortexResult<()> {
+    let elements = VarBinViewArray::from_iter_str(std::iter::repeat_n(
+        "a constant longer than twelve bytes",
+        200,
+    ));
+    let array =
+        FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 100).into_array();
     let mut ctx = SESSION.create_execution_ctx();
 
     let compressed = empty_compressor().compress(&array, &mut ctx)?;
@@ -238,6 +333,7 @@ struct FloatExtension;
 
 impl ExtVTable for FloatExtension {
     type Metadata = u8;
+    type StoredMetadata = Self::Metadata;
     type NativeValue<'a> = f64;
 
     #[expect(clippy::disallowed_methods, reason = "test-only id")]
@@ -249,14 +345,21 @@ impl ExtVTable for FloatExtension {
         Ok(vec![*metadata])
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<u8> {
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
         vortex_ensure!(metadata.len() == 1, "expected one metadata byte");
         Ok(metadata[0])
     }
 
-    fn validate_dtype(dtype: &ExtDType<Self>) -> VortexResult<()> {
-        vortex_ensure!(dtype.storage_dtype().is_float(), "expected float storage");
-        Ok(())
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        _storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(stored_metadata)
+    }
+
+    fn storage_dtype(_metadata: &u8) -> DType {
+        DType::Primitive(PType::F64, Nullability::NonNullable)
     }
 
     fn unpack_native<'a>(_dtype: &'a ExtDType<Self>, value: &'a ScalarValue) -> VortexResult<f64> {
@@ -285,7 +388,7 @@ fn nullable_float_bit_patterns(
     )
     .into_array();
     let array = if extension {
-        let dtype = ExtDType::<FloatExtension>::try_new(0, storage.dtype().clone())?;
+        let dtype = ExtDType::<FloatExtension>::try_new(0, storage.dtype().nullability())?;
         ExtensionArray::new(dtype.erased(), storage).into_array()
     } else {
         storage
@@ -308,7 +411,7 @@ fn nullable_float_bit_patterns(
 #[test]
 fn extension_with_constant_storage() -> VortexResult<()> {
     let storage = ConstantArray::new(Scalar::from(f64::NAN), 100).into_array();
-    let dtype = ExtDType::<FloatExtension>::try_new(0, storage.dtype().clone())?;
+    let dtype = ExtDType::<FloatExtension>::try_new(0, storage.dtype().nullability())?;
     let array = ExtensionArray::new(dtype.erased(), storage).into_array();
     let mut ctx = SESSION.create_execution_ctx();
 
@@ -340,7 +443,7 @@ fn encoded_storage_constant_detection(
     let codes = PrimitiveArray::from_iter((0..100u32).map(|i| i % 3)).into_array();
     let storage = DictArray::try_new(codes, values)?.into_array();
     let array = if storage.dtype().is_float() {
-        let dtype = ExtDType::<FloatExtension>::try_new(0, storage.dtype().clone())?;
+        let dtype = ExtDType::<FloatExtension>::try_new(0, storage.dtype().nullability())?;
         ExtensionArray::new(dtype.erased(), storage).into_array()
     } else {
         storage

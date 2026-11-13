@@ -233,7 +233,7 @@ public final class ExpressionTagParityTest {
     private static void assertDateRejects(TimeUnit unit) {
         RuntimeException exception = assertThrows(RuntimeException.class, () -> Expression.literalDate(0L, unit));
         assertTrue(
-                exception.getMessage().contains("Date type does not support time unit"),
+                exception.getMessage().contains("Date time unit must be days or milliseconds"),
                 () -> "unexpected message for " + unit + ": " + exception.getMessage());
     }
 }

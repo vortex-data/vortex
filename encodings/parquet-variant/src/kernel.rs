@@ -46,6 +46,7 @@ use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -154,7 +155,7 @@ fn json_strings_to_variant(
 ) -> VortexResult<ArrayRef> {
     let nullable = parent.dtype().is_nullable();
     let session = ctx.session().clone();
-    let arrow_strings = session.arrow().execute_arrow(strings, None, ctx)?;
+    let arrow_strings = strings.execute_arrow(None, ctx)?;
     // Any row that fails to parse as JSON fails the whole conversion.
     let arrow_variant = parquet_variant_compute::json_to_variant(&arrow_strings)?;
 
@@ -361,13 +362,9 @@ mod tests {
         use vortex_uuid::Uuid;
         use vortex_uuid::UuidMetadata;
 
-        let storage = VortexDType::FixedSizeList(
-            Arc::new(VortexDType::Primitive(PType::U8, Nullability::NonNullable)),
-            16,
-            Nullability::NonNullable,
-        );
         let uuid = VortexDType::Extension(
-            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage)?.erased(),
+            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), Nullability::NonNullable)?
+                .erased(),
         );
 
         let arrow = SESSION.arrow();

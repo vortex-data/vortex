@@ -10,10 +10,14 @@ publish = false
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[dependencies]
+# The library is empty on other targets, so every dependency is wasm-only.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
 arrow-array = { workspace = true }
 arrow-ipc = { workspace = true }
 arrow-schema = { workspace = true }
+console_error_panic_hook = "0.1.7"
+futures = { workspace = true }
+js-sys = "0.3.85"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 vortex = { path = "../../vortex", default-features = false, features = [
@@ -22,13 +26,8 @@ vortex = { path = "../../vortex", default-features = false, features = [
     "wasm-bindgen",
 ] }
 vortex-arrow = { workspace = true }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-futures = { workspace = true }
 wasm-bindgen = "0.2.108"
 wasm-bindgen-futures = { workspace = true }
-console_error_panic_hook = "0.1.7"
-js-sys = "0.3.85"
 web-sys = { version = "0.3.85", features = [
     "Blob",
     "console",

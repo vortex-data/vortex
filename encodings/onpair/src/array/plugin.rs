@@ -140,7 +140,7 @@ impl ArrayPlugin for OnPair {
             codes,
             codes_offsets,
             uncompressed_lengths,
-            validity: validity_to_child(&validity, len),
+            validity_child: validity_to_child(&validity, len),
         }
         .into_slots();
         Ok(Array::try_from_parts(ArrayParts::new(

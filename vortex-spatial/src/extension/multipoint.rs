@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The [`MultiPoint`] geometry extension type (`vortex.st.multipoint`): an unordered set of the
-//! [`Point`](super::Point) coordinate struct, stored as `List<Struct<x, y[, z][, m]>>` and tagged
-//! with [`SpatialMetadata`] (CRS). The storage layout matches [`LineString`](super::LineString); the
-//! two are distinguished by their GeoArrow extension name, not their shape.
+//! Native multipoint geometry (`vortex.st.multipoint`).
+//!
+//! [`MultiPoint`] stores a collection of points as `List<Struct<x, y[, z][, m]>>`.
+//! [`SpatialMetadata`] declares the coordinate dimension and optional coordinate reference system.
+//! Coordinates use non-nullable `f64` fields, and only the outer list can be nullable. The storage
+//! layout matches [`LineString`](super::LineString), and the extension ID identifies the geometry
+//! type.
 
 use std::sync::Arc;
 
@@ -19,7 +22,6 @@ use geoarrow::array::IntoArrow;
 use geoarrow::array::MultiPointArray;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::MultiPointType;
-use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -33,16 +35,16 @@ use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::ScalarValue;
 use vortex_arrow::ArrowExport;
 use vortex_arrow::ArrowExportOptions;
-use vortex_arrow::ArrowExportVTable;
+use vortex_arrow::ArrowExtVTable;
 use vortex_arrow::ArrowImport;
-use vortex_arrow::ArrowImportVTable;
+use vortex_arrow::ArrowMetadataPolicy;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -61,6 +63,7 @@ pub struct MultiPoint;
 
 impl ExtVTable for MultiPoint {
     type Metadata = SpatialMetadata;
+    type StoredMetadata = super::SpatialStoredMetadata;
     // No cheap owned value like Point's `Coordinate`; expose the raw storage scalar.
     type NativeValue<'a> = &'a ScalarValue;
 
@@ -70,15 +73,30 @@ impl ExtVTable for MultiPoint {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(metadata.encode_to_vec())
+        Ok(metadata.serialize())
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(SpatialMetadata::decode(metadata)?)
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
+        super::SpatialStoredMetadata::deserialize(metadata)
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        multipoint_dimension(ext_dtype.storage_dtype()).map(|_| ())
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(SpatialMetadata::from_stored_metadata(
+            stored_metadata,
+            Some(multipoint_dimension(storage_dtype)?),
+        ))
+    }
+
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        multipoint_storage_dtype(metadata.native_dimension(), Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
+        metadata.validate_native(MultiPoint.id())
     }
 
     fn unpack_native<'a>(
@@ -95,21 +113,15 @@ pub(crate) fn multipoint_storage_dtype(dim: Dimension, nullability: Nullability)
     DType::List(Arc::new(coords), nullability)
 }
 
-/// Validate that `dtype` equals [`multipoint_storage_dtype`] for its [`Dimension`] and top-level
-/// nullability, and return that dimension. As in GeoArrow, only the outer `List` can be nullable.
+/// Infers the coordinate [`Dimension`] of `List<coordinate-struct>` storage.
+///
+/// Checks the list nesting and delegates coordinate field-name inference to
+/// [`coordinate_dimension`]. Reads validate the complete storage dtype against the declaration.
 pub(crate) fn multipoint_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(coords, _) = dtype else {
-        vortex_bail!("multipoint storage must be a List of coordinates, was {dtype}");
+        vortex_bail!("multipoint storage must be a List of coordinates, got {dtype}");
     };
-    let dimension = coordinate_dimension(coords)?;
-
-    vortex_ensure_eq!(
-        *dtype,
-        multipoint_storage_dtype(dimension, dtype.nullability()),
-        "multipoint storage can be nullable only at its outer List"
-    );
-
-    Ok(dimension)
+    coordinate_dimension(coords)
 }
 
 static ARROW_MULTIPOINT: CachedId = CachedId::new(MultiPointType::NAME);
@@ -141,8 +153,7 @@ fn multipoint_array(storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
         &SpatialMetadata::default(),
         multipoint_dimension(storage.dtype())?,
     );
-    let session = ctx.session().clone();
-    let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
+    let arrow = storage.clone().execute_arrow(None, ctx)?;
     MultiPointArray::try_from((arrow.as_ref(), multipoint_type))
         .map_err(|e| vortex_err!("failed to construct MultiPointArray: {e}"))
 }
@@ -172,27 +183,31 @@ impl MultiPointData {
     }
 }
 
-impl ArrowExportVTable for MultiPoint {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_MULTIPOINT
+impl ArrowExtVTable for MultiPoint {
+    fn metadata_policy() -> ArrowMetadataPolicy {
+        ArrowMetadataPolicy::ArrowNative
     }
 
-    fn vortex_id(&self) -> Id {
-        self.id()
+    fn arrow_ext_id(&self) -> Id {
+        *ARROW_MULTIPOINT
     }
 
     fn to_arrow_field(
         &self,
         name: &str,
-        dtype: &DType,
-        session: &ArrowSession,
+        ext_dtype: &ExtDType<Self>,
+        _session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
-        let ext_type = dtype.as_extension();
-        let spatial_metadata = ext_type.metadata::<MultiPoint>();
-        let dimension = multipoint_dimension(ext_type.storage_dtype())?;
+        let spatial_metadata = ext_dtype.metadata();
+        let dimension = spatial_metadata.native_dimension();
 
-        let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
-        field.try_with_extension_type(multipoint_type(spatial_metadata, dimension))?;
+        let arrow_type = multipoint_type(spatial_metadata, dimension);
+        let mut field = Field::new(
+            name,
+            arrow_type.data_type(),
+            ext_dtype.storage_dtype().is_nullable(),
+        );
+        field.try_with_extension_type(arrow_type)?;
 
         Ok(Some(field))
     }
@@ -204,15 +219,6 @@ impl ArrowExportVTable for MultiPoint {
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
-        let is_multipoint = array
-            .dtype()
-            .as_extension_opt()
-            .map(|ext| ext.is::<MultiPoint>())
-            .unwrap_or(false);
-        if !is_multipoint {
-            return Ok(ArrowExport::Unsupported(array));
-        }
-
         let Ok(multipoint_meta) = target.try_extension_type::<MultiPointType>() else {
             return Ok(ArrowExport::Unsupported(array));
         };
@@ -228,12 +234,8 @@ impl ArrowExportVTable for MultiPoint {
             target.data_type().clone(),
             target.is_nullable(),
         );
-        let session = ctx.session().clone();
         let arrow_storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(&storage_field), ctx)?;
+            storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
         // Round-trip through GeoArrow's multipoint array; `into_arrow` is concrete, so wrap in `Arc`.
         let multipoints = MultiPointArray::try_from((arrow_storage.as_ref(), multipoint_meta))
@@ -241,21 +243,11 @@ impl ArrowExportVTable for MultiPoint {
 
         Ok(ArrowExport::Exported(Arc::new(multipoints.into_arrow())))
     }
-}
 
-impl ArrowImportVTable for MultiPoint {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_MULTIPOINT
-    }
-
-    /// Import a `geoarrow.multipoint` field as the [`MultiPoint`] dtype (matched by GeoArrow name).
-    /// Accepts the full `MultiPointType`, or a metadata-less literal (name only), inferring the
-    /// dimension from the coordinate field names.
     fn from_arrow_field(
-        &self,
         field: &Field,
         session: &ArrowSession,
-    ) -> VortexResult<Option<DType>> {
+    ) -> VortexResult<Option<ExtDType<Self>>> {
         let (dimension, metadata) =
             if let Ok(multipoint_meta) = field.try_extension_type::<MultiPointType>() {
                 vortex_ensure!(
@@ -285,24 +277,20 @@ impl ArrowImportVTable for MultiPoint {
                 (dimension, SpatialMetadata::default())
             };
 
-        let storage_dtype = multipoint_storage_dtype(dimension, field.is_nullable().into());
-        Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(MultiPoint, metadata, storage_dtype)?.erased(),
-        )))
+        Ok(Some(ExtDType::try_with_vtable(
+            MultiPoint,
+            metadata.with_dimension(dimension),
+            field.is_nullable().into(),
+        )?))
     }
 
     fn from_arrow_array(
-        &self,
         array: ArrowArrayRef,
         field: &Field,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let Some(ext_dtype) = dtype.as_extension_opt() else {
-            return Ok(ArrowImport::Unsupported(array));
-        };
-        if !ext_dtype.is::<MultiPoint>()
-            || field.try_extension_type::<MultiPointType>().is_err()
+        if field.try_extension_type::<MultiPointType>().is_err()
             || !matches!(array.data_type(), DataType::List(_))
         {
             return Ok(ArrowImport::Unsupported(array));
@@ -310,7 +298,7 @@ impl ArrowImportVTable for MultiPoint {
 
         let storage = session.from_arrow_array(array, field.is_nullable())?;
         Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(ext_dtype.clone(), storage)?.into_array(),
+            ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array(),
         ))
     }
 }
@@ -321,7 +309,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtDTypePlugin;
     use vortex_error::VortexResult;
 
     use super::MultiPoint;
@@ -330,29 +318,30 @@ mod tests {
     use crate::extension::coordinate::Dimension;
 
     fn spatial_meta() -> SpatialMetadata {
-        SpatialMetadata {
-            crs: Some("EPSG:4326".to_string()),
-        }
+        SpatialMetadata::new(Some("EPSG:4326".to_string()))
     }
 
-    /// `MultiPoint` accepts the canonical `List<coordinate-struct>` storage of every dimension.
+    /// `MultiPoint` reads the canonical `List<coordinate-struct>` storage of every dimension.
     #[rstest]
     #[case::xy(Dimension::Xy)]
     #[case::xyz(Dimension::Xyz)]
     #[case::xym(Dimension::Xym)]
     #[case::xyzm(Dimension::Xyzm)]
-    fn multipoint_validates_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
+    fn multipoint_reads_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
         let storage = multipoint_storage_dtype(dim, Nullability::NonNullable);
-        ExtDType::<MultiPoint>::try_new(spatial_meta(), storage)?;
+        MultiPoint.deserialize(&spatial_meta().serialize(), storage)?;
         Ok(())
     }
 
-    /// Non-multipoint storage is rejected at dtype construction: a bare coordinate struct (point) is
-    /// not a list of coordinates.
+    /// Non-multipoint storage fails to read: `f64` is not a list of coordinates.
     #[test]
     fn multipoint_rejects_invalid_storage() -> VortexResult<()> {
         let primitive = DType::Primitive(PType::F64, Nullability::NonNullable);
-        assert!(ExtDType::<MultiPoint>::try_new(spatial_meta(), primitive).is_err());
+        assert!(
+            MultiPoint
+                .deserialize(&spatial_meta().serialize(), primitive)
+                .is_err()
+        );
         Ok(())
     }
 }

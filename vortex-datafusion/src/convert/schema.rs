@@ -283,7 +283,6 @@ mod tests {
 
     use arrow_schema::Fields;
     use arrow_schema::Metadata;
-    use vortex::array::EmptyMetadata;
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
     use vortex::dtype::StructFields;
@@ -292,7 +291,9 @@ mod tests {
     use vortex::dtype::extension::ExtVTable;
     use vortex::error::VortexResult;
     use vortex::scalar::ScalarValue;
+    use vortex::session::VortexSession;
     use vortex::session::registry::CachedId;
+    use vortex_arrow::ArrowSessionExt;
 
     use super::*;
 
@@ -313,7 +314,8 @@ mod tests {
         );
 
         let physical_schema =
-            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
+            calculate_physical_schema(&dtype, &logical_schema, &VortexSession::empty().arrow())
+                .unwrap();
         assert_eq!(physical_schema, logical_schema);
     }
 
@@ -334,7 +336,7 @@ mod tests {
         );
 
         let physical_schema =
-            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default())?;
+            calculate_physical_schema(&dtype, &logical_schema, &VortexSession::empty().arrow())?;
         assert_eq!(physical_schema, logical_schema);
         Ok(())
     }
@@ -361,7 +363,8 @@ mod tests {
         );
 
         let physical_schema =
-            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
+            calculate_physical_schema(&dtype, &logical_schema, &VortexSession::empty().arrow())
+                .unwrap();
         assert_eq!(physical_schema, logical_schema);
     }
 
@@ -377,7 +380,8 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default());
+        let result =
+            calculate_physical_schema(&dtype, &logical_schema, &VortexSession::empty().arrow());
         assert!(
             result
                 .unwrap_err()
@@ -397,7 +401,8 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default());
+        let result =
+            calculate_physical_schema(&dtype, &logical_schema, &VortexSession::empty().arrow());
         assert!(
             result
                 .unwrap_err()
@@ -444,7 +449,8 @@ mod tests {
         );
 
         let physical_schema =
-            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
+            calculate_physical_schema(&dtype, &logical_schema, &VortexSession::empty().arrow())
+                .unwrap();
         assert_eq!(physical_schema, logical_schema);
     }
 
@@ -474,7 +480,8 @@ mod tests {
         );
 
         let physical_schema =
-            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
+            calculate_physical_schema(&dtype, &logical_schema, &VortexSession::empty().arrow())
+                .unwrap();
         assert_eq!(physical_schema, logical_schema);
     }
 
@@ -506,7 +513,8 @@ mod tests {
         );
 
         let physical_schema =
-            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
+            calculate_physical_schema(&dtype, &logical_schema, &VortexSession::empty().arrow())
+                .unwrap();
         assert_eq!(physical_schema, logical_schema);
     }
 
@@ -517,7 +525,8 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
-        let result = calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default());
+        let result =
+            calculate_physical_schema(&dtype, &logical_schema, &VortexSession::empty().arrow());
         assert!(result.is_err());
         assert!(
             result
@@ -553,7 +562,8 @@ mod tests {
         );
 
         let physical_schema =
-            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
+            calculate_physical_schema(&dtype, &logical_schema, &VortexSession::empty().arrow())
+                .unwrap();
         assert_eq!(physical_schema, logical_schema);
     }
 
@@ -595,7 +605,8 @@ mod tests {
         );
 
         let physical_schema =
-            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
+            calculate_physical_schema(&dtype, &logical_schema, &VortexSession::empty().arrow())
+                .unwrap();
         assert_eq!(physical_schema, logical_schema);
     }
 
@@ -628,7 +639,7 @@ mod tests {
         );
 
         let physical_schema =
-            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default())?;
+            calculate_physical_schema(&dtype, &logical_schema, &VortexSession::empty().arrow())?;
         assert_eq!(physical_schema, logical_schema);
         Ok(())
     }
@@ -638,7 +649,11 @@ mod tests {
     struct AnyStorage;
 
     impl ExtVTable for AnyStorage {
-        type Metadata = EmptyMetadata;
+        // The metadata is the storage dtype, so the type can wrap any storage dtype. It is the
+        // nullable form of that dtype, because the extension dtype applies the top-level
+        // nullability.
+        type Metadata = DType;
+        type StoredMetadata = ();
         type NativeValue<'a> = &'a ScalarValue;
 
         fn id(&self) -> ExtId {
@@ -650,12 +665,20 @@ mod tests {
             Ok(Vec::new())
         }
 
-        fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<Self::Metadata> {
-            Ok(EmptyMetadata)
+        fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
+            Ok(())
         }
 
-        fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-            Ok(())
+        fn metadata_from_storage(
+            &self,
+            _stored_metadata: Self::StoredMetadata,
+            storage_dtype: &DType,
+        ) -> VortexResult<Self::Metadata> {
+            Ok(storage_dtype.clone())
+        }
+
+        fn storage_dtype(metadata: &Self::Metadata) -> DType {
+            metadata.clone()
         }
 
         fn unpack_native<'a>(
@@ -686,9 +709,9 @@ mod tests {
         ]);
 
         let int32 = || DType::Primitive(PType::I32, Nullability::NonNullable);
-        let extension = |storage_dtype| -> VortexResult<DType> {
+        let extension = |storage_dtype: DType| -> VortexResult<DType> {
             Ok(DType::Extension(
-                ExtDType::<AnyStorage>::try_new(EmptyMetadata, storage_dtype)?.erased(),
+                ExtDType::<AnyStorage>::try_from_storage((), storage_dtype)?.erased(),
             ))
         };
         let dtype = DType::Struct(
@@ -720,7 +743,7 @@ mod tests {
         );
 
         let physical_schema =
-            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default())?;
+            calculate_physical_schema(&dtype, &logical_schema, &VortexSession::empty().arrow())?;
         assert_eq!(physical_schema, logical_schema);
 
         Ok(())

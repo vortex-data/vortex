@@ -37,7 +37,7 @@ pub struct FixedSizeListSlots {
     /// sub-elements of fixed-size list scalars are null. The `elements` array will track
     /// individual value nullability.
     #[slot(1)]
-    pub validity: Option<ArrayRef>,
+    pub validity_child: Option<ArrayRef>,
 }
 
 /// The canonical encoding for fixed-size list arrays.
@@ -116,7 +116,7 @@ impl FixedSizeListData {
     pub(crate) fn make_slots(elements: &ArrayRef, validity: &Validity, len: usize) -> ArraySlots {
         FixedSizeListSlots {
             elements: elements.clone(),
-            validity: validity_to_child(validity, len),
+            validity_child: validity_to_child(validity, len),
         }
         .into_slots()
     }
@@ -213,7 +213,7 @@ impl FixedSizeListData {
     }
 }
 
-pub trait FixedSizeListArrayExt: FixedSizeListArraySlotsExt {
+pub trait FixedSizeListArrayExt: TypedArrayRef<FixedSizeList> {
     fn dtype_parts(&self) -> (&DType, u32, crate::dtype::Nullability) {
         match self.dtype() {
             DType::FixedSizeList(element_dtype, list_size, nullability) => {
@@ -231,7 +231,7 @@ pub trait FixedSizeListArrayExt: FixedSizeListArraySlotsExt {
     fn fixed_size_list_validity(&self) -> Validity {
         let (_, _, nullability) = self.dtype_parts();
         child_to_validity(
-            self.slots()[FixedSizeListSlots::VALIDITY].as_ref(),
+            self.slots()[FixedSizeListSlots::VALIDITY_CHILD].as_ref(),
             nullability,
         )
     }

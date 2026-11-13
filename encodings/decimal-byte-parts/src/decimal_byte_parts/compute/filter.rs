@@ -20,7 +20,7 @@ impl FilterReduce for DecimalByteParts {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::LazyLock;
 
     use vortex_array::IntoArray;

@@ -74,7 +74,7 @@ struct Case {
 
 impl Display for Case {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // Preserve the report names from the former const-length and layout parameters.
+        // Keep report names stable so benchmark history follows the same input layout and length.
         let layout = match self.layout {
             Layout::VarBin => "VarBin",
             Layout::VarBinView => "VarBinView",
@@ -89,7 +89,9 @@ fn cases() -> Vec<Case> {
         .iter()
         .flat_map(|&len| LAYOUTS.iter().map(move |&layout| Case { len, layout }))
         .filter(|case| {
-            // VarBin varies on unchanged code, except for short values on the NEON leg.
+            // Run the full layout matrix locally. CI retains only VarBin cases whose walltime was
+            // stable enough to distinguish code changes from noise. Recheck stability before
+            // expanding the CI matrix.
             env!("VORTEX_BENCH_VARIANT") == "local"
                 || matches!(case.layout, Layout::VarBinView)
                 || (env!("VORTEX_BENCH_VARIANT") == "neon" && case.len == 8)

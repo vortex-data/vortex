@@ -46,9 +46,18 @@ impl ArrayPlugin for Delta {
             "Delta plugin cannot serialize an array of another encoding",
         );
         let array = array.as_::<Delta>();
+        let deltas_len = array.deltas().len();
+        let canonical_deltas_len = (array.offset() + array.len()).next_multiple_of(FL_CHUNK_SIZE);
+        vortex_ensure_eq!(
+            deltas_len,
+            canonical_deltas_len,
+            "DeltaArray deltas length must be (offset + len) rounded up to a multiple of \
+             {FL_CHUNK_SIZE}",
+        );
         let metadata = DeltaMetadata {
-            deltas_len: array.deltas().len() as u64,
-            offset: array.offset() as u32,
+            deltas_len: deltas_len as u64,
+            offset: u32::try_from(array.offset())?,
+            has_validity: array.validity_child().is_some(),
         }
         .encode_to_vec();
         Ok(Some(ArraySerialization::from_array(
@@ -81,32 +90,50 @@ impl ArrayPlugin for Delta {
             "DeltaArray expects 0 buffers, got {}",
             buffers.len()
         );
+        let metadata = DeltaMetadata::decode(metadata)?;
+        let required_children = 2 + usize::from(metadata.has_validity);
         vortex_ensure!(
-            children.len() == 2 || children.len() == 3,
-            "DeltaArray expects 2 or 3 children, got {}",
+            children.len() >= required_children,
+            "DeltaArray expects at least {required_children} children, got {}",
             children.len()
         );
-        let metadata = DeltaMetadata::decode(metadata)?;
-        let ptype = PType::try_from(dtype)?;
-        let lanes = lane_count(ptype);
+        vortex_ensure!(
+            dtype.is_int(),
+            "DeltaArray dtype must be an integer, got {dtype}"
+        );
+        vortex_ensure!(
+            !metadata.has_validity || dtype.is_nullable(),
+            "DeltaArray validity child requires a nullable dtype, got {dtype}"
+        );
+        let offset = metadata.offset as usize;
+        vortex_ensure!(
+            offset < FL_CHUNK_SIZE,
+            "DeltaArray offset must be less than {FL_CHUNK_SIZE}, got {offset}"
+        );
+        let lanes = lane_count(PType::try_from(dtype)?);
 
         let deltas_len = usize::try_from(metadata.deltas_len)
             .map_err(|_| vortex_err!("deltas_len {} overflowed usize", metadata.deltas_len))?;
-        vortex_ensure!(
-            deltas_len.is_multiple_of(FL_CHUNK_SIZE),
-            "deltas length must be a multiple of {FL_CHUNK_SIZE}"
+        let canonical_deltas_len = offset
+            .checked_add(len)
+            .and_then(|end| end.checked_next_multiple_of(FL_CHUNK_SIZE))
+            .ok_or_else(|| vortex_err!("DeltaArray offset + len overflowed usize"))?;
+        vortex_ensure_eq!(
+            deltas_len,
+            canonical_deltas_len,
+            "DeltaArray deltas length must be (offset + len) rounded up to a multiple of \
+             {FL_CHUNK_SIZE}",
         );
         let bases_len = deltas_len / FL_CHUNK_SIZE * lanes;
 
         let bases = children.get(0, &dtype.as_nonnullable(), bases_len)?;
         let deltas = children.get(1, &dtype.as_nonnullable(), deltas_len)?;
-        let validity_child = if children.len() == 3 {
-            Some(children.get(2, &Validity::DTYPE, len)?)
-        } else {
-            None
-        };
+        let validity_child = metadata
+            .has_validity
+            .then(|| children.get(2, &Validity::DTYPE, len))
+            .transpose()?;
 
-        let data = DeltaData::try_new(metadata.offset as usize)?;
+        let data = DeltaData::try_new(offset)?;
         let slots = DeltaSlots {
             bases,
             deltas,

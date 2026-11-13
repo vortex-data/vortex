@@ -55,11 +55,13 @@ impl CascadingCompressor {
     /// [`CompressionEstimate::Deferred`] are stashed for pass 2 so that we do not make any
     /// expensive computations if we don't have to.
     ///
-    /// Pass 2 evaluates the deferred work and, for each [`DeferredEstimate::Callback`], passes the
-    /// current best [`EstimateScore`] as an early-exit hint so the callback can return
-    /// [`EstimateVerdict::Skip`] without doing expensive work when it cannot beat the threshold.
+    /// Pass 2 evaluates the deferred work. Every [`DeferredEstimate::Sample`] runs before any
+    /// [`DeferredEstimate::Callback`], and each callback receives the current best
+    /// [`EstimateScore`] as an early-exit hint so it can return [`EstimateVerdict::Skip`] without
+    /// doing expensive work when it cannot beat the threshold.
     ///
-    /// Ties are broken by registration order within each pass.
+    /// Ties are broken by evaluation order: immediate verdicts, then samples, then callbacks, each
+    /// in registration order.
     ///
     /// [`expected_compression_ratio`]: Scheme::expected_compression_ratio
     pub(super) fn choose_best_scheme(
@@ -96,7 +98,8 @@ impl CascadingCompressor {
         }
 
         // Pass 2: run deferred work. Callbacks receive the current best as a threshold so they can
-        // short-circuit with `Skip` when they cannot beat it.
+        // short-circuit with `Skip` when they cannot beat it, so samples run first to tighten it.
+        deferred.sort_by_key(|(_, estimate)| matches!(estimate, DeferredEstimate::Callback(_)));
         for (scheme, deferred_estimate) in deferred {
             let _span = trace::scheme_eval_span(scheme.id()).entered();
             let threshold: Option<EstimateScore> = best.map(|(_, score)| score);

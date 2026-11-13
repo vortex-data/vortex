@@ -5,18 +5,25 @@ package dev.vortex.spark.io;
 
 import dev.vortex.io.PooledReadable;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.StreamCapabilities;
+import org.apache.hadoop.io.IOUtils;
+import org.apache.hadoop.util.functional.FutureIO;
 
 /** A {@link dev.vortex.io.NativeReadable} that serves Vortex's reads from a Hadoop {@link FileSystem}. */
 public final class HadoopReadable extends PooledReadable {
     private final Path path;
     private final FileSystem fs;
+    private final int coalesceDistance;
+    private final int coalesceMaxSize;
 
     /** Opens a readable over {@code path}, stating the file for its length. */
     public static HadoopReadable open(Configuration conf, String path) {
@@ -28,25 +35,64 @@ public final class HadoopReadable extends PooledReadable {
      * stats every file when it plans the scan, so executors need not stat them again.
      */
     public static HadoopReadable open(Configuration conf, String path, long length) {
+        return open(conf, path, length, DEFAULT_COALESCE_DISTANCE, DEFAULT_COALESCE_MAX_SIZE);
+    }
+
+    /**
+     * Opens a readable with the given coalescing gap and maximum merged size, both in bytes. Native code rejects a
+     * negative gap or non-positive size when the source is registered.
+     */
+    public static HadoopReadable open(
+            Configuration conf, String path, long length, int coalesceDistance, int coalesceMaxSize) {
         Path file = new Path(path);
         try {
             FileSystem fs = file.getFileSystem(conf);
             long resolved = length >= 0 ? length : fs.getFileStatus(file).getLen();
-            return new HadoopReadable(path, file, fs, resolved);
+            return new HadoopReadable(path, file, fs, resolved, coalesceDistance, coalesceMaxSize);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to open " + path, e);
         }
     }
 
-    private HadoopReadable(String name, Path path, FileSystem fs, long length) {
+    private HadoopReadable(
+            String name, Path path, FileSystem fs, long length, int coalesceDistance, int coalesceMaxSize) {
         super(name, length);
         this.path = path;
         this.fs = fs;
+        this.coalesceDistance = coalesceDistance;
+        this.coalesceMaxSize = coalesceMaxSize;
+    }
+
+    @Override
+    public int coalesceDistance() {
+        return coalesceDistance;
+    }
+
+    @Override
+    public int coalesceMaxSize() {
+        return coalesceMaxSize;
     }
 
     @Override
     protected PositionalStream openStream() throws IOException {
-        return new HadoopStream(fs.open(path));
+        // Given the length, S3A on Hadoop 3.3.5+ skips the metadata HEAD per stream; older Hadoop
+        // (Spark 3.5) ignores these keys. String keys because 3.3.4 lacks the OpenFileOptions constants.
+        CompletableFuture<FSDataInputStream> opened = fs.openFile(path)
+                .opt("fs.option.openfile.length", Long.toString(length()))
+                .opt("fs.option.openfile.read.policy", "random")
+                .build();
+        try {
+            return new HadoopStream(opened.get());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            InterruptedIOException failure = new InterruptedIOException("Interrupted while opening " + path);
+            failure.initCause(e);
+            // Cancelling a future need not stop the underlying open. Close any stream it produces later.
+            var unused = opened.thenAccept(IOUtils::closeStream);
+            throw failure;
+        } catch (ExecutionException e) {
+            return FutureIO.raiseInnerCause(e);
+        }
     }
 
     private static final class HadoopStream implements PositionalStream {

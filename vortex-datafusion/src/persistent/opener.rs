@@ -46,6 +46,7 @@ use futures::TryStreamExt;
 use futures::stream;
 use object_store::path::Path;
 use tracing::Instrument;
+use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
@@ -69,6 +70,7 @@ use vortex::metrics::MetricsRegistry;
 use vortex::scan::planning::planner::Planner;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -483,14 +485,9 @@ impl FileOpener for VortexOpener {
             let native_limit = limit
                 .filter(|_| scan_v2 && residual_filter.is_none())
                 .map(|limit| (limit, Arc::clone(&output_schema)));
-            let map_batch = move |chunk| {
+            let map_batch = move |chunk: ArrayRef| {
                 let mut ctx = session.create_execution_ctx();
-                let arrow_session = ctx.session().clone();
-                let arrow = arrow_session.arrow().execute_arrow(
-                    chunk,
-                    Some(&stream_target_field),
-                    &mut ctx,
-                )?;
+                let arrow = chunk.execute_arrow(Some(&stream_target_field), &mut ctx)?;
                 Ok(RecordBatch::from(arrow.as_struct().clone()))
             };
             let stream = if scan_v2 {

@@ -6,7 +6,7 @@ mod arbitrary;
 #[cfg(feature = "arbitrary")]
 pub use arbitrary::ArbitraryRunEndArray;
 pub use array::*;
-pub use iter::trimmed_ends_iter;
+pub use iter::slice_relative_ends;
 
 mod array;
 pub mod compress;

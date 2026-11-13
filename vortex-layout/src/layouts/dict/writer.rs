@@ -73,7 +73,8 @@ pub struct DictLayoutConstraints {
     ///
     /// The codes dtype is chosen upfront and is at most [`PType::U16`]. Primitive dictionaries
     /// use [`PType::U8`] when `max_len <= 256` or the value domain fits in 256 entries including
-    /// any null entry. String and binary dictionaries use [`PType::U8`] when `max_len <= 255`.
+    /// any null entry. String and binary dictionaries use [`PType::U8`] when `max_len <= 256`, as
+    /// [`codes_ptype_for_max_len`](vortex_array::builders::dict::codes_ptype_for_max_len) picks.
     ///
     /// Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for external compatibility.
     pub max_len: u16,

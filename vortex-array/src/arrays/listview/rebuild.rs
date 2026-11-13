@@ -789,11 +789,7 @@ mod tests {
                 &mut ctx,
             )?;
             let rebuilt = list.compact(&mut ctx)?;
-            assert_arrays_eq!(
-                rebuilt.elements().clone(),
-                expected_elements.clone(),
-                &mut ctx
-            );
+            assert_arrays_eq!(rebuilt.elements().clone(), expected_elements, &mut ctx);
             assert_eq!(rebuilt.offsets().dtype(), list.offsets().dtype());
             assert_arrays_eq!(
                 rebuilt.offsets().cast(u32_dtype.clone())?,

@@ -95,6 +95,8 @@ def _llms(app: Sphinx) -> str:
         "",
         "- [Benchmark summaries](https://bench.vortex.dev/llms.txt): every benchmark group's rankings and methods",
         "- [Vortex homepage](https://vortex.dev/llms.txt): what Vortex is, how to install it, and its results",
+        "- [Questions and answers](https://vortex.dev/faq): how Vortex compares to Parquet and Lance, "
+        "who uses it, and how it is governed",
         "",
         "## Optional",
         "",

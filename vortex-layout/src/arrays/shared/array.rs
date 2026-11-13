@@ -45,7 +45,7 @@ impl Display for SharedData {
 }
 
 #[expect(async_fn_in_trait)]
-pub trait SharedArrayExt: TypedArrayRef<Shared> + SharedArraySlotsExt {
+pub trait SharedArrayExt: TypedArrayRef<Shared> {
     fn current_array_ref(&self) -> &ArrayRef {
         match self.cached.get() {
             Some(Ok(arr)) => arr,

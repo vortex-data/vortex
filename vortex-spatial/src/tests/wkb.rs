@@ -34,6 +34,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use wkb::writer::WriteOptions;
@@ -74,10 +75,8 @@ fn wkb_extension_array() -> VortexResult<(Vec<u8>, vortex_array::ArrayRef)> {
     builder.append_value(&buf);
 
     let dtype = ExtDType::<WellKnownBinary>::try_new(
-        SpatialMetadata {
-            crs: Some("EPSG:4326".to_string()),
-        },
-        DType::Binary(Nullability::NonNullable),
+        SpatialMetadata::new(Some("EPSG:4326".to_string())),
+        Nullability::NonNullable,
     )?;
     let storage = builder.finish_into_varbin();
     let array = ExtensionArray::new(dtype.erased(), storage.into_array()).into_array();
@@ -110,10 +109,8 @@ fn scalar_unpacks_to_geometry() -> VortexResult<()> {
     let (_, array) = wkb_extension_array()?;
 
     let dtype = ExtDType::<WellKnownBinary>::try_new(
-        SpatialMetadata {
-            crs: Some("EPSG:4326".to_string()),
-        },
-        DType::Binary(Nullability::NonNullable),
+        SpatialMetadata::new(Some("EPSG:4326".to_string())),
+        Nullability::NonNullable,
     )?;
 
     for idx in 0..3 {
@@ -146,9 +143,7 @@ fn exports_to_binary_family(#[case] data_type: DataType) -> VortexResult<()> {
 
     let field = Field::new("geom", data_type.clone(), false)
         .with_extension_type(WkbType::new(Default::default()));
-    let exported = SESSION
-        .arrow()
-        .execute_arrow(array, Some(&field), &mut ctx)?;
+    let exported = array.execute_arrow(Some(&field), &mut ctx)?;
 
     assert_eq!(exported.data_type(), &data_type);
     let values: Vec<&[u8]> = match &data_type {
@@ -219,10 +214,8 @@ fn imports_from_large_binary() -> VortexResult<()> {
     assert_imported_wkb_dtype(imported.dtype(), Some("EPSG:4326"), false);
     let expected = ExtensionArray::try_new(
         ExtDType::<WellKnownBinary>::try_new(
-            SpatialMetadata {
-                crs: Some("EPSG:4326".to_string()),
-            },
-            DType::Binary(Nullability::NonNullable),
+            SpatialMetadata::new(Some("EPSG:4326".to_string())),
+            Nullability::NonNullable,
         )?
         .erased(),
         VarBinViewArray::from_iter_bin(std::iter::repeat_n(wkb_bytes.as_slice(), 2)).into_array(),
@@ -247,11 +240,8 @@ fn imports_from_binary_view() -> VortexResult<()> {
     let imported = SESSION.arrow().from_arrow_array(arrow, &field)?;
     assert_imported_wkb_dtype(imported.dtype(), None, false);
     let expected = ExtensionArray::try_new(
-        ExtDType::<WellKnownBinary>::try_new(
-            SpatialMetadata { crs: None },
-            DType::Binary(Nullability::NonNullable),
-        )?
-        .erased(),
+        ExtDType::<WellKnownBinary>::try_new(SpatialMetadata::new(None), Nullability::NonNullable)?
+            .erased(),
         VarBinViewArray::from_iter_bin(std::iter::repeat_n(wkb_bytes.as_slice(), 4)).into_array(),
     )?;
     assert_arrays_eq!(imported, expected, &mut ctx);
@@ -266,9 +256,7 @@ fn roundtrips_through_arrow() -> VortexResult<()> {
 
     let field = Field::new("geom", DataType::BinaryView, false)
         .with_extension_type(WkbType::new(Default::default()));
-    let exported = SESSION
-        .arrow()
-        .execute_arrow(original, Some(&field), &mut ctx)?;
+    let exported = original.execute_arrow(Some(&field), &mut ctx)?;
     let arrow_field = wkb_field("geom", DataType::BinaryView, false, Some("EPSG:4326"));
     let reimported = SESSION.arrow().from_arrow_array(exported, &arrow_field)?;
 

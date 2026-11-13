@@ -103,7 +103,6 @@ anyhow = "1.0.100"
 arbitrary = "1.3.2"
 arc-swap = "1.9"
 arcref = "0.2.0"
-arrow-arith = "60.1.0"
 arrow-array = "60.1.0"
 arrow-buffer = "60.1.0"
 arrow-cast = "60.1.0"
@@ -161,7 +160,7 @@ datafusion-sqllogictest = { version = "56.0.0", git = "https://github.com/apache
 divan = { package = "codspeed-divan-compat", version = "6.0.0" }
 enum-iterator = "2.0.0"
 env_logger = "0.11"
-fastlanes = { version = "0.7.1", features = ["runtime"] }
+fastlanes = { version = "0.8.0", features = ["runtime"] }
 fearless_simd = "1.0.0"
 fearless_simd_macros = "0.1.0"
 flatbuffers = "25.2.10"
@@ -216,7 +215,7 @@ parquet = "60.1.0"
 parquet-variant = "60.1.0"
 parquet-variant-compute = "60.1.0"
 paste = "1.0.15"
-pco = "1.0.1"
+pco = "1.1.0"
 percent-encoding = "2.3.2"
 pin-project-lite = "0.2.15"
 primitive-types = { version = "0.14.0" }

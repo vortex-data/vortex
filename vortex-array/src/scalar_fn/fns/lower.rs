@@ -7,6 +7,7 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::AnyColumnar;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -15,11 +16,13 @@ use crate::arrays::VarBinViewArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
+use crate::require_input;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 
@@ -85,6 +88,17 @@ impl ScalarFnVTable for Lower {
         lower(input.execute::<VarBinViewArray>(ctx)?, ctx)
     }
 
+    fn execute_step(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        require_input!(args, 0 => AnyColumnar);
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
+    }
+
     fn is_strict(&self, _options: &Self::Options) -> bool {
         true
     }
@@ -136,6 +150,7 @@ pub(crate) fn is_lowercase_ascii(bytes: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
     use std::sync::LazyLock;
 
     use rstest::rstest;
@@ -194,8 +209,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn preserves_runs_and_dictionary() -> VortexResult<()> {
+    #[rstest]
+    #[case::whole(0..8)]
+    #[case::sliced(1..7)]
+    fn preserves_runs_and_dictionary(#[case] rows: Range<usize>) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let values = DictArray::try_new(
             PrimitiveArray::from_iter([0u8, 1, 2, 0]).into_array(),
@@ -209,23 +226,26 @@ mod tests {
             8,
             &mut ctx,
         )?
-        .into_array();
+        .into_array()
+        .slice(rows.clone())?;
         let result = input
             .apply(&lower(root()))?
             .execute_until::<RunEnd>(&mut ctx)?;
         assert!(result.is::<RunEnd>());
         assert_arrays_eq!(
             result,
-            strings(&[
-                Some("ος"),
-                Some("ος"),
-                None,
-                None,
-                Some("i\u{307}ⱦ"),
-                Some("i\u{307}ⱦ"),
-                Some("ος"),
-                Some("ος"),
-            ]),
+            strings(
+                &[
+                    Some("ος"),
+                    Some("ος"),
+                    None,
+                    None,
+                    Some("i\u{307}ⱦ"),
+                    Some("i\u{307}ⱦ"),
+                    Some("ος"),
+                    Some("ος"),
+                ][rows]
+            ),
             &mut ctx
         );
         Ok(())

@@ -323,7 +323,7 @@ pub fn check_editions(base: &str) -> anyhow::Result<()> {
                 _ => "changes",
             };
             let moved = if old == new {
-                old.clone()
+                old
             } else {
                 format!("{old} -> {new}")
             };

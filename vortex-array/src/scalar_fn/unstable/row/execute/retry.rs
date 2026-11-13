@@ -7,6 +7,12 @@
 //! evidence. Accepted evidence returns dense values. Rejected evidence discards those values and
 //! preserves the error while batch execution resolves input validity. Decode, validation, and
 //! allocation errors remain terminal.
+//!
+//! Deferring row failures lets the common success path use a contiguous loop without first
+//! executing validity or testing it at every row. A failed reduction cannot identify which row
+//! failed, so batch execution then pays to resolve validity and, when necessary, recompute only
+//! observable rows. Ordinary terminal errors cannot use this retry because they may come from
+//! decoding or allocation rather than an unspecified null-row payload.
 
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexError;
