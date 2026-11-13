@@ -29,8 +29,11 @@ use crate::segments::SegmentSource;
 /// scans. The lowered plan keeps the children it has initialized, each distinct projection keeps
 /// its optimized plan, each distinct filter keeps its conjunct and pruning plans along with the
 /// zones those plans have already excluded, and dictionary values stay keyed by the cached plan
-/// that produced them. Recently read segments are retained up to a byte budget, so the chunks of
-/// the file's scans that share a stored segment read it once.
+/// that produced them.
+///
+/// Segments are never kept between scans. Each scan retains its own recently read segments up to
+/// the cache's byte budget, so the chunks of that scan that share a stored segment read it once,
+/// and drops them when it ends.
 ///
 /// A cache describes one file's layout, segment locations, and segment source. Use a new cache
 /// when any of them changes. Cached plans and values live as long as the cache, one set per
@@ -49,16 +52,17 @@ struct Inner {
     /// excluded, so sharing the plans prunes a file's zones once for every scan of that filter.
     filters: Mutex<FxHashMap<ExprKey, Arc<FilterPlans>>>,
     values: ValueCache,
-    /// Recently read segments, shared by the chunks of every scan of the file.
-    retained: Arc<RetainedSegments>,
+    /// The bytes of recently read segments each scan retains, or the default when unset.
+    retained_bytes: Option<u64>,
 }
 
 impl ScanCache {
-    /// A cache whose scans retain up to `bytes` of recently read segments, so chunks that share
-    /// a stored segment read it once. The default retains 64 MiB; zero retains nothing.
+    /// A cache whose scans each retain up to `bytes` of recently read segments, so the chunks of
+    /// one scan that share a stored segment read it once. The default retains 64 MiB; zero
+    /// retains nothing. Retained segments never outlive their scan.
     pub fn with_retained_bytes(bytes: u64) -> Self {
         Self(Arc::new(Inner {
-            retained: Arc::new(RetainedSegments::new(bytes)),
+            retained_bytes: Some(bytes),
             ..Inner::default()
         }))
     }
@@ -124,11 +128,15 @@ impl ScanCache {
         )
     }
 
-    /// Serves `segments` through the segments the file's scans retain.
+    /// Serves `segments` through segments retained for one scan alone.
     pub(super) fn retaining(&self, segments: Arc<dyn SegmentSource>) -> Arc<dyn SegmentSource> {
+        let retained = self
+            .0
+            .retained_bytes
+            .map_or_else(RetainedSegments::default, RetainedSegments::new);
         Arc::new(RetainingSegmentSource {
             inner: segments,
-            retained: Arc::clone(&self.0.retained),
+            retained: Arc::new(retained),
         })
     }
 

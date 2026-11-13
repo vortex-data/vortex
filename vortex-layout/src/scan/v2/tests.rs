@@ -662,6 +662,32 @@ async fn chunks_sharing_a_segment_read_it_once(
     Ok(())
 }
 
+/// Retained segments belong to one scan: a second scan through the same cache reads every
+/// segment again.
+#[tokio::test]
+async fn scans_sharing_a_cache_do_not_share_segments() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, chunked_flat().as_ref()).await?;
+    let counted = Arc::new(CountingSegmentSource::new(segments));
+    let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
+    let cache = ScanCache::default();
+    let projection = get_item("ints", root()).bind(layout.dtype())?;
+    for scans in 1..=2 {
+        let mut file = scan_file(&segments, &layout)?;
+        file.cache = Some(cache.clone());
+        let scan = Arc::new(
+            ScanBuilder::new(session.clone(), file)
+                .with_projection(projection.clone())
+                .prepare()?,
+        );
+        for rows in row_chunks(scan.rows().clone(), scan.chunk_rows) {
+            run_rows(&scan, rows).await?;
+        }
+        assert_eq!(counted.requests(), CHUNKS * scans);
+    }
+    Ok(())
+}
+
 /// V2 rejects list layouts: their element ranges are only known once their offsets are read.
 #[tokio::test]
 async fn list_layouts_return_an_error() -> VortexResult<()> {

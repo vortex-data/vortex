@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Keeps recently read segments so the chunks of a scan that share a segment read it once.
+//! Keeps recently read segments so the chunks of one scan that share a segment read it once.
+//!
+//! Each scan owns its retained segments, so a later scan of the file reads them again.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -28,7 +30,7 @@ pub(super) struct RetainedSegments {
     state: Mutex<State>,
 }
 
-/// The bytes a file's scans retain by default.
+/// The bytes a scan retains by default.
 const DEFAULT_RETAINED_BYTES: u64 = 64 << 20;
 
 impl Default for RetainedSegments {
