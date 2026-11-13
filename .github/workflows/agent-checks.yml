@@ -171,13 +171,15 @@ jobs:
     env:
       CHECK: ${{ matrix.check }}
       SHARD: ${{ matrix.shard }}
-      # The agent can write anywhere in the workspace, so the runner, the plan and every output
-      # that state or PRs are built from live outside it.
-      TRUSTED: ${{ runner.temp }}/agent-checks
       RESULTS: ${{ github.workspace }}/target/agent-checks/results.json
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
     steps:
+      - name: Locate the trusted directory
+        # The agent can write anywhere in the workspace, so the runner, the plan and every output
+        # that state or PRs are built from live outside it.
+        run: echo "TRUSTED=$RUNNER_TEMP/agent-checks" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           # Full history so the agent can `git diff <last-reviewed-commit> -- <file>`.
