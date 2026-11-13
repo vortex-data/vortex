@@ -28,12 +28,16 @@ import org.apache.arrow.vector.types.pojo.Schema;
  *
  * <p>Use {@link #writeBatch(VectorSchemaRoot, BufferAllocator)} for zero-copy Java batches with independent buffer
  * lifetimes. Batches are also accepted via the Arrow C Data Interface: callers export an Arrow record batch to an
- * {@code ArrowArray} / {@code ArrowSchema} pair and pass the addresses to {@link #writeBatch(long, long)}. The writer
- * accepts up to four in-flight batches on the session's runtime thread before back-pressuring the caller.
+ * {@code ArrowArray} / {@code ArrowSchema} pair and pass the addresses to {@link #writeBatch(long, long)}, or export
+ * only the {@code ArrowArray} and pass its address to {@link #writeBatch(long)}. The writer accepts up to four
+ * in-flight batches on the session's runtime thread before back-pressuring the caller.
  *
- * <p>Call {@link #close()} to flush remaining batches and finalize the file. If the writer becomes unreachable without
- * an explicit {@code close()}, {@link VortexCleaner} will flush and release native resources as a backstop — but
- * callers should always finalize explicitly so that I/O errors surface through the normal call path.
+ * <p>Call {@link #close()} to flush remaining batches and finalize the file. Call {@link #finish(Map)} instead to add
+ * metadata segments that are known only after the last batch, for example a bloom filter of the written keys.
+ *
+ * <p>If the writer becomes unreachable without an explicit {@code close()}, {@link VortexCleaner} will flush and
+ * release native resources as a backstop — but callers should always finalize explicitly so that I/O errors surface
+ * through the normal call path.
  */
 public final class VortexWriter implements AutoCloseable {
     private final long pointer;
@@ -246,6 +250,38 @@ public final class VortexWriter implements AutoCloseable {
     }
 
     /**
+     * Write a batch from the address of an Arrow C Data Interface array, with no schema for each call.
+     *
+     * <p>Native code imports the array with the Arrow schema of this writer. Thus, a caller that sends many batches
+     * exports the schema zero times, and the caller does not need to release a schema for each batch. The array must be
+     * a struct array that agrees with the writer schema: the same fields, in the same order, with the same types.
+     * Native code finds an array with incorrect buffer or child counts and throws an {@link IOException}, but it cannot
+     * find all type mismatches. For example, it cannot find an {@code Int64} column in the place of an {@code Int32}
+     * column. An array that does not agree with the schema can cause incorrect data or a crash.
+     *
+     * <p>Native code takes the array struct and releases it, also when the call fails. After this call, the caller has
+     * no ownership of the array struct and must not release it. The caller can close the {@code ArrowArray} wrapper
+     * that holds the struct.
+     *
+     * @param arrowArrayAddr address of an exported {@code ArrowArray} struct
+     */
+    public synchronized void writeBatch(long arrowArrayAddr) throws IOException {
+        Preconditions.checkState(!closed.get(), "writer already closed");
+        Preconditions.checkArgument(arrowArrayAddr != 0, "null arrow array address");
+
+        final boolean ok;
+        try {
+            ok = NativeWriter.writeArray(pointer, arrowArrayAddr);
+        } catch (RuntimeException e) {
+            throw new IOException("failed to write batch", e);
+        }
+
+        if (!ok) {
+            throw new IOException("failed to write batch");
+        }
+    }
+
+    /**
      * Return the number of bytes successfully written to the underlying sink so far.
      *
      * <p>This count does not include queued batches or data still buffered by layout strategies, so it may lag the
@@ -285,16 +321,51 @@ public final class VortexWriter implements AutoCloseable {
      * <p>This method is idempotent. Later calls return the same immutable summary.
      */
     public synchronized VortexWriteSummary finish() throws IOException {
+        return finishWith(null);
+    }
+
+    /**
+     * Flush pending batches, add {@code metadata} to the file footer, finalize the file, and return its statistics and
+     * physical sizes.
+     *
+     * <p>Use this method for metadata that is known only after the last batch. The segments merge with the segments
+     * from {@link Builder#metadata(Map)}, and a key in {@code metadata} replaces the builder segment with the same key.
+     * Values are opaque bytes, returned verbatim by {@code NativeFiles.readMetadata}. The native writer applies its
+     * limits on the number of segments and the length of each key to the merged set. If the merged set is not in the
+     * limits, this method throws an {@link IOException} and the file is not finalized.
+     *
+     * <p>This method is not idempotent. It finalizes the file only one time, so a call after the writer is finished or
+     * closed throws {@link IllegalStateException}, also when {@code metadata} is empty.
+     *
+     * @param metadata the segments to add; keys and values must not be null
+     * @throws IllegalStateException if the writer is already finished or closed
+     * @throws IOException if the file cannot be finalized
+     */
+    public synchronized VortexWriteSummary finish(Map<String, byte[]> metadata) throws IOException {
+        Objects.requireNonNull(metadata, "metadata");
+        Preconditions.checkState(!closed.get(), "writer already finished; metadata must be given to the first finish");
+
+        // Check and copy the entries before the native call consumes the writer.
+        Map<String, byte[]> segments = new HashMap<>();
+        metadata.forEach((key, value) -> segments.put(
+                Objects.requireNonNull(key, "metadata key"), Objects.requireNonNull(value, "metadata value")));
+
+        return finishWith(segments);
+    }
+
+    private VortexWriteSummary finishWith(Map<String, byte[]> metadata) throws IOException {
         if (closed.compareAndSet(false, true)) {
             try {
-                summary = NativeWriter.finish(pointer);
+                summary = NativeWriter.finish(pointer, metadata);
             } catch (RuntimeException e) {
                 throw new IOException("failed to close writer", e);
             }
         }
+
         if (summary == null) {
             throw new IOException("writer was closed without retaining its write summary");
         }
+
         return summary;
     }
 

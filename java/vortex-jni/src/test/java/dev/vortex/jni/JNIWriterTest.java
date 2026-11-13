@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -30,6 +31,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import org.apache.arrow.c.ArrowArray;
 import org.apache.arrow.c.ArrowSchema;
 import org.apache.arrow.c.Data;
@@ -665,6 +667,203 @@ public final class JNIWriterTest {
         assertEquals(3L, age.valueCount());
         assertEquals(25, age.lowerBound().orElseThrow());
         assertEquals(40, age.upperBound().orElseThrow());
+    }
+
+    @Test
+    public void testFinishWithMetadataMergesWithBuilderMetadata() throws IOException {
+        Path outputPath = tempDir.resolve("test_finish_metadata.vortex");
+        String writePath = outputPath.toAbsolutePath().toUri().toString();
+
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        byte[] schemaJson = "{\"type\":\"struct\"}".getBytes(UTF_8);
+        byte[] bloom = new byte[] {1, 2, 3, 4};
+        byte[] minKey = "Alice".getBytes(UTF_8);
+
+        VortexWriteSummary summary;
+        try (VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
+                .putMetadata("schema", schemaJson)
+                .putMetadata("bloom", "placeholder".getBytes(UTF_8))
+                .build()) {
+            writePeopleBatch(writer, allocator);
+
+            // The finish-time value replaces the builder value for the same key.
+            summary = writer.finish(Map.of("bloom", bloom, "min_key", minKey));
+            assertEquals(3L, summary.rowCount());
+
+            // Metadata after the first finish is rejected. The no-argument finish stays idempotent.
+            assertThrows(IllegalStateException.class, () -> writer.finish(Map.of("late", new byte[] {1})));
+            assertThrows(IllegalStateException.class, () -> writer.finish(Map.of()));
+            assertSame(summary, writer.finish());
+        }
+
+        Map<String, byte[]> read = NativeFiles.readMetadata(session, writePath, new HashMap<>());
+        assertEquals(Set.of("schema", "bloom", "min_key"), read.keySet());
+        assertArrayEquals(schemaJson, read.get("schema"));
+        assertArrayEquals(bloom, read.get("bloom"));
+        assertArrayEquals(minKey, read.get("min_key"));
+
+        DataSource ds = DataSource.open(session, writePath);
+        assertEquals(new DataSource.RowCount.Exact(3L), ds.rowCount());
+    }
+
+    @Test
+    public void testFinishWithMetadataToStream() throws IOException {
+        Path outputPath = tempDir.resolve("test_finish_metadata_stream.vortex");
+        String writePath = outputPath.toAbsolutePath().toUri().toString();
+
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        byte[] bloom = new byte[] {9, 8, 7};
+
+        try (OutputStream out = Files.newOutputStream(outputPath)) {
+            NativeWritable sink = new NativeWritable() {
+                @Override
+                public void write(byte[] buffer, int offset, int length) throws IOException {
+                    out.write(buffer, offset, length);
+                }
+
+                @Override
+                public void flush() throws IOException {
+                    out.flush();
+                }
+
+                @Override
+                public void close() {}
+            };
+            try (VortexWriter writer = VortexWriter.builder(session, sink, personSchema(), allocator)
+                    .build()) {
+                writePeopleBatch(writer, allocator);
+                writer.finish(Map.of("bloom", bloom));
+            }
+        }
+
+        Map<String, byte[]> read = NativeFiles.readMetadata(session, writePath, new HashMap<>());
+        assertEquals(Set.of("bloom"), read.keySet());
+        assertArrayEquals(bloom, read.get("bloom"));
+    }
+
+    @Test
+    public void testFinishWithInvalidMetadataFails() throws IOException {
+        Path outputPath = tempDir.resolve("test_finish_bad_metadata.vortex");
+        String writePath = outputPath.toAbsolutePath().toUri().toString();
+
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+
+        VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
+                .build();
+        writePeopleBatch(writer, allocator);
+
+        IOException thrown =
+                assertThrows(IOException.class, () -> writer.finish(Map.of("k".repeat(1024), new byte[] {1})));
+        Throwable cause = thrown.getCause();
+        assertNotNull(cause, "native failure should be retained as the cause");
+        assertTrue(
+                cause.getMessage().contains("metadata key"),
+                "error should identify the offending key, got: " + cause.getMessage());
+
+        // The failed finish consumed the writer, so later calls fail too.
+        assertThrows(IOException.class, writer::finish);
+        assertThrows(IOException.class, writer::close);
+        assertThrows(IllegalStateException.class, () -> writer.finish(Map.of()));
+    }
+
+    @Test
+    public void testWriteBatchWithoutSchema() throws IOException {
+        Path outputPath = tempDir.resolve("test_write_array.vortex");
+        String writePath = outputPath.toAbsolutePath().toUri().toString();
+
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        int batches = 4;
+
+        try (VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
+                        .build();
+                VectorSchemaRoot root = VectorSchemaRoot.create(personSchema(), allocator)) {
+            VarCharVector nameVec = (VarCharVector) root.getVector("name");
+            IntVector ageVec = (IntVector) root.getVector("age");
+
+            for (int batch = 0; batch < batches; batch++) {
+                nameVec.allocateNew(2);
+                ageVec.allocateNew(2);
+                for (int row = 0; row < 2; row++) {
+                    nameVec.setSafe(row, ("p" + (batch * 2 + row)).getBytes(UTF_8));
+                    ageVec.setSafe(row, batch * 2 + row);
+                }
+                root.setRowCount(2);
+
+                // Export only the array. Native code takes and releases it.
+                try (ArrowArray arrowArray = ArrowArray.allocateNew(allocator)) {
+                    Data.exportVectorSchemaRoot(allocator, root, null, arrowArray);
+                    writer.writeBatch(arrowArray.memoryAddress());
+                }
+                root.clear();
+            }
+        }
+
+        List<String> names = new ArrayList<>();
+        List<Integer> ages = new ArrayList<>();
+        Scan scan = DataSource.open(session, writePath).scan(ScanOptions.of());
+        while (scan.hasNext()) {
+            Partition p = scan.next();
+            try (ArrowReader reader = p.scanArrow(allocator)) {
+                while (reader.loadNextBatch()) {
+                    VectorSchemaRoot resultRoot = reader.getVectorSchemaRoot();
+                    ViewVarCharVector nameOut = (ViewVarCharVector) resultRoot.getVector("name");
+                    IntVector ageOut = (IntVector) resultRoot.getVector("age");
+                    for (int i = 0; i < resultRoot.getRowCount(); i++) {
+                        names.add(nameOut.getObject(i).toString());
+                        ages.add(ageOut.getObject(i));
+                    }
+                }
+            }
+        }
+
+        List<String> expectedNames = new ArrayList<>();
+        List<Integer> expectedAges = new ArrayList<>();
+        for (int i = 0; i < batches * 2; i++) {
+            expectedNames.add("p" + i);
+            expectedAges.add(i);
+        }
+        assertEquals(expectedNames, names);
+        assertEquals(expectedAges, ages);
+    }
+
+    @Test
+    public void testWriteBatchWithoutSchemaRejectsMismatchedArray() throws IOException {
+        Path outputPath = tempDir.resolve("test_write_array_mismatch.vortex");
+        String writePath = outputPath.toAbsolutePath().toUri().toString();
+
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        Schema oneColumn = new Schema(List.of(Field.notNullable("age", new ArrowType.Int(32, true))));
+
+        try (VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
+                        .build();
+                VectorSchemaRoot root = VectorSchemaRoot.create(oneColumn, allocator)) {
+            IntVector ageVec = (IntVector) root.getVector("age");
+            ageVec.allocateNew(1);
+            ageVec.setSafe(0, 1);
+            root.setRowCount(1);
+
+            try (ArrowArray arrowArray = ArrowArray.allocateNew(allocator)) {
+                Data.exportVectorSchemaRoot(allocator, root, null, arrowArray);
+                IOException thrown =
+                        assertThrows(IOException.class, () -> writer.writeBatch(arrowArray.memoryAddress()));
+                assertTrue(
+                        thrown.getCause().getMessage().contains("children"),
+                        "error should name the child count, got: "
+                                + thrown.getCause().getMessage());
+            }
+
+            // The writer stays usable after the rejected batch.
+            writePeopleBatch(writer, allocator);
+        }
+
+        assertEquals(
+                new DataSource.RowCount.Exact(3L),
+                DataSource.open(session, writePath).rowCount());
     }
 
     @Test
