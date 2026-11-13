@@ -59,7 +59,7 @@ on:
         required: true
 
 env:
-  NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+  NIGHTLY_TOOLCHAIN: nightly-2026-11-13
 
 jobs:
   fuzz:

@@ -23,7 +23,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+  NIGHTLY_TOOLCHAIN: nightly-2026-11-13
   TY_VERSION: 0.0.98
 
 jobs:

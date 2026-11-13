@@ -14,7 +14,7 @@ on:
         value: ${{ jobs.build.outputs.artifact_name }}
 
 env:
-  NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+  NIGHTLY_TOOLCHAIN: nightly-2026-11-13
 
 jobs:
   build:
