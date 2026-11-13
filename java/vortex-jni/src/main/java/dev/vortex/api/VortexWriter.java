@@ -250,18 +250,13 @@ public final class VortexWriter implements AutoCloseable {
     }
 
     /**
-     * Write a batch from the address of an Arrow C Data Interface array, with no schema for each call.
+     * Write a batch from an Arrow C Data Interface array. Native code imports it with the schema of this writer.
      *
-     * <p>Native code imports the array with the Arrow schema of this writer. Thus, a caller that sends many batches
-     * exports the schema zero times, and the caller does not need to release a schema for each batch. The array must be
-     * a struct array that agrees with the writer schema: the same fields, in the same order, with the same types.
-     * Native code finds an array with incorrect buffer or child counts and throws an {@link IOException}, but it cannot
-     * find all type mismatches. For example, it cannot find an {@code Int64} column in the place of an {@code Int32}
-     * column. An array that does not agree with the schema can cause incorrect data or a crash.
+     * <p>The array must be a struct array that agrees with the writer schema. Native code rejects incorrect buffer or
+     * child counts with an {@link IOException}, but it cannot find all type mismatches (for example {@code Int64} in
+     * the place of {@code Int32}), and such an array can cause incorrect data or a crash.
      *
-     * <p>Native code takes the array struct and releases it, also when the call fails. After this call, the caller has
-     * no ownership of the array struct and must not release it. The caller can close the {@code ArrowArray} wrapper
-     * that holds the struct.
+     * <p>Native code takes the array struct and releases it, also when the call fails.
      *
      * @param arrowArrayAddr address of an exported {@code ArrowArray} struct
      */
@@ -328,14 +323,11 @@ public final class VortexWriter implements AutoCloseable {
      * Flush pending batches, add {@code metadata} to the file footer, finalize the file, and return its statistics and
      * physical sizes.
      *
-     * <p>Use this method for metadata that is known only after the last batch. The segments merge with the segments
-     * from {@link Builder#metadata(Map)}, and a key in {@code metadata} replaces the builder segment with the same key.
-     * Values are opaque bytes, returned verbatim by {@code NativeFiles.readMetadata}. The native writer applies its
-     * limits on the number of segments and the length of each key to the merged set. If the merged set is not in the
-     * limits, this method throws an {@link IOException} and the file is not finalized.
+     * <p>The segments merge with the segments from {@link Builder#metadata(Map)}, and a key in {@code metadata}
+     * replaces the builder segment with the same key. The native limits apply to the merged set.
      *
-     * <p>This method is not idempotent. It finalizes the file only one time, so a call after the writer is finished or
-     * closed throws {@link IllegalStateException}, also when {@code metadata} is empty.
+     * <p>This method is not idempotent: a call after the writer is finished or closed throws
+     * {@link IllegalStateException}.
      *
      * @param metadata the segments to add; keys and values must not be null
      * @throws IllegalStateException if the writer is already finished or closed

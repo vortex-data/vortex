@@ -243,25 +243,16 @@ impl VortexWriteOptions {
 
     /// Returns a handle that adds metadata segments while the write runs.
     ///
-    /// The write reads the segments in the handle only after the last chunk of the input stream,
-    /// immediately before it writes the footer. Thus, a caller can supply values that are known
-    /// only after all the data, for example a bloom filter of the written keys. Segments in the
-    /// handle replace the segments from [`Self::with_metadata_segment`] that have the same key.
-    /// The `MAX_METADATA_*` limits apply to the merged set, and the write fails if the merged set
-    /// is not valid.
-    ///
-    /// The handle is shared with the write these options start, so get it before you call
-    /// [`Self::write`]. Segments that you add after the end of the input stream can arrive after
-    /// the write reads the handle; the write then ignores them. [`Writer::finish_with_metadata`]
-    /// uses this handle for the push-based API.
+    /// The write reads the handle after the input stream ends, immediately before the footer.
+    /// Its segments replace the [`Self::with_metadata_segment`] segments that have the same key,
+    /// and the `MAX_METADATA_*` limits apply to the merged set. The write ignores segments that
+    /// you add after the input ends.
     pub fn deferred_metadata(&self) -> DeferredMetadata {
         self.deferred_metadata.clone()
     }
 }
 
 /// A shared handle that adds metadata segments to a write after the write starts.
-///
-/// Get it from [`VortexWriteOptions::deferred_metadata`].
 #[derive(Clone, Default)]
 pub struct DeferredMetadata {
     segments: Arc<Mutex<HashMap<String, ByteBuffer>>>,
@@ -430,8 +421,7 @@ impl VortexWriteOptions {
 
         let (layout, segment_specs) = layout_fut.await?;
 
-        // The layout future completes only after the input stream ends. Thus, all the deferred
-        // segments that a caller adds before the end of the input are in the handle now.
+        // The input stream has ended, so the deferred segments are complete.
         let mut metadata = self.metadata;
         metadata.extend(self.deferred_metadata.take());
         validate_metadata_segments(&metadata)?;
@@ -744,10 +734,7 @@ impl Writer<'_> {
 
     /// Finish writing the Vortex file and add the given metadata segments to its footer.
     ///
-    /// Use this when the metadata is known only after the last chunk. The segments merge with the
-    /// segments from [`VortexWriteOptions::with_metadata_segment`]. A key in `metadata` replaces
-    /// the configured segment with the same key. If the merged set is not in the
-    /// `MAX_METADATA_*` limits, this returns an error and the file has no footer.
+    /// See [`VortexWriteOptions::deferred_metadata`] for the merge and limit rules.
     pub async fn finish_with_metadata<I, K, B>(self, metadata: I) -> VortexResult<WriteSummary>
     where
         I: IntoIterator<Item = (K, B)>,
@@ -832,10 +819,7 @@ impl<B: BlockingRuntime> BlockingWriter<'_, '_, B> {
         self.runtime.block_on(self.writer.finish())
     }
 
-    /// Finish writing, add the given metadata segments to the footer, and return the written file
-    /// summary.
-    ///
-    /// See [`Writer::finish_with_metadata`].
+    /// Blocking version of [`Writer::finish_with_metadata`].
     pub fn finish_with_metadata<I, K, V>(self, metadata: I) -> VortexResult<WriteSummary>
     where
         I: IntoIterator<Item = (K, V)>,

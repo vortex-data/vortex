@@ -206,8 +206,7 @@ impl NativeWriter {
 
     /// Close the input and wait for the write task. The task adds `metadata` to the footer.
     fn close(mut self, metadata: HashMap<String, ByteBuffer>) -> VortexResult<WriteSummary> {
-        // Add the metadata before the input closes. The write task reads it only after the
-        // input ends.
+        // The write task reads the metadata after the input ends, so add it first.
         self.deferred_metadata.extend(metadata);
 
         self.sender.disconnect();
@@ -386,19 +385,15 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_writeBatch(
     })
 }
 
-/// Check that the buffer and child counts of `array` agree with `data_type`.
+/// Check that the buffer, child and dictionary counts of `array` agree with `data_type`.
 ///
-/// The import of an Arrow C array against a given type reads buffers at the lengths that the
-/// type gives. A caller array that does not agree with the type can cause reads out of bounds,
-/// or a panic in the import. This check finds most of these arrays before the import. It cannot
-/// find an array that has the correct structure but a different value width, for example an
-/// `Int64` column in the place of an `Int32` column.
+/// The Arrow import does not validate, so a mismatch can panic or read out of bounds. This check
+/// cannot find a different value width, for example `Int64` in the place of `Int32`.
 fn check_ffi_layout(array: &FFI_ArrowArray, data_type: &DataType) -> VortexResult<()> {
     let expected = layout(data_type);
     let fixed_buffers = expected.buffers.len() + usize::from(expected.can_contain_null_mask);
 
-    // View types have one more buffer for the variadic lengths, and a variable count of data
-    // buffers.
+    // View types have a variable count of data buffers.
     if expected.variadic {
         vortex_ensure!(
             array.num_buffers() > fixed_buffers,
@@ -452,10 +447,9 @@ fn check_ffi_layout(array: &FFI_ArrowArray, data_type: &DataType) -> VortexResul
     }
 }
 
-/// Write a batch from the address of an Arrow C Data Interface array.
+/// Write a batch from an Arrow C Data Interface array that agrees with the writer schema.
 ///
-/// The array must agree with the Arrow schema that the writer got at create time. Native code
-/// takes the array and releases it, also when the call fails.
+/// Native code takes the array and releases it, also when the call fails.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeWriter_writeArray(
     mut env: EnvUnowned,
@@ -479,8 +473,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_writeArray(
         let dtype = DataType::Struct(writer.arrow_schema.fields().clone());
         check_ffi_layout(&ffi_array, &dtype)?;
 
-        // SAFETY: `check_ffi_layout` found the buffer and child counts that `dtype` needs. The
-        // caller guarantees that the values agree with the writer schema.
+        // SAFETY: `check_ffi_layout` passed, and the caller guarantees the value types.
         let array_data = unsafe { arrow_array::ffi::from_ffi_and_data_type(ffi_array, dtype) }
             .map_err(|e| JNIError::Vortex(vortex_err!("failed to import Arrow FFI data: {e}")))?;
 
@@ -553,9 +546,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_bufferedBytes(
 
 /// Finish the writer and return its summary.
 ///
-/// `metadata` is a nullable `Map<String, byte[]>`. Its segments merge with the segments given
-/// at create time, and a key in `metadata` replaces the create-time segment with the same key.
-/// The write task validates the merged set, so a violation is thrown from this call.
+/// `metadata` is a nullable `Map<String, byte[]>` that merges with the create-time segments.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeWriter_finish(
     mut env: EnvUnowned,

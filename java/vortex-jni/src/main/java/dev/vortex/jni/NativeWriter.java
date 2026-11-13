@@ -53,12 +53,9 @@ public final class NativeWriter {
     public static native boolean writeBatch(long writerPointer, long arrowArrayAddress, long arrowSchemaAddress);
 
     /**
-     * Write a batch from the address of an Arrow C Data Interface array. Native code imports the array with the Arrow
-     * schema that the writer got at create time, so the call needs no schema.
+     * Write a batch from an Arrow C Data Interface array that agrees with the writer schema. Native code takes the
+     * array and releases it, also when the call fails.
      *
-     * @param writerPointer pointer from {@link #create}
-     * @param arrowArrayAddress address of an {@code ArrowArray} struct that agrees with the writer schema. Native code
-     *     takes the array and releases it, also when the call fails.
      * @return {@code true} on success
      */
     public static native boolean writeArray(long writerPointer, long arrowArrayAddress);
@@ -81,9 +78,7 @@ public final class NativeWriter {
     /**
      * Flush and close the writer, returning its completed-file summary. Must be called exactly once.
      *
-     * @param metadata user-defined metadata segments to add to the file footer (may be null). They merge with the
-     *     segments given to {@link #create} or {@link #createStream}, and a key here replaces the segment with the same
-     *     key. The merged set must be in the native limits, or this call fails.
+     * @param metadata metadata segments to merge with the create-time segments (may be null)
      */
     public static native VortexWriteSummary finish(long writerPointer, Map<String, byte[]> metadata);
 }
