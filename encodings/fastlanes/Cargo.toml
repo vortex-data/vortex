@@ -44,6 +44,7 @@ vortex-alp = { path = "../alp" }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-bench-support = { workspace = true }
 vortex-fastlanes = { path = ".", features = ["_test-harness"] }
+vortex-sparse = { workspace = true }
 
 [features]
 _test-harness = ["dep:rand"]
@@ -97,4 +98,8 @@ harness = false
 
 [[bench]]
 name = "for_decode"
+harness = false
+
+[[bench]]
+name = "patched_search"
 harness = false
