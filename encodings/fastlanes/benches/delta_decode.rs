@@ -30,6 +30,9 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::search_sorted::SearchSorted;
+use vortex_array::search_sorted::SearchSortedPrimitiveArray;
+use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -204,5 +207,31 @@ fn take(bencher: Bencher, count: usize) {
                 .unwrap()
                 .execute::<PrimitiveArray>(ctx)
                 .unwrap()
+        });
+}
+
+/// Rows in the sorted array the search benchmark searches: 256 chunks of `u32`.
+const SEARCH_LEN: usize = 256 * 1024;
+
+/// Binary-searches a sorted Delta array for scattered needles, one search at a time, as a
+/// `Patches` lookup does over Delta-encoded patch indices.
+#[divan::bench(args = [64])]
+fn search_sorted(bencher: Bencher, count: usize) {
+    let array = delta_bitpacked::<u32>(SEARCH_LEN).into_array();
+    let max = values::<u32>(SEARCH_LEN)[SEARCH_LEN - 1];
+    let needles: Vec<u32> = (0..count)
+        .map(|i| u32::try_from(i * 7919 % usize::try_from(max).unwrap()).unwrap())
+        .collect();
+    bencher
+        .counter(ItemsCount::new(count))
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_refs(|(array, ctx)| {
+            for needle in &needles {
+                divan::black_box(
+                    SearchSortedPrimitiveArray::<u32>::new(array, ctx)
+                        .search_sorted(needle, SearchSortedSide::Left)
+                        .unwrap(),
+                );
+            }
         });
 }
