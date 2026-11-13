@@ -581,6 +581,40 @@ fn test_scan_dtype_export_errors_and_panics_are_terminal() -> VortexResult<()> {
 }
 
 #[cuda_test]
+fn test_device_check_rejects_non_cuda_export() -> VortexResult<()> {
+    let session = session()?;
+    let mut handle = batches(
+        &session,
+        vec![PrimitiveArray::from_iter([42i32]).into_array()],
+    )?;
+    let mut output = next(&mut handle)?;
+    handle.check_device(&output.array)?;
+    output.array.device_type = 0;
+    let error = handle
+        .check_device(&output.array)
+        .expect_err("non-CUDA export must be rejected");
+    assert!(error.to_string().contains("non-CUDA device type"));
+    Ok(())
+}
+
+#[cuda_test]
+fn test_device_check_rejects_different_cuda_device() -> VortexResult<()> {
+    let session = session()?;
+    let mut handle = batches(
+        &session,
+        vec![PrimitiveArray::from_iter([42i32]).into_array()],
+    )?;
+    let mut output = next(&mut handle)?;
+    handle.check_device(&output.array)?;
+    output.array.device_id += 1;
+    let error = handle
+        .check_device(&output.array)
+        .expect_err("export from a different CUDA device must be rejected");
+    assert!(error.to_string().contains("moved from CUDA device"));
+    Ok(())
+}
+
+#[cuda_test]
 fn test_invalid_output_pointers_do_not_consume_or_poison() -> VortexResult<()> {
     let session = session()?;
     let mut handle = batches(

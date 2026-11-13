@@ -69,7 +69,8 @@ struct ArrowDeviceArrayStream {
  *
  * The logical dtype is fixed, but physical Arrow schemas, dictionary values, and index widths
  * may vary between batches. Dictionaries are exported using `DictionaryExport::Preserve`.
- * Plain batches stay plain; dictionaries are not synthesized.
+ * Plain batches stay plain; dictionaries are not synthesized. All batches use the handle's CUDA
+ * device; exports with a different device type or ID are rejected.
  * The handle retains its runtime and session resources. Use and free it on the creating thread,
  * without concurrent or reentrant calls. Free with `vx_cuda_device_batches_free`.
  */

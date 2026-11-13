@@ -21,6 +21,7 @@ use vortex_cuda::arrow::ARROW_DEVICE_CUDA;
 use vortex_cuda::arrow::ArrowDeviceArray;
 use vortex_cuda::arrow::ArrowDeviceArrayWithSchema;
 use vortex_cuda::arrow::DeviceArrayExt;
+use vortex_cuda::arrow::release_device_array;
 use vortex_ffi::ffi_runtime;
 use vortex_ffi::try_or;
 use vortex_ffi::vx_error;
@@ -40,7 +41,8 @@ use crate::vx_cuda_scan_options;
 ///
 /// The logical dtype is fixed, but physical Arrow schemas, dictionary values, and index widths
 /// may vary between batches. Dictionaries are exported using `DictionaryExport::Preserve`.
-/// Plain batches stay plain; dictionaries are not synthesized.
+/// Plain batches stay plain; dictionaries are not synthesized. All batches use the handle's CUDA
+/// device; exports with a different device type or ID are rejected.
 /// The handle retains its runtime and session resources. Use and free it on the creating thread,
 /// without concurrent or reentrant calls. Free with `vx_cuda_device_batches_free`.
 #[allow(non_camel_case_types)]
@@ -112,11 +114,33 @@ impl vx_cuda_device_batches {
             &self.dtype,
             "scan batch logical dtype changed"
         );
-        let exported = self
+        let mut exported = self
             .runtime
             .block_on(array.export_device_array_with_schema(&mut self.ctx))?;
+        if let Err(error) = self.check_device(&exported.array) {
+            // The schema releases itself on drop; the array needs explicit release.
+            release_device_array(&mut exported.array);
+            return Err(error);
+        }
         self.state = State::Ready;
         Ok(exported)
+    }
+
+    /// Require exports to use the handle's CUDA device.
+    ///
+    /// Physical schemas may vary between batches, but the execution device must not.
+    fn check_device(&self, array: &ArrowDeviceArray) -> VortexResult<()> {
+        vortex_ensure_eq!(
+            array.device_type,
+            ARROW_DEVICE_CUDA,
+            "scan batch exported on non-CUDA device type"
+        );
+        vortex_ensure_eq!(
+            array.device_id,
+            self.ctx.stream().context().ordinal() as i64,
+            "scan batch moved from CUDA device"
+        );
+        Ok(())
     }
 }
 
