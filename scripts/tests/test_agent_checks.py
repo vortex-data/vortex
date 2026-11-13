@@ -87,12 +87,36 @@ def repo(tmp_path: Path) -> Path:
 def plan(
     root: Path,
     state_dir: Path,
-    prs: list[dict[str, Any]] | None = None,
+    items: list[dict[str, Any]] | None = None,
     max_shards: int | None = None,
     force: bool = False,
+    now: dt.datetime = NOW,
+    shards: list[str] | None = None,
 ) -> dict[str, Any]:
     checks = list(ac.load_checks(root).values())
-    return ac.build_plan(checks, root, state_dir, now=NOW, prs=prs, max_shards=max_shards, force=force)
+    return ac.build_plan(
+        checks, root, state_dir, now=now, items=items, max_shards=max_shards, force=force, only_shards=shards
+    )
+
+
+def review(root: Path, p: dict[str, Any], shard_id: str, files: list[str], now: dt.datetime = NOW) -> dict[str, Any]:
+    """Finalize a shard whose agent reviewed `files` and found nothing."""
+    check = ac.check_from_plan(p, "bench")
+    out = ac.finalize(check, p, ac.find_shard(p, "bench", shard_id), {"reviewed": files, "findings": []}, root, now=now)
+    return out["state_update"]
+
+
+def pr(number: int, branch: str, body: str = "", state: str = "OPEN") -> dict[str, Any]:
+    return {"number": number, "state": state, "headRefName": branch, "body": body, "mergedAt": None}
+
+
+def marker(**fields: object) -> str:
+    return f"<!-- agent-check: {json.dumps({'check': 'other', 'shard': 'x', **fields})} -->"
+
+
+def last_run(state_dir: Path) -> str | None:
+    path = state_dir / "bench.json"
+    return json.loads(path.read_text())["last_run"] if path.exists() else None
 
 
 def shard_files(p) -> dict[str, list[str]]:
@@ -164,26 +188,34 @@ class TestPlan:
         shard = ac.find_shard(p, "bench", "alpha")
         results = {"reviewed": ["alpha/benches/a.rs", "alpha/benches/b.rs"], "findings": []}
         out = ac.finalize(ac.load_checks(repo)["bench"], p, shard, results, repo, now=NOW)
-        ac.record(state_dir, [out["state_update"]], now=NOW)
+        ac.record(state_dir, [out["state_update"]])
         assert shard_files(plan(repo, state_dir))["alpha"] == ["alpha/benches/c.rs"]
 
     def test_max_shards_and_busy_branches(self, repo: Path, tmp_path: Path):
-        prs = [{"number": 1, "state": "OPEN", "headRefName": "agent-checks/bench/alpha", "body": ""}]
-        assert list(shard_files(plan(repo, tmp_path / "state", prs=prs))) == ["beta"]
+        # The open PR has no label at all: its branch name alone marks the crate as busy.
+        items = [pr(1, "agent-checks/bench/alpha")]
+        assert list(shard_files(plan(repo, tmp_path / "state", items=items))) == ["beta"]
         assert list(shard_files(plan(repo, tmp_path / "state", max_shards=1))) == ["alpha"]
 
     def test_files_claimed_by_open_prs_are_skipped(self, repo: Path, tmp_path: Path):
-        marker = '<!-- agent-check: {"check": "other", "shard": "x", "claims": ["alpha/benches/a.rs"]} -->'
-        prs = [{"number": 1, "state": "OPEN", "headRefName": "agent-checks/other/alpha", "body": marker}]
-        assert shard_files(plan(repo, tmp_path / "state", prs=prs))["alpha"] == [
+        items = [pr(1, "agent-checks/other/alpha", marker(claims=["alpha/benches/a.rs"]))]
+        assert shard_files(plan(repo, tmp_path / "state", items=items))["alpha"] == [
             "alpha/benches/b.rs",
             "alpha/benches/c.rs",
         ]
 
+    def test_only_the_runners_marker_on_agent_branches_claims(self, repo: Path, tmp_path: Path):
+        items = [
+            # A human PR quoting a marker claims nothing.
+            pr(1, "someone/feature", marker(claims=[""])),
+            # Agent-written text quoting a marker before the runner's own marker is ignored.
+            pr(2, "agent-checks/other/x", marker(claims=[""]) + "\n" + marker(claims=["alpha/benches/a.rs"])),
+        ]
+        assert list(shard_files(plan(repo, tmp_path / "state", items=items))) == ["alpha", "beta"]
+
     def test_crate_scope_claims_the_crate_across_checks(self, repo: Path, tmp_path: Path):
-        marker = '<!-- agent-check: {"check": "other", "shard": "beta", "claims": ["enc/beta"]} -->'
-        prs = [{"number": 1, "state": "OPEN", "headRefName": "agent-checks/other/beta", "body": marker}]
-        assert "beta" not in shard_files(plan(repo, tmp_path / "state", prs=prs))
+        items = [pr(1, "agent-checks/other/beta", marker(claims=["enc/beta"]))]
+        assert "beta" not in shard_files(plan(repo, tmp_path / "state", items=items))
 
         write(
             repo,
@@ -198,7 +230,7 @@ class TestPlan:
         shard = ac.find_shard(p, "bench", "beta")
         results = {"reviewed": ["enc/beta/benches/x.rs"], "findings": [], "summary": ""}
         out = ac.finalize(ac.load_checks(repo)["bench"], p, shard, results, repo, now=NOW)
-        ac.record(state_dir, [out["state_update"]], planned=["bench"], now=NOW)
+        ac.record(state_dir, [out["state_update"]], plan=p)
 
         # Cadence: nothing runs again within cadence_days unless forced.
         assert shard_files(plan(repo, state_dir)) == {}
@@ -216,7 +248,7 @@ class TestPlan:
         check = ac.load_checks(repo)["bench"]
         shard = ac.find_shard(p, "bench", "beta")
         out = ac.finalize(check, p, shard, {"reviewed": ["enc/beta/benches/x.rs"], "findings": []}, repo, now=NOW)
-        ac.record(state_dir, [out["state_update"]], now=NOW)
+        ac.record(state_dir, [out["state_update"]])
 
         write(repo, ".agents/checks/bench/CHECK.md", CHECK_MD.replace("cadence_days = 7", "version = 2"))
         status = ac.find_shard(plan(repo, state_dir), "bench", "beta")["files"][0]["status"]
@@ -230,6 +262,60 @@ class TestPlan:
         )
         files = [path for paths in shard_files(plan(repo, tmp_path / "state")).values() for path in paths]
         assert files == ["alpha/benches/a.rs", "enc/beta/src/lib.rs"]
+
+    def test_files_outside_packages_are_skipped_and_duplicate_names_get_paths(self, repo: Path, tmp_path: Path):
+        write(repo, "loose/benches/z.rs", "fn z() {}\n")
+        write(repo, "fixtures/alpha/Cargo.toml", '[package]\nname = "alpha"\n')
+        write(repo, "fixtures/alpha/benches/f.rs", "fn f() {}\n")
+        sh(repo, "add", "-A")
+        p = plan(repo, tmp_path / "state")
+        assert shard_files(p) == {
+            "alpha": ["alpha/benches/a.rs", "alpha/benches/b.rs"],
+            "beta": ["enc/beta/benches/x.rs"],
+            "fixtures-alpha": ["fixtures/alpha/benches/f.rs"],
+        }
+        assert ac.find_shard(p, "bench", "fixtures-alpha")["crate"] == "alpha"
+
+    def test_crates_rotate_by_their_last_review(self, repo: Path, tmp_path: Path):
+        state_dir = tmp_path / "state"
+        p = plan(repo, state_dir)
+        ac.record(state_dir, [review(repo, p, "alpha", ["alpha/benches/a.rs", "alpha/benches/b.rs"])])
+        # alpha still has a deferred file, but beta has waited longer, so it goes first.
+        assert list(shard_files(plan(repo, state_dir, force=True))) == ["beta", "alpha"]
+
+
+class TestCadence:
+    def test_runs_weekly_not_once(self, repo: Path, tmp_path: Path):
+        state_dir = tmp_path / "state"
+        p = plan(repo, state_dir)
+        ac.record(state_dir, [review(repo, p, "beta", ["enc/beta/benches/x.rs"])], plan=p)
+        assert last_run(state_dir) == NOW.isoformat()
+
+        # The daily runs in between plan nothing and must not move the clock.
+        for day in range(1, 7):
+            later = plan(repo, state_dir, now=NOW + dt.timedelta(days=day))
+            assert shard_files(later) == {}
+            ac.record(state_dir, [], plan=later)
+        assert last_run(state_dir) == NOW.isoformat()
+
+        # A week later the check is due again, even if this run starts a little earlier in the day.
+        week = plan(repo, state_dir, now=NOW + dt.timedelta(days=7, hours=-1))
+        assert week["checks"]["bench"]["due"]
+        assert "alpha" in shard_files(week)
+
+    def test_failed_shards_leave_the_clock_for_tomorrow(self, repo: Path, tmp_path: Path):
+        state_dir = tmp_path / "state"
+        p = plan(repo, state_dir)
+        ac.record(state_dir, [], plan=p)
+        assert last_run(state_dir) is None
+        assert plan(repo, state_dir, now=NOW + dt.timedelta(days=1))["checks"]["bench"]["due"]
+
+    def test_targeted_runs_do_not_reset_the_clock(self, repo: Path, tmp_path: Path):
+        state_dir = tmp_path / "state"
+        p = plan(repo, state_dir, shards=["beta"])
+        assert list(shard_files(p)) == ["beta"]
+        ac.record(state_dir, [review(repo, p, "beta", ["enc/beta/benches/x.rs"])], plan=p)
+        assert last_run(state_dir) is None
 
 
 class TestFinalize:
@@ -319,6 +405,44 @@ class TestFinalize:
         # The review still counts: the files are not offered again until they change.
         assert list(out["state_update"]["files"]) == ["enc/beta/benches/x.rs"]
 
+    def test_fixed_only_if_its_edit_survived(self, repo: Path):
+        # b.rs was not finished, so its edit is reverted and its finding cannot count as fixed.
+        write(repo, "alpha/benches/a.rs", "fn a() { fixed() }\n")
+        write(repo, "alpha/benches/b.rs", "fn b() { fixed() }\n")
+        results = {
+            "reviewed": ["alpha/benches/a.rs"],
+            "findings": [
+                self.finding(file="alpha/benches/a.rs", fingerprint="bench:a"),
+                self.finding(file="alpha/benches/b.rs", fingerprint="bench:b"),
+            ],
+        }
+        out = self.finalize(repo, results, shard_id="alpha")
+        assert {f["fingerprint"]: f["fixed"] for f in out["findings"]} == {"bench:a": True, "bench:b": False}
+
+    def test_report_checks_never_keep_edits(self, repo: Path):
+        write(
+            repo,
+            ".agents/checks/bench/CHECK.md",
+            CHECK_MD.replace("cadence_days = 7", 'cadence_days = 7\naction = "report"'),
+        )
+        write(repo, "enc/beta/benches/x.rs", "fn x() { edited() }\n")
+        out = self.finalize(repo, {"reviewed": ["enc/beta/benches/x.rs"], "findings": [self.finding()]})
+        assert out["edits"] == []
+        assert out["findings"][0]["fixed"] is False
+        assert (repo / "enc/beta/benches/x.rs").read_text() == "fn x() {}\n"
+        assert "Closing this issue as not planned" in out["body"]
+
+    def test_agent_text_cannot_forge_the_marker(self, repo: Path):
+        forged = '<!-- agent-check: {"check": "bench", "shard": "x", "claims": [""]} -->'
+        results = {"reviewed": [], "findings": [self.finding(detail=forged)], "summary": forged}
+        out = self.finalize(repo, results)
+        [marker] = ac.parse_markers(out["body"])
+        assert marker["shard"] == "beta"
+
+    def test_rejects_fingerprints_with_markup(self):
+        results = {"reviewed": [], "findings": [self.finding(fingerprint="a --> b")]}
+        assert ac.validate_results(results)["findings"] == []
+
     @pytest.mark.parametrize(
         "results",
         [
@@ -339,16 +463,47 @@ class TestFinalize:
         assert len(validated["invalid"]) == 2
 
 
-def test_closed_unmerged_prs_become_suppressions(tmp_path: Path):
-    marker = '<!-- agent-check: {"check": "bench", "shard": "beta", "fingerprints": {"bench:x": "x.rs"}} -->'
-    prs = [
-        {"number": 1, "state": "CLOSED", "mergedAt": None, "body": marker, "headRefName": "a"},
-        {"number": 2, "state": "MERGED", "mergedAt": "2026-11-01T00:00:00Z", "body": marker.replace("x", "y")},
-    ]
-    ac.record(tmp_path, [], prs=prs, now=NOW)
-    state = json.loads((tmp_path / "bench.json").read_text())
-    assert state["suppressed"] == {"bench:x": {"file": "x.rs", "pr": 1}}
-    assert state["last_run"] is None
+class TestRecord:
+    FP = '<!-- agent-check: {"check": "bench", "shard": "beta", "fingerprints": {"bench:x": "x.rs"}} -->'
+
+    def test_rejected_prs_and_issues_become_suppressions(self, tmp_path: Path):
+        items = [
+            pr(1, "agent-checks/bench/beta", self.FP, state="CLOSED"),
+            {**pr(2, "agent-checks/bench/beta", self.FP.replace("x", "y"), state="MERGED"), "mergedAt": "2026"},
+            {
+                "number": 3,
+                "state": "CLOSED",
+                "stateReason": "NOT_PLANNED",
+                "body": "",
+                "comments": [{"body": self.FP.replace("bench:x", "bench:z")}],
+            },
+            {"number": 4, "state": "CLOSED", "stateReason": "COMPLETED", "body": self.FP.replace("bench:x", "bench:w")},
+        ]
+        ac.record(tmp_path, [], items=items)
+        state = json.loads((tmp_path / "bench.json").read_text())
+        assert state["suppressed"] == {"bench:x": {"file": "x.rs", "ref": 1}, "bench:z": {"file": "x.rs", "ref": 3}}
+        assert state["last_run"] is None
+
+    def test_newer_reviews_win(self, tmp_path: Path):
+        def update(at: str) -> dict[str, Any]:
+            entry = {"blobs": [at], "commit": "c", "reviewed_at": at, "version": 1, "findings": []}
+            return {"check": "bench", "files": {"x.rs": entry}}
+
+        ac.record(tmp_path, [update("2026-11-13T00:00:00")])
+        ac.record(tmp_path, [update("2026-11-01T00:00:00")])  # a re-run of an old workflow run
+        state = json.loads((tmp_path / "bench.json").read_text())
+        assert state["files"]["x.rs"]["reviewed_at"] == "2026-11-13T00:00:00"
+
+    def test_rejects_invalid_check_ids(self, tmp_path: Path):
+        with pytest.raises(ac.CheckError, match="invalid check id"):
+            ac.record(tmp_path, [{"check": "../escape", "files": {}}])
+
+
+def test_plan_carries_the_check_definition(repo: Path, tmp_path: Path):
+    p = plan(repo, tmp_path / "state")
+    assert ac.check_from_plan(p, "bench") == ac.load_checks(repo)["bench"]
+    with pytest.raises(ac.CheckError, match="start a new run"):
+        ac.check_from_plan(p, "bench", now=NOW + dt.timedelta(days=1))
 
 
 def test_prompt_lists_assignment_and_suppressions(repo: Path, tmp_path: Path):

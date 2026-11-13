@@ -43,7 +43,9 @@ allowed_tools = [
   "Bash(cargo check:*)",
   "Bash(cargo nextest run:*)",
   "Bash(cargo test:*)",
-  "Bash(RUSTC_WRAPPER= cargo:*)",
+  "Bash(RUSTC_WRAPPER= cargo check:*)",
+  "Bash(RUSTC_WRAPPER= cargo clippy:*)",
+  "Bash(RUSTC_WRAPPER= cargo test:*)",
   "Bash(git status:*)",
   "Bash(git restore:*)",
 ]
@@ -119,10 +121,12 @@ style.
 - Keep each fix small and inside the test code of an assigned file. Follow the code around it:
   imports at module level, the existing `SESSION` and ctx helpers, and rstest case naming.
 - This check asks you to verify every edit. After you edit a crate's tests, run:
-  1. `cargo clippy -p <crate> --all-targets --all-features -- -D warnings`
-  2. `cargo nextest run -p <crate> --all-features -E 'test(<name>)'` for each touched test. If
-     nextest is not installed, use `cargo test -p <crate> --all-features <name>`.
-  If cargo fails with exactly `sccache: error: Operation not permitted`, rerun with `RUSTC_WRAPPER=`.
+  1. The runner's verify command, listed in the rules below. If it fails after you finish, the
+     runner discards every edit in the shard, so it must pass. If it fails before any of your
+     edits, revert them all and report every finding unfixed.
+  2. `cargo test -p <crate> --all-features <name>` for each touched test.
+  If cargo fails with exactly `sccache: error: Operation not permitted`, rerun with `RUSTC_WRAPPER=`
+  in front.
 - If clippy or the touched tests fail, revert that fix (`git restore -- <file>`, then reapply your
   other fixes in the file) and report the finding with `"fixed": false`. If a stronger assertion
   fails, the code may have a real bug. Report it as high and include the failure output.

@@ -3,6 +3,8 @@ id = "benchmark-usefulness"
 title = "Benchmark usefulness"
 description = "Benchmarks measure what they claim, without setup, teardown or dead-code contamination, at a reasonable CodSpeed cost."
 include = ["**/benches/**/*.rs"]
+# CI cannot build these here: vortex-cuda needs the CUDA toolkit and vortex-duckdb downloads DuckDB.
+exclude = ["vortex-cuda/**", "vortex-duckdb/**"]
 max_files_per_shard = 12
 max_shards_per_run = 8
 cadence_days = 7
@@ -13,8 +15,9 @@ max_turns = 120
 allowed_tools = [
   "Bash(cargo check:*)",
   "Bash(cargo clippy:*)",
-  "Bash(RUSTC_WRAPPER= cargo:*)",
-  "Bash(RUSTFLAGS=* cargo check:*)",
+  "Bash(RUSTC_WRAPPER= cargo check:*)",
+  "Bash(RUSTC_WRAPPER= cargo clippy:*)",
+  "Bash(env RUSTFLAGS=:*)",
   "Bash(git status:*)",
 ]
 # The runner checks edits with these after the agent finishes. If one fails, every edit is
@@ -42,7 +45,6 @@ into a pull request and your report into its description.
   it and do not fix it. A human already declined it.
 - Review every assigned file in full, whatever its status. For a changed file, start with the diff
   hint, then read the whole file: a change can break a benchmark far from the edited lines.
-- `vortex-duckdb` is report-only: its build script downloads DuckDB, so do not edit or compile it.
 
 ## Read first
 
@@ -181,19 +183,20 @@ Keep each fix minimal and in the file's existing style. Do not add comments that
 
 For every crate whose files you edited:
 
-1. `cargo check -p <crate> --benches --features <features>`, where `<features>` is the crate's
-   `PACKAGE_FEATURES` entry in `scripts/codspeed_shards.py` (omit `--features` if it has none).
-2. `cargo clippy -p <crate> --benches --all-features -- -D warnings`.
-3. If an edit touches code that depends on `cfg(codspeed)` or `cfg!(codspeed)`, also run step 1
-   with `RUSTFLAGS="--cfg codspeed"` and `--target-dir target/codspeed-check`.
+1. The runner's verify command, listed in the rules below. If it fails after you finish, the runner
+   discards every edit in the shard, so it must pass.
+2. If an edit touches code that depends on `cfg(codspeed)` or `cfg!(codspeed)`, also run
+   `env RUSTFLAGS="--cfg codspeed" cargo check -p <crate> --benches --features <features>
+   --target-dir target/codspeed-check`, where `<features>` is the crate's `PACKAGE_FEATURES` entry
+   in `scripts/codspeed_shards.py` (omit `--features` if it has none).
 
 Do not run `cargo fmt`; the runner formats edited files with the pinned nightly.
 
 If cargo fails with exactly `sccache: error: Operation not permitted`, rerun that command with
-`RUSTC_WRAPPER=`. If a check fails because of your edit and you cannot fix it simply, revert that
-file with `git checkout -- <file>` and set `fixed: false` on its findings. If it fails in code you
-did not touch, keep your edits only when `cargo check` passes, and note the existing failure in the
-summary.
+`RUSTC_WRAPPER=` in front. If a check fails because of your edit and you cannot fix it simply,
+revert that file with `git checkout -- <file>` and set `fixed: false` on its findings. If the
+verify command fails before any of your edits (in code you did not touch), revert all your edits,
+report every finding unfixed, and note the existing failure in the summary.
 
 ## Output
 

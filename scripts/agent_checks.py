@@ -37,6 +37,7 @@ Run the tests with:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime as dt
 import json
 import os
@@ -46,7 +47,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
-from collections.abc import Collection, Sequence
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,9 @@ STATE_SCHEMA = 1
 BRANCH_PREFIX = "agent-checks"
 MARKER_RE = re.compile(r"<!--\s*agent-check:\s*(\{.*?\})\s*-->", re.DOTALL)
 SEVERITIES = ("high", "medium", "low")
+MAX_PLAN_AGE = dt.timedelta(hours=20)
+CHECK_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
+FINGERPRINT_RE = re.compile(r"[\w./:#@+=,-]{1,200}")
 STATUS_RANK = {"changed": 0, "new": 1, "rubric": 2, "stale": 3, "full": 4}
 # Tools every check gets. Checks add more with `allowed_tools`.
 BASE_TOOLS = (
@@ -70,7 +74,9 @@ BASE_TOOLS = (
     "Bash(git log:*)",
     "Bash(git show:*)",
     "Bash(git blame:*)",
+    # Lets the agent undo its own edits; finalize reverts anything outside the shard regardless.
     "Bash(git checkout -- :*)",
+    "Skill",
 )
 
 
@@ -180,7 +186,7 @@ def parse_check(text: str, source: str = "<check>") -> Check:
             raise CheckError(f"{source}: `{key}` must be one of {_CHOICES[key]}")
         if expected is int and value < 1:
             raise CheckError(f"{source}: `{key}` must be positive")
-    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", meta["id"]):
+    if not CHECK_ID_RE.fullmatch(meta["id"]):
         raise CheckError(f"{source}: `id` must be kebab-case")
     if "content_match" in meta:
         try:
@@ -270,16 +276,15 @@ def crate_roots(root: Path, tracked: dict[str, str]) -> dict[str, str]:
     return roots
 
 
-def crate_of(path: str, roots: dict[str, str]) -> tuple[str, str]:
-    """Return (package name, package dir) owning `path`, or the top-level dir if none does."""
+def crate_of(path: str, roots: dict[str, str]) -> tuple[str, str] | None:
+    """Return (package name, package dir) owning `path`, or None if no package does."""
     parent = Path(path).parent
     while True:
         key = "" if str(parent) == "." else str(parent)
         if key in roots:
             return roots[key], key
         if key == "":
-            top = path.split("/", 1)[0] if "/" in path else ""
-            return top or "root", top
+            return None
         parent = parent.parent
 
 
@@ -334,19 +339,43 @@ def save_state(state_dir: Path, state: dict[str, Any]) -> None:
     path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
 
 
-def suppressions_from_prs(prs: list[dict[str, Any]]) -> dict[str, dict[str, dict[str, Any]]]:
-    """Fingerprints of PRs closed without merging, keyed by check id.
+def is_pr(item: dict[str, Any]) -> bool:
+    return "headRefName" in item
 
-    `prs` is `gh pr list --json number,state,body,mergedAt,headRefName` output.
-    A human closing an agent PR unmerged is the signal that its findings were unwanted.
+
+def item_markers(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """The runner's marker in a PR or issue body and in each issue comment.
+
+    Only the last marker of each text counts: the runner appends its marker after any
+    agent-written text, so an earlier one is quoted content, not the runner's.
+    """
+    texts = [item.get("body") or ""]
+    texts += [c.get("body") or "" for c in item.get("comments") or [] if isinstance(c, dict)]
+    markers = []
+    for text in texts:
+        if found := parse_markers(text):
+            markers.append(found[-1])
+    return markers
+
+
+def suppressions_from_items(items: list[dict[str, Any]]) -> dict[str, dict[str, dict[str, Any]]]:
+    """Fingerprints that maintainers rejected, keyed by check id.
+
+    `items` holds `gh pr list` and `gh issue list` JSON. Closing an agent PR without merging it, or
+    closing a findings issue as "not planned", rejects every finding listed in it.
     """
     out: dict[str, dict[str, dict[str, Any]]] = {}
-    for pr in prs:
-        if pr.get("state", "").upper() != "CLOSED" or pr.get("mergedAt"):
+    for item in items:
+        if str(item.get("state", "")).upper() not in ("CLOSED", "MERGED"):
             continue
-        for marker in parse_markers(pr.get("body") or ""):
+        if is_pr(item):
+            if item.get("mergedAt") or str(item.get("state")).upper() == "MERGED":
+                continue
+        elif str(item.get("stateReason") or "").upper() != "NOT_PLANNED":
+            continue
+        for marker in item_markers(item):
             for fp, file in marker.get("fingerprints", {}).items():
-                out.setdefault(marker["check"], {})[fp] = {"file": file, "pr": pr.get("number")}
+                out.setdefault(marker["check"], {})[fp] = {"file": file, "ref": item.get("number")}
     return out
 
 
@@ -362,21 +391,32 @@ def parse_markers(body: str) -> list[dict[str, Any]]:
     return markers
 
 
-def busy_branches(prs: list[dict[str, Any]]) -> set[str]:
-    return {pr["headRefName"] for pr in prs if pr.get("state", "").upper() == "OPEN" and "headRefName" in pr}
+def _open_agent_prs(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # Matched by branch, not label: removing the label from an open PR must not make its branch
+    # look free, or the next run would force-push over it.
+    return [
+        i
+        for i in items
+        if is_pr(i)
+        and str(i.get("state", "")).upper() == "OPEN"
+        and str(i["headRefName"]).startswith(BRANCH_PREFIX + "/")
+    ]
 
 
-def claimed_paths(prs: list[dict[str, Any]]) -> set[str]:
+def busy_branches(items: list[dict[str, Any]]) -> set[str]:
+    return {str(pr["headRefName"]) for pr in _open_agent_prs(items)}
+
+
+def claimed_paths(items: list[dict[str, Any]]) -> set[str]:
     """Files and directories that open agent PRs, of any check, may still change.
 
     No shard may review or edit them until the PR is merged or closed, so two PRs never touch the
-    same file.
+    same file. Issues claim nothing: they carry no edits.
     """
     out: set[str] = set()
-    for pr in prs:
-        if pr.get("state", "").upper() == "OPEN":
-            for marker in parse_markers(pr.get("body") or ""):
-                out.update(marker.get("claims", marker.get("files", [])))
+    for pr in _open_agent_prs(items):
+        for marker in item_markers(pr):
+            out.update(p for p in marker.get("claims", []) if isinstance(p, str))
     return out
 
 
@@ -431,6 +471,18 @@ def _file_priority(f: dict[str, Any]) -> tuple[int, str, str]:
     return STATUS_RANK[str(f["status"])], str(f["last_reviewed"] or ""), str(f["path"])
 
 
+# Scheduled runs start at slightly different times each day; without slack a check whose last run
+# started a few minutes late would wait an extra day.
+CADENCE_SLACK = dt.timedelta(hours=12)
+
+
+def is_due(check: Check, state: dict[str, Any], now: dt.datetime) -> bool:
+    last_run = state.get("last_run")
+    if not last_run:
+        return True
+    return now - dt.datetime.fromisoformat(last_run) >= dt.timedelta(days=check.cadence_days) - CADENCE_SLACK
+
+
 def plan_check(
     check: Check,
     root: Path,
@@ -439,38 +491,51 @@ def plan_check(
     now: dt.datetime,
     busy: Collection[str] = (),
     claimed: set[str] | None = None,
-    only_shard: str | None = None,
+    only_shards: Collection[str] | None = None,
     max_shards: int | None = None,
-    force: bool = False,
 ) -> list[dict[str, Any]]:
     """Return the shards of `check` to review this run, highest priority first.
 
-    A shard is one crate and is never split: at most one agent works on a crate per check at a
-    time, on a stable branch `agent-checks/<check>/<crate>`. When a crate has more pending files
-    than one shard's budget, the most urgent ones are taken and the rest wait for later runs.
+    A shard is one Cargo package and is never split: at most one agent works on a crate per check
+    at a time, on a stable branch `agent-checks/<check>/<crate>`. When a crate has more pending
+    files than one shard's budget, the most urgent are taken and the rest wait for later runs.
+    Files outside any package are not reviewed.
+
+    Crates with changed files come first. The rest rotate: the crate whose last review is oldest
+    (never reviewed counts as oldest) goes next, so a large backlog in one crate cannot starve
+    the others.
 
     `claimed` holds paths that open PRs or shards already planned this run may edit. Files inside
     it are not reviewed, a shard whose edit scope overlaps it waits for a later run, and the
     selected shards' scopes are added to it, so the scopes of selected shards are disjoint.
     """
     claimed = set() if claimed is None else claimed
-    if not force:
-        last_run = state.get("last_run")
-        if last_run and now - dt.datetime.fromisoformat(last_run) < dt.timedelta(days=check.cadence_days):
-            return []
-
     tracked = tracked_blobs(root)
     roots = crate_roots(root, tracked)
+    names = list(roots.values())
+
+    def shard_id(name: str, crate_dir: str) -> str:
+        # Package names are not unique across the repository (test fixtures reuse them).
+        return name if names.count(name) == 1 else shard_slug(crate_dir)
+
+    last_reviewed: dict[str, str] = {}
+    for path, record in state["files"].items():
+        if owner := crate_of(path, roots):
+            last_reviewed[owner[1]] = max(last_reviewed.get(owner[1], ""), str(record.get("reviewed_at", "")))
+
     groups: dict[str, dict[str, Any]] = {}
     for path, blob in in_scope(check, root, tracked).items():
         if _within(path, list(claimed)):
+            continue
+        owner = crate_of(path, roots)
+        if owner is None:
             continue
         record = state["files"].get(path)
         status = file_status(check, record, blob, now)
         if status is None:
             continue
-        name, crate_dir = crate_of(path, roots)
-        group = groups.setdefault(name, {"crate_dir": crate_dir, "files": []})
+        name, crate_dir = owner
+        group = groups.setdefault(crate_dir, {"crate": name, "files": []})
         group["files"].append(
             {
                 "path": path,
@@ -483,24 +548,26 @@ def plan_check(
         )
 
     shards: list[dict[str, Any]] = []
-    for name, group in groups.items():
+    for crate_dir, group in groups.items():
         pending = sorted(group["files"], key=_file_priority)
         files = take_budget(pending, check.max_files_per_shard, check.max_lines_per_shard)
+        sid = shard_id(group["crate"], crate_dir)
         shards.append(
             {
-                "id": name,
-                "crate": name,
-                "branch": branch_name(check.id, name),
-                "crate_dir": group["crate_dir"],
-                "edit_scope": [group["crate_dir"]] if check.edit_scope == "crate" else [f["path"] for f in files],
+                "id": sid,
+                "crate": group["crate"],
+                "branch": branch_name(check.id, sid),
+                "crate_dir": crate_dir,
+                "edit_scope": [crate_dir] if check.edit_scope == "crate" else [f["path"] for f in files],
                 "files": files,
                 "deferred": len(pending) - len(files),
+                "changed": any(f["status"] == "changed" for f in files),
             }
         )
 
-    shards.sort(key=lambda shard: (*_file_priority(shard["files"][0])[:2], shard["id"]))
-    if only_shard is not None:
-        shards = [s for s in shards if s["id"] == only_shard]
+    shards.sort(key=lambda sh: (not sh["changed"], last_reviewed.get(sh["crate_dir"], ""), sh["id"]))
+    if only_shards:
+        shards = [sh for sh in shards if sh["id"] in only_shards or sh["crate"] in only_shards]
     selected: list[dict[str, Any]] = []
     for shard in shards:
         if len(selected) >= (max_shards or check.max_shards_per_run):
@@ -518,16 +585,21 @@ def build_plan(
     state_dir: Path,
     *,
     now: dt.datetime,
-    prs: list[dict[str, Any]] | None = None,
-    only_shard: str | None = None,
+    items: list[dict[str, Any]] | None = None,
+    only_shards: Collection[str] | None = None,
     max_shards: int | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
-    prs = prs or []
-    busy = busy_branches(prs)
+    """Plan a run. `items` is the PR and issue JSON from GitHub.
+
+    A check is `due` when its cadence has passed. Only due checks get `last_run` stamped by
+    `record`, so a forced or single-shard run does not reset the weekly clock.
+    """
+    items = items or []
+    busy = busy_branches(items)
     # Shared across checks, so shards of different checks in one run never edit the same file.
-    claimed = claimed_paths(prs)
-    new_suppressed = suppressions_from_prs(prs)
+    claimed = claimed_paths(items)
+    new_suppressed = suppressions_from_items(items)
     plan: dict[str, Any] = {
         "base_commit": git(root, "rev-parse", "HEAD").strip(),
         "generated_at": now.isoformat(timespec="seconds"),
@@ -535,20 +607,42 @@ def build_plan(
     }
     for check in checks:
         state = load_state(state_dir, check.id)
+        due = is_due(check, state, now)
         suppressed = {**state.get("suppressed", {}), **new_suppressed.get(check.id, {})}
-        shards = plan_check(
-            check,
-            root,
-            state,
-            now=now,
-            busy=busy,
-            claimed=claimed,
-            only_shard=only_shard,
-            max_shards=max_shards,
-            force=force,
-        )
-        plan["checks"][check.id] = {"version": check.version, "shards": shards, "suppressed": suppressed}
+        shards = []
+        if due or force:
+            shards = plan_check(
+                check,
+                root,
+                state,
+                now=now,
+                busy=busy,
+                claimed=claimed,
+                only_shards=only_shards,
+                max_shards=max_shards,
+            )
+        plan["checks"][check.id] = {
+            # The review jobs read the check from here, never from the working tree that the agent
+            # can edit, and every job of the run sees the same definition.
+            "definition": dataclasses.asdict(check),
+            "due": due and not only_shards,
+            "shards": shards,
+            "suppressed": suppressed,
+        }
     return plan
+
+
+def check_from_plan(plan: dict[str, Any], check_id: str, *, now: dt.datetime | None = None) -> Check:
+    if check_id not in plan.get("checks", {}):
+        raise CheckError(f"check `{check_id}` is not in the plan")
+    if now is not None and now - dt.datetime.fromisoformat(plan["generated_at"]) > MAX_PLAN_AGE:
+        # A re-run of an old workflow run would review stale assignments and could reopen work.
+        raise CheckError(f"the plan is from {plan['generated_at']}; start a new run instead of re-running this one")
+    fields = dict(plan["checks"][check_id]["definition"])
+    for key, value in fields.items():
+        if isinstance(value, list):
+            fields[key] = tuple(value)
+    return Check(**fields)
 
 
 def matrix(plan: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
@@ -584,7 +678,7 @@ file is missing or malformed, the runner records nothing as reviewed.
       "category": "<kebab-case category from the rubric>",
       "title": "<one line>",
       "detail": "<what is wrong, why it matters, and the fix you made or suggest>",
-      "fingerprint": "<stable id, built as the rubric says>",
+      "fingerprint": "<stable id, built as the rubric says; letters, digits and ./:#@+=,_- only>",
       "fixed": true
     }}
   ],
@@ -600,6 +694,7 @@ Rules the runner enforces:
 - List a file in `reviewed` only if you reviewed all of it, and finished and checked any edits to
   it. Edits to files missing from `reviewed` are reverted. Files you skip are offered again later.
 - `fixed: true` only for findings your working-tree edits resolve. Leave the rest `false`.
+{verify_rule}
 - Precision over recall. Zero findings is a good result when the code is fine.
 - At most {max_findings} findings are kept, most severe first.
 """
@@ -619,7 +714,21 @@ def render_prompt(check: Check, plan: dict[str, Any], shard: dict[str, Any], res
             "Edits may touch only your assigned files. Other agents are editing other files at the same "
             "time, so report problems that need changes elsewhere instead of making them."
         )
-    out.append("\n" + RESULTS_CONTRACT.format(results=results, edit_rule=edit_rule, max_findings=check.max_findings))
+    if check.verify:
+        commands = "\n".join(f"  `{c.format(crate=shard['crate'])}`" for c in check.verify)
+        verify_rule = (
+            "- After you finish, the runner runs these commands. If any fails, for any reason, every edit in this\n"
+            "  shard is discarded and its findings are reported unfixed, so run them yourself before you finish\n"
+            "  and undo edits that make them fail:\n" + commands
+        )
+    else:
+        verify_rule = ""
+    out.append(
+        "\n"
+        + RESULTS_CONTRACT.format(
+            results=results, edit_rule=edit_rule, verify_rule=verify_rule, max_findings=check.max_findings
+        )
+    )
     out.append(f"\n## Assignment\n\nShard `{shard['id']}`, base commit `{base}`. Files:\n")
     for f in shard["files"]:
         if f["status"] == "changed" and f["last_commit"]:
@@ -678,6 +787,8 @@ def finding_problem(f: object) -> str | None:
             return f"needs string `{key}`"
     if f["severity"] not in SEVERITIES:
         return f"unknown severity {f['severity']!r}"
+    if not FINGERPRINT_RE.fullmatch(f["fingerprint"]):
+        return f"fingerprint {f['fingerprint'][:80]!r} has characters outside {FINGERPRINT_RE.pattern}"
     if not isinstance(f.get("line", 0), int) or isinstance(f.get("line", 0), bool):
         return "`line` must be an integer"
     if not isinstance(f.get("fixed", False), bool):
@@ -752,7 +863,13 @@ def finalize(
 
     # With file scope, only files the agent finished may change: an edit to a file it did not list
     # as reviewed may be half done, for example when the run hit its time or turn limit.
-    scope = reviewed if check.edit_scope == "files" else shard["edit_scope"]
+    # A `report` check never commits edits.
+    if check.action == "report":
+        scope: list[str] = []
+    elif check.edit_scope == "files":
+        scope = reviewed
+    else:
+        scope = shard["edit_scope"]
     changed = working_tree_changes(root)
     allowed = [p for p in changed if _within(p, scope) and not p.endswith("Cargo.lock")]
     rejected = [p for p in changed if p not in allowed]
@@ -760,7 +877,7 @@ def finalize(
         notes.append(f"edits outside the scope {'reverted' if revert_out_of_scope else 'excluded'}: {rejected}")
         if revert_out_of_scope:
             revert(root, rejected)
-    edits = allowed if check.action == "pr" else []
+    edits = allowed
 
     if edits and run_verify and check.verify:
         failure = verify_edits(check, shard, root)
@@ -768,8 +885,8 @@ def finalize(
             notes.append(f"{failure}; all edits were reverted and their findings are reported unfixed")
             revert(root, edits)
             edits = []
-    if not edits:
-        findings = [{**f, "fixed": False} for f in findings]
+    # A finding is fixed only if the edit to its file survived the checks above.
+    findings = [{**f, "fixed": bool(f.get("fixed")) and f["file"] in edits} for f in findings]
 
     reviewed_at = now.isoformat(timespec="seconds")
     update_files = {}
@@ -800,6 +917,11 @@ def finalize(
     }
 
 
+def _safe(text: str) -> str:
+    """Neutralize HTML comments in agent-written text so it cannot forge the runner's marker."""
+    return text.replace("<!--", "&lt;!--").replace("-->", "--&gt;")
+
+
 def verify_edits(check: Check, shard: dict[str, Any], root: Path) -> str | None:
     """Run the check's `verify` commands; return a description of the first failure, if any."""
     for template in check.verify:
@@ -826,15 +948,16 @@ def render_body(
 ) -> str:
     out = [
         f"Automated `{check.id}` review of `{shard['id']}` at {plan['base_commit'][:12]}.\n\n",
-        summary.strip() + "\n\n" if summary.strip() else "",
+        _safe(summary.strip()) + "\n\n" if summary.strip() else "",
     ]
 
     def bullet(f: dict[str, Any]) -> str:
         loc = f"{f['file']}:{f['line']}" if f.get("line") else f["file"]
-        return f"- **{f['severity']}** `{loc}` ({f['category']}): {f['title']}\n  {f['detail'].strip()}\n"
+        detail = _safe(f["detail"].strip())
+        return f"- **{f['severity']}** `{loc}` ({_safe(f['category'])}): {_safe(f['title'])}\n  {detail}\n"
 
-    fixed = [f for f in findings if f.get("fixed") and edits]
-    open_ = [f for f in findings if f not in fixed]
+    fixed = [f for f in findings if f["fixed"]]
+    open_ = [f for f in findings if not f["fixed"]]
     if fixed:
         out.append("### Fixed in this PR\n\n")
         out.extend(bullet(f) for f in fixed)
@@ -849,10 +972,11 @@ def render_body(
         out.append("<details><summary>Runner notes</summary>\n\n")
         out.extend(f"- {n}\n" for n in notes)
         out.append("\n</details>\n\n")
-    out.append(
-        "Closing this PR without merging suppresses its findings in future runs. "
-        f"The rubric is `.agents/checks/{check.id}/CHECK.md`.\n"
-    )
+    if edits:
+        out.append("Closing this PR without merging suppresses all its findings in future runs. ")
+    else:
+        out.append("Closing this issue as not planned suppresses all its findings in future runs. ")
+    out.append(f"The rubric is `.agents/checks/{check.id}/CHECK.md`.\n")
     if run_url:
         out.append(f"\n[Agent run]({run_url})\n")
     marker = {
@@ -875,21 +999,39 @@ def record(
     state_dir: Path,
     updates: list[dict[str, Any]],
     *,
-    planned: Sequence[str] = (),
-    prs: list[dict[str, Any]] | None = None,
-    now: dt.datetime,
+    plan: dict[str, Any] | None = None,
+    items: list[dict[str, Any]] | None = None,
 ) -> list[str]:
-    """Merge state updates; stamp `last_run` on every planned check. Returns touched check ids."""
-    suppressed = suppressions_from_prs(prs or [])
-    touched = sorted({*planned, *(str(u["check"]) for u in updates), *suppressed})
+    """Merge state updates and suppressions into `state_dir`. Returns the touched check ids.
+
+    A due check gets `last_run` set to the plan's start time if at least one of its shards was
+    recorded, or if it had nothing to review. When every shard failed, the clock is left alone so
+    the next daily run tries again.
+
+    Merging is idempotent, and a file keeps whichever review is newer, so retrying a push or
+    re-running an old run never rolls the state back.
+    """
+    suppressed = suppressions_from_items(items or [])
+    plan_checks = (plan or {}).get("checks", {})
+    updated: set[str] = {str(u["check"]) for u in updates}
+    stamped = {cid for cid, c in plan_checks.items() if c.get("due") and (cid in updated or not c.get("shards"))}
+    touched: list[str] = sorted(updated | stamped | set(suppressed))
     for check_id in touched:
+        if not CHECK_ID_RE.fullmatch(check_id):
+            raise CheckError(f"invalid check id {check_id!r} in a state update")
         state = load_state(state_dir, check_id)
         for update in updates:
-            if update["check"] == check_id:
-                state["files"].update(update["files"])
+            if update["check"] != check_id:
+                continue
+            for path, entry in update["files"].items():
+                current = state["files"].get(path)
+                if current is None or str(entry["reviewed_at"]) >= str(current.get("reviewed_at", "")):
+                    state["files"][path] = entry
         state["suppressed"].update(suppressed.get(check_id, {}))
-        if check_id in planned:
-            state["last_run"] = now.isoformat(timespec="seconds")
+        if check_id in stamped:
+            stamp = str((plan or {})["generated_at"])
+            if not state.get("last_run") or stamp > state["last_run"]:
+                state["last_run"] = stamp
         save_state(state_dir, state)
     return touched
 
@@ -919,13 +1061,17 @@ def _read_dict(path: str) -> dict[str, Any]:
     return data
 
 
-def _read_prs(path: str | None) -> list[dict[str, Any]]:
+def _read_items(path: str | None) -> list[dict[str, Any]]:
     if path is None:
         return []
     data = _read_json(path)
-    if not isinstance(data, list) or not all(isinstance(pr, dict) for pr in data):
-        raise CheckError(f"{path}: expected `gh pr list --json` output")
+    if not isinstance(data, list) or not all(isinstance(item, dict) for item in data):
+        raise CheckError(f"{path}: expected a JSON list of `gh pr list` / `gh issue list` items")
     return data
+
+
+def _state_dir(args: argparse.Namespace) -> Path:
+    return Path(args.state_dir) if args.state_dir is not None else Path(args.root) / DEFAULT_LOCAL_STATE
 
 
 def _select(checks: dict[str, Check], ids: list[str] | None) -> list[Check]:
@@ -965,10 +1111,10 @@ def cmd_plan(args: argparse.Namespace) -> int:
     plan = build_plan(
         checks,
         args.root,
-        args.state_dir,
+        _state_dir(args),
         now=_now(args),
-        prs=_read_prs(args.prs),
-        only_shard=args.shard,
+        items=_read_items(args.github),
+        only_shards=args.shard,
         max_shards=args.max_shards,
         force=args.force,
     )
@@ -987,8 +1133,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
 
 def cmd_prompt(args: argparse.Namespace) -> int:
-    check = load_checks(args.root)[args.check]
     plan = _read_dict(args.plan)
+    check = check_from_plan(plan, args.check, now=_now(args))
     shard = find_shard(plan, args.check, args.shard)
     prompt = render_prompt(check, plan, shard, args.results)
     if args.out:
@@ -1009,8 +1155,8 @@ def cmd_prompt(args: argparse.Namespace) -> int:
 
 
 def cmd_finalize(args: argparse.Namespace) -> int:
-    check = load_checks(args.root)[args.check]
     plan = _read_dict(args.plan)
+    check = check_from_plan(plan, args.check, now=_now(args))
     shard = find_shard(plan, args.check, args.shard)
     results = validate_results(_read_json(args.results))
     out = finalize(
@@ -1040,6 +1186,7 @@ def cmd_finalize(args: argparse.Namespace) -> int:
         {
             "has_edits": str(bool(out["edits"])).lower(),
             "has_findings": str(bool(out["findings"])).lower(),
+            "has_unfixed": str(any(not f["fixed"] for f in out["findings"])).lower(),
             "title": out["title"],
             "branch": out["branch"],
             "labels": ",".join(out["labels"]),
@@ -1050,8 +1197,8 @@ def cmd_finalize(args: argparse.Namespace) -> int:
 
 def cmd_record(args: argparse.Namespace) -> int:
     updates = [_read_dict(p) for p in args.updates]
-    planned = list(_read_dict(args.plan)["checks"]) if args.plan else []
-    touched = record(args.state_dir, updates, planned=planned, prs=_read_prs(args.prs), now=_now(args))
+    plan = _read_dict(args.plan) if args.plan else None
+    touched = record(args.state_dir, updates, plan=plan, items=_read_items(args.github))
     print(f"updated state for {touched}", file=sys.stderr)
     return 0
 
@@ -1063,9 +1210,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     now = _now(args)
     work = root / "target" / "agent-checks" / check.id
     work.mkdir(parents=True, exist_ok=True)
-    plan = build_plan(
-        [check], root, args.state_dir, now=now, only_shard=args.shard, max_shards=args.max_shards, force=True
-    )
+    state_dir = _state_dir(args)
+    plan = build_plan([check], root, state_dir, now=now, only_shards=args.shard, max_shards=args.max_shards, force=True)
     shards = plan["checks"][check.id]["shards"]
     if not shards:
         print("nothing to review", file=sys.stderr)
@@ -1106,7 +1252,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         if len(shards) > 1 and working_tree_changes(root):
             print("stopping after the first shard with edits; review and commit them, then rerun", file=sys.stderr)
             break
-    record(args.state_dir, updates, planned=[check.id], now=now)
+    record(state_dir, updates, plan=plan)
     return 0
 
 
@@ -1120,9 +1266,13 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("plan", help="choose shards to review")
     p.add_argument("--check", action="append", help="check id (repeatable; default: all enabled)")
-    p.add_argument("--state-dir", type=Path, default=REPO_ROOT / DEFAULT_LOCAL_STATE)
-    p.add_argument("--prs", help="`gh pr list --json number,state,body,mergedAt,headRefName` output")
-    p.add_argument("--shard", help="plan only this shard")
+    p.add_argument("--state-dir", type=Path, help="default: <root>/target/agent-checks-state")
+    p.add_argument(
+        "--github",
+        help="JSON list of `gh pr list` / `gh issue list` items (number, state, body; PRs: headRefName, "
+        "mergedAt; issues: stateReason, comments)",
+    )
+    p.add_argument("--shard", action="append", help="plan only this crate (repeatable)")
     p.add_argument("--max-shards", type=int, help="override max_shards_per_run")
     p.add_argument("--force", action="store_true", help="ignore cadence_days")
     p.add_argument("--out", help="write the plan here instead of stdout")
@@ -1149,16 +1299,20 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("record", help="merge state updates into the state dir")
     p.add_argument("--state-dir", type=Path, required=True)
-    p.add_argument("--plan", help="plan whose checks get `last_run` stamped")
-    p.add_argument("--prs", help="PR list; closed-unmerged PR fingerprints become suppressions")
+    p.add_argument("--plan", help="the run's plan; its due checks get `last_run` stamped")
+    p.add_argument(
+        "--github",
+        help="JSON list of `gh pr list` / `gh issue list` items (number, state, body; PRs: headRefName, "
+        "mergedAt; issues: stateReason, comments)",
+    )
     p.add_argument("updates", nargs="*")
     p.set_defaults(func=cmd_record)
 
     p = sub.add_parser("run", help="run a check locally with the `claude` CLI")
     p.add_argument("check")
-    p.add_argument("--shard")
+    p.add_argument("--shard", action="append", help="review only this crate (repeatable)")
     p.add_argument("--max-shards", type=int, default=1)
-    p.add_argument("--state-dir", type=Path, default=REPO_ROOT / DEFAULT_LOCAL_STATE)
+    p.add_argument("--state-dir", type=Path, help="default: <root>/target/agent-checks-state")
     p.add_argument("--dry-run", action="store_true", help="print prompts without running the agent")
     p.set_defaults(func=cmd_run)
 

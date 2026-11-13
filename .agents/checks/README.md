@@ -4,7 +4,8 @@ Agent checks are periodic code reviews that an agent runs on a schedule. Each ch
 plus a little configuration. A runner (`scripts/agent_checks.py`) splits the repository into
 per-crate shards, gives each shard to a headless Claude Code session on its own CI runner,
 validates what comes back, and opens one draft pull request per shard when there is something to
-change. CI runs it daily from `.github/workflows/agent-checks.yml`.
+change, or one issue per shard for findings it could not fix. CI runs it daily from
+`.github/workflows/agent-checks.yml`.
 
 | Check | What it asks |
 | --- | --- |
@@ -17,9 +18,9 @@ change. CI runs it daily from `.github/workflows/agent-checks.yml`.
 plan ──► review (one runner per shard, in parallel) ──► record
 ```
 
-1. **Plan.** The plan job reads the state branch `agent-checks-state` and the list of PRs
-   labelled `agent-checks`, and skips checks whose `cadence_days` has not passed. For each
-   remaining check:
+1. **Plan.** The plan job reads the state branch `agent-checks-state`, all open PRs, and the
+   closed PRs and issues labelled `agent-checks`. It skips checks that are not due (see
+   [Cadence](#cadence)). For each remaining check:
    - It collects the in-scope files that need review. A file needs review if it is:
      - `changed`: its blob differs from every blob recorded at its last review,
      - `new`: it has never been reviewed,
@@ -27,21 +28,42 @@ plan ──► review (one runner per shard, in parallel) ──► record
      - `stale`: its last review is older than `revisit_after_days`, when that key is set.
    - It groups those files by crate.
    - It emits up to `max_shards_per_run` shards.
+   - It writes the check's definition into the plan. The review jobs read the check from the plan,
+     so all jobs see the same rubric and the agent cannot change it.
 2. **Review.** Each shard runs on its own runner:
    - The runner builds the prompt from the rubric, the results format, and the assigned files.
      Each changed file gets a hint to run `git diff` against the commit it was last reviewed at.
    - Claude reviews the files, edits the working tree, and keeps a results JSON up to date.
+   - The job formats the edited Rust files with the pinned nightly `rustfmt`.
    - `finalize` validates the results and drops findings that are malformed, outside the shard,
      or previously rejected.
    - It reverts edits outside the shard's edit scope, edits to files the agent did not finish,
      and any `Cargo.lock` change.
    - It runs the check's `verify` commands, and if one fails, reverts every edit.
-   - The job formats the edited Rust files with the pinned nightly, then opens or updates the
-     shard's draft PR. The job summary shows the findings and the diff.
-3. **Record.** The record job merges each shard's reviewed files into the state branch. For each
-   file it stores the blob before and after the agent's fix, so merging the fix does not trigger
-   a re-review. When a PR is closed without merging, its findings' fingerprints are suppressed,
-   and the agent is told not to raise them again.
+   - If edits remain, the job opens a draft PR on the shard's branch; its body also lists the
+     unfixed findings. With no edits but unfixed findings, it opens the shard's issue, or comments
+     on it if it is already open. The job summary shows the findings and the diff either way.
+3. **Record.** The record job merges each shard's reviewed files into the state branch, but only
+   for shards whose PR or issue was published. For each file it stores the blob before and after
+   the agent's fix (after formatting), so merging the fix does not trigger a re-review.
+
+Maintainers reject findings in two ways: by closing an agent PR without merging it, or by
+closing a findings issue as "not planned". Either one suppresses every fingerprint listed in it,
+including the unfixed ones and those in the issue's comments, and future agents are told not to
+raise them again. This also applies to a PR closed only because it went stale. To bring a finding
+back, delete its entry from `suppressed` in the state.
+
+### Cadence
+
+The workflow fires daily. A check is due when its last run started at least `cadence_days` ago,
+with 12 hours of slack, so a run that starts a little earlier in the day than last week's still
+counts. A due run stamps `last_run` with the time the plan was made, under either condition:
+
+- at least one of its shards is recorded,
+- it had nothing to review.
+
+So a day on which every shard fails leaves the clock alone, and the next daily run retries. Runs
+with `force` or a `shard` filter review immediately but do not move the clock.
 
 ### Sharding
 
@@ -49,10 +71,30 @@ A shard is exactly one crate, the nearest `Cargo.toml` package of each file. A c
 split, so at most one agent per check works on a crate at a time. Its branch is the stable
 `agent-checks/<check>/<crate>`.
 
+Files outside any Cargo package are not reviewed. Shard ids are package names, or the package's
+path when two packages share a name.
+
 A crate can have more pending files than `max_files_per_shard` or `max_lines_per_shard` allow.
-Then the most urgent files are reviewed and the rest are deferred to later runs: changed files
-first, then never-reviewed ones, then the rest, oldest review first. Crates are ranked by their
-most urgent file.
+Then the most urgent files are reviewed and the rest are deferred to later runs. Within a crate,
+files are ordered: changed first, then never reviewed, then the rest, oldest review first.
+
+Crates are ordered across the repo this way:
+
+1. crates with changed files,
+2. then the remaining crates in rotation, the one reviewed longest ago (or never) first.
+
+A big backlog in one crate therefore cannot starve the others.
+
+Throughput is at most `max_shards_per_run × max_files_per_shard` files per check per cadence
+period. With the current settings, both checks review up to 8 crates and 96 files a week:
+
+- The first full pass of `benchmark-usefulness` (138 files in 24 crates, 67 of them in
+  `vortex-array`) takes about 8 weeks.
+- The first full pass of `test-focus` (800 files in 40 crates, 371 of them in `vortex-array`)
+  takes about 35 weeks.
+
+After the first pass, only changed files are reviewed. To finish the first pass sooner, raise
+`max_files_per_shard` or `max_shards_per_run`, or shorten `cadence_days`.
 
 Each shard also has an edit scope. With `edit_scope = "files"`, the default, it is the assigned
 files. With `"crate"`, it is the crate directory. Scopes never overlap:
@@ -70,12 +112,29 @@ files. With `"crate"`, it is the crate directory. Scopes never overlap:
 | No results file, or an invalid one. | The shard fails and records nothing. Its files are offered again on the next run. |
 | One finding is malformed. | Only that finding is dropped, with a note in the PR body. |
 | An edit does not compile. | `verify` fails, every edit in the shard is reverted, and its findings are reported unfixed. |
-| Opening the PR fails. | No state is recorded, so the review is redone rather than the fix lost. |
+| Formatting, opening the PR, or opening the issue fails. | No state is recorded, so the review is redone rather than the fix or findings lost. |
+| The App token would expire during a long agent run. | It is minted only after finalize, just before publishing. |
 | One shard fails. | The other shards are unaffected (`fail-fast: false`), and `record` still records them. |
 | Another update to the state branch wins the push race. | `record` starts again from the remote state, up to five times. |
 | The state push fails for good. | The run's reviews are redone next time. Open PRs still claim their files, so no duplicate PRs are opened. |
+| The state branch cannot be read. | The plan job fails instead of re-planning everything as new. |
+| An old workflow run is re-run. | Plans older than 20 hours are refused, and a file keeps its newest review when state merges. |
+| A maintainer removes the label from an open agent PR. | Its branch name still marks the crate as busy, and the PR step refuses to push onto a branch with an open PR. |
 
-Runs never overlap: they share the `agent-checks` concurrency group.
+Runs never overlap: they share the `agent-checks` concurrency group. Only dry runs may start from a
+branch other than the default branch.
+
+### Trust boundary
+
+The agent can run cargo, which runs build scripts, and can write anywhere in the checkout. So:
+
+- It holds only the read-only `GITHUB_TOKEN`. The write-capable App token is minted after
+  finalize, for the publish steps.
+- The runner, the plan, and every output used to build PRs and state are copied to
+  `$RUNNER_TEMP` before the agent starts.
+- PR and issue bodies neutralize HTML comments in agent-written text. Planning reads only the
+  last marker in each body, the one the runner appends, and only from PRs on `agent-checks/`
+  branches.
 
 ### Storage
 
@@ -125,11 +184,11 @@ with the scope rules and the file assignment.
 | `cadence_days` | `7` | Minimum days between runs of this check. The workflow fires daily. |
 | `revisit_after_days` | none | Re-review unchanged files after this many days. |
 | `version` | `1` | Bump this when the rubric changes enough that reviewed files should be reviewed again. |
-| `action` | `"pr"` | `pr` commits the agent's edits. `report` discards them and reports findings in the job summary only. |
+| `action` | `"pr"` | `pr` commits the agent's edits. `report` reverts all edits and only opens the shard's findings issue. |
 | `verify` | `[]` | Commands run after the agent finishes. `{crate}` is replaced by the package name. Any failure reverts all edits. |
-| `labels` | `[]` | Extra PR labels. `agent-checks` is always added. Include a `changelog/*` label. |
+| `labels` | `[]` | Extra PR labels, created if missing. `agent-checks` is always added. Include a `changelog/*` label. |
 | `skills` | `[]` | Skills under `.agents/skills/` that the agent should load. |
-| `allowed_tools` | `[]` | Extra Claude Code tools, such as `"Bash(cargo check:*)"`. Read, Edit, Write, Grep, Glob, and read-only git are always allowed. |
+| `allowed_tools` | `[]` | Extra Claude Code tools, such as `"Bash(cargo check:*)"`. Always allowed: Read, Edit, Write, Grep, Glob, Skill, `git diff/log/show/blame`, and `git checkout --` (so the agent can undo its own edits). |
 | `max_findings` | `20` | Findings kept per shard, most severe first. |
 | `model`, `max_turns` | workflow default, `80` | Agent settings. |
 | `enabled` | `true` | Disabled checks run only when named explicitly. |
@@ -143,6 +202,8 @@ Writing a good rubric:
 - Define the fingerprint, usually `<category>:<file>:<item name>`. Keep it free of line numbers
   so it stays stable across unrelated edits.
 - Tell the agent that zero findings is a good result.
+- Make the rubric's own build instructions agree with `verify`. The runner tells the agent its
+  `verify` commands and that any failure discards every edit in the shard.
 
 ## Running it
 
@@ -164,7 +225,7 @@ python3 scripts/agent_checks.py run benchmark-usefulness --shard vortex-buffer
 
 In CI, run one check or one crate with **Actions → Agent Checks → Run workflow**. Set `force`
 to ignore the cadence. Set `dry_run` to see the findings and diffs in the job summaries without
-opening PRs or updating the state.
+opening PRs or issues or updating the state. Dry runs may start from any branch.
 
 ## Resetting state
 
