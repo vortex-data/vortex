@@ -19,6 +19,7 @@ use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::exec_datafusion_err;
 use datafusion_common::format::DEFAULT_FORMAT_OPTIONS;
+use datafusion_common::metadata::FieldMetadata;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
 use datafusion_functions::string::contains::ContainsFunc;
@@ -595,17 +596,33 @@ impl DefaultExpressionConverter {
 
         // The list of a hash join filter holds every build-side key, which repeat. Each element
         // converts through Arrow, so equal values with equal metadata are converted once.
-        let elements = in_list
+        let literals = in_list
             .list()
             .iter()
-            .unique_by(|element| element.downcast_ref::<df_expr::Literal>().cloned())
             .map(|element| {
-                let literal = element
+                element
                     .downcast_ref::<df_expr::Literal>()
-                    .ok_or(Unconverted::Unsupported)?;
-
-                self.import_literal_for_operand(literal, &value_field, schema)
+                    .cloned()
+                    .ok_or(Unconverted::Unsupported)
             })
+            .collect::<Conversion<Vec<_>>>()?;
+        let signed_zero_partners = literals
+            .iter()
+            .filter_map(|literal| {
+                let partner = signed_zero_partner(literal.value())?;
+                Some(literal.return_field(schema).map(|field| {
+                    df_expr::Literal::new_with_metadata(
+                        partner,
+                        Some(FieldMetadata::new_from_field(&field)),
+                    )
+                }))
+            })
+            .collect::<DFResult<Vec<_>>>()?;
+        let elements = literals
+            .into_iter()
+            .chain(signed_zero_partners)
+            .unique()
+            .map(|literal| self.import_literal_for_operand(&literal, &value_field, schema))
             .collect::<Conversion<Vec<_>>>()?;
 
         // An element of another type than the value declines the pushdown: no implicit casts.
@@ -865,6 +882,26 @@ impl ExpressionConverter for DefaultExpressionConverter {
             Err(Unconverted::Unsupported) => Ok(None),
             Err(Unconverted::Failed(error)) => Err(error),
         }
+    }
+}
+
+/// The other signed zero, for a float zero.
+///
+/// DataFusion's `IN` treats `0.0` and `-0.0` as equal but otherwise compares floats by their bits,
+/// so a NaN matches only the same NaN. Vortex's set lookup compares bits, so a converted list holds
+/// both zeros whenever DataFusion's list holds either.
+fn signed_zero_partner(value: &ScalarValue) -> Option<ScalarValue> {
+    match value {
+        ScalarValue::Float16(Some(zero)) if zero.to_f32() == 0.0 => {
+            Some(ScalarValue::Float16(Some(-*zero)))
+        }
+        ScalarValue::Float32(Some(zero)) if *zero == 0.0 => {
+            Some(ScalarValue::Float32(Some(-*zero)))
+        }
+        ScalarValue::Float64(Some(zero)) if *zero == 0.0 => {
+            Some(ScalarValue::Float64(Some(-*zero)))
+        }
+        _ => None,
     }
 }
 
