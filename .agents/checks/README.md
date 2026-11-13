@@ -9,6 +9,7 @@ CI runs it daily from `.github/workflows/agent-checks.yml`.
 | Check | What it asks |
 | --- | --- |
 | [`benchmark-usefulness`](benchmark-usefulness/CHECK.md) | Do the benchmarks measure what they claim, and are they worth their CI time? |
+| [`test-focus`](test-focus/CHECK.md) (disabled) | Does each test check one behavior precisely, and could it pass by accident? |
 
 ## How a run works
 
