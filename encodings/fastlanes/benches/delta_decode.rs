@@ -1,19 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Benchmarks decoding and reading a Delta array whose deltas are bit-packed.
+//! Benchmarks decoding and reading a Delta array.
 //!
-//! - `decode_bitpacked_deltas` executes the Delta array with its bit-packed deltas as they are.
-//!   `decode_unpacked_deltas` unpacks the deltas into a primitive array first and then executes a
-//!   Delta array over them.
+//! - `decode_bitpacked_deltas` decodes a Delta array whose deltas are bit-packed, and
+//!   `decode_primitive_deltas` one whose deltas are a primitive array.
 //! - The probe benchmarks read single rows, through a one-off probe for each row or through one
 //!   repeated probe.
-//! - The filter benchmarks select one row in `stride`, by filtering the Delta array or by filtering
-//!   its decoded values. The take benchmarks take `count` scattered rows the same two ways.
+//! - `filter` selects one row in `stride`, and `take` takes scattered rows.
 //!
-//! Every benchmark carries `#[cpu_features]`, so it is measured on each walltime CPU-feature leg
-//! rather than in simulation: the loops under test are auto-vectorized, so the build decides
-//! their speed.
+//! Only `decode_bitpacked_deltas` carries `#[cpu_features]`, so it is measured on each walltime
+//! CPU-feature leg: the build decides which transpose and decode kernels it runs. The others are
+//! measured once, in simulation.
 //!
 //! Run with `cargo bench -p vortex-fastlanes --bench delta_decode`.
 
@@ -103,40 +101,24 @@ fn decode_bitpacked_deltas<T: NativePType + TryFrom<usize>>(bencher: Bencher, by
         .bench_refs(|(array, ctx)| (*array).clone().execute::<PrimitiveArray>(ctx).unwrap());
 }
 
-#[vortex_bench_support::cpu_features]
-#[divan::bench(types = [u16, u32, u64], args = INPUT_BYTES)]
-fn decode_unpacked_deltas<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
-    let len = bytes / size_of::<T>();
-    let array = delta_bitpacked::<T>(len);
+#[divan::bench(args = INPUT_BYTES)]
+fn decode_primitive_deltas(bencher: Bencher, bytes: usize) {
+    let len = bytes / size_of::<u32>();
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = PrimitiveArray::new(values::<u32>(len), Validity::NonNullable);
+    let array = Delta::try_from_primitive_array(&array, &mut ctx)
+        .unwrap()
+        .into_array();
     bencher
         .counter(ItemsCount::new(len))
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
-        .bench_refs(|(array, ctx)| {
-            let deltas: ArrayRef = array
-                .deltas()
-                .clone()
-                .execute::<PrimitiveArray>(ctx)
-                .unwrap()
-                .into_array();
-            Delta::try_new(
-                array.bases().clone(),
-                deltas,
-                Validity::NonNullable,
-                0,
-                array.len(),
-            )
-            .unwrap()
-            .into_array()
-            .execute::<PrimitiveArray>(ctx)
-            .unwrap()
-        });
+        .bench_refs(|(array, ctx)| (*array).clone().execute::<PrimitiveArray>(ctx).unwrap());
 }
 
 /// Rows read by the probe benchmarks: the first four chunks, in order.
 const PROBE_ROWS: usize = 4096;
 
 /// Reads each row with a one-off probe.
-#[vortex_bench_support::cpu_features]
 #[divan::bench]
 fn probe_once(bencher: Bencher) {
     let array = delta_bitpacked::<u32>(PROBE_ROWS).into_array();
@@ -151,7 +133,6 @@ fn probe_once(bencher: Bencher) {
 }
 
 /// Reads each row through one repeated probe.
-#[vortex_bench_support::cpu_features]
 #[divan::bench]
 fn probe_repeated(bencher: Bencher) {
     let array = delta_bitpacked::<u32>(PROBE_ROWS).into_array();
@@ -176,7 +157,6 @@ fn strided_mask(len: usize, stride: usize) -> Mask {
 }
 
 /// Filters the Delta array.
-#[vortex_bench_support::cpu_features]
 #[divan::bench(args = [64, 4096])]
 fn filter(bencher: Bencher, stride: usize) {
     let array = delta_bitpacked_u32();
@@ -194,28 +174,6 @@ fn filter(bencher: Bencher, stride: usize) {
         });
 }
 
-/// Decodes the Delta array and then filters the decoded values.
-#[vortex_bench_support::cpu_features]
-#[divan::bench(args = [64, 4096])]
-fn filter_decoded(bencher: Bencher, stride: usize) {
-    let array = delta_bitpacked_u32();
-    let mask = strided_mask(array.len(), stride);
-    bencher
-        .counter(ItemsCount::new(array.len()))
-        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
-        .bench_refs(|(array, ctx)| {
-            (*array)
-                .clone()
-                .execute::<PrimitiveArray>(ctx)
-                .unwrap()
-                .into_array()
-                .filter(mask.clone())
-                .unwrap()
-                .execute::<PrimitiveArray>(ctx)
-                .unwrap()
-        });
-}
-
 /// `count` indices scattered over `len` rows, in no particular order.
 fn scattered_indices(len: usize, count: usize) -> ArrayRef {
     PrimitiveArray::from_iter((0..count).map(|i| u32::try_from((i * 7919 + 13) % len).unwrap()))
@@ -223,8 +181,7 @@ fn scattered_indices(len: usize, count: usize) -> ArrayRef {
 }
 
 /// Takes from the Delta array.
-#[vortex_bench_support::cpu_features]
-#[divan::bench(args = [1024, 65536])]
+#[divan::bench(args = [1024])]
 fn take(bencher: Bencher, count: usize) {
     let array = delta_bitpacked_u32();
     let indices = scattered_indices(array.len(), count);
@@ -234,28 +191,6 @@ fn take(bencher: Bencher, count: usize) {
         .bench_refs(|(array, ctx)| {
             (*array)
                 .clone()
-                .take(indices.clone())
-                .unwrap()
-                .execute::<PrimitiveArray>(ctx)
-                .unwrap()
-        });
-}
-
-/// Decodes the Delta array and then takes from the decoded values.
-#[vortex_bench_support::cpu_features]
-#[divan::bench(args = [1024, 65536])]
-fn take_decoded(bencher: Bencher, count: usize) {
-    let array = delta_bitpacked_u32();
-    let indices = scattered_indices(array.len(), count);
-    bencher
-        .counter(ItemsCount::new(count))
-        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
-        .bench_refs(|(array, ctx)| {
-            (*array)
-                .clone()
-                .execute::<PrimitiveArray>(ctx)
-                .unwrap()
-                .into_array()
                 .take(indices.clone())
                 .unwrap()
                 .execute::<PrimitiveArray>(ctx)
