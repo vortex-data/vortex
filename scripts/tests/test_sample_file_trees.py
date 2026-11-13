@@ -9,6 +9,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "sample-file-trees.py"
 
@@ -31,12 +33,31 @@ def files(*specs: tuple[str, int]) -> list[Any]:
     return [sft.VortexFile(Path(name), size) for name, size in specs]
 
 
-def test_table_name_strips_partition_index():
-    assert sft.table_name(Path("lineitem_0001.vortex")) == "lineitem"
-    assert sft.table_name(Path("hits_17.vortex")) == "hits"
-    assert sft.table_name(Path("part-3.vortex")) == "part"
-    assert sft.table_name(Path("customer_address.vortex")) == "customer_address"
-    assert sft.table_name(Path("nation.vortex")) == "nation"
+# File names as the vortex-bench data generators write them; Vortex files keep the Parquet stem.
+@pytest.mark.parametrize(
+    ("file_name", "table"),
+    [
+        # TPC-H, TPC-DS and nested TPC-H: `split::part_file_name`, `{table}_{part:04}`.
+        ("lineitem_0001.vortex", "lineitem"),
+        ("lineitem_0012.vortex", "lineitem"),
+        ("customer_0001.vortex", "customer"),
+        ("customer_address_0001.vortex", "customer_address"),
+        ("store_sales_0042.vortex", "store_sales"),
+        # ClickBench: one file, partitioned `hits_{idx}`, or sorted shards `hits_{idx:03}`.
+        ("hits.vortex", "hits"),
+        ("hits_17.vortex", "hits"),
+        ("hits_017.vortex", "hits"),
+        # Single-file datasets and unsplit tables: the whole stem.
+        ("sample.vortex", "sample"),
+        ("stacktraces.vortex", "stacktraces"),
+        ("gnomad.genomes.v3.1.2.hgdp_tgp.chr21.vortex", "gnomad.genomes.v3.1.2.hgdp_tgp.chr21"),
+        ("movie_info_idx.vortex", "movie_info_idx"),
+        ("orderitemnovelty_update.vortex", "orderitemnovelty_update"),
+        ("test.vortex", "test"),
+    ],
+)
+def test_table_name_matches_generated_files(file_name: str, table: str):
+    assert sft.table_name(Path(file_name)) == table
 
 
 def test_sample_has_one_file_per_table_plus_extra():
