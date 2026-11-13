@@ -75,7 +75,7 @@ inline string_dictionary_inputs validate_string_dictionaries(std::vector<cudf::c
 // Ownership slots are allocated before any device work starts.
 struct string_dictionary_buffers {
     rmm::cuda_stream_view stream;
-    rmm::device_async_resource_ref mr;
+    rmm::device_async_resource_ref mr; // Returned buffers only; temporaries use cuDF's current resource.
     std::vector<std::unique_ptr<cudf::column>> adjusted;
     std::vector<std::unique_ptr<cudf::scalar>> bases;
     std::unique_ptr<cudf::column> all_keys, all_codes, nonnull_codes, result;
@@ -110,17 +110,16 @@ inline void concatenate_dictionary_codes(string_dictionary_inputs const &inputs,
     for (std::size_t i = 0; i < inputs.nonempty.size(); ++i) {
         cudf::dictionary_column_view dict {inputs.nonempty[i]};
         buffers.bases[i] =
-            std::make_unique<cudf::numeric_scalar<cudf::size_type>>(offset, true, buffers.stream, buffers.mr);
+            std::make_unique<cudf::numeric_scalar<cudf::size_type>>(offset, true, buffers.stream);
         buffers.adjusted[i] = cudf::binary_operation(dict.get_indices_annotated(),
                                                      *buffers.bases[i],
                                                      cudf::binary_operator::ADD,
                                                      cudf::data_type {cudf::type_id::INT32},
-                                                     buffers.stream,
-                                                     buffers.mr);
+                                                     buffers.stream);
         codes.push_back(buffers.adjusted[i]->view());
         offset += dict.keys_size();
     }
-    buffers.all_codes = cudf::concatenate(codes, buffers.stream, buffers.mr);
+    buffers.all_codes = cudf::concatenate(codes, buffers.stream);
 }
 
 /**
@@ -142,9 +141,8 @@ inline cudf::size_type fixed_string_width(string_dictionary_inputs const &inputs
         rows += batch.size();
     }
     auto lengths = cudf::strings::count_bytes(cudf::strings_column_view {buffers.all_keys->view()},
-                                              buffers.stream,
-                                              buffers.mr);
-    auto bounds = cudf::minmax(lengths->view(), buffers.stream, buffers.mr);
+                                              buffers.stream);
+    auto bounds = cudf::minmax(lengths->view(), buffers.stream);
     auto const width =
         static_cast<cudf::numeric_scalar<cudf::size_type> &>(*bounds.first).value(buffers.stream);
     auto const max =
@@ -180,16 +178,15 @@ inline void concatenate_fixed_width_strings(string_dictionary_inputs const &inpu
                                      dict.get_indices_annotated(),
                                      cudf::out_of_bounds_policy::DONT_CHECK,
                                      cudf::negative_index_policy::NOT_ALLOWED,
-                                     buffers.stream,
-                                     buffers.mr);
+                                     buffers.stream);
         buffers.adjusted[i] = std::move(gathered->release().front());
         payloads.push_back(buffers.adjusted[i]->view());
         chars += static_cast<int64_t>(dict.keys_size()) * width;
     }
     auto values = cudf::concatenate(payloads, buffers.stream, buffers.mr);
     auto const rows = values->size();
-    cudf::numeric_scalar<cudf::size_type> zero {0, true, buffers.stream, buffers.mr};
-    cudf::numeric_scalar<cudf::size_type> step {width, true, buffers.stream, buffers.mr};
+    cudf::numeric_scalar<cudf::size_type> zero {0, true, buffers.stream};
+    cudf::numeric_scalar<cudf::size_type> step {width, true, buffers.stream};
     auto offsets = cudf::sequence(rows + 1, zero, step, buffers.stream, buffers.mr);
     auto data = values->release();
     buffers.result =
@@ -212,9 +209,8 @@ inline void gather_dictionary_strings(string_dictionary_inputs const &inputs,
         // null output rows without dereferencing their arbitrary codes.
         buffers.sentinel = std::make_unique<cudf::numeric_scalar<cudf::size_type>>(inputs.key_count,
                                                                                    true,
-                                                                                   buffers.stream,
-                                                                                   buffers.mr);
-        buffers.nonnull_codes = cudf::replace_nulls(map, *buffers.sentinel, buffers.stream, buffers.mr);
+                                                                                   buffers.stream);
+        buffers.nonnull_codes = cudf::replace_nulls(map, *buffers.sentinel, buffers.stream);
         map = buffers.nonnull_codes->view();
     }
     buffers.gathered = cudf::gather(cudf::table_view {{buffers.all_keys->view()}},
@@ -243,8 +239,9 @@ inline void gather_dictionary_strings(string_dictionary_inputs const &inputs,
  * keys and codes before expansion. Neither path sorts or deduplicates keys.
  * Like cuDF, work and temporary deallocation are stream-ordered. The caller must
  * keep inputs alive until `stream` completes, including after an error, and establish
- * dependencies before consuming the result on another stream. The memory resource
- * must outlive the result and queued work.
+ * dependencies before consuming the result on another stream. Returned buffers use `mr`;
+ * temporaries use cuDF's current device resource. Both resources must outlive their
+ * allocations and queued work.
  */
 inline std::unique_ptr<cudf::column>
 concatenate_string_dictionaries(std::vector<cudf::column_view> const &batches,
@@ -258,7 +255,7 @@ concatenate_string_dictionaries(std::vector<cudf::column_view> const &batches,
         buffers.result =
             cudf::dictionary::decode(cudf::dictionary_column_view {inputs.nonempty.front()}, stream, mr);
     } else {
-        buffers.all_keys = cudf::concatenate(inputs.keys, stream, mr);
+        buffers.all_keys = cudf::concatenate(inputs.keys, stream);
         if (auto const width = detail::fixed_string_width(inputs, buffers)) {
             detail::concatenate_fixed_width_strings(inputs, width, buffers);
         } else {
