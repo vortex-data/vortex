@@ -687,7 +687,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
             }
             Action::FillNull(fill_value) => {
                 current_array = current_array
-                    .fill_null(fill_value.clone())
+                    .fill_null(fill_value)
                     .and_then(|array| array.optimize_ctx(&ctx))
                     .vortex_expect("fill_null operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i, &mut ctx)?;

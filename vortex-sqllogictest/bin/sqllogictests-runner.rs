@@ -272,7 +272,6 @@ fn main() -> anyhow::Result<ExitCode> {
         }
 
         if run_duckdb {
-            let path = path.clone();
             let test_name = format!("slt::duckdb::{name}");
             let work_dir = work_dir_for(&test_name);
             trials.push(

@@ -175,7 +175,8 @@ impl<V: ArrowExtVTable> ArrowImportVTable for ExtensionPlugin<V> {
         };
 
         // The plugin can map Arrow's physical storage to a different Vortex storage dtype. Restore
-        // metadata against that inferred storage so the dtype plugin can validate the combination.
+        // metadata against that inferred storage. The dtype plugin requires the restored metadata to
+        // declare exactly that storage, including nested nullability.
         let restored_dtype = if V::metadata_policy() == ArrowMetadataPolicy::PreserveVortex {
             read_vortex_metadata(field, &self.vtable, native_dtype.storage_dtype())?
         } else {

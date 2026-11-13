@@ -643,6 +643,74 @@ def test_capture_file_sizes_emits_shared_benchmark_rows(tmp_path: Path) -> None:
     ]
 
 
+def test_capture_file_sizes_records_every_format_but_duckdb_catalogs(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    scale_dir = data_dir / "tpch" / "1.0"
+    for format_name, file_name, size in [
+        ("vortex-file-compressed", "lineitem.vortex", 40),
+        ("vortex-file-compressed", "duckdb.db", 7),
+        ("parquet", "lineitem.parquet", 60),
+        ("parquet", "duckdb.db.wal", 3),
+        ("duckdb", "duckdb.db", 90),
+        ("lance", "lineitem.lance/data/0.lance", 70),
+        ("not-a-format", "notes.txt", 1),
+    ]:
+        path = scale_dir / format_name / file_name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x" * size)
+    output_path = tmp_path / "sizes.jsonl"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(CAPTURE_SCRIPT),
+            str(data_dir),
+            "--benchmark",
+            "tpch",
+            "--dataset-dir",
+            "tpch",
+            "--commit",
+            "deadbeef",
+            "-o",
+            str(output_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+    assert [(r["file_size"]["format"], r["file_size"]["file"], r["value"]) for r in records] == [
+        ("duckdb", "duckdb.db", 90),
+        ("lance", "lineitem.lance/data/0.lance", 70),
+        ("parquet", "lineitem.parquet", 60),
+        ("vortex-file-compressed", "lineitem.vortex", 40),
+    ]
+
+
+def test_file_size_report_compares_only_vortex_formats() -> None:
+    compare = load_module("compare_benchmark_jsons", COMPARE_SCRIPT)
+
+    report = compare.format_file_size_report(
+        pd.DataFrame(
+            [
+                file_size_record_for("base-sha", 100, "tpch", "10", "vortex-file-compressed", "a"),
+                file_size_record_for("base-sha", 100, "tpch", "10", "parquet", "a"),
+            ]
+        ),
+        pd.DataFrame(
+            [
+                file_size_record_for("pr-sha", 125, "tpch", "10", "vortex-file-compressed", "a"),
+                file_size_record_for("pr-sha", 50, "tpch", "10", "parquet", "a"),
+            ]
+        ),
+    )
+
+    assert "<summary>File Size Changes (1 files changed, +25.0% overall, 1↑ 0↓)</summary>" in report
+    assert "parquet" not in report
+
+
 def test_baseline_fetch_refuses_a_shallow_checkout(tmp_path: Path) -> None:
     """A shallow clone must fail loudly, not render a baseline-free report.
 

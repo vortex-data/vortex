@@ -52,19 +52,21 @@ jobs:
           && format('runs-on={0}/region=us-east-1/runner=arm64-bench/tag=build{1}', github.run_id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
-      - uses: runs-on/action@v2
-        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
-        with:
-          sccache: s3
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-        with:
-          ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
-      - uses: ./.github/actions/assert-cpu
-        if: github.repository == 'vortex-data/vortex'
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          enable-sccache: ${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && 'true' || 'false' }}
+      - parallel:
+          - uses: runs-on/action@v2
+            if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+      - parallel:
+          - uses: ./.github/actions/assert-cpu
+            if: github.repository == 'vortex-data/vortex'
+          - uses: ./.github/actions/setup-prebuild
+            with:
+              repo-token: ${{ secrets.GITHUB_TOKEN }}
+              enable-sccache: ${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && 'true' || 'false' }}
       - name: Build binaries
         shell: bash
         env:
@@ -75,29 +77,50 @@ jobs:
             packages+=(--bin lance-bench)
           fi
           cargo build "${packages[@]}" --profile release_debug
+      - name: Upload binaries
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: bench-binaries
+          path: |
+            target/release_debug/data-gen
+            target/release_debug/datafusion-bench
+            target/release_debug/duckdb-bench
+            target/release_debug/lance-bench
+            target/release_debug/vx
+            target/release_debug/build/vortex-duckdb-cache/duckdb-lib-*-prebuilt/libduckdb.so
+
+  # The debuginfo upload takes several minutes. Running it in its own job keeps it off the path
+  # to the bench jobs; Polar Signals matches debuginfo to profiles by build ID whenever it lands.
+  upload-debuginfo:
+    needs: build
+    if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+    timeout-minutes: 30
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/region=us-east-1/runner=arm64-medium/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=upload-debuginfo', github.run_id)
+          || 'ubuntu-latest' }}
+    steps:
       - parallel:
-          - name: Upload binaries
-            uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+          # Wires up the RunsOn artifact proxy that download-artifact uses.
+          - uses: runs-on/action@v2
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
             with:
-              name: bench-binaries
-              path: |
-                target/release_debug/data-gen
-                target/release_debug/datafusion-bench
-                target/release_debug/duckdb-bench
-                target/release_debug/lance-bench
-                target/release_debug/vx
-                target/release_debug/build/vortex-duckdb-cache/duckdb-lib-*-prebuilt/libduckdb.so
-          - name: Pre-upload SQL benchmark debuginfo to Polar Signals
-            if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
-            uses: ./.github/actions/upload-parca-debuginfo
-            continue-on-error: true
-            with:
-              paths: |
-                target/release_debug/datafusion-bench
-                target/release_debug/duckdb-bench
-                ${{ inputs.mode != 'pr' && 'target/release_debug/lance-bench' || '' }}
-                polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-                project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+              ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+      - name: Download binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: bench-binaries
+          path: target/release_debug/
+      - name: Pre-upload SQL benchmark debuginfo to Polar Signals
+        uses: ./.github/actions/upload-parca-debuginfo
+        continue-on-error: true
+        with:
+          paths: |
+            target/release_debug/datafusion-bench
+            target/release_debug/duckdb-bench
+            ${{ inputs.mode != 'pr' && 'target/release_debug/lance-bench' || '' }}
+          polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+          project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
 
   bench:
     needs: [resolve-matrix, build]
@@ -116,45 +139,45 @@ jobs:
           && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family={1}/image=ubuntu26-full-arm64-pre-v2/tag={2}{3}', github.run_id, inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
-      - uses: runs-on/action@v2
-        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
-        with:
-          sccache: s3
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-        with:
-          ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: ${{ inputs.mode == 'pr' && '0' || '1' }}
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          enable-sccache: ${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && 'true' || 'false' }}
-      - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
-        with:
-          sync: false
+      - parallel:
+          - uses: runs-on/action@v2
+            if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+              fetch-depth: ${{ inputs.mode == 'pr' && '0' || '1' }}
+      # Everything data generation needs is independent, so install it all at once.
+      - parallel:
+          - uses: ./.github/actions/setup-prebuild
+            with:
+              repo-token: ${{ secrets.GITHUB_TOKEN }}
+              enable-sccache: ${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && 'true' || 'false' }}
+          - name: Install uv
+            uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+            with:
+              sync: false
+          - name: Install DuckDB
+            uses: ./.github/actions/setup-duckdb
+          - uses: ./.github/actions/system-info
+          - name: Download binaries
+            uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+            with:
+              name: bench-binaries
+              path: target/release_debug/
+          - name: Setup AWS CLI
+            if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+            uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+            with:
+              role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+              aws-region: us-east-1
+              # Expand session window, otherwise some large scale runs time out.
+              role-duration-seconds: 7200
 
-      - name: Install DuckDB
-        uses: ./.github/actions/setup-duckdb
-
-      - uses: ./.github/actions/system-info
-
-      - name: Download binaries
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
-        with:
-          name: bench-binaries
-          path: target/release_debug/
       - name: Make binaries executable
         shell: bash
         run: chmod +x target/release_debug/*
-
-      - name: Setup AWS CLI
-        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
-        with:
-          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-          # Expand session window, otherwise some large scale runs time out.
-          role-duration-seconds: 7200
 
       # Base data that vx-bench caches (statpopgen, sorted ClickBench) is restored
       # from, or saved to, an S3 cache. Fork PRs have no AWS credentials and always regenerate.
@@ -170,29 +193,31 @@ jobs:
             ${S3_CACHE:+--s3-cache "$S3_CACHE"} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
-      - name: Upload data
-        if: matrix.remote_key != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
-        shell: bash
-        env:
-          AWS_REGION: "us-east-1"
-          REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ inputs.matrix_preset }}/${{ matrix.remote_key }}/"
-        run: |
-          aws s3 rm --recursive "$REMOTE_STORAGE"
-          aws s3 cp --recursive "${{ matrix.local_dir }}" "$REMOTE_STORAGE"
-
-      - name: Setup Polar Signals
-        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
-        uses: polarsignals/gh-actions-ps-profiling@cd2cb45af81fbe1ca629c2ac479348207598160e  # v0.9.0
-        # Profiling is observability only, so a flaky agent download must not fail the benchmark.
-        continue-on-error: true
-        with:
-          polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }};benchmark=${{ matrix.id }}"
-          project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
-          job_name: "${{ matrix.id }}"
-          profiling_frequency: 199
-          extra_args: "--debuginfo-strip=false"
-          parca_agent_version: "0.49.0"
+      # setup-benchmark.sh pins every running process to the housekeeping CPUs, so it waits for
+      # the upload rather than throttling it.
+      - parallel:
+          - name: Upload data
+            if: matrix.remote_key != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
+            shell: bash
+            env:
+              AWS_REGION: "us-east-1"
+              REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ inputs.matrix_preset }}/${{ matrix.remote_key }}/"
+            run: |
+              aws s3 rm --recursive "$REMOTE_STORAGE"
+              aws s3 cp --recursive "${{ matrix.local_dir }}" "$REMOTE_STORAGE"
+          - name: Setup Polar Signals
+            if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+            uses: polarsignals/gh-actions-ps-profiling@cd2cb45af81fbe1ca629c2ac479348207598160e  # v0.9.0
+            # Profiling is observability only, so a flaky agent download must not fail the benchmark.
+            continue-on-error: true
+            with:
+              polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+              labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }};benchmark=${{ matrix.id }}"
+              project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+              job_name: "${{ matrix.id }}"
+              profiling_frequency: 199
+              extra_args: "--debuginfo-strip=false"
+              parca_agent_version: "0.49.0"
 
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
@@ -238,53 +263,54 @@ jobs:
 
       # The `file_size` records join the run's ingest records: develop runs store them in the
       # benchmarks database (the `file_sizes` table), and PR runs fetch them back as the baseline.
-      - name: Capture file sizes
-        if: matrix.remote_key == null
-        shell: bash
-        run: |
-          uv run --no-project scripts/capture-file-sizes.py \
-            vortex-bench/data \
-            --benchmark ${{ matrix.subcommand }} \
-            --dataset-dir ${{ matrix.dataset_dir }} \
-            --commit ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
-            -o sizes.json \
-            --ingest-jsonl sizes.ingest.jsonl
-          cat sizes.json >> results.json
-          cat sizes.ingest.jsonl >> results.ingest.jsonl
+      - parallel:
+          - name: Capture file sizes
+            if: matrix.remote_key == null
+            shell: bash
+            run: |
+              uv run --no-project scripts/capture-file-sizes.py \
+                vortex-bench/data \
+                --benchmark ${{ matrix.subcommand }} \
+                --dataset-dir ${{ matrix.dataset_dir }} \
+                --commit ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
+                -o sizes.json \
+                --ingest-jsonl sizes.ingest.jsonl
+              cat sizes.json >> results.json
+              cat sizes.ingest.jsonl >> results.ingest.jsonl
+          # Footer stats and layout trees of a sample of the dataset's Vortex files: every file is
+          # dumped, then one file of every table is kept, plus more partitions weighted by size up to a
+          # line budget. Observability only, so it never fails the benchmark or holds up its job.
+          - name: Dump sampled file trees
+            if: ${{ !cancelled() && matrix.remote_key == null }}
+            continue-on-error: true
+            timeout-minutes: 20
+            shell: bash
+            run: |
+              uv run --no-project scripts/sample-file-trees.py \
+                vortex-bench/data/${{ matrix.dataset_dir }} \
+                --vx target/release_debug/vx \
+                --seed ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
+                -o file-trees
 
-      # Footer stats and layout trees of a sample of the dataset's Vortex files: every file is
-      # dumped, then one file of every table is kept, plus more partitions weighted by size up to a
-      # line budget. Observability only, so it never fails the benchmark or holds up its job.
-      - name: Dump sampled file trees
-        if: ${{ !cancelled() && matrix.remote_key == null }}
-        continue-on-error: true
-        timeout-minutes: 20
-        shell: bash
-        run: |
-          uv run --no-project scripts/sample-file-trees.py \
-            vortex-bench/data/${{ matrix.dataset_dir }} \
-            --vx target/release_debug/vx \
-            --seed ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
-            -o file-trees
-
-      - name: Upload sampled file trees
-        if: ${{ !cancelled() && matrix.remote_key == null }}
-        continue-on-error: true
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
-        with:
-          name: file-trees-${{ inputs.matrix_preset }}-${{ matrix.id }}
-          path: file-trees/
-          retention-days: 5
-          if-no-files-found: ignore
-
-      - name: Fetch baseline from the benchmarks database
-        if: inputs.mode == 'pr'
-        uses: ./.github/actions/fetch-bench-baseline
-        with:
-          role-arn: ${{ vars.GH_BENCH_READ_ROLE_ARN }}
-          region: ${{ vars.RDS_BENCH_REGION }}
-          endpoint: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
-          database: ${{ vars.RDS_BENCH_DB_NAME }}
+      # "Fetch baseline" reads the file-size records "Capture file sizes" appends, so it waits for them.
+      - parallel:
+          - name: Upload sampled file trees
+            if: ${{ !cancelled() && matrix.remote_key == null }}
+            continue-on-error: true
+            uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+            with:
+              name: file-trees-${{ inputs.matrix_preset }}-${{ matrix.id }}
+              path: file-trees/
+              retention-days: 5
+              if-no-files-found: ignore
+          - name: Fetch baseline from the benchmarks database
+            if: inputs.mode == 'pr'
+            uses: ./.github/actions/fetch-bench-baseline
+            with:
+              role-arn: ${{ vars.GH_BENCH_READ_ROLE_ARN }}
+              region: ${{ vars.RDS_BENCH_REGION }}
+              endpoint: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
+              database: ${{ vars.RDS_BENCH_DB_NAME }}
 
       - name: Compare results
         if: inputs.mode == 'pr'

@@ -98,7 +98,7 @@ public final class ExpressionTest {
         RuntimeException exception =
                 assertThrows(RuntimeException.class, () -> Expression.literalTime(0L, Expression.TimeUnit.DAYS));
         assertTrue(
-                exception.getMessage().contains("Time type does not support time unit"),
+                exception.getMessage().contains("Time time unit must be finer than days"),
                 () -> "unexpected message: " + exception.getMessage());
     }
 

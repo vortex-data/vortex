@@ -53,6 +53,7 @@ use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::buffer::buffer;
+use vortex::dtype::PType;
 use vortex::dtype::extension::ExtDType;
 use vortex::editions::CORE_2026_08_3;
 use vortex::editions::EditionSessionExt;
@@ -996,8 +997,8 @@ async fn test_copy_fixed_shape_tensor_column() -> anyhow::Result<()> {
     ]
     .into_array();
     let storage = FixedSizeListArray::try_new(elements, 4, Validity::NonNullable, 2)?.into_array();
-    let metadata = FixedShapeTensorMetadata::new(vec![2, 2]);
-    let ext_dtype = ExtDType::<FixedShapeTensor>::try_new(metadata, storage.dtype().clone())?;
+    let metadata = FixedShapeTensorMetadata::new(PType::F32, vec![2, 2]);
+    let ext_dtype = ExtDType::<FixedShapeTensor>::try_new(metadata, storage.dtype().nullability())?;
     let tensors = ExtensionArray::try_new(ext_dtype.erased(), storage)?.into_array();
     let table = StructArray::from_fields(&[("tensor", tensors)])?.into_array();
 
