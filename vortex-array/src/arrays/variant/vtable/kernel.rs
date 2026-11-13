@@ -165,7 +165,7 @@ fn typed_shredded_path(
         let len = current_struct.len();
         let current_validity = current_struct.validity()?.to_array(len);
 
-        current = field.clone().mask(current_validity.clone())?;
+        current = field.clone().mask(current_validity)?;
     }
 
     Ok(Some(current))

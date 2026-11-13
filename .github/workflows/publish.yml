@@ -5,7 +5,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+  NIGHTLY_TOOLCHAIN: nightly-2026-11-13
 
 on:
   release:

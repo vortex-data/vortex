@@ -101,7 +101,9 @@ class CompilerCommandTests(CMakeTest):
         self.build()
         original = self.archives()
         for archive in original:
-            self.assertIn("warning: unused variable 'vendored_unused'", (archive.parent.parent / "output").read_text())
+            # The archive is in the build unit's `out` directory, and `run/stdout` holds the script output.
+            stdout = archive.parent.parent / "run" / "stdout"
+            self.assertIn("warning: unused variable 'vendored_unused'", stdout.read_text())
         self.build()
         self.assertEqual(self.archives(), original, "An unchanged build must remain fresh")
         self.configure(policy=False)
