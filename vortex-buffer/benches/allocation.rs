@@ -159,3 +159,33 @@ fn from_vec_drop_arrow(bencher: Bencher, size: usize) {
             }
         });
 }
+
+/// Buffer lengths for the shrink benchmarks, from a small chunk to a large column.
+const SHRINK_SIZES: &[usize] = &[65_536, 1 << 20, 4 << 20];
+
+/// A byte buffer of `size` bytes whose capacity is double its length, as left by growth.
+fn half_full(size: usize) -> BufferMut<u8> {
+    let mut buffer = BufferMut::<u8>::with_capacity(2 * size);
+    buffer.extend(std::iter::repeat_n(7u8, size));
+    buffer
+}
+
+#[divan::bench(args = SHRINK_SIZES)]
+fn shrink_to_fit(bencher: Bencher, size: usize) {
+    bencher
+        .with_inputs(|| half_full(size))
+        .bench_local_values(|mut buffer| {
+            buffer.shrink_to_fit();
+            buffer.freeze()
+        });
+}
+
+/// Copying into an exactly sized buffer, the alternative to [`shrink_to_fit`].
+#[divan::bench(args = SHRINK_SIZES)]
+fn shrink_by_copy(bencher: Bencher, size: usize) {
+    bencher
+        .with_inputs(|| half_full(size))
+        .bench_local_values(|buffer| {
+            BufferMut::<u8>::copy_from_aligned(&buffer, buffer.alignment()).freeze()
+        });
+}
