@@ -84,10 +84,15 @@ jobs:
         run: |
           set -Eeuo pipefail
           cd target/release_debug
-          files=(data-gen datafusion-bench duckdb-bench vx build/vortex-duckdb-cache/duckdb-lib-*-prebuilt/libduckdb.so)
+          files=(data-gen datafusion-bench duckdb-bench vx)
+          # As with the old upload-artifact paths, the optional files are packed only when present:
+          # lance-bench is not built for PRs, and libduckdb only exists for a prebuilt DuckDB.
           if [ -f lance-bench ]; then
             files+=(lance-bench)
           fi
+          shopt -s nullglob
+          files+=(build/vortex-duckdb-cache/duckdb-lib-*-prebuilt/libduckdb.so)
+          shopt -u nullglob
           tar -I 'zstd -T0 -3' -cf "$GITHUB_WORKSPACE/bench-binaries.tar.zst" "${files[@]}"
       - name: Upload binaries
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
