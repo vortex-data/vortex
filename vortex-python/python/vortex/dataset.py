@@ -180,16 +180,14 @@ class VortexDataset(pyarrow.dataset.Dataset):
             warnings.warn("Vortex does not support cache_metadata. Ignoring cache_metadata setting.")
         del memory_pool
 
+        reader = self._dataset.to_record_batch_reader(
+            columns=columns,
+            row_filter=self._filter_expression(filter),
+            row_range=_row_range,
+            limit=num_rows,
+        )
         with _temporary_worker_threads(use_threads):
-            return (
-                self._dataset.to_array(
-                    columns=columns,
-                    row_filter=self._filter_expression(filter),
-                    row_range=_row_range,
-                )
-                .slice(0, num_rows)
-                .to_arrow_table()
-            )
+            return reader.read_all()
 
     @override
     def join(
