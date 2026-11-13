@@ -39,7 +39,6 @@ use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::metrics::MetricBuilder;
 use datafusion_physical_plan::metrics::MetricCategory;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
-use datafusion_pruning::FilePruner;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
@@ -83,6 +82,8 @@ use crate::convert::schema::calculate_physical_schema;
 use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
+use crate::persistent::pruning::FilePruner;
+use crate::persistent::pruning::FilePruningCache;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::scan_v2::ScanDriver;
 use crate::persistent::stream::PrunableStream;
@@ -103,6 +104,7 @@ pub(crate) struct VortexOpener {
     /// Filter expression used by DataFusion's FilePruner to eliminate files based on
     /// statistics and partition values without opening them.
     pub file_pruning_predicate: Option<PhysicalExprRef>,
+    pub file_pruning_cache: Arc<FilePruningCache>,
     pub expr_adapter_factory: Arc<dyn PhysicalExprAdapterFactory>,
     /// This is the table's schema without partition columns. It may contain fields which do
     /// not exist in the file, and are supplied by the `schema_adapter_factory`.
@@ -232,6 +234,8 @@ impl FileOpener for VortexOpener {
         let scan_concurrency = self.scan_concurrency;
         let partitions = self.partitions.max(1);
         let scan_v2 = self.scan_v2;
+        let file_pruning_cache = (scan_v2 && self.table_schema.table_partition_cols().is_empty())
+            .then(|| Arc::clone(&self.file_pruning_cache));
 
         let expr_converter = Arc::clone(&self.expression_converter);
         let projection_pushdown = self.projection_pushdown;
@@ -264,20 +268,20 @@ impl FileOpener for VortexOpener {
         }
 
         Ok(async move {
-            // FilePruner now has all the logic to figure out if its worthwhile, and will return `None` if not.
             let mut file_pruner = file_pruning_predicate.and_then(|predicate| {
                 FilePruner::try_new(
-                    Arc::clone(&predicate),
+                    predicate,
                     &unified_file_schema,
                     &file,
                     predicate_creation_errors,
+                    file_pruning_cache,
                 )
             });
 
             // Check if this file should be pruned based on statistics/partition values.
             // Returns empty stream if file can be skipped entirely.
             if let Some(file_pruner) = file_pruner.as_mut()
-                && file_pruner.should_prune()?
+                && file_pruner.should_prune_initial().await?
             {
                 return Ok(stream::empty().boxed());
             }
@@ -1187,6 +1191,7 @@ mod tests {
             projection: ProjectionExprs::from_indices(&[0], table_schema.file_schema()),
             filter,
             file_pruning_predicate: None,
+            file_pruning_cache: Arc::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema,
             limit: None,
@@ -1406,8 +1411,11 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
     #[tokio::test]
-    async fn test_file_pruning_creation_errors_are_reported() -> anyhow::Result<()> {
+    async fn test_file_pruning_creation_errors_are_reported(
+        #[values(false, true)] scan_v2: bool,
+    ) -> anyhow::Result<()> {
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "metrics/file.vortex";
         let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
@@ -1418,6 +1426,7 @@ mod tests {
         let file = PartitionedFile::new(file_path, data_size).with_statistics(Arc::new(statistics));
 
         let mut opener = make_opener(object_store, TableSchema::from(batch.schema()), None);
+        opener.scan_v2 = scan_v2;
         opener.file_pruning_predicate = Some(Arc::new(SnapshotErrorExpr));
         let df_metrics = opener.df_metrics.clone();
 
@@ -1598,6 +1607,7 @@ mod tests {
             projection: ProjectionExprs::from_indices(&[0], table_schema.file_schema()),
             filter: Some(filter),
             file_pruning_predicate: None,
+            file_pruning_cache: Arc::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: table_schema.clone(),
             limit: None,
@@ -1691,6 +1701,7 @@ mod tests {
             projection: ProjectionExprs::from_indices(&[0, 1, 2], &table_schema),
             filter: None,
             file_pruning_predicate: None,
+            file_pruning_cache: Arc::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: TableSchema::from(Arc::clone(&table_schema)),
             limit: None,
@@ -1875,6 +1886,7 @@ mod tests {
             ),
             filter: None,
             file_pruning_predicate: None,
+            file_pruning_cache: Arc::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: table_schema.clone(),
             limit: None,
@@ -1941,6 +1953,7 @@ mod tests {
             projection,
             filter: None,
             file_pruning_predicate: None,
+            file_pruning_cache: Arc::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: TableSchema::from(schema),
             limit: None,
@@ -2158,6 +2171,7 @@ mod tests {
             projection,
             filter: None,
             file_pruning_predicate: None,
+            file_pruning_cache: Arc::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema,
             limit: None,
