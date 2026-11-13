@@ -76,6 +76,7 @@ pub use datasets::BenchmarkDataset;
 pub use output::BenchmarkOutput;
 pub use output::create_output_writer;
 use vortex::VortexSessionDefault;
+use vortex::editions::DEFAULT_PREVIEW_EDITION;
 use vortex::editions::Edition;
 use vortex::editions::EditionDeclaration;
 use vortex::editions::EditionFamily;
@@ -139,6 +140,9 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .register_edition(&UNSTABLE_BENCH_DECLARATION)
         .vortex_expect("bench edition declaration is valid");
     enable_unstable_encodings(&session);
+    session
+        .enable_edition(DEFAULT_PREVIEW_EDITION)
+        .vortex_expect("default preview edition is registered");
     session
 });
 
