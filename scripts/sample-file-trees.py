@@ -20,6 +20,10 @@ an estimate. Per Vortex format directory, the files kept are:
    still fits in the remaining line budget, so the larger partitions that dominate the dataset are
    more likely to be inspected.
 
+The default budget of 200,000 lines is about 2 MB zipped (a line costs ~11 bytes). It keeps every
+file of the SF1 and SF10 datasets and samples the larger ones, such as ClickBench's 100 files
+(~225,000 lines) and the SF100 datasets.
+
 The draw is seeded (by default with the commit), so reruns of a commit keep the same files.
 `manifest.json` lists every file with its line count and whether its dump was kept.
 """
@@ -124,8 +128,8 @@ def main() -> None:
     parser.add_argument(
         "--max-lines",
         type=int,
-        default=20_000,
-        help="Line budget per format directory; one file per table is kept even past it (default: 20000)",
+        default=200_000,
+        help="Line budget per format directory; one file per table is kept even past it (default: 200000)",
     )
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1, help="Files to dump in parallel")
     parser.add_argument("--seed", default="0", help="Seed for the draw, e.g. the commit SHA")
