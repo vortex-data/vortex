@@ -105,7 +105,12 @@ fn fixture((rows, compressed_kib, taken): (usize, usize, usize)) -> (ArrayRef, A
     let mut row_len = target / rows;
     let mut array = compressed(rows, row_len);
     while array.codes_bytes().len() < target {
-        row_len += row_len.div_ceil(50);
+        // Scale by the compression ratio just observed, so the rows reach the target in one or
+        // two compressions instead of retraining the compressor at every small step.
+        let codes_len = array.codes_bytes().len().max(1);
+        row_len = (row_len * target)
+            .div_ceil(codes_len)
+            .max(row_len + row_len.div_ceil(50));
         array = compressed(rows, row_len);
     }
 
