@@ -381,6 +381,11 @@ impl Validity {
     /// Returns `None` when the array contains invalid values (so the cast cannot be performed),
     /// either because it is [`Validity::AllInvalid`] or because the validity array's minimum is
     /// `false`.
+    ///
+    /// The result depends on the statistics of the validity array, which can come from untrusted
+    /// input. An encoding must not depend on this result for memory safety. An encoding that does
+    /// not validate the values at null rows, such as `VarBin`, must read the validity values
+    /// itself before it makes those rows valid.
     #[inline]
     pub fn into_non_nullable(self, len: usize, ctx: &mut ExecutionCtx) -> Option<Validity> {
         match self {

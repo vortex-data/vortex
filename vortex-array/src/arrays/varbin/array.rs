@@ -18,8 +18,6 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -32,6 +30,8 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::OffsetBuilderPType;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 
@@ -291,45 +291,47 @@ impl VarBinData {
         bytes_len: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        // Offsets must be sorted (but not strictly sorted, empty values are allowed)
-        let Some(is_sorted) = offsets.statistics().compute_is_sorted(ctx) else {
-            vortex_bail!("offsets must report is_sorted statistic");
-        };
-        vortex_ensure!(is_sorted, "offsets must be sorted");
+        // Read the offset values and do not use the statistics of `offsets`. Statistics can come
+        // from untrusted input, for example a serialized file.
+        let primitive_offsets = offsets.clone().execute::<PrimitiveArray>(ctx)?;
 
-        // Validate that offsets min is non-negative, and max does not exceed the length of
-        // the bytes buffer.
-        let Some(min_max) = min_max(offsets, ctx, NumericalAggregateOpts::default())? else {
-            vortex_bail!(
-                "offsets array with encoding {} must support min_max compute function",
-                offsets.encoding_id()
-            );
-        };
-
-        match_each_integer_ptype!(offsets.dtype().as_ptype(), |P| {
+        match_each_integer_ptype!(primitive_offsets.dtype().as_ptype(), |P| {
             #[allow(clippy::absurd_extreme_comparisons, unused_comparisons)]
             {
-                let max = min_max
-                    .max
-                    .as_primitive()
-                    .as_::<P>()
-                    .vortex_expect("offsets type must fit offsets values");
-                let min = min_max
-                    .min
-                    .as_primitive()
-                    .as_::<P>()
-                    .vortex_expect("offsets type must fit offsets values");
+                let offsets_slice = primitive_offsets.as_slice::<P>();
 
-                vortex_ensure!(
-                    min >= 0,
-                    "offsets minimum {min} outside valid range [0, {max}]"
-                );
+                // Offsets must be sorted (but not strictly sorted, empty values are allowed).
+                if let Some(idx) = offsets_slice.windows(2).position(|w| w[0] > w[1]) {
+                    vortex_bail!(
+                        "offsets must be sorted, but offset {} at index {idx} is greater than \
+                         offset {} at index {}",
+                        offsets_slice[idx],
+                        offsets_slice[idx + 1],
+                        idx + 1
+                    );
+                }
 
-                // An offset type too narrow for the bytes length cannot exceed it.
-                vortex_ensure!(
-                    P::try_from(bytes_len).ok().is_none_or(|len| max <= len),
-                    "Max offset {max} is beyond the length of the bytes buffer {bytes_len}"
-                );
+                // The offsets are sorted, thus the first offset is the minimum and the last
+                // offset is the maximum.
+                if let (Some(&min), Some(&max)) = (offsets_slice.first(), offsets_slice.last()) {
+                    vortex_ensure!(
+                        min >= 0,
+                        "offsets minimum {min} outside valid range [0, {max}]"
+                    );
+
+                    // An offset type too narrow for the bytes length cannot exceed it.
+                    vortex_ensure!(
+                        P::try_from(bytes_len).ok().is_none_or(|len| max <= len),
+                        "Max offset {max} is beyond the length of the bytes buffer {bytes_len}"
+                    );
+
+                    // The checked values are exact, so keep them as statistics. This replaces any
+                    // untrusted statistics on `offsets` and saves later scans.
+                    let stats = offsets.statistics();
+                    stats.set(Stat::IsSorted, Precision::exact(true));
+                    stats.set(Stat::Min, Precision::exact(min));
+                    stats.set(Stat::Max, Precision::exact(max));
+                }
             }
         });
 
@@ -385,6 +387,17 @@ impl VarBinData {
             );
 
             if offsets_tile_utf8(offsets_slice, bytes) {
+                // The fast path checked that the offsets are sorted and in bounds, so keep the
+                // checked values as statistics. This replaces any untrusted statistics on
+                // `offsets`.
+                let stats = offsets.statistics();
+                stats.set(Stat::IsSorted, Precision::exact(true));
+                stats.set(Stat::Min, Precision::exact(offsets_slice[0]));
+                stats.set(
+                    Stat::Max,
+                    Precision::exact(offsets_slice[offsets_slice.len() - 1]),
+                );
+
                 return Ok(());
             }
 
