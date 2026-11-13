@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
+mod bounds;
+pub use bounds::BoolBounds;
+pub use bounds::bool_bounds;
 mod compact;
 mod patch;
 

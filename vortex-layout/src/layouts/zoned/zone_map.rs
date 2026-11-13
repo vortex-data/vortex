@@ -5,6 +5,13 @@
 
 use std::sync::Arc;
 
+use vortex_aggregates::all_nan::AllNan;
+use vortex_aggregates::all_non_nan::AllNonNan;
+use vortex_aggregates::all_non_null::AllNonNull;
+use vortex_aggregates::all_null::AllNull;
+use vortex_aggregates::bounded_max::BOUNDED_MAX_BOUND;
+use vortex_aggregates::bounded_max::BoundedMax;
+use vortex_aggregates::stat_aggregate_fn;
 use vortex_array::ArrayRef;
 use vortex_array::Columnar;
 use vortex_array::ExecutionCtx;
@@ -12,12 +19,6 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnSatisfaction;
-use vortex_array::aggregate_fn::fns::all_nan::AllNan;
-use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
-use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
-use vortex_array::aggregate_fn::fns::all_null::AllNull;
-use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_BOUND;
-use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -317,7 +318,7 @@ impl ZoneMap {
     }
 
     fn stat_field_expr(&self, stat: Stat) -> Option<Expression> {
-        if let Some(aggregate_fn) = stat.aggregate_fn()
+        if let Some(aggregate_fn) = stat_aggregate_fn(stat)
             && let Some(expr) = self.aggregate_field_expr(&aggregate_fn)
         {
             return Some(expr);
@@ -397,23 +398,24 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use rstest::rstest;
+    use vortex_aggregates::all_non_null::AllNonNull;
+    use vortex_aggregates::all_null::AllNull;
+    use vortex_aggregates::bounded_max::BOUNDED_MAX_BOUND;
+    use vortex_aggregates::bounded_max::BOUNDED_MAX_UNKNOWN;
+    use vortex_aggregates::bounded_max::BoundedMax;
+    use vortex_aggregates::bounded_max::BoundedMaxOptions;
+    use vortex_aggregates::bounded_min::BoundedMin;
+    use vortex_aggregates::bounded_min::BoundedMinOptions;
+    use vortex_aggregates::max::Max;
+    use vortex_aggregates::min::Min;
+    use vortex_aggregates::nan_count::NanCount;
+    use vortex_aggregates::null_count::NullCount;
+    use vortex_aggregates::stat_aggregate_fn;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::EmptyOptions;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
-    use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
-    use vortex_array::aggregate_fn::fns::all_null::AllNull;
-    use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_BOUND;
-    use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_UNKNOWN;
-    use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
-    use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
-    use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
-    use vortex_array::aggregate_fn::fns::bounded_min::BoundedMinOptions;
-    use vortex_array::aggregate_fn::fns::max::Max;
-    use vortex_array::aggregate_fn::fns::min::Min;
-    use vortex_array::aggregate_fn::fns::nan_count::NanCount;
-    use vortex_array::aggregate_fn::fns::null_count::NullCount;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
@@ -985,9 +987,7 @@ mod tests {
         )
         .unwrap();
 
-        let max_fn = Stat::Max
-            .aggregate_fn()
-            .expect("max should have an aggregate function");
+        let max_fn = stat_aggregate_fn(Stat::Max).expect("max should have an aggregate function");
         let predicate = is_null(vortex_expr::stats::stat(root(), max_fn));
 
         // Missing StatFn lowers to a nullable null literal, so `is_null(...)` is true for every zone.
@@ -1010,9 +1010,7 @@ mod tests {
         )
         .unwrap();
 
-        let max_fn = Stat::Max
-            .aggregate_fn()
-            .expect("max should have an aggregate function");
+        let max_fn = stat_aggregate_fn(Stat::Max).expect("max should have an aggregate function");
         let predicate = is_null(vortex_expr::stats::stat(root(), max_fn));
         let error = prune(&zone_map, &predicate).unwrap_err();
 

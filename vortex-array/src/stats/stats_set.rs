@@ -597,16 +597,10 @@ impl MutTypedStatsSetRef<'_, '_> {
 
 #[cfg(test)]
 mod test {
-    use std::sync::LazyLock;
 
-    use enum_iterator::all;
-    use itertools::Itertools;
     use rstest::rstest;
     use smallvec::smallvec;
-    use vortex_session::VortexSession;
 
-    use crate::VortexSessionExecute;
-    use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::MAX_PRECISION;
@@ -623,8 +617,6 @@ mod test {
     use crate::scalar::ScalarValue;
     use crate::stats::StatsSet;
     use crate::stats::stats_set::Scalar;
-
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_iter() {
@@ -996,44 +988,6 @@ mod test {
             first_ref.get_as::<bool>(Stat::IsStrictSorted),
             Precision::exact(true)
         );
-    }
-
-    #[test]
-    fn merge_unordered() {
-        let array =
-            PrimitiveArray::from_option_iter([Some(1), None, Some(2), Some(42), Some(10000), None]);
-        let all_stats = all::<Stat>()
-            .filter(|s| !matches!(s, Stat::Sum))
-            .filter(|s| !matches!(s, Stat::NaNCount))
-            .collect_vec();
-        array
-            .statistics()
-            .compute_all(&all_stats, &mut SESSION.create_execution_ctx())
-            .unwrap();
-
-        let stats = array.statistics().to_owned();
-        for stat in &all_stats {
-            assert!(!stats.get(*stat).is_absent(), "Stat {stat} is missing");
-        }
-
-        let merged = stats.clone().merge_unordered(
-            &stats,
-            &DType::Primitive(PType::I32, Nullability::NonNullable),
-        );
-        for (stat, expected) in [
-            (Stat::Min, Precision::exact(ScalarValue::from(1i32))),
-            (Stat::Max, Precision::exact(ScalarValue::from(10000i32))),
-            (Stat::NullCount, Precision::exact(ScalarValue::from(4u64))),
-            (
-                Stat::UncompressedSizeInBytes,
-                Precision::exact(ScalarValue::from(50u64)),
-            ),
-            (Stat::IsConstant, Precision::exact(ScalarValue::from(false))),
-            (Stat::IsSorted, Precision::Absent),
-            (Stat::IsStrictSorted, Precision::Absent),
-        ] {
-            assert_eq!(merged.get(stat), expected, "{stat}");
-        }
     }
 
     #[test]

@@ -29,6 +29,8 @@ use crate::IntoArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::PrimitiveArrayExt;
+#[cfg(debug_assertions)]
+use crate::arrays::primitive::integer_is_strict_sorted;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -272,9 +274,8 @@ impl Patches {
 
             #[cfg(debug_assertions)]
             {
-                use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
                 assert!(
-                    is_strict_sorted(&indices, ctx).unwrap_or(false),
+                    integer_is_strict_sorted(&indices, ctx).unwrap_or(false),
                     "Patch indices must be strictly increasing"
                 );
             }

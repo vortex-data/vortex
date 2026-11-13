@@ -40,7 +40,7 @@ use parquet::file::properties::WriterProperties;
 use tokio::fs::File;
 use url::Url;
 use vortex::VortexSessionDefault;
-use vortex::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
+use vortex::aggregates::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;

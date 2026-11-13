@@ -125,7 +125,8 @@ pub mod memory;
 mod metadata;
 pub mod normalize;
 pub mod optimizer;
-mod partial_ord;
+#[doc(hidden)]
+pub mod partial_ord;
 pub mod patches;
 pub mod proto;
 pub mod scalar;

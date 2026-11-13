@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_aggregates::is_sorted::IsSorted;
+use vortex_aggregates::is_sorted::is_sorted;
+use vortex_aggregates::is_sorted::is_strict_sorted;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
-use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
-use vortex_array::aggregate_fn::fns::is_sorted::is_strict_sorted;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::scalar::Scalar;
@@ -66,9 +66,9 @@ impl DynAggregateKernel for FoRIsSortedKernel {
 mod test {
     use std::sync::LazyLock;
 
+    use vortex_aggregates::is_sorted::is_sorted;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;

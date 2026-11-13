@@ -18,14 +18,6 @@ use crate::ArrayRef;
 use crate::EmptyArrayData;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::aggregate_fn::AggregateFn;
-use crate::aggregate_fn::AggregateFnRef;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::max::Max;
-use crate::aggregate_fn::fns::min::Min;
-use crate::aggregate_fn::fns::min_max::MinMax;
-use crate::aggregate_fn::fns::min_max::min_max;
-use crate::aggregate_fn::fns::min_max::nan_scalar;
 use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
@@ -225,46 +217,6 @@ fn test_array_parts_require_the_storage_dtype(#[case] storage: ArrayRef) -> Vort
     );
 
     assert!(ExtensionArray::try_from_parts(parts).is_err());
-
-    Ok(())
-}
-
-#[rstest]
-#[case::min(AggregateFn::new(Min, NumericalAggregateOpts::default()).erased())]
-#[case::max(AggregateFn::new(Max, NumericalAggregateOpts::default()).erased())]
-#[case::min_max(AggregateFn::new(MinMax, NumericalAggregateOpts::default()).erased())]
-fn test_aggregates_return_extension_validation_errors(
-    #[case] aggregate: AggregateFnRef,
-) -> VortexResult<()> {
-    let array = NonZero::array(buffer![0i64, 1].into_array())?;
-    let mut ctx = SESSION.create_execution_ctx();
-    let mut accumulator = aggregate.accumulator(array.dtype())?;
-
-    assert_non_zero_error(accumulator.accumulate(&array, &mut ctx), "0");
-
-    Ok(())
-}
-
-#[test]
-fn test_nan_extrema_return_extension_validation_errors() -> VortexResult<()> {
-    let array = NonZero::array(buffer![f64::NAN, 1.0].into_array())?;
-    let mut ctx = SESSION.create_execution_ctx();
-
-    assert_non_zero_error(
-        min_max(&array, &mut ctx, NumericalAggregateOpts::include_nans()),
-        "NaN",
-    );
-
-    Ok(())
-}
-
-#[rstest]
-fn test_nan_scalar_returns_extension_validation_errors(
-    #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
-) -> VortexResult<()> {
-    let dtype = DType::Extension(NonZero::dtype(PType::F64, nullability)?);
-
-    assert_non_zero_error(nan_scalar(&dtype), "NaN");
 
     Ok(())
 }

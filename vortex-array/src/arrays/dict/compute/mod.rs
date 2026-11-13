@@ -5,10 +5,7 @@ mod cast;
 mod compare;
 mod fill_null;
 mod filter;
-pub(crate) mod is_constant;
-pub(crate) mod is_sorted;
 mod mask;
-pub(crate) mod min_max;
 pub(crate) mod rules;
 mod slice;
 

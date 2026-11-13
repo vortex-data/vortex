@@ -10,10 +10,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::fns::all_nan::AllNan;
-use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
-use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
-use vortex_array::aggregate_fn::fns::all_null::AllNull;
+use vortex_array::aggregate_fn::stat_aggregates;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::display::ExprDisplay;
@@ -145,7 +142,7 @@ fn stat_array(
     dtype: DType,
     len: usize,
 ) -> VortexResult<ArrayRef> {
-    let value = if aggregate_fn.is::<AllNull>() {
+    let value = if aggregate_fn.id() == *stat_aggregates::ALL_NULL_ID {
         let len = u64::try_from(len)?;
         match array.statistics().get_as::<u64>(Stat::NullCount) {
             Precision::Exact(count) => Some(count == len),
@@ -153,14 +150,14 @@ fn stat_array(
             Precision::Absent => None,
         }
         .map(ScalarValue::Bool)
-    } else if aggregate_fn.is::<AllNonNull>() {
+    } else if aggregate_fn.id() == *stat_aggregates::ALL_NON_NULL_ID {
         match array.statistics().get_as::<u64>(Stat::NullCount) {
             Precision::Exact(count) => Some(count == 0),
             Precision::Inexact(0) => Some(true),
             Precision::Inexact(_) | Precision::Absent => None,
         }
         .map(ScalarValue::Bool)
-    } else if aggregate_fn.is::<AllNan>() {
+    } else if aggregate_fn.id() == *stat_aggregates::ALL_NAN_ID {
         let len = u64::try_from(len)?;
         match array.statistics().get_as::<u64>(Stat::NaNCount) {
             Precision::Exact(count) => Some(count == len),
@@ -168,7 +165,7 @@ fn stat_array(
             Precision::Absent => None,
         }
         .map(ScalarValue::Bool)
-    } else if aggregate_fn.is::<AllNonNan>() {
+    } else if aggregate_fn.id() == *stat_aggregates::ALL_NON_NAN_ID {
         match array.statistics().get_as::<u64>(Stat::NaNCount) {
             Precision::Exact(count) => Some(count == 0),
             Precision::Inexact(0) => Some(true),

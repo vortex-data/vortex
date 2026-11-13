@@ -43,6 +43,7 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::listview::ListViewArraySlotsExt;
+use crate::arrays::primitive::integer_is_strict_sorted;
 use crate::arrays::runend::compress::runend_decode_decimal;
 use crate::arrays::runend::compress::runend_decode_primitive;
 use crate::arrays::runend::compress::runend_decode_varbinview;
@@ -307,12 +308,9 @@ impl RunEndData {
             // Run ends must be strictly sorted for binary search to work correctly.
             let pre_validation = ends.statistics().to_owned();
 
-            let is_sorted = ends
-                .statistics()
-                .compute_is_strict_sorted(ctx)
-                .unwrap_or(false);
+            let is_sorted = integer_is_strict_sorted(ends, ctx)?;
 
-            // Preserve the original statistics since compute_is_strict_sorted may have mutated them.
+            // Preserve the original statistics since computing sortedness may have cached new ones.
             // We don't want to run with different stats in debug mode and outside.
             ends.statistics().inherit(pre_validation.iter());
             debug_assert!(is_sorted);
