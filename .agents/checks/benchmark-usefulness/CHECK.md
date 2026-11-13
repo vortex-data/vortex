@@ -17,7 +17,6 @@ allowed_tools = [
   "Bash(cargo clippy:*)",
   "Bash(RUSTC_WRAPPER= cargo check:*)",
   "Bash(RUSTC_WRAPPER= cargo clippy:*)",
-  "Bash(env RUSTFLAGS=:*)",
   "Bash(git status:*)",
 ]
 # The runner checks edits with these after the agent finishes. If one fails, every edit is
@@ -185,10 +184,8 @@ For every crate whose files you edited:
 
 1. The runner's verify command, listed in the rules below. If it fails after you finish, the runner
    discards every edit in the shard, so it must pass.
-2. If an edit touches code that depends on `cfg(codspeed)` or `cfg!(codspeed)`, also run
-   `env RUSTFLAGS="--cfg codspeed" cargo check -p <crate> --benches --features <features>
-   --target-dir target/codspeed-check`, where `<features>` is the crate's `PACKAGE_FEATURES` entry
-   in `scripts/codspeed_shards.py` (omit `--features` if it has none).
+2. Do not edit code that depends on `cfg(codspeed)` or `cfg!(codspeed)`: no check here builds it
+   that way. Report such problems with `fixed: false` instead.
 
 Do not run `cargo fmt`; the runner formats edited files with the pinned nightly.
 
