@@ -194,6 +194,7 @@ mod tests {
     use crate::dtype::vx_dtype;
     use crate::dtype::vx_dtype_free;
     use crate::error::vx_error_free;
+    use crate::session::vx_session_enable_edition;
     use crate::session::vx_session_free;
     use crate::session::vx_session_new;
 
@@ -242,6 +243,49 @@ mod tests {
             vx_dtype_free(vx_dtype_ptr);
             vx_session_free(session);
         }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_sink_writes_legacy_zone_map_for_older_edition() -> VortexResult<()> {
+        let temp_file = NamedTempFile::new()?;
+        let path = temp_file
+            .path()
+            .to_str()
+            .ok_or_else(|| vortex_err!("temporary file path is not UTF-8"))?;
+        let path = vx_view::from_str(path);
+        let array = buffer![1i32, 2, 3].into_array();
+        let dtype = vx_dtype::new(array.dtype().clone());
+        let array = vx_array::new(array);
+        let session = unsafe { vx_session_new() };
+        let mut error = std::ptr::null_mut();
+
+        let edition = vx_view::from_str("core2025.10.0");
+        assert_eq!(
+            unsafe { vx_session_enable_edition(session, edition, &raw mut error) },
+            0
+        );
+        assert!(error.is_null());
+
+        let sink = unsafe { vx_array_sink_open_file(session, path, dtype, &raw mut error) };
+        assert!(error.is_null());
+        assert!(!sink.is_null());
+
+        unsafe { vx_array_sink_push(sink, array, &raw mut error) };
+        assert!(error.is_null());
+        unsafe { vx_array_sink_close(sink, &raw mut error) };
+        assert!(error.is_null());
+
+        let reader_session = vx_session::as_ref(session).clone();
+        unsafe {
+            vx_array_free(array);
+            vx_dtype_free(dtype);
+            vx_session_free(session);
+        }
+        let bytes = ByteBuffer::from(std::fs::read(temp_file.path())?);
+        let file = reader_session.open_options().open_buffer(bytes)?;
+        assert_eq!(file.footer().layout().encoding_id().as_str(), "vortex.stats");
+        Ok(())
     }
 
     #[test]

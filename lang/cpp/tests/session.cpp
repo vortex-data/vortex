@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #include <catch2/catch_test_macros.hpp>
 #include <array>
+#include <string_view>
 #include <vortex/array.hpp>
+#include <vortex/error.hpp>
+#include <vortex/session.hpp>
 
 using namespace vortex;
 
@@ -20,5 +23,12 @@ TEST_CASE("Session copy and move", "[session]") {
     for (size_t i = 0; i < expected.size(); ++i) {
         REQUIRE(view.values()[i] == expected[i]);
     }
+}
+
+TEST_CASE("Session enables a named edition", "[session]") {
+    Session session;
+    const std::string_view text = "core2025.10.0 suffix";
+    REQUIRE_NOTHROW(session.enable_edition(text.substr(0, text.find(' '))));
+    REQUIRE_THROWS_AS(session.enable_edition("unknown-edition"), VortexException);
 }
 } // namespace
