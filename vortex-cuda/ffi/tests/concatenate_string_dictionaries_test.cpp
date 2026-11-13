@@ -74,6 +74,13 @@ TYPED_TEST(CodeWidths, SingleAndDifferentUnsortedDuplicateKeys) {
     expect_values(concatenate({a->view(), b->view()})->view(), combined);
 }
 
+TYPED_TEST(CodeWidths, VariableWidthKeysWithNonzeroCodeOffset) {
+    auto a = dictionary(strings {"b", "zz", "a", "b"}.release(), numbers<int32_t> {3, 2, 1, 0}.release());
+    auto b = dictionary(strings {"zz", "a", "zz"}.release(), numbers<TypeParam> {2, 1, 0}.release());
+    strings combined {"b", "a", "zz", "b", "zz", "a", "zz"};
+    expect_values(concatenate({a->view(), b->view()})->view(), combined);
+}
+
 TEST_F(ConcatenateStringDictionaries, NullCodesAndNullKeysUseParentValidity) {
     auto a = dictionary(
         strings {{"z", "unused", "a"}, {true, false, true}}.release(),
