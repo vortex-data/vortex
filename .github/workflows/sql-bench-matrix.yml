@@ -70,7 +70,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench)
+          packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench --bin vx)
           if [ "${{ inputs.mode }}" != "pr" ]; then
             packages+=(--bin lance-bench)
           fi
@@ -85,6 +85,7 @@ jobs:
                 target/release_debug/datafusion-bench
                 target/release_debug/duckdb-bench
                 target/release_debug/lance-bench
+                target/release_debug/vx
                 target/release_debug/build/vortex-duckdb-cache/duckdb-lib-*-prebuilt/libduckdb.so
           - name: Pre-upload SQL benchmark debuginfo to Polar Signals
             if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
@@ -246,6 +247,30 @@ jobs:
             --commit ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
             -o sizes.json
           cat sizes.json >> results.json
+
+      # Footer stats and layout trees of a sample of the dataset's Vortex files: one file of every
+      # table, plus a few more partitions weighted by size. Observability only, so it never fails
+      # the benchmark.
+      - name: Dump sampled file trees
+        if: ${{ !cancelled() && matrix.remote_key == null }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          uv run --no-project scripts/sample-file-trees.py \
+            vortex-bench/data/${{ matrix.dataset_dir }} \
+            --vx target/release_debug/vx \
+            --seed ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
+            -o file-trees
+
+      - name: Upload sampled file trees
+        if: ${{ !cancelled() && matrix.remote_key == null }}
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: file-trees-${{ inputs.matrix_preset }}-${{ matrix.id }}
+          path: file-trees/
+          retention-days: 5
+          if-no-files-found: ignore
 
       - name: Fetch baseline from the benchmarks database
         if: inputs.mode == 'pr'
