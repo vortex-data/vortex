@@ -485,6 +485,89 @@ impl<T> BufferMut<T> {
         }
     }
 
+    /// Shrinks the capacity of the buffer as much as possible while keeping its alignment.
+    ///
+    /// Has the same intent as [`Vec::shrink_to_fit`]: the allocator is asked to shrink the
+    /// allocation in place (a `realloc`), which usually avoids copying the data. If the allocation
+    /// does not guarantee the buffer's alignment, up to `alignment - 1` bytes of padding are kept so
+    /// the data can be realigned when the allocator moves the block, so the capacity may remain
+    /// slightly larger than the length.
+    ///
+    /// ```
+    /// use vortex_buffer::BufferMut;
+    ///
+    /// let mut buffer = BufferMut::<u32>::with_capacity(1024);
+    /// buffer.extend_from_slice(&[1, 2, 3]);
+    /// buffer.shrink_to_fit();
+    /// assert_eq!(buffer.as_slice(), &[1, 2, 3]);
+    /// assert!(buffer.capacity() < 1024);
+    /// ```
+    pub fn shrink_to_fit(&mut self) {
+        if self.allocation.size() == 0 {
+            return;
+        }
+
+        let alignment = self.alignment.as_usize();
+        if self.length == 0 {
+            *self = Self::empty_aligned_in(self.alignment, self.allocation.allocator().clone());
+            return;
+        }
+
+        let data_bytes = self.length * size_of::<T>();
+        // A block aligned to the buffer's alignment keeps the data aligned at offset zero wherever
+        // the allocator moves it. A less aligned block needs padding to realign the data afterwards.
+        let padding = if self.allocation.alignment() >= alignment {
+            0
+        } else {
+            alignment - 1
+        };
+        let new_size = data_bytes + padding;
+        if new_size >= self.allocation.size() {
+            return;
+        }
+
+        // Move the data to the first aligned offset, so it lies within the first `new_size` bytes
+        // that the shrink preserves. The offset is below `alignment`, and zero when the block is
+        // aligned to `alignment`.
+        let old_offset = self.ptr.cast::<u8>().addr().get() - self.allocation.ptr().addr().get();
+        let offset = self.allocation.ptr().as_ptr().align_offset(alignment);
+        if offset != old_offset {
+            // SAFETY: offset <= old_offset because the data pointer is itself aligned, so both
+            // ranges are inside the allocation; copy permits overlap.
+            unsafe {
+                std::ptr::copy(
+                    self.allocation.ptr().as_ptr().add(old_offset),
+                    self.allocation.ptr().as_ptr().add(offset),
+                    data_bytes,
+                );
+            }
+        }
+
+        let offset = if self.allocation.shrink(new_size) {
+            let new_offset = self.allocation.ptr().as_ptr().align_offset(alignment);
+            if new_offset != offset {
+                // SAFETY: the shrink preserved the first new_size bytes, which hold the data at
+                // offset. new_offset <= padding, so both ranges fit in new_size bytes; copy
+                // permits overlap.
+                unsafe {
+                    std::ptr::copy(
+                        self.allocation.ptr().as_ptr().add(offset),
+                        self.allocation.ptr().as_ptr().add(new_offset),
+                        data_bytes,
+                    );
+                }
+            }
+            new_offset
+        } else {
+            offset
+        };
+
+        // SAFETY: offset is aligned to the buffer's alignment and the data lies within the
+        // allocation from it.
+        self.ptr = unsafe { self.allocation.ptr().add(offset).cast() };
+        self.capacity = (self.allocation.size() - offset) / size_of::<T>();
+    }
+
     /// Reserves capacity for at least `additional` more elements to be inserted in the buffer.
     #[inline]
     pub fn reserve(&mut self, additional: usize) {

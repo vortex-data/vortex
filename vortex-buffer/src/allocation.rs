@@ -330,6 +330,27 @@ impl Allocation {
         self.ptr = allocation.cast();
         self.layout = new_layout;
     }
+
+    /// Shrink the allocation to `new_size` bytes, keeping its layout alignment.
+    ///
+    /// The first `new_size` bytes are preserved, but the block may move. Returns `false` and
+    /// leaves the allocation unchanged if the allocator cannot shrink it.
+    pub(crate) fn shrink(&mut self, new_size: usize) -> bool {
+        debug_assert!(new_size > 0 && new_size <= self.layout.size());
+        let Ok(new_layout) = Layout::from_size_align(new_size, self.layout.align()) else {
+            return false;
+        };
+        // SAFETY: ptr denotes a live block owned by allocator, old_layout fits the block, and the
+        // new layout keeps the alignment and is no larger than the old one.
+        match unsafe { self.allocator.shrink(self.ptr, self.layout, new_layout) } {
+            Ok(allocation) => {
+                self.ptr = allocation.cast();
+                self.layout = new_layout;
+                true
+            }
+            Err(_) => false,
+        }
+    }
 }
 
 impl Drop for Allocation {
@@ -534,5 +555,194 @@ mod tests {
         assert_eq!(state.deallocations.load(Ordering::Relaxed), 1);
         drop(original);
         assert_eq!(state.deallocations.load(Ordering::Relaxed), 2);
+    }
+
+    /// Forwards to [`Global`], but places every block at a varying offset past a 64 KiB boundary.
+    /// Each shrink moves the block, so a buffer whose allocation is less aligned than the buffer
+    /// itself lands at a different alignment offset after the shrink.
+    #[derive(Debug, Default)]
+    struct MovingAllocator {
+        calls: AtomicUsize,
+        shrinks: AtomicUsize,
+    }
+
+    impl MovingAllocator {
+        const REAL_ALIGN: usize = 1 << 16;
+
+        /// The real block behind `ptr`: the shift is below `REAL_ALIGN`, so rounding down finds it.
+        fn real_block(ptr: NonNull<u8>, layout: Layout) -> (NonNull<u8>, Layout) {
+            let shift = ptr.addr().get() % Self::REAL_ALIGN;
+            // SAFETY: ptr was returned by allocate, which placed it shift bytes into a real block.
+            let real = unsafe { ptr.sub(shift) };
+            let real_layout = Layout::from_size_align(layout.size() + shift, Self::REAL_ALIGN)
+                .unwrap_or_else(|_| unreachable!("allocate checked this layout"));
+            (real, real_layout)
+        }
+    }
+
+    // SAFETY: every block is a live Global block, offset by a multiple of the requested alignment,
+    // and deallocation recovers the real block it came from.
+    unsafe impl Allocator for MovingAllocator {
+        fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+            let call = self.calls.fetch_add(1, Ordering::Relaxed);
+            let shift = layout.align() * (1 + call % 7);
+            if shift >= Self::REAL_ALIGN {
+                return Err(AllocError);
+            }
+            let real_layout = Layout::from_size_align(layout.size() + shift, Self::REAL_ALIGN)
+                .map_err(|_| AllocError)?;
+            let real = Global.allocate(real_layout)?.cast::<u8>();
+            // SAFETY: real_layout reserves shift bytes before the returned block.
+            let ptr = unsafe { real.add(shift) };
+            Ok(NonNull::slice_from_raw_parts(ptr, layout.size()))
+        }
+
+        unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+            let (real, real_layout) = Self::real_block(ptr, layout);
+            // SAFETY: real and real_layout describe the block from Global.allocate.
+            unsafe { Global.deallocate(real, real_layout) }
+        }
+
+        unsafe fn shrink(
+            &self,
+            ptr: NonNull<u8>,
+            old_layout: Layout,
+            new_layout: Layout,
+        ) -> Result<NonNull<[u8]>, AllocError> {
+            self.shrinks.fetch_add(1, Ordering::Relaxed);
+            let new = self.allocate(new_layout)?;
+            // SAFETY: both blocks are live and disjoint, and new_layout is no larger than old.
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    ptr.as_ptr(),
+                    new.cast::<u8>().as_ptr(),
+                    new_layout.size(),
+                );
+                self.deallocate(ptr, old_layout);
+            }
+            Ok(new)
+        }
+    }
+
+    fn assert_shrunk<T: Copy + PartialEq + std::fmt::Debug>(
+        buffer: &BufferMut<T>,
+        expected: &[T],
+        alignment: Alignment,
+    ) {
+        assert_eq!(buffer.as_slice(), expected);
+        assert!(alignment.is_ptr_aligned(buffer.as_ptr()));
+        assert!(buffer.capacity() >= buffer.len());
+        let max_bytes = buffer.len() * size_of::<T>() + alignment.as_usize() - 1;
+        assert!(buffer.allocation.size() <= max_bytes.max(1));
+    }
+
+    #[rstest]
+    fn shrink_to_fit_realigns_moved_blocks(
+        #[values(8, 64, 4096)] alignment: usize,
+        #[values(1, 3, 1000)] len: u64,
+    ) {
+        let allocator = Arc::new(MovingAllocator::default());
+        let alignment = Alignment::new(alignment);
+        // Growing from empty makes an allocation that is only byte aligned.
+        let mut buffer = BufferMut::<u64>::empty_aligned_in(
+            alignment,
+            BufferAllocatorRef::new(ArcAllocator(Arc::clone(&allocator))),
+        );
+        let expected: Vec<u64> = (0..len).collect();
+        buffer.reserve(8192);
+        buffer.extend_from_slice(&expected);
+        assert!(buffer.allocation.alignment() < alignment.as_usize());
+
+        buffer.shrink_to_fit();
+
+        assert_shrunk(&buffer, &expected, alignment);
+        assert_eq!(allocator.shrinks.load(Ordering::Relaxed), 1);
+        buffer.push(u64::MAX);
+        assert_eq!(buffer[expected.len()], u64::MAX);
+        assert!(alignment.is_ptr_aligned(buffer.as_ptr()));
+    }
+
+    #[rstest]
+    fn shrink_to_fit_with_global(
+        #[values(2, 8, 64, 4096)] alignment: usize,
+        #[values(0, 1, 1000)] len: u16,
+    ) {
+        let alignment = Alignment::new(alignment);
+        let mut buffer = BufferMut::<u16>::with_capacity_aligned(1 << 16, alignment);
+        let expected: Vec<u16> = (0..len).collect();
+        buffer.extend_from_slice(&expected);
+
+        buffer.shrink_to_fit();
+
+        assert_shrunk(&buffer, &expected, alignment);
+        assert_eq!(buffer.alignment(), alignment);
+    }
+
+    #[test]
+    fn shrink_to_fit_drops_slice_prefix() -> VortexResult<()> {
+        let allocator = Arc::new(MovingAllocator::default());
+        let alignment = Alignment::new(64);
+        let values: Vec<u64> = (0..1024).collect();
+        let buffer = BufferMut::<u64>::copy_from_aligned_in(
+            &values,
+            alignment,
+            BufferAllocatorRef::new(ArcAllocator(Arc::clone(&allocator))),
+        )
+        .freeze()
+        .slice(512..520);
+        let mut buffer = buffer
+            .try_into_mut()
+            .map_err(|_| vortex_err!("unique buffer"))?;
+
+        buffer.shrink_to_fit();
+
+        assert_shrunk(&buffer, &values[512..520], alignment);
+        assert_eq!(allocator.shrinks.load(Ordering::Relaxed), 1);
+        Ok(())
+    }
+
+    #[rstest]
+    fn shrink_to_fit_is_idempotent(#[values(1, 64)] alignment: usize) {
+        let allocator = Arc::new(MovingAllocator::default());
+        let alignment = Alignment::new(alignment);
+        let mut buffer = BufferMut::<u8>::copy_from_aligned_in(
+            [1u8, 2, 3],
+            alignment,
+            BufferAllocatorRef::new(ArcAllocator(Arc::clone(&allocator))),
+        );
+
+        buffer.shrink_to_fit();
+        let ptr = buffer.as_ptr();
+        buffer.shrink_to_fit();
+
+        assert_eq!(buffer.as_slice(), [1, 2, 3]);
+        assert_eq!(buffer.as_ptr(), ptr);
+        assert_eq!(allocator.shrinks.load(Ordering::Relaxed), 1);
+    }
+
+    /// Shares a [`MovingAllocator`] between the buffer and the test.
+    #[derive(Debug)]
+    struct ArcAllocator(Arc<MovingAllocator>);
+
+    // SAFETY: forwards every call to the shared allocator.
+    unsafe impl Allocator for ArcAllocator {
+        fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+            self.0.allocate(layout)
+        }
+
+        unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+            // SAFETY: the caller upholds the Allocator contract.
+            unsafe { self.0.deallocate(ptr, layout) }
+        }
+
+        unsafe fn shrink(
+            &self,
+            ptr: NonNull<u8>,
+            old_layout: Layout,
+            new_layout: Layout,
+        ) -> Result<NonNull<[u8]>, AllocError> {
+            // SAFETY: the caller upholds the Allocator contract.
+            unsafe { self.0.shrink(ptr, old_layout, new_layout) }
+        }
     }
 }
