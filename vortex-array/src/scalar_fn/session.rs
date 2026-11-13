@@ -17,12 +17,10 @@ use crate::scalar_fn::builtin::cast::Cast;
 use crate::scalar_fn::builtin::fill_null::FillNull;
 use crate::scalar_fn::builtin::get_item::GetItem;
 use crate::scalar_fn::builtin::is_not_null::IsNotNull;
-use crate::scalar_fn::builtin::is_null::IsNull;
 use crate::scalar_fn::builtin::literal::Literal;
 use crate::scalar_fn::builtin::mask::Mask;
 use crate::scalar_fn::builtin::not::Not;
 use crate::scalar_fn::builtin::pack::Pack;
-use crate::scalar_fn::builtin::select::Select;
 
 /// Registry of scalar function vtables.
 pub type ScalarFnRegistry = ArcSwapMap<Id, ScalarFnPluginRef>;
@@ -58,12 +56,10 @@ impl Default for ScalarFnSession {
         this.register(FillNull);
         this.register(GetItem);
         this.register(IsNotNull);
-        this.register(IsNull);
         this.register(Literal);
         this.register(Mask);
         this.register(Not);
         this.register(Pack);
-        this.register(Select);
 
         this
     }

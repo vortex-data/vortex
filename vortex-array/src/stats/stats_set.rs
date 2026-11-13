@@ -15,23 +15,23 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
-use crate::expr::stats::IsConstant;
-use crate::expr::stats::IsSorted;
-use crate::expr::stats::IsStrictSorted;
-use crate::expr::stats::Max;
-use crate::expr::stats::Min;
-use crate::expr::stats::NaNCount;
-use crate::expr::stats::NullCount;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatBound;
-use crate::expr::stats::StatType;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
-use crate::expr::stats::Sum;
-use crate::expr::stats::UncompressedSizeInBytes;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::stats::IsConstant;
+use crate::stats::IsSorted;
+use crate::stats::IsStrictSorted;
+use crate::stats::Max;
+use crate::stats::Min;
+use crate::stats::NaNCount;
+use crate::stats::NullCount;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatBound;
+use crate::stats::StatType;
+use crate::stats::StatsProvider;
+use crate::stats::StatsProviderExt;
+use crate::stats::Sum;
+use crate::stats::UncompressedSizeInBytes;
 
 /// Type of the SmallVec stored inside StatsSet
 pub type StatsArray = [(Stat, Precision<ScalarValue>); 4];
@@ -614,13 +614,13 @@ mod test {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::i256;
-    use crate::expr::stats::IsConstant;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProvider;
-    use crate::expr::stats::StatsProviderExt;
     use crate::scalar::DecimalValue;
     use crate::scalar::ScalarValue;
+    use crate::stats::IsConstant;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
+    use crate::stats::StatsProvider;
+    use crate::stats::StatsProviderExt;
     use crate::stats::StatsSet;
     use crate::stats::stats_set::Scalar;
 

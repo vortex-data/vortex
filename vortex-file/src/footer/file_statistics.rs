@@ -612,10 +612,10 @@ mod tests {
     use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::stats::Precision;
-    use vortex_array::expr::stats::Stat;
     use vortex_array::flatbuffers::WriteFlatBufferExt;
     use vortex_array::scalar::ScalarValue;
+    use vortex_array::stats::Precision;
+    use vortex_array::stats::Stat;
 
     use super::*;
 

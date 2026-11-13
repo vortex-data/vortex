@@ -50,6 +50,7 @@ use vortex_arrow::to_arrow_null_buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_functions::builtins::ArrayFunctions;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
 

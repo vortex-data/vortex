@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Traits and utilities to compute and access array statistics.
+//! Array statistics: the statistics an array can carry ([`Stat`]), how exact a value is
+//! ([`Precision`]) and its bounds, the [`StatsProvider`] traits that read them, and the cache each
+//! array keeps ([`ArrayStats`], [`StatsSet`]).
 
 use arrow_buffer::BooleanBufferBuilder;
 use arrow_buffer::MutableBuffer;
@@ -10,13 +12,21 @@ use enum_iterator::last;
 pub use stats_set::*;
 
 mod array;
+mod bound;
 pub mod flatbuffers;
+mod precision;
+mod provider;
+mod stat;
+mod stat_bound;
 mod stats_set;
 
 pub use array::*;
+pub use bound::*;
+pub use precision::*;
+pub use provider::*;
+pub use stat::*;
+pub use stat_bound::*;
 use vortex_error::VortexExpect;
-
-use crate::expr::stats::Stat;
 
 pub fn as_stat_bitset_bytes(stats: &[Stat]) -> Vec<u8> {
     let max_stat = u8::from(last::<Stat>().vortex_expect("last stat")) as usize + 1;

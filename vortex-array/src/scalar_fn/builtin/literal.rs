@@ -14,7 +14,6 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
-use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -24,6 +23,7 @@ use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::display::ExprDisplay;
 
 /// Expression that represents a literal scalar value.
 #[derive(Clone)]
@@ -106,60 +106,5 @@ impl ScalarFnVTable for Literal {
 
     fn is_infallible(&self, _instance: &Self::Options) -> bool {
         true
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::dtype::DType;
-    use crate::dtype::Nullability;
-    use crate::dtype::PType;
-    use crate::dtype::StructFields;
-    use crate::expr::lit;
-    use crate::expr::test_harness;
-    use crate::scalar::Scalar;
-
-    #[test]
-    fn dtype() {
-        let dtype = test_harness::struct_dtype();
-
-        assert_eq!(
-            lit(10).return_dtype(&dtype).unwrap(),
-            DType::Primitive(PType::I32, Nullability::NonNullable)
-        );
-        assert_eq!(
-            lit(i64::MAX).return_dtype(&dtype).unwrap(),
-            DType::Primitive(PType::I64, Nullability::NonNullable)
-        );
-        assert_eq!(
-            lit(true).return_dtype(&dtype).unwrap(),
-            DType::Bool(Nullability::NonNullable)
-        );
-        assert_eq!(
-            lit(Scalar::null(DType::Bool(Nullability::Nullable)))
-                .return_dtype(&dtype)
-                .unwrap(),
-            DType::Bool(Nullability::Nullable)
-        );
-
-        let sdtype = DType::Struct(
-            StructFields::new(
-                ["dog", "cat"].into(),
-                vec![
-                    DType::Primitive(PType::U32, Nullability::NonNullable),
-                    DType::Utf8(Nullability::NonNullable),
-                ],
-            ),
-            Nullability::NonNullable,
-        );
-        assert_eq!(
-            lit(Scalar::struct_(
-                sdtype.clone(),
-                vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
-            ))
-            .return_dtype(&dtype)
-            .unwrap(),
-            sdtype
-        );
     }
 }

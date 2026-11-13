@@ -13,19 +13,38 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
+arbitrary = { workspace = true, optional = true }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
+prost = { workspace = true }
+smallvec = { workspace = true }
 tracing = { workspace = true }
 vortex-array = { workspace = true }
 vortex-error = { workspace = true }
-vortex-functions = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
+
+[features]
+arbitrary = ["dep:arbitrary", "vortex-array/arbitrary"]
 
 [lints]
 workspace = true
 
 [dev-dependencies]
+divan = { workspace = true }
+insta = { workspace = true }
+mimalloc = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-buffer = { workspace = true }
+vortex-mask = { workspace = true }
+
+[[bench]]
+name = "expr_large_struct_pack"
+path = "benches/large_struct_pack.rs"
+harness = false
+
+[[bench]]
+name = "expr_optimize"
+path = "benches/optimize.rs"
+harness = false

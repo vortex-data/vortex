@@ -4,13 +4,13 @@
 //! `ST_Distance(geom, const) <op> radius` pruning.
 
 use geo::Rect as SpatialRect;
-use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::builtin::binary::Binary;
 use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_error::VortexResult;
+use vortex_expr::BoundExpression;
 use vortex_expr::stats::rewrite::StatsRewriteRule;
 use vortex_session::VortexSession;
 
@@ -130,17 +130,17 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::gt_eq;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::lt_eq;
-    use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
-    use vortex_array::scalar_fn::ScalarFnVTableExt;
     use vortex_array::scalar_fn::builtin::binary::Binary;
     use vortex_array::scalar_fn::builtin::operators::Operator;
     use vortex_error::VortexResult;
+    use vortex_expr::BoundExpression;
+    use vortex_expr::ScalarFnExprExt;
+    use vortex_expr::gt_eq;
+    use vortex_expr::lit;
+    use vortex_expr::lt_eq;
+    use vortex_expr::root;
     use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
     use vortex_expr::stats::rewrite::StatsRewriteRule;
 

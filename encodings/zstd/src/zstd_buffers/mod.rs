@@ -582,12 +582,12 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::expr::stats::Precision;
-    use vortex_array::expr::stats::Stat;
-    use vortex_array::expr::stats::StatsProvider;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySessionExt;
+    use vortex_array::stats::Precision;
+    use vortex_array::stats::Stat;
+    use vortex_array::stats::StatsProvider;
     use vortex_buffer::ByteBufferMut;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;

@@ -5,7 +5,7 @@
 //!
 //! This module contains the [`ScalarFnVTable`] trait, the machinery to bind, reduce and execute
 //! scalar functions, and in [`builtin`] the few functions vortex-array itself is built on. Other scalar
-//! functions live in the `vortex-functions` crate. Expressions ([`crate::expr::Expression`])
+//! functions live in the `vortex-functions` crate. Expressions (`vortex_expr::Expression`)
 //! reference scalar functions at each node.
 //!
 //! Strict functions with row-at-a-time kernels can implement `unstable::row::RowFn`. It handles
@@ -16,14 +16,13 @@
 
 use vortex_session::registry::Id;
 
+pub mod display;
+
 mod vtable;
 pub use vtable::*;
 
 mod plugin;
 pub use plugin::*;
-
-mod foreign;
-pub use foreign::*;
 
 mod typed;
 pub use typed::*;
@@ -44,7 +43,6 @@ pub mod unstable;
 pub(crate) mod unstable;
 
 pub mod builtin;
-pub mod internal;
 pub mod session;
 
 /// A unique identifier for a scalar function.

@@ -11,13 +11,13 @@ use vortex_session::VortexSession;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::array as fba;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::stats::Precision;
+use crate::stats::Stat;
 use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
 
@@ -239,7 +239,7 @@ impl StatsSet {
 /// decimal outside its precision, so an illegal one means the file is corrupt. The check runs at
 /// decode because [`StatsProvider::get`] has no error path, so it panics on an illegal value.
 ///
-/// [`StatsProvider::get`]: crate::expr::stats::StatsProvider::get
+/// [`StatsProvider::get`]: crate::stats::StatsProvider::get
 fn decode_stat_value(
     bytes: &[u8],
     stat_dtype: &DType,
@@ -266,13 +266,13 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
     use crate::flatbuffers::WriteFlatBuffer;
     use crate::flatbuffers::array as fba;
     use crate::scalar::DecimalValue;
     use crate::scalar::PValue;
     use crate::scalar::ScalarValue;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
     use crate::stats::StatsSet;
 
     fn roundtrip_sum(sum: f64, expected_bits: u64) -> VortexResult<u64> {

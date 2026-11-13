@@ -28,8 +28,6 @@
       "dict_compress": 4.688,
       "dict_mask": 4.854,
       "dict_unreferenced_mask": 2.816,
-      "expr_large_struct_pack": 2.408,
-      "expr_optimize": 2.377,
       "filter_bool": 5.08,
       "filter_fixed_width": 3.863,
       "filter_fsl": 2.687,
@@ -98,6 +96,10 @@
     },
     "vortex-elias-fano": {
       "unary": 3.413
+    },
+    "vortex-expr": {
+      "expr_large_struct_pack": 2.408,
+      "expr_optimize": 2.377
     },
     "vortex-fastlanes": {
       "bitpack_blocked": 0.367,

@@ -23,9 +23,9 @@ use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::tests::common::create_empty_elements_listview;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::scalar::ScalarValue;
+use crate::stats::Precision;
+use crate::stats::Stat;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);

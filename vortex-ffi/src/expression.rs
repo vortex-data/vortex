@@ -9,6 +9,7 @@ use std::sync::Arc;
 use vortex::dtype::FieldName;
 use vortex::error::VortexExpect;
 use vortex::expr::Expression;
+use vortex::expr::ScalarFnExprExt;
 use vortex::expr::and_collect;
 use vortex::expr::get_item;
 use vortex::expr::is_null;
@@ -18,7 +19,6 @@ use vortex::expr::not;
 use vortex::expr::or_collect;
 use vortex::expr::root;
 use vortex::expr::select;
-use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::builtin::binary::Binary;
 use vortex::scalar_fn::builtin::operators::Operator;
 

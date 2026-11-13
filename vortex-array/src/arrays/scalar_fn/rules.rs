@@ -167,10 +167,6 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::cast;
-    use crate::expr::is_not_null;
-    use crate::expr::is_null;
-    use crate::expr::root;
     use crate::optimizer::rules::ArrayParentReduceRule;
     use crate::scalar_fn::TypedScalarFnInstance;
     use crate::scalar_fn::builtin::binary::Binary;
@@ -234,10 +230,7 @@ mod tests {
                 ConstantArray::new(Some(1u64), 0).into_array(),
                 PrimitiveArray::from_iter(vec![2u64])
                     .into_array()
-                    .apply(&cast(
-                        root(),
-                        DType::Primitive(PType::U64, Nullability::Nullable),
-                    ))
+                    .cast(DType::Primitive(PType::U64, Nullability::Nullable))
                     .vortex_expect("casted"),
             ],
             DType::Primitive(PType::U64, Nullability::Nullable),
@@ -245,36 +238,25 @@ mod tests {
         .vortex_expect("construction")
         .into_array();
 
-        let expr = is_null(root());
-        let result = array.apply(&expr).vortex_expect("expr evaluation");
+        let result = array.is_not_null().vortex_expect("is_not_null");
         assert_arrays_eq!(
             result,
-            BoolArray::from_iter([false]),
+            BoolArray::from_iter([true]),
             &mut SESSION.create_execution_ctx()
         );
     }
 
     #[test]
-    fn test_reduce_isnull() -> VortexResult<()> {
+    fn test_reduce_is_not_null() -> VortexResult<()> {
         let ctx = &mut SESSION.create_execution_ctx();
         let validity = BoolArray::from_iter([true, false, true]).into_array();
 
-        assert_arrays_eq!(
-            validity.clone().apply(&is_null(root()))?,
-            ConstantArray::new(false, 3),
-            ctx
-        );
-        assert_arrays_eq!(
-            validity.clone().apply(&is_not_null(root()))?,
-            ConstantArray::new(true, 3),
-            ctx
-        );
+        assert_arrays_eq!(validity.is_not_null()?, ConstantArray::new(true, 3), ctx);
 
         let buffer = buffer![1, 2, 3];
         let nullable = PrimitiveArray::new(buffer, Validity::Array(validity.clone())).into_array();
 
-        assert_arrays_eq!(nullable.clone().apply(&is_not_null(root()))?, validity, ctx);
-        assert_arrays_eq!(nullable.apply(&is_null(root()))?, validity.not()?, ctx);
+        assert_arrays_eq!(nullable.is_not_null()?, validity, ctx);
 
         Ok(())
     }

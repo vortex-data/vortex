@@ -10,6 +10,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
+use vortex_array::expr::BoundExpression;
 use vortex_array::require_input;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
@@ -19,11 +20,17 @@ use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnExecutionResult;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::stats::Stat;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_expr::ScalarFnExprExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
+
+use crate::lower_bound::LowerBound;
+use crate::lower_bound::LowerBoundKind;
+
 /// Unicode lowercase of each element of a Utf8 array.
 ///
 /// Each string is lowercased as a whole, so context-dependent mappings such as the Greek final
@@ -104,6 +111,30 @@ impl ScalarFnVTable for Lower {
     fn is_infallible(&self, _options: &Self::Options) -> bool {
         true
     }
+
+    /// Bounds `lower(input)` from the byte-ordered min/max of `input`.
+    fn stat_expression(
+        &self,
+        _options: &Self::Options,
+        expr: &BoundExpression,
+        stat: Stat,
+        child_stat: &dyn Fn(&BoundExpression, Stat) -> Option<BoundExpression>,
+    ) -> Option<BoundExpression> {
+        let input = expr.child(0);
+        let kind = match stat {
+            Stat::Min => LowerBoundKind::Min,
+            Stat::Max => LowerBoundKind::Max,
+            // Lowercasing maps nulls to nulls and values to values.
+            Stat::NullCount => return child_stat(input, Stat::NullCount),
+            _ => return None,
+        };
+        LowerBound
+            .try_new_bound_expr(
+                kind,
+                [child_stat(input, Stat::Min)?, child_stat(input, Stat::Max)?],
+            )
+            .ok()
+    }
 }
 
 fn lower(input: VarBinViewArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
@@ -162,11 +193,12 @@ mod tests {
     use vortex_array::arrays::RunEnd;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::proto::ExprSerializeProtoExt;
-    use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_error::VortexResult;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::Expression;
+    use vortex_expr::proto::ExprSerializeProtoExt;
+    use vortex_expr::root;
     use vortex_session::VortexSession;
 
     use crate::expr::lower;

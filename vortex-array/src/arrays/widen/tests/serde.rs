@@ -37,13 +37,13 @@ use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
 use crate::serde::SerializeOptions;
 use crate::serde::SerializedArray;
 use crate::session::ArraySessionExt;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
 use crate::validity::Validity;
 
 fn serialize_blob(

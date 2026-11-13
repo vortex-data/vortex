@@ -23,11 +23,9 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
+use crate::dtype::FieldName;
 use crate::executor::DonePredicate;
 use crate::expr::BoundExpression;
-use crate::expr::Expression;
-use crate::expr::bound;
-use crate::expr::display::ExprDisplay;
 use crate::matcher::Matcher;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnId;
@@ -37,6 +35,8 @@ use crate::scalar_fn::builtin::binary::Binary;
 use crate::scalar_fn::builtin::is_not_null::IsNotNull;
 use crate::scalar_fn::builtin::literal::Literal;
 use crate::scalar_fn::builtin::operators::Operator;
+use crate::scalar_fn::display::ExprDisplay;
+use crate::stats::Stat;
 use crate::validity::Validity;
 
 // Here and beyond we use validity(x) interchangeably with is_not_null(x).
@@ -125,8 +125,7 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
 
     /// Format an expression tree in a human-readable SQL-style format.
     ///
-    /// The expression may be either an [`Expression`] or a
-    /// [`bound expression`](crate::expr::BoundExpression).
+    /// The expression may be either an unbound or a bound expression.
     fn fmt_sql(
         &self,
         options: &Self::Options,
@@ -153,15 +152,13 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// # Preconditions
     ///
     /// The length of `args` must match the [`Arity`] of this function. Callers are responsible
-    /// for validating this (e.g., [`Expression::try_new`] checks arity at construction time).
+    /// for validating this (e.g., `Expression::try_new` checks arity at construction time).
     /// Implementations may assume correct arity and will panic or return nonsensical results if
     /// violated.
-    ///
-    /// [`Expression::try_new`]: crate::expr::Expression::try_new
     fn return_dtype(&self, options: &Self::Options, args: &[DType]) -> VortexResult<DType>;
 
     /// Bind whatever in the options depends on the argument dtypes, such as the body of a
-    /// [`Lambda`](crate::expr::Lambda), returning the bound options.
+    /// `Lambda`, returning the bound options.
     ///
     /// This is called whenever a bound node is built and whenever a
     /// [`ScalarFnArray`] is built from its children, before
@@ -273,16 +270,19 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         Ok(res)
     }
 
-    /// Simplify the bound expression if possible.
+    /// Simplify an expression node if possible.
     ///
-    /// Every node of `expr` carries its dtype, so rules read types directly from the tree.
-    fn simplify(
+    /// Unlike [`ScalarFnVTable::reduce`], which the array optimizer also applies and which must
+    /// therefore keep the node's exact dtype, a simplification is applied by the expression
+    /// optimizer only and may rewrite the node into one whose dtype differs in nullability.
+    /// Every node of `node`'s tree carries its dtype, so rules read types directly from it.
+    fn simplify<T: ReduceNode>(
         &self,
         options: &Self::Options,
-        expr: &BoundExpression,
-    ) -> VortexResult<Option<BoundExpression>> {
+        node: &T,
+    ) -> VortexResult<Option<T>> {
         _ = options;
-        _ = expr;
+        _ = node;
         Ok(None)
     }
 
@@ -329,6 +329,36 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         _ = options;
         false
     }
+
+    /// Returns the child whose field `field` this function's struct output passes through
+    /// unchanged, if any.
+    ///
+    /// Return `Some(i)` only when field `field` of the output equals field `field` of child `i`,
+    /// including its validity: the output must be null exactly where child `i` is null. A struct
+    /// projection such as `select` forwards each field it keeps. `get_item` uses this to read a
+    /// field straight from the child. The default is `None`.
+    fn forwarded_field(&self, options: &Self::Options, field: &FieldName) -> Option<usize> {
+        _ = (options, field);
+        None
+    }
+
+    /// Expresses statistic `stat` of this function's result in terms of statistics of its
+    /// children, for statistics-based pruning.
+    ///
+    /// `expr` is a bound expression rooted at this function, and `child_stat` derives a statistic
+    /// of any expression, such as one of `expr`'s children. Return `None` when no derivation is
+    /// known; pruning then reads a statistic stored for `expr` itself, if there is one. The default
+    /// is `None`.
+    fn stat_expression(
+        &self,
+        options: &Self::Options,
+        expr: &BoundExpression,
+        stat: Stat,
+        child_stat: &dyn Fn(&BoundExpression, Stat) -> Option<BoundExpression>,
+    ) -> Option<BoundExpression> {
+        _ = (options, expr, stat, child_stat);
+        None
+    }
 }
 
 /// A node used for implementing abstract reduction rules over a tree of scalar functions.
@@ -369,6 +399,10 @@ pub trait ReduceNode: Clone {
     fn validity(&self) -> VortexResult<ReduceNodeValidity<Self>>
     where
         Self: Sized;
+
+    /// Returns whether this node is known to evaluate to the same value as `other` for every
+    /// row. `false` is always a sound answer.
+    fn is_same(&self, other: &Self) -> bool;
 }
 
 /// A [`ReduceNode`] over a bound expression tree.
@@ -433,7 +467,7 @@ impl ReduceNode for ExpressionReduceNode<'_> {
 
     fn new_constant(&self, value: Scalar) -> Self {
         Self {
-            expression: Cow::Owned(bound::lit(value)),
+            expression: Cow::Owned(BoundExpression::literal(value)),
         }
     }
 
@@ -442,6 +476,10 @@ impl ReduceNode for ExpressionReduceNode<'_> {
             Some(scalar_fn) => scalar_fn.validity_expression(self),
             None => Ok(ReduceNodeValidity::Irreducible),
         }
+    }
+
+    fn is_same(&self, other: &Self) -> bool {
+        self.expression == other.expression
     }
 }
 
@@ -537,6 +575,10 @@ impl ReduceNode for ArrayReduceNode<'_> {
                 },
             },
         ))
+    }
+
+    fn is_same(&self, other: &Self) -> bool {
+        ArrayRef::ptr_eq(&self.array, &other.array)
     }
 }
 
@@ -704,33 +746,6 @@ pub trait ScalarFnVTableExt: ScalarFnVTable {
     /// Bind this vtable with the given options into a [`ScalarFnRef`].
     fn bind(&self, options: Self::Options) -> ScalarFnRef {
         TypedScalarFnInstance::new(self.clone(), options).erased()
-    }
-
-    /// Create a new expression with this vtable and the given options and children.
-    fn new_expr(
-        &self,
-        options: Self::Options,
-        children: impl IntoIterator<Item = Expression>,
-    ) -> Expression {
-        Self::try_new_expr(self, options, children).vortex_expect("Failed to create expression")
-    }
-
-    /// Try to create a new expression with this vtable and the given options and children.
-    fn try_new_expr(
-        &self,
-        options: Self::Options,
-        children: impl IntoIterator<Item = Expression>,
-    ) -> VortexResult<Expression> {
-        Expression::try_new(self.bind(options), children)
-    }
-
-    /// Try to create a bound expression with this vtable, the given options, and bound children.
-    fn try_new_bound_expr(
-        &self,
-        options: Self::Options,
-        children: impl IntoIterator<Item = BoundExpression>,
-    ) -> VortexResult<BoundExpression> {
-        BoundExpression::try_new(self.bind(options), children)
     }
 }
 impl<V: ScalarFnVTable> ScalarFnVTableExt for V {}

@@ -35,8 +35,6 @@ use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::dtype::i256;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::DecimalValue;
@@ -49,6 +47,9 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_expr::ArrayExprExt;
+use vortex_expr::lit;
+use vortex_expr::root;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 

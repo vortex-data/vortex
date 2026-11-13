@@ -3,6 +3,7 @@
 
 mod constant;
 mod decimal;
+mod find;
 mod kernel;
 mod primitive;
 mod widen;
@@ -10,6 +11,7 @@ mod widen;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+pub use find::find_between;
 pub use kernel::*;
 use prost::Message;
 use vortex_array::AnyCanonical;
@@ -27,7 +29,6 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DType::Bool;
 use vortex_array::dtype::NativePType;
-use vortex_array::expr::display::ExprDisplay;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::proto::expr as pb;
 use vortex_array::require_input;
@@ -40,6 +41,7 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::operators::Operator;
+use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -412,17 +414,18 @@ mod tests {
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::col;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::proto::ExprSerializeProtoExt;
-    use vortex_array::expr::root;
     use vortex_array::scalar::DecimalValue;
     use vortex_array::scalar::Scalar;
     use vortex_array::test_harness::to_int_indices;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::Expression;
+    use vortex_expr::col;
+    use vortex_expr::get_item;
+    use vortex_expr::lit;
+    use vortex_expr::proto::ExprSerializeProtoExt;
+    use vortex_expr::root;
 
     use super::*;
     use crate::expr::between;

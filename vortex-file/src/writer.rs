@@ -195,7 +195,7 @@ impl VortexWriteOptions {
     /// By default only the legacy statistics are written, and readers see the file the way they
     /// see one written before nested file stats existed: with statistics for top-level fields
     /// only. Since the legacy format has a fixed slot per
-    /// [`Stat`](vortex_array::expr::stats::Stat), aggregates without one are not recorded.
+    /// [`Stat`](vortex_array::stats::Stat), aggregates without one are not recorded.
     pub fn include_nested_statistics(mut self) -> Self {
         self.write_nested_statistics = true;
         self

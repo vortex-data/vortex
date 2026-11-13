@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::dtype::FieldName;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::typed::DynScalarFn;
@@ -31,5 +32,11 @@ impl ScalarFnSignature<'_> {
     /// See [`crate::scalar_fn::ScalarFnVTable::is_infallible`].
     pub fn is_infallible(&self) -> bool {
         self.inner.is_infallible()
+    }
+
+    /// Returns the child whose field `field` this expression passes through unchanged.
+    /// See [`crate::scalar_fn::ScalarFnVTable::forwarded_field`].
+    pub fn forwarded_field(&self, field: &FieldName) -> Option<usize> {
+        self.inner.forwarded_field(field)
     }
 }

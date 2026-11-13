@@ -42,11 +42,11 @@ use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::i256;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::ScalarValue;
+use crate::stats::Precision;
+use crate::stats::Stat;
 use crate::validity::Validity;
 
 impl WidenArray {

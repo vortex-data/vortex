@@ -20,11 +20,11 @@ use vortex_array::MaskFuture;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
+use vortex_expr::BoundExpression;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -453,8 +453,8 @@ mod test {
     use vortex_array::dtype::FieldMask;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::root;
     use vortex_buffer::buffer;
+    use vortex_expr::root;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;

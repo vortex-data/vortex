@@ -3,6 +3,7 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::slice;
 
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
@@ -14,7 +15,6 @@ use crate::ExecutionCtx;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
@@ -25,11 +25,14 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::builtin::binary::Binary;
-use crate::scalar_fn::builtin::is_null::IsNull;
 use crate::scalar_fn::builtin::not::Not;
 use crate::scalar_fn::builtin::operators::Operator;
+use crate::scalar_fn::display::ExprDisplay;
 use crate::scalar_fn::is_not_null_node;
 
+/// Reduces a null check over `node`'s only child: `is_null` when `is_null` is set, and
+/// `is_not_null` otherwise.
+///
 /// In array context, reduce
 ///
 /// IsNull(x) -> if !x.nullable lit(false) else not(x.validity())
@@ -47,7 +50,13 @@ use crate::scalar_fn::is_not_null_node;
 /// is at most expensive as calculating x, but usually much cheaper. Although
 /// in two cases you exchange 4 computations to 4 computations, the latter
 /// four are cheaper.
-pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResult<Option<T>> {
+///
+/// `check` builds the same null check over a nullable node.
+pub fn reduce_null_check<T: ReduceNode>(
+    node: &T,
+    is_null: bool,
+    check: impl Fn(&T) -> VortexResult<T>,
+) -> VortexResult<Option<T>> {
     let child = node.child(0);
     if !child.node_dtype()?.is_nullable() {
         return Ok(Some(node.new_constant((!is_null).into())));
@@ -55,7 +64,7 @@ pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResul
 
     if let ReduceNodeValidity::Reduced(validity) = child.validity()? {
         return Ok(Some(if is_null {
-            validity.new_node(Not.bind(EmptyOptions), std::slice::from_ref(&validity))?
+            not_node(&validity)?
         } else {
             validity
         }));
@@ -87,20 +96,20 @@ pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResul
 
     // is_null(nullable) (rule 1, 2)
     // is_not_null(nullable) (3, 4)
-    let left = if is_null {
-        nullable.new_node(IsNull.bind(EmptyOptions), std::slice::from_ref(&nullable))?
-    } else {
-        is_not_null_node(&nullable)?
-    };
+    let left = check(&nullable)?;
     // non_nullable (1, 4)
     // not(non_nullable) (2, 3)
     let right = if is_null == is_and {
         non_nullable
     } else {
-        non_nullable.new_node(Not.bind(EmptyOptions), std::slice::from_ref(&non_nullable))?
+        not_node(&non_nullable)?
     };
     let combine = if is_null { Operator::And } else { Operator::Or };
     Ok(Some(node.new_node(Binary.bind(combine), &[left, right])?))
+}
+
+fn not_node<T: ReduceNode>(value: &T) -> VortexResult<T> {
+    value.new_node(Not.bind(EmptyOptions), slice::from_ref(value))
 }
 
 /// Expression that checks for non-null values.
@@ -172,7 +181,7 @@ impl ScalarFnVTable for IsNotNull {
     }
 
     fn reduce<T: ReduceNode>(&self, _options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
-        reduce_null(false, node)
+        reduce_null_check(node, false, is_not_null_node)
     }
 
     fn is_strict(&self, _instance: &Self::Options) -> bool {
@@ -182,200 +191,5 @@ impl ScalarFnVTable for IsNotNull {
 
     fn is_infallible(&self, _instance: &Self::Options) -> bool {
         true
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::LazyLock;
-
-    use vortex_buffer::buffer;
-    use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
-
-    use crate::IntoArray;
-    use crate::VortexSessionExecute;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
-    use crate::dtype::DType;
-    use crate::dtype::Nullability;
-    use crate::dtype::StructFields;
-    use crate::expr::BoundExpression;
-    use crate::expr::Expression;
-    use crate::expr::and;
-    use crate::expr::col;
-    use crate::expr::get_item;
-    use crate::expr::is_not_null;
-    use crate::expr::is_null;
-    use crate::expr::lit;
-    use crate::expr::not;
-    use crate::expr::or;
-    use crate::expr::root;
-    use crate::expr::test_harness;
-    use crate::scalar::Scalar;
-
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
-
-    #[test]
-    fn dtype() {
-        let dtype = test_harness::struct_dtype();
-        assert_eq!(
-            is_not_null(root()).return_dtype(&dtype).unwrap(),
-            DType::Bool(Nullability::NonNullable)
-        );
-    }
-
-    fn bool_dtype() -> DType {
-        let names = ["a", "b"].into();
-        let fields = vec![
-            DType::Bool(Nullability::Nullable),
-            DType::Bool(Nullability::NonNullable),
-        ];
-        DType::Struct(StructFields::new(names, fields), Nullability::NonNullable)
-    }
-
-    fn optimized(expr: Expression, scope: &DType) -> VortexResult<BoundExpression> {
-        expr.bind(scope)?.optimize()
-    }
-
-    #[test]
-    fn reduce_to_constant() -> VortexResult<()> {
-        let dtype = bool_dtype();
-        assert_eq!(
-            optimized(is_not_null(col("b")), &dtype)?,
-            lit(true).bind(&dtype)?
-        );
-        assert_eq!(
-            optimized(is_null(col("b")), &dtype)?,
-            lit(false).bind(&dtype)?
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn reduce_kleene() -> VortexResult<()> {
-        let dtype = bool_dtype();
-        assert_eq!(
-            optimized(is_not_null(and(col("a"), col("b"))), &dtype)?,
-            or(is_not_null(col("a")), not(col("b"))).bind(&dtype)?
-        );
-        assert_eq!(
-            optimized(is_not_null(or(col("a"), col("b"))), &dtype)?,
-            or(is_not_null(col("a")), col("b")).bind(&dtype)?
-        );
-        assert_eq!(
-            optimized(is_null(and(col("a"), col("b"))), &dtype)?,
-            and(is_null(col("a")), col("b")).bind(&dtype)?
-        );
-        assert_eq!(
-            optimized(is_null(or(col("a"), col("b"))), &dtype)?,
-            and(is_null(col("a")), not(col("b"))).bind(&dtype)?
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn evaluate_mask() {
-        let test_array =
-            PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2), None, Some(3)])
-                .into_array();
-        let expected = [true, false, true, false, true];
-
-        let result = test_array.clone().apply(&is_not_null(root())).unwrap();
-
-        assert_eq!(result.len(), test_array.len());
-        assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));
-
-        for (i, expected_value) in expected.iter().enumerate() {
-            assert_eq!(
-                result
-                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
-                    .unwrap(),
-                Scalar::bool(*expected_value, Nullability::NonNullable)
-            );
-        }
-    }
-
-    #[test]
-    fn evaluate_all_true() {
-        let test_array = buffer![1, 2, 3, 4, 5].into_array();
-
-        let result = test_array.clone().apply(&is_not_null(root())).unwrap();
-
-        assert_eq!(result.len(), test_array.len());
-        for i in 0..result.len() {
-            assert_eq!(
-                result
-                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
-                    .unwrap(),
-                Scalar::bool(true, Nullability::NonNullable)
-            );
-        }
-    }
-
-    #[test]
-    fn evaluate_all_false() {
-        let test_array =
-            PrimitiveArray::from_option_iter(vec![None::<i32>, None, None, None, None])
-                .into_array();
-
-        let result = test_array.clone().apply(&is_not_null(root())).unwrap();
-
-        assert_eq!(result.len(), test_array.len());
-        for i in 0..result.len() {
-            assert_eq!(
-                result
-                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
-                    .unwrap(),
-                Scalar::bool(false, Nullability::NonNullable)
-            );
-        }
-    }
-
-    #[test]
-    fn evaluate_struct() {
-        let test_array = StructArray::from_fields(&[(
-            "a",
-            PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2), None, Some(3)])
-                .into_array(),
-        )])
-        .unwrap()
-        .into_array();
-        let expected = [true, false, true, false, true];
-
-        let result = test_array
-            .clone()
-            .apply(&is_not_null(get_item("a", root())))
-            .unwrap();
-
-        assert_eq!(result.len(), test_array.len());
-        assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));
-
-        for (i, expected_value) in expected.iter().enumerate() {
-            assert_eq!(
-                result
-                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
-                    .unwrap(),
-                Scalar::bool(*expected_value, Nullability::NonNullable)
-            );
-        }
-    }
-
-    #[test]
-    fn test_display() {
-        let expr = is_not_null(get_item("name", root()));
-        assert_eq!(expr.to_string(), "is_not_null($.name)");
-
-        let expr2 = is_not_null(root());
-        assert_eq!(expr2.to_string(), "is_not_null($)");
-    }
-
-    #[test]
-    fn test_is_not_null_is_not_strict() {
-        assert!(
-            !is_not_null(col("a"))
-                .as_scalar()
-                .is_some_and(|f| f.signature().is_strict())
-        );
     }
 }

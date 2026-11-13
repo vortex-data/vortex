@@ -44,14 +44,14 @@ use crate::arrays::SliceArray;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProviderExt;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::OptimizedState;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProviderExt;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
@@ -544,7 +544,7 @@ impl ArrayRef {
     /// # Safety
     /// The caller must put back a slot with the same logical dtype and length before exposing the
     /// parent array, and must only use this for physical rewrites.
-    pub(crate) unsafe fn take_slot_unchecked(
+    pub unsafe fn take_slot_unchecked(
         mut self,
         slot_idx: usize,
     ) -> VortexResult<(ArrayRef, ArrayRef)> {
@@ -578,7 +578,7 @@ impl ArrayRef {
     /// # Safety
     /// The replacement must have the same logical dtype and length as the taken slot, and this
     /// must only be used for physical rewrites.
-    pub(crate) unsafe fn put_slot_unchecked(
+    pub unsafe fn put_slot_unchecked(
         mut self,
         slot_idx: usize,
         replacement: ArrayRef,

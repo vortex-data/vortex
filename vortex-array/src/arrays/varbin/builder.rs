@@ -35,10 +35,10 @@ use crate::arrays::varbinview::VarBinViewArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::OffsetBuilderPType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
+use crate::stats::Precision;
+use crate::stats::Stat;
 use crate::validity::Validity;
 
 /// Builder for [`VarBinArray`] values with `O`-typed offsets.
@@ -737,10 +737,10 @@ mod tests {
     use crate::builders::ArrayBuilder;
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProviderExt;
     use crate::scalar::Scalar;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
+    use crate::stats::StatsProviderExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

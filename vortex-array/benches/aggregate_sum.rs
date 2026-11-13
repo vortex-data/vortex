@@ -13,8 +13,8 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum_v2::sum_v2;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::expr::stats::Stat;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::stats::Stat;
 use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 

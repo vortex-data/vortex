@@ -20,3 +20,4 @@ pub mod bind;
 pub mod expr;
 pub mod rewrite;
 pub mod session;
+pub mod stat_fn;

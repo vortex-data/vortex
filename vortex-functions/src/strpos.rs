@@ -166,12 +166,13 @@ mod tests {
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::proto::ExprSerializeProtoExt;
-    use vortex_array::expr::root;
     use vortex_error::VortexResult;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::Expression;
+    use vortex_expr::get_item;
+    use vortex_expr::lit;
+    use vortex_expr::proto::ExprSerializeProtoExt;
+    use vortex_expr::root;
     use vortex_session::VortexSession;
 
     use crate::expr::strpos;
