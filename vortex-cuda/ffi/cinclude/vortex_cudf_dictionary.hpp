@@ -168,6 +168,7 @@ inline void concatenate_fixed_width_strings(string_dictionary_inputs const &inpu
                                        : width == 2 ? cudf::type_id::UINT16
                                        : width == 4 ? cudf::type_id::UINT32
                                                     : cudf::type_id::UINT64};
+    // Freshly concatenated keys have zero view/string offsets and UINT64-aligned chars; slices may not.
     auto chars = cudf::strings_column_view {buffers.all_keys->view()}.chars_begin(buffers.stream);
     std::vector<cudf::column_view> payloads;
     payloads.reserve(inputs.nonempty.size());
