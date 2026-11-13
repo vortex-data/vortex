@@ -11388,7 +11388,6 @@ dependencies = [
 name = "vortex-array"
 version = "0.1.0"
 dependencies = [
- "allocator-api2",
  "arbitrary",
  "arc-swap",
  "arcref",
@@ -11594,7 +11593,6 @@ dependencies = [
 name = "vortex-buffer"
 version = "0.1.0"
 dependencies = [
- "allocator-api2",
  "arrow-buffer 59.3.2",
  "bitvec",
  "bytes",
@@ -12026,7 +12024,6 @@ dependencies = [
 name = "vortex-file"
 version = "0.1.0"
 dependencies = [
- "allocator-api2",
  "arrow-array 59.3.2",
  "arrow-schema 59.3.2",
  "async-channel",

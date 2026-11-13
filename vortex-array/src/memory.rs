@@ -76,15 +76,15 @@ impl<S: SessionExt> MemorySessionExt for S {}
 
 #[cfg(test)]
 pub(crate) mod test_allocator {
+    use std::alloc::AllocError;
+    use std::alloc::Allocator;
+    use std::alloc::Global;
     use std::alloc::Layout;
     use std::ptr::NonNull;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
-    use allocator_api2::alloc::AllocError;
-    use allocator_api2::alloc::Allocator;
-    use allocator_api2::alloc::Global;
     use parking_lot::Mutex;
 
     use super::BufferAllocatorRef;

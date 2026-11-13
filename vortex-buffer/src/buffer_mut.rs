@@ -519,7 +519,7 @@ impl<T> BufferMut<T> {
     /// allocation. If the new layout is smaller, allocate a separate block and copy the initialized
     /// data instead of violating that safety contract.
     ///
-    /// [`Allocator::grow`]: allocator_api2::alloc::Allocator::grow
+    /// [`Allocator::grow`]: std::alloc::Allocator::grow
     fn reserve_allocate(&mut self, additional: usize) {
         let required_capacity = self
             .length
@@ -1051,9 +1051,8 @@ fn misaligned_scalar_type(alignment: Alignment, scalar_align: Alignment) -> ! {
 
 #[cfg(test)]
 mod tests {
+    use std::alloc::Global;
     use std::cell::Cell;
-
-    use allocator_api2::alloc::Global;
 
     use crate::Alignment;
     use crate::BufferAllocatorRef;

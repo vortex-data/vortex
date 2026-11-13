@@ -8,7 +8,8 @@
 //! so a pair on its own measured that cost and moved by more than 10% on pull requests that did
 //! not touch Rust code. Every iteration therefore repeats the operation [`BATCH`] times.
 
-use allocator_api2::alloc::Global;
+use std::alloc::Global;
+
 #[cfg(not(codspeed))]
 use arrow_buffer::MutableBuffer;
 #[cfg(not(codspeed))]
