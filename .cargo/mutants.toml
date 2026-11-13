@@ -18,4 +18,7 @@ exclude_re = [
     # With the first valid value at index 0, `chunk[..0].fill(..)` does nothing, so `> 0` and
     # `>= 0` behave the same.
     'encodings/fastlanes/src/lib\.rs:\d+:\d+: replace > with >= in backfill_leading_nulls$',
+    # With every index valid, `nullable_positions` returns the same positions as
+    # `valid_positions`, so the `AllTrue` arm is only a fast path.
+    'encodings/fastlanes/src/delta/compute/take\.rs:\d+:\d+: delete match arm Mask::AllTrue\(_\) in take_from_chunks$',
 ]
