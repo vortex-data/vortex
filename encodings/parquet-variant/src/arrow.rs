@@ -734,12 +734,10 @@ mod tests {
     }
 
     fn arrow_variant_field(storage: &StructArray) -> Field {
-        Field::new("variant", storage.data_type().clone(), false).with_metadata(
-            [(
-                EXTENSION_TYPE_NAME_KEY.to_string(),
-                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )],
-        )
+        Field::new("variant", storage.data_type().clone(), false).with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+        )])
     }
 
     fn assert_struct_arrays_eq(actual: &StructArray, expected: &StructArray) {
@@ -846,12 +844,10 @@ mod tests {
             ),
             false,
         )
-        .with_metadata(
-            [(
-                EXTENSION_TYPE_NAME_KEY.to_string(),
-                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )],
-        );
+        .with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+        )]);
 
         let exported = session
             .arrow()
@@ -890,12 +886,10 @@ mod tests {
             exported.data_type().clone(),
             array.dtype().is_nullable(),
         )
-        .with_metadata(
-            [(
-                EXTENSION_TYPE_NAME_KEY.to_string(),
-                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )],
-        );
+        .with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+        )]);
 
         let actual = session
             .arrow()
@@ -938,12 +932,10 @@ mod tests {
             )
         );
 
-        let field = Field::new("", exported.data_type().clone(), false).with_metadata(
-            [(
-                EXTENSION_TYPE_NAME_KEY.to_string(),
-                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )],
-        );
+        let field = Field::new("", exported.data_type().clone(), false).with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+        )]);
         let actual = session.arrow().from_arrow_array(exported, &field)?;
         assert_variant_scalars_eq(&actual, &expected, &session)
     }
@@ -986,12 +978,10 @@ mod tests {
             ),
             false,
         )
-        .with_metadata(
-            [(
-                EXTENSION_TYPE_NAME_KEY.to_string(),
-                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )],
-        );
+        .with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+        )]);
 
         let mut ctx = session.create_execution_ctx();
         let exported = session
@@ -1030,12 +1020,10 @@ mod tests {
             ),
             false,
         )
-        .with_metadata(
-            [(
-                EXTENSION_TYPE_NAME_KEY.to_string(),
-                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )],
-        );
+        .with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+        )]);
 
         let mut ctx = session.create_execution_ctx();
         let err = session
@@ -1080,12 +1068,10 @@ mod tests {
             ),
             false,
         )
-        .with_metadata(
-            [(
-                EXTENSION_TYPE_NAME_KEY.to_string(),
-                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )],
-        );
+        .with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+        )]);
         let mut ctx = session.create_execution_ctx();
         let exported = session
             .arrow()

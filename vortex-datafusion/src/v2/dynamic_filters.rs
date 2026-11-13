@@ -502,6 +502,7 @@ mod tests {
     use arrow_schema::Schema;
     use arrow_schema::SchemaRef;
     use datafusion_common::ScalarValue;
+    use datafusion_common::hash_utils::with_hashes;
     use datafusion_expr::Operator as DFOperator;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_expr::expressions::BinaryExpr;
@@ -511,9 +512,8 @@ mod tests {
     use datafusion_physical_expr::expressions::IsNullExpr;
     use datafusion_physical_expr::expressions::Literal;
     use datafusion_physical_expr::expressions::NoOp;
-    use datafusion_physical_expr::expressions::lit as df_lit;
-    use datafusion_common::hash_utils::with_hashes;
     use datafusion_physical_expr::expressions::in_list;
+    use datafusion_physical_expr::expressions::lit as df_lit;
     use datafusion_physical_plan::joins::BloomFilterExpr;
     use datafusion_physical_plan::joins::HashExpr;
     use datafusion_physical_plan::joins::SeededRandomState;
@@ -638,10 +638,14 @@ mod tests {
         let mut bloom = SplitBlockBloomFilter::try_with_capacity(values.len(), 16)
             .ok_or_else(|| anyhow::anyhow!("Bloom filter capacity"))?;
         let keys = arrow_array::Int32Array::from(values.to_vec());
-        with_hashes([&keys as &dyn arrow_array::Array], random_state.random_state(), |hashes| {
-            bloom.insert_hashes(hashes);
-            Ok(())
-        })?;
+        with_hashes(
+            [&keys as &dyn arrow_array::Array],
+            random_state.random_state(),
+            |hashes| {
+                bloom.insert_hashes(hashes);
+                Ok(())
+            },
+        )?;
         Ok(Arc::new(BloomFilterExpr::new(
             vec![key()],
             random_state,
