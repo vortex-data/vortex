@@ -1,0 +1,44 @@
+[package]
+name = "vortex-datafusion-convert"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Conversions between Apache DataFusion and Vortex expressions, scalars and schemas"
+edition = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+datafusion-common = { workspace = true }
+datafusion-expr = { workspace = true }
+datafusion-functions = { workspace = true }
+datafusion-functions-nested = { workspace = true }
+datafusion-physical-expr = { workspace = true }
+datafusion-physical-plan = { workspace = true }
+itertools = { workspace = true }
+tracing = { workspace = true }
+vortex-array = { workspace = true }
+vortex-arrow = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-session = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+datafusion = { workspace = true }
+insta = { workspace = true }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+vortex = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-json = { workspace = true }
+vortex-uuid = { workspace = true }
+
+[lints]
+workspace = true

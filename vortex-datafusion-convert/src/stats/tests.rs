@@ -4,17 +4,17 @@
 use datafusion_common::ScalarValue as DFScalarValue;
 use rstest::rstest;
 use vortex::VortexSessionDefault;
-use vortex::array::EmptyMetadata;
-use vortex::dtype::extension::ExtDType;
-use vortex::dtype::half::f16;
-use vortex::error::vortex_err;
-use vortex::expr::stats::Precision as VortexPrecision;
-use vortex::scalar::ScalarValue;
-use vortex::session::VortexSession;
+use vortex_array::EmptyMetadata;
+use vortex_array::dtype::extension::ExtDType;
+use vortex_array::dtype::half::f16;
+use vortex_array::expr::stats::Precision as VortexPrecision;
+use vortex_array::scalar::ScalarValue;
+use vortex_error::vortex_err;
 use vortex_json::Json;
+use vortex_session::VortexSession;
 
 use super::*;
-use crate::convert::scalar_from_df;
+use crate::scalar_from_df;
 
 fn bounds_stats(value: &DFScalarValue) -> VortexResult<(StatsSet, DType)> {
     let scalar = scalar_from_df(value, &VortexSession::default())?;

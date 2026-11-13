@@ -426,6 +426,7 @@ jobs:
         --exclude duckdb-bench
         --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench
         --exclude compress-bench --exclude xtask --exclude vortex-datafusion
+        --exclude vortex-datafusion-convert
         --exclude gpu-scan-cli
     steps:
       - parallel:
@@ -960,7 +961,8 @@ jobs:
             RUSTFLAGS='-A warnings --cfg getrandom_backend="unsupported"'
             cargo hack check --profile ci --locked --ignore-private --target wasm32-unknown-unknown
             --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp
-            --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd
+            --exclude vortex-datafusion --exclude vortex-datafusion-convert --exclude vortex-duckdb
+            --exclude vortex-tui --exclude vortex-zstd
             --exclude vortex-test-e2e-cuda --exclude vortex-python-cuda --exclude vortex-sqllogictest
             --exclude vortex-parquet-variant
       - name: "Make sure no files changed after build"

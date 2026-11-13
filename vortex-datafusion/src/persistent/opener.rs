@@ -1200,7 +1200,9 @@ mod tests {
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
             has_output_ordering: false,
-            expression_converter: Arc::new(DefaultExpressionConverter::default()),
+            expression_converter: Arc::new(DefaultExpressionConverter::new(
+                VortexSession::default(),
+            )),
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
@@ -1611,7 +1613,9 @@ mod tests {
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
             has_output_ordering: false,
-            expression_converter: Arc::new(DefaultExpressionConverter::default()),
+            expression_converter: Arc::new(DefaultExpressionConverter::new(
+                VortexSession::default(),
+            )),
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
@@ -1704,7 +1708,9 @@ mod tests {
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
             has_output_ordering: false,
-            expression_converter: Arc::new(DefaultExpressionConverter::default()),
+            expression_converter: Arc::new(DefaultExpressionConverter::new(
+                VortexSession::default(),
+            )),
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
@@ -1888,7 +1894,9 @@ mod tests {
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
             has_output_ordering: false,
-            expression_converter: Arc::new(DefaultExpressionConverter::default()),
+            expression_converter: Arc::new(DefaultExpressionConverter::new(
+                VortexSession::default(),
+            )),
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
@@ -1954,7 +1962,9 @@ mod tests {
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
             has_output_ordering: false,
-            expression_converter: Arc::new(DefaultExpressionConverter::default()),
+            expression_converter: Arc::new(DefaultExpressionConverter::new(
+                VortexSession::default(),
+            )),
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
@@ -2171,7 +2181,9 @@ mod tests {
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
             has_output_ordering: false,
-            expression_converter: Arc::new(DefaultExpressionConverter::default()),
+            expression_converter: Arc::new(DefaultExpressionConverter::new(
+                VortexSession::default(),
+            )),
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
@@ -2293,7 +2305,7 @@ mod tests {
             ))),
         ));
         assert!(
-            DefaultExpressionConverter::default()
+            DefaultExpressionConverter::new(VortexSession::default())
                 .try_convert(&filter, &logical)?
                 .is_some()
         );

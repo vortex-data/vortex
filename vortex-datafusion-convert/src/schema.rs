@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! The Arrow schema a Vortex scan produces for a DataFusion logical schema.
+
 use std::sync::Arc;
 
 use arrow_schema::DataType;
@@ -8,7 +10,7 @@ use arrow_schema::Field;
 use arrow_schema::Schema;
 use datafusion_common::Result as DFResult;
 use datafusion_common::exec_datafusion_err;
-use vortex::dtype::DType;
+use vortex_array::dtype::DType;
 use vortex_arrow::ArrowSession;
 
 /// Calculate the physical Arrow schema for a Vortex file given its DType and the expected logical schema.
@@ -282,18 +284,18 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_schema::Fields;
-    use vortex::array::EmptyMetadata;
-    use vortex::dtype::Nullability;
-    use vortex::dtype::PType;
-    use vortex::dtype::StructFields;
-    use vortex::dtype::extension::ExtDType;
-    use vortex::dtype::extension::ExtId;
-    use vortex::dtype::extension::ExtVTable;
-    use vortex::error::VortexResult;
-    use vortex::scalar::ScalarValue;
-    use vortex::session::VortexSession;
-    use vortex::session::registry::CachedId;
+    use vortex_array::EmptyMetadata;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtId;
+    use vortex_array::dtype::extension::ExtVTable;
+    use vortex_array::scalar::ScalarValue;
     use vortex_arrow::ArrowSessionExt;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+    use vortex_session::registry::CachedId;
 
     use super::*;
 

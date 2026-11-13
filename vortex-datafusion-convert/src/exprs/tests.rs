@@ -53,26 +53,26 @@ use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_plan::expressions as df_expr;
 use insta::assert_snapshot;
 use rstest::rstest;
-use vortex::array::Canonical;
-use vortex::array::IntoArray;
-use vortex::array::arrays::ConstantArray;
-use vortex::array::arrays::PrimitiveArray;
-use vortex::array::builtins::ArrayBuiltins;
-use vortex::dtype::PType;
-use vortex::encodings::uuid::Uuid;
-use vortex::expr::between;
-use vortex::expr::proto::ExprSerializeProtoExt;
-use vortex::scalar::Scalar;
-use vortex::scalar_fn::fns::between::BetweenOptions;
-use vortex::scalar_fn::fns::between::StrictComparison;
-use vortex::scalar_fn::fns::cast::Cast;
-use vortex::scalar_fn::fns::list_contains::ListContains;
-use vortex::scalar_fn::fns::literal::Literal;
+use vortex::VortexSessionDefault;
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::PType;
+use vortex_array::expr::between;
+use vortex_array::expr::proto::ExprSerializeProtoExt;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::between::BetweenOptions;
+use vortex_array::scalar_fn::fns::between::StrictComparison;
+use vortex_array::scalar_fn::fns::cast::Cast;
+use vortex_array::scalar_fn::fns::list_contains::ListContains;
+use vortex_array::scalar_fn::fns::literal::Literal;
+use vortex_uuid::Uuid;
 
 use super::*;
-use crate::common_tests::TestSessionContext;
-use crate::convert::TryToDataFusion;
+use crate::TryToDataFusion;
 
 #[rstest::fixture]
 fn test_schema() -> Schema {
@@ -185,14 +185,14 @@ fn get_field_expr(
 
 /// Whether the default converter accepts `expr` for native evaluation against `schema`.
 fn converts(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> DFResult<bool> {
-    Ok(DefaultExpressionConverter::default()
+    Ok(DefaultExpressionConverter::new(VortexSession::default())
         .try_convert(expr, schema)?
         .is_some())
 }
 
 /// Convert `expr` natively, failing the test if the converter declines it.
 fn convert(expr: Arc<dyn PhysicalExpr>, schema: &Schema) -> DFResult<Expression> {
-    DefaultExpressionConverter::default()
+    DefaultExpressionConverter::new(VortexSession::default())
         .try_convert(&expr, schema)?
         .ok_or_else(|| exec_datafusion_err!("Expected native conversion for {expr}"))
 }
@@ -417,7 +417,7 @@ fn test_in_list_converts_to_set_lookup(#[values(false, true)] negated: bool) -> 
         vec![1i32.into(), 3i32.into(), 7i32.into()],
         Nullability::NonNullable,
     );
-    let membership = vortex::expr::in_list(get_item("a", root()), lit(list));
+    let membership = vortex_array::expr::in_list(get_item("a", root()), lit(list));
     let expected = if negated { not(membership) } else { membership };
 
     assert_eq!(convert(expr, &schema)?, expected);
@@ -446,7 +446,7 @@ fn test_in_list_drops_repeated_elements() -> DFResult<()> {
 
     assert_eq!(
         convert(expr, &schema)?,
-        vortex::expr::in_list(get_item("a", root()), lit(list))
+        vortex_array::expr::in_list(get_item("a", root()), lit(list))
     );
     Ok(())
 }
@@ -588,7 +588,7 @@ fn test_in_list_malformed_literal() -> DFResult<()> {
         ))),
     ])?;
     assert!(
-        DefaultExpressionConverter::default()
+        DefaultExpressionConverter::new(VortexSession::default())
             .try_convert(&expr, &schema)
             .is_err()
     );
@@ -1122,7 +1122,7 @@ fn test_projection_ignores_unreferenced_unsupported_field() -> DFResult<()> {
         "sum",
     )]);
     let output_schema = projection.project_schema(&schema)?;
-    let processed = DefaultExpressionConverter::default().split_projection(
+    let processed = DefaultExpressionConverter::new(VortexSession::default()).split_projection(
         projection,
         &schema,
         &output_schema,
@@ -1187,7 +1187,7 @@ fn test_can_be_pushed_down_column_not_found(test_schema: Schema) {
     let col_expr = Arc::new(df_expr::Column::new("nonexistent", 99)) as Arc<dyn PhysicalExpr>;
 
     assert!(
-        DefaultExpressionConverter::default()
+        DefaultExpressionConverter::new(VortexSession::default())
             .try_convert(&col_expr, &test_schema)
             .is_err()
     );
@@ -1363,59 +1363,10 @@ fn test_length_function_invalid_arity(#[case] function: ScalarUDF, #[case] arity
         Arc::new(ConfigOptions::new()),
     ));
     assert!(
-        DefaultExpressionConverter::default()
+        DefaultExpressionConverter::new(VortexSession::default())
             .try_convert(&expr, &Schema::empty())
             .is_err()
     );
-}
-
-// https://github.com/vortex-data/vortex/issues/6211
-#[tokio::test]
-async fn test_cast_int_to_string() -> anyhow::Result<()> {
-    let ctx = TestSessionContext::default();
-
-    ctx.session
-        .sql(r#"copy (select 1 as id) to 'example.vortex'"#)
-        .await?
-        .show()
-        .await?;
-
-    let batches = ctx
-        .session
-        .sql(r#"select cast(id as string) as sid from 'example.vortex' where id > 0"#)
-        .await?
-        .collect()
-        .await?;
-    assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 1);
-    let actual = ScalarValue::try_from_array(batches[0].column(0).as_ref(), 0)?;
-    assert!(
-        matches!(&actual, ScalarValue::Utf8(Some(value)) | ScalarValue::Utf8View(Some(value)) if value == "1")
-    );
-
-    let batches = ctx
-        .session
-        .sql(r#"select id from 'example.vortex' where cast (id as string) == '1'"#)
-        .await?
-        .collect()
-        .await?;
-    assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 1);
-    let actual = ScalarValue::try_from_array(batches[0].column(0).as_ref(), 0)?;
-    assert_eq!(actual, ScalarValue::Int64(Some(1)));
-
-    // This fails as it pushes string cast to the scan
-    let batches = ctx
-        .session
-        .sql(r#"select cast(id as string) from 'example.vortex'"#)
-        .await?
-        .collect()
-        .await?;
-    assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 1);
-    let actual = ScalarValue::try_from_array(batches[0].column(0).as_ref(), 0)?;
-    assert!(
-        matches!(&actual, ScalarValue::Utf8(Some(value)) | ScalarValue::Utf8View(Some(value)) if value == "1")
-    );
-
-    Ok(())
 }
 
 /// A cast whose target is a UUID-tagged `FixedSizeBinary(16)` must resolve
@@ -2361,7 +2312,7 @@ fn test_malformed_get_field_returns_error(
         Arc::new(ConfigOptions::new()),
     ));
     assert!(
-        DefaultExpressionConverter::default()
+        DefaultExpressionConverter::new(VortexSession::default())
             .try_convert(&expr, &schema)
             .is_err()
     );
@@ -2376,7 +2327,7 @@ fn test_column_identity_validation_skips_dynamic_filters() -> DFResult<()> {
     ]);
     let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::Column::new("a", 1));
     assert!(
-        DefaultExpressionConverter::default()
+        DefaultExpressionConverter::new(VortexSession::default())
             .try_convert(&expr, &schema)
             .is_err()
     );
@@ -2694,7 +2645,7 @@ fn test_not_non_boolean_operand_returns_error() {
         df_expr::Literal::new(ScalarValue::Int32(Some(1))),
     )));
     assert!(
-        DefaultExpressionConverter::default()
+        DefaultExpressionConverter::new(VortexSession::default())
             .try_convert(&expr, &Schema::empty())
             .is_err()
     );
@@ -2723,7 +2674,7 @@ fn test_case_non_boolean_condition_returns_error() -> DFResult<()> {
         None,
     )?);
     assert!(
-        DefaultExpressionConverter::default()
+        DefaultExpressionConverter::new(VortexSession::default())
             .try_convert(&expr, &Schema::empty())
             .is_err()
     );
@@ -2735,7 +2686,7 @@ fn test_malformed_literal_returns_error() {
     let value = ScalarValue::Decimal128(Some(1), 0, 0);
     let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::Literal::new(value));
     assert!(
-        DefaultExpressionConverter::default()
+        DefaultExpressionConverter::new(VortexSession::default())
             .try_convert(&expr, &Schema::empty())
             .is_err()
     );
@@ -2747,7 +2698,7 @@ fn test_literal_invalid_row_count(#[values(0, 2)] len: usize) {
     let expr: Arc<dyn PhysicalExpr> =
         Arc::new(df_expr::Literal::new(ScalarValue::Struct(Arc::new(array))));
     assert!(
-        DefaultExpressionConverter::default()
+        DefaultExpressionConverter::new(VortexSession::default())
             .try_convert(&expr, &Schema::empty())
             .is_err()
     );

@@ -166,6 +166,7 @@ mod tests {
     use datafusion_physical_expr::expressions::Column;
     use datafusion_physical_expr::expressions::Literal;
     use datafusion_physical_expr::expressions::NoOp;
+    use vortex::VortexSessionDefault;
     use vortex::dtype::DType;
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
@@ -174,6 +175,7 @@ mod tests {
     use vortex::expr::root;
     use vortex::scalar_fn::fns::between::Between;
     use vortex::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
+    use vortex::session::VortexSession;
 
     use super::DataFusionDynamicFilter;
     use crate::convert::exprs::DefaultExpressionConverter;
@@ -204,7 +206,7 @@ mod tests {
             expression,
             schema,
             scope_projection: root(),
-            converter: Arc::new(DefaultExpressionConverter::default()),
+            converter: Arc::new(DefaultExpressionConverter::new(VortexSession::default())),
         }
     }
 

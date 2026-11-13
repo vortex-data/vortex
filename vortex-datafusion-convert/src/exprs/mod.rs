@@ -38,43 +38,42 @@ use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
-use vortex::VortexSessionDefault;
-use vortex::aggregate_fn::NumericalAggregateOpts;
-use vortex::array::VortexSessionExecute;
-use vortex::dtype::DType;
-use vortex::dtype::Nullability;
-use vortex::dtype::PType;
-use vortex::dtype::StructFields;
-use vortex::expr::Expression;
-use vortex::expr::Lambda;
-use vortex::expr::byte_length;
-use vortex::expr::cast;
-use vortex::expr::get_item;
-use vortex::expr::in_list_of;
-use vortex::expr::is_not_null;
-use vortex::expr::is_null;
-use vortex::expr::list_length;
-use vortex::expr::list_sum_opts;
-use vortex::expr::list_transform;
-use vortex::expr::lit;
-use vortex::expr::lower;
-use vortex::expr::nested_case_when;
-use vortex::expr::not;
-use vortex::expr::pack;
-use vortex::expr::root;
-use vortex::expr::strpos;
-use vortex::expr::traversal::NodeExt;
-use vortex::expr::traversal::Transformed;
-use vortex::expr::var;
-use vortex::scalar::Scalar;
-use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::get_item::GetItem;
-use vortex::scalar_fn::fns::like::Like;
-use vortex::scalar_fn::fns::like::LikeOptions;
-use vortex::scalar_fn::fns::operators::Operator;
-use vortex::session::VortexSession;
+use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::StructFields;
+use vortex_array::expr::Expression;
+use vortex_array::expr::Lambda;
+use vortex_array::expr::byte_length;
+use vortex_array::expr::cast;
+use vortex_array::expr::get_item;
+use vortex_array::expr::in_list_of;
+use vortex_array::expr::is_not_null;
+use vortex_array::expr::is_null;
+use vortex_array::expr::list_length;
+use vortex_array::expr::list_sum_opts;
+use vortex_array::expr::list_transform;
+use vortex_array::expr::lit;
+use vortex_array::expr::lower;
+use vortex_array::expr::nested_case_when;
+use vortex_array::expr::not;
+use vortex_array::expr::pack;
+use vortex_array::expr::root;
+use vortex_array::expr::strpos;
+use vortex_array::expr::traversal::NodeExt;
+use vortex_array::expr::traversal::Transformed;
+use vortex_array::expr::var;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::get_item::GetItem;
+use vortex_array::scalar_fn::fns::like::Like;
+use vortex_array::scalar_fn::fns::like::LikeOptions;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_arrow::ArrowSessionExt;
+use vortex_session::VortexSession;
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
@@ -101,9 +100,10 @@ pub struct ProcessedProjection {
 /// use arrow_schema::Schema;
 /// use datafusion_common::Result as DFResult;
 /// use datafusion_physical_expr::PhysicalExpr;
-/// use vortex::expr::Expression;
-/// use vortex_datafusion::convert::DefaultExpressionConverter;
-/// use vortex_datafusion::convert::ExpressionConverter;
+/// use vortex_array::expr::Expression;
+/// use vortex_datafusion_convert::DefaultExpressionConverter;
+/// use vortex_datafusion_convert::ExpressionConverter;
+/// use vortex_session::VortexSession;
 ///
 /// struct CustomExpressionConverter(DefaultExpressionConverter);
 ///
@@ -118,7 +118,7 @@ pub struct ProcessedProjection {
 /// }
 ///
 /// let _converter: Arc<dyn ExpressionConverter> = Arc::new(CustomExpressionConverter(
-///     DefaultExpressionConverter::default(),
+///     DefaultExpressionConverter::new(VortexSession::empty()),
 /// ));
 /// ```
 pub trait ExpressionConverter: Send + Sync {
@@ -187,10 +187,7 @@ pub trait ExpressionConverter: Send + Sync {
 
 /// Read the raw columns at `indices` in file order, without involving custom expression
 /// conversion. Returns the scan projection and the Arrow schema of its output.
-pub(crate) fn raw_projection(
-    indices: &[usize],
-    input_schema: &Schema,
-) -> DFResult<(Expression, Schema)> {
+pub fn raw_projection(indices: &[usize], input_schema: &Schema) -> DFResult<(Expression, Schema)> {
     let schema = input_schema.project(indices)?;
     let scan_columns = schema.fields().iter().map(|field| {
         (
@@ -245,12 +242,6 @@ enum Scope {
     /// A lambda's parameters: a parameter `x` reads `$.x`, as Vortex runs a lambda's body. Vortex
     /// lambdas can't read columns yet.
     Lambda(StructFields),
-}
-
-impl Default for DefaultExpressionConverter {
-    fn default() -> Self {
-        Self::new(VortexSession::default())
-    }
 }
 
 impl DefaultExpressionConverter {
@@ -869,7 +860,7 @@ impl ExpressionConverter for DefaultExpressionConverter {
 }
 
 /// Whether evaluating `expr` cannot fail, so Vortex may evaluate it on rows DataFusion skips.
-pub(crate) fn is_infallible(expr: &Expression) -> bool {
+pub fn is_infallible(expr: &Expression) -> bool {
     expr.as_scalar()
         .is_none_or(|scalar_fn| scalar_fn.signature().is_infallible())
         && expr.children().iter().all(is_infallible)
