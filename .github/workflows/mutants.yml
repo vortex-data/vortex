@@ -85,21 +85,21 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=mutants-{1}', github.run_id, matrix.shard)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/spot=false/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=mutants-{1}', github.run_id, matrix.shard)
           || 'ubuntu-latest' }}
+    # Shards run for up to two hours, so they use on-demand instances that are not reclaimed
+    # mid-run. sccache stays off: it disables incremental compilation, which makes each
+    # mutant's rebuild of the crate several times slower.
     steps:
       - parallel:
           - uses: runs-on/action@v2
             if: github.repository == 'vortex-data/vortex'
-            with:
-              sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
             with:
               fetch-depth: ${{ needs.plan.outputs.mode == 'diff' && 0 || 1 }}
       - uses: ./.github/actions/setup-prebuild
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
       - name: Install cargo-mutants
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
