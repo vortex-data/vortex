@@ -105,6 +105,21 @@ def test_tpcds_sf100_runs_one_target_per_job() -> None:
     assert len(s3_keys) == len(set(s3_keys)) == 4
 
 
+def test_tpcds_sf10_nightly_targets() -> None:
+    nightly = {entry["id"]: entry for entry in _entries("nightly")}
+    default = {
+        ("datafusion", "parquet"),
+        ("datafusion", "vortex"),
+        ("duckdb", "parquet"),
+        ("duckdb", "vortex"),
+    }
+
+    assert _targets(nightly["tpcds-nvme-10"]) == default | {("duckdb", "duckdb")}
+    assert "duckdb" in cast("list[str]", nightly["tpcds-nvme-10"]["data_formats"])
+    # DuckDB's own format needs a local database file, so S3 keeps the default targets.
+    assert _targets(nightly["tpcds-s3-10"]) == default
+
+
 def test_pr_target_selection() -> None:
     develop = {entry["id"]: entry for entry in _entries("develop")}
     pr = {entry["id"]: entry for entry in _entries("pr")}

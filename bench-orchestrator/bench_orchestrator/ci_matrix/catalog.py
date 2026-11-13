@@ -20,7 +20,10 @@ PRESETS = {
     "pr-compact": "Pull-request SQL benchmarks for Vortex Compact plus Parquet controls.",
     "pr-all": "The union of the pr, pr-compact and pr-full matrices (action/bench-all).",
     "pr-full": "Every regular SQL benchmark at full PR target coverage (action/bench-sql-extended).",
-    "nightly": "SF=100 TPC-H and nested TPC-H, and SF=10/100 TPC-DS, on NVMe and S3 at default targets.",
+    "nightly": (
+        "SF=100 TPC-H and nested TPC-H, and SF=10/100 TPC-DS, on NVMe and S3 at default targets, "
+        "plus DuckDB on its own format for SF=10 TPC-DS on NVMe."
+    ),
 }
 
 # Reusable target coverage
@@ -72,6 +75,7 @@ DEFAULT_WITH_DUCKDB_PR_FULL = Coverage(
     data_formats=(Format.PARQUET, Format.VORTEX, Format.VORTEX_COMPACT, Format.DUCKDB),
 )
 STANDARD_WITH_DUCKDB = Coverage(STANDARD_WITH_DUCKDB_TARGETS)
+DEFAULT_WITH_DUCKDB = Coverage(DEFAULT_WITH_DUCKDB_TARGETS)
 DATAFUSION_VORTEX = Coverage(DATAFUSION_VORTEX_TARGETS)
 COMPACT = Coverage(COMPACT_TARGETS)
 JOB_DUCKDB = Coverage(duck(Format.PARQUET, Format.VORTEX, Format.DUCKDB))
@@ -220,7 +224,8 @@ BENCHMARKS = (
         runs={
             "pr": DEFAULT,
             "pr-full": DEFAULT,
-            "nightly": DEFAULT,
+            # DuckDB's own format reads a local database file, so the S3 case cannot run it.
+            "nightly": DEFAULT_WITH_DUCKDB,
         },
     ),
     BenchmarkCase(
