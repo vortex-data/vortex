@@ -113,35 +113,42 @@ fn test_lower_part_layout_i256() -> VortexResult<()> {
     Ok(())
 }
 
+/// `scalar_at` assembles one row without decoding the array, so it must agree with decoding.
 #[rstest]
-fn test_scalar_at_matches_canonical_for_each_part_count(
-    #[values(false, true)] narrow_msp: bool,
-    #[values(0, 1, 2, 3)] lower_count: usize,
+fn test_scalar_at_matches_decoded_rows(
+    #[values(PType::I8, PType::I16, PType::I32, PType::I64)] msp_ptype: PType,
+    #[values(0, 1, 2, 3)] lower_part_count: usize,
 ) -> VortexResult<()> {
-    let validity = Validity::from_iter([false, true, true]);
-    let msp = if narrow_msp {
-        PrimitiveArray::new(buffer![0i8, 3, -3], validity)
-    } else {
-        PrimitiveArray::new(buffer![0i64, 3, -3], validity)
-    };
-    let lower = [4u64, 1, 2]
-        .into_iter()
-        .take(lower_count)
-        .map(|word| PrimitiveArray::new(buffer![word; 3], Validity::NonNullable).into_array())
-        .collect();
-    let dtype = DecimalDType::new(if lower_count <= 1 { 38 } else { 76 }, 0);
-    let array = DecimalByteParts::try_new_with_lower_parts(msp.into_array(), lower, dtype)?;
     let mut ctx = SESSION.create_execution_ctx();
-    let canonical = array
+    let dtype = DecimalDType::new(if lower_part_count <= 1 { 38 } else { 76 }, 0);
+    let msp = PrimitiveArray::new(
+        buffer![0i64, 1, -1],
+        Validity::from_iter([false, true, true]),
+    )
+    .into_array()
+    .cast(DType::Primitive(msp_ptype, Nullability::Nullable))?;
+
+    // Set the highest bit of each word to catch accidental sign extension. The low bits differ, so
+    // a swapped word shows up too.
+    let lower = [(1u64 << 63) | 1, (1 << 63) | 2, (1 << 63) | 3]
+        .into_iter()
+        .take(lower_part_count)
+        .map(|word| buffer![0u64, word, word].into_array())
+        .collect();
+    let array = DecimalByteParts::try_new_with_lower_parts(msp, lower, dtype)?;
+
+    let decoded = array
         .clone()
         .into_array()
         .execute::<DecimalArray>(&mut ctx)?;
+
     for row in 0..array.len() {
         assert_eq!(
             array.execute_scalar(row, &mut ctx)?,
-            canonical.execute_scalar(row, &mut ctx)?
+            decoded.execute_scalar(row, &mut ctx)?
         );
     }
+
     Ok(())
 }
 
@@ -170,95 +177,53 @@ fn test_scalar_at_null_with_lower_parts() -> VortexResult<()> {
 }
 
 #[rstest]
-#[case([PType::U8, PType::U16, PType::U32])]
-#[case([PType::U16, PType::U32, PType::U64])]
-#[case([PType::U32, PType::U64, PType::U8])]
-#[case([PType::U64, PType::U8, PType::U16])]
-fn test_independently_narrowed_parts(
-    #[case] lower_ptypes: [PType; 3],
-    #[values(PType::I8, PType::I16, PType::I32, PType::I64)] msp_ptype: PType,
-    #[values(1, 2, 3)] lower_count: usize,
-) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let validity = Validity::from_iter([false, true, true]);
-    let msp = PrimitiveArray::new(buffer![0i64, 1, -1], validity.clone())
-        .into_array()
-        .cast(DType::Primitive(msp_ptype, Nullability::Nullable))?;
-    // Set the unsigned type's highest bit to catch accidental sign extension.
-    let words = lower_ptypes.map(|ptype| 1u64 << (ptype.byte_width() * 8 - 1));
-    let lower = lower_ptypes
-        .into_iter()
-        .zip(words)
-        .take(lower_count)
-        .map(|(ptype, word)| {
-            buffer![0u64, word, word]
-                .into_array()
-                .cast(DType::Primitive(ptype, Nullability::NonNullable))
-        })
-        .collect::<VortexResult<Vec<_>>>()?;
-    let dtype = DecimalDType::new(if lower_count == 1 { 38 } else { 76 }, 0);
-    let encoded = DecimalByteParts::try_new_with_lower_parts(msp, lower, dtype)?;
-    let expected = match lower_count {
-        1 => DecimalArray::new(
-            buffer![
-                0i128,
-                (1i128 << 64) | i128::from(words[0]),
-                (-1i128 << 64) | i128::from(words[0])
-            ],
-            dtype,
-            validity,
-        ),
-        2 => {
-            let low = (u128::from(words[0]) << 64) | u128::from(words[1]);
-            DecimalArray::new(
-                buffer![
-                    i256::ZERO,
-                    i256::from_parts(low, 1),
-                    i256::from_parts(low, -1)
-                ],
-                dtype,
-                validity,
-            )
-        }
-        _ => {
-            let low = (u128::from(words[1]) << 64) | u128::from(words[2]);
-            DecimalArray::new(
-                buffer![
-                    i256::ZERO,
-                    i256::from_parts(low, (1i128 << 64) | i128::from(words[0])),
-                    i256::from_parts(low, (-1i128 << 64) | i128::from(words[0])),
-                ],
-                dtype,
-                validity,
-            )
-        }
-    };
-    assert_arrays_eq!(encoded, expected, &mut ctx);
-    for row in 0..expected.len() {
-        assert_eq!(
-            encoded.execute_scalar(row, &mut ctx)?,
-            expected.execute_scalar(row, &mut ctx)?
-        );
-    }
-    Ok(())
-}
-
-#[rstest]
-#[case::signed_lower_part(vec![buffer![1i64, 2, 3].into_array()], DecimalDType::new(38, 2))]
+#[case::signed_lower_part(
+    vec![buffer![1i64, 2, 3].into_array()],
+    DecimalDType::new(38, 2),
+    "lower part 0 dtype\n  left: i64\n right: u64"
+)]
 #[case::nullable_lower_part(
     vec![PrimitiveArray::new(buffer![1u64, 2, 3], Validity::AllValid).into_array()],
-    DecimalDType::new(38, 2)
+    DecimalDType::new(38, 2),
+    "lower part 0 dtype\n  left: u64?\n right: u64"
 )]
-#[case::mismatched_length(vec![buffer![1u64, 2].into_array()], DecimalDType::new(38, 2))]
+#[case::narrow_lower_part(
+    vec![buffer![1u32, 2, 3].into_array()],
+    DecimalDType::new(38, 2),
+    "lower part 0 dtype\n  left: u32\n right: u64"
+)]
+#[case::mismatched_length(
+    vec![buffer![1u64, 2].into_array()],
+    DecimalDType::new(38, 2),
+    "length mismatch"
+)]
+#[case::signed_last_part(
+    vec![lower_part(), lower_part(), buffer![1i64, 2, 3].into_array()],
+    DecimalDType::new(76, 2),
+    "lower part 2 dtype\n  left: i64\n right: u64"
+)]
+#[case::short_last_part(
+    vec![lower_part(), lower_part(), buffer![1u64, 2].into_array()],
+    DecimalDType::new(76, 2),
+    "lower part 2 length mismatch"
+)]
 #[case::too_many_parts(
     vec![lower_part(), lower_part(), lower_part(), lower_part()],
-    DecimalDType::new(76, 2)
+    DecimalDType::new(76, 2),
+    "expected 1..=4 slots, got 5"
 )]
 fn test_rejects_invalid_parts(
     #[case] lower_parts: Vec<ArrayRef>,
     #[case] decimal_dtype: DecimalDType,
+    #[case] expected_error: &str,
 ) {
-    assert!(DecimalByteParts::try_new_with_lower_parts(msp(), lower_parts, decimal_dtype).is_err());
+    let result = DecimalByteParts::try_new_with_lower_parts(msp(), lower_parts, decimal_dtype);
+    assert!(
+        result
+            .as_ref()
+            .is_err_and(|err| err.to_string().contains(expected_error)),
+        "expected {expected_error}, got {result:?}"
+    );
 }
 
 #[rstest]

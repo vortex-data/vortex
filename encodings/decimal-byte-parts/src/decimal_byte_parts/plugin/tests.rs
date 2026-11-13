@@ -67,23 +67,23 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     vec![buffer![0u64; 3].into_array(), buffer![0u64; 3].into_array(), lower_part()],
     DecimalDType::new(38, 2),
 ))]
-#[case::narrowed_lower_parts(DecimalByteParts::try_new_with_lower_parts(
+#[case::narrow_msp_with_lower_parts(DecimalByteParts::try_new_with_lower_parts(
     buffer![-1i16, 0, 1].into_array(),
     vec![
-        buffer![u8::MAX, 128, 0].into_array(),
-        ConstantArray::new(u16::MAX, 3).into_array(),
-        buffer![0u32, 1 << 31, u32::MAX].into_array(),
+        buffer![u64::from(u8::MAX), 128, 0].into_array(),
+        ConstantArray::new(u64::from(u16::MAX), 3).into_array(),
+        buffer![0u64, 1 << 31, u64::from(u32::MAX)].into_array(),
     ],
     DecimalDType::new(76, 2),
 ))]
-#[case::nullable_mixed_lower_parts(DecimalByteParts::try_new_with_lower_parts(
+#[case::nullable_narrow_msp_with_lower_parts(DecimalByteParts::try_new_with_lower_parts(
     PrimitiveArray::new(
         buffer![-1i8, 0, 1], Validity::from_iter([true, false, true]),
     ).into_array(),
     vec![
         buffer![u64::MAX, 1 << 63, 0].into_array(),
-        buffer![0u8, 128, u8::MAX].into_array(),
-        buffer![u32::MAX, 1 << 31, 0].into_array(),
+        buffer![0u64, 128, u64::from(u8::MAX)].into_array(),
+        buffer![u64::from(u32::MAX), 1 << 31, 0].into_array(),
     ],
     DecimalDType::new(76, 2),
 ))]
@@ -187,13 +187,19 @@ fn v1_metadata_is_unchanged() -> VortexResult<()> {
     decimal_byte_parts_v2_id(),
     v2_metadata(vec![PType::I64 as i32]),
     vec![msp(), lower_part()],
-    "unsigned integer dtype"
+    "lower part 0 ptype\n  left: i64\n right: u64"
+)]
+#[case::v2_narrow_lower_part(
+    decimal_byte_parts_v2_id(),
+    v2_metadata(vec![PType::U32 as i32]),
+    vec![msp(), lower_part()],
+    "lower part 0 ptype\n  left: u32\n right: u64"
 )]
 #[case::v2_unknown_ptype(
     decimal_byte_parts_v2_id(),
     v2_metadata(vec![i32::MAX]),
     vec![msp(), lower_part()],
-    "invalid PType"
+    "must have a valid PType"
 )]
 fn decoder_rejects_malformed_payloads(
     #[case] serialized_id: ArrayId,

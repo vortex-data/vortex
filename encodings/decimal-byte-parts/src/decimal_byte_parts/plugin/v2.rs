@@ -11,7 +11,6 @@ use vortex_array::ArraySerialization;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -23,6 +22,7 @@ use crate::DecimalByteParts;
 use crate::DecimalBytePartsArray;
 use crate::DecimalBytePartsArraySlotsExt;
 use crate::DecimalBytePartsData;
+use crate::decimal_byte_parts::LOWER_PART_DTYPE;
 use crate::decimal_byte_parts::MAX_LOWER_PARTS;
 
 /// Metadata for decimal byte parts with lower parts.
@@ -31,7 +31,7 @@ pub struct DecimalBytePartsV2Metadata {
     /// Ptype of the most significant part.
     #[prost(enumeration = "PType", tag = "1")]
     pub(super) msp_ptype: i32,
-    /// Ptypes of the lower parts, ordered most significant first.
+    /// Ptypes of the lower parts, ordered most significant first. Readers accept only `U64`.
     #[prost(enumeration = "PType", repeated, tag = "2")]
     pub(super) lower_part_ptypes: Vec<i32>,
 }
@@ -90,15 +90,13 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
     let mut slots = ArraySlots::with_capacity(parts.children.len());
     slots.push(Some(parts.children.get(0, &msp_dtype, parts.len)?));
     for (idx, raw_ptype) in metadata.lower_part_ptypes.into_iter().enumerate() {
-        let ptype = PType::try_from(raw_ptype)
-            .map_err(|_| vortex_err!("invalid PType {raw_ptype} for lower part {idx}"))?;
-        vortex_ensure!(
-            ptype.is_unsigned_int(),
-            "lower part {idx} must have an unsigned integer dtype, got {ptype}"
-        );
+        let ptype = PType::try_from(raw_ptype).map_err(|_| {
+            vortex_err!("lower part {idx} must have a valid PType, got {raw_ptype}")
+        })?;
+        vortex_ensure_eq!(ptype, PType::U64, "lower part {idx} ptype");
         slots.push(Some(parts.children.get(
             1 + idx,
-            &DType::Primitive(ptype, Nullability::NonNullable),
+            &LOWER_PART_DTYPE,
             parts.len,
         )?));
     }
