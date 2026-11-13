@@ -231,7 +231,9 @@ mod tests {
 
     /// 4 in rows 100 to 2900, which is a patch at bit width 2, and a packed 1 around them.
     fn patched_inside() -> PrimitiveArray {
-        PrimitiveArray::from_iter((0..3000).map(|i| if (100..2900).contains(&i) { 4u32 } else { 1 }))
+        PrimitiveArray::from_iter(
+            (0..3000).map(|i| if (100..2900).contains(&i) { 4u32 } else { 1 }),
+        )
     }
 
     // At bit width 2, 3000 rows hold two full chunks and a trailer; the slice 100..2900 adds a
