@@ -1093,8 +1093,7 @@ mod tests {
             [(
                 "ARROW:extension:name".to_string(),
                 "arrow.parquet.variant".to_string(),
-            )]
-            .into(),
+            )],
         );
         assert_eq!(
             session.from_arrow_field(&field)?,
@@ -1164,7 +1163,7 @@ mod tests {
         let metadata = extension_name
             .map(|id| (EXTENSION_TYPE_NAME_KEY.to_string(), id.to_string()))
             .into_iter()
-            .collect();
+            .collect::<arrow_schema::Metadata>();
         let field = Field::new("s", dict.data_type().clone(), false).with_metadata(metadata);
 
         let dtype = session.from_arrow_field(&field)?;
@@ -1228,8 +1227,7 @@ mod tests {
                 [(
                     EXTENSION_TYPE_NAME_KEY.to_string(),
                     "test.truncate".to_string(),
-                )]
-                .into(),
+                )],
             ),
         )
     }

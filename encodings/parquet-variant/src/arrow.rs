@@ -738,8 +738,7 @@ mod tests {
             [(
                 EXTENSION_TYPE_NAME_KEY.to_string(),
                 PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )]
-            .into(),
+            )],
         )
     }
 
@@ -851,8 +850,7 @@ mod tests {
             [(
                 EXTENSION_TYPE_NAME_KEY.to_string(),
                 PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )]
-            .into(),
+            )],
         );
 
         let exported = session
@@ -896,8 +894,7 @@ mod tests {
             [(
                 EXTENSION_TYPE_NAME_KEY.to_string(),
                 PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )]
-            .into(),
+            )],
         );
 
         let actual = session
@@ -945,8 +942,7 @@ mod tests {
             [(
                 EXTENSION_TYPE_NAME_KEY.to_string(),
                 PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )]
-            .into(),
+            )],
         );
         let actual = session.arrow().from_arrow_array(exported, &field)?;
         assert_variant_scalars_eq(&actual, &expected, &session)
@@ -994,8 +990,7 @@ mod tests {
             [(
                 EXTENSION_TYPE_NAME_KEY.to_string(),
                 PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )]
-            .into(),
+            )],
         );
 
         let mut ctx = session.create_execution_ctx();
@@ -1039,8 +1034,7 @@ mod tests {
             [(
                 EXTENSION_TYPE_NAME_KEY.to_string(),
                 PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )]
-            .into(),
+            )],
         );
 
         let mut ctx = session.create_execution_ctx();
@@ -1090,8 +1084,7 @@ mod tests {
             [(
                 EXTENSION_TYPE_NAME_KEY.to_string(),
                 PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )]
-            .into(),
+            )],
         );
         let mut ctx = session.create_execution_ctx();
         let exported = session
