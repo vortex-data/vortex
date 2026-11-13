@@ -956,8 +956,10 @@ mod tests {
             .clone();
         assert_eq!(
             updated_source.vortex_predicate.as_ref(),
-            Some(&conjunction([exact, dynamic]))
+            Some(&conjunction([Arc::clone(&exact), dynamic]))
         );
+        // Equivalence properties derive only from the filters that hold on every row.
+        assert_eq!(updated_source.exact_filter(), Some(exact));
         Ok(())
     }
 
@@ -979,6 +981,7 @@ mod tests {
             .clone();
         assert_eq!(updated_source.full_predicate.as_ref(), Some(&filter));
         assert!(updated_source.vortex_predicate.is_none());
+        assert!(updated_source.exact_filter().is_none());
         Ok(())
     }
 }

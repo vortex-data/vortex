@@ -11,7 +11,7 @@ use arrow_array::Int32Array;
 use arrow_array::RecordBatch;
 use arrow_array::StringArray;
 use arrow_array::cast::AsArray;
-use arrow_array::types::UInt16Type;
+use arrow_array::types::UInt32Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
@@ -295,7 +295,7 @@ async fn dictionary_values_are_shared(#[values(false, true)] scan_v2: bool) -> V
         .map(|batch| {
             batch
                 .column(0)
-                .as_dictionary_opt::<UInt16Type>()
+                .as_dictionary_opt::<UInt32Type>()
                 .map(|dict| Arc::as_ptr(dict.values()).cast::<()>().addr())
                 .ok_or_else(|| vortex_err!("not a dictionary: {}", batch.column(0).data_type()))
         })

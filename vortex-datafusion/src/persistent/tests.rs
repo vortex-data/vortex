@@ -1315,9 +1315,12 @@ fn scan_statistics(plan: &Arc<dyn ExecutionPlan>) -> anyhow::Result<Arc<Statisti
 #[case::no_filter("TRUE", Precision::Exact(1_000))]
 // Interval analysis over the exact bounds [0, 999] keeps 100 of 1000 values.
 #[case::range("k < 100", Precision::Inexact(100))]
-// Interval analysis does not support `LIKE`, so the default 20% selectivity applies.
-#[case::default_selectivity("s LIKE 'a%'", Precision::Inexact(200))]
-#[case::contradiction("k < 10 AND k > 20", Precision::Inexact(0))]
+// Interval analysis does not support `LIKE`, so an unanchored pattern keeps the default 20%.
+#[case::default_selectivity("s LIKE '%a%'", Precision::Inexact(200))]
+// An anchored end halves the default selectivity.
+#[case::prefix("s LIKE 'a%'", Precision::Inexact(100))]
+// The planner folds a self-contradicting predicate away, but not one only the bounds disprove.
+#[case::out_of_bounds("k > 2000", Precision::Inexact(0))]
 #[tokio::test]
 async fn pushed_filter_scales_scan_statistics(
     #[case] predicate: &str,
@@ -1352,6 +1355,35 @@ async fn pushed_filter_scales_scan_statistics(
     let statistics = scan_statistics(&plan)?;
     assert_eq!(statistics.num_rows, expected_rows);
     assert_eq!(statistics.column_statistics.len(), 1);
+    Ok(())
+}
+
+/// A pushed filter holds on every row the scan returns, so its constants feed the scan's
+/// equivalence properties and DataFusion drops the sort on a constant column.
+#[tokio::test]
+async fn pushed_filter_constants_remove_sorts() -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    let batch = arrow_array::record_batch!(
+        ("id", Int64, (0..1_000).collect::<Vec<i64>>()),
+        ("k", Int64, (0..1_000).map(|i| i % 10).collect::<Vec<i64>>())
+    )?;
+    ctx.write_arrow_batch("constant.vortex", &batch).await?;
+    let table = ctx
+        .table_provider("t", "/constant.vortex", batch.schema().as_ref().clone())
+        .await?;
+    ctx.session.register_table("t", table)?;
+
+    let plan = ctx
+        .session
+        .sql("SELECT id, k FROM t WHERE k = 5 ORDER BY k")
+        .await?
+        .create_physical_plan()
+        .await?;
+    assert_eq!(filter_placement(plan.as_ref()), (false, true));
+    let plan = DisplayableExecutionPlan::new(plan.as_ref())
+        .indent(true)
+        .to_string();
+    assert!(!plan.contains("SortExec"), "{plan}");
     Ok(())
 }
 
