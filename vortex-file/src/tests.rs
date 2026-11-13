@@ -40,6 +40,7 @@ use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
+use vortex_array::dtype::BigCast;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::FieldPath;
@@ -72,6 +73,7 @@ use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
 use vortex_array::field_path;
 use vortex_array::flatbuffers::WriteFlatBufferExt;
+use vortex_array::match_each_decimal_value_type;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
@@ -374,6 +376,52 @@ async fn decimal_writer_uses_default_or_session_restrictions(
         assert_eq!(uses_v2, (disable_editions || unstable) && !custom_strategy);
         assert_arrays_eq!(array, actual, &mut session.create_execution_ctx());
     }
+    Ok(())
+}
+
+/// Low-cardinality decimal columns of every values width are written as dict layouts and read back
+/// unchanged, including their nulls.
+#[rstest]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn low_cardinality_decimal_uses_dict_layout(
+    #[values(2, 4, 9, 18, 38, 76)] precision: u8,
+    #[values(false, true)] nullable: bool,
+) -> VortexResult<()> {
+    const LEN: usize = 16_384;
+    let decimal_dtype = DecimalDType::new(precision, 2);
+    let distinct = [12i64, -98, 42, 55];
+    let validity = if nullable {
+        Validity::from_iter((0..LEN).map(|i| i % 11 != 0))
+    } else {
+        Validity::NonNullable
+    };
+    let decimal = match_each_decimal_value_type!(decimal_dtype.canonical_values_type(), |T| {
+        let values = (0..LEN)
+            .map(|i| {
+                <T as BigCast>::from(distinct[(i * 7 + i / 3) % distinct.len()])
+                    .vortex_expect("value fits the precision")
+            })
+            .collect::<Buffer<T>>();
+        DecimalArray::new(values, decimal_dtype, validity)
+    });
+    let array = StructArray::from_fields(&[("decimal", decimal.into_array())])?.into_array();
+
+    let mut buffer = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .write(&mut buffer, array.clone().to_array_stream())
+        .await?;
+    assert!(layout_has_dict(summary.footer().layout().as_ref()));
+
+    let actual = SESSION
+        .open_options()
+        .open_buffer(buffer)?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    assert_arrays_eq!(actual, array, &mut SESSION.create_execution_ctx());
     Ok(())
 }
 

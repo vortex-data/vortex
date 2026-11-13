@@ -535,6 +535,38 @@ mod test {
     }
 
     #[test]
+    fn encode_varbinview_dedupes_noncanonical_inline_padding() -> VortexResult<()> {
+        // The bytes past an inlined value are padding; producers are expected to zero them, but a
+        // view carrying junk there still describes the same value and must share its code.
+        let canonical = BinaryView::make_view(b"hello", 0, 0);
+        let padded = BinaryView::from(canonical.as_u128() | (u128::MAX << (8 * (4 + 5))));
+        let views = Buffer::copy_from([canonical, padded, canonical]);
+        let arr = unsafe {
+            VarBinViewArray::new_handle_unchecked(
+                BufferHandle::new_host(views.into_byte_buffer()),
+                Arc::<[BufferHandle]>::from(vec![]),
+                DType::Utf8(Nullability::NonNullable),
+                Validity::NonNullable,
+            )
+        }
+        .into_array();
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let dict = dict_encode(&arr, &mut ctx)?;
+        assert_arrays_eq!(
+            dict.codes(),
+            PrimitiveArray::from_iter([0u8, 0, 0]),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            dict.values(),
+            VarBinViewArray::from_iter_str(["hello"]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
     fn max_dict_bytes_cannot_exceed_the_view_offset_range() {
         let builder = BytesDictBuilder::<u32>::new_in(
             DType::Utf8(Nullability::NonNullable),

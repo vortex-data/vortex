@@ -10,6 +10,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_compressor::builtins::BinaryDictScheme;
+use vortex_compressor::builtins::DecimalDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
@@ -153,6 +154,10 @@ impl Scheme for FoRScheme {
             },
             AncestorExclusion {
                 ancestor: BinaryDictScheme.id(),
+                children: ChildSelection::One(1),
+            },
+            AncestorExclusion {
+                ancestor: DecimalDictScheme.id(),
                 children: ChildSelection::One(1),
             },
         ]

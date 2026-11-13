@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use parking_lot::Mutex;
+use rstest::rstest;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -63,6 +64,7 @@ use crate::scheme::EstimateScore;
 use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
+use crate::scheme::SchemeId;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
 
@@ -376,6 +378,80 @@ impl Scheme for FiniteSamplingScheme {
     }
 }
 
+/// An `AlwaysUse` default that samples to a finite ratio by writing a single byte.
+#[derive(Debug)]
+struct SampledAlwaysUseScheme;
+
+impl Scheme for SampledAlwaysUseScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.sampled_always_use"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        Ok(PrimitiveArray::new(buffer![0u8], Validity::NonNullable).into_array())
+    }
+}
+
+/// An `AlwaysUse` default whose samples compress to zero bytes, as samples of only nulls do.
+#[derive(Debug)]
+struct ZeroBytesAlwaysUseScheme;
+
+impl Scheme for ZeroBytesAlwaysUseScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.zero_bytes_always_use"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        Ok(NullArray::new(data.array().len()).into_array())
+    }
+}
+
 /// Promises a ratio it does not deliver: its output is the input.
 #[derive(Debug)]
 struct OverpromisingScheme;
@@ -508,10 +584,11 @@ fn test_no_exclusion_without_history() {
     assert!(!c.is_excluded(&IntDictScheme, &ctx));
 }
 
+/// Without other candidates, the default wins without being sampled: its `compress` panics.
 #[test]
-fn immediate_always_use_wins_immediately() -> VortexResult<()> {
-    let compressor = CascadingCompressor::new(vec![&DirectRatioScheme, &ImmediateAlwaysUseScheme]);
-    let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &ImmediateAlwaysUseScheme];
+fn always_use_wins_immediately_without_competitors() -> VortexResult<()> {
+    let compressor = CascadingCompressor::new(vec![&ImmediateAlwaysUseScheme]);
+    let schemes: [&'static dyn Scheme; 1] = [&ImmediateAlwaysUseScheme];
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
@@ -522,6 +599,50 @@ fn immediate_always_use_wins_immediately() -> VortexResult<()> {
         winner,
         Some((scheme, WinnerEstimate::AlwaysUse))
             if scheme.id() == ImmediateAlwaysUseScheme.id()
+    ));
+    Ok(())
+}
+
+/// The default competes on a sample, and a candidate with a better estimate beats it.
+#[rstest]
+#[case::default_wins(&DirectRatioScheme, SampledAlwaysUseScheme.id())]
+#[case::candidate_wins(&HugeRatioScheme, HugeRatioScheme.id())]
+fn always_use_default_competes_with_candidates(
+    #[case] candidate: &'static dyn Scheme,
+    #[case] expected: SchemeId,
+) -> VortexResult<()> {
+    let compressor = CascadingCompressor::new(vec![candidate, &SampledAlwaysUseScheme]);
+    let schemes: [&'static dyn Scheme; 2] = [candidate, &SampledAlwaysUseScheme];
+    let data = estimate_test_data();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+
+    assert!(matches!(
+        winner,
+        Some((scheme, WinnerEstimate::Score(_))) if scheme.id() == expected
+    ));
+    Ok(())
+}
+
+/// When no candidate has a valid estimate, e.g. every sample holds only nulls, the default is
+/// chosen rather than no scheme.
+#[test]
+fn always_use_default_is_chosen_without_valid_estimates() -> VortexResult<()> {
+    let compressor =
+        CascadingCompressor::new(vec![&ZeroBytesSamplingScheme, &ZeroBytesAlwaysUseScheme]);
+    let schemes: [&'static dyn Scheme; 2] = [&ZeroBytesSamplingScheme, &ZeroBytesAlwaysUseScheme];
+    let data = estimate_test_data();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+
+    assert!(matches!(
+        winner,
+        Some((scheme, WinnerEstimate::AlwaysUse))
+            if scheme.id() == ZeroBytesAlwaysUseScheme.id()
     ));
     Ok(())
 }

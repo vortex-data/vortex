@@ -60,13 +60,18 @@ pub enum EstimateVerdict {
     /// Do not use this scheme for this array.
     Skip,
 
-    /// Always use this scheme, as it is definitively the best choice.
+    /// Use this scheme unless another scheme is estimated to compress better.
     ///
     /// Some examples include decimal byte parts and temporal decomposition.
     ///
-    /// The compressor will select this scheme immediately without evaluating further candidates.
-    /// Schemes that return `AlwaysUse` must be mutually exclusive per canonical type (enforced by
-    /// [`Scheme::matches`]), otherwise the winner depends silently on registration order.
+    /// The scheme is the default for the array. When every other candidate skips, the compressor
+    /// selects it without evaluating it. Otherwise it samples the default, which the other
+    /// candidates have to beat, and falls back to the default when no candidate has a valid
+    /// estimate, e.g. when every sample holds only nulls. Schemes that return `AlwaysUse` must be
+    /// mutually exclusive per canonical type (enforced by [`Scheme::matches`]), otherwise the
+    /// default depends silently on registration order.
+    ///
+    /// From a [`DeferredEstimate::Callback`], `AlwaysUse` selects the scheme immediately.
     ///
     /// [`Scheme::matches`]: crate::scheme::Scheme::matches
     AlwaysUse,

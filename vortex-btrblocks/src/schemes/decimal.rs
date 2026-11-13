@@ -11,6 +11,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
 use vortex_array::dtype::DecimalType;
+pub use vortex_compressor::builtins::DecimalDictScheme;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_decimal_byte_parts::DecimalByteParts;
@@ -119,6 +120,8 @@ impl Scheme for DecimalScheme {
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // Decimal compression is almost always beneficial (narrowing + primitive compression).
+        // As the default for decimals, it still competes with `DecimalDictScheme` when the
+        // dictionary has an estimate.
         CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
     }
 
