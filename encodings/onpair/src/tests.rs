@@ -679,3 +679,48 @@ fn test_sparse_dict_over_onpair_appends_to_builder() -> vortex_error::VortexResu
     );
     Ok(())
 }
+
+/// Regression for #11420: the `onpair` crate grows the codes from empty, and the compressed array
+/// must not keep the spare capacity of their last growth.
+#[rstest::rstest]
+#[case::str_len_64(64)]
+#[case::str_len_80(80)]
+#[case::str_len_160(160)]
+fn codes_buffer_has_little_spare_capacity(
+    #[case] str_len: usize,
+) -> vortex_error::VortexResult<()> {
+    let mut x: u64 = 1;
+    let strings: Vec<String> = (0..8192)
+        .map(|_| {
+            (0..str_len / 16)
+                .map(|_| {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    format!("{x:016x}")
+                })
+                .collect()
+        })
+        .collect();
+    let array = VarBinViewArray::from_iter_str(strings.iter().map(String::as_str)).into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let onpair = compress_onpair(&array, &mut ctx)?;
+
+    let codes = onpair
+        .as_view()
+        .codes()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?
+        .into_buffer::<u16>();
+    drop(onpair);
+    let codes = codes
+        .try_into_mut()
+        .map_err(|_| vortex_error::vortex_err!("codes buffer is still shared"))?;
+    let spare = codes.capacity() - codes.len();
+    assert!(
+        spare <= codes.len() / 4,
+        "{} codes have {spare} codes of spare capacity",
+        codes.len()
+    );
+    Ok(())
+}
