@@ -1,0 +1,282 @@
+name: Agent Checks (review one check)
+
+# Called by agent-checks.yml once per check. Reviews that check's shards (crates) one after another,
+# each on its own runner. See agent-checks.yml for the whole flow and `.agents/checks/README.md`.
+#
+# This file is the `job_workflow_ref` of the agent's OIDC token, so the `vortex-claude-write`
+# federation rule must allow it.
+
+on:
+  workflow_call:
+    inputs:
+      check:
+        description: "Check id"
+        required: true
+        type: string
+      shards:
+        description: "JSON list of shard ids from the plan"
+        required: true
+        type: string
+      dry_run:
+        description: "Report in the job summary only"
+        required: true
+        type: boolean
+
+permissions: { }
+
+env:
+  NIGHTLY_TOOLCHAIN: nightly-2026-11-13
+  PR_LABEL: agent-checks
+  DRY_RUN: ${{ inputs.dry_run }}
+
+jobs:
+  review:
+    name: "${{ inputs.check }} / ${{ matrix.shard }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      # One shard at a time per check: each one decides from live GitHub state, which then
+      # includes everything the previous shard published. One failing shard never stops the rest.
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(inputs.shards) }}
+
+    environment:
+      # The App private key lives only in this environment. The App token (not GITHUB_TOKEN)
+      # makes the draft PRs trigger normal CI.
+      name: claude-automation
+      deployment: false
+
+    permissions:
+      contents: read
+      # Read-only, for the decide step's live view of open PRs and issues.
+      issues: read
+      pull-requests: read
+      id-token: write
+
+    env:
+      CHECK: ${{ inputs.check }}
+      SHARD: ${{ matrix.shard }}
+      RESULTS: ${{ github.workspace }}/target/agent-checks/results.json
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    steps:
+      - name: Locate the trusted directory
+        # The agent can write anywhere in the workspace, so the runner, the plan and every output
+        # that state or PRs are built from live outside it.
+        run: echo "TRUSTED=$RUNNER_TEMP/agent-checks" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          # Full history so the agent can `git diff <last-reviewed-commit> -- <file>`.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: agent-checks-plan
+          path: ${{ runner.temp }}/agent-checks
+
+      - name: Copy the runner out of the workspace
+        run: |
+          cp scripts/agent_checks.py "$TRUSTED/agent_checks.py"
+          mkdir -p "$(dirname "$RESULTS")"
+
+      - name: Setup Rust toolchain
+        uses: ./.github/actions/setup-rust
+
+      - name: Install nightly rustfmt
+        # CI checks formatting with the pinned nightly; format agent edits with the same one.
+        run: rustup toolchain install "$NIGHTLY_TOOLCHAIN" --profile minimal --component rustfmt
+
+      - name: Render prompt
+        id: prompt
+        run: |
+          python3 -I "$TRUSTED/agent_checks.py" prompt --plan "$TRUSTED/plan.json" \
+            --check "$CHECK" --shard "$SHARD" --results "$RESULTS" --out "$TRUSTED/prompt.md"
+
+      - name: Run Claude
+        id: claude
+        # A failed or timed-out agent still leaves a partial results file; finalize records the
+        # files it finished and reverts edits to the rest.
+        continue-on-error: true
+        timeout-minutes: 80
+        uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d  # v1.0.266
+        with:
+          # The claude-automation environment puts `environment:claude-automation` in the OIDC
+          # subject, which only the `vortex-claude-write` rule matches.
+          anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_WRITE }}
+          anthropic_organization_id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          # Read-only: the agent never holds a token that can push. The App token is minted only
+          # after finalize, for the publish steps.
+          github_token: ${{ github.token }}
+          show_full_output: true
+          prompt: ${{ steps.prompt.outputs.prompt }}
+          claude_args: |
+            --model ${{ steps.prompt.outputs.model || 'claude-opus-5-5' }}
+            --max-turns ${{ steps.prompt.outputs.max_turns }}
+            --allowedTools "${{ steps.prompt.outputs.allowed_tools }}"
+
+      - name: Format edited Rust files
+        # Before finalize, so the blobs it records are the ones that get committed. A file that
+        # does not parse is left as is; verify then rejects it.
+        continue-on-error: true
+        run: |
+          git status --porcelain=v1 -z --untracked-files=all \
+            | tr '\0' '\n' | sed -n 's/^.. //p' | grep '\.rs$' \
+            | while IFS= read -r f; do [[ -f "$f" ]] && echo "$f"; done \
+            | xargs -r -d '\n' rustup run "$NIGHTLY_TOOLCHAIN" rustfmt --edition 2024
+
+      - name: Finalize
+        id: finalize
+        run: |
+          cp "$RESULTS" "$TRUSTED/results.json" 2>/dev/null || true
+          python3 -I "$TRUSTED/agent_checks.py" --root "$GITHUB_WORKSPACE" finalize \
+            --plan "$TRUSTED/plan.json" --check "$CHECK" --shard "$SHARD" \
+            --results "$TRUSTED/results.json" --out-dir "$TRUSTED/out" --run-url "$RUN_URL" \
+            --revert-out-of-scope --verify
+          mkdir -p "$TRUSTED/state-update"
+          cp "$TRUSTED/out/state-update.json" "$TRUSTED/state-update/$CHECK--$SHARD.json"
+
+      - name: Decide what to publish
+        id: decide
+        # Each shard decides on its own from live GitHub state, fetched now rather than at plan
+        # time: open a PR, add to its issue, or publish nothing, without repeating any finding an
+        # open agent PR or issue of this check already reports.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.finalize.outputs.branch }}
+        run: |
+          gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 1000 \
+            --json number,state,body,headRefName > "$TRUSTED/open-prs.json"
+          gh issue list --repo "$GITHUB_REPOSITORY" --label "$PR_LABEL" --state open --limit 1000 \
+            --json number,state,body,comments > "$TRUSTED/open-issues.json"
+          jq -s 'add' "$TRUSTED/open-prs.json" "$TRUSTED/open-issues.json" > "$TRUSTED/live.json"
+          python3 -I "$TRUSTED/agent_checks.py" decide --plan "$TRUSTED/plan.json" \
+            --check "$CHECK" --shard "$SHARD" --out-dir "$TRUSTED/out" --github "$TRUSTED/live.json"
+
+      - name: Job summary
+        if: ${{ !cancelled() }}
+        env:
+          HAS_EDITS: ${{ steps.finalize.outputs.has_edits }}
+          ACTION: ${{ steps.decide.outputs.action }}
+          AGENT_OUTCOME: ${{ steps.claude.outcome }}
+        run: |
+          {
+            echo "## $CHECK / $SHARD"
+            echo
+            if [[ ! -f "$TRUSTED/out/body.md" ]]; then
+              echo "No results: the agent step finished with outcome \`$AGENT_OUTCOME\` and nothing was"
+              echo "recorded. The shard is offered again on the next run. See the **Run Claude** step."
+              exit 0
+            fi
+            echo "Decision: \`${ACTION:-not reached}\`$([[ "$DRY_RUN" == "true" ]] && echo ' (dry run: not published)')"
+            echo
+            cat "$TRUSTED/out/publish.md" 2>/dev/null || cat "$TRUSTED/out/body.md"
+            if [[ "$HAS_EDITS" == "true" ]]; then
+              echo
+              echo '<details><summary>Diff</summary>'
+              echo
+              echo '```diff'
+              git diff
+              echo '```'
+              echo
+              echo '</details>'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate short-lived GitHub App token
+        id: app-token
+        if: >-
+          env.DRY_RUN != 'true' &&
+          contains(fromJSON('["pr", "issue_create", "issue_comment"]'), steps.decide.outputs.action)
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: Create labels
+        if: steps.app-token.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          LABELS: ${{ steps.finalize.outputs.labels }}
+        run: |
+          gh label create "$PR_LABEL" --repo "$GITHUB_REPOSITORY" --color "5319e7" \
+            --description "Opened by the scheduled agent checks" 2>/dev/null || true
+          IFS=',' read -ra extra <<< "$LABELS"
+          for l in "${extra[@]}"; do
+            [[ -n "$l" ]] && gh label create "$l" --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+          done
+
+      - name: Open the shard's draft pull request
+        id: pr
+        if: steps.app-token.outcome == 'success' && steps.decide.outputs.action == 'pr'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          BRANCH: ${{ steps.finalize.outputs.branch }}
+          TITLE: ${{ steps.finalize.outputs.title }}
+          LABELS: ${{ steps.finalize.outputs.labels }}
+        run: |
+          # Decide saw no open PR on this branch moments ago. Look once more right before the force
+          # push, so it can never replace the branch of an open PR.
+          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open \
+            --json url --jq '.[0].url // ""')"
+          if [[ -n "$existing" ]]; then
+            echo "::error::$existing is already open on $BRANCH"
+            exit 1
+          fi
+
+          git config user.name "vortex-claude[bot]"
+          git config user.email "274007616+vortex-claude[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          jq -r '.edits[]' "$TRUSTED/out/summary.json" | xargs -d '\n' git add --
+          git commit -s -m "$TITLE" -m "Automated agent check \`$CHECK\`. $RUN_URL"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "HEAD:refs/heads/$BRANCH"
+
+          label_args=(--label "$PR_LABEL")
+          IFS=',' read -ra extra <<< "$LABELS"
+          for l in "${extra[@]}"; do [[ -n "$l" ]] && label_args+=(--label "$l"); done
+          gh pr create --repo "$GITHUB_REPOSITORY" --draft --base "$BASE_BRANCH" --head "$BRANCH" \
+            --title "$TITLE" --body-file "$TRUSTED/out/publish.md" "${label_args[@]}"
+
+      - name: Report new unfixed findings on the shard's issue
+        id: issue
+        if: >-
+          steps.app-token.outcome == 'success' &&
+          contains(fromJSON('["issue_create", "issue_comment"]'), steps.decide.outputs.action)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ACTION: ${{ steps.decide.outputs.action }}
+          ISSUE: ${{ steps.decide.outputs.issue }}
+          TITLE: ${{ steps.finalize.outputs.title }}
+        run: |
+          if [[ "$ACTION" == "issue_comment" ]]; then
+            gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$TRUSTED/out/publish.md"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --label "$PR_LABEL" \
+              --body-file "$TRUSTED/out/publish.md"
+          fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        # Record the review only once its decision is carried out. `blocked` and failed publish
+        # steps record nothing, so the files are offered again rather than marked reviewed with
+        # the fix or findings lost.
+        if: >-
+          !cancelled() && steps.decide.outcome == 'success' && (
+            env.DRY_RUN == 'true' ||
+            steps.decide.outputs.action == 'none' ||
+            (steps.decide.outputs.action == 'pr' && steps.pr.outcome == 'success') ||
+            (startsWith(steps.decide.outputs.action, 'issue_') && steps.issue.outcome == 'success'))
+        with:
+          name: agent-checks-state-${{ inputs.check }}-${{ strategy.job-index }}
+          path: |
+            ${{ runner.temp }}/agent-checks/state-update/
+            ${{ runner.temp }}/agent-checks/out/
+            ${{ runner.temp }}/agent-checks/results.json

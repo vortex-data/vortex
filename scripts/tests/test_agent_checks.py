@@ -181,6 +181,7 @@ class TestPlan:
         beta = ac.find_shard(p, "bench", "beta")
         assert (beta["crate"], beta["crate_dir"]) == ("beta", "enc/beta")
         assert ac.matrix(p)["include"] == [{"check": "bench", "shard": "alpha"}, {"check": "bench", "shard": "beta"}]
+        assert ac.check_matrix(p)["include"] == [{"check": "bench", "shards": '["alpha", "beta"]'}]
 
     def test_deferred_files_come_first_next_run(self, repo: Path, tmp_path: Path):
         state_dir = tmp_path / "state"
@@ -461,6 +462,70 @@ class TestFinalize:
         validated = ac.validate_results(results)
         assert len(validated["findings"]) == 1
         assert len(validated["invalid"]) == 2
+
+
+class TestDecide:
+    def run(
+        self, repo: Path, findings: list[dict[str, object]], items: list[dict[str, Any]], edit: bool = False
+    ) -> dict[str, Any]:
+        p = plan(repo, Path(repo) / "no-state")
+        check = ac.check_from_plan(p, "bench")
+        shard = ac.find_shard(p, "bench", "beta")
+        if edit:
+            write(repo, "enc/beta/benches/x.rs", "fn x() { fixed() }\n")
+        results = ac.validate_results({"reviewed": ["enc/beta/benches/x.rs"], "findings": findings})
+        final = ac.finalize(check, p, shard, results, repo, now=NOW)
+        return ac.decide(check, p, shard, final, items)
+
+    def finding(self, fp: str, fixed: bool = False) -> dict[str, object]:
+        return {
+            "file": "enc/beta/benches/x.rs",
+            "line": 1,
+            "severity": "medium",
+            "category": "result-discarded",
+            "title": f"title {fp}",
+            "detail": f"detail {fp}",
+            "fingerprint": fp,
+            "fixed": fixed,
+        }
+
+    def issue(self, number: int, fps: list[str], check: str = "bench", shard: str = "beta") -> dict[str, Any]:
+        mark = {"check": check, "shard": shard, "fingerprints": {fp: "enc/beta/benches/x.rs" for fp in fps}}
+        return {"number": number, "state": "OPEN", "body": "", "comments": [{"body": ac_marker(mark)}]}
+
+    def test_opens_an_issue_for_new_unfixed_findings(self, repo: Path):
+        d = self.run(repo, [self.finding("b:1")], [])
+        assert (d["action"], d["issue"]) == ("issue_create", None)
+        assert "title b:1" in d["body"]
+
+    def test_comments_only_the_new_findings_on_the_shards_issue(self, repo: Path):
+        d = self.run(repo, [self.finding("b:1"), self.finding("b:2")], [self.issue(7, ["b:1"])])
+        assert (d["action"], d["issue"]) == ("issue_comment", 7)
+        assert [f["fingerprint"] for f in d["findings"]] == ["b:2"]
+        assert "title b:1" not in d["body"]
+        assert "already reported" in d["body"]
+
+    def test_publishes_nothing_when_every_finding_is_known(self, repo: Path):
+        assert self.run(repo, [self.finding("b:1")], [self.issue(7, ["b:1"])])["action"] == "none"
+        assert self.run(repo, [], [])["action"] == "none"
+
+    def test_other_checks_do_not_dedup(self, repo: Path):
+        d = self.run(repo, [self.finding("b:1")], [self.issue(7, ["b:1"], check="other")])
+        assert (d["action"], d["issue"]) == ("issue_create", None)
+
+    def test_edits_open_a_pr_without_known_unfixed_findings(self, repo: Path):
+        findings = [self.finding("b:fixed", fixed=True), self.finding("b:1"), self.finding("b:2")]
+        d = self.run(repo, findings, [self.issue(7, ["b:1"])], edit=True)
+        assert d["action"] == "pr"
+        assert [f["fingerprint"] for f in d["findings"]] == ["b:fixed", "b:2"]
+
+    def test_edits_are_blocked_by_an_open_pr_on_the_branch(self, repo: Path):
+        items = [pr(3, "agent-checks/bench/beta")]
+        assert self.run(repo, [self.finding("b:1", fixed=True)], items, edit=True)["action"] == "blocked"
+
+
+def ac_marker(fields: dict[str, Any]) -> str:
+    return f"<!-- agent-check: {json.dumps(fields)} -->"
 
 
 class TestRecord:

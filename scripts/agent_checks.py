@@ -18,6 +18,7 @@ Subcommands:
     plan                       Pick shards that need review and write a plan JSON.
     prompt                     Render the agent prompt for one shard of a plan.
     finalize                   Validate an agent's results file and build the PR body and state update.
+    decide                     From live GitHub state, decide what a shard publishes and dedup findings.
     record                     Merge state updates (and PR-derived suppressions) into the state dir.
     run                        Local convenience: plan, prompt, invoke `claude -p`, finalize, record.
 
@@ -649,6 +650,17 @@ def matrix(plan: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
     return {"include": [{"check": cid, "shard": s["id"]} for cid, c in plan["checks"].items() for s in c["shards"]]}
 
 
+def check_matrix(plan: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
+    """One entry per check that has shards; `shards` is a JSON list for that check's inner matrix."""
+    return {
+        "include": [
+            {"check": cid, "shards": json.dumps([sh["id"] for sh in c["shards"]])}
+            for cid, c in plan["checks"].items()
+            if c["shards"]
+        ]
+    }
+
+
 def find_shard(plan: dict[str, Any], check_id: str, shard_id: str) -> dict[str, Any]:
     try:
         return next(s for s in plan["checks"][check_id]["shards"] if s["id"] == shard_id)
@@ -912,9 +924,68 @@ def finalize(
         "edits": edits,
         "findings": findings,
         "notes": notes,
+        "agent_summary": results.get("summary", ""),
+        "run_url": run_url,
         "body": render_body(check, plan, shard, results.get("summary", ""), findings, edits, notes, run_url),
         "state_update": {"check": check.id, "run_at": reviewed_at, "files": update_files},
     }
+
+
+# --------------------------------------------------------------------------------------------------
+# Decide
+# --------------------------------------------------------------------------------------------------
+
+PUBLISH_ACTIONS = ("pr", "issue_create", "issue_comment", "none", "blocked")
+
+
+def decide(
+    check: Check, plan: dict[str, Any], shard: dict[str, Any], final: dict[str, Any], items: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Decide what one shard publishes, from live GitHub state fetched just before publishing.
+
+    Every review job calls this on its own, so the outcome never depends on what the planner saw
+    hours earlier or on what other shards do. `items` are the currently open PRs and issues. A
+    finding whose fingerprint already appears in an open agent PR or issue of the same check is
+    not reported again.
+
+    Actions:
+    - `pr`: there are edits and no open PR on the shard's branch; open a draft PR.
+    - `blocked`: there are edits but a PR is already open on the branch; publish and record
+      nothing, so the files are offered again once that PR is resolved.
+    - `issue_comment` / `issue_create`: no edits, but new unfixed findings; add them to the
+      shard's open issue, or open one.
+    - `none`: nothing new to publish; the review is recorded as is.
+    """
+    known: set[str] = set()
+    shard_issue: int | None = None
+    branch_open = False
+    for item in items:
+        if str(item.get("state", "")).upper() != "OPEN":
+            continue
+        if is_pr(item) and item["headRefName"] == shard["branch"]:
+            branch_open = True
+        for marker in item_markers(item):
+            if marker["check"] != check.id:
+                continue
+            known.update(marker.get("fingerprints", {}))
+            if not is_pr(item) and marker.get("shard") == shard["id"] and shard_issue is None:
+                shard_issue = int(item["number"])
+
+    edits = list(final["edits"])
+    findings = [f for f in final["findings"] if f["fixed"] or f["fingerprint"] not in known]
+    notes = list(final["notes"])
+    if duplicates := len(final["findings"]) - len(findings):
+        notes.append(f"left out {duplicates} findings already reported in an open agent PR or issue")
+    unfixed = [f for f in findings if not f["fixed"]]
+
+    if edits:
+        action = "blocked" if branch_open else "pr"
+    elif unfixed:
+        action = "issue_comment" if shard_issue is not None else "issue_create"
+    else:
+        action = "none"
+    body = render_body(check, plan, shard, final.get("agent_summary", ""), findings, edits, notes, final.get("run_url"))
+    return {"action": action, "issue": shard_issue, "findings": findings, "body": body}
 
 
 def _safe(text: str) -> str:
@@ -1006,7 +1077,7 @@ def record(
 
     A due check gets `last_run` set to the plan's start time if at least one of its shards was
     recorded, or if it had nothing to review. When every shard failed, the clock is left alone so
-    the next daily run tries again.
+    the next scheduled run tries again.
 
     Merging is idempotent, and a file keeps whichever review is newer, so retrying a push or
     re-running an old run never rolls the state back.
@@ -1127,7 +1198,12 @@ def cmd_plan(args: argparse.Namespace) -> int:
     for entry in m["include"]:
         print(f"planned {entry['check']} / {entry['shard']}", file=sys.stderr)
     _github_output(
-        {"matrix": json.dumps(m), "count": str(len(m["include"])), "checks": json.dumps(list(plan["checks"]))}
+        {
+            "matrix": json.dumps(m),
+            "count": str(len(m["include"])),
+            "checks": json.dumps(list(plan["checks"])),
+            "check_matrix": json.dumps(check_matrix(plan)),
+        }
     )
     return 0
 
@@ -1197,6 +1273,23 @@ def cmd_finalize(args: argparse.Namespace) -> int:
             "labels": ",".join(out["labels"]),
         }
     )
+    return 0
+
+
+def cmd_decide(args: argparse.Namespace) -> int:
+    plan = _read_dict(args.plan)
+    check = check_from_plan(plan, args.check)
+    shard = find_shard(plan, args.check, args.shard)
+    out_dir = Path(args.out_dir)
+    final = _read_dict(str(out_dir / "summary.json"))
+    decision = decide(check, plan, shard, final, _read_items(args.github))
+    (out_dir / "publish.md").write_text(decision["body"])
+    print(
+        f"{check.id}/{shard['id']}: {decision['action']} "
+        f"({len(decision['findings'])} of {len(final['findings'])} findings are new)",
+        file=sys.stderr,
+    )
+    _github_output({"action": decision["action"], "issue": str(decision["issue"] or "")})
     return 0
 
 
@@ -1301,6 +1394,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--revert-out-of-scope", action="store_true")
     p.add_argument("--verify", action="store_true", help="run the check's `verify` commands on edits")
     p.set_defaults(func=cmd_finalize)
+
+    p = sub.add_parser("decide", help="decide from live GitHub state what a finalized shard publishes")
+    p.add_argument("--plan", required=True)
+    p.add_argument("--check", required=True)
+    p.add_argument("--shard", required=True)
+    p.add_argument("--out-dir", required=True, help="finalize's output directory; publish.md is written here")
+    p.add_argument("--github", required=True, help="the open PRs and issues, as `gh ... list --json` items")
+    p.set_defaults(func=cmd_decide)
 
     p = sub.add_parser("record", help="merge state updates into the state dir")
     p.add_argument("--state-dir", type=Path, required=True)

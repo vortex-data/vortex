@@ -4,7 +4,7 @@ Agent checks are periodic code reviews that an agent runs on a schedule. Each ch
 plus a little configuration. A runner (`scripts/agent_checks.py`) splits the repository into
 per-crate shards, gives each shard to a headless Claude Code session on its own CI runner,
 validates what comes back, and opens one draft pull request per shard when there is something to
-change, or one issue per shard for findings it could not fix. CI runs it daily from
+change, or one issue per shard for findings it could not fix. CI runs it weekly from
 `.github/workflows/agent-checks.yml`.
 
 | Check | What it asks |
@@ -15,7 +15,7 @@ change, or one issue per shard for findings it could not fix. CI runs it daily f
 ## How a run works
 
 ```text
-plan ──► review (one runner per shard, in parallel) ──► record
+plan ──► review (checks in parallel; each check's crates one at a time) ──► record
 ```
 
 1. **Plan.** The plan job reads the state branch `agent-checks-state`, all open PRs, and the
@@ -30,7 +30,10 @@ plan ──► review (one runner per shard, in parallel) ──► record
    - It emits up to `max_shards_per_run` shards.
    - It writes the check's definition into the plan. The review jobs read the check from the plan,
      so all jobs see the same rubric and the agent cannot change it.
-2. **Review.** Each shard runs on its own runner:
+2. **Review.** `agent-checks-review.yml` is called once per check, and the checks run in
+   parallel. Within a check, the shards run one after another (`max-parallel: 1`), each on its own
+   runner. So each shard's publish decision sees everything the previous shard published.
+   Each shard:
    - The runner builds the prompt from the rubric, the results format, and the assigned files.
      Each changed file gets a hint to run `git diff` against the commit it was last reviewed at.
    - Claude reviews the files, edits the working tree, and keeps a results JSON up to date.
@@ -55,14 +58,15 @@ back, delete its entry from `suppressed` in the state.
 
 ### Cadence
 
-The workflow fires daily. A check is due when its last run started at least `cadence_days` ago,
+The workflow fires weekly, on Mondays. A check is due when its last run started at least
+`cadence_days` ago,
 with 12 hours of slack, so a run that starts a little earlier in the day than last week's still
 counts. A due run stamps `last_run` with the time the plan was made, under either condition:
 
 - at least one of its shards is recorded,
 - it had nothing to review.
 
-So a day on which every shard fails leaves the clock alone, and the next daily run retries. Runs
+So a week in which every shard fails leaves the clock alone, and the next weekly run retries. Runs
 with `force` or a `shard` filter review immediately but do not move the clock.
 
 ### Sharding
@@ -153,9 +157,9 @@ supports atomic per-shard writes, so a run does not need serializing.
 
 The workflow uses the `claude-automation` environment, the GitHub App secrets, and the Anthropic
 variables that `fuzzer-fix-automation.yml` uses. The `vortex-claude-write` federation rule must
-list this workflow as an allowed `job_workflow_ref`,
-`vortex-data/vortex/.github/workflows/agent-checks.yml@refs/heads/develop`. Without it, every
-agent fails its token exchange with a 401, records nothing, and is retried the next day.
+list the reusable review workflow as an allowed `job_workflow_ref`,
+`vortex-data/vortex/.github/workflows/agent-checks-review.yml@refs/heads/develop`. Without it,
+every agent fails its token exchange with a 401, records nothing, and is retried the next week.
 
 ## Adding a check
 
@@ -187,9 +191,9 @@ with the scope rules and the file assignment.
 | `edit_scope` | `"files"` | What the agent may edit: only its assigned `files`, or anything in its `crate`. |
 | `max_files_per_shard` | `10` | Files reviewed per crate per run. The rest are deferred. |
 | `max_lines_per_shard` | none | Also caps the total lines per shard. A shard always gets at least one file. |
-| `max_shards_per_run` | `4` | Crates reviewed per run for this check, each on its own runner. |
+| `max_shards_per_run` | `4` | Crates reviewed per run for this check, one after another, each on its own runner. |
 | `mode` | `"incremental"` | `incremental` reviews only files that need review; `full` reviews everything. |
-| `cadence_days` | `7` | Minimum days between runs of this check. The workflow fires daily. |
+| `cadence_days` | `7` | Minimum days between runs of this check. The workflow fires weekly, so use multiples of 7. |
 | `revisit_after_days` | none | Re-review unchanged files after this many days. |
 | `version` | `1` | Bump this when the rubric changes enough that reviewed files should be reviewed again. |
 | `action` | `"pr"` | `pr` commits the agent's edits. `report` reverts all edits and only opens the shard's findings issue. |
