@@ -329,12 +329,15 @@ fn env_true(key: &str) -> bool {
     env::var(key).is_ok_and(|v| matches!(v.as_str(), "1" | "true"))
 }
 
+/// The DuckDB cache lives in cargo's `build` directory, shared by every build of this crate.
+///
+/// Cargo puts build script output at `<profile>/build/<pkg>-<hash>/out` before Rust 1.100 and at
+/// `<profile>/build/<pkg>/<hash>/out` from 1.100 on, so find `build` rather than counting parents.
 fn duckdb_cache_root(out_dir: &Path) -> PathBuf {
     out_dir
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
+        .ancestors()
+        .find(|dir| dir.file_name().is_some_and(|name| name == "build"))
+        .expect("OUT_DIR is inside cargo's build directory")
         .join(DUCKDB_CACHE_DIR)
 }
 
