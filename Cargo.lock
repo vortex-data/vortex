@@ -12016,6 +12016,7 @@ dependencies = [
  "vortex",
  "vortex-array",
  "vortex-arrow",
+ "vortex-edition",
 ]
 
 [[package]]

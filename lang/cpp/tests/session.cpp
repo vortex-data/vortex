@@ -27,7 +27,7 @@ TEST_CASE("Session copy and move", "[session]") {
 
 TEST_CASE("Session enables a named edition", "[session]") {
     Session session;
-    const std::string_view text = "core2025.10.0 suffix";
+    const std::string_view text = VX_EDITION_CORE_2025_10_0 " suffix";
     REQUIRE_NOTHROW(session.enable_edition(text.substr(0, text.find(' '))));
     REQUIRE_THROWS_AS(session.enable_edition("unknown-edition"), VortexException);
 }

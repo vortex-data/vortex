@@ -48,7 +48,8 @@ pub unsafe extern "C-unwind" fn vx_session_clone(session: *const vx_session) -> 
     vx_session::new(session.clone())
 }
 
-/// Enable a registered edition by its UTF-8 name, such as `core2025.10.0`.
+/// Enable a registered edition by its UTF-8 name. For core editions, use a `VX_EDITION_CORE_*`
+/// macro with `vx_view_from_cstr`.
 ///
 /// This replaces the enabled edition of the same family on the shared session. Call this
 /// before opening a file sink. Use separate sessions for overlapping writes with different editions.

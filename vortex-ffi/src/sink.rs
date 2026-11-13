@@ -284,7 +284,10 @@ mod tests {
         }
         let bytes = ByteBuffer::from(std::fs::read(temp_file.path())?);
         let file = reader_session.open_options().open_buffer(bytes)?;
-        assert_eq!(file.footer().layout().encoding_id().as_str(), "vortex.stats");
+        assert_eq!(
+            file.footer().layout().encoding_id().as_str(),
+            "vortex.stats"
+        );
         Ok(())
     }
 

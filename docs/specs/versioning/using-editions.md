@@ -35,12 +35,13 @@ currently enables `core2026.08.3`. Calling `enable_edition` replaces the enabled
 same family. Set the selection before starting the write, because that is when the writer captures
 the permitted wire IDs.
 
-The C, C++, Java, and Python bindings select an edition by name. In C, call
-`vx_session_enable_edition` before `vx_array_sink_open_file`.
+The C, C++, Java, and Python bindings select an edition by name. The `vortex.h` header provides
+`VX_EDITION_CORE_*` string macros for C and C++. In C, call `vx_session_enable_edition` before
+`vx_array_sink_open_file`.
 
 ```c
 int configure_edition(vx_session *session, vx_error **error) {
-    return vx_session_enable_edition(session, vx_view_from_cstr("core2025.10.0"), error);
+    return vx_session_enable_edition(session, vx_view_from_cstr(VX_EDITION_CORE_2025_10_0), error);
 }
 ```
 
@@ -52,7 +53,7 @@ In C++, call `enable_edition` before `Writer::open`. An unknown edition name thr
 
 ```cpp
 vortex::Session session;
-session.enable_edition("core2025.10.0");
+session.enable_edition(VX_EDITION_CORE_2025_10_0);
 ```
 
 In Java, enable the edition on the session before opening a writer.

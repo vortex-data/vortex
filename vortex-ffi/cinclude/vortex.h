@@ -66,6 +66,15 @@ typedef struct ArrowArrayStream FFI_ArrowArrayStream;
 #define vx_bool_view_nth(X, I)                                                                               \
     ((((X).ptr[((I) + (X).bit_offset) / 8] & (1 << (((I) + (X).bit_offset) % 8))) != 0))
 
+// Core edition names accepted by vx_session_enable_edition.
+#define VX_EDITION_CORE_2025_05_0 "core2025.05.0"
+#define VX_EDITION_CORE_2025_06_0 "core2025.06.0"
+#define VX_EDITION_CORE_2025_10_0 "core2025.10.0"
+#define VX_EDITION_CORE_2026_08_0 "core2026.08.0"
+#define VX_EDITION_CORE_2026_08_1 "core2026.08.1"
+#define VX_EDITION_CORE_2026_08_2 "core2026.08.2"
+#define VX_EDITION_CORE_2026_08_3 "core2026.08.3"
+
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -1633,7 +1642,8 @@ vx_session *vx_session_new(void);
 vx_session *vx_session_clone(const vx_session *session);
 
 /**
- * Enable a registered edition by its UTF-8 name, such as `core2025.10.0`.
+ * Enable a registered edition by its UTF-8 name. For core editions, use a `VX_EDITION_CORE_*`
+ * macro with `vx_view_from_cstr`.
  *
  * This replaces the enabled edition of the same family on the shared session. Call this
  * before opening a file sink. Use separate sessions for overlapping writes with different editions.

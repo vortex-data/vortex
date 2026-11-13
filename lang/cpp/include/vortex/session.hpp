@@ -25,7 +25,7 @@ public:
     Session &operator=(Session &&) noexcept = default;
 
     /**
-     * Enable a registered edition by name, for example `core2025.10.0`.
+     * Enable a registered edition by name, for example `VX_EDITION_CORE_2025_10_0`.
      * This replaces the enabled edition of the same family on the shared session.
      * Call before opening a Writer. Use separate sessions for overlapping writes with different editions.
      * Throws VortexException for an unknown edition name.
