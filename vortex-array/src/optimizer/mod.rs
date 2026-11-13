@@ -90,6 +90,13 @@ const MAX_OPTIMIZER_REWRITE_PASS: usize = 100;
 #[derive(Debug, Default)]
 pub(crate) struct OptimizedState(pub(crate) AtomicBool);
 
+/// A clone is a new array node, and every new array starts unoptimized.
+impl Clone for OptimizedState {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
 impl OptimizedState {
     fn is_optimized(&self) -> bool {
         self.0.load(Ordering::Relaxed)
