@@ -24,6 +24,10 @@ def main() -> None:
     )
     parser.add_argument("--commit", required=True, help="Commit SHA")
     parser.add_argument("-o", "--output", required=True, help="Output JSONL file path")
+    parser.add_argument(
+        "--ingest-jsonl",
+        help="Also write the sizes as `file_size` records for `post-ingest.py` to this JSONL file",
+    )
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)
@@ -95,6 +99,21 @@ def main() -> None:
     with open(args.output, "w") as f:
         for record in records:
             f.write(json.dumps(record) + "\n")
+
+    if args.ingest_jsonl:
+        with open(args.ingest_jsonl, "w") as f:
+            for record in records:
+                f.write(
+                    json.dumps(
+                        {
+                            "kind": "file_size",
+                            "commit_sha": record["commit_id"],
+                            **record["file_size"],
+                            "value_bytes": record["value"],
+                        }
+                    )
+                    + "\n"
+                )
 
     print(f"Captured {len(records)} file sizes to {args.output}", file=sys.stderr)
 
