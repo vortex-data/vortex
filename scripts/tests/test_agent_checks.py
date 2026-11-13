@@ -169,6 +169,33 @@ class TestPlan:
             "alpha/benches/c.rs",
         ]
 
+    def test_chunks_of_one_crate_never_share_an_edit_scope(self, repo: Path, tmp_path: Path):
+        # Files scope: each chunk may edit only its own files, so both chunks of alpha can run.
+        p = plan(repo, tmp_path / "state")
+        scopes = [s["edit_scope"] for s in p["checks"]["bench"]["shards"]]
+        assert scopes == [
+            ["alpha/benches/a.rs", "alpha/benches/b.rs"],
+            ["alpha/benches/c.rs"],
+            ["enc/beta/benches/x.rs"],
+        ]
+
+        # Crate scope: the chunks would share alpha/, so only the first runs this time.
+        write(
+            repo,
+            ".agents/checks/bench/CHECK.md",
+            CHECK_MD.replace('shard_by = "crate"', "").replace(
+                "max_files_per_shard", 'edit_scope = "crate"\nmax_files_per_shard'
+            ),
+        )
+        p = plan(repo, tmp_path / "state")
+        assert list(shard_files(p)) == ["alpha-1", "beta"]
+        assert ac.find_shard(p, "bench", "beta")["edit_scope"] == ["enc/beta"]
+
+    def test_open_pr_claims_apply_across_checks(self, repo: Path, tmp_path: Path):
+        marker = '<!-- agent-check: {"check": "other", "shard": "x", "claims": ["enc/beta"]} -->'
+        prs = [{"number": 1, "state": "OPEN", "headRefName": "agent-checks/other/x", "body": marker}]
+        assert "beta" not in shard_files(plan(repo, tmp_path / "state", prs=prs))
+
     def test_reviewed_files_are_skipped_until_they_change(self, repo: Path, tmp_path: Path):
         state_dir = tmp_path / "state"
         p = plan(repo, state_dir)
@@ -258,6 +285,18 @@ class TestFinalize:
         [marker] = ac.parse_markers(out["body"])
         assert marker["fingerprints"] == {"bench:x": "enc/beta/benches/x.rs", "bench:low": "enc/beta/benches/x.rs"}
 
+    def test_reverts_edits_to_a_sibling_chunks_files(self, repo: Path):
+        p = plan(repo, Path(repo) / "no-state")
+        shard = ac.find_shard(p, "bench", "alpha-2")
+        write(repo, "alpha/benches/c.rs", "fn c() { fixed() }\n")
+        write(repo, "alpha/benches/a.rs", "fn a() { also_mine() }\n")  # assigned to alpha-1
+        results = {"reviewed": ["alpha/benches/c.rs"], "findings": []}
+        check = ac.load_checks(repo)["bench"]
+        out = ac.finalize(check, p, shard, results, repo, now=NOW, revert_out_of_scope=True)
+        assert out["edits"] == ["alpha/benches/c.rs"]
+        assert (repo / "alpha/benches/a.rs").read_text() == "fn a() {}\n"
+        assert ac.parse_markers(out["body"])[0]["claims"] == ["alpha/benches/c.rs"]
+
     @pytest.mark.parametrize(
         "results",
         [
@@ -296,7 +335,7 @@ def test_prompt_lists_assignment_and_suppressions(repo: Path, tmp_path: Path):
     assert "Review the benchmarks." in prompt
     assert "`enc/beta/benches/x.rs` (1 lines): never reviewed" in prompt
     assert "`/tmp/results.json`" in prompt
-    assert "`enc/beta/`" in prompt
+    assert "Edits may touch only your assigned files." in prompt
     assert "`bench:old`" in prompt
 
 

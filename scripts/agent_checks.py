@@ -89,6 +89,7 @@ class Check:
     exclude: tuple[str, ...] = ()
     content_match: str | None = None
     shard_by: str = "crate"
+    edit_scope: str = "files"
     max_files_per_shard: int = 10
     max_lines_per_shard: int | None = None
     max_shards_per_run: int = 4
@@ -118,6 +119,7 @@ _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "exclude": list,
     "content_match": str,
     "shard_by": str,
+    "edit_scope": str,
     "max_files_per_shard": int,
     "max_lines_per_shard": int,
     "max_shards_per_run": int,
@@ -136,6 +138,7 @@ _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
 }
 _CHOICES = {
     "shard_by": ("crate", "file", "none"),
+    "edit_scope": ("files", "crate"),
     "mode": ("incremental", "full"),
     "action": ("pr", "report"),
 }
@@ -360,14 +363,23 @@ def busy_branches(prs: list[dict[str, Any]]) -> set[str]:
     return {pr["headRefName"] for pr in prs if pr.get("state", "").upper() == "OPEN" and "headRefName" in pr}
 
 
-def busy_files(prs: list[dict[str, Any]]) -> dict[str, set[str]]:
-    """Files covered by open agent PRs, keyed by check id. They wait until the PR is resolved."""
-    out: dict[str, set[str]] = {}
+def claimed_paths(prs: list[dict[str, Any]]) -> set[str]:
+    """Files and directories that open agent PRs, of any check, may still change.
+
+    No shard may review or edit them until the PR is merged or closed, so two PRs never touch the
+    same file.
+    """
+    out: set[str] = set()
     for pr in prs:
         if pr.get("state", "").upper() == "OPEN":
             for marker in parse_markers(pr.get("body") or ""):
-                out.setdefault(marker["check"], set()).update(marker.get("files", []))
+                out.update(marker.get("claims", marker.get("files", [])))
     return out
+
+
+def overlaps(paths: Collection[str], claimed: Collection[str]) -> bool:
+    """Whether any path equals, contains, or lies inside a claimed path ("" claims everything)."""
+    return any(_within(p, list(claimed)) or any(_within(c, [p]) for c in claimed) for p in paths)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -423,12 +435,18 @@ def plan_check(
     *,
     now: dt.datetime,
     busy: Collection[str] = (),
-    skip_files: Collection[str] = (),
+    claimed: set[str] | None = None,
     only_shard: str | None = None,
     max_shards: int | None = None,
     force: bool = False,
 ) -> list[dict[str, Any]]:
-    """Return the shards of `check` to review this run, highest priority first."""
+    """Return the shards of `check` to review this run, highest priority first.
+
+    `claimed` holds paths that open PRs or shards already planned this run may edit. Files inside
+    it are not reviewed, a shard whose edit scope overlaps it is deferred to a later run, and the
+    selected shards' scopes are added to it. The selected shards' edit scopes are thus disjoint.
+    """
+    claimed = set() if claimed is None else claimed
     if not force:
         last_run = state.get("last_run")
         if last_run and now - dt.datetime.fromisoformat(last_run) < dt.timedelta(days=check.cadence_days):
@@ -438,7 +456,7 @@ def plan_check(
     roots = crate_roots(root, tracked)
     groups: dict[str, dict[str, Any]] = {}
     for path, blob in in_scope(check, root, tracked).items():
-        if path in skip_files:
+        if _within(path, list(claimed)):
             continue
         record = state["files"].get(path)
         status = file_status(check, record, blob, now)
@@ -469,6 +487,9 @@ def plan_check(
                     "id": shard_id,
                     "branch": branch_name(check.id, shard_id),
                     "crate_dirs": sorted(group["crate_dirs"]),
+                    "edit_scope": (
+                        sorted(group["crate_dirs"]) if check.edit_scope == "crate" else [f["path"] for f in files]
+                    ),
                     "files": files,
                 }
             )
@@ -481,8 +502,16 @@ def plan_check(
     shards.sort(key=priority)
     if only_shard is not None:
         shards = [s for s in shards if s["id"] == only_shard]
-    shards = [s for s in shards if s["branch"] not in busy]
-    return shards[: max_shards or check.max_shards_per_run]
+    selected: list[dict[str, Any]] = []
+    for shard in shards:
+        if len(selected) >= (max_shards or check.max_shards_per_run):
+            break
+        # With edit_scope = "crate", two chunks of one crate share a scope, so only one runs.
+        if shard["branch"] in busy or overlaps(shard["edit_scope"], claimed):
+            continue
+        selected.append(shard)
+        claimed.update(shard["edit_scope"])
+    return selected
 
 
 def build_plan(
@@ -498,7 +527,8 @@ def build_plan(
 ) -> dict[str, Any]:
     prs = prs or []
     busy = busy_branches(prs)
-    open_files = busy_files(prs)
+    # Shared across checks, so shards of different checks in one run never edit the same file.
+    claimed = claimed_paths(prs)
     new_suppressed = suppressions_from_prs(prs)
     plan: dict[str, Any] = {
         "base_commit": git(root, "rev-parse", "HEAD").strip(),
@@ -514,7 +544,7 @@ def build_plan(
             state,
             now=now,
             busy=busy,
-            skip_files=open_files.get(check.id, set()),
+            claimed=claimed,
             only_shard=only_shard,
             max_shards=max_shards,
             force=force,
@@ -566,7 +596,7 @@ records nothing as reviewed, if the file is missing or malformed.
 Rules the runner enforces:
 
 - Only files assigned below may be reviewed or reported on. Findings about other files are dropped.
-- Edits may touch only files inside {dirs}. Edits elsewhere are reverted. Never edit `Cargo.lock`.
+- {edit_rule} Edits elsewhere are reverted. Never edit `Cargo.lock`.
 - Do not run `git commit`, `git push`, or open pull requests or issues: the runner does that.
 - List a file in `reviewed` only if you reviewed all of it. Files you skip are offered again next run.
 - `fixed: true` only for findings your working-tree edits resolve. Leave the rest `false`.
@@ -581,8 +611,15 @@ def render_prompt(check: Check, plan: dict[str, Any], shard: dict[str, Any], res
     if check.skills:
         names = ", ".join(f"`{s}`" for s in check.skills)
         out.append(f"\nLoad these skills before you start: {names}.\n")
-    dirs = ", ".join(f"`{d or '.'}/`" for d in shard["crate_dirs"])
-    out.append("\n" + RESULTS_CONTRACT.format(results=results, dirs=dirs, max_findings=check.max_findings))
+    if check.edit_scope == "crate":
+        dirs = ", ".join(f"`{d or '.'}/`" for d in shard["edit_scope"])
+        edit_rule = f"Edits may touch only files inside {dirs}."
+    else:
+        edit_rule = (
+            "Edits may touch only your assigned files. Other agents are editing other files at the same "
+            "time, so report problems that need changes elsewhere instead of making them."
+        )
+    out.append("\n" + RESULTS_CONTRACT.format(results=results, edit_rule=edit_rule, max_findings=check.max_findings))
     out.append(f"\n## Assignment\n\nShard `{shard['id']}`, base commit `{base}`. Files:\n")
     for f in shard["files"]:
         if f["status"] == "changed" and f["last_commit"]:
@@ -698,7 +735,7 @@ def finalize(
         findings = findings[: check.max_findings]
 
     changed = working_tree_changes(root)
-    allowed = [p for p in changed if _within(p, shard["crate_dirs"]) and not p.endswith("Cargo.lock")]
+    allowed = [p for p in changed if _within(p, shard["edit_scope"]) and not p.endswith("Cargo.lock")]
     rejected = [p for p in changed if p not in allowed]
     if rejected:
         notes.append(f"out-of-scope edits {'reverted' if revert_out_of_scope else 'excluded'}: {rejected}")
@@ -780,6 +817,7 @@ def render_body(
         "check": check.id,
         "shard": shard["id"],
         "files": sorted(f["path"] for f in shard["files"]),
+        "claims": sorted({*shard["edit_scope"], *edits}),
         "fingerprints": {f["fingerprint"]: f["file"] for f in findings},
     }
     out.append(f"\n<!-- agent-check: {json.dumps(marker, sort_keys=True)} -->\n")

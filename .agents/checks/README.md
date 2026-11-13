@@ -26,12 +26,16 @@ plan ──► review (one job per shard, in parallel) ──► record
    - `rubric`: the check's `version` was bumped since the file's last review,
    - `stale`: its last review is older than `revisit_after_days`, when that key is set.
 
-   Shards that already have an open PR are skipped, so PRs never pile up on one shard.
+   Each shard has an edit scope: its assigned files, or with `edit_scope = "crate"` its crate
+   directories. Scopes never overlap. A file that an open agent PR of any check may still change
+   is not reviewed, and a shard whose scope overlaps a shard already planned in this run waits for
+   a later run. Two chunks of one large crate can therefore run in parallel only when each may
+   edit just its own files.
 2. **review** renders the prompt: the rubric, the output contract, and the assigned files, each
    with a `git diff <last-reviewed-commit>` hint when it changed. Claude reviews the files, edits
    the working tree, and writes a results JSON. `finalize` then validates the results, drops
-   findings outside the shard or previously rejected, reverts edits outside the shard's crate
-   directories (and `Cargo.lock`), and builds the PR body.
+   findings outside the shard or previously rejected, reverts edits outside the shard's edit scope
+   (and `Cargo.lock`), formats edited Rust files, and builds the PR body.
 3. **record** merges each shard's reviewed files into the state branch. It records the blob
    before and after the agent's fix, so merging the fix does not trigger a re-review. When a PR
    is closed without merging, its fingerprints are suppressed, and the agent is told not to
@@ -67,6 +71,7 @@ with the scope rules and the file assignment.
 | `exclude` | `[]` | Globs removed from `include`. |
 | `content_match` | none | Regex that a file must contain, such as `#\[cfg\(test\)\]`. |
 | `shard_by` | `"crate"` | `crate` (nearest `Cargo.toml` package), `file`, or `none`. |
+| `edit_scope` | `"files"` | What the agent may edit: only its assigned `files`, or anything in its `crate`. With `crate`, at most one chunk per crate runs at a time. |
 | `max_files_per_shard` | `10` | Larger crates are split into `<crate>-1`, `<crate>-2`, and so on. |
 | `max_lines_per_shard` | none | Also split by total line count to bound the context per agent. |
 | `max_shards_per_run` | `4` | Upper bound on agent sessions per run for this check. |
