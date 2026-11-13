@@ -7,6 +7,9 @@
 
 use std::sync::LazyLock;
 
+use rand::RngExt;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use rstest::rstest;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayId;
@@ -25,6 +28,7 @@ use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
+use vortex_btrblocks::schemes::decimal::DecimalDictScheme;
 use vortex_btrblocks::schemes::decimal::DecimalScheme;
 use vortex_btrblocks::schemes::integer::BitPackingScheme;
 use vortex_btrblocks::schemes::integer::FoRScheme;
@@ -289,6 +293,100 @@ fn high_cardinality_decimal_keeps_byte_parts() -> VortexResult<()> {
         "{}",
         compressed.display_tree()
     );
+    assert_arrays_eq!(compressed, input, &mut ctx);
+    Ok(())
+}
+
+/// Without `DecimalDictScheme`, low-cardinality decimals keep the byte parts encoding.
+#[test]
+fn low_cardinality_decimal_without_dict_scheme_keeps_byte_parts() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = DecimalArray::new(
+        (0..4096usize)
+            .map(|i| [123_456_789_012_345i64, -7, 42][i % 3])
+            .collect::<Buffer<_>>(),
+        DecimalDType::new(18, 2),
+        Validity::NonNullable,
+    )
+    .into_array();
+    let compressed = BtrBlocksCompressorBuilder::from_session(&CORE_SESSION)
+        .exclude_schemes([DecimalDictScheme.id()])
+        .build()
+        .compress(&input, &mut ctx)?;
+
+    assert!(
+        compressed.is::<DecimalByteParts>(),
+        "{}",
+        compressed.display_tree()
+    );
+    assert_arrays_eq!(compressed, input, &mut ctx);
+    Ok(())
+}
+
+/// A mostly-null decimal is compressed even when every sample holds only nulls: with few
+/// distinct values the dictionary's estimate does not sample, and otherwise byte parts are the
+/// default.
+#[rstest]
+#[case::few_distinct(5, true)]
+#[case::all_distinct(40, false)]
+fn mostly_null_decimal_is_compressed(
+    #[case] distinct: i64,
+    #[case] expect_dict: bool,
+) -> VortexResult<()> {
+    const LEN: usize = 65_536;
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut valid = vec![false; LEN];
+    for _ in 0..40 {
+        valid[rng.random_range(0..LEN)] = true;
+    }
+    let input = DecimalArray::new(
+        (0..LEN as i64)
+            .map(|i| (i % distinct) * 1_000_003)
+            .collect::<Buffer<_>>(),
+        DecimalDType::new(18, 2),
+        Validity::from_iter(valid),
+    )
+    .into_array();
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = BtrBlocksCompressorBuilder::from_session(&CORE_SESSION)
+        .build()
+        .compress(&input, &mut ctx)?;
+
+    if expect_dict {
+        assert!(compressed.is::<Dict>(), "{}", compressed.display_tree());
+    } else {
+        assert!(
+            compressed.is::<DecimalByteParts>(),
+            "{}",
+            compressed.display_tree()
+        );
+    }
+    assert_arrays_eq!(compressed, input, &mut ctx);
+    Ok(())
+}
+
+/// A wide decimal with thousands of distinct values gets a dictionary under the core edition,
+/// where byte parts leave it canonical. A sample would hold almost as many distinct values as
+/// rows, so the dictionary's estimate comes from the exact distinct count instead.
+#[test]
+fn many_distinct_wide_decimal_compresses_to_dict() -> VortexResult<()> {
+    const LEN: usize = 65_536;
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = DecimalArray::new(
+        (0..LEN)
+            .map(|i| ((i * 7919) % 10_000) as i128 * 10i128.pow(30))
+            .collect::<Buffer<i128>>(),
+        DecimalDType::new(38, 0),
+        Validity::NonNullable,
+    )
+    .into_array();
+    let compressed = BtrBlocksCompressorBuilder::from_session(&CORE_SESSION)
+        .build()
+        .compress(&input, &mut ctx)?;
+
+    assert!(compressed.is::<Dict>(), "{}", compressed.display_tree());
+    assert!(compressed.nbytes() * 3 < input.nbytes());
     assert_arrays_eq!(compressed, input, &mut ctx);
     Ok(())
 }

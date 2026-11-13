@@ -1,47 +1,37 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cell::OnceCell;
 use std::hash::Hash;
-use std::mem;
 
-use rustc_hash::FxBuildHasher;
-use vortex_buffer::Alignment;
-use vortex_buffer::BitBufferMut;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
-use vortex_buffer::BufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
-use vortex_mask::Mask;
-use vortex_utils::aliases::hash_map::Entry;
-use vortex_utils::aliases::hash_map::HashMap;
 
 use super::DictConstraints;
 use super::DictEncoder;
 use super::codes_ptype_for_max_len;
+use super::values::ValuesDict;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::decimal::DecimalArrayExt;
-use crate::dtype::BigCast;
+use crate::arrays::decimal::converted_buffer;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
-use crate::match_each_decimal_value_type;
 use crate::validity::Validity;
 
 /// Creates a decimal encoder with a fixed code width based on the value domain and dictionary
 /// length limit.
 ///
-/// Dictionary values are stored as `T`, which callers choose as the canonical values type of
-/// `decimal_dtype`, so chunks whose values are stored narrower or wider share one dictionary. The
+/// Dictionary values are stored as `T`, which [`super::dict_encoder_in`] chooses as the wider of
+/// the canonical values type of `decimal_dtype` and the array's stored type, so chunks whose values
+/// are stored narrower or wider share one dictionary. The
 /// bound includes a possible null entry, so nullable values may require wider codes even when few
 /// distinct values occur. [`super::dict_encode_with_constraints`] narrows the codes after encoding;
 /// callers using this encoder directly retain the selected width.
@@ -91,14 +81,9 @@ pub fn decimal_dict_builder<T: NativeDecimalType + Hash>(
 ///
 /// Null values are stored in the values of the dictionary such that codes are always non-null.
 pub struct DecimalDictBuilder<T, Code> {
-    lookup: HashMap<T, Code, FxBuildHasher>,
-    null_code: OnceCell<Code>,
-    values: BufferMut<T>,
-    values_nulls: BitBufferMut,
+    dict: ValuesDict<T, T, Code>,
     decimal_dtype: DecimalDType,
     nullability: Nullability,
-    max_dict_len: usize,
-    allocator: BufferAllocatorRef,
 }
 
 impl<T, Code> DecimalDictBuilder<T, Code>
@@ -116,107 +101,10 @@ where
             .max_len
             .min(constraints.max_bytes / T::DECIMAL_TYPE.byte_width());
         Self {
-            lookup: HashMap::with_hasher(FxBuildHasher),
-            null_code: OnceCell::new(),
-            values: BufferMut::<T>::empty_aligned_in(Alignment::of::<T>(), allocator.clone()),
-            values_nulls: BitBufferMut::empty_in(allocator.clone()),
+            dict: ValuesDict::new_in(max_dict_len, allocator),
             decimal_dtype,
-            allocator,
             nullability,
-            max_dict_len,
         }
-    }
-
-    /// Returns `None` when assigning a code would exceed the dictionary constraints,
-    /// and callers should stop encoding after the current prefix.
-    fn encode_value(&mut self, v: T) -> Option<Code> {
-        match self.lookup.entry(v) {
-            Entry::Occupied(o) => Some(*o.get()),
-            Entry::Vacant(vac) => {
-                // Admit the first entry even if it exceeds the budget, so the caller makes progress.
-                if !self.values.is_empty() && self.values.len() >= self.max_dict_len {
-                    return None;
-                }
-                let next_code = Code::from_usize(self.values.len()).unwrap_or_else(|| {
-                    vortex_panic!("{} has to fit into {}", self.values.len(), Code::PTYPE)
-                });
-                self.values.push(v);
-                self.values_nulls.append_true();
-                Some(*vac.insert(next_code))
-            }
-        }
-    }
-
-    /// Returns `None` when assigning the null code would exceed the dictionary constraints,
-    /// and callers should stop encoding after the current prefix.
-    fn encode_null(&mut self) -> Option<Code> {
-        if let Some(code) = self.null_code.get() {
-            return Some(*code);
-        }
-
-        if !self.values.is_empty() && self.values.len() >= self.max_dict_len {
-            return None;
-        }
-
-        let code = Code::from_usize(self.values.len()).unwrap_or_else(|| {
-            vortex_panic!("{} has to fit into {}", self.values.len(), Code::PTYPE)
-        });
-        self.values.push(T::default());
-        self.values_nulls.append_false();
-        self.null_code
-            .set(code)
-            .ok()
-            .vortex_expect("null code is initialized once");
-        Some(code)
-    }
-
-    /// Converts a stored value to the dictionary's values type. Values within the declared
-    /// precision always fit, whichever type the chunk stores them in.
-    fn convert<F: NativeDecimalType>(&self, value: F) -> VortexResult<T> {
-        <T as BigCast>::from(value).ok_or_else(|| {
-            vortex_err!(
-                "decimal value {value} does not fit {} for {}",
-                T::DECIMAL_TYPE,
-                self.decimal_dtype
-            )
-        })
-    }
-
-    fn encode_values<F: NativeDecimalType>(
-        &mut self,
-        values: &[F],
-        mask: &Mask,
-        codes: &mut BufferMut<Code>,
-    ) -> VortexResult<()> {
-        match mask {
-            Mask::AllTrue(_) => {
-                for &value in values {
-                    let Some(code) = self.encode_value(self.convert(value)?) else {
-                        break;
-                    };
-                    unsafe { codes.push_unchecked(code) }
-                }
-            }
-            Mask::AllFalse(_) => {
-                if let Some(code) = self.encode_null() {
-                    unsafe { codes.push_n_unchecked(code, values.len()) }
-                }
-            }
-            Mask::Values(v) => {
-                for (&value, valid) in values.iter().zip(v.bit_buffer()) {
-                    let code = if valid {
-                        self.encode_value(self.convert(value)?)
-                    } else {
-                        self.encode_null()
-                    };
-                    let Some(code) = code else {
-                        break;
-                    };
-                    unsafe { codes.push_unchecked(code) }
-                }
-            }
-        }
-        Ok(())
     }
 }
 
@@ -225,32 +113,33 @@ where
     T: NativeDecimalType + Hash,
     Code: UnsignedPType,
 {
+    /// Assigns codes to the values, converted to `T`.
+    ///
+    /// `DecimalArray` does not check its values against the precision, so a chunk stored wider
+    /// than `T` may hold a valid value that does not fit `T`. Such a chunk gets no codes, which
+    /// ends this dictionary, and the next encoder is created at the chunk's width. An empty
+    /// dictionary has no codes to end, so it fails instead.
     fn encode(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
-        let mut codes = BufferMut::<Code>::with_capacity_in(array.len(), self.allocator.clone());
-
         let decimal = array.clone().execute::<DecimalArray>(ctx)?;
         let mask = decimal.validity()?.execute_mask(array.len(), ctx)?;
-        match_each_decimal_value_type!(decimal.values_type(), |F| {
-            self.encode_values(decimal.buffer::<F>().as_slice(), &mask, &mut codes)?;
-        });
-
+        let values = match converted_buffer::<T>(&decimal, &mask) {
+            Ok(values) => values,
+            Err(_) if !self.dict.is_empty() && decimal.values_type() > T::DECIMAL_TYPE => {
+                return Ok(PrimitiveArray::new(
+                    Buffer::<Code>::empty(),
+                    Validity::NonNullable,
+                ));
+            }
+            Err(err) => return Err(err),
+        };
+        let codes = self.dict.encode(values.as_slice(), &mask, |value| value);
         Ok(PrimitiveArray::new(codes, Validity::NonNullable))
     }
 
     fn reset(&mut self) -> ArrayRef {
-        self.lookup.clear();
-        self.null_code = OnceCell::new();
-        let values = mem::replace(
-            &mut self.values,
-            BufferMut::empty_aligned_in(Alignment::of::<T>(), self.allocator.clone()),
-        );
-        let nulls = mem::replace(
-            &mut self.values_nulls,
-            BitBufferMut::empty_in(self.allocator.clone()),
-        )
-        .freeze();
+        let (values, nulls) = self.dict.reset();
         DecimalArray::new(
-            values.freeze(),
+            values,
             self.decimal_dtype,
             Validity::from_bit_buffer(nulls, self.nullability),
         )
@@ -463,6 +352,48 @@ mod tests {
             )
         });
         assert_eq!(encoder.codes_ptype(), expected_codes_ptype);
+    }
+
+    /// `DecimalArray` does not check its values against the precision. An array that stores a
+    /// value too wide for the precision's values type is encoded at its stored width.
+    #[test]
+    fn encode_values_wider_than_precision() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Precision 4 uses `i16`, which neither value fits.
+        let array = DecimalArray::new(
+            buffer![40_000i32, -70_000, 40_000],
+            DecimalDType::new(4, 2),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let dict = dict_encode(&array, &mut ctx)?;
+        assert_eq!(dict.values().len(), 2);
+        assert_arrays_eq!(dict, array, &mut ctx);
+        Ok(())
+    }
+
+    /// A chunk that holds a value too wide for the dictionary gets no codes, which ends the
+    /// dictionary, instead of failing.
+    #[test]
+    fn wider_chunk_ends_dictionary() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(4, 2);
+        let first = DecimalArray::new(buffer![12i16, -7], decimal_dtype, Validity::NonNullable)
+            .into_array();
+        let second =
+            DecimalArray::new(buffer![12i32, 40_000], decimal_dtype, Validity::NonNullable)
+                .into_array();
+        let mut encoder = dict_encoder_in(&first, &UNCONSTRAINED, ctx.allocator().clone());
+
+        assert_eq!(encoder.encode(&first, &mut ctx)?.len(), 2);
+        assert_eq!(encoder.encode(&second, &mut ctx)?.len(), 0);
+        assert_arrays_eq!(encoder.reset(), first, &mut ctx);
+
+        // A new encoder for the chunk stores its values at the chunk's width.
+        let mut encoder = dict_encoder_in(&second, &UNCONSTRAINED, ctx.allocator().clone());
+        assert_eq!(encoder.encode(&second, &mut ctx)?.len(), 2);
+        assert_arrays_eq!(encoder.reset(), second, &mut ctx);
+        Ok(())
     }
 
     #[test]

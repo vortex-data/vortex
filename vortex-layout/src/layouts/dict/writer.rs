@@ -71,9 +71,11 @@ pub struct DictLayoutConstraints {
     /// Maximum dictionary length. Limited to `u16` because dictionaries with more than 64k unique
     /// values provide diminishing compression returns given typical chunk sizes (~8k elements).
     ///
-    /// The codes dtype is chosen upfront and is at most [`PType::U16`]. Primitive dictionaries
-    /// use [`PType::U8`] when `max_len <= 256` or the value domain fits in 256 entries including
-    /// any null entry. String and binary dictionaries use [`PType::U8`] when `max_len <= 256`, as
+    /// The codes dtype is chosen upfront and is at most [`PType::U16`]. Primitive and decimal
+    /// dictionaries use [`PType::U8`] when `max_len <= 256` or the value domain fits in 256 entries
+    /// including any null entry, where a decimal's value domain is that of the integer type its
+    /// dictionary stores values in. String and binary dictionaries use [`PType::U8`] when
+    /// `max_len <= 256`, as
     /// [`codes_ptype_for_max_len`](vortex_array::builders::dict::codes_ptype_for_max_len) picks.
     ///
     /// Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for external compatibility.
@@ -178,7 +180,7 @@ impl LayoutStrategy for DictStrategy {
                 let compressed = self
                     .probe_compressor
                     .compress_chunk(&sample, &mut exec_ctx)?;
-                !compressed.is::<Dict>()
+                !is_dictionary(&compressed)
             }
         };
         if should_fallback {
@@ -555,6 +557,25 @@ async fn peek_probe_sample(
     };
     let stream = iter(peeked.into_iter().map(Ok)).chain(stream).boxed();
     Ok((stream, Some(sample)))
+}
+
+/// Returns whether the probe compressor chose a dictionary for a sample.
+///
+/// A decimal can also be compressed to a wrapper of one array as long as itself, such as byte
+/// parts with a single part, whose child holds the dictionary. Its dictionary then holds the
+/// decimal values in another form, with the same codes, so the column gets a dict layout either
+/// way.
+fn is_dictionary(compressed: &ArrayRef) -> bool {
+    if compressed.is::<Dict>() {
+        return true;
+    }
+    if !matches!(compressed.dtype(), DType::Decimal(..)) {
+        return false;
+    }
+    match compressed.children().as_slice() {
+        [child] => child.len() == compressed.len() && child.is::<Dict>(),
+        _ => false,
+    }
 }
 
 pub fn dict_layout_supported(dtype: &DType) -> bool {

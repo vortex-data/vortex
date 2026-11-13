@@ -74,9 +74,9 @@ impl Scheme for FloatDictScheme {
     /// where integer dict encoding is redundant since the values are already deduplicated at
     /// the float level.
     ///
-    /// Additional exclusions for codes (IntSequenceScheme, IntRunEndScheme, FoRScheme,
-    /// ZigZagScheme, SparseScheme, RLE) are expressed as pull rules on those schemes in
-    /// vortex-btrblocks.
+    /// Pull rules in `vortex-btrblocks` also keep `SequenceScheme`, `FoRScheme`, `ZigZagScheme` and
+    /// `DeltaScheme` off the codes (child 1), and `RunEndScheme` and the RLE schemes off the values
+    /// (child 0).
     fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
         vec![
             DescendantExclusion {

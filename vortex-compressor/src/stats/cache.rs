@@ -147,6 +147,17 @@ impl ArrayAndStats {
             .vortex_expect("the array is guaranteed to already be canonical by construction")
     }
 
+    /// Returns the array as an [`ArrayView<Decimal>`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the array is not a decimal array.
+    pub fn array_as_decimal(&self) -> ArrayView<'_, Decimal> {
+        self.array
+            .as_opt::<Decimal>()
+            .vortex_expect("the array is guaranteed to already be canonical by construction")
+    }
+
     /// Returns the array as an [`ArrayView<VarBinView>`].
     ///
     /// # Panics

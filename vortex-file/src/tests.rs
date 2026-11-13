@@ -380,18 +380,24 @@ async fn decimal_writer_uses_default_or_session_restrictions(
 }
 
 /// Low-cardinality decimal columns of every values width are written as dict layouts and read back
-/// unchanged.
+/// unchanged, including their nulls.
 #[rstest]
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn low_cardinality_decimal_uses_dict_layout(
-    #[values(4, 9, 18, 38, 76)] precision: u8,
-    #[values(Validity::NonNullable, Validity::AllValid)] validity: Validity,
+    #[values(2, 4, 9, 18, 38, 76)] precision: u8,
+    #[values(false, true)] nullable: bool,
 ) -> VortexResult<()> {
+    const LEN: usize = 16_384;
     let decimal_dtype = DecimalDType::new(precision, 2);
-    let distinct = [1234i64, -987, 42, 5555];
+    let distinct = [12i64, -98, 42, 55];
+    let validity = if nullable {
+        Validity::from_iter((0..LEN).map(|i| i % 11 != 0))
+    } else {
+        Validity::NonNullable
+    };
     let decimal = match_each_decimal_value_type!(decimal_dtype.canonical_values_type(), |T| {
-        let values = (0..16_384usize)
+        let values = (0..LEN)
             .map(|i| {
                 <T as BigCast>::from(distinct[(i * 7 + i / 3) % distinct.len()])
                     .vortex_expect("value fits the precision")
