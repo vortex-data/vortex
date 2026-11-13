@@ -121,6 +121,7 @@ jobs:
       - name: Unpack binaries
         shell: bash
         run: |
+          command -v zstd >/dev/null || { sudo apt-get update && sudo apt-get install -y zstd; }
           mkdir -p target/release_debug
           tar -C target/release_debug --zstd -xf bench-binaries.tar.zst
           rm bench-binaries.tar.zst
@@ -190,6 +191,7 @@ jobs:
       - name: Unpack binaries
         shell: bash
         run: |
+          command -v zstd >/dev/null || { sudo apt-get update && sudo apt-get install -y zstd; }
           mkdir -p target/release_debug
           tar -C target/release_debug --zstd -xf bench-binaries.tar.zst
           rm bench-binaries.tar.zst
