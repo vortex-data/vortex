@@ -1,19 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod decimal_byte_parts;
+//! An encoding that compresses decimals with integer compression schemes.
+//!
+//! A decimal is split into parts. The _part layout_ is a signed most significant part (MSP) plus
+//! up to three non-nullable `u64` lower parts. The MSP has the decimal's nullability and the signed
+//! integer dtype at the canonical width of its precision, capped at `i64`. Lower parts exist only
+//! above precision 18. Precision 19 to 38 allows at most one lower part, and precision 39 to 76
+//! allows up to three.
+//!
+//! Narrow MSP storage uses an integer [`Widen`] over a child that can be compressed. The canonical
+//! width of precision `p` is the smallest width that holds `10^p - 1`, so every value of a narrower
+//! signed integer fits the precision. The same is true when the parts span fewer bits than the
+//! canonical width, such as an `i64` MSP with no lower parts at precision 19, or one lower part at
+//! precision 39. Decoding sign-extends such values to the canonical width. So the MSP never needs a
+//! range scan, and its `Widen` does not need to record a precision. Operations work on the parts
+//! when possible, and decoding produces the canonical decimal array only when a consumer needs it.
+//!
+//! The wire stores the child of an MSP `Widen`, so older readers need no new format. Readers wrap
+//! a narrower stored MSP without scanning. Only a wider legacy MSP needs a host copy, which fails
+//! on a valid value outside the precision and writes zeros in null slots.
+//!
+//! [`Widen`]: vortex_array::arrays::Widen
 
-use decimal_byte_parts::compute::aggregate::DecimalBytePartsAggregateKernel;
-use decimal_byte_parts::compute::is_constant::DecimalBytePartsIsConstantKernel;
-/// This encoding allow compression of decimals using integer compression schemes.
-/// Decimals can be compressed by narrowing the signed decimal value into the smallest signed value,
-/// then integer compression if that is a value `ptype`, otherwise the decimal can be split into
-/// parts.
-/// These parts can be individually compressed.
-/// This encoding will compress large signed decimals by removing the leading zeroes (after the sign)
-/// an i128 decimal could be converted into a [i64, u64] with further narrowing applied to the
-/// i64 MSP.
-pub use decimal_byte_parts::*;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
@@ -25,6 +34,12 @@ use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
+
+use crate::decimal_byte_parts::compute::aggregate::DecimalBytePartsAggregateKernel;
+use crate::decimal_byte_parts::compute::is_constant::DecimalBytePartsIsConstantKernel;
+
+mod decimal_byte_parts;
+pub use decimal_byte_parts::*;
 
 /// Initialize decimal-byte-parts encoding in the given session.
 pub fn initialize(session: &VortexSession) {

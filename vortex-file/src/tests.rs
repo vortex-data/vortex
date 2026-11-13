@@ -35,9 +35,11 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::Widen;
 use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::arrays::widen::WidenArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
 use vortex_array::dtype::DType;
@@ -378,8 +380,8 @@ async fn decimal_writer_uses_default_or_session_restrictions(
 }
 
 /// A wide decimal with unique values is not dictionary encoded by the dict layout, but its byte
-/// parts are still compressed with every scheme, so the low-cardinality most significant part can
-/// use an integer dictionary.
+/// parts are still compressed with every scheme. The low-cardinality most significant part is a
+/// [`Widen`] over narrow values, and those values can use an integer dictionary.
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn rejected_decimal_keeps_nested_int_dict() -> VortexResult<()> {
@@ -408,13 +410,16 @@ async fn rejected_decimal_keeps_nested_int_dict() -> VortexResult<()> {
         .read_all()
         .await?;
     let has_dict_msp = actual.depth_first_traversal().any(|array| {
-        array
-            .as_opt::<DecimalByteParts>()
-            .is_some_and(|parts| parts.msp().is::<Dict>())
+        array.as_opt::<DecimalByteParts>().is_some_and(|parts| {
+            parts
+                .msp()
+                .as_opt::<Widen>()
+                .is_some_and(|msp| msp.values().is::<Dict>())
+        })
     });
     assert!(
         has_dict_msp,
-        "expected a dict-encoded msp in {}",
+        "expected a Widen msp over dict-encoded values in {}",
         actual.display_tree()
     );
     assert_arrays_eq!(actual, array, &mut SESSION.create_execution_ctx());

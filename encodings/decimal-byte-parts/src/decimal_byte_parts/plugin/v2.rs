@@ -16,6 +16,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use super::decimal_byte_parts_v2_id;
 use crate::DecimalByteParts;
@@ -24,11 +25,13 @@ use crate::DecimalBytePartsArraySlotsExt;
 use crate::DecimalBytePartsData;
 use crate::decimal_byte_parts::LOWER_PART_DTYPE;
 use crate::decimal_byte_parts::MAX_LOWER_PARTS;
+use crate::decimal_byte_parts::stored_msp;
 
 /// Metadata for decimal byte parts with lower parts.
 #[derive(Clone, prost::Message)]
 pub struct DecimalBytePartsV2Metadata {
-    /// Ptype of the most significant part.
+    /// The stored MSP type. It can be narrower than its logical dtype, and a legacy writer could
+    /// also store it wider.
     #[prost(enumeration = "PType", tag = "1")]
     pub(super) msp_ptype: i32,
     /// Ptypes of the lower parts, ordered most significant first. Readers accept only `U64`.
@@ -40,9 +43,10 @@ pub(super) fn serialize(
     array: ArrayView<'_, DecimalByteParts>,
 ) -> VortexResult<ArraySerialization> {
     let lower_parts = array.lower_parts();
+    let msp = stored_msp(array.msp());
 
     let metadata = DecimalBytePartsV2Metadata {
-        msp_ptype: PType::try_from(array.msp().dtype())? as i32,
+        msp_ptype: PType::try_from(msp.dtype())? as i32,
         lower_part_ptypes: lower_parts
             .iter()
             .map(|part| PType::try_from(part.dtype()).map(|ptype| ptype as i32))
@@ -51,7 +55,7 @@ pub(super) fn serialize(
     .encode_to_vec();
 
     let mut children = Vec::with_capacity(1 + lower_parts.len());
-    children.push(array.msp().clone());
+    children.push(msp);
     children.extend(lower_parts.iter().cloned());
 
     Ok(ArraySerialization::new(
@@ -62,12 +66,15 @@ pub(super) fn serialize(
     ))
 }
 
-pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<DecimalBytePartsArray> {
+pub(super) fn deserialize(
+    parts: ArrayDeserialization<'_>,
+    session: &VortexSession,
+) -> VortexResult<DecimalBytePartsArray> {
     let metadata = DecimalBytePartsV2Metadata::decode(parts.metadata)?;
-    vortex_ensure!(
-        parts.dtype.as_decimal_opt().is_some(),
-        "expected a decimal dtype"
-    );
+    let decimal_dtype = *parts
+        .dtype
+        .as_decimal_opt()
+        .ok_or_else(|| vortex_err!("expected a decimal dtype, got {}", parts.dtype))?;
 
     let lower_part_count = metadata.lower_part_ptypes.len();
     vortex_ensure!(
@@ -88,7 +95,8 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
     let msp_dtype = DType::Primitive(msp_ptype, parts.dtype.nullability());
 
     let mut slots = ArraySlots::with_capacity(parts.children.len());
-    slots.push(Some(parts.children.get(0, &msp_dtype, parts.len)?));
+    let msp = parts.children.get(0, &msp_dtype, parts.len)?;
+    slots.push(Some(super::read_msp(msp, decimal_dtype, session)?));
     for (idx, raw_ptype) in metadata.lower_part_ptypes.into_iter().enumerate() {
         let ptype = PType::try_from(raw_ptype).map_err(|_| {
             vortex_err!("lower part {idx} must have a valid PType, got {raw_ptype}")
