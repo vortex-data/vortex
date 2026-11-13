@@ -13,6 +13,7 @@ use vortex_buffer::Alignment;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -20,6 +21,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashTable;
+use vortex_utils::aliases::hash_map::HashTableEntry;
 
 use super::DictConstraints;
 use super::DictEncoder;
@@ -38,43 +40,6 @@ use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
-
-/// The value's length, held in the low four bytes of every view.
-#[inline]
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "the low four bytes of a view are its length"
-)]
-fn view_len(raw: u128) -> usize {
-    raw as u32 as usize
-}
-
-/// Canonicalize an inlined view by zeroing the padding that follows the value.
-///
-/// A value short enough to live inside its view is described entirely by the canonical view: the
-/// hot loop hashes and compares it as a single 16-byte integer, and the dictionary entry is that
-/// integer. Views this encoder builds are already canonical, but incoming arrays may carry
-/// arbitrary bytes in the padding, so they are normalized before being hashed or compared.
-#[inline]
-fn inlined_key(raw: u128, len: usize) -> u128 {
-    debug_assert!(len <= BinaryView::MAX_INLINED_SIZE);
-    // Keep the four length bytes plus `len` bytes of value.
-    raw & (u128::MAX >> (8 * (BinaryView::MAX_INLINED_SIZE - len)))
-}
-
-/// Build the canonical inlined key for a value held as a plain byte slice.
-#[inline]
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "callers only pass values that fit inline, so the length is at most 12"
-)]
-fn inlined_key_from_bytes(val: &[u8]) -> u128 {
-    debug_assert!(val.len() <= BinaryView::MAX_INLINED_SIZE);
-    let mut le_bytes = [0u8; 16];
-    le_bytes[..4].copy_from_slice(&(val.len() as u32).to_le_bytes());
-    le_bytes[4..4 + val.len()].copy_from_slice(val);
-    u128::from_le_bytes(le_bytes)
-}
 
 /// Dictionary encode varbin array. Specializes for primitive byte arrays to avoid double copying
 pub struct BytesDictBuilder<Code> {
@@ -146,128 +111,60 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
         self.views.len() * size_of::<BinaryView>() + self.values.len()
     }
 
-    /// Whether a new entry taking `additional_bytes` fits the dictionary constraints.
-    ///
-    /// The first entry is always admitted, even over budget, so the caller makes progress.
-    fn admits(&self, additional_bytes: usize) -> bool {
-        self.views.is_empty()
-            || (self.views.len() < self.max_dict_len
-                && self.dict_bytes() + additional_bytes <= self.max_dict_bytes)
-    }
-
-    /// Rehash a dictionary entry, matching the hash the entry was inserted with.
-    fn hash_entry(&self, idx: usize) -> u64 {
-        let view = self.views[idx];
-        if view.is_inlined() {
-            self.hasher.hash_one(view.as_u128())
+    fn lookup_bytes(&self, idx: usize) -> &[u8] {
+        let bin_view = &self.views[idx];
+        if bin_view.is_inlined() {
+            bin_view.as_inlined().value()
         } else {
-            self.hasher
-                .hash_one(&self.values[view.as_view().as_range()])
+            &self.values[bin_view.as_view().as_range()]
         }
     }
 
-    /// Append `view` to the dictionary and return the code that now addresses it.
-    fn push_view(&mut self, view: BinaryView) -> Code {
-        let code = self.views.len();
-        self.views.push(view);
-        self.values_nulls.append_true();
-        Code::from_usize(code)
-            .unwrap_or_else(|| vortex_panic!("{code} has to fit into {}", Code::PTYPE))
-    }
+    /// Returns `None` when assigning a code would exceed the dictionary constraints,
+    /// and callers should stop encoding after the current prefix.
+    fn encode_value(&mut self, lookup: &mut HashTable<Code>, val: &[u8]) -> Option<Code> {
+        match lookup.entry(
+            self.hasher.hash_one(val),
+            |idx| val == self.lookup_bytes(idx.as_()),
+            |idx| self.hasher.hash_one(self.lookup_bytes(idx.as_())),
+        ) {
+            HashTableEntry::Occupied(occupied) => Some(*occupied.get()),
+            HashTableEntry::Vacant(vacant) => {
+                // Admit the first entry even if it exceeds the budget, so the caller makes progress.
+                let is_first_entry = self.views.is_empty();
 
-    /// Encode a value short enough to live inside its view, where the key is the whole value and
-    /// equality is a single 16-byte comparison against the dictionary's own view.
-    ///
-    /// Returns `None` when assigning a code would exceed the dictionary constraints, and callers
-    /// should stop encoding after the current prefix.
-    #[inline]
-    fn encode_inlined(&mut self, lookup: &mut HashTable<Code>, key: u128) -> Option<Code> {
-        let hash = self.hasher.hash_one(key);
-        match lookup.find(hash, |idx| self.views[idx.as_()].as_u128() == key) {
-            Some(&code) => Some(code),
-            None => self.insert_inlined(lookup, hash, key),
+                if !is_first_entry && self.views.len() >= self.max_dict_len {
+                    return None;
+                }
+
+                let next_code = self.views.len();
+                let view = BinaryView::make_view(
+                    val,
+                    0,
+                    u32::try_from(self.values.len()).vortex_expect("values length must fit in u32"),
+                );
+                let additional_bytes = if view.is_inlined() {
+                    size_of::<BinaryView>()
+                } else {
+                    size_of::<BinaryView>() + val.len()
+                };
+
+                if !is_first_entry && self.dict_bytes() + additional_bytes > self.max_dict_bytes {
+                    return None;
+                }
+
+                self.views.push(view);
+                self.values_nulls.append_true();
+                if !view.is_inlined() {
+                    self.values.extend_from_slice(val);
+                }
+
+                let next_code = Code::from_usize(next_code).unwrap_or_else(|| {
+                    vortex_panic!("{next_code} has to fit into {}", Code::PTYPE)
+                });
+                Some(*vacant.insert(next_code).get())
+            }
         }
-    }
-
-    /// [`Self::encode_inlined`] for a value held inline in an incoming view.
-    ///
-    /// The per-row loops branch between inlined and longer values. Keeping the inlined lookup
-    /// out of line keeps those loops small, which measurably speeds up the longer values at the
-    /// cost of a call for the inlined ones.
-    #[inline(never)]
-    fn encode_inlined_view(
-        &mut self,
-        lookup: &mut HashTable<Code>,
-        raw: u128,
-        len: usize,
-    ) -> Option<Code> {
-        self.encode_inlined(lookup, inlined_key(raw, len))
-    }
-
-    /// [`Self::encode_inlined`] for a value held as a plain byte slice; out of line for the same
-    /// reason as [`Self::encode_inlined_view`].
-    #[inline(never)]
-    fn encode_inlined_bytes(&mut self, lookup: &mut HashTable<Code>, val: &[u8]) -> Option<Code> {
-        self.encode_inlined(lookup, inlined_key_from_bytes(val))
-    }
-
-    #[cold]
-    fn insert_inlined(
-        &mut self,
-        lookup: &mut HashTable<Code>,
-        hash: u64,
-        key: u128,
-    ) -> Option<Code> {
-        if !self.admits(size_of::<BinaryView>()) {
-            return None;
-        }
-        let code = self.push_view(BinaryView::from(key));
-        lookup.insert_unique(hash, code, |idx| self.hash_entry(idx.as_()));
-        Some(code)
-    }
-
-    /// Encode a value too long to inline, whose bytes live on the dictionary's value heap.
-    ///
-    /// The length filters out most candidate entries - inlined ones always, since their length
-    /// cannot reach `len` - before the value heap is read.
-    ///
-    /// Returns `None` when assigning a code would exceed the dictionary constraints, and callers
-    /// should stop encoding after the current prefix.
-    #[inline]
-    fn encode_referenced(
-        &mut self,
-        lookup: &mut HashTable<Code>,
-        len: usize,
-        val: &[u8],
-    ) -> Option<Code> {
-        let hash = self.hasher.hash_one(val);
-        let found = lookup.find(hash, |idx| {
-            let view = self.views[idx.as_()];
-            view.len() as usize == len && self.values[view.as_view().as_range()] == *val
-        });
-        match found {
-            Some(&code) => Some(code),
-            None => self.insert_referenced(lookup, hash, val),
-        }
-    }
-
-    #[cold]
-    fn insert_referenced(
-        &mut self,
-        lookup: &mut HashTable<Code>,
-        hash: u64,
-        val: &[u8],
-    ) -> Option<Code> {
-        if !self.admits(size_of::<BinaryView>() + val.len()) {
-            return None;
-        }
-        let offset =
-            u32::try_from(self.values.len()).vortex_expect("values length must fit in u32");
-        let view = BinaryView::make_view(val, 0, offset);
-        self.values.extend_from_slice(val);
-        let code = self.push_view(view);
-        lookup.insert_unique(hash, code, |idx| self.hash_entry(idx.as_()));
-        Some(code)
     }
 
     /// Returns `None` when assigning the null code would exceed the dictionary constraints,
@@ -277,7 +174,10 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
             return Some(*code);
         }
 
-        if !self.admits(size_of::<BinaryView>()) {
+        if !self.views.is_empty()
+            && (self.views.len() >= self.max_dict_len
+                || self.dict_bytes() + size_of::<BinaryView>() > self.max_dict_bytes)
+        {
             return None;
         }
 
@@ -295,17 +195,16 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
 
     /// Encode row values against the dictionary, honoring the supplied validity mask.
     ///
-    /// `encode_at` is called only for valid rows. That matters for VarBinView arrays because null
-    /// rows can hold arbitrary view metadata. It receives the builder rather than capturing it so
-    /// that each caller can dispatch straight to the encoder for its value representation.
-    fn encode_validity<F>(
+    /// `value_at` is called only for valid rows. That matters for VarBinView arrays because null
+    /// rows can hold arbitrary view metadata.
+    fn encode_validity<'a, F>(
         &mut self,
         len: usize,
         validity_mask: Mask,
-        mut encode_at: F,
+        mut value_at: F,
     ) -> VortexResult<PrimitiveArray>
     where
-        F: FnMut(&mut Self, &mut HashTable<Code>, usize) -> Option<Code>,
+        F: FnMut(usize) -> &'a [u8],
     {
         let mut local_lookup = self.lookup.take().vortex_expect("Must have a lookup dict");
         let mut codes = BufferMut::<Code>::with_capacity_in(len, self.allocator.clone());
@@ -313,7 +212,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
         match validity_mask.bit_buffer() {
             AllOr::All => {
                 for idx in 0..len {
-                    let Some(code) = encode_at(self, &mut local_lookup, idx) else {
+                    let Some(code) = self.encode_value(&mut local_lookup, value_at(idx)) else {
                         break;
                     };
                     // SAFETY: we reserved capacity in the buffer for `len` elements
@@ -334,7 +233,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
                         // SAFETY: we reserved capacity in the buffer for `len` elements
                         unsafe { codes.push_unchecked(code) }
                     } else {
-                        let Some(code) = encode_at(self, &mut local_lookup, idx) else {
+                        let Some(code) = self.encode_value(&mut local_lookup, value_at(idx)) else {
                             break;
                         };
                         // SAFETY: we reserved capacity in the buffer for `len` elements
@@ -362,15 +261,10 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
 
         match_each_integer_ptype!(offsets.ptype(), |P| {
             let slice_offsets = offsets.as_slice::<P>();
-            self.encode_validity(len, validity_mask, |this, lookup, idx| {
+            self.encode_validity(len, validity_mask, |idx| {
                 let start: usize = slice_offsets[idx].as_();
                 let end: usize = slice_offsets[idx + 1].as_();
-                let val = &bytes[start..end];
-                if val.len() <= BinaryView::MAX_INLINED_SIZE {
-                    this.encode_inlined_bytes(lookup, val)
-                } else {
-                    this.encode_referenced(lookup, val.len(), val)
-                }
+                &bytes[start..end]
             })
         })
     }
@@ -388,21 +282,19 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
         let buffers = var_bin_view
             .data_buffers()
             .iter()
-            .map(|b| b.as_host().as_slice())
+            .map(|b| b.as_host())
             .collect::<Vec<_>>();
 
-        self.encode_validity(len, validity_mask, |this, lookup, idx| {
-            let view = views[idx];
-            let raw = view.as_u128();
-            let val_len = view_len(raw);
-            if val_len <= BinaryView::MAX_INLINED_SIZE {
-                this.encode_inlined_view(lookup, raw, val_len)
-            } else {
-                let reference = view.as_view();
-                let buffer = buffers[reference.buffer_index as usize];
-                this.encode_referenced(lookup, val_len, &buffer[reference.as_range()])
-            }
-        })
+        self.encode_validity(len, validity_mask, |idx| view_bytes(&buffers, &views[idx]))
+    }
+}
+
+fn view_bytes<'a>(buffers: &[&'a ByteBuffer], view: &'a BinaryView) -> &'a [u8] {
+    if view.is_inlined() {
+        view.as_inlined().value()
+    } else {
+        let view = view.as_view();
+        &buffers[view.buffer_index as usize][view.as_range()]
     }
 }
 
