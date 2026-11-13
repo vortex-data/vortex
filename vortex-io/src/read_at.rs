@@ -29,6 +29,13 @@ pub struct CoalesceConfig {
     pub distance: u64,
     /// The maximum total size spanned by a coalesced request.
     pub max_size: u64,
+    /// The maximum total size spanned by a coalesced request while the reader has a free slot
+    /// for every waiting request.
+    ///
+    /// Merging requests that could each have started on a free slot only serializes them, so
+    /// requests are merged up to `max_size` only when more of them wait than the reader can
+    /// start.
+    pub idle_max_size: u64,
 }
 
 /// A positional read request used by [`VortexReadAt::read_ranges`].
@@ -57,9 +64,20 @@ impl ReadAtRequest {
 pub type ReadAtStream = BoxStream<'static, (ReadAtRequest, VortexResult<BufferHandle>)>;
 
 impl CoalesceConfig {
-    /// Creates a new coalesce configuration.
+    /// Creates a new coalesce configuration that merges up to `max_size` whether or not the
+    /// reader has free slots.
     pub const fn new(distance: u64, max_size: u64) -> Self {
-        Self { distance, max_size }
+        Self {
+            distance,
+            max_size,
+            idle_max_size: max_size,
+        }
+    }
+
+    /// Sets the maximum size of a coalesced request while the reader has free slots.
+    pub const fn with_idle_max_size(mut self, idle_max_size: u64) -> Self {
+        self.idle_max_size = idle_max_size;
+        self
     }
 
     /// Configuration appropriate for in-memory / low-latency sources.
@@ -68,8 +86,12 @@ impl CoalesceConfig {
     }
 
     /// Configuration appropriate for local filesystem access.
+    ///
+    /// Reads from a local file cost little more than copying their bytes, so with slots free,
+    /// spreading them over more reads is faster than merging them. Requests are still merged up
+    /// to 1MB, which keeps small neighbouring segments from paying each read's fixed cost.
     pub const fn file() -> Self {
-        Self::new(1 << 20, 4 << 20) // 1MB distance, 4MB max
+        Self::new(1 << 20, 4 << 20).with_idle_max_size(1 << 20) // 1MB distance, 4MB max
     }
 
     /// Configuration appropriate for object storage (S3, GCS, etc.).
@@ -441,6 +463,7 @@ mod tests {
         let config = CoalesceConfig::file();
         assert_eq!(config.distance, 1 << 20); // 1MB
         assert_eq!(config.max_size, 4 << 20); // 4MB
+        assert_eq!(config.idle_max_size, 1 << 20); // 1MB
     }
 
     #[test]
@@ -448,6 +471,7 @@ mod tests {
         let config = CoalesceConfig::object_storage();
         assert_eq!(config.distance, 1 << 20); // 1MB
         assert_eq!(config.max_size, 16 << 20); // 16MB
+        assert_eq!(config.idle_max_size, 16 << 20);
     }
 
     #[tokio::test]
