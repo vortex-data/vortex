@@ -330,13 +330,19 @@ jobs:
             - `cargo clippy -p <crate> --all-targets --all-features -- -D warnings` passes
               for each crate that you changed.
 
-            Then ask the `fuzz-fix-reviewer` subagent to review the change. Give it the fuzz
-            target, the crash input path, `${{ env.WORK_DIR }}/issue.md`, the verdict path
-            `${{ env.WORK_DIR }}/review.json`, and two or three sentences on the root cause
-            and whether you fixed the library or the harness. It reads the change itself, so
-            do not pass it the diff. If it requests changes, address each blocking finding,
-            or conclude with a reason that the finding is wrong, and then ask it for a new
-            review. Stop after three reviews. Only the reviewer writes `review.json`.
+            Then review the change with the `fuzz-fix-review` skill. It runs in a fresh
+            subagent that does not see this conversation. First write two or three sentences
+            on the root cause, and on whether you fixed the library or the harness, to
+            `${{ env.WORK_DIR }}/claim.md`. Then invoke the skill with these arguments:
+
+            ```
+            ${{ env.TARGET }} ${{ env.CRASH_FILE_PATH }} ${{ env.WORK_DIR }}/issue.md ${{ env.WORK_DIR }}/claim.md ${{ env.WORK_DIR }}/review.json
+            ```
+
+            The skill reads the change itself, so do not pass it the diff. If it requests
+            changes, address each blocking finding, or conclude with a reason that the
+            finding is wrong, update `claim.md`, and invoke it again. Stop after three
+            reviews. Only the skill writes `review.json`.
 
             A later step commits every file that you changed or created in the checkout and
             opens a draft pull request, but only if the last verdict in `review.json` is
@@ -357,14 +363,14 @@ jobs:
 
             Each comment must be complete without the other.
           # Opus 5.5 defaults to medium effort. This job runs rarely and a wrong fix
-          # costs a maintainer's review, so it runs at high. The reviewer subagent
-          # sets its own effort in .claude/agents/fuzz-fix-reviewer.md.
+          # costs a maintainer's review, so it runs at high. The review skill sets
+          # its own model, effort and tools in .claude/skills/fuzz-fix-review/SKILL.md.
           claude_args: |
             --model claude-opus-5-5
             --effort high
             --max-turns 150
             --add-dir ${{ runner.temp }}/fuzz-fix
-            --allowedTools "Read,Write,Edit,Glob,Grep,Agent,Bash(cargo:*),Bash(RUST_BACKTRACE=* cargo:*),Bash(git diff:*),Bash(git status:*),Bash(git show:*),Bash(git log:*),Bash(gh issue comment:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(xxd:*)"
+            --allowedTools "Read,Write,Edit,Glob,Grep,Agent,Skill(fuzz-fix-review),Skill(fuzz-fix-review *),Bash(cargo:*),Bash(RUST_BACKTRACE=* cargo:*),Bash(git diff:*),Bash(git status:*),Bash(git show:*),Bash(git log:*),Bash(gh issue comment:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(xxd:*)"
 
       # The steps below run even when the Claude step fails, for example at the
       # turn limit, because the review verdict alone decides whether a pull request
@@ -522,7 +528,7 @@ jobs:
           crash_desc="${ISSUE_TITLE#Fuzzing Crash: }"
           git commit -s \
             -m "fix(fuzz): $crash_desc (#$ISSUE_NUMBER)" \
-            -m "Automated fix for fuzzer issue #$ISSUE_NUMBER, approved by the fuzz-fix-reviewer agent."
+            -m "Automated fix for fuzzer issue #$ISSUE_NUMBER, approved by the fuzz-fix-review skill."
 
           git push --force \
             "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" \
@@ -573,7 +579,7 @@ jobs:
             echo "- **Crash file**: \`$CRASH_FILE\`"
             echo
             echo "Claude reproduced the crash, fixed it, and added a regression test. The"
-            echo "\`fuzz-fix-reviewer\` agent then re-ran the crash, the test and clippy, and"
+            echo "\`fuzz-fix-review\` skill then re-ran the crash, the test and clippy, and"
             echo "approved the change. The full analysis is on issue #$ISSUE_NUMBER."
             echo
             echo "### Automated review"
