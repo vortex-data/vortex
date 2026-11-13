@@ -253,7 +253,7 @@ jobs:
       - name: Generate short-lived GitHub App token
         id: app-token
         if: steps.reproduce.outputs.crash_reproduced == 'true'
-        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -318,6 +318,7 @@ jobs:
             a person must fix it and the approach that you suggest.
           claude_args: |
             --model claude-opus-5-5
+            --permission-mode default
             --max-turns 120
             --allowedTools "Read,Write,Edit,Glob,Grep,Bash(cargo:*),Bash(gh issue comment:*),Bash(gh run download:*),Bash(curl:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Bash(RUST_BACKTRACE=* cargo:*)"
 
