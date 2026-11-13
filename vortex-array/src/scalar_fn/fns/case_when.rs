@@ -1790,8 +1790,8 @@ mod tests {
     }
 
     #[test]
-    fn test_simplify_list_coalesce_keeps_case_when() -> VortexResult<()> {
-        // Lists have no fill_null kernel, so the COALESCE shape must stay a CASE WHEN.
+    fn test_simplify_list_coalesce_rewrites_to_fill_null() -> VortexResult<()> {
+        // Lists can fill nulls, so the COALESCE shape becomes fill_null like other dtypes.
         let mut ctx = SESSION.create_execution_ctx();
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
         let input_dtype = DType::List(Arc::clone(&element_dtype), Nullability::Nullable);
@@ -1812,7 +1812,7 @@ mod tests {
         let optimized = case_when(is_null(root()), lit(fill.clone()), root())
             .bind(input.dtype())?
             .optimize_recursive()?;
-        assert!(optimized.is::<CaseWhen>(), "{optimized}");
+        assert!(optimized.is::<FillNull>(), "{optimized}");
         let result = input
             .clone()
             .apply_bound(&optimized)?
@@ -1820,7 +1820,7 @@ mod tests {
             .into_array();
         assert_eq!(
             result.execute_scalar(0, &mut ctx)?,
-            input.execute_scalar(0, &mut ctx)?
+            input.execute_scalar(0, &mut ctx)?.cast(result.dtype())?
         );
         assert_eq!(
             result.execute_scalar(1, &mut ctx)?,
