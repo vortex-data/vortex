@@ -14,12 +14,27 @@ use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::scalar::ScalarValue;
 
+/// Opaque metadata bytes and storage dtype preserved for an unregistered extension type.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ForeignExtMetadata(pub Vec<u8>);
+pub struct ForeignExtMetadata {
+    bytes: Vec<u8>,
+    /// The stored storage dtype with a nullable top level. Normalizing that level keeps metadata
+    /// equality and hashing independent of the extension dtype's top-level nullability.
+    storage_dtype: DType,
+}
+
+impl ForeignExtMetadata {
+    fn new(bytes: Vec<u8>, storage_dtype: &DType) -> Self {
+        Self {
+            bytes,
+            storage_dtype: storage_dtype.as_nullable(),
+        }
+    }
+}
 
 impl Display for ForeignExtMetadata {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}B", self.0.len())
+        write!(f, "{}B", self.bytes.len())
     }
 }
 
@@ -40,7 +55,7 @@ impl ForeignExtDType {
         storage_dtype: DType,
     ) -> VortexResult<ExtDTypeRef> {
         Ok(
-            ExtDType::try_with_vtable(Self::new(id), ForeignExtMetadata(metadata), storage_dtype)?
+            ExtDType::try_from_storage_with_vtable(Self::new(id), metadata, storage_dtype)?
                 .erased(),
         )
     }
@@ -48,6 +63,7 @@ impl ForeignExtDType {
 
 impl ExtVTable for ForeignExtDType {
     type Metadata = ForeignExtMetadata;
+    type StoredMetadata = Vec<u8>;
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
@@ -55,15 +71,23 @@ impl ExtVTable for ForeignExtDType {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(metadata.0.clone())
+        Ok(metadata.bytes.clone())
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(ForeignExtMetadata(metadata.to_vec()))
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
+        Ok(metadata.to_vec())
     }
 
-    fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        Ok(())
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(ForeignExtMetadata::new(stored_metadata, storage_dtype))
+    }
+
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        metadata.storage_dtype.clone()
     }
 
     fn unpack_native<'a>(

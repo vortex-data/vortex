@@ -26,7 +26,6 @@ use vortex_session::registry::CachedId;
 
 use crate::extension::Rect;
 use crate::extension::SpatialMetadata;
-use crate::extension::box_storage_dtype;
 use crate::extension::coordinate::Dimension;
 use crate::extension::coordinate::box_corners;
 use crate::extension::coordinate::ordinates;
@@ -66,15 +65,13 @@ impl AabbPartial {
 /// The stat's type: the native `geoarrow.box` (2D), nullable so an empty group is a null box.
 fn aabb_dtype() -> DType {
     DType::Extension(
-        ExtDType::<Rect>::try_new(SpatialMetadata::default(), aabb_storage_dtype())
-            .vortex_expect("2D box storage is a valid Rect")
-            .erased(),
+        ExtDType::<Rect>::try_new(
+            SpatialMetadata::default().with_dimension(Dimension::Xy),
+            Nullability::Nullable,
+        )
+        .vortex_expect("Rect accepts metadata with a coordinate dimension")
+        .erased(),
     )
-}
-
-/// The `Rect` storage `Struct<xmin, ymin, xmax, ymax>` backing the zone statistic.
-fn aabb_storage_dtype() -> DType {
-    box_storage_dtype(Dimension::Xy, Nullability::Nullable)
 }
 
 /// The AABB of the raw `x`/`y` slices, or `None` when empty.
@@ -106,10 +103,13 @@ fn rect_from_storage(scalar: &Scalar) -> VortexResult<Option<SpatialRect<f64>>> 
     )))
 }
 
-/// Serialize a [`SpatialRect`] as a native `geoarrow.box` stat scalar (inverse of [`rect_from_storage`]).
-fn rect_to_storage(rect: SpatialRect<f64>) -> Scalar {
+/// Serialize a [`SpatialRect`] as a stat scalar of `dtype`, the native `geoarrow.box` that
+/// [`aabb_dtype`] builds (inverse of [`rect_from_storage`]). The caller passes the dtype that it
+/// holds, so each group reuses it instead of building it again.
+fn rect_to_storage(rect: SpatialRect<f64>, dtype: &DType) -> Scalar {
+    let ext_dtype = dtype.as_extension();
     let storage = Scalar::struct_(
-        aabb_storage_dtype(),
+        ext_dtype.storage_dtype().clone(),
         vec![
             Scalar::primitive(rect.min().x, Nullability::NonNullable),
             Scalar::primitive(rect.min().y, Nullability::NonNullable),
@@ -117,7 +117,7 @@ fn rect_to_storage(rect: SpatialRect<f64>) -> Scalar {
             Scalar::primitive(rect.max().y, Nullability::NonNullable),
         ],
     );
-    Scalar::extension::<Rect>(SpatialMetadata::default(), storage)
+    Scalar::extension_ref(ext_dtype.clone(), storage)
 }
 
 impl AggregateFnVTable for GeometryAabb {
@@ -190,7 +190,7 @@ impl AggregateFnVTable for GeometryAabb {
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
         Ok(match partial.rect {
-            Some(rect) => rect_to_storage(rect),
+            Some(rect) => rect_to_storage(rect, args.partial_dtype),
             None => Scalar::null(args.partial_dtype.clone()),
         })
     }

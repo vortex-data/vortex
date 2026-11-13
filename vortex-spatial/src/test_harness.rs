@@ -10,7 +10,6 @@ use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
-use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
@@ -29,15 +28,9 @@ use crate::extension::Point;
 use crate::extension::Polygon;
 use crate::extension::Rect;
 use crate::extension::SpatialMetadata;
-use crate::extension::box_storage_dtype;
 use crate::extension::coordinate::Coordinate;
 use crate::extension::coordinate::Dimension;
 use crate::extension::coordinate::coordinate_from_struct;
-use crate::extension::linestring_storage_dtype;
-use crate::extension::multilinestring_storage_dtype;
-use crate::extension::multipoint_storage_dtype;
-use crate::extension::multipolygon_storage_dtype;
-use crate::extension::polygon_storage_dtype;
 
 /// A fresh session with the spatial types, functions, and pruning rules registered.
 pub fn spatial_session() -> VortexSession {
@@ -46,11 +39,9 @@ pub fn spatial_session() -> VortexSession {
     session
 }
 
-/// The WGS 84 (`EPSG:4326`) metadata tagged onto test geometry columns.
+/// The WGS 84 (`EPSG:4326`) metadata tagged onto the 2D test geometry columns.
 fn wgs84() -> SpatialMetadata {
-    SpatialMetadata {
-        crs: Some("EPSG:4326".to_string()),
-    }
+    SpatialMetadata::new(Some("EPSG:4326".to_string())).with_dimension(Dimension::Xy)
 }
 
 /// A coordinate `Struct<x, y>` over the parallel x/y buffers.
@@ -98,21 +89,17 @@ fn vertex_list_lists(rows: &[Vec<Vec<(f64, f64)>>]) -> VortexResult<ArrayRef> {
     nest(rows, vertex_lists(&inner)?)
 }
 
-/// Wrap `storage` in the geometry extension `vtable` (CRS `EPSG:4326`) with the canonical
-/// `storage_dtype` of that type.
+/// Wrap 2D `storage` in the geometry extension type `V` (CRS `EPSG:4326`).
 fn spatial_column<V: ExtVTable<Metadata = SpatialMetadata> + Default>(
     storage: ArrayRef,
-    storage_dtype: DType,
 ) -> VortexResult<ArrayRef> {
-    let dtype = ExtDType::<V>::try_new(wgs84(), storage_dtype)?;
+    let dtype = ExtDType::<V>::try_new(wgs84(), storage.dtype().nullability())?;
     Ok(ExtensionArray::try_new(dtype.erased(), storage)?.into_array())
 }
 
 /// A `Point` column over the given x/y coordinates, stored as `Struct<x, y>`.
 pub fn point_column(xs: Vec<f64>, ys: Vec<f64>) -> VortexResult<ArrayRef> {
-    let storage = xy_struct(xs, ys)?;
-    let storage_dtype = storage.dtype().clone();
-    spatial_column::<Point>(storage, storage_dtype)
+    spatial_column::<Point>(xy_struct(xs, ys)?)
 }
 
 /// A nullable `Point` column: `None` rows are null. Null rows carry placeholder coordinates in
@@ -132,41 +119,28 @@ pub fn nullable_point_column(points: Vec<Option<(f64, f64)>>) -> VortexResult<Ar
         Validity::from_iter(valid),
     )?
     .into_array();
-    let storage_dtype = storage.dtype().clone();
-    spatial_column::<Point>(storage, storage_dtype)
+    spatial_column::<Point>(storage)
 }
 
 /// A `LineString` column: each line a list of `(x, y)` vertices, stored as `List<Struct<x, y>>`.
 pub fn linestring_column(lines: Vec<Vec<(f64, f64)>>) -> VortexResult<ArrayRef> {
-    spatial_column::<LineString>(
-        vertex_lists(&lines)?,
-        linestring_storage_dtype(Dimension::Xy, Nullability::NonNullable),
-    )
+    spatial_column::<LineString>(vertex_lists(&lines)?)
 }
 
 /// A `MultiPoint` column: each row a list of `(x, y)` points, stored as `List<Struct<x, y>>`.
 pub fn multipoint_column(points: Vec<Vec<(f64, f64)>>) -> VortexResult<ArrayRef> {
-    spatial_column::<MultiPoint>(
-        vertex_lists(&points)?,
-        multipoint_storage_dtype(Dimension::Xy, Nullability::NonNullable),
-    )
+    spatial_column::<MultiPoint>(vertex_lists(&points)?)
 }
 
 /// A `Polygon` column: each polygon a list of rings, each ring a list of `(x, y)` vertices,
 /// stored as `List<List<Struct<x, y>>>`.
 pub fn polygon_column(polygons: Vec<Vec<Vec<(f64, f64)>>>) -> VortexResult<ArrayRef> {
-    spatial_column::<Polygon>(
-        vertex_list_lists(&polygons)?,
-        polygon_storage_dtype(Dimension::Xy, Nullability::NonNullable),
-    )
+    spatial_column::<Polygon>(vertex_list_lists(&polygons)?)
 }
 
 /// A `MultiLineString` column: each row a list of lines, stored as `List<List<Struct<x, y>>>`.
 pub fn multilinestring_column(multilines: Vec<Vec<Vec<(f64, f64)>>>) -> VortexResult<ArrayRef> {
-    spatial_column::<MultiLineString>(
-        vertex_list_lists(&multilines)?,
-        multilinestring_storage_dtype(Dimension::Xy, Nullability::NonNullable),
-    )
+    spatial_column::<MultiLineString>(vertex_list_lists(&multilines)?)
 }
 
 /// One multipolygon: polygons → rings → `(x, y)` vertices.
@@ -175,10 +149,7 @@ pub type MultiPolygonRings = Vec<Vec<Vec<(f64, f64)>>>;
 /// A `MultiPolygon` column, stored as `List<List<List<Struct<x, y>>>>`.
 pub fn multipolygon_column(multipolygons: Vec<MultiPolygonRings>) -> VortexResult<ArrayRef> {
     let polygons: Vec<Vec<Vec<(f64, f64)>>> = multipolygons.iter().flatten().cloned().collect();
-    spatial_column::<MultiPolygon>(
-        nest(&multipolygons, vertex_list_lists(&polygons)?)?,
-        multipolygon_storage_dtype(Dimension::Xy, Nullability::NonNullable),
-    )
+    spatial_column::<MultiPolygon>(nest(&multipolygons, vertex_list_lists(&polygons)?)?)
 }
 
 /// A nullable `MultiPolygon` column: `None` rows are null (an empty-list placeholder in storage).
@@ -204,10 +175,7 @@ pub fn nullable_multipolygon_column(
         &mut ctx,
     )?
     .into_array();
-    spatial_column::<MultiPolygon>(
-        storage,
-        multipolygon_storage_dtype(Dimension::Xy, Nullability::Nullable),
-    )
+    spatial_column::<MultiPolygon>(storage)
 }
 
 /// A 2D `Rect` (`geoarrow.box`) column over `(xmin, ymin, xmax, ymax)` boxes, stored as
@@ -223,10 +191,7 @@ pub fn rect_column(boxes: Vec<(f64, f64, f64, f64)>) -> VortexResult<ArrayRef> {
         ("ymax", field(|b| b.3)),
     ])?
     .into_array();
-    spatial_column::<Rect>(
-        storage,
-        box_storage_dtype(Dimension::Xy, Nullability::NonNullable),
-    )
+    spatial_column::<Rect>(storage)
 }
 
 /// A nullable 2D `Rect` (`geoarrow.box`) column: `None` rows are null boxes (placeholder ordinates
@@ -250,8 +215,8 @@ pub fn nullable_rect_column(boxes: Vec<Option<(f64, f64, f64, f64)>>) -> VortexR
     )?
     .into_array();
     let ext = ExtDType::<Rect>::try_new(
-        SpatialMetadata::default(),
-        box_storage_dtype(Dimension::Xy, Nullability::Nullable),
+        SpatialMetadata::default().with_dimension(Dimension::Xy),
+        Nullability::Nullable,
     )?;
     Ok(ExtensionArray::try_new(ext.erased(), storage)?.into_array())
 }

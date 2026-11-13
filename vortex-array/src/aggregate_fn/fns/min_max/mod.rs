@@ -1360,6 +1360,7 @@ mod tests {
 
     impl ExtVTable for F64Ext {
         type Metadata = EmptyMetadata;
+        type StoredMetadata = Self::Metadata;
         type NativeValue<'a> = &'a ScalarValue;
 
         #[expect(clippy::disallowed_methods, reason = "test-only id")]
@@ -1371,12 +1372,20 @@ mod tests {
             Ok(vec![])
         }
 
-        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::StoredMetadata> {
             Ok(EmptyMetadata)
         }
 
-        fn validate_dtype(_extension_dtype: &ExtDType<Self>) -> VortexResult<()> {
-            Ok(())
+        fn metadata_from_storage(
+            &self,
+            stored_metadata: Self::StoredMetadata,
+            _storage_dtype: &DType,
+        ) -> VortexResult<Self::Metadata> {
+            Ok(stored_metadata)
+        }
+
+        fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+            DType::Primitive(PType::F64, Nullability::NonNullable)
         }
 
         fn unpack_native<'a>(
@@ -1388,11 +1397,8 @@ mod tests {
     }
 
     fn f64_ext_array(values: Buffer<f64>) -> VortexResult<ArrayRef> {
-        let ext_dtype = ExtDType::<F64Ext>::try_new(
-            EmptyMetadata,
-            DType::Primitive(PType::F64, Nullability::NonNullable),
-        )?
-        .erased();
+        let ext_dtype =
+            ExtDType::<F64Ext>::try_new(EmptyMetadata, Nullability::NonNullable)?.erased();
         Ok(ExtensionArray::new(ext_dtype, values.into_array()).into_array())
     }
 

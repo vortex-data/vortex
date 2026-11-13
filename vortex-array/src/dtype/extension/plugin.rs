@@ -26,7 +26,16 @@ pub trait ExtDTypePlugin: 'static + Send + Sync + Debug {
     /// Returns the ID for this extension type.
     fn id(&self) -> ExtId;
 
-    /// Deserialize an extension type from serialized metadata.
+    /// Reconstructs an extension dtype from serialized metadata and its stored storage dtype.
+    ///
+    /// The blanket implementation for [`ExtVTable`] reconstructs and validates the metadata, then
+    /// checks the declared storage against `storage_dtype`. The returned dtype has exactly that
+    /// storage dtype, including top-level and nested nullability.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if metadata reconstruction or validation fails, or if the declaration with
+    /// the stored top-level nullability differs from `storage_dtype`.
     fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef>;
 }
 
@@ -36,7 +45,11 @@ impl<V: ExtVTable> ExtDTypePlugin for V {
     }
 
     fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef> {
-        let metadata = ExtVTable::deserialize_metadata(self, data)?;
-        Ok(ExtDType::try_with_vtable(self.clone(), metadata, storage_dtype)?.erased())
+        let stored_metadata = ExtVTable::deserialize_metadata(self, data)?;
+
+        Ok(
+            ExtDType::try_from_storage_with_vtable(self.clone(), stored_metadata, storage_dtype)?
+                .erased(),
+        )
     }
 }

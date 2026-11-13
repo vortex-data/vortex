@@ -858,6 +858,7 @@ mod tests {
         struct SomeExt;
         impl ExtVTable for SomeExt {
             type Metadata = String;
+            type StoredMetadata = Self::Metadata;
             type NativeValue<'a> = &'a str;
 
             #[expect(clippy::disallowed_methods, reason = "test-only id")]
@@ -869,12 +870,20 @@ mod tests {
                 vortex_bail!("not implemented")
             }
 
-            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::StoredMetadata> {
                 vortex_bail!("not implemented")
             }
 
-            fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-                Ok(())
+            fn metadata_from_storage(
+                &self,
+                stored_metadata: Self::StoredMetadata,
+                _storage_dtype: &DType,
+            ) -> VortexResult<Self::Metadata> {
+                Ok(stored_metadata)
+            }
+
+            fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+                DType::Primitive(PType::I32, Nullability::NonNullable)
             }
 
             fn unpack_native<'a>(
@@ -1059,7 +1068,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Time storage dtype must be primitive, got utf8")]
+    #[should_panic(expected = "vortex.time storage must match its declaration")]
     fn test_temporal_non_primitive_storage_error() {
         let _scalar = Scalar::extension::<Time>(
             TimeUnit::Nanoseconds,

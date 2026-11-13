@@ -6,6 +6,8 @@
 //! Tests for the Arrow export and import of an extension type without an Arrow plugin. Such a type
 //! exports its storage, plus Arrow extension metadata that holds its Vortex ID.
 
+use std::fmt;
+use std::fmt::Display;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -75,32 +77,58 @@ static TAGGED_ID: CachedId = CachedId::new("test.tagged");
 const TAGGED_ALIAS: &str = "test.tagged.alias";
 static TAGGED_ALIAS_ID: CachedId = CachedId::new(TAGGED_ALIAS);
 
-/// An extension type without an Arrow plugin. It accepts any storage, and its metadata is one tag
-/// byte.
+/// An extension type with a serialized tag byte and a storage dtype held in its metadata.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Tagged;
 
+/// The metadata of [`Tagged`]. Only the tag is serialized, and a read takes the storage dtype from
+/// the stored storage, so the tests can wrap any storage dtype. The storage dtype is in its nullable
+/// form, because the extension dtype applies the top-level nullability.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct TaggedMetadata {
+    tag: u8,
+    storage_dtype: DType,
+}
+
+impl Display for TaggedMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.tag)
+    }
+}
+
 impl ExtVTable for Tagged {
-    type Metadata = u8;
+    type Metadata = TaggedMetadata;
+    type StoredMetadata = u8;
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
         *TAGGED_ID
     }
 
-    fn serialize_metadata(&self, tag: &u8) -> VortexResult<Vec<u8>> {
-        Ok(vec![*tag])
+    fn serialize_metadata(&self, metadata: &TaggedMetadata) -> VortexResult<Vec<u8>> {
+        Ok(vec![metadata.tag])
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<u8> {
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
         match metadata {
             [tag] => Ok(*tag),
             _ => vortex_bail!("Tagged metadata must be one byte, got {metadata:?}"),
         }
     }
 
-    fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        Ok(())
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(TaggedMetadata {
+            tag: stored_metadata,
+            storage_dtype: storage_dtype.clone(),
+        })
+    }
+
+    fn storage_dtype(metadata: &TaggedMetadata) -> DType {
+        metadata.storage_dtype.clone()
     }
 
     fn unpack_native<'a>(
@@ -112,11 +140,11 @@ impl ExtVTable for Tagged {
 }
 
 fn tagged(tag: u8, storage_dtype: DType) -> VortexResult<ExtDTypeRef> {
-    Ok(ExtDType::try_with_vtable(Tagged, tag, storage_dtype)?.erased())
+    Ok(ExtDType::try_from_storage_with_vtable(Tagged, tag, storage_dtype)?.erased())
 }
 
 fn tagged_array(tag: u8, storage: ArrayRef) -> VortexResult<ArrayRef> {
-    Ok(ExtensionArray::try_new_from_vtable(Tagged, tag, storage)?.into_array())
+    Ok(ExtensionArray::try_from_storage_with_vtable(Tagged, tag, storage)?.into_array())
 }
 
 /// A [`Tagged`] array over the nullable `i64` storage `[1, null, 3]`.

@@ -17,7 +17,6 @@ use std::sync::LazyLock;
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
-use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
@@ -90,7 +89,7 @@ fn constant_vector(width: usize) -> ArrayRef {
         .map(|i| Scalar::primitive(((i % 97) as f64) - 48.0, Nullability::NonNullable))
         .collect();
     let fsl_scalar = Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-    let ext_scalar = Scalar::extension::<Vector>(EmptyMetadata, fsl_scalar);
+    let ext_scalar = Scalar::try_extension_from_storage::<Vector>((), fsl_scalar).unwrap();
     ConstantArray::new(ext_scalar, ELEMENTS / width).into_array()
 }
 
