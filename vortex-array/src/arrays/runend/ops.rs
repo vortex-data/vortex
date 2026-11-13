@@ -19,7 +19,7 @@ use crate::search_sorted::SearchSortedSide;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<RunEnd> for RunEnd {
-    type ProbeState = super::probe::RunEndProbeState;
+    type ProbeState = ();
 
     fn probe_scalar(
         state: &mut ProbeState<'_, RunEnd>,

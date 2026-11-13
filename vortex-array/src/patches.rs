@@ -8,7 +8,6 @@ use std::ops::Range;
 use num_traits::NumCast;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
@@ -26,7 +25,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::ArrayProbe;
 use crate::ArrayRef;
 use crate::ArraySlots;
-use crate::EncodingProbeState;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ProbeState;
@@ -48,7 +46,6 @@ use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedPrimitiveArray;
 use crate::search_sorted::SearchSortedSide;
-use crate::search_sorted::decode_sorted_positions;
 use crate::validity::Validity;
 use crate::vtable::VTable;
 
@@ -139,37 +136,6 @@ impl PatchesMetadata {
 pub struct PatchesData {
     offset: usize,
     offset_within_chunk: Option<usize>,
-}
-
-/// What a repeated probe keeps for the patches of the array it reads: the patch indices,
-/// decoded on its first read so that later reads binary search a plain buffer.
-///
-/// Encodings with patches use it as, or inside, their
-/// [`OperationsVTable::ProbeState`](crate::vtable::OperationsVTable::ProbeState) and read
-/// through [`Patches::probe_patched`].
-#[derive(Debug, Default)]
-pub struct PatchesProbeState {
-    indices: Option<Buffer<u64>>,
-}
-
-impl PatchesProbeState {
-    /// The decoded patch indices, decoding `indices` on the first call.
-    fn indices(
-        &mut self,
-        indices: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<&Buffer<u64>> {
-        if self.indices.is_none() {
-            self.indices = Some(decode_sorted_positions(indices, ctx)?);
-        }
-        Ok(self.indices.as_ref().vortex_expect("decoded above"))
-    }
-}
-
-impl AsMut<PatchesProbeState> for PatchesProbeState {
-    fn as_mut(&mut self) -> &mut PatchesProbeState {
-        self
-    }
 }
 
 /// Slot indices for the three patch components within a slot array.
@@ -670,31 +636,30 @@ impl Patches {
     /// Get the patched value at `index` of the array `state` reads, as [`Self::get_patched`]
     /// does.
     ///
-    /// `self` must be the patches held in the `slots` of that array. A repeated probe decodes the
-    /// patch indices into its [`PatchesProbeState`] on its first read, so every later read binary
-    /// searches a plain buffer and reads the value through the probe's values slot. A one-off
-    /// read takes the [`Self::get_patched`] path, which does not decode the whole index array.
+    /// `self` must be the patches held in the `slots` of that array. A repeated read searches the
+    /// patch indices through the state's indices probe and reads the value through its values
+    /// probe, so it shares both across reads rather than building them per read. A one-off read
+    /// takes the [`Self::get_patched`] path, which can narrow the search by the chunk offsets.
     pub fn probe_patched<V: VTable>(
         &self,
         state: &mut ProbeState<'_, V>,
         slots: PatchSlotIndices,
         index: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Scalar>>
-    where
-        EncodingProbeState<V>: AsMut<PatchesProbeState>,
-    {
+    ) -> VortexResult<Option<Scalar>> {
         let (retained, mut children) = state.split();
-        let Some(retained) = retained else {
+        if retained.is_none() {
             return self.get_patched(index, ctx);
-        };
-        let indices = retained.as_mut().indices(&self.indices, ctx)?;
-
-        // A needle past `u64` is past every patch index.
-        let Ok(needle) = u64::try_from(index + self.offset) else {
-            return Ok(None);
-        };
-        let Ok(position) = indices.binary_search(&needle) else {
+        }
+        let indices = children
+            .slot(slots.indices)?
+            .ok_or_else(|| vortex_err!("patch indices slot is missing"))?;
+        let needle = index + self.offset;
+        let found = match_each_unsigned_integer_ptype!(indices.array().dtype().as_ptype(), |T| {
+            SearchSortedPrimitiveArray::<T>::with_probe(indices, ctx)
+                .search_sorted(&needle, SearchSortedSide::Left)?
+        });
+        let SearchResult::Found(position) = found else {
             return Ok(None);
         };
         children

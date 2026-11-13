@@ -4,7 +4,6 @@
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ProbeState;
-use vortex_array::patches::PatchesProbeState;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
@@ -19,7 +18,7 @@ use crate::alp::array::PATCH_SLOTS;
 use crate::match_each_alp_float_ptype;
 
 impl OperationsVTable<ALP> for ALP {
-    type ProbeState = PatchesProbeState;
+    type ProbeState = ();
 
     fn probe_scalar(
         state: &mut ProbeState<'_, ALP>,
