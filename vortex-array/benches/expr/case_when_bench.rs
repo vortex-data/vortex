@@ -15,6 +15,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -22,9 +23,11 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::expr::case_when;
 use vortex_array::expr::case_when_no_else;
+use vortex_array::expr::coalesce;
 use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
+use vortex_array::expr::is_null;
 use vortex_array::expr::lit;
 use vortex_array::expr::lt;
 use vortex_array::expr::nested_case_when;
@@ -351,6 +354,70 @@ fn case_when_fragmented(bencher: Bencher, size: usize) {
         ],
         Some(lit(2i32)),
     );
+
+    bencher
+        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
+        .bench_refs(|(expr, array, ctx)| {
+            array
+                .clone()
+                .apply(expr)
+                .unwrap()
+                .execute::<Canonical>(ctx)
+                .unwrap()
+        });
+}
+
+/// `sources` nullable i32 columns, where column `i` is non-null exactly on the `i`-th slice of
+/// the rows, so every column fills a disjoint run and COALESCE must visit all of them.
+fn make_sliced_sources(size: usize, sources: usize) -> ArrayRef {
+    let run = size.div_ceil(sources);
+    let fields: Vec<(&str, ArrayRef)> = (0..sources)
+        .map(|source| {
+            let values: Buffer<i32> = (0..size as i32).collect();
+            let validity = Validity::from_iter((0..size).map(|row| row / run == source));
+            let array = PrimitiveArray::new(values, validity).into_array();
+            (SOURCE_NAMES[source].as_str(), array)
+        })
+        .collect();
+    let array = StructArray::from_fields(&fields).unwrap().into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+    array
+}
+
+static SOURCE_NAMES: LazyLock<Vec<String>> =
+    LazyLock::new(|| (0..2048).map(|i| format!("s{i}")).collect());
+
+fn source_exprs(sources: usize) -> impl Iterator<Item = vortex_array::expr::Expression> {
+    (0..sources).map(|i| get_item(SOURCE_NAMES[i].as_str(), root()))
+}
+
+/// Flat n-ary COALESCE over `sources` columns.
+#[divan::bench(args = [4, 16, 64, 256, 2048])]
+fn coalesce_flat(bencher: Bencher, sources: usize) {
+    let array = make_sliced_sources(65_536, sources);
+    let expr = coalesce(source_exprs(sources));
+
+    bencher
+        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
+        .bench_refs(|(expr, array, ctx)| {
+            array
+                .clone()
+                .apply(expr)
+                .unwrap()
+                .execute::<Canonical>(ctx)
+                .unwrap()
+        });
+}
+
+/// The left-nested fold `case_when(is_null(acc), value, acc)` that `coalesce` replaces. The
+/// accumulator is shared between the condition and the ELSE branch, so each level walks and
+/// executes the chain below it twice: this shape is exponential in `sources`.
+#[divan::bench(args = [4, 16])]
+fn coalesce_nested_fold(bencher: Bencher, sources: usize) {
+    let array = make_sliced_sources(65_536, sources);
+    let expr = source_exprs(sources)
+        .reduce(|acc, value| case_when(is_null(acc.clone()), value, acc))
+        .unwrap();
 
     bencher
         .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
