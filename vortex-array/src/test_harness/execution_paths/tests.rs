@@ -24,7 +24,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::Operator;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

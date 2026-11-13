@@ -23,13 +23,13 @@ mod tests {
     use vortex_array::match_each_power_of_two_width;
     use vortex_array::match_each_ptype_width;
     use vortex_array::patches::Patches;
-    use vortex_array::scalar_fn::fns::fill_null::FillNullKernel;
-    use vortex_array::scalar_fn::fns::zip::ZipKernel;
+    use vortex_array::scalar_fn::builtin::fill_null::FillNullKernel;
     use vortex_array::validity::Validity;
     use vortex_buffer::Alignment;
     use vortex_buffer::Buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_functions::zip::ZipKernel;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 

@@ -27,7 +27,7 @@ use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::is_not_null::IsNotNull;
+use crate::scalar_fn::builtin::is_not_null::IsNotNull;
 
 /// An [`Expression`] that has been type-checked against a [`Scope`].
 ///
@@ -348,7 +348,7 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::root;
     use crate::expr::test_harness::struct_dtype;
-    use crate::scalar_fn::fns::literal::Literal;
+    use crate::scalar_fn::builtin::literal::Literal;
 
     fn scope() -> Scope {
         Scope::new(struct_dtype())

@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use num_traits::AsPrimitive;
 use rustc_hash::FxBuildHasher;
-use vortex_array::ExecutionCtx;
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferAllocatorRef;
@@ -28,6 +27,7 @@ use super::DictEncoder;
 use super::codes_ptype_for_max_len;
 use crate::ArrayRef;
 use crate::ArrayView;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;

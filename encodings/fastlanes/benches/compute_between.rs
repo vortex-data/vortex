@@ -114,11 +114,11 @@ mod primitive {
     use vortex_array::RecursiveCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::NativePType;
-    use vortex_array::scalar_fn::fns::between::BetweenOptions;
-    use vortex_array::scalar_fn::fns::between::StrictComparison::NonStrict;
     use vortex_error::VortexExpect;
+    use vortex_functions::between::BetweenOptions;
+    use vortex_functions::between::StrictComparison::NonStrict;
+    use vortex_functions::builtins::ArrayFunctions;
 
     use crate::BENCH_ARGS;
     use crate::SESSION;
@@ -167,11 +167,11 @@ mod bitpack {
     use vortex_array::RecursiveCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::NativePType;
-    use vortex_array::scalar_fn::fns::between::BetweenOptions;
-    use vortex_array::scalar_fn::fns::between::StrictComparison::NonStrict;
     use vortex_error::VortexExpect;
+    use vortex_functions::between::BetweenOptions;
+    use vortex_functions::between::StrictComparison::NonStrict;
+    use vortex_functions::builtins::ArrayFunctions;
 
     use crate::BENCH_ARGS;
     use crate::SESSION;
@@ -219,11 +219,11 @@ mod alp {
     use vortex_array::RecursiveCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::NativePType;
-    use vortex_array::scalar_fn::fns::between::BetweenOptions;
-    use vortex_array::scalar_fn::fns::between::StrictComparison::NonStrict;
     use vortex_error::VortexExpect;
+    use vortex_functions::between::BetweenOptions;
+    use vortex_functions::between::StrictComparison::NonStrict;
+    use vortex_functions::builtins::ArrayFunctions;
 
     use crate::BENCH_ARGS;
     use crate::SESSION;

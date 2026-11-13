@@ -15,9 +15,9 @@ use crate::arrays::runend::array::RunEndArrayExt;
 use crate::arrays::runend::array::RunEndArraySlotsExt;
 use crate::arrays::runend::decompress_bool::runend_decode_bools;
 use crate::builtins::ArrayBuiltins;
-use crate::scalar_fn::fns::binary::CompareKernel;
-use crate::scalar_fn::fns::operators::CompareOperator;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::binary::CompareKernel;
+use crate::scalar_fn::builtin::operators::CompareOperator;
+use crate::scalar_fn::builtin::operators::Operator;
 
 impl CompareKernel for RunEnd {
     fn compare(
@@ -63,7 +63,7 @@ mod test {
     use crate::arrays::runend::RunEndArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::operators::Operator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

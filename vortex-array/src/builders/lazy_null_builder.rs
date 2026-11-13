@@ -106,12 +106,18 @@ impl LazyBitBufferBuilder {
     }
 
     /// Returns the current length of the builder.
+    /// Whether no entries have been appended.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn len(&self) -> usize {
         // self.len is the length of the builder if the inner buffer is not materialized
         self.inner.as_ref().map(|i| i.len()).unwrap_or(self.len)
     }
 
-    fn finish(&mut self) -> Option<BitBuffer> {
+    /// The validity bits appended so far, or `None` when every entry is valid.
+    pub fn finish(&mut self) -> Option<BitBuffer> {
         self.len = 0;
         self.inner.take().map(|b| b.freeze())
     }

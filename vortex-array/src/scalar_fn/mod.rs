@@ -3,9 +3,10 @@
 
 //! Scalar function vtable machinery.
 //!
-//! This module contains the [`ScalarFnVTable`] trait and all built-in scalar function
-//! implementations. Expressions ([`crate::expr::Expression`]) reference scalar functions
-//! at each node.
+//! This module contains the [`ScalarFnVTable`] trait, the machinery to bind, reduce and execute
+//! scalar functions, and in [`builtin`] the few functions vortex-array itself is built on. Other scalar
+//! functions live in the `vortex-functions` crate. Expressions ([`crate::expr::Expression`])
+//! reference scalar functions at each node.
 //!
 //! Strict functions with row-at-a-time kernels can implement `unstable::row::RowFn`. It handles
 //! decoding, constants, null propagation, output construction, and validity. This API requires the
@@ -14,11 +15,6 @@
 //! inputs.
 
 use vortex_session::registry::Id;
-
-use crate::scalar_fn::fns::byte_length::ByteLength;
-use crate::scalar_fn::fns::ext_storage::ExtStorage;
-use crate::scalar_fn::fns::get_item::GetItem;
-use crate::scalar_fn::fns::literal::Literal;
 
 mod vtable;
 pub use vtable::*;
@@ -47,7 +43,7 @@ pub mod unstable;
 #[allow(dead_code, unused_imports)]
 pub(crate) mod unstable;
 
-pub mod fns;
+pub mod builtin;
 pub mod internal;
 pub mod session;
 
@@ -64,19 +60,4 @@ mod sealed {
 
     /// This can be the **only** implementor for [`super::typed::DynScalarFn`].
     impl<V: ScalarFnVTable> Sealed for TypedScalarFnInstance<V> {}
-}
-
-/// A scalar function has a negative cost if applying it to an array and
-/// canonicalizing is cheaper than canonicalizing an array and applying it.
-///
-/// Example of negative cost expressions are byte_length(), ext_storage(), and get_item() since
-/// they don't depend on input size.
-///
-/// Example of non-negative cost expression is like() as it's linear over
-/// individual input.
-pub fn is_negative_cost(id: ScalarFnId) -> bool {
-    id == ScalarFnVTable::id(&ByteLength)
-        || id == ScalarFnVTable::id(&ExtStorage)
-        || id == ScalarFnVTable::id(&GetItem)
-        || id == ScalarFnVTable::id(&Literal)
 }

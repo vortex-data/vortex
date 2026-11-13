@@ -234,7 +234,7 @@ impl VortexDataSourceBuilder {
     /// Unsupported expressions remain in DataFusion. Custom converters must preserve
     /// DataFusion values, nulls, and evaluation errors for expressions they accept.
     /// A producer-guaranteed fixed comparison may be converted to
-    /// [`DynamicComparison`](vortex::scalar_fn::fns::dynamic::DynamicComparison).
+    /// [`DynamicComparison`](vortex::functions::dynamic::DynamicComparison).
     pub fn with_expression_converter(
         mut self,
         expression_converter: Arc<dyn ExpressionConverter>,

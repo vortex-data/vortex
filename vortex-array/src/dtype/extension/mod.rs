@@ -34,7 +34,11 @@ mod plugin;
 pub use plugin::*;
 
 mod foreign;
-pub(crate) use foreign::*;
+// Tests in other crates build foreign extension dtypes through the test harness.
+#[cfg(not(feature = "_test-harness"))]
+pub(crate) use foreign::ForeignExtDType;
+#[cfg(feature = "_test-harness")]
+pub use foreign::*;
 
 mod typed;
 pub use typed::*;

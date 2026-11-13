@@ -56,7 +56,7 @@ use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnRef;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::fns::get_item::GetItem;
+use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;

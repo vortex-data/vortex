@@ -17,7 +17,7 @@ use crate::arrays::PrimitiveArray;
 use crate::dtype::ToBytes;
 use crate::match_each_ptype_width;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::fill_null::FillNullKernel;
+use crate::scalar_fn::builtin::fill_null::FillNullKernel;
 use crate::validity::Validity;
 
 impl FillNullKernel for Primitive {

@@ -26,9 +26,9 @@ use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::expr::transform::find_between;
 use vortex::expr::transform::replace;
-use vortex::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
-use vortex::scalar_fn::fns::dynamic_expression::input_field_name;
-use vortex::scalar_fn::fns::operators::Operator;
+use vortex::functions::dynamic_expression::DynamicExpressionSource;
+use vortex::functions::dynamic_expression::input_field_name;
+use vortex::scalar_fn::builtin::operators::Operator;
 
 use crate::convert::ExpressionConverter;
 use crate::convert::exprs::is_infallible;
@@ -172,8 +172,8 @@ mod tests {
     use vortex::error::VortexResult;
     use vortex::expr::Expression;
     use vortex::expr::root;
-    use vortex::scalar_fn::fns::between::Between;
-    use vortex::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
+    use vortex::functions::between::Between;
+    use vortex::functions::dynamic_expression::DynamicExpressionSource;
 
     use super::DataFusionDynamicFilter;
     use crate::convert::exprs::DefaultExpressionConverter;

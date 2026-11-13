@@ -9,14 +9,12 @@ use crate::arrays::Dict;
 use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::binary::BooleanExecuteAdaptor;
-use crate::scalar_fn::fns::cast::Cast;
-use crate::scalar_fn::fns::cast::CastExecuteAdaptor;
-use crate::scalar_fn::fns::fill_null::FillNull;
-use crate::scalar_fn::fns::fill_null::FillNullExecuteAdaptor;
-use crate::scalar_fn::fns::zip::Zip;
-use crate::scalar_fn::fns::zip::ZipExecuteAdaptor;
+use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::binary::BooleanExecuteAdaptor;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::cast::CastExecuteAdaptor;
+use crate::scalar_fn::builtin::fill_null::FillNull;
+use crate::scalar_fn::builtin::fill_null::FillNullExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -24,5 +22,4 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(Cast.id(), Bool, CastExecuteAdaptor(Bool));
     kernels.register_execute_parent_kernel(FillNull.id(), Bool, FillNullExecuteAdaptor(Bool));
     kernels.register_execute_parent_kernel(Dict.id(), Bool, TakeExecuteAdaptor(Bool));
-    kernels.register_execute_parent_kernel(Zip.id(), Bool, ZipExecuteAdaptor(Bool));
 }

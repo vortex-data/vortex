@@ -7,7 +7,6 @@ mod fill_null;
 mod filter;
 pub(crate) mod is_constant;
 pub(crate) mod is_sorted;
-mod like;
 mod mask;
 pub(crate) mod min_max;
 pub(crate) mod rules;
@@ -65,7 +64,7 @@ mod test {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::operators::Operator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
