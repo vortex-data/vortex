@@ -1,12 +1,12 @@
 name-template: "$RESOLVED_VERSION"
 tag-template: "$RESOLVED_VERSION"
 categories:
-  - title: "⚠️ Breaks"
-    labels:
-      - "changelog/break"
   - title: "📜 Editions"
     labels:
       - "changelog/edition"
+  - title: "⚠️ Breaks"
+    labels:
+      - "changelog/break"
   - title: "🚧 Deprecation"
     labels:
       - "changelog/deprecation"
