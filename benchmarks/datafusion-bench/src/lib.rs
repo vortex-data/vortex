@@ -40,7 +40,7 @@ pub fn get_session_context() -> SessionContext {
     let factory = VortexFormatFactory::new().with_options(vortex_table_options());
 
     let mut session_state_builder = SessionStateBuilder::new()
-        .with_config(SessionConfig::from_env().expect("shouldn't fail"))
+        .with_config(session_config())
         .with_runtime_env(rt)
         .with_default_features();
 
@@ -56,6 +56,37 @@ pub fn get_session_context() -> SessionContext {
     }
 
     SessionContext::new_with_state(session_state_builder.build())
+}
+
+/// DataFusion join/statistics options that are off by default but enabled for benchmarks.
+///
+/// Each one can still be overridden with its `DATAFUSION_*` environment variable.
+const JOIN_OPTIMIZER_OVERRIDES: &[(&str, &str)] = &[
+    // Vortex scans report exact row counts and min/max/null counts, so the statistics
+    // registry gets more accurate cardinality estimates for join ordering and build-side choice.
+    ("datafusion.optimizer.use_statistics_registry", "true"),
+    // Use (inexact) row estimates, e.g. after filters, when deciding on join repartitioning.
+    (
+        "datafusion.execution.use_row_number_estimates_to_optimize_partitioning",
+        "true",
+    ),
+    // Filter NULL join keys before the join. The extra filter is pushed into the scan.
+    ("datafusion.optimizer.filter_null_join_keys", "true"),
+];
+
+#[expect(clippy::expect_used)]
+fn session_config() -> SessionConfig {
+    let mut config = SessionConfig::from_env().expect("shouldn't fail");
+    for (key, value) in JOIN_OPTIMIZER_OVERRIDES {
+        let env_key = key.replace('.', "_").to_uppercase();
+        if std::env::var_os(env_key).is_none() {
+            config
+                .options_mut()
+                .set(key, value)
+                .expect("valid DataFusion config key");
+        }
+    }
+    config
 }
 
 pub fn make_object_store(
