@@ -81,7 +81,7 @@ SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
 
 [[annotations]]
-path = ".agents/skills/**"
+path = [".agents/skills/**", ".agents/agents/**"]
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
 
