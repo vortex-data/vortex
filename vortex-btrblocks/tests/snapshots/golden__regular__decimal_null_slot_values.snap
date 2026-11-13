@@ -1,0 +1,11 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: decimal(12,2)?, len=16384, nbytes=133120
+root: vortex.decimal_byte_parts.v2(decimal(12,2)?, len=16384) nbytes=51200
+  metadata: 
+  msp: fastlanes.bitpacked.v2(i64?, len=16384) nbytes=51200
+    metadata: bit_width: 24, offset: 0
+    validity_child: vortex.bool(bool, len=16384) nbytes=2048
+      metadata: offset: 0
