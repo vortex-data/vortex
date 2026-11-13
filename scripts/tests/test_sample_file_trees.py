@@ -29,8 +29,9 @@ def load_module() -> ModuleType:
 sft = load_module()
 
 
-def files(*specs: tuple[str, int]) -> list[Any]:
-    return [sft.VortexFile(Path(name), size) for name, size in specs]
+def files(*specs: tuple[str, int, int]) -> list[Any]:
+    """`(name, bytes, lines)` triples as `VortexFile`s."""
+    return [sft.VortexFile(Path(name), size, lines) for name, size, lines in specs]
 
 
 # File names as the vortex-bench data generators write them; Vortex files keep the Parquet stem.
@@ -60,33 +61,47 @@ def test_table_name_matches_generated_files(file_name: str, table: str):
     assert sft.table_name(Path(file_name)) == table
 
 
-def test_sample_has_one_file_per_table_plus_extra():
+def test_sample_keeps_one_file_per_table_then_fills_the_line_budget():
     dataset = files(
-        ("nation.vortex", 10),
-        ("region.vortex", 10),
-        *((f"lineitem_{i:04}.vortex", 1000) for i in range(1, 11)),
-        *((f"orders_{i:04}.vortex", 500) for i in range(1, 5)),
+        ("nation.vortex", 10, 50),
+        ("region.vortex", 10, 40),
+        *((f"lineitem_{i:04}.vortex", 1000, 1700) for i in range(1, 11)),
+        *((f"orders_{i:04}.vortex", 500, 1500) for i in range(1, 5)),
     )
-    sample = sft.sample_files(dataset, 3, random.Random(0))
+    # The four per-table files take 3,290 lines; 3,500 more fit two further partitions.
+    sample = sft.sample_files(dataset, 3290 + 3500, random.Random(0))
 
     tables = Counter(f.table for f in sample)
     assert set(tables) == {"nation", "region", "lineitem", "orders"}
-    assert sum(tables.values()) == 4 + 3
+    assert sum(tables.values()) == 4 + 2
+    assert sum(f.lines for f in sample) <= 3290 + 3500
     assert len({f.path for f in sample}) == len(sample)
 
 
-def test_sample_takes_everything_when_extra_exceeds_remaining():
-    dataset = files(("a_1.vortex", 1), ("a_2.vortex", 2), ("b.vortex", 0))
+def test_sample_keeps_every_table_past_the_budget():
+    dataset = files(("a_1.vortex", 10, 500), ("a_2.vortex", 10, 500), ("b.vortex", 10, 500))
+    assert {f.table for f in sft.sample_files(dataset, 100, random.Random(0))} == {"a", "b"}
+
+
+def test_sample_skips_a_file_too_large_for_the_budget_and_takes_smaller_ones():
+    # `t_1` dwarfs the others, so it is drawn as the table's file; `t_2` then exceeds the budget.
+    dataset = files(("t_1.vortex", 10**12, 1), ("t_2.vortex", 10**9, 1000), ("t_3.vortex", 1, 10))
+    sample = sft.sample_files(dataset, 20, random.Random(0))
+    assert [f.path.name for f in sample] == ["t_1.vortex", "t_3.vortex"]
+
+
+def test_sample_takes_everything_within_budget():
+    dataset = files(("a_1.vortex", 1, 5), ("a_2.vortex", 2, 5), ("b.vortex", 0, 5))
     assert len(sft.sample_files(dataset, 100, random.Random(0))) == 3
 
 
 def test_sample_is_deterministic_for_a_seed():
-    dataset = files(*((f"hits_{i}.vortex", i + 1) for i in range(100)))
-    assert sft.sample_files(dataset, 5, random.Random("abc")) == sft.sample_files(dataset, 5, random.Random("abc"))
+    dataset = files(*((f"hits_{i}.vortex", i + 1, 100) for i in range(100)))
+    assert sft.sample_files(dataset, 900, random.Random("abc")) == sft.sample_files(dataset, 900, random.Random("abc"))
 
 
-def test_weighted_sample_prefers_large_files():
-    dataset = files(("big.vortex", 1_000_000_000), ("small.vortex", 1_000))
+def test_weighted_order_puts_large_files_first():
+    dataset = files(("big.vortex", 1_000_000_000, 1), ("small.vortex", 1_000, 1))
     rng = random.Random(0)
-    picks = Counter(sft.weighted_sample(dataset, 1, rng)[0].path.name for _ in range(1000))
+    picks = Counter(sft.weighted_order(dataset, rng)[0].path.name for _ in range(1000))
     assert picks["big.vortex"] > 990

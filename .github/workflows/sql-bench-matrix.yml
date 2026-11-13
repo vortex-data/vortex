@@ -248,12 +248,13 @@ jobs:
             -o sizes.json
           cat sizes.json >> results.json
 
-      # Footer stats and layout trees of a sample of the dataset's Vortex files: one file of every
-      # table, plus a few more partitions weighted by size. Observability only, so it never fails
-      # the benchmark.
+      # Footer stats and layout trees of a sample of the dataset's Vortex files: every file is
+      # dumped, then one file of every table is kept, plus more partitions weighted by size up to a
+      # line budget. Observability only, so it never fails the benchmark or holds up its job.
       - name: Dump sampled file trees
         if: ${{ !cancelled() && matrix.remote_key == null }}
         continue-on-error: true
+        timeout-minutes: 20
         shell: bash
         run: |
           uv run --no-project scripts/sample-file-trees.py \
