@@ -7,6 +7,7 @@
 #include <vortex.h>
 
 #include <memory>
+#include <string_view>
 
 namespace vortex {
 
@@ -22,6 +23,14 @@ public:
     Session(Session &&) noexcept = default;
     Session &operator=(const Session &other);
     Session &operator=(Session &&) noexcept = default;
+
+    /**
+     * Enable a registered edition by name, for example `VX_EDITION_CORE_2025_10_0`.
+     * This replaces the enabled edition of the same family on the shared session.
+     * Call before opening a Writer. Use separate sessions for overlapping writes with different editions.
+     * Throws VortexException for an unknown edition name.
+     */
+    void enable_edition(std::string_view name);
 
 private:
     friend struct detail::Access;

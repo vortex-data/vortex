@@ -24,6 +24,7 @@ use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::SchemeExt;
 
+use crate::schemes::integer::RunEndScheme;
 use crate::schemes::integer::SparseScheme;
 
 /// Shared descendant exclusion rules for RLE schemes.
@@ -37,11 +38,13 @@ fn rle_descendant_exclusions() -> Vec<DescendantExclusion> {
             excluded: IntDictScheme.id(),
             children: ChildSelection::Many(&[1, 2]),
         },
-        // TODO(connor): This is wrong for some reason?
-        // DescendantExclusion {
-        //     excluded: RunEndScheme.id(),
-        //     children: ChildSelection::Many(&[1, 2]),
-        // },
+        // RLE indices count up within each chunk, so Delta packs them into a few bits. RunEnd
+        // over them would run-length encode already run-length encoded data, which every RLE
+        // decode and filter then has to expand twice.
+        DescendantExclusion {
+            excluded: RunEndScheme.id(),
+            children: ChildSelection::One(1),
+        },
         DescendantExclusion {
             excluded: SparseScheme.id(),
             children: ChildSelection::Many(&[1, 2]),
