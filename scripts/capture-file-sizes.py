@@ -14,6 +14,8 @@ import json
 import sys
 from pathlib import Path
 
+DUCKDB_CATALOG_FILES = {"duckdb.db", "duckdb.db.wal"}
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Capture file sizes from benchmark data directories")
@@ -40,9 +42,19 @@ def main() -> None:
         print(f"Benchmark directory not found: {benchmark_dir}", file=sys.stderr)
         sys.exit(1)
 
-    # Formats to capture (vortex formats only, not parquet/duckdb)
-    # Note: "vortex" CLI arg maps to "vortex-file-compressed" directory name
-    formats_to_capture = {"vortex-file-compressed", "vortex-compact"}
+    # Every on-disk format, named as `Format::name()` in `vortex-bench/src/lib.rs` names its
+    # directory. The "vortex" CLI argument maps to the "vortex-file-compressed" directory.
+    formats_to_capture = {
+        "arrow-ipc",
+        "csv",
+        "duckdb",
+        "lance",
+        "litdata",
+        "parquet",
+        "vortex-compact",
+        "vortex-file-compressed",
+        "vortex-spatial-native",
+    }
 
     records = []
 
@@ -67,8 +79,13 @@ def main() -> None:
             if not file_path.is_file():
                 continue
 
-            size_bytes = file_path.stat().st_size
             relative_path = file_path.relative_to(format_dir)
+            # DuckDB keeps a catalog of views over the files in each format directory it queries
+            # (`duckdb.db`, and its WAL while open). Only the `duckdb` format's database is data.
+            if format_name != "duckdb" and relative_path.name in DUCKDB_CATALOG_FILES:
+                continue
+
+            size_bytes = file_path.stat().st_size
 
             records.append(
                 {

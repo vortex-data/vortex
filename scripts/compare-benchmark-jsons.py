@@ -57,6 +57,8 @@ import pandas as pd
 Z_SCORE_99 = 2.5758293035489004
 CONTROL_FORMAT = "parquet"
 FILE_SIZE_METRIC = "file_size"
+# Every format's file sizes are stored; the PR comment compares only the Vortex formats.
+FILE_SIZE_REPORT_FORMAT_PREFIX = "vortex"
 # The columns of a JSONL file with no benchmark rows.
 EMPTY_ROW_COLUMNS = ["commit_id", "name", "storage", "unit", "value", "all_runtimes", "target"]
 QUERY_TARGET_PATTERN = re.compile(r"_q(\d+)/([^:]+):(.+)$")
@@ -738,7 +740,7 @@ def format_pct_change(pct: float) -> str:
 def extract_file_size_data(
     df: pd.DataFrame,
 ) -> tuple[dict[tuple[str, str, str, str], int], set[tuple[str, str, str, str]]]:
-    """Extract file-size rows and the identities explicitly ignored for being empty."""
+    """Extract the Vortex formats' file-size rows and the identities ignored for being empty."""
 
     data = {}
     ignored = set()
@@ -756,6 +758,8 @@ def extract_file_size_data(
             str(metadata.get("format", "")),
             str(metadata.get("file", "")),
         )
+        if not key[2].startswith(FILE_SIZE_REPORT_FORMAT_PREFIX):
+            continue
         value = row.get("value")
         if pd.isna(value):
             continue
