@@ -1163,7 +1163,7 @@ mod tests {
         let metadata = extension_name
             .map(|id| (EXTENSION_TYPE_NAME_KEY.to_string(), id.to_string()))
             .into_iter()
-            .collect::<arrow_schema::Metadata>();
+            .collect::<Metadata>();
         let field = Field::new("s", dict.data_type().clone(), false).with_metadata(metadata);
 
         let dtype = session.from_arrow_field(&field)?;
