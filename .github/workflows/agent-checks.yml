@@ -47,6 +47,7 @@ concurrency:
 permissions: { }
 
 env:
+  NIGHTLY_TOOLCHAIN: nightly-2026-11-13
   STATE_BRANCH: agent-checks-state
   STATE_DIR: ${{ github.workspace }}/.agent-checks-state
   PR_LABEL: agent-checks
@@ -150,6 +151,10 @@ jobs:
       - name: Setup Rust toolchain
         uses: ./.github/actions/setup-rust
 
+      - name: Install nightly rustfmt
+        # CI checks formatting with the pinned nightly; format agent edits with the same one.
+        run: rustup toolchain install "$NIGHTLY_TOOLCHAIN" --profile minimal --component rustfmt
+
       - name: Render prompt
         id: prompt
         run: |
@@ -192,6 +197,13 @@ jobs:
             --out-dir "$WORK/out" --run-url "$RUN_URL" --revert-out-of-scope
           mkdir -p "$WORK/state-update"
           cp "$WORK/out/state-update.json" "$WORK/state-update/$CHECK--${SHARD//\//-}.json"
+
+      - name: Format edited Rust files
+        if: steps.finalize.outputs.has_edits == 'true'
+        run: |
+          jq -r '.edits[] | select(endswith(".rs"))' "$WORK/out/summary.json" \
+            | while IFS= read -r f; do [[ -f "$f" ]] && echo "$f"; done \
+            | xargs -r -d '\n' rustup run "$NIGHTLY_TOOLCHAIN" rustfmt --edition 2024
 
       - name: Open draft pull request
         if: steps.finalize.outputs.has_edits == 'true'
