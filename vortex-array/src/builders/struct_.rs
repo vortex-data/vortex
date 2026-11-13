@@ -116,6 +116,20 @@ impl StructBuilder {
         Ok(())
     }
 
+    /// Append borrowed fields without constructing a struct scalar.
+    pub(crate) fn append_fields(&mut self, fields: &[&Scalar]) -> VortexResult<()> {
+        vortex_ensure_eq!(
+            fields.len(),
+            self.builders.len(),
+            "Wrong number of struct fields"
+        );
+        for (builder, field) in self.builders.iter_mut().zip(fields) {
+            builder.append_scalar(field)?;
+        }
+        self.nulls.append_non_null();
+        Ok(())
+    }
+
     /// Finishes the builder directly into a [`StructArray`].
     pub fn finish_into_struct(&mut self) -> StructArray {
         let len = self.len();

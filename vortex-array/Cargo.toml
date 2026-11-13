@@ -373,3 +373,7 @@ harness = false
 [[bench]]
 name = "run_end_decode_primitive"
 harness = false
+
+[[bench]]
+name = "aggregate_finalize"
+harness = false

@@ -35,6 +35,8 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::fixed_size_bytes::is_fixed_size_bytes;
+use crate::builders::ArrayBuilder;
+use crate::builders::StructBuilder;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -527,6 +529,23 @@ impl AggregateFnVTable for MinMax {
         partials: ArrayRef,
     ) -> VortexResult<ArrayRef> {
         Ok(partials)
+    }
+
+    fn finalize_into(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        if let Some(builder) = builder.as_any_mut().downcast_mut::<StructBuilder>() {
+            match (&partial.min, &partial.max) {
+                (Some(min), Some(max)) => builder.append_fields(&[min, max])?,
+                _ => builder.append_null(),
+            }
+            Ok(())
+        } else {
+            builder.append_scalar(&self.finalize_scalar(args, partial)?)
+        }
     }
 
     fn finalize_scalar(

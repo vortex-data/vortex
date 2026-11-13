@@ -20,6 +20,7 @@ use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
+use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
@@ -268,6 +269,19 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         args: AggregateArgs<'_, Self::Options>,
         states: ArrayRef,
     ) -> VortexResult<ArrayRef>;
+
+    /// Append one finalized result to `builder` without changing the partial state.
+    ///
+    /// The builder must have dtype `args.return_dtype`. Implementations can append typed state
+    /// directly; the default preserves support for aggregates with scalar-only finalization.
+    fn finalize_into(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        builder.append_scalar(&self.finalize_scalar(args, partial)?)
+    }
 
     /// Finalize a partial state into an aggregate result of dtype `args.return_dtype`.
     fn finalize_scalar(
