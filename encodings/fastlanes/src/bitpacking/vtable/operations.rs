@@ -4,6 +4,7 @@
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ProbeState;
+use vortex_array::patches::PatchesProbeState;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
@@ -15,7 +16,7 @@ use crate::bitpacking::array::BitPackedArrayExt;
 use crate::bitpacking::array::PATCH_SLOTS;
 
 impl OperationsVTable<BitPacked> for BitPacked {
-    type ProbeState = ();
+    type ProbeState = PatchesProbeState;
 
     fn probe_scalar(
         state: &mut ProbeState<'_, BitPacked>,

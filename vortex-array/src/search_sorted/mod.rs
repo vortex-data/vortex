@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod decoded;
 mod primitive;
 mod scalar;
 
@@ -13,6 +14,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hint;
 
+pub use decoded::*;
 pub use primitive::*;
 pub use scalar::*;
 use vortex_error::VortexResult;
