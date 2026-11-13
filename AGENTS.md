@@ -195,6 +195,8 @@ These CI checks are the ones most often missed when adding files rather than edi
   self-explanatory code.
 - Use `vortex_ensure_eq!(left, right)` instead of `vortex_ensure!(left == right)` whenever
   possible so equality failures report both values.
+- When adding or changing a serialized format (an `ArrayPlugin`, layout, or other wire ID), follow
+  `docs/specs/versioning/wire-contracts.md`.
 
 ## Tests
 

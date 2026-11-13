@@ -11,6 +11,8 @@ independently. The companion pages explain the configuration and the reasoning b
   edition, wire format, and reader version.
 - [Edition registry](versioning/editions.md) lists the permitted wire IDs and minimum versions for
   each edition.
+- [Designing wire contracts](versioning/wire-contracts.md) explains how to design a format so that
+  later versions can extend it without older readers misreading their output.
 
 An array's _encoding_ describes its in-memory representation, whereas its _wire format_ defines how
 to interpret its serialized metadata, buffers, and children. A _wire ID_ identifies that contract.
@@ -101,4 +103,5 @@ versioning/using-editions
 versioning/design
 versioning/compatibility
 versioning/editions
+versioning/wire-contracts
 ```
