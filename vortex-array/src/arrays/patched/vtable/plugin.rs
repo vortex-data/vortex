@@ -5,6 +5,7 @@
 
 use prost::Message;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 
@@ -41,6 +42,16 @@ impl ArrayPlugin for Patched {
             "Patched plugin cannot serialize an array of another encoding",
         );
         let array = array.as_::<Patched>();
+        // Readers derive the lane offsets length from the metadata, so reject arrays they could
+        // not read back.
+        let data = PatchedData {
+            n_lanes: array.n_lanes(),
+            offset: array.offset(),
+        };
+        vortex_ensure_eq!(
+            array.lane_offsets().len(),
+            data.lane_offsets_len(array.dtype(), array.len())?,
+        );
         let metadata = PatchedMetadata {
             n_patches: u32::try_from(array.patch_indices().len())?,
             n_lanes: u32::try_from(array.n_lanes())?,
@@ -68,24 +79,43 @@ impl ArrayPlugin for Patched {
             dtype,
             len,
             metadata,
+            buffers,
             children,
             ..
         } = parts;
+        vortex_ensure!(
+            buffers.is_empty(),
+            "PatchedArray expects 0 buffers, got {}",
+            buffers.len()
+        );
+        vortex_ensure!(
+            children.len() >= PatchedSlots::COUNT,
+            "PatchedArray expects at least {} children, got {}",
+            PatchedSlots::COUNT,
+            children.len()
+        );
         let metadata = PatchedMetadata::decode(metadata)?;
-        let n_patches = metadata.n_patches as usize;
-        let n_lanes = metadata.n_lanes as usize;
-        let offset = metadata.offset as usize;
+        let n_patches = usize::try_from(metadata.n_patches)?;
+        let data = PatchedData {
+            n_lanes: usize::try_from(metadata.n_lanes)?,
+            offset: usize::try_from(metadata.offset)?,
+        };
+        // Check the metadata before reading children, whose lengths and dtypes derive from it.
+        let lane_offsets_len = data.lane_offsets_len(dtype, len)?;
 
-        // n_chunks should correspond to the chunk in the `inner`.
-        // After slicing when offset > 0, there may be additional chunks.
-        let n_chunks = (len + offset).div_ceil(1024);
+        let inner = children.get(PatchedSlots::INNER, dtype, len)?;
+        let lane_offsets = children.get(
+            PatchedSlots::LANE_OFFSETS,
+            PType::U32.into(),
+            lane_offsets_len,
+        )?;
+        let indices = children.get(PatchedSlots::PATCH_INDICES, PType::U16.into(), n_patches)?;
+        let values = children.get(
+            PatchedSlots::PATCH_VALUES,
+            &dtype.as_nonnullable(),
+            n_patches,
+        )?;
 
-        let inner = children.get(0, dtype, len)?;
-        let lane_offsets = children.get(1, PType::U32.into(), n_chunks * n_lanes + 1)?;
-        let indices = children.get(2, PType::U16.into(), n_patches)?;
-        let values = children.get(3, dtype, n_patches)?;
-
-        let data = PatchedData { n_lanes, offset };
         let slots = PatchedSlots {
             inner,
             lane_offsets,
