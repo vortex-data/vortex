@@ -584,11 +584,21 @@ fn import_rejects_bad_metadata(
     #[case] metadata: &[(&str, &str)],
     #[case] message: &str,
 ) -> VortexResult<()> {
-    let err = SESSION
-        .arrow()
-        .from_arrow_field(&tagged_int64_field(metadata))
-        .expect_err("invalid metadata must be rejected");
-    assert!(err.to_string().contains(message), "unexpected error: {err}");
+    let field = tagged_int64_field(metadata);
+    let array: ArrowArrayRef = Arc::new(Int64Array::from(vec![1]));
+
+    for err in [
+        SESSION
+            .arrow()
+            .from_arrow_field(&field)
+            .expect_err("invalid field metadata must be rejected"),
+        SESSION
+            .arrow()
+            .from_arrow_array(array, &field)
+            .expect_err("invalid array metadata must be rejected"),
+    ] {
+        assert!(err.to_string().contains(message), "unexpected error: {err}");
+    }
 
     Ok(())
 }

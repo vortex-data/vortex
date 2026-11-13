@@ -269,7 +269,20 @@ fn execute_arrow_ext_storage(
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    ensure_ext_metadata(target, &decode_arrow_ext_metadata(target)?, ext_dtype)?;
+    if let Some(importer_dtype) = ctx
+        .session()
+        .arrow()
+        .infer_field_dtype_with_importers(target)?
+    {
+        vortex_ensure_eq!(
+            importer_dtype.as_nullable(),
+            array.dtype().as_nullable(),
+            "Arrow field {:?} must describe the source extension type",
+            target.name()
+        );
+    } else {
+        ensure_ext_metadata(target, &decode_arrow_ext_metadata(target)?, ext_dtype)?;
+    }
 
     let target_dtype = ctx
         .session()

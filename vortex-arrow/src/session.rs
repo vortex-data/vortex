@@ -289,13 +289,15 @@ type ArrowImporterRegistry = ArcSwapMap<Id, Arc<[ArrowImportVTableRef]>>;
 /// schemas, so [`ExtDTypeRef::serialize_metadata`] must give equal bytes for equal types.
 ///
 /// A caller can also export an array to a field that names its Vortex ID, such as a field from
-/// [`Self::to_arrow_storage_field`]. The export then checks that the field describes the type of the
-/// array. The field must have the same metadata, and its Arrow type must import as the storage type
-/// (or as the type itself, such as an Arrow timestamp). Nested extension types count as their
-/// storage types in this check, and the export checks each nested field when it reaches it. Without
-/// these checks, values could silently change meaning, such as milliseconds that read back as
-/// seconds. For the same reason, an extension array cannot export to a field that names a different
-/// known Vortex ID.
+/// [`Self::to_arrow_storage_field`]. The export then checks that the field describes the type of
+/// the array. Registered importers read the field's metadata in the plugin's format and must infer
+/// the same dtype apart from outer nullability. Without a matching importer, the metadata must
+/// decode to the bytes returned by [`ExtDTypeRef::serialize_metadata`]. Its Arrow type must also
+/// import as the storage type (or as the type itself, such as an Arrow timestamp). Nested extension
+/// types count as their storage types in this check, and the export checks each nested field when
+/// it reaches it. Without these checks, values could silently change meaning, such as milliseconds
+/// that read back as seconds. For the same reason, an extension array cannot export to a field that
+/// names a different known Vortex ID.
 ///
 /// On import, the plugins run first. If none applies, a field that names a known Vortex ID imports
 /// as that type over its storage, and a field with any other name imports as plain storage. A
@@ -303,6 +305,10 @@ type ArrowImporterRegistry = ArcSwapMap<Id, Arc<[ArrowImportVTableRef]>>;
 /// [`VortexSession`], even after the first use of the Arrow session. The Arrow session keeps the
 /// registry of the [`DTypeSession`] that existed at its first use, so it does not see a new
 /// [`DTypeSession`] that later replaces it through [`VortexSession::register`].
+///
+/// A map's entries field only groups the key and value fields. Both dtype and array imports ignore
+/// its extension name so it remains a plain struct. Key and value fields still reach their
+/// importers.
 ///
 /// [`ExecuteArrowExt`]: crate::ExecuteArrowExt
 /// [`ext_metadata`]: crate::ext_metadata
@@ -597,25 +603,21 @@ impl ArrowSession {
     /// [`Self::from_arrow_datatype`] so extension metadata on nested element/struct
     /// fields is preserved.
     ///
-    /// If the extension name of `field` is a Vortex ID that the session knows, the result is that
-    /// extension type over the converted storage (see [`ArrowSession`]).
-    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
+    /// If no plugin recognizes `field` and its extension name is a known Vortex ID, the result is
+    /// that extension type over the converted storage (see [`ArrowSession`]).
     pub fn from_arrow_field(&self, field: &Field) -> VortexResult<DType> {
         if let DataType::Dictionary(_, value_type) = field.data_type() {
             return self
                 .from_arrow_field(&field.clone().with_data_type(value_type.as_ref().clone()));
         }
 
-        if let Some(name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
-            for plugin in self.importers(&Id::new(name)).iter() {
-                if let Some(dtype) = plugin.from_arrow_field(field, self)? {
-                    return Ok(dtype);
-                }
-            }
-            // Parquet Variant is understood even without a registered importer plugin.
-            if name == "arrow.parquet.variant" {
-                return Ok(DType::Variant(field.is_nullable().into()));
-            }
+        if let Some(dtype) = self.infer_field_dtype_with_importers(field)? {
+            return Ok(dtype);
+        }
+
+        // Parquet Variant is understood even without a registered importer plugin.
+        if field.extension_type_name() == Some("arrow.parquet.variant") {
+            return Ok(DType::Variant(field.is_nullable().into()));
         }
 
         let storage_dtype =
@@ -625,6 +627,32 @@ impl ArrowSession {
             Some(ext_dtype) => DType::Extension(ext_dtype),
             None => storage_dtype,
         })
+    }
+
+    /// Returns the dtype that the importers registered for the extension name of `field` infer.
+    ///
+    /// Returns `None` if `field` has no extension name or if no importer recognizes it.
+    ///
+    /// An importer owns the format of its Arrow metadata, which can differ from the Vortex wire
+    /// metadata of the same type. For example, a plugin can store unmarked base64, which
+    /// [`decode_arrow_ext_metadata`] reads as UTF-8 text. So import and export both ask the
+    /// importer which type a field describes before they compare any metadata bytes.
+    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
+    pub(crate) fn infer_field_dtype_with_importers(
+        &self,
+        field: &Field,
+    ) -> VortexResult<Option<DType>> {
+        let Some(name) = field.extension_type_name() else {
+            return Ok(None);
+        };
+
+        for plugin in self.importers(&Id::new(name)).iter() {
+            if let Some(dtype) = plugin.from_arrow_field(field, self)? {
+                return Ok(Some(dtype));
+            }
+        }
+
+        Ok(None)
     }
 
     /// Build the Vortex [`DType`] for an Arrow [`DataType`].
@@ -756,8 +784,8 @@ impl ArrowSession {
     /// extension fields nested inside containers reach their importers; leaf types fall
     /// through to the canonical Arrow → Vortex array conversion.
     ///
-    /// If the extension name of `field` is a Vortex ID that the session knows, the import wraps the
-    /// converted array in that extension type (see [`ArrowSession`]).
+    /// If no plugin imports the array and the extension name of `field` is a known Vortex ID,
+    /// the import wraps the converted storage in that extension type (see [`ArrowSession`]).
     ///
     /// A dictionary array imports as a [`DictArray`]. Its values import as described above, with
     /// `field`'s metadata.
@@ -775,10 +803,8 @@ impl ArrowSession {
         self.from_arrow_array_inner(array, field.as_ref())
     }
 
-    /// [`Self::from_arrow_array`] with the Arrow [`Field`] already resolved: peel a dictionary,
-    /// import through [`Self::from_arrow_array_with_importers`], and wrap the result in the
-    /// extension type if the extension name of the field is a Vortex ID that the session knows.
-    /// Also the recursion point for nested fields, which already have a [`Field`].
+    /// [`Self::from_arrow_array`] with the Arrow [`Field`] already resolved. Also the recursion
+    /// point for nested fields, which already have a [`Field`].
     #[allow(clippy::wrong_self_convention)]
     fn from_arrow_array_inner(
         &self,
@@ -789,7 +815,15 @@ impl ArrowSession {
             return self.dictionary_from_arrow(array.as_ref(), field);
         }
 
-        let imported = self.from_arrow_array_with_importers(array, field)?;
+        // A plugin import is final, because `from_arrow_array_with_importers` already checked that
+        // it has the dtype inferred from `field`. It must not reach `ext_dtype_to_wrap`, which
+        // reads the metadata of `field` as Vortex wire metadata. A plugin can encode its metadata
+        // differently, so that check would reject a valid array.
+        let storage = match self.from_arrow_array_with_importers(array, field)? {
+            ArrowImport::Imported(imported) => return Ok(imported),
+            ArrowImport::Unsupported(storage) => storage,
+        };
+        let imported = self.from_arrow_array_canonical(storage.as_ref(), field)?;
 
         match self.ext_dtype_to_wrap(field, imported.dtype())? {
             Some(ext_dtype) => Ok(ExtensionArray::try_new(ext_dtype, imported)?.into_array()),
@@ -797,15 +831,16 @@ impl ArrowSession {
         }
     }
 
-    /// Probe the import plugins registered for the extension name of `field`, then fall back to
-    /// the canonical conversion. Unlike [`Self::from_arrow_array_inner`], this never wraps the
-    /// result in the extension type that a Vortex ID names.
+    /// Probe registered importers, checking imported dtypes and all returned array lengths.
+    ///
+    /// If every plugin declines, return [`ArrowImport::Unsupported`] with the remaining array.
+    /// Canonical conversion and Vortex ID wrapping belong to [`Self::from_arrow_array_inner`].
     #[allow(clippy::wrong_self_convention)]
     fn from_arrow_array_with_importers(
         &self,
         array: ArrowArrayRef,
         field: &Field,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<ArrowImport> {
         let mut current = array;
 
         if let Some(extension_name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
@@ -835,7 +870,7 @@ impl ArrowSession {
                                 "Arrow importer must preserve the dtype inferred from its field"
                             );
 
-                            return Ok(arr);
+                            return Ok(ArrowImport::Imported(arr));
                         }
                         ArrowImport::Unsupported(arr) => {
                             vortex_ensure_eq!(
@@ -853,11 +888,14 @@ impl ArrowSession {
             }
         }
 
-        self.from_arrow_array_canonical(current.as_ref(), field)
+        Ok(ArrowImport::Unsupported(current))
     }
 
-    /// Recurse into Arrow container arrays so nested fields with extension metadata reach
-    /// their importers, falling through to the canonical conversion for leaf types.
+    /// Convert an Arrow array by its data type alone, ignoring the extension name of `field`.
+    ///
+    /// Recurses into container arrays through [`Self::from_arrow_array_inner`], so nested fields
+    /// with extension metadata still reach their importers. Leaf types use the canonical
+    /// conversion.
     #[allow(clippy::wrong_self_convention)]
     fn from_arrow_array_canonical(
         &self,
@@ -964,12 +1002,12 @@ impl ArrowSession {
             DataType::Map(entries_field, keys_sorted) => {
                 let map = array.as_map();
                 let (entries, offsets) = trim_map_entries(map);
-                // `map_from_arrow_parts` needs the entries as a plain struct, so a Vortex ID on the
-                // entries field is ignored. Import plugins for its extension name still run, while
-                // `from_arrow_datatype` ignores the entries field completely.
-                let entries_array: ArrowArrayRef = Arc::new(entries);
-                let entries =
-                    self.from_arrow_array_with_importers(entries_array, entries_field.as_ref())?;
+
+                // The entries field only groups keys and values, so `from_arrow_datatype` ignores
+                // its extension name. Import it as a plain struct too, while key and value fields
+                // still reach their importers.
+                let entries = self.from_arrow_array_canonical(&entries, entries_field.as_ref())?;
+
                 map_from_arrow_parts(
                     entries,
                     &offsets,
@@ -1379,24 +1417,52 @@ mod tests {
         ))
     }
 
-    fn map_with_truncated_child() -> ArrowArrayRef {
+    fn map_entries_with_value_field(value_field: FieldRef) -> StructArray {
         let key_field = Arc::new(Field::new("key", DataType::Int64, false));
-        let value_field = Arc::new(Field::new("value", DataType::Int64, false));
-        let entries = StructArray::new(
+
+        StructArray::new(
             Fields::from(vec![key_field, value_field]),
             vec![
                 Arc::new(Int64Array::from_iter_values(0..5)),
                 Arc::new(Int64Array::from_iter_values(5..10)),
             ],
             None,
-        );
+        )
+    }
+
+    fn map_with_truncated_child() -> ArrowArrayRef {
+        let entries = map_entries_with_value_field(truncated_field("value", DataType::Int64));
         Arc::new(MapArray::new(
-            truncated_field("entries", entries.data_type().clone()),
+            Arc::new(Field::new("entries", entries.data_type().clone(), false)),
             OffsetBuffer::new(vec![0, 5].into()),
             entries,
             None,
             false,
         ))
+    }
+
+    #[test]
+    fn test_map_entries_ignore_import_plugins() -> VortexResult<()> {
+        let vortex_session = VortexSession::empty();
+        let session = vortex_session.arrow();
+        session.register_importer(Arc::new(TruncatingImporter { decline: false }));
+
+        let value_field = Arc::new(Field::new("value", DataType::Int64, false));
+        let entries = map_entries_with_value_field(value_field);
+        let map = MapArray::new(
+            truncated_field("entries", entries.data_type().clone()),
+            OffsetBuffer::new(vec![0, 5].into()),
+            entries,
+            None,
+            false,
+        );
+        let field = Field::new("map", map.data_type().clone(), false);
+        let expected_dtype = session.from_arrow_field(&field)?;
+
+        let imported = session.from_arrow_array(Arc::new(map), &field)?;
+        assert_eq!(imported.dtype(), &expected_dtype);
+
+        Ok(())
     }
 
     #[rstest]
