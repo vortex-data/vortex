@@ -70,7 +70,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench)
+          packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench --bin vx)
           if [ "${{ inputs.mode }}" != "pr" ]; then
             packages+=(--bin lance-bench)
           fi
@@ -85,6 +85,7 @@ jobs:
                 target/release_debug/datafusion-bench
                 target/release_debug/duckdb-bench
                 target/release_debug/lance-bench
+                target/release_debug/vx
                 target/release_debug/build/vortex-duckdb-cache/duckdb-lib-*-prebuilt/libduckdb.so
           - name: Pre-upload SQL benchmark debuginfo to Polar Signals
             if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
@@ -247,6 +248,31 @@ jobs:
             -o sizes.json
           cat sizes.json >> results.json
 
+      # Footer stats and layout trees of a sample of the dataset's Vortex files: every file is
+      # dumped, then one file of every table is kept, plus more partitions weighted by size up to a
+      # line budget. Observability only, so it never fails the benchmark or holds up its job.
+      - name: Dump sampled file trees
+        if: ${{ !cancelled() && matrix.remote_key == null }}
+        continue-on-error: true
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          uv run --no-project scripts/sample-file-trees.py \
+            vortex-bench/data/${{ matrix.dataset_dir }} \
+            --vx target/release_debug/vx \
+            --seed ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
+            -o file-trees
+
+      - name: Upload sampled file trees
+        if: ${{ !cancelled() && matrix.remote_key == null }}
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: file-trees-${{ inputs.matrix_preset }}-${{ matrix.id }}
+          path: file-trees/
+          retention-days: 5
+          if-no-files-found: ignore
+
       - name: Fetch baseline from the benchmarks database
         if: inputs.mode == 'pr'
         uses: ./.github/actions/fetch-bench-baseline
@@ -327,3 +353,28 @@ jobs:
           api-key: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
           alert-title: "${{ matrix.name }} SQL benchmark failed on develop"
           deduplication-key: ci-sql-bench-${{ matrix.id }}-failure
+
+  # Merge every bench job's sampled file trees into one artifact, one directory per job, so a run
+  # has a single zip to download.
+  merge-file-trees:
+    needs: bench
+    if: ${{ !cancelled() }}
+    timeout-minutes: 10
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-small/image=ubuntu26-full-x64-pre-v2/tag=merge-file-trees{1}', github.run_id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          || 'ubuntu-latest' }}
+    steps:
+      # `extras=s3-cache` points the artifact API at the RunsOn proxy, which only this action wires
+      # up; without it the merge cannot list the bench jobs' artifacts.
+      - uses: runs-on/action@v2
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+      - name: Merge sampled file trees
+        continue-on-error: true
+        uses: actions/upload-artifact/merge@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: file-trees-${{ inputs.matrix_preset }}
+          pattern: file-trees-${{ inputs.matrix_preset }}-*
+          separate-directories: true
+          delete-merged: true
+          retention-days: 5
