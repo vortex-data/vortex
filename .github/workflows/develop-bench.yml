@@ -109,10 +109,6 @@ jobs:
             name: Random Access (S3)
             build_args: "--features lance"
             v4_ingest: true
-            # Scoped to the run attempt: the upload step clears this prefix first, so a shared
-            # prefix lets an overlapping run (e.g. a re-run of an earlier commit) delete the
-            # data out from under this one. An S3 lifecycle rule on the bucket's develop/ prefix
-            # expires the per-run data after a day.
             remote_data_dir: >-
               s3://vortex-ci-benchmark-datasets/develop/${{ github.run_id }}-${{ github.run_attempt }}/random-access/
           - id: compress-bench
