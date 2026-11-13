@@ -139,25 +139,25 @@ crossbeam-channel = "0.5.16"
 crossterm = "0.29"
 custom-labels = "0.4.4"
 dashmap = "6.2.1"
-# DataFusion 56 release branch; switch to the published 56.0.0 release when available.
+# DataFusion 56.0.0-rc1; switch to the published 56.0.0 release when available.
 # https://github.com/apache/datafusion/issues/24461
-datafusion = { version = "56.0.0-dev", git = "https://github.com/apache/datafusion", branch = "branch-56", default-features = false, features = [
+datafusion = { version = "56.0.0", git = "https://github.com/apache/datafusion", tag = "56.0.0-rc1", default-features = false, features = [
     "sql",
 ] }
-datafusion-catalog = { version = "56.0.0-dev", git = "https://github.com/apache/datafusion", branch = "branch-56" }
-datafusion-common = { version = "56.0.0-dev", git = "https://github.com/apache/datafusion", branch = "branch-56" }
-datafusion-common-runtime = { version = "56.0.0-dev", git = "https://github.com/apache/datafusion", branch = "branch-56" }
-datafusion-datasource = { version = "56.0.0-dev", git = "https://github.com/apache/datafusion", branch = "branch-56", default-features = false }
-datafusion-execution = { version = "56.0.0-dev", git = "https://github.com/apache/datafusion", branch = "branch-56" }
-datafusion-expr = { version = "56.0.0-dev", git = "https://github.com/apache/datafusion", branch = "branch-56" }
-datafusion-functions = { version = "56.0.0-dev", git = "https://github.com/apache/datafusion", branch = "branch-56" }
-datafusion-functions-nested = { version = "56.0.0-dev", git = "https://github.com/apache/datafusion", branch = "branch-56" }
-datafusion-physical-expr = { version = "56.0.0-dev", git = "https://github.com/apache/datafusion", branch = "branch-56" }
-datafusion-physical-expr-adapter = { version = "56.0.0-dev", git = "https://github.com/apache/datafusion", branch = "branch-56" }
-datafusion-physical-expr-common = { version = "56.0.0-dev", git = "https://github.com/apache/datafusion", branch = "branch-56" }
-datafusion-physical-plan = { version = "56.0.0-dev", git = "https://github.com/apache/datafusion", branch = "branch-56" }
-datafusion-pruning = { version = "56.0.0-dev", git = "https://github.com/apache/datafusion", branch = "branch-56" }
-datafusion-sqllogictest = { version = "56.0.0-dev", git = "https://github.com/apache/datafusion", branch = "branch-56" }
+datafusion-catalog = { version = "56.0.0", git = "https://github.com/apache/datafusion", tag = "56.0.0-rc1" }
+datafusion-common = { version = "56.0.0", git = "https://github.com/apache/datafusion", tag = "56.0.0-rc1" }
+datafusion-common-runtime = { version = "56.0.0", git = "https://github.com/apache/datafusion", tag = "56.0.0-rc1" }
+datafusion-datasource = { version = "56.0.0", git = "https://github.com/apache/datafusion", tag = "56.0.0-rc1", default-features = false }
+datafusion-execution = { version = "56.0.0", git = "https://github.com/apache/datafusion", tag = "56.0.0-rc1" }
+datafusion-expr = { version = "56.0.0", git = "https://github.com/apache/datafusion", tag = "56.0.0-rc1" }
+datafusion-functions = { version = "56.0.0", git = "https://github.com/apache/datafusion", tag = "56.0.0-rc1" }
+datafusion-functions-nested = { version = "56.0.0", git = "https://github.com/apache/datafusion", tag = "56.0.0-rc1" }
+datafusion-physical-expr = { version = "56.0.0", git = "https://github.com/apache/datafusion", tag = "56.0.0-rc1" }
+datafusion-physical-expr-adapter = { version = "56.0.0", git = "https://github.com/apache/datafusion", tag = "56.0.0-rc1" }
+datafusion-physical-expr-common = { version = "56.0.0", git = "https://github.com/apache/datafusion", tag = "56.0.0-rc1" }
+datafusion-physical-plan = { version = "56.0.0", git = "https://github.com/apache/datafusion", tag = "56.0.0-rc1" }
+datafusion-pruning = { version = "56.0.0", git = "https://github.com/apache/datafusion", tag = "56.0.0-rc1" }
+datafusion-sqllogictest = { version = "56.0.0", git = "https://github.com/apache/datafusion", tag = "56.0.0-rc1" }
 divan = { package = "codspeed-divan-compat", version = "6.0.0" }
 enum-iterator = "2.0.0"
 env_logger = "0.11"
