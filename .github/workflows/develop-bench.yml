@@ -186,6 +186,17 @@ jobs:
                 'scripts/litdata-random-access.py',
                 'benchmarks/random-access-bench/src/litdata.rs') }}
 
+      # string-bench reads its Hugging Face inputs over HTTP, and anonymous Hub reads from shared
+      # runner IPs are rate limited (429). Cache the downloaded columns so most runs never hit
+      # the Hub. `HF_COLUMNS` in lib.rs pins each URL and row cap, so its hash keys the cache.
+      - name: Restore string-bench data
+        id: string-data-cache
+        if: matrix.benchmark.id == 'string-bench'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: vortex-bench/data/string-bench/*.parquet
+          key: string-bench-data-v1-${{ hashFiles('benchmarks/string-bench/src/lib.rs') }}
+
       # Download and convert all benchmark data up front, so the benchmark step below only
       # contains timed runs. The data is written with the same settings the benchmark uses.
       - name: Generate ${{ matrix.benchmark.name }} data
@@ -197,6 +208,13 @@ jobs:
           bench="${{ matrix.benchmark.id }}"
           python3 "scripts/${bench%-bench}-split.py" --prepare-data \
             ${{ matrix.benchmark.remote_data_dir && format('--remote-data-dir {0}', matrix.benchmark.remote_data_dir) || '' }}
+
+      - name: Save string-bench data
+        if: matrix.benchmark.id == 'string-bench' && steps.string-data-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: vortex-bench/data/string-bench/*.parquet
+          key: ${{ steps.string-data-cache.outputs.cache-primary-key }}
 
       - name: Save benchmark data
         if: matrix.benchmark.id == 'random-access-bench' && steps.data-cache.outputs.cache-hit != 'true'
