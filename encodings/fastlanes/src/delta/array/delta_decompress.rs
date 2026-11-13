@@ -59,7 +59,7 @@ where
     T: NativePType + Delta + Transpose,
 {
     let (chunks, remainder) = deltas.as_chunks::<1024>();
-    debug_assert!(
+    assert!(
         remainder.is_empty(),
         "deltas must be padded to a multiple of 1024"
     );

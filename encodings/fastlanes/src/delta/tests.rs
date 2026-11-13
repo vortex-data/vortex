@@ -3,11 +3,15 @@
 
 //! Delta roundtrips and compute operations against primitive arrays.
 
+use prost::Message;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rstest::rstest;
 use vortex_array::ArrayContext;
+use vortex_array::ArrayDeserialization;
+use vortex_array::ArrayPlugin;
+use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -15,7 +19,9 @@ use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::serde::SerializeOptions;
@@ -31,14 +37,30 @@ use vortex_session::registry::ReadContext;
 
 use crate::Delta;
 use crate::DeltaArray;
+use crate::DeltaArrayExt;
 use crate::DeltaArraySlotsExt;
 use crate::FL_CHUNK_SIZE;
 use crate::bitpack_compress::bitpack_encode;
+use crate::delta::vtable::DeltaMetadata;
 
 fn session() -> VortexSession {
     let session = VortexSession::empty();
     crate::initialize(&session);
     session
+}
+
+fn serde_roundtrip(array: &ArrayRef, session: &VortexSession) -> VortexResult<ArrayRef> {
+    let write_ctx = ArrayContext::empty();
+    let mut bytes = ByteBufferMut::empty();
+    for buffer in array.serialize(&write_ctx, session, &SerializeOptions::default())? {
+        bytes.extend_from_slice(&buffer);
+    }
+    SerializedArray::try_from(bytes.freeze())?.decode(
+        array.dtype(),
+        array.len(),
+        &ReadContext::new(write_ctx.to_ids()),
+        session,
+    )
 }
 
 fn check_roundtrip(source: &PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<DeltaArray> {
@@ -122,17 +144,7 @@ fn delta_null_patterns(#[case] pattern: usize) -> VortexResult<()> {
         assert_arrays_eq!(packed, source, &mut ctx);
 
         for array in [delta.into_array(), packed.into_array()] {
-            let write_ctx = ArrayContext::empty();
-            let mut bytes = ByteBufferMut::empty();
-            for buffer in array.serialize(&write_ctx, &session, &SerializeOptions::default())? {
-                bytes.extend_from_slice(&buffer);
-            }
-            let restored = SerializedArray::try_from(bytes.freeze())?.decode(
-                array.dtype(),
-                array.len(),
-                &ReadContext::new(write_ctx.to_ids()),
-                &session,
-            )?;
+            let restored = serde_roundtrip(&array, &session)?;
             let restored_delta = restored
                 .as_opt::<Delta>()
                 .ok_or_else(|| vortex_err!("expected deserialized Delta"))?;
@@ -254,6 +266,130 @@ fn delta_rejects_invalid_top_validity() -> VortexResult<()> {
             )
             .is_err()
         );
+    }
+    Ok(())
+}
+
+/// A nullable signed array sliced to a non-zero offset round-trips through serde.
+#[test]
+fn delta_serde_sliced_signed() -> VortexResult<()> {
+    let session = session();
+    let mut ctx = session.create_execution_ctx();
+    let len = 3000;
+    let source = PrimitiveArray::from_option_iter(
+        (0..len).map(|index| (index % 7 != 0).then_some(index as i64 * -3 + 500)),
+    );
+    let delta = Delta::try_from_primitive_array(&source, &mut ctx)?;
+    let (offset, sliced_len) = (1000, 2000);
+    let sliced = Delta::try_new(
+        delta.bases().clone(),
+        delta.deltas().clone(),
+        Validity::from_iter((offset..offset + sliced_len).map(|index| index % 7 != 0)),
+        offset,
+        sliced_len,
+    )?
+    .into_array();
+
+    let restored = serde_roundtrip(&sliced, &session)?;
+    let restored_delta = restored
+        .as_opt::<Delta>()
+        .ok_or_else(|| vortex_err!("expected deserialized Delta"))?;
+    assert_eq!(restored_delta.offset(), offset);
+    assert_arrays_eq!(
+        restored,
+        source.slice(offset..offset + sliced_len)?,
+        &mut ctx
+    );
+    Ok(())
+}
+
+/// Serializing rejects an array whose deltas extend past the chunk holding its last value.
+#[test]
+fn delta_serialize_rejects_trailing_chunks() -> VortexResult<()> {
+    let session = session();
+    let mut ctx = session.create_execution_ctx();
+    let source = PrimitiveArray::from_iter(0..2048u32);
+    let delta = Delta::try_from_primitive_array(&source, &mut ctx)?;
+    let truncated = Delta::try_new(
+        delta.bases().clone(),
+        delta.deltas().clone(),
+        Validity::NonNullable,
+        0,
+        10,
+    )?
+    .into_array();
+    assert!(serde_roundtrip(&truncated, &session).is_err());
+    Ok(())
+}
+
+#[test]
+fn delta_deserialize_rejects_malformed_parts() -> VortexResult<()> {
+    let session = session();
+    let mut ctx = session.create_execution_ctx();
+    let len = 1500;
+    let source = PrimitiveArray::from_option_iter(
+        (0..len).map(|index| (index % 3 != 0).then_some(index as u32)),
+    );
+    let delta = Delta::try_from_primitive_array(&source, &mut ctx)?;
+    let bases = delta.bases().clone();
+    let deltas = delta.deltas().clone();
+    let validity = delta
+        .validity_child()
+        .ok_or_else(|| vortex_err!("expected a validity child"))?
+        .clone();
+    let metadata = DeltaMetadata {
+        deltas_len: 2048,
+        offset: 0,
+        has_validity: true,
+    };
+    let dtype = source.dtype().clone();
+    let deserialize = |dtype: &DType, metadata: &DeltaMetadata, children: &[ArrayRef]| {
+        Delta.deserialize(
+            ArrayDeserialization::new(
+                ArrayPlugin::id(&Delta),
+                dtype,
+                len,
+                &metadata.encode_to_vec(),
+                &[],
+                &children,
+            ),
+            &session,
+        )
+    };
+    let all = [bases.clone(), deltas.clone(), validity.clone()];
+
+    let restored = deserialize(&dtype, &metadata, &all)?;
+    assert_arrays_eq!(restored, source, &mut ctx);
+
+    // Readers ignore children that follow the ones the metadata declares.
+    let with_trailing = [bases.clone(), deltas.clone(), validity, bases.clone()];
+    let restored = deserialize(&dtype, &metadata, &with_trailing)?;
+    assert_arrays_eq!(restored, source, &mut ctx);
+
+    // The metadata declares a validity child that is missing.
+    assert!(deserialize(&dtype, &metadata, &[bases, deltas]).is_err());
+
+    // A validity child on a non-nullable dtype.
+    assert!(deserialize(&dtype.as_nonnullable(), &metadata, &all).is_err());
+
+    // A non-integer dtype.
+    let float = DType::Primitive(PType::F32, Nullability::Nullable);
+    assert!(deserialize(&float, &metadata, &all).is_err());
+
+    // The offset must lie in the first chunk.
+    let offset_past_chunk = DeltaMetadata {
+        offset: 1024,
+        ..metadata
+    };
+    assert!(deserialize(&dtype, &offset_past_chunk, &all).is_err());
+
+    // The deltas length must be exactly (offset + len) rounded up to a whole chunk.
+    for deltas_len in [0, 1024, 2000, 3072, u64::MAX] {
+        let wrong_len = DeltaMetadata {
+            deltas_len,
+            ..metadata
+        };
+        assert!(deserialize(&dtype, &wrong_len, &all).is_err());
     }
     Ok(())
 }
