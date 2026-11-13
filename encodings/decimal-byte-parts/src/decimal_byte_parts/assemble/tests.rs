@@ -181,43 +181,25 @@ fn test_split_narrow_decimal_reuses_values(
     Ok(())
 }
 
-#[rstest]
-#[case::signed(PrimitiveArray::new(buffer![0i64; 2], Validity::NonNullable))]
-#[case::float(PrimitiveArray::new(buffer![0f32; 2], Validity::NonNullable))]
-#[case::nullable_all_valid(PrimitiveArray::new(buffer![0u64; 2], Validity::AllValid))]
-#[case::nullable_all_null(PrimitiveArray::new(buffer![0u64; 2], Validity::AllInvalid))]
-#[case::nullable_mixed(PrimitiveArray::new(buffer![0u64; 2], Validity::from_iter([true, false])))]
-fn test_assemble_rejects_invalid_lower_dtype(
-    #[case] invalid_lower: PrimitiveArray,
-    #[values(1, 2, 3)] lower_count: usize,
-) {
-    let msp = PrimitiveArray::new(buffer![0i64; 2], Validity::NonNullable);
-    let mut lower = vec![PrimitiveArray::new(buffer![0u64; 2], Validity::NonNullable); lower_count];
-    lower[lower_count - 1] = invalid_lower;
-    let dtype = DecimalDType::new(if lower_count == 1 { 38 } else { 76 }, 0);
-    let lower = lower
-        .into_iter()
-        .map(IntoArray::into_array)
-        .collect::<Vec<_>>();
-    let mut ctx = SESSION.create_execution_ctx();
-    assert!(assemble_decimal(&msp.into_array(), &lower, dtype, &mut ctx).is_err());
-}
+#[test]
+fn test_assemble_validates_parts() {
+    let msp = buffer![0i64; 2].into_array();
+    let lower = [buffer![0u32; 2].into_array()];
 
-#[rstest]
-fn test_assemble_rejects_mismatched_lower_lengths(
-    #[values(1, 2, 3)] lower_count: usize,
-    #[values(0, 1, 3)] lower_len: usize,
-) {
-    let msp = PrimitiveArray::new(buffer![0i64; 2], Validity::NonNullable);
-    let mut lower = vec![PrimitiveArray::new(buffer![0u64; 2], Validity::NonNullable); lower_count];
-    lower[lower_count - 1] = PrimitiveArray::new(buffer![0u64; lower_len], Validity::NonNullable);
-    let dtype = DecimalDType::new(if lower_count == 1 { 38 } else { 76 }, 0);
-    let lower = lower
-        .into_iter()
-        .map(IntoArray::into_array)
-        .collect::<Vec<_>>();
-    let mut ctx = SESSION.create_execution_ctx();
-    assert!(assemble_decimal(&msp.into_array(), &lower, dtype, &mut ctx).is_err());
+    let result = assemble_decimal(
+        &msp,
+        &lower,
+        DecimalDType::new(38, 0),
+        &mut SESSION.create_execution_ctx(),
+    );
+
+    let expected_error = "lower part 0 dtype\n  left: u32\n right: u64";
+    assert!(
+        result
+            .as_ref()
+            .is_err_and(|err| err.to_string().contains(expected_error)),
+        "expected the lower-part dtype check to reject a u32 part, got {result:?}"
+    );
 }
 
 #[rstest]

@@ -116,10 +116,7 @@ fn compare_constant_wide(
     let mut answer = compare_lower_part(&lower_parts[last], split.words[last], operator)?;
 
     for (part, word) in lower_parts.iter().zip(&split.words).take(last).rev() {
-        answer = match lower_part_constant(part, *word) {
-            Some(constant) => lexicographic_step(part, constant, operator, answer)?,
-            None => ConstantArray::new(below_word(operator), part.len()).into_array(),
-        };
+        answer = lexicographic_step(part, Scalar::from(*word), operator, answer)?;
     }
 
     let msp_scalar = Scalar::primitive(split.msp, nullability)
@@ -164,29 +161,9 @@ fn compare_lower_part(
     word: u64,
     operator: CompareOperator,
 ) -> VortexResult<ArrayRef> {
-    match lower_part_constant(part, word) {
-        Some(constant) => part.binary(
-            ConstantArray::new(constant, part.len()).into_array(),
-            Operator::from(operator),
-        ),
-        None => Ok(ConstantArray::new(below_word(operator), part.len()).into_array()),
-    }
-}
-
-/// Converts one word of the constant into the type of a lower part.
-///
-/// A part narrower than 64 bits cannot hold a word beyond its range. In that case, this returns
-/// `None` and every value in the part is below the word.
-fn lower_part_constant(part: &ArrayRef, word: u64) -> Option<Scalar> {
-    Scalar::from(word).cast(part.dtype()).ok()
-}
-
-/// The answer for a part whose every value is below the word of the constant. The less
-/// significant parts cannot change it.
-fn below_word(operator: CompareOperator) -> bool {
-    matches!(
-        operator,
-        CompareOperator::Lt | CompareOperator::Lte | CompareOperator::NotEq
+    part.binary(
+        ConstantArray::new(Scalar::from(word), part.len()).into_array(),
+        Operator::from(operator),
     )
 }
 
@@ -612,53 +589,15 @@ mod tests {
         )
     }
 
-    /// Narrow parts cannot hold every constant of their precision: a constant above the parts'
-    /// range answers by its sign, and a word above a lower part's range sits above every value
-    /// in that part.
+    /// A differing middle word decides the answer before the less significant parts. Constant MSPs
+    /// outside the range of the `i8` MSP answer by their sign.
     #[test]
-    fn narrow_parts_match_decimal() -> VortexResult<()> {
-        let dtype = DecimalDType::new(38, 2);
-        let validity = Validity::from_iter([true, false, true, true]);
-        let msp = PrimitiveArray::new(buffer![1i16, 0, -1, 3], validity.clone()).into_array();
-        let lower = buffer![5u16, 7, 9, u16::MAX].into_array();
-        let array = DecimalByteParts::try_new_with_lower_parts(msp, vec![lower], dtype)?;
-
-        let values: Vec<i128> = vec![
-            (1i128 << 64) + 5,
-            7,
-            -(1i128 << 64) + 9,
-            (3i128 << 64) + i128::from(u16::MAX),
-        ];
-        let baseline = DecimalArray::new(Buffer::from(values.clone()), dtype, validity);
-
-        let mut constants = values;
-        constants.extend([
-            1i128 << 100,
-            -(1i128 << 100),
-            (1i128 << 64) + 70_000,
-            (3i128 << 64) + 70_000,
-            -(1i128 << 64) + 70_000,
-            (1i128 << 64) + 4,
-            (1i128 << 64) + 6,
-            0,
-            -1,
-        ]);
-        assert_matches_decimal(
-            &array,
-            &baseline,
-            constants.into_iter().map(DecimalValue::I128),
-        )
-    }
-
-    /// Middle lower parts can also be narrow. A word above a middle part's range decides the
-    /// answer before the less significant parts.
-    #[test]
-    fn narrow_middle_parts_match_decimal() -> VortexResult<()> {
+    fn middle_parts_match_decimal() -> VortexResult<()> {
         let dtype = DecimalDType::new(76, 2);
         let validity = Validity::from_iter([true, false, true, true]);
         let msp = PrimitiveArray::new(buffer![1i8, 0, -1, 3], validity.clone()).into_array();
-        let upper = buffer![5u8, 7, u8::MAX, 0].into_array();
-        let middle = buffer![9u16, u16::MAX, 0, 3].into_array();
+        let upper = buffer![5u64, 7, u64::from(u8::MAX), 0].into_array();
+        let middle = buffer![9u64, u64::from(u16::MAX), 0, 3].into_array();
         let lower = buffer![2u64, u64::MAX, 4, 0].into_array();
         let array =
             DecimalByteParts::try_new_with_lower_parts(msp, vec![upper, middle, lower], dtype)?;
@@ -690,6 +629,8 @@ mod tests {
             value(3, 0, 70_000, 0),
             value(1, 5, 9, 1),
             value(1, 5, 9, 3),
+            value(1 << 40, 0, 0, 0),
+            value(-(1 << 40), 0, 0, 0),
         ]);
         assert_matches_decimal(
             &array,
