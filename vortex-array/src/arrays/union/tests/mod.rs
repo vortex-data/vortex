@@ -429,7 +429,7 @@ fn deserialize_rejects_malformed_parts() -> VortexResult<()> {
     let not_union = DType::Primitive(PType::U8, Nullability::NonNullable);
     assert!(deserialize(&not_union, &[], &[], &all).is_err());
 
-    // Union arrays have empty metadata and no buffers.
+    // Union metadata must be a well-formed protobuf message, and union arrays have no buffers.
     assert!(deserialize(&dtype, &[0], &[], &all).is_err());
     let buffer = BufferHandle::new_host(buffer![0u8]);
     assert!(deserialize(&dtype, &[], &[buffer], &all).is_err());
