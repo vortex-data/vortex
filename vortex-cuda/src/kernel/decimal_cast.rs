@@ -3,9 +3,10 @@
 
 //! Widening casts of decimal values buffers on the device.
 //!
-//! The Arrow export widens decimal values to the width that the Arrow schema fixes, and the
-//! Widen executor widens a narrow decimal child to the canonical width of its decimal dtype. Both
-//! launch the `decimal_cast` kernels through this module.
+//! The Arrow export widens decimal values to the width that the Arrow schema fixes, the Widen
+//! executor widens a narrow decimal child to the canonical width of its decimal dtype, and the
+//! DecimalByteParts executor widens a stored MSP to the canonical width of its decimal dtype. All
+//! three launch the `decimal_cast` kernels through this module.
 //!
 //! These casts only widen. A narrowing cast can overflow, and to detect that on the device, the
 //! kernel would need an overflow flag that synchronizes with the host. So this module rejects a
