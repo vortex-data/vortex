@@ -548,14 +548,15 @@ impl<T> BufferMut<T> {
         // Keep the data where it is, so a shrink in place copies nothing.
         let new_size = offset + data_bytes + padding;
 
+        // `align_offset` rather than the address, so Miri's symbolic alignment check agrees.
         let offset = if self.allocation.shrink(new_size)
-            && !self
+            && self
                 .allocation
                 .ptr()
                 .as_ptr()
                 .wrapping_add(offset)
-                .addr()
-                .is_multiple_of(alignment)
+                .align_offset(alignment)
+                != 0
         {
             // The block moved to an address that misaligns the data, which needs padding.
             let new_offset = self.allocation.ptr().as_ptr().align_offset(alignment);
