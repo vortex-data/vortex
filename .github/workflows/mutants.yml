@@ -1,0 +1,239 @@
+name: Mutation Testing
+
+# Runs cargo-mutants to find code changes that the test suite does not detect.
+#
+# - Pull requests that touch the mutated crate test only the mutants in the PR's diff.
+#   A PR that changes this workflow runs the full sharded crate instead, so the
+#   workflow itself gets exercised.
+# - The weekly schedule and manual dispatches run the full crate across shards.
+#
+# The job is report-only: missed mutants and timeouts do not fail it. Every outcome is
+# streamed to the log, each missed mutant is annotated on its source line, and the
+# job summary and uploaded artifact list all survivors.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - "encodings/fastlanes/**"
+      - ".github/workflows/mutants.yml"
+  schedule:
+    - cron: "17 4 * * 1"  # Mondays at 04:17 UTC
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Crate to mutate"
+        type: string
+        default: "vortex-fastlanes"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_MUTANTS_VERSION: "27.1.0"
+  PACKAGE: ${{ inputs.package || 'vortex-fastlanes' }}
+  SHARD_COUNT: 4
+
+jobs:
+  plan:
+    name: "Plan"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+      - name: Choose full or diff mode
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          mode=full
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if git diff --name-only "$BASE_SHA...$HEAD_SHA" | grep -qx ".github/workflows/mutants.yml"; then
+              echo "This PR changes the mutation testing workflow: running the full crate."
+            else
+              mode=diff
+            fi
+          fi
+
+          if [ "$mode" = "full" ]; then
+            shards=$(python3 -c "import json; print(json.dumps(list(range($SHARD_COUNT))))")
+          else
+            shards="[0]"
+          fi
+
+          echo "mode=$mode" | tee -a "$GITHUB_OUTPUT"
+          echo "shards=$shards" | tee -a "$GITHUB_OUTPUT"
+
+  mutants:
+    name: "Mutants: ${{ needs.plan.outputs.mode == 'full' && format('shard {0}', matrix.shard) || 'PR diff' }}"
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    timeout-minutes: 120
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=mutants-{1}', github.run_id, matrix.shard)
+          || 'ubuntu-latest' }}
+    steps:
+      - parallel:
+          - uses: runs-on/action@v2
+            if: github.repository == 'vortex-data/vortex'
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              fetch-depth: ${{ needs.plan.outputs.mode == 'diff' && 0 || 1 }}
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+      - name: Install cargo-mutants
+        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+        with:
+          tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }}
+
+      - name: Run cargo-mutants
+        env:
+          MODE: ${{ needs.plan.outputs.mode }}
+          SHARD: ${{ matrix.shard }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          args=(
+            --package "$PACKAGE"
+            --in-place
+            --timeout 60
+            --build-timeout 900
+            --caught
+            --unviable
+            --colors always
+            --output mutants-out
+          )
+          if [ "$MODE" = "diff" ]; then
+            git diff "$BASE_SHA...$HEAD_SHA" > pr.diff
+            args+=(--in-diff pr.diff)
+          else
+            args+=(--shard "$SHARD/$SHARD_COUNT" --sharding round-robin)
+          fi
+
+          echo "::group::Mutants in this job"
+          cargo mutants "${args[@]}" --list
+          echo "::endgroup::"
+
+          # Exit codes: 0 all caught, 2 some missed, 3 some timed out. Report those; fail on
+          # anything else, such as the unmutated baseline failing (4) or bad usage (1).
+          status=0
+          cargo mutants "${args[@]}" || status=$?
+          echo "cargo-mutants exited with status $status"
+          case "$status" in
+            0 | 2 | 3) ;;
+            *) exit "$status" ;;
+          esac
+
+      - name: Report results
+        if: always()
+        env:
+          MODE: ${{ needs.plan.outputs.mode }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          out=mutants-out/mutants.out
+          if [ ! -d "$out" ]; then
+            echo "No cargo-mutants output found."
+            exit 0
+          fi
+
+          count() { if [ -f "$out/$1.txt" ]; then wc -l < "$out/$1.txt"; else echo 0; fi; }
+          caught=$(count caught)
+          missed=$(count missed)
+          timeout=$(count timeout)
+          unviable=$(count unviable)
+          viable=$((caught + missed + timeout))
+          if [ "$viable" -gt 0 ]; then
+            score="$((100 * (caught + timeout) / viable))%"
+          else
+            score="n/a"
+          fi
+
+          for kind in missed timeout; do
+            if [ -s "$out/$kind.txt" ]; then
+              echo "::group::$kind mutants ($(count "$kind"))"
+              cat "$out/$kind.txt"
+              echo "::endgroup::"
+            fi
+          done
+
+          # Annotate each surviving mutant on its source line. GitHub shows only the first
+          # few annotations per step; the log, summary and artifact contain the full list.
+          if [ -s "$out/missed.txt" ]; then
+            while IFS= read -r line; do
+              location="${line%%: *}"
+              message="${line#*: }"
+              file="${location%%:*}"
+              rest="${location#*:}"
+              lineno="${rest%%:*}"
+              col="${rest#*:}"
+              echo "::warning file=$file,line=$lineno,col=$col,title=Missed mutant::$message"
+            done < "$out/missed.txt"
+          fi
+          if [ -s "$out/timeout.txt" ]; then
+            while IFS= read -r line; do
+              location="${line%%: *}"
+              file="${location%%:*}"
+              rest="${location#*:}"
+              echo "::notice file=$file,line=${rest%%:*},title=Mutant timed out::${line#*: }"
+            done < "$out/timeout.txt"
+          fi
+
+          label="$PACKAGE ($MODE"
+          if [ "$MODE" = "full" ]; then label="$label, shard $SHARD/$SHARD_COUNT"; fi
+          label="$label)"
+          {
+            echo "## Mutation testing: $label"
+            echo
+            echo "| Caught | Missed | Timeout | Unviable | Mutation score |"
+            echo "|---:|---:|---:|---:|---:|"
+            echo "| $caught | $missed | $timeout | $unviable | $score |"
+            echo
+            echo "The mutation score is (caught + timeout) / viable mutants."
+            if [ -s "$out/missed.txt" ]; then
+              echo
+              echo "<details open><summary>Missed mutants ($missed)</summary>"
+              echo
+              echo '```text'
+              cat "$out/missed.txt"
+              echo '```'
+              echo
+              echo "</details>"
+            fi
+            if [ -s "$out/timeout.txt" ]; then
+              echo
+              echo "<details><summary>Timed out mutants ($timeout)</summary>"
+              echo
+              echo '```text'
+              cat "$out/timeout.txt"
+              echo '```'
+              echo
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload cargo-mutants output
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: mutants-${{ needs.plan.outputs.mode }}-${{ matrix.shard }}
+          path: mutants-out/mutants.out
+          if-no-files-found: ignore
