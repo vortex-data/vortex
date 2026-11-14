@@ -63,6 +63,8 @@ jobs:
       actions: read
       contents: read
       issues: write
+      # Read-only, to skip issues that already have an open fix pull request.
+      pull-requests: read
       id-token: write
 
     steps:
@@ -137,8 +139,54 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Extracted: target=$target, crash_file=$crash_file, artifact_url=$artifact_url"
 
+      # A fix session takes 15-30 minutes, so don't start one for an issue that
+      # already has an open fix pull request. A closed one doesn't count: the
+      # fix may have been superseded or rejected, and a new attempt can open a
+      # new pull request from the same branch.
+      - name: Check for an open fix pull request
+        id: open_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+        run: |
+          url=$(gh pr list --repo "$REPO" --head "fuzzer-fix/issue-$ISSUE_NUMBER" --state open --json url --jq '.[0].url // ""')
+          if [ -n "$url" ]; then
+            echo "::notice::Issue #$ISSUE_NUMBER already has an open fix pull request: $url"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Without this, a human-filed issue that lacks the fields above fails with
+      # no trace on the issue.
+      - name: Comment that the issue lacks crash details
+        if: ${{ failure() && steps.extract.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            cat <<'EOF'
+          The fuzzer fix automation could not start, because this issue does not have the
+          crash details it needs. It reads these lines from the issue body, in the format that
+          the fuzz pipeline's report uses:
+
+          ```
+          **Target**: `<fuzz target>`
+          **Crash File**: `<crash file name>`
+          https://github.com/<owner>/<repo>/actions/runs/<run>/artifacts/<id>
+          ```
+          EOF
+            echo
+            echo "[View run]($RUN_URL)"
+          } | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
+
       - name: Download crash artifact
         id: download
+        if: steps.open_pr.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -170,22 +218,37 @@ jobs:
           echo "Downloaded crash file: $crash_path"
           echo "crash_file_path=$crash_path" >> "$GITHUB_OUTPUT"
 
-      - name: Setup Rust
+      # Two toolchains: `cargo test` and `cargo clippy` use the stable toolchain
+      # pinned in rust-toolchain.toml, and cargo-fuzz and rustfmt need the nightly.
+      - name: Setup Rust (stable)
+        if: steps.open_pr.outputs.exists == 'false'
+        uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Rust (nightly)
+        if: steps.open_pr.outputs.exists == 'false'
         uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
 
-      - uses: ./.github/actions/setup-fuzz-llvm
+      - name: Setup fuzz LLVM
+        if: steps.open_pr.outputs.exists == 'false'
+        uses: ./.github/actions/setup-fuzz-llvm
 
-      - uses: ./.github/actions/setup-fuzz-linker
+      - name: Setup fuzz linker
+        if: steps.open_pr.outputs.exists == 'false'
+        uses: ./.github/actions/setup-fuzz-linker
 
       - name: Install cargo-fuzz
+        if: steps.open_pr.outputs.exists == 'false'
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
           tool: cargo-fuzz
 
       - name: Build fuzzer target
+        if: steps.open_pr.outputs.exists == 'false'
         env:
           TARGET: ${{ steps.extract.outputs.target }}
           WORK_DIR: ${{ runner.temp }}/fuzz-fix
@@ -199,6 +262,7 @@ jobs:
 
       - name: Reproduce crash
         id: reproduce
+        if: steps.open_pr.outputs.exists == 'false'
         env:
           TARGET: ${{ steps.extract.outputs.target }}
           CRASH_FILE_PATH: ${{ steps.download.outputs.crash_file_path }}
@@ -308,13 +372,18 @@ jobs:
 
             Invalid input that a caller can supply should return a `VortexError`. A
             violated internal invariant stays a panic, and the fix goes where the invariant
-            was broken.
+            was broken. Trace an invalid value back to the code that created it, and fix it
+            there. Turning the error into a fallback (a null, an unknown or a default) where
+            the error is reported only hides it, and a guessed exact statistic is a wrong
+            result. Earlier fixes of both kinds were replaced by maintainers.
 
             When the cause is local and clear, such as a missing bounds or validity check,
             an unhandled edge case, an off-by-one or a wrong assumption in the harness, make
             the smallest change that fixes it. Write the regression test first, with the
             crash bytes or the smallest array that reproduces the crash in the test itself,
-            and see it fail before the fix and pass after it.
+            and see it fail before the fix and pass after it. The test must go through the
+            same path as the crash, such as the same scan, compute function or pruning
+            expression, not a hand-built input that only reaches the changed line.
             `cargo +$NIGHTLY_TOOLCHAIN fuzz fmt ${{ env.TARGET }} <input>` prints the decoded
             fuzz input, `cargo +$NIGHTLY_TOOLCHAIN fuzz tmin` minimizes it, and `xxd -i`
             prints raw bytes as a Rust-compatible array. Put the test next to the code
@@ -329,10 +398,12 @@ jobs:
             - The regression test passes with `cargo test -p <crate> <test name>`.
             - `cargo clippy -p <crate> --all-targets --all-features -- -D warnings` passes
               for each crate that you changed.
+            - `cargo +$NIGHTLY_TOOLCHAIN fmt -p <crate>` leaves nothing to change.
 
             Then review the change with the `fuzz-fix-review` skill. It runs in a fresh
             subagent that does not see this conversation. First write two or three sentences
-            on the root cause, and on whether you fixed the library or the harness, to
+            on the root cause, naming the file and line where the invalid value is created,
+            and on whether you fixed the library or the harness, to
             `${{ env.WORK_DIR }}/claim.md`. Then invoke the skill with these arguments:
 
             ```
@@ -370,7 +441,40 @@ jobs:
             --effort high
             --max-turns 150
             --add-dir ${{ runner.temp }}/fuzz-fix
-            --allowedTools "Read,Write,Edit,Glob,Grep,Agent,Skill(fuzz-fix-review),Skill(fuzz-fix-review *),Bash(cargo:*),Bash(RUST_BACKTRACE=* cargo:*),Bash(git diff:*),Bash(git status:*),Bash(git show:*),Bash(git log:*),Bash(gh issue comment:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(xxd:*)"
+            --allowedTools "Read,Write,Edit,Glob,Grep,Agent,Skill(fuzz-fix-review),Skill(fuzz-fix-review *),Bash(cargo:*),Bash(RUST_BACKTRACE=* cargo:*),Bash(git diff:*),Bash(git status:*),Bash(git show:*),Bash(git log:*),Bash(gh issue comment:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(xxd:*),Bash(jq:*)"
+
+      # Job logs expire after about 90 days, so keep the session transcript as an
+      # artifact for longer and put the numbers that explain a run in the summary.
+      - name: Record the Claude session
+        id: session
+        if: ${{ !cancelled() && steps.claude.outcome != 'skipped' }}
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          if [ -z "$EXECUTION_FILE" ] || [ ! -s "$EXECUTION_FILE" ]; then
+            echo "### Claude session: no execution log" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "execution_file=$EXECUTION_FILE" >> "$GITHUB_OUTPUT"
+          jq -r '
+            ([.[] | select(.type == "result")] | last // {}) as $r
+            | "### Claude session",
+              "",
+              "- Result: \($r.subtype // "unknown")\(if $r.is_error then " (error)" else "" end)",
+              "- Turns: \($r.num_turns // "?")",
+              "- Duration: \((($r.duration_ms // 0) / 60000 | floor)) min",
+              "- Permission denials: \($r.permission_denials // [] | length)",
+              ($r.permission_denials // [] | .[] | "  - `\(.tool_name)`: `\(.tool_input | tostring | .[0:200])`")
+          ' "$EXECUTION_FILE" >> "$GITHUB_STEP_SUMMARY" || echo "Could not summarize $EXECUTION_FILE"
+
+      - name: Upload the Claude session
+        if: ${{ !cancelled() && steps.session.outputs.execution_file != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: fuzzer-fix-session-issue-${{ inputs.issue_number }}
+          path: ${{ steps.session.outputs.execution_file }}
+          retention-days: 90
+          overwrite: true
 
       # The steps below run even when the Claude step fails, for example at the
       # turn limit, because the review verdict alone decides whether a pull request
@@ -469,7 +573,7 @@ jobs:
             ${{ runner.temp }}/fuzz-fix/proposed-fix.patch
             ${{ runner.temp }}/fuzz-fix/review.json
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 90
           overwrite: true
 
       - name: Comment that the fix was not approved
@@ -504,6 +608,22 @@ jobs:
           permission-contents: write
           permission-issues: write
           permission-pull-requests: write
+
+      # A Claude session that fails before changing anything, for example on an
+      # authentication error, otherwise leaves no trace on the issue.
+      - name: Comment that the fix attempt failed
+        if: ${{ !cancelled() && steps.claude.outcome == 'failure' && steps.stage.outputs.has_changes != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file - <<EOF
+          The automated fix attempt for this issue failed before it changed any code, so no
+          pull request was opened. The [run]($RUN_URL) has the cause; its summary lists the
+          session's turns and any denied tool calls.
+          EOF
 
       - name: Commit and push fix branch
         id: commit
@@ -554,7 +674,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           existing_pr="$(
-            gh pr list --repo "$REPO" --head "$BRANCH_NAME" --state all \
+            gh pr list --repo "$REPO" --head "$BRANCH_NAME" --state open \
               --json url --jq '.[0].url // ""'
           )"
 

@@ -22,6 +22,7 @@ allowed-tools:
   - Bash(head:*)
   - Bash(tail:*)
   - Bash(xxd:*)
+  - Bash(jq:*)
 ---
 
 # Fuzz Fix Review
@@ -53,10 +54,14 @@ only when all of the following hold.
 
 - **The crash is gone.** Re-run the input yourself:
   `cargo +$NIGHTLY_TOOLCHAIN fuzz run --dev --sanitizer=none $target $crash_input -- -runs=1 -rss_limit_mb=0`.
-- **The fix addresses the cause, not the symptom.** These are signs of a symptom fix: catching or
-  ignoring the panic; returning early with a result that is quietly wrong; filtering the crashing
-  input out of the fuzz harness, or loosening its reference oracle, when the library is at fault; or
-  widening a type, limit or tolerance without explaining why the original was wrong. A change to the
+- **The fix addresses the cause, not the symptom.** Find the code that creates the invalid value,
+  and check that the fix is there, or explains why it can't be. These are signs of a symptom fix:
+  catching or ignoring the panic; turning an error into a fallback (a null, an unknown or a default)
+  where the error is reported, when an upstream producer created the invalid value; returning early
+  with a result that is quietly wrong, such as an exact statistic that is guessed instead of
+  computed; filtering the crashing input out of the fuzz harness, or loosening its reference oracle,
+  when the library is at fault; or widening a type, limit or tolerance without explaining why the
+  original was wrong. A change to the
   harness under `fuzz/` is the right fix only when the harness is wrong, for example when it builds
   an input that violates a documented precondition, or its reference implementation disagrees with
   the documented semantics. Check that the author's claim about which case applies holds.
@@ -65,9 +70,12 @@ only when all of the following hold.
   violated internal invariant stays a panic, and the fix then belongs where the invariant was broken.
 - **A regression test covers the crash and passes.** It reproduces the crash through the smallest
   input that triggers it, with the crash bytes or the minimal array in the test itself, and it
-  follows the test conventions in `AGENTS.md`. Run it with `cargo test -p <crate> <test name>`.
-- **Clippy is clean** for each changed crate:
-  `cargo clippy -p <crate> --all-targets --all-features -- -D warnings`.
+  follows the test conventions in `AGENTS.md`. It goes through the same path as the crash, such as
+  the same scan, compute function or pruning expression, not a hand-built input that only reaches
+  the changed line. Run it with `cargo test -p <crate> <test name>`.
+- **Clippy and rustfmt are clean** for each changed crate:
+  `cargo clippy -p <crate> --all-targets --all-features -- -D warnings` and
+  `cargo +$NIGHTLY_TOOLCHAIN fmt -p <crate> --check`.
 - **The diff holds only the fix.** No unrelated refactors, no new dependencies, no `Cargo.lock`
   change, no edited or removed existing assertions, and no added per-element cost in hot loops
   (`STYLE.md` lists the accessors with hidden costs).
@@ -89,8 +97,8 @@ these fields:
 ```json
 {
   "verdict": "approve",
-  "summary": "One paragraph: the root cause, whether the fix addresses it, and what you ran.",
-  "checks": {"crash_fixed": true, "regression_test_passes": true, "clippy_clean": true},
+  "summary": "One paragraph: the root cause and the line that creates the invalid value, whether the fix addresses it, and what you ran.",
+  "checks": {"crash_fixed": true, "regression_test_passes": true, "clippy_clean": true, "fmt_clean": true},
   "findings": [
     {"file": "path/to/file.rs", "line": 123, "severity": "blocking", "issue": "...", "suggestion": "..."}
   ]
