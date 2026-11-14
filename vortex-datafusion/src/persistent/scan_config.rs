@@ -34,6 +34,8 @@ use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::filter_pushdown::FilterPushdownPropagation;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 
+use vortex_utils::aliases::dash_map::DashMap;
+
 use crate::VortexSource;
 
 /// The [`DataSource`] of a [`DataSourceExec`] that scans Vortex files.
@@ -52,12 +54,21 @@ use crate::VortexSource;
 #[derive(Debug, Clone)]
 pub struct VortexScanConfig {
     inner: FileScanConfig,
+    /// The statistics of each partition, or of the whole scan for `None`, once estimated.
+    ///
+    /// DataFusion asks every plan node for its statistics again from each optimizer rule and
+    /// each parent, and the estimate runs interval analysis over the predicate, so it is computed
+    /// once per configuration. Every method that changes the configuration wraps a new one.
+    statistics: Arc<DashMap<Option<usize>, Arc<Statistics>>>,
 }
 
 impl VortexScanConfig {
     /// Wraps the scan configuration of a Vortex scan.
     pub fn new(inner: FileScanConfig) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            statistics: Arc::default(),
+        }
     }
 
     /// The wrapped scan configuration.
@@ -70,6 +81,19 @@ impl VortexScanConfig {
             Some(inner) => Arc::new(Self::new(inner.clone())),
             None => source,
         }
+    }
+
+    /// Estimates the projected statistics of `partition`, or of the whole scan for `None`.
+    fn estimate_partition_statistics(&self, partition: Option<usize>) -> DFResult<Arc<Statistics>> {
+        let Some(statistics) = self.filtered_table_statistics(partition)? else {
+            return self.inner.partition_statistics(partition);
+        };
+        let statistics = match self.inner.file_source().projection() {
+            Some(projection) => projection
+                .project_statistics(statistics, self.inner.projected_schema()?.as_ref())?,
+            None => statistics,
+        };
+        Ok(Arc::new(statistics))
     }
 
     /// Estimates the unprojected statistics of `partition`, or of the whole scan for `None`,
@@ -149,15 +173,12 @@ impl DataSource for VortexScanConfig {
     }
 
     fn partition_statistics(&self, partition: Option<usize>) -> DFResult<Arc<Statistics>> {
-        let Some(statistics) = self.filtered_table_statistics(partition)? else {
-            return self.inner.partition_statistics(partition);
-        };
-        let statistics = match self.inner.file_source().projection() {
-            Some(projection) => projection
-                .project_statistics(statistics, self.inner.projected_schema()?.as_ref())?,
-            None => statistics,
-        };
-        Ok(Arc::new(statistics))
+        if let Some(statistics) = self.statistics.get(&partition) {
+            return Ok(Arc::clone(&statistics));
+        }
+        let statistics = self.estimate_partition_statistics(partition)?;
+        self.statistics.insert(partition, Arc::clone(&statistics));
+        Ok(statistics)
     }
 
     fn with_fetch(&self, limit: Option<usize>) -> Option<Arc<dyn DataSource>> {
