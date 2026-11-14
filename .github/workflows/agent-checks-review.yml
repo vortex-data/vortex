@@ -1,0 +1,44 @@
+name: Agent Checks (review one check)
+
+# Called by agent-checks.yml once per check. Reviews that check's shards (crates) one after another
+# through agent-checks-shard.yml. See `.agents/checks/README.md`.
+
+on:
+  workflow_call:
+    inputs:
+      check:
+        description: "Check id"
+        required: true
+        type: string
+      shards:
+        description: "JSON list of shard ids from the plan"
+        required: true
+        type: string
+      dry_run:
+        description: "Report in the job summary only"
+        required: true
+        type: boolean
+
+permissions: { }
+
+jobs:
+  shard:
+    name: "${{ matrix.shard }}"
+    strategy:
+      # One shard at a time per check: each one decides from live GitHub state, which then
+      # includes everything the previous shard published. One failing shard never stops the rest.
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(inputs.shards) }}
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      id-token: write
+    uses: ./.github/workflows/agent-checks-shard.yml
+    with:
+      check: ${{ inputs.check }}
+      shard: ${{ matrix.shard }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit

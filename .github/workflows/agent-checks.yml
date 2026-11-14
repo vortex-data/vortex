@@ -1,0 +1,230 @@
+name: Agent Checks
+
+# Weekly agent-driven code checks: plan, then each check's crates one at a time
+# (agent-checks-review.yml -> agent-checks-shard.yml), then record. `.agents/checks/README.md`
+# documents the flow, the setup (variables, federation rule, AWS role), and how to add a check.
+# Only the plan and record jobs here assume the store's AWS role; agents never do.
+
+on:
+  # TEMPORARY: dry-run trial of a few shards on the PR that adds this workflow. Remove before merging.
+  pull_request:
+    paths:
+      - ".github/workflows/agent-checks*.yml"
+      - "scripts/agent_checks.py"
+      - ".agents/checks/**"
+  schedule:
+    # Weekly, Mondays. A check also waits for its `cadence_days`, so one with a longer cadence
+    # skips some weeks.
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      check:
+        description: "Check id (empty: all enabled checks)"
+        required: false
+        type: string
+      crate:
+        description: "Only this crate, e.g. vortex-array"
+        required: false
+        type: string
+      max_shards:
+        description: "Override max_shards_per_run"
+        required: false
+        type: string
+      dry_run:
+        description: "Review and report in the job summary only: no PRs, issues or state"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  # Overlapping runs would plan the same crates. State writes are compare-and-swap either way.
+  # The temporary PR trial gets its own group, so it never displaces a scheduled run.
+  group: agent-checks-${{ github.event_name == 'pull_request' && 'trial' || 'main' }}
+  cancel-in-progress: false
+
+permissions: { }
+
+env:
+  # s3://bucket/prefix; each check stores under <prefix>/<check>/.
+  STORE: ${{ vars.AGENT_CHECKS_STORE_URI }}
+  TRUSTED_AUTHOR: ${{ vars.CLAUDE_APP_LOGIN }}
+  PR_LABEL: agent-checks
+  DRY_RUN: ${{ inputs.dry_run == true || github.event_name == 'pull_request' }}
+
+jobs:
+  plan:
+    name: Plan
+    # TEMPORARY: only the same-repository PR that adds this workflow runs the trial.
+    if: >-
+      github.event_name != 'pull_request' || (
+        github.head_ref == 'ji/quirky-curie-docl3a' &&
+        github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      # The state store's AWS role.
+      id-token: write
+    outputs:
+      check_matrix: ${{ steps.plan.outputs.check_matrix }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+
+      - name: Check the configuration
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'develop' }}
+        run: |
+          if [[ "$DRY_RUN" != "true" && "$GITHUB_REF_NAME" != "$DEFAULT_BRANCH" ]]; then
+            echo "::error::Only dry runs may start from $GITHUB_REF_NAME: PRs and state must come from $DEFAULT_BRANCH."
+            exit 1
+          fi
+          if [[ -z "$TRUSTED_AUTHOR" && "$DRY_RUN" != "true" ]]; then
+            echo "::error::Set the CLAUDE_APP_LOGIN variable: only that login's markers are trusted."
+            exit 1
+          fi
+          if [[ -n "$STORE" ]]; then
+            echo "STORE_SPEC=$STORE" >> "$GITHUB_ENV"
+          elif [[ "$DRY_RUN" == "true" ]]; then
+            echo "::warning::AGENT_CHECKS_STORE_URI is not set; this dry run plans from empty state."
+            echo "STORE_SPEC=$RUNNER_TEMP/empty-store" >> "$GITHUB_ENV"
+          else
+            echo "::error::Set the AGENT_CHECKS_STORE_URI variable (s3://bucket/prefix)."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials for the store
+        if: vars.AGENT_CHECKS_STORE_URI != ''
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: ${{ vars.AGENT_CHECKS_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AGENT_CHECKS_AWS_REGION || 'us-east-1' }}
+
+      - name: List pull requests and issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Open PRs are listed regardless of label: their branch names mark the crates in use.
+          # Authors are listed so that only the App's own markers are trusted.
+          gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 1000 \
+            --json number,state,body,mergedAt,headRefName,author,isCrossRepository > open-prs.json
+          # Closed ones are listed for rejections: issues closed as not planned, and PRs or issues
+          # closed with the agent-checks:rejected label.
+          gh pr list --repo "$GITHUB_REPOSITORY" --label "$PR_LABEL" --state closed --limit 1000 \
+            --json number,state,body,mergedAt,headRefName,author,isCrossRepository,labels > closed-prs.json
+          gh issue list --repo "$GITHUB_REPOSITORY" --label "$PR_LABEL" --state closed --limit 1000 \
+            --json number,state,stateReason,body,author,comments,labels > closed-issues.json
+          jq -s 'add' open-prs.json closed-prs.json closed-issues.json > github.json
+
+      - name: Plan
+        id: plan
+        env:
+          CHECK: ${{ inputs.check }}
+          CRATE: ${{ inputs.crate }}
+          MAX_SHARDS: ${{ inputs.max_shards }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          args=(plan --store "$STORE_SPEC" --github github.json --out plan.json)
+          [[ -n "$TRUSTED_AUTHOR" ]] && args+=(--trusted-author "$TRUSTED_AUTHOR")
+          [[ -n "$CHECK" ]] && args+=(--check "$CHECK")
+          [[ -n "$CRATE" ]] && args+=(--crate "$CRATE")
+          [[ -n "$MAX_SHARDS" ]] && args+=(--max-shards "$MAX_SHARDS")
+          if [[ "$EVENT" == "pull_request" ]]; then
+            # TEMPORARY trial: two small crates for each check.
+            args+=(--crate vortex-compute --crate vortex-mask --max-shards 2)
+          fi
+          python3 scripts/agent_checks.py "${args[@]}"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: agent-checks-plan
+          path: |
+            plan.json
+            github.json
+
+  review:
+    name: "Review ${{ matrix.check }}"
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    strategy:
+      # Checks run in parallel; within a check, crates run one at a time.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.check_matrix) }}
+    # A called workflow gets no more than these.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      id-token: write
+    uses: ./.github/workflows/agent-checks-review.yml
+    with:
+      check: ${{ matrix.check }}
+      shards: ${{ matrix.shards }}
+      dry_run: ${{ inputs.dry_run == true || github.event_name == 'pull_request' }}
+    secrets: inherit
+
+  record:
+    name: Record state
+    needs: [plan, review]
+    # Record whatever finished, including after partial review failures. Shards that failed hand
+    # over no state update and are offered again next run.
+    if: ${{ !cancelled() && needs.plan.result == 'success' && inputs.dry_run != true && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: agent-checks-plan
+          path: plan
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          pattern: agent-checks-update-*
+          path: updates
+          merge-multiple: true
+
+      - name: Configure AWS credentials for the store
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: ${{ vars.AGENT_CHECKS_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AGENT_CHECKS_AWS_REGION || 'us-east-1' }}
+
+      - name: Record
+        run: |
+          shopt -s nullglob
+          # Compare-and-swap per check document, retried on conflict. A failure for one check is
+          # reported at the end, after every other check is recorded.
+          python3 scripts/agent_checks.py record --store "$STORE" --trusted-author "$TRUSTED_AUTHOR" \
+            --plan plan/plan.json --github plan/github.json updates/*.json
+
+      # One directory per artifact under archive/, each tagged with its check and shard by meta.json.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        if: ${{ !cancelled() }}
+        with:
+          pattern: agent-checks-agent-*
+          path: archive
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        if: ${{ !cancelled() }}
+        with:
+          pattern: agent-checks-out-*
+          path: archive
+
+      - name: Archive the run
+        # Write-once records under <prefix>/<check>/runs/<run>/, so a re-run never rewrites history.
+        if: ${{ !cancelled() }}
+        run: |
+          shopt -s nullglob
+          python3 scripts/agent_checks.py archive --store "$STORE" --plan plan/plan.json \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" archive/*/
