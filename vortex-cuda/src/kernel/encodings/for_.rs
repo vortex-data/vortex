@@ -60,11 +60,7 @@ impl CudaExecute for FoRExecutor {
     ) -> VortexResult<Canonical> {
         let array = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected FoRArray"))?;
 
-        // Per-chunk references have no CUDA kernel yet, so decode them on the CPU.
-        // TODO(mk): implement CUDA FoR decoding for blocked references.
-        let FoRReferences::Global(reference) = array.references() else {
-            vortex_bail!("CUDA FoR decoding requires a global reference")
-        };
+        if let FoRReferences::Global(reference) = array.references() {
         let reference = reference.clone();
 
         // Fuse FOR + BP => FFOR
@@ -94,7 +90,7 @@ impl CudaExecute for FoRExecutor {
                 .slice(slice_range)?
                 .execute::<Canonical>(ctx.execution_ctx());
         }
-
+    }
         match_each_native_simd_ptype!(array.ptype(), |P| { decode_for::<P>(array, ctx).await })
     }
 }
