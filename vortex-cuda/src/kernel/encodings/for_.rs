@@ -191,7 +191,11 @@ where
 
     let array_len_u64 = array_len as u64;
 
-    let cuda_function = ctx.load_function("for_blocked", &[P::PTYPE])?;
+    let ptype_suffix = P::PTYPE.to_string();
+    let cuda_function = ctx.load_function_with_suffixes(
+        "for",
+        &["blocked", ptype_suffix.as_str()],
+    )?;
 
     let (next, launch) = with_cuda_view_mut::<P, _>(device_buffer, |view| {
         ctx.launch_kernel(&cuda_function, array_len, |args| {
@@ -215,9 +219,8 @@ where
     let mut output = ctx.device_alloc::<P>(array_len)?;
     let ptype_suffix = P::PTYPE.to_string();
 
-    let cuda_function = ctx.load_function_with_suffixes(
-        "for_blocked",
-        &["in", "out", ptype_suffix.as_str()],
+    let cuda_function = ctx.load_function_with_suffixes("for", 
+        &["blocked", "in", "out", ptype_suffix.as_str()]
     )?;
     ctx.launch_kernel(&cuda_function, array_len, |args| {
         args.arg(&input_view)
