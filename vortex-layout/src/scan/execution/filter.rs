@@ -3,6 +3,8 @@
 
 use std::ops::Range;
 use std::sync::Arc;
+use std::time::Duration;
+use std::time::Instant;
 
 use bit_vec::BitVec;
 use rustc_hash::FxHashSet;
@@ -172,6 +174,8 @@ pub(super) struct FilterPlanner {
     /// The conjunct being evaluated, its dynamic version when it has one, and its scan.
     active: Option<(usize, Option<u64>, ScanAdaptor)>,
     pieces: Vec<Mask>,
+    /// The time spent evaluating the active conjunct so far, reported as its cost once done.
+    active_elapsed: Duration,
     announced: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
     next_hint: u32,
@@ -204,6 +208,7 @@ impl FilterPlanner {
             filter,
             active: None,
             pieces: Vec::new(),
+            active_elapsed: Duration::ZERO,
             announced: false,
             next_hint: u32::MAX,
         }
@@ -308,14 +313,17 @@ impl Planner for FilterPlanner {
         }
         if let Some((index, version, adaptor)) = &mut self.active {
             if adaptor.state() != State::Done {
-                return Ok(match adaptor.compute()? {
+                let start = Instant::now();
+                let output = match adaptor.compute()? {
                     AdaptorStep::Yield => PlannerOutput::Continue,
                     AdaptorStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
                     AdaptorStep::Piece(piece) => {
                         self.pieces.push(piece_mask(&self.scan.session, piece)?);
                         PlannerOutput::Continue
                     }
-                });
+                };
+                self.active_elapsed += start.elapsed();
+                return Ok(output);
             }
             let input = selected.mask.true_count();
             let result = Mask::concat(self.pieces.iter())?;
@@ -330,6 +338,12 @@ impl Planner for FilterPlanner {
                 "v2 filter conjunct evaluated"
             );
             let selectivity = selected.mask.true_count() as f64 / input as f64;
+            self.filter.expression.report_cost(
+                *index,
+                u64::try_from(std::mem::take(&mut self.active_elapsed).as_nanos())
+                    .unwrap_or(u64::MAX),
+                input as u64,
+            );
             self.filter
                 .expression
                 .report_selectivity(*index, selectivity);

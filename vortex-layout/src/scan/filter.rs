@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use bit_vec::BitVec;
 use itertools::Itertools;
@@ -25,6 +27,9 @@ const UNSELECTIVE_DYNAMIC_SELECTIVITY: f64 = 0.99;
 /// Consecutive unselective evaluations, at one dynamic version, after which a skippable dynamic
 /// conjunct stops being evaluated until its dynamic values change.
 pub(crate) const UNSELECTIVE_DYNAMIC_SPLITS: u32 = 4;
+/// The fraction of rows a conjunct is assumed to reject at least, so that a conjunct that keeps
+/// every row ranks behind every selective one instead of dividing by zero.
+const MIN_REJECTED_FRACTION: f64 = 1e-6;
 
 /// A [`FilterExpr`] splits boolean expressions into individual conjunctions, tracks
 /// statistics about selectivity, and uses this information to reorder the evaluation of the
@@ -36,6 +41,9 @@ pub struct FilterExpr {
     conjunct_selectivity: Vec<RwLock<DDSketch>>,
     /// Dynamic expression trackers for each conjunct, incase they contain dynamic expressions.
     dynamic_conjuncts: Vec<Option<DynamicExprUpdates>>,
+    /// The total evaluation time in nanoseconds and input rows of each conjunct, from which its
+    /// average cost per row is derived.
+    conjunct_cost: Vec<(AtomicU64, AtomicU64)>,
     /// The preferred ordering of conjuncts.
     ordering: RwLock<Vec<usize>>,
     /// The quantile to use from the selectivity histogram of each conjunct.
@@ -77,6 +85,9 @@ impl FilterExpr {
                 .take(num_conjuncts)
                 .collect(),
             dynamic_conjuncts,
+            conjunct_cost: iter::repeat_with(|| (AtomicU64::new(0), AtomicU64::new(0)))
+                .take(num_conjuncts)
+                .collect(),
             // The initial ordering is naive, we could order this by how well we expect each
             // comparison operator to perform. e.g. == might be more selective than <=? Not obvious.
             ordering: RwLock::new((0..num_conjuncts).collect()),
@@ -166,6 +177,30 @@ impl FilterExpr {
         read.iter().find(|&idx| remaining[*idx]).copied()
     }
 
+    /// Reports that evaluating a conjunct over `rows` input rows took `nanos` nanoseconds.
+    ///
+    /// Once every conjunct has reported a cost, conjuncts are ordered by the cost per row of the
+    /// rows they reject rather than by selectivity alone, so a cheap conjunct that rejects most
+    /// rows runs before an expensive one that rejects slightly more.
+    pub fn report_cost(&self, conjunct_idx: usize, nanos: u64, rows: u64) {
+        let (total_nanos, total_rows) = &self.conjunct_cost[conjunct_idx];
+        total_nanos.fetch_add(nanos, Ordering::Relaxed);
+        total_rows.fetch_add(rows, Ordering::Relaxed);
+    }
+
+    /// The average evaluation cost per input row of each conjunct, or `None` until every
+    /// conjunct has been timed.
+    fn costs_per_row(&self) -> Option<Vec<f64>> {
+        self.conjunct_cost
+            .iter()
+            .map(|(nanos, rows)| {
+                let rows = rows.load(Ordering::Relaxed);
+                #[expect(clippy::cast_precision_loss, reason = "an estimate")]
+                (rows > 0).then(|| nanos.load(Ordering::Relaxed) as f64 / rows as f64)
+            })
+            .collect()
+    }
+
     /// Report the selectivity of a conjunct, i.e. 0 means no rows matched the predicate.
     pub fn report_selectivity(&self, conjunct_idx: usize, selectivity: f64) {
         if !(0.0..=1.0).contains(&selectivity) {
@@ -205,26 +240,32 @@ impl FilterExpr {
             return;
         };
 
+        // Order by rank, the cost per rejected row (Hellerstein and Stonebraker, "Predicate
+        // Migration", SIGMOD 1993), once every conjunct is timed; by selectivity until then.
+        let rank = match self.costs_per_row() {
+            Some(costs) => all_selectivity
+                .iter()
+                .zip(costs)
+                .map(|(selectivity, cost)| cost / (1.0 - selectivity).max(MIN_REJECTED_FRACTION))
+                .collect::<Vec<_>>(),
+            None => all_selectivity,
+        };
+
         {
             let ordering = self.ordering.read();
-            if ordering.is_sorted_by_key(|&idx| all_selectivity[idx]) {
+            if ordering.is_sorted_by(|&l, &r| rank[l] <= rank[r]) {
                 return;
             }
         }
 
-        // Re-sort our conjuncts based on the new statistics.
         let mut ordering = self.ordering.write();
-        ordering.sort_unstable_by(|&l_idx, &r_idx| {
-            all_selectivity[l_idx]
-                .partial_cmp(&all_selectivity[r_idx])
-                .vortex_expect("Can't compare selectivity values")
-        });
+        ordering.sort_by(|&l_idx, &r_idx| rank[l_idx].total_cmp(&rank[r_idx]));
 
         tracing::trace!(
-            "Reordered conjuncts based on new selectivity {:?}",
+            "Reordered conjuncts by rank {:?}",
             ordering
                 .iter()
-                .map(|&idx| format!("({}) => {}", self.conjuncts[idx], all_selectivity[idx]))
+                .map(|&idx| format!("({}) => {}", self.conjuncts[idx], rank[idx]))
                 .join(", ")
         );
     }
@@ -282,6 +323,33 @@ mod tests {
 
         filter.report_selectivity(1, 0.1);
         assert_eq!(*filter.ordering.read(), vec![1, 0]);
+        Ok(())
+    }
+
+    #[test]
+    fn orders_timed_conjuncts_by_cost_per_rejected_row() -> VortexResult<()> {
+        let dtype = DType::Bool(Nullability::Nullable);
+        let filter = FilterExpr::new(and(root(), not(root())).bind(&dtype)?);
+
+        // Conjunct 0 rejects 99% of rows at 100 ns per row, conjunct 1 rejects 70% at 1 ns per
+        // row, so their ranks are about 101 and 3.3 ns per rejected row.
+        filter.report_cost(0, 100_000, 1_000);
+        filter.report_selectivity(0, 0.01);
+        filter.report_cost(1, 1_000, 1_000);
+        filter.report_selectivity(1, 0.3);
+        assert_eq!(*filter.ordering.read(), vec![1, 0]);
+        Ok(())
+    }
+
+    #[test]
+    fn orders_by_selectivity_until_every_conjunct_is_timed() -> VortexResult<()> {
+        let dtype = DType::Bool(Nullability::Nullable);
+        let filter = FilterExpr::new(and(root(), not(root())).bind(&dtype)?);
+
+        filter.report_cost(0, 100_000, 1_000);
+        filter.report_selectivity(0, 0.01);
+        filter.report_selectivity(1, 0.3);
+        assert_eq!(*filter.ordering.read(), vec![0, 1]);
         Ok(())
     }
 
