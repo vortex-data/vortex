@@ -273,6 +273,35 @@ mod tests {
     }
 
     #[rstest]
+    #[case::u32((0..2050u32).map(|i| i * 100).collect())]
+    #[crate::test]
+    async fn test_cuda_blocked_for_decompression(#[case] input_data: Vec<u32>) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+
+        let primitive = PrimitiveArray::new(Buffer::from(input_data), NonNullable);
+        let for_array = FoR::encode_chunked(primitive, &mut ctx)?;
+
+        assert!(
+            matches!(for_array.references(), FoRReferences::Blocked(_)),
+            "test must produce blocked references, not global"
+        );
+
+        let gpu_result = FoRExecutor
+            .execute(for_array.clone().into_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
+
+        assert_arrays_eq!(for_array, gpu_result, &mut ctx);
+
+        Ok(())
+    }
+
+    #[rstest]
     #[case::u8(make_for_array((0..2050).map(|i| (i % 246) as u8).collect(), 10u8))]
     #[case::u16(make_for_array((0..2050).map(|i| (i % 2050) as u16).collect(), 1000u16))]
     #[case::u32(make_for_array((0..2050).map(|i| (i % 2050) as u32).collect(), 100000u32))]
