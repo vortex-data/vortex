@@ -52,34 +52,88 @@ use super::datafusion_predicate::DataFusionPredicateOptions;
 use crate::convert::ExpressionConverter;
 use crate::convert::exprs::is_infallible;
 
-pub(crate) fn convert_dynamic_filter(
+/// A dynamic filter converted to Vortex, split into the part zone pruning can prove and the part
+/// that evaluates its unconverted conjuncts exactly.
+pub(crate) struct ConvertedDynamicFilter {
+    /// The converted or widened filter.
+    pub(crate) native: Expression,
+    /// The conjuncts Vortex does not convert, evaluated with DataFusion over every row they reach.
+    ///
+    /// A scan measures each conjunct's selectivity on the rows earlier conjuncts kept. A hash
+    /// lookup only keeps rows that already match the join, which then pass every other filter of
+    /// the join, so an exact conjunct evaluated before a cheap native one makes that conjunct look
+    /// unselective and keeps it behind the expensive lookup. Callers place every exact conjunct
+    /// after every native one.
+    pub(crate) exact: Option<Expression>,
+}
+
+impl ConvertedDynamicFilter {
+    fn native(native: Expression) -> Self {
+        Self {
+            native,
+            exact: None,
+        }
+    }
+
+    /// The filter as a single expression, its native part first.
+    pub(crate) fn into_expression(self) -> Expression {
+        match self.exact {
+            Some(exact) => binary(Operator::And, self.native, exact),
+            None => self.native,
+        }
+    }
+}
+
+#[cfg(test)]
+fn convert_dynamic_filter(
     expression: Arc<dyn PhysicalExpr>,
     schema: SchemaRef,
     converter: Arc<dyn ExpressionConverter>,
 ) -> Expression {
+    split_dynamic_filter(expression, schema, converter).into_expression()
+}
+
+/// Converts a predicate holding dynamic filters, keeping the exact conjuncts of its top-level
+/// conjunction apart from the native ones.
+pub(crate) fn split_dynamic_filter(
+    expression: Arc<dyn PhysicalExpr>,
+    schema: SchemaRef,
+    converter: Arc<dyn ExpressionConverter>,
+) -> ConvertedDynamicFilter {
     // A converter can retain a comparison whose producer guarantees a fixed shape.
     if let Ok(Some(converted)) = converter.try_convert(&expression, &schema)
         && is_infallible(&converted)
     {
-        return converted;
+        return ConvertedDynamicFilter::native(converted);
     }
 
     // AND/OR preserve a conservative true fallback for unsupported children; NOT does not.
     if let Some(expr) = expression.downcast_ref::<BinaryExpr>()
         && let Some(operator) = boolean_operator(expr.op())
     {
-        return binary(
-            operator,
-            convert_dynamic_filter(
-                Arc::clone(expr.left()),
-                Arc::clone(&schema),
-                Arc::clone(&converter),
-            ),
-            convert_dynamic_filter(Arc::clone(expr.right()), schema, converter),
+        let left = split_dynamic_filter(
+            Arc::clone(expr.left()),
+            Arc::clone(&schema),
+            Arc::clone(&converter),
         );
+        let right = split_dynamic_filter(Arc::clone(expr.right()), schema, converter);
+        if operator == Operator::And {
+            return ConvertedDynamicFilter {
+                native: binary(Operator::And, left.native, right.native),
+                exact: match (left.exact, right.exact) {
+                    (Some(left), Some(right)) => Some(binary(Operator::And, left, right)),
+                    (left, right) => left.or(right),
+                },
+            };
+        }
+        return ConvertedDynamicFilter::native(binary(
+            operator,
+            left.into_expression(),
+            right.into_expression(),
+        ));
     }
     if !DynamicFilterTracking::classify(&expression).contains_dynamic_filter() {
-        return lit(true);
+        return ConvertedDynamicFilter::native(lit(true));
     }
 
     // A DataFusion dynamic filter may replace its entire body, regardless of its current shape.
@@ -118,7 +172,10 @@ pub(crate) fn convert_dynamic_filter(
         }),
         inputs,
     );
-    binary(Operator::And, native, exact)
+    ConvertedDynamicFilter {
+        native,
+        exact: Some(exact),
+    }
 }
 
 fn boolean_operator(operator: &DFOperator) -> Option<Operator> {
@@ -447,6 +504,11 @@ impl ExactDynamicFilter {
         let residual = split_conjunction(snapshot)
             .into_iter()
             .filter(|conjunct| !self.conjuncts.is_native(conjunct))
+            // DataFusion 55 routes each row of a partitioned join's filter through a CASE on
+            // the row's hash partition, then tests the partition's bounds and hash table. Exactly,
+            // that costs more per row than the join's own repartition and probe, so only its
+            // widened bounds are pushed. DataFusion 56 emits no CASE.
+            .filter(|conjunct| conjunct.downcast_ref::<CaseExpr>().is_none())
             .cloned()
             .collect::<Vec<_>>();
         if residual.is_empty() {
@@ -697,8 +759,9 @@ mod tests {
             .collect();
         let filter = partitioned(branches, else_expr)?;
         assert_eq!(native(Arc::clone(&filter)), expected.and_then(native));
-        // The hash routing selects each partition's own test, which only DataFusion evaluates.
-        assert!(exact(filter).is_some());
+        // Testing the hash routing exactly costs more than the join's own probe, so only the hull
+        // is pushed.
+        assert_eq!(exact(filter), None);
         Ok(())
     }
 
@@ -766,15 +829,6 @@ mod tests {
             df_lit(true),
             // A collect-left join: bounds and a membership test.
             and(bounds(4, 40), multiple_of(3)),
-            // A partitioned join: each partition has its own bounds and membership test.
-            partitioned(
-                vec![
-                    and(bounds(0, 30), multiple_of(2)),
-                    and(bounds(10, 50), multiple_of(5)),
-                    df_lit(false),
-                ],
-                df_lit(false),
-            )?,
             // A null-aware join keeps the probe side's null keys.
             or(is_null, and(bounds(8, 60), multiple_of(4))),
         ] {
@@ -782,6 +836,24 @@ mod tests {
             let (scan, expected) = kept_rows(&filter, &converted, &batch)?;
             assert_eq!(scan, expected, "{predicate}");
         }
+
+        // A partitioned join, where each partition has its own bounds and membership test, keeps
+        // every row inside the hull of its bounds and no row outside it.
+        let predicate = partitioned(
+            vec![
+                and(bounds(0, 30), multiple_of(2)),
+                and(bounds(10, 50), multiple_of(5)),
+                df_lit(false),
+            ],
+            df_lit(false),
+        )?;
+        dynamic.update(Arc::clone(&predicate))?;
+        let (scan, expected) = kept_rows(&filter, &converted, &batch)?;
+        let hull = (0..64)
+            .map(|value| value % 7 != 3 && (0..=50).contains(&value))
+            .collect::<Vec<_>>();
+        assert_eq!(scan, hull, "{predicate}");
+        assert!(expected.iter().zip(&scan).all(|(expected, scan)| !expected || *scan));
         Ok(())
     }
 }

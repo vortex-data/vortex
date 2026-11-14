@@ -228,7 +228,7 @@ pub struct VortexSource {
     /// Shared physical Arrow schemas of each file, keyed by path.
     file_schemas: Arc<DashMap<Path, SchemaRef>>,
     /// The Vortex expression of each dynamic filter of the predicate, keyed by the filter.
-    dynamic_filters: Arc<DashMap<DynamicFilterKey, Expression>>,
+    dynamic_filters: Arc<DashMap<DynamicFilterKey, (Expression, Option<Expression>)>>,
     expression_converter: Arc<dyn ExpressionConverter>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     pub(crate) ordered: bool,
