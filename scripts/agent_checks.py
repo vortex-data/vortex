@@ -17,14 +17,14 @@ Subcommands, in the order a run uses them:
     finalize                   Validate the results; revert, format and verify the edits.
     decide                     From live GitHub state, decide what to publish, without repeats.
     record                     Merge reviews and rejected findings into each check's state, with CAS.
-    archive                    Keep a write-once record of the run under each check's `runs/`.
+    archive                    Keep a write-once zip of the run under each check's `runs/`.
 
     list                       List the checks.
     run                        Review crates locally with the `claude` CLI.
     unsuppress                 Forget rejected findings, so agents may report them again.
 
 Each check owns a storage prefix, `<store>/<check>/`: the mutable `state.json`, written with
-compare-and-swap, and write-once run records under `runs/`. CI keeps it in S3
+compare-and-swap, and one write-once zip per run under `runs/`. CI keeps it in S3
 (`--store s3://bucket/prefix`); locally it defaults to the directory `target/agent-checks-state`.
 
 PR and issue bodies end with a hidden marker. Only markers by a trusted author
@@ -43,6 +43,7 @@ import datetime as dt
 import fcntl
 import glob
 import hashlib
+import io
 import itertools
 import json
 import os
@@ -55,6 +56,7 @@ import sys
 import tempfile
 import time
 import tomllib
+import zipfile
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -468,7 +470,7 @@ class S3Store(CheckStore):
     def put(self, check_id: str, key: str, data: bytes, token: str | None) -> None:
         _check_key(check_id, key)
         condition = ["--if-match", token] if token is not None else ["--if-none-match", "*"]
-        content_type = "application/json" if key.endswith(".json") else "text/plain; charset=utf-8"
+        content_type = "application/zip" if key.endswith(".zip") else "application/json"
         with tempfile.TemporaryDirectory() as tmp:
             body = Path(tmp) / "object"
             body.write_bytes(data)
@@ -1550,27 +1552,26 @@ def run_key(plan: dict[str, Any], run_id: str) -> str:
 
 
 def archive(store: CheckStore, plan: dict[str, Any], run_id: str, dirs: Sequence[Path]) -> list[str]:
-    """Keep a write-once record of the run under each check's `runs/<run>/` prefix.
+    """Keep a write-once record of the run: one zip per check, `<check>/runs/<run>.zip`.
 
-    For every planned check this stores the check's part of the plan, and for every handed-over
-    directory (one per shard and job, tagged by its `meta.json`) the files in ARCHIVED_FILES.
-    Objects are created with `put_new`, so a re-run never overwrites history; existing objects are
-    skipped. Directories naming a check or shard that is not in the plan are ignored. Returns the
-    keys written.
+    Each zip holds `plan.json`, the check's part of the plan, and for every handed-over directory
+    of that check (one per crate and job, tagged by its `meta.json`) the files in ARCHIVED_FILES as
+    `<crate>/<file>`. Directories naming a check or crate that is not in the plan are ignored.
+
+    The zip is created with `put_new`, so a run is archived whole or not at all, and a re-run never
+    overwrites history. Returns the keys written.
     """
     key = run_key(plan, run_id)
-    written: list[str] = []
+    members: dict[str, dict[str, bytes]] = {}
     for check_id, entry in plan["checks"].items():
-        if not entry.get("shards"):
-            continue
-        snapshot = {
-            "base_commit": plan["base_commit"],
-            "generated_at": plan["generated_at"],
-            "version": entry["definition"]["version"],
-            "shards": entry["shards"],
-        }
-        if store.put_new(check_id, f"runs/{key}/plan.json", (json.dumps(snapshot, indent=2) + "\n").encode()):
-            written.append(f"{check_id}/runs/{key}/plan.json")
+        if entry.get("shards"):
+            snapshot = {
+                "base_commit": plan["base_commit"],
+                "generated_at": plan["generated_at"],
+                "version": entry["definition"]["version"],
+                "shards": entry["shards"],
+            }
+            members[check_id] = {"plan.json": (json.dumps(snapshot, indent=2) + "\n").encode()}
     for directory in dirs:
         try:
             meta = json.loads((directory / "meta.json").read_text())
@@ -1579,7 +1580,7 @@ def archive(store: CheckStore, plan: dict[str, Any], run_id: str, dirs: Sequence
             print(f"archive: skipping {directory}: no valid meta.json", file=sys.stderr)
             continue
         shards = {sh["id"] for sh in plan["checks"].get(check_id, {}).get("shards", [])}
-        if shard_id not in shards:
+        if shard_id not in shards or check_id not in members:
             print(f"archive: skipping {directory}: {check_id}/{shard_id} is not in the plan", file=sys.stderr)
             continue
         for name in ARCHIVED_FILES:
@@ -1589,8 +1590,16 @@ def archive(store: CheckStore, plan: dict[str, Any], run_id: str, dirs: Sequence
             if path.stat().st_size > MAX_ARCHIVED_BYTES:
                 print(f"archive: skipping {path}: larger than {MAX_ARCHIVED_BYTES} bytes", file=sys.stderr)
                 continue
-            if store.put_new(check_id, f"runs/{key}/{shard_slug(shard_id)}/{name}", path.read_bytes()):
-                written.append(f"{check_id}/runs/{key}/{shard_slug(shard_id)}/{name}")
+            members[check_id][f"{shard_slug(shard_id)}/{name}"] = path.read_bytes()
+
+    written: list[str] = []
+    for check_id, files in members.items():
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for name in sorted(files):
+                zf.writestr(name, files[name])
+        if store.put_new(check_id, f"runs/{key}.zip", buffer.getvalue()):
+            written.append(f"{check_id}/runs/{key}.zip")
     return written
 
 

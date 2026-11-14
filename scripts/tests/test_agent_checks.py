@@ -10,9 +10,11 @@ Run with:
 
 import datetime as dt
 import importlib.util
+import io
 import json
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -711,7 +713,7 @@ class TestArchive:
             (d / file).write_text(text)
         return d
 
-    def test_keeps_a_write_once_record_per_check_and_crate(self, repo: Path, tmp_path: Path):
+    def test_keeps_one_write_once_zip_per_check_and_run(self, repo: Path, tmp_path: Path):
         p = plan(repo, tmp_path / "plan-state")
         store = ac.DirStore(tmp_path / "store")
         dirs = [
@@ -719,21 +721,20 @@ class TestArchive:
             self.handed(tmp_path, "out", "bench", "beta", {"final.json": "{}", "decision.json": "d", "pr.md": "pr"}),
             self.handed(tmp_path, "forged", "bench", "not-planned", {"results.json": "{}"}),
         ]
-        written = ac.archive(store, p, "123-1", dirs)
         key = ac.run_key(p, "123-1")
         assert key == "20261113T120000Z_123-1"
-        assert sorted(written) == sorted(
-            f"bench/runs/{key}/{name}"
-            for name in ("plan.json", "beta/results.json", "beta/final.json", "beta/decision.json")
-        )
-        # Only the JSON is kept: the bodies are on GitHub, and kept edits are in the PR's commit.
-        assert store.get("bench", f"runs/{key}/beta/patch.diff")[0] is None
-        assert store.get("bench", f"runs/{key}/beta/pr.md")[0] is None
+        assert ac.archive(store, p, "123-1", dirs) == [f"bench/runs/{key}.zip"]
+        data = store.get("bench", f"runs/{key}.zip")[0]
+        assert data is not None
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            # Only the JSON is kept: the bodies are on GitHub, and kept edits are in the PR's commit.
+            assert sorted(zf.namelist()) == ["beta/decision.json", "beta/final.json", "beta/results.json", "plan.json"]
+            assert zf.read("beta/decision.json") == b"d"
 
         # Re-running the record job writes nothing and changes nothing.
         (dirs[1] / "decision.json").write_text("changed")
         assert ac.archive(store, p, "123-1", dirs) == []
-        assert store.get("bench", f"runs/{key}/beta/decision.json")[0] == b"d"
+        assert store.get("bench", f"runs/{key}.zip")[0] == data
 
 
 class TestApplyPatch:

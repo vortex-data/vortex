@@ -301,12 +301,11 @@ Each check owns `s3://<bucket>/<prefix>/<check-id>/`. Locally, `--store` default
 ```text
 <check-id>/
   state.json                                  what has been reviewed; written with compare-and-swap
-  runs/<plan time>_<run id>-<attempt>/        one per run; write-once
+  runs/<plan time>_<run id>-<attempt>.zip     one per run; write-once
     plan.json                                 this check's part of the plan
-    <crate>/
-      results.json                            what the agent reported
-      final.json                              what finalize kept, reverted and dropped, and why
-      decision.json                           what decide published, and which findings were new
+    <crate>/results.json                      what the agent reported
+    <crate>/final.json                        what finalize kept, reverted and dropped, and why
+    <crate>/decision.json                     what decide published, and which findings were new
 ```
 
 **`state.json`** holds, for each reviewed file:
@@ -323,11 +322,12 @@ Every write reads the object and its ETag, merges, and writes with `If-Match: <e
 Merges are idempotent, and each file keeps its newest review, so a retry never rolls the state
 back.
 
-**`runs/`** is the history: what each agent reported, what the runner did with it, and what was
-published. It keeps only those three JSON files per crate, each up to 1 MB, because the PR and
-issue bodies are on GitHub and the kept edits are in the PR's commit. The record job writes it
-with `If-None-Match: *` only, so a re-run never rewrites history. An S3 lifecycle rule on
-`*/runs/` can expire old runs.
+**`runs/`** is the history: one zip per run, holding what each agent reported, what the runner did
+with it, and what was published. It keeps only that JSON, each file up to 1 MB, because the PR and
+issue bodies are on GitHub and the kept edits are in the PR's commit. The record job writes the
+zip with `If-None-Match: *`, so a run is archived whole or not at all, and a re-run never rewrites
+history. To read one: `aws s3 cp s3://<bucket>/<prefix>/<check>/runs/<run>.zip . && unzip -l <run>.zip`.
+An S3 lifecycle rule on `*/runs/` can expire old runs.
 
 Only the plan and record jobs touch the store: plan reads, record writes.
 
