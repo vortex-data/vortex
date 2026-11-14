@@ -7,7 +7,9 @@ Subcommands, in the order the skill uses them:
   survivors  Print a run's surviving mutants, grouped by function and ranked.
   probe      Check whether any test reaches a source line, by inserting a temporary panic.
   verify     Re-test a run's survivors against the current tree.
-  report     Check a triage file against a run and its verification, and write the report.
+  kills      Show which tests catch which mutants: tests that catch none, duplicates, a minimal set.
+  compare    Diff two runs of one scope, to prove a test change lost no caught mutant.
+  report     Check the triage, removals and questions against the evidence, and write the report.
 
 Every command that builds runs cargo in place in the working tree. Do not edit files while one is
 running. Each checks that the tree it leaves matches the tree it started from.
@@ -160,7 +162,9 @@ def list_mutants(root: Path, selection: list[str]) -> list[dict[str, Any]]:
 def run_cargo_mutants(root: Path, selection: list[str], out: Path) -> int:
     """Run cargo-mutants in place, streaming its output to the terminal and to a log file."""
     command = ["cargo", "mutants", *selection, "--in-place", "--caught", "--unviable", "--colors", "never"]
-    command += ["--output", str(out)]
+    # `--no-fail-fast` runs every test binary even after one fails, so each mutant's log names
+    # every test that catches it, which the kill matrix needs.
+    command += ["--output", str(out), "--", "--no-fail-fast"]
     print("$ " + shlex.join(command), flush=True)
     before = tree_fingerprint(root)
     with open(out / "cargo-mutants.log", "w") as log:
@@ -307,6 +311,126 @@ def collect_survivors(root: Path, outcomes: list[dict[str, Any]]) -> dict[str, A
     return {"groups": ranked, "timeouts": sorted(timeouts)}
 
 
+# --- kill matrix -----------------------------------------------------------------------------
+
+# libtest prints `test <name> ... ok`; doctest names contain spaces, so match lazily.
+TEST_LINE = re.compile(r"^test (.+?) \.\.\. (ok|FAILED|ignored)\b")
+# cargo announces each test binary as `Running unittests src/lib.rs (target/...)`, or, with
+# `--verbose` as cargo-mutants runs it, as `Running \`<target dir>/<name>-<hash>\``. Doctests follow
+# `Doc-tests <crate>`. Build commands also start with `Running \``, but contain spaces.
+BINARY_LINE = re.compile(r"^\s+Running (?:unittests )?([^`\s]\S*) \(")
+VERBOSE_BINARY_LINE = re.compile(r"^\s+Running `([^`\s]+)`$")
+DOCTEST_LINE = re.compile(r"^\s+Doc-tests (\S+)")
+RSTEST_CASE = re.compile(r"^(case_\d+|[A-Za-z][A-Za-z0-9_]*_\d+(_|$))")
+
+
+def test_results(log: str, lib_binary: str) -> dict[str, str]:
+    """Each test's result in a cargo test log, keyed by test id: the name, prefixed by its binary
+    unless it is a unit test of the library, whose binary is called `lib_binary`."""
+    binary = "src/lib.rs"
+    results: dict[str, str] = {}
+    for line in log.splitlines():
+        if match := BINARY_LINE.match(line):
+            binary = match.group(1)
+        elif match := VERBOSE_BINARY_LINE.match(line):
+            name = re.sub(r"-[0-9a-f]{16}$", "", Path(match.group(1)).name)
+            binary = "src/lib.rs" if name == lib_binary else f"tests/{name}"
+        elif match := DOCTEST_LINE.match(line):
+            binary = "doctest"
+        elif match := TEST_LINE.match(line):
+            name = match.group(1)
+            results[name if binary == "src/lib.rs" else f"[{binary}] {name}"] = match.group(2)
+    return results
+
+
+def test_function(test_id: str) -> str:
+    """The test function an rstest case belongs to, or the test itself."""
+    parts = test_id.split("::")
+    for index, part in enumerate(parts[1:], 1):
+        if RSTEST_CASE.match(part):
+            return "::".join(parts[:index])
+    return test_id
+
+
+def build_kills(mutants_out: Path, outcomes: list[dict[str, Any]]) -> dict[str, Any]:
+    """Which tests fail under each caught mutant, from cargo-mutants' per-mutant logs."""
+    packages = {o["scenario"]["Mutant"]["package"] for o in outcomes}
+    lib_binary = packages.pop().replace("-", "_") if len(packages) == 1 else ""
+    baseline_log = mutants_out / "log" / "baseline.log"
+    baseline = test_results(baseline_log.read_text(), lib_binary) if baseline_log.exists() else {}
+    kills: dict[str, list[str]] = {}
+    unattributed = []
+    for outcome in outcomes:
+        if outcome["summary"] != "CaughtMutant":
+            continue
+        name = outcome["scenario"]["Mutant"]["name"]
+        log = (mutants_out / outcome["log_path"]).read_text()
+        failed = [t for t, r in test_results(log, lib_binary).items() if r == "FAILED"]
+        if not failed:
+            # Caught by a crash, an abort or a build of the tests, not by a named failing test.
+            unattributed.append(name)
+        for test in failed:
+            kills.setdefault(test, []).append(name)
+    return {
+        "schema": SCHEMA_VERSION,
+        "kind": "kills",
+        "tests": sorted(t for t, r in baseline.items() if r == "ok"),
+        "kills": {t: sorted(k) for t, k in sorted(kills.items())},
+        "unattributed": sorted(unattributed),
+    }
+
+
+def merge_kills(matrices: list[dict[str, Any]]) -> dict[str, Any]:
+    tests: set[str] = set()
+    kills: dict[str, set[str]] = {}
+    unattributed: set[str] = set()
+    for matrix in matrices:
+        tests |= set(matrix["tests"])
+        unattributed |= set(matrix["unattributed"])
+        for test, names in matrix["kills"].items():
+            kills.setdefault(test, set()).update(names)
+    return {
+        "schema": SCHEMA_VERSION,
+        "kind": "kills",
+        "tests": sorted(tests),
+        "kills": {t: sorted(k) for t, k in sorted(kills.items())},
+        "unattributed": sorted(unattributed),
+    }
+
+
+def analyze_kills(matrix: dict[str, Any]) -> dict[str, Any]:
+    """Tests that catch nothing, tests whose kills others cover, and a small set that catches all."""
+    kills = {t: set(k) for t, k in matrix["kills"].items()}
+    killed = set().union(*kills.values()) if kills else set()
+    catchers: dict[str, set[str]] = {}
+    for test, names in kills.items():
+        for name in names:
+            catchers.setdefault(name, set()).add(test)
+    unique = {t: sorted(n for n in k if catchers[n] == {t}) for t, k in kills.items()}
+
+    by_set: dict[frozenset[str], list[str]] = {}
+    for test, names in kills.items():
+        by_set.setdefault(frozenset(names), []).append(test)
+    identical = [sorted(group) for group in by_set.values() if len(group) > 1]
+
+    remaining = set(killed)
+    cover = []
+    while remaining:
+        best = max(sorted(kills), key=lambda t: len(kills[t] & remaining))
+        cover.append(best)
+        remaining -= kills[best]
+
+    return {
+        "tests_run": len(matrix["tests"]),
+        "killed_mutants": len(killed),
+        "unattributed": len(matrix["unattributed"]),
+        "no_kills": sorted(t for t in matrix["tests"] if t not in kills),
+        "unique_kills": {t: n for t, n in sorted(unique.items()) if n},
+        "identical": sorted(identical, key=lambda g: (-len(g), g)),
+        "cover": cover,
+    }
+
+
 def counts(outcomes: list[dict[str, Any]]) -> dict[str, int]:
     tally = {status: 0 for status in STATUS_BY_SUMMARY.values()}
     for outcome in outcomes:
@@ -384,6 +508,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     }
     (out / "run.json").write_text(json.dumps(run, indent=2) + "\n")
     (out / "survivors.json").write_text(json.dumps(survivors, indent=2) + "\n")
+    if listed:
+        kills = build_kills(out / "mutants.out", outcomes)
+        (out / "kills.json").write_text(json.dumps(kills, indent=2) + "\n")
 
     tally = run["counts"]
     print(
@@ -391,6 +518,112 @@ def cmd_run(args: argparse.Namespace) -> int:
         f"{tally['timeout']} timed out, {tally['unviable']} unviable."
     )
     print(f"Survivors: python3 {sys.argv[0]} survivors {out}")
+    return 0
+
+
+def cmd_kills(args: argparse.Namespace) -> int:
+    """Print the kill matrix of one run, or of several cargo-mutants outputs merged."""
+    matrices = []
+    for source in args.sources:
+        path = Path(source)
+        if (path / "kills.json").exists():
+            matrices.append(json.loads((path / "kills.json").read_text()))
+        else:
+            # A bare `mutants.out` directory, such as a CI shard's artifact.
+            mutants_out = path / "mutants.out" if (path / "mutants.out").is_dir() else path
+            matrices.append(build_kills(mutants_out, load_outcomes(mutants_out)))
+    matrix = merge_kills(matrices)
+    if args.out:
+        Path(args.out).write_text(json.dumps(matrix, indent=2) + "\n")
+    analysis = analyze_kills(matrix)
+    if args.json:
+        print(json.dumps(analysis, indent=2))
+        return 0
+
+    print(
+        f"{analysis['tests_run']} tests ran; {analysis['killed_mutants']} mutants were caught by a named test "
+        f"and {analysis['unattributed']} only by a crash or abort.\n"
+    )
+    print(f"{len(analysis['cover'])} tests together catch every one of those mutants.\n")
+    print(f"Tests that catch no mutant ({len(analysis['no_kills'])}): candidates to question, not to delete.")
+    for test in analysis["no_kills"]:
+        print(f"   {test}")
+    print(f"\nGroups of tests that catch exactly the same mutants ({len(analysis['identical'])}):")
+    for group in analysis["identical"][: args.limit]:
+        functions = {test_function(t) for t in group}
+        where = "cases of one test function" if len(functions) == 1 else f"{len(functions)} test functions"
+        print(f"   {len(group)} tests, {where}, {len(matrix['kills'][group[0]])} mutants:")
+        for test in group[:6]:
+            print(f"      {test}")
+        if len(group) > 6:
+            print(f"      ... {len(group) - 6} more")
+    if len(analysis["identical"]) > args.limit:
+        print(f"   ... {len(analysis['identical']) - args.limit} more groups (--limit)")
+    return 0
+
+
+def compare_runs(before_dir: Path, after_dir: Path) -> dict[str, Any]:
+    """Per-mutant outcome changes between two runs of one scope, matched by name pattern."""
+    before_run = json.loads((before_dir / "run.json").read_text())
+    after_run = json.loads((after_dir / "run.json").read_text())
+    if before_run["selection"] != after_run["selection"]:
+        raise ToolError("the two runs have different scopes; rerun `run` with the same arguments")
+
+    def index(run_dir: Path) -> dict[str, list[tuple[int, str, str]]]:
+        found: dict[str, list[tuple[int, str, str]]] = {}
+        for outcome in load_outcomes(run_dir / "mutants.out"):
+            mutant = outcome["scenario"]["Mutant"]
+            status = STATUS_BY_SUMMARY.get(outcome["summary"], outcome["summary"])
+            found.setdefault(name_pattern(mutant), []).append((mutant["span"]["start"]["line"], mutant["name"], status))
+        return found
+
+    before, after = index(before_dir), index(after_dir)
+    changes: dict[str, list[dict[str, str]]] = {"regressed": [], "fixed": [], "vanished": [], "new": []}
+    for pattern, entries in before.items():
+        later = after.get(pattern, [])
+        for line, name, status in entries:
+            if not later:
+                changes["vanished"].append({"name": name, "before": status})
+                continue
+            _, now_name, now = min(later, key=lambda e: abs(e[0] - line))
+            if status in ("caught", "timeout") and now == "missed":
+                changes["regressed"].append({"name": name, "now": now_name})
+            elif status == "missed" and now in ("caught", "timeout"):
+                changes["fixed"].append({"name": name, "now": now_name})
+    for pattern, entries in after.items():
+        if pattern not in before:
+            changes["new"] += [{"name": name, "now": status} for _, name, status in entries]
+
+    before_tests = set(json.loads((before_dir / "kills.json").read_text())["tests"])
+    after_tests = set(json.loads((after_dir / "kills.json").read_text())["tests"])
+    return {
+        "schema": SCHEMA_VERSION,
+        "kind": "compare",
+        "before": {"commit": before_run["commit"], "counts": before_run["counts"]},
+        "after": {"commit": after_run["commit"], "counts": after_run["counts"]},
+        "changes": changes,
+        "tests_removed": sorted(before_tests - after_tests),
+        "tests_added": sorted(after_tests - before_tests),
+    }
+
+
+def cmd_compare(args: argparse.Namespace) -> int:
+    before_dir, after_dir = Path(args.before), Path(args.after)
+    comparison = compare_runs(before_dir, after_dir)
+    (before_dir / "compare.json").write_text(json.dumps(comparison, indent=2) + "\n")
+    changes = comparison["changes"]
+    print(
+        f"caught before {comparison['before']['counts']['caught']}, after {comparison['after']['counts']['caught']}; "
+        f"missed before {comparison['before']['counts']['missed']}, after {comparison['after']['counts']['missed']}"
+    )
+    print(f"tests: {len(comparison['tests_removed'])} removed, {len(comparison['tests_added'])} added")
+    for kind in ("regressed", "fixed", "new", "vanished"):
+        print(f"{kind}: {len(changes[kind])}")
+        for change in changes[kind] if kind == "regressed" else changes[kind][:5]:
+            print(f"   {change['name']}")
+    if changes["regressed"]:
+        print("\nREGRESSED: tests that caught these mutants are gone. Restore them or replace their checks.")
+        return 2
     return 0
 
 
@@ -523,21 +756,86 @@ def cmd_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+QUESTION_TOPICS = ("removal", "semantics", "equivalence", "bug", "other")
+REMOVAL_KINDS = ("no-kills", "duplicate")
+
+
+def statuses_from_compare(root: Path, survivor_names: list[str], comparison: dict[str, Any]) -> dict[str, Any]:
+    """Survivor statuses from a full rerun, for when `verify` was not run."""
+    fixed = {c["name"] for c in comparison["changes"]["fixed"]}
+    vanished = {c["name"] for c in comparison["changes"]["vanished"]}
+    patterns = exclusion_patterns(root)
+    results = {}
+    for name in survivor_names:
+        if name in fixed:
+            results[name] = {"status": "caught"}
+        elif name in vanished:
+            results[name] = {"status": "excluded" if excluded_by(name, patterns) else "not-found"}
+        else:
+            results[name] = {"status": "missed"}
+    return results
+
+
+def load_optional(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    value = json.loads(path.read_text())
+    if not isinstance(value, dict):
+        raise ToolError(f"{path} must hold a JSON object")
+    return value
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     root = repo_root()
     run_dir = Path(args.run)
     run = json.loads((run_dir / "run.json").read_text())
     survivors = json.loads((run_dir / "survivors.json").read_text())
-    triage_path = Path(args.triage) if args.triage else run_dir / "triage.json"
-    verify_path = Path(args.verify) if args.verify else run_dir / "verify" / "verify.json"
-    triage = json.loads(triage_path.read_text())
-    verify = json.loads(verify_path.read_text()) if verify_path.exists() else None
+    triage = json.loads((Path(args.triage) if args.triage else run_dir / "triage.json").read_text())
+    verify = load_optional(Path(args.verify) if args.verify else run_dir / "verify" / "verify.json")
+    comparison = load_optional(Path(args.compare) if args.compare else run_dir / "compare.json")
+    answers = load_optional(Path(args.answers) if args.answers else run_dir / "answers.json") or {}
+    kills_path = Path(args.kills) if args.kills else run_dir / "kills.json"
+    matrix = load_optional(kills_path)
 
     survivor_names = [m["name"] for g in survivors["groups"] for m in g["mutants"]]
     errors: list[str] = []
-    if survivor_names and verify is None:
-        errors.append(f"{verify_path} does not exist; run `verify` after writing tests and exclusions")
-    results = verify["results"] if verify else {}
+    if verify is not None:
+        results = verify["results"]
+    elif comparison is not None:
+        results = statuses_from_compare(root, survivor_names, comparison)
+    else:
+        results = {}
+        if survivor_names:
+            errors.append("neither verify.json nor compare.json exists; run `verify` or rerun and `compare`")
+    if comparison is not None and comparison["changes"]["regressed"]:
+        for change in comparison["changes"]["regressed"]:
+            errors.append(f"regressed: {change['name']} was caught before the change and is missed after it")
+
+    questions = triage.get("questions", [])
+    question_ids = [q.get("id") for q in questions]
+    refs: dict[str, list[dict[str, Any]]] = {}
+    for index, question in enumerate(questions):
+        label = f"question {question.get('id') or index + 1}"
+        if not question.get("id") or question_ids.count(question["id"]) > 1:
+            errors.append(f"{label}: give each question a unique id, such as Q1")
+        if question.get("topic") not in QUESTION_TOPICS:
+            errors.append(f"{label}: topic must be one of {', '.join(QUESTION_TOPICS)}")
+        if not str(question.get("question", "")).strip():
+            errors.append(f"{label}: ask the question")
+        options = question.get("options", [])
+        if len(options) < 2:
+            errors.append(f"{label}: offer at least two options")
+        if question.get("default") not in options:
+            errors.append(f"{label}: the default, what happens with no answer, must be one of the options")
+        answer = answers.get(question.get("id"), {}).get("answer")
+        if answer is not None and answer not in options:
+            errors.append(f"{label}: the answer {answer!r} is not one of its options")
+        for ref in question.get("refs", []):
+            refs.setdefault(ref, []).append(question)
+
+    def answered(question: dict[str, Any]) -> str | None:
+        answer = answers.get(question["id"], {}).get("answer")
+        return None if answer is None else str(answer)
 
     seen: dict[str, int] = {}
     entries = triage.get("entries", [])
@@ -552,6 +850,13 @@ def cmd_report(args: argparse.Namespace) -> int:
             errors.append(f"{label}: list the mutants it covers")
         if verdict == "gap-fixed" and not entry.get("tests"):
             errors.append(f"{label}: a gap-fixed entry names the tests that kill its mutants")
+        if verdict == "gap-fixed" and not str(entry.get("oracle", "")).strip():
+            errors.append(
+                f"{label}: say where the new tests' expected values come from (`oracle`): a reference "
+                "implementation or the input contract, never the code's current output"
+            )
+        if verdict in ("bug", "deferred") and not any(m in refs for m in entry.get("mutants", [])):
+            errors.append(f"{label}: a {verdict} verdict is a decision for a person; add a question that refs it")
         for name in entry.get("mutants", []):
             seen[name] = seen.get(name, 0) + 1
             if name not in survivor_names:
@@ -559,7 +864,7 @@ def cmd_report(args: argparse.Namespace) -> int:
                 continue
             status = results.get(name, {}).get("status")
             if verdict == "gap-fixed" and status not in ("caught", "timeout"):
-                errors.append(f"{label}: {name!r} is marked gap-fixed but verify found it {status}")
+                errors.append(f"{label}: {name!r} is marked gap-fixed but is {status} after the change")
             if verdict == "equivalent" and status != "excluded":
                 errors.append(f"{label}: {name!r} is marked equivalent but no exclude_re entry matches it")
             if verdict in ("bug", "deferred") and status in ("caught", "timeout"):
@@ -569,6 +874,56 @@ def cmd_report(args: argparse.Namespace) -> int:
             errors.append(f"untriaged survivor: {name}")
         elif seen[name] > 1:
             errors.append(f"survivor triaged {seen[name]} times: {name}")
+
+    removals = triage.get("removals", [])
+    if removals and matrix is None:
+        errors.append(f"{kills_path} does not exist; removals need a kill matrix as evidence")
+    if removals and args.kills is None and run["selection"] != ["--package", run["package"]]:
+        errors.append(
+            "this run covers part of the crate, so a test that catches nothing here may catch mutants "
+            "elsewhere. Pass --kills with a package-wide matrix (`kills <runs or CI shards> --out`)."
+        )
+    removed_tests = {t for r in removals for t in r.get("tests", [])}
+    for index, removal in enumerate(removals):
+        label = f"removal {index + 1}"
+        kind = removal.get("kind")
+        if kind not in REMOVAL_KINDS:
+            errors.append(f"{label}: kind must be one of {', '.join(REMOVAL_KINDS)}")
+        if not str(removal.get("reason", "")).strip():
+            errors.append(f"{label}: give a reason")
+        if not removal.get("tests"):
+            errors.append(f"{label}: list the tests")
+        for test in removal.get("tests", []):
+            if matrix is None:
+                break
+            if test not in matrix["tests"]:
+                errors.append(f"{label}: {test!r} did not run in the kill matrix's runs")
+                continue
+            caught = set(matrix["kills"].get(test, []))
+            if kind == "no-kills" and caught:
+                errors.append(f"{label}: {test!r} catches {len(caught)} mutants, so it is not a no-kills test")
+            if kind == "duplicate":
+                other = removal.get("duplicate_of")
+                if not other or other in removed_tests:
+                    errors.append(f"{label}: name a kept test in `duplicate_of`")
+                elif not caught <= set(matrix["kills"].get(other, [])):
+                    errors.append(f"{label}: {test!r} catches mutants that {other!r} does not")
+            asked = [q for q in refs.get(test, []) if q.get("topic") == "removal"]
+            decisions = {a for a in (answered(q) for q in asked) if a is not None}
+            if removal.get("applied"):
+                if comparison is None:
+                    errors.append(f"{label}: an applied removal needs a full rerun and `compare` as proof")
+                elif test not in comparison["tests_removed"]:
+                    errors.append(f"{label}: {test!r} still runs after the change")
+                if not asked:
+                    errors.append(f"{label}: ask about removing {test!r}; a person confirms every removal")
+                elif decisions and decisions != {"remove"}:
+                    errors.append(f"{label}: {test!r} was answered {sorted(decisions)}; restore it")
+            else:
+                if not asked:
+                    errors.append(f"{label}: a proposed removal needs a removal question that refs {test!r}")
+                elif "remove" in decisions:
+                    errors.append(f"{label}: removing {test!r} was approved; apply it, rerun and compare")
 
     if errors:
         print("report: the triage is incomplete or inconsistent:", file=sys.stderr)
@@ -583,6 +938,9 @@ def cmd_report(args: argparse.Namespace) -> int:
     verdicts = {verdict: 0 for verdict in VERDICTS}
     for entry in entries:
         verdicts[entry["verdict"]] += len(entry["mutants"])
+    rendered_questions = [
+        {**q, "answer": answered(q), "answered_by": answers.get(q["id"], {}).get("by")} for q in questions
+    ]
     report = {
         "schema": SCHEMA_VERSION,
         "kind": "report",
@@ -591,12 +949,16 @@ def cmd_report(args: argparse.Namespace) -> int:
         "run_commit": run["commit"],
         "run_dirty": run["dirty"],
         "before": run["counts"],
+        "after": comparison["after"]["counts"] if comparison else None,
         "verdicts": verdicts,
         "timeouts": survivors["timeouts"],
         "entries": [
             {**entry, "status": {name: results.get(name, {}).get("status") for name in entry["mutants"]}}
             for entry in entries
         ],
+        "removals": removals,
+        "questions": rendered_questions,
+        "open_questions": sum(1 for q in rendered_questions if q["answer"] is None),
         "files_changed": changed,
     }
     (run_dir / "report.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -608,42 +970,83 @@ def cmd_report(args: argparse.Namespace) -> int:
 
 def render_markdown(report: dict[str, Any]) -> str:
     before = report["before"]
-    viable = before["caught"] + before["missed"] + before["timeout"]
-    after_missed = sum(1 for entry in report["entries"] for status in entry["status"].values() if status == "missed")
     lines = [
         f"## Mutation testing: {report['package']}",
         "",
         f"Scope: `cargo mutants {' '.join(report['selection'])}` at `{report['run_commit'][:12]}`"
         + (" (with uncommitted changes)" if report["run_dirty"] else ""),
         "",
-        "| | Viable | Caught | Missed | Timed out |",
+        "| | Caught | Missed | Timed out | Unviable |",
         "|---|---:|---:|---:|---:|",
-        f"| Before | {viable} | {before['caught']} | {before['missed']} | {before['timeout']} |",
-        "",
-        "| Verdict | Mutants |",
-        "|---|---:|",
+        f"| Before | {before['caught']} | {before['missed']} | {before['timeout']} | {before['unviable']} |",
     ]
-    lines += [f"| {verdict} | {count} |" for verdict, count in report["verdicts"].items()]
-    lines += ["", f"Missed after this change, excluding equivalents: {after_missed}.", ""]
-    for verdict in VERDICTS:
-        entries = [e for e in report["entries"] if e["verdict"] == verdict]
-        if not entries:
-            continue
-        lines += [f"### {verdict}", ""]
-        for entry in entries:
+    if report["after"]:
+        after = report["after"]
+        lines.append(f"| After | {after['caught']} | {after['missed']} | {after['timeout']} | {after['unviable']} |")
+    lines.append("")
+
+    added = [e for e in report["entries"] if e["verdict"] == "gap-fixed"]
+    if added:
+        lines += ["### Tests added", ""]
+        for entry in added:
             lines.append(f"- {entry['reason']}")
-            for test in entry.get("tests", []):
+            lines.append(f"  - expected values: {entry['oracle']}")
+            for test in entry["tests"]:
                 lines.append(f"  - test: `{test}`")
+            lines.append(f"  - catches {len(entry['mutants'])} survivors")
+        lines.append("")
+    applied = [r for r in report["removals"] if r.get("applied")]
+    if applied:
+        lines += ["### Tests removed", ""]
+        for removal in applied:
+            evidence = (
+                "caught no mutant in the package"
+                if removal["kind"] == "no-kills"
+                else f"caught only mutants that `{removal['duplicate_of']}` also catches"
+            )
+            lines.append(f"- {removal['reason']} Evidence: {evidence}; the rerun shows no regressions.")
+            lines += [f"  - `{test}`" for test in removal["tests"]]
+        lines.append("")
+
+    others = [e for e in report["entries"] if e["verdict"] != "gap-fixed"]
+    if others:
+        lines += ["### Other survivors", ""]
+        for entry in others:
+            lines.append(f"- **{entry['verdict']}**: {entry['reason']}")
             for name in entry["mutants"]:
                 lines.append(f"  - `{name}` → {entry['status'][name]}")
         lines.append("")
+
+    questions = report["questions"]
+    if questions:
+        lines += [
+            "### Questions for reviewers",
+            "",
+            "Each question is a decision the agent should not make alone. Tick one option, or reply "
+            "`Q<n>: <option>`. An unanswered question takes its default.",
+            "",
+        ]
+        for question in sorted(questions, key=lambda q: q["answer"] is not None):
+            status = f"answered: **{question['answer']}**" if question["answer"] else "open"
+            lines.append(f"**{question['id']}** ({question['topic']}, {status}): {question['question']}")
+            if question.get("context"):
+                lines += ["", f"> {question['context']}"]
+            lines.append("")
+            for option in question["options"]:
+                marks = []
+                if option == question.get("recommendation"):
+                    marks.append("recommended")
+                if option == question["default"]:
+                    marks.append("default")
+                tick = "x" if option == question["answer"] else " "
+                suffix = f" ({', '.join(marks)})" if marks else ""
+                lines.append(f"- [{tick}] {option}{suffix}")
+            for ref in question.get("refs", []):
+                lines.append(f"  - `{ref}`")
+            lines.append("")
     if report["timeouts"]:
         lines += ["### Timed out (counted as detected)", ""]
         lines += [f"- `{name}`" for name in report["timeouts"]]
-        lines.append("")
-    if report["files_changed"]:
-        lines += ["### Files changed", ""]
-        lines += [f"- `{name}`" for name in report["files_changed"]]
         lines.append("")
     return "\n".join(lines)
 
@@ -691,10 +1094,25 @@ def main() -> int:
     verify.add_argument("--out", help="fresh output directory (default: <run>/verify)")
     verify.set_defaults(handler=cmd_verify)
 
+    kills = commands.add_parser("kills", help="print the kill matrix: which tests catch which mutants")
+    kills.add_argument("sources", nargs="+", help="run directories, or cargo-mutants mutants.out directories")
+    kills.add_argument("--out", help="write the merged matrix here, for `report --kills`")
+    kills.add_argument("--json", action="store_true", help="print the analysis as JSON")
+    kills.add_argument("--limit", type=int, default=15, help="how many identical groups to print")
+    kills.set_defaults(handler=cmd_kills)
+
+    compare = commands.add_parser("compare", help="diff two runs of one scope; nonzero exit on regressions")
+    compare.add_argument("before", help="the run before the change")
+    compare.add_argument("after", help="a fresh run of the same scope after the change")
+    compare.set_defaults(handler=cmd_compare)
+
     report = commands.add_parser("report", help="validate the triage and write report.json and report.md")
     report.add_argument("run", help="the run's output directory")
     report.add_argument("--triage", help="triage file (default: <run>/triage.json)")
     report.add_argument("--verify", help="verify.json (default: <run>/verify/verify.json)")
+    report.add_argument("--compare", help="compare.json (default: <run>/compare.json)")
+    report.add_argument("--answers", help="answers to the questions (default: <run>/answers.json)")
+    report.add_argument("--kills", help="package-wide kill matrix for removals (default: <run>/kills.json)")
     report.set_defaults(handler=cmd_report)
 
     args = parser.parse_args()

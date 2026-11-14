@@ -1,6 +1,6 @@
 ---
 name: mutation-testing
-description: Find and close test gaps in one scope of the Vortex Rust code with cargo-mutants. Run the mutants, triage every survivor, add tests that kill the real gaps, record equivalent mutants, and prove the result. Use when asked to mutation-test a crate, file, function or diff, or when the user mentions "/mutation-testing".
+description: Find and close test gaps in one scope of the Vortex Rust code with cargo-mutants, and refine its tests. Run the mutants, triage every survivor, add tests that kill the real gaps, propose removing tests that add nothing, ask a person about every decision that is not the agent's, and prove the result. Use when asked to mutation-test or refine the tests of a crate, file, function or diff, or when the user mentions "/mutation-testing".
 ---
 
 # Mutation Testing
@@ -8,7 +8,12 @@ description: Find and close test gaps in one scope of the Vortex Rust code with 
 cargo-mutants makes small changes to the code, such as flipping `<` to `<=` or replacing a
 function body, and runs the tests. A mutant the tests do not catch is a *survivor*: either the
 tests never check that behaviour (a gap), or the change cannot affect any result (an equivalent
-mutant). This skill turns the survivors of one scope into tests and exclusions, with evidence.
+mutant). This skill turns the survivors of one scope into tests and exclusions, with evidence,
+and uses the same evidence to find tests that add nothing.
+
+It produces two things: **changes** the evidence proves, and **questions** for a person about
+everything it does not. The agent finds and argues; a person decides what the code should do and
+which tests may go. The report is the pull request body, and the questions are its checklist.
 
 Work through the steps in order. `scripts/mutants.py` does the mechanical parts and checks your
 work; never run cargo-mutants by hand for steps it covers.
@@ -26,11 +31,14 @@ selection by commit belong to that caller. Never widen the scope or test other s
 
 **Output.**
 
-- One commit on the current branch, containing only new or extended tests and
-  `.cargo/mutants.toml` entries. Do not push, open pull requests or create branches unless the
-  invoking prompt says to.
-- `<run>/report.json` and `<run>/report.md`, written by `$M report`. The caller reads
+- One commit on the current branch, containing only new, extended or approved-for-removal tests
+  and `.cargo/mutants.toml` entries. Do not push, open pull requests or create branches unless
+  the invoking prompt says to.
+- `<run>/report.json` and `<run>/report.md`, written by `$M report`. `report.md` is the pull
+  request body: the changes, with their evidence, then the open questions. The caller reads
   `report.json`. Its schema is in [Reading the report](#reading-the-report).
+- When a person answers questions, the next invocation applies the answers and reports again
+  ([Refine: the loop](#the-loop)).
 
 When the scope has no mutants or no survivors, still write the report and make no commit.
 
@@ -50,9 +58,16 @@ When the scope has no mutants or no survivors, still write the report and make n
    today hides bugs instead of finding them.
 4. **Every new test must kill a recorded survivor.** `verify` proves this. A test that kills
    nothing does not belong in this commit.
-5. **Never weaken, delete or loosen an existing test.**
+5. **Never weaken or loosen an existing test, and delete one only after a person approves it.**
+   A test that catches no mutant is usually not useless; see [Refine](#refine-removing-tests).
 6. **Equivalence needs an argument, not a hunch.** Mark a mutant `equivalent` only when you can
    say why no input can observe the change. If you cannot, it is a gap or `deferred`.
+7. **Ask instead of deciding.** What the code *should* do is a person's decision. When the only
+   expected value available is the current output, when current behaviour looks wrong or
+   arbitrary, or when a test would pin a performance or representation choice (an array stays
+   RLE after slicing, a slice keeps only the values it needs), do not write the test: record the
+   survivor as `deferred` or `bug` and ask a question that gives each reading and what it leads
+   to. `report` refuses a `deferred` or `bug` verdict without a question.
 
 ## Steps
 
@@ -139,7 +154,14 @@ Follow `AGENTS.md` and `STYLE.md`. Then, for this kind of test:
   `SliceArray` over a patched `BitPacked` array. Use `<BitPacked as SliceKernel>::slice` to get a
   sliced `BitPacked` array with sliced patches.
 - **Compare with a reference.** Use `assert_arrays_eq!` for arrays, with the result under test
-  on the left. For scalars, compare against the same operation on the canonical source.
+  on the left. For scalars, compare against the same operation on the canonical source. Record
+  where the expected values come from as the entry's `oracle`; `report` requires it.
+- **Reach the guard you mean to test.** For invalid input, assert the specific error, as
+  `test_decode_rejects_index_into_next_chunk_after_slicing` does, so the test cannot pass on an
+  earlier, unrelated failure.
+- **Keep only cases that earn their place.** After `verify`, `$M kills <run>/verify` shows which
+  cases catch which mutants. Drop a case whose kills another case of the same test also makes,
+  unless it covers a type, nullability or shape the mutants cannot tell apart.
 - Put tests in the module's `tests` module. Promote `foo.rs` to `foo/mod.rs` plus `foo/tests.rs`
   if it grows large.
 
@@ -189,14 +211,20 @@ Write `<run>/triage.json`, with one entry per cause, covering every survivor exa
 }
 ```
 
+Each `gap-fixed` entry also has `"oracle"`: where its tests' expected values come from, such as
+`"the same slice of the source PrimitiveArray"`.
+
 Copy mutant names exactly from `$M survivors <run> --json`. With no survivors, write
 `{"entries": []}`. The verdicts are:
 
-- `gap-fixed`: a test now kills it. Name the tests.
+- `gap-fixed`: a test now kills it. Name the tests and the oracle.
 - `equivalent`: an exclusion now covers it, with the argument in both places.
-- `bug`: the survivor shows wrong behaviour. Describe the input and the wrong result.
-- `deferred`: a real gap left for later. Say why, for example "display text only" or "needs a
-  fixture this scope does not have".
+- `bug`: the survivor shows wrong behaviour. Describe the input and the wrong result, and ask.
+- `deferred`: a real gap left for a person's decision, for example "display text only" or "pins a
+  performance choice". Ask.
+
+The same file holds `removals` and `questions`; see [Refine](#refine-removing-tests) and
+[Questions](#questions).
 
 Then:
 
@@ -205,8 +233,10 @@ $M report target/mutants/rle
 ```
 
 `report` refuses a triage that misses a survivor, lists one twice, calls a mutant `gap-fixed`
-when verify did not see it caught, or calls one `equivalent` without a matching exclusion. Fix
-what it lists and rerun it. On success it writes `report.json` and `report.md`.
+when verify did not see it caught or without an oracle, calls one `equivalent` without a
+matching exclusion, or leaves a `deferred` or `bug` verdict without a question. It also checks
+every removal against the kill matrix. Fix what it lists and rerun it. On success it writes
+`report.json` and `report.md`.
 
 ### 9. Check and commit
 
@@ -220,7 +250,96 @@ cargo test -p <crate> --lib <module path>
 
 Commit the tests and exclusions together, following the Commits section of `AGENTS.md`
 (sign-off as the user, never as an agent). Start the message with a summary line naming the scope
-and paste `report.md` below it. If `report` found no survivors, make no commit.
+and summarize `report.md` below it; the full report, with its questions, is the pull request
+body. If there are no survivors, no removals and no questions, make no commit.
+
+## Refine: removing tests
+
+Every `run` records a kill matrix, `<run>/kills.json`: which tests fail under each caught
+mutant. `$M kills` reads it:
+
+```bash
+$M kills target/mutants/rle                         # this run
+$M kills <ci-shard-dirs...> --out target/mutants/fastlanes-kills.json   # package-wide, merged
+```
+
+It lists the tests that catch no mutant, groups of tests that catch exactly the same mutants,
+and a small set that catches all of them. **None of these is a removal list.** A test can catch
+no mutant because the tool cannot see what it checks. Decide why before proposing anything:
+
+| Why it catches nothing, or the same as another | Action |
+|---|---|
+| It checks a guard inside a macro: `vortex_ensure!`, `vortex_bail!`, `assert!`. cargo-mutants does not mutate macro arguments, so `*_rejects_*` and `should_panic` tests catch nothing | Keep |
+| It is a golden or round-trip test of generated code, such as protobuf metadata | Keep |
+| It is an edge case: empty, single row, boundary | Keep |
+| Its cases differ in type, nullability or shape. Generic code is mutated once for every type, so mutants cannot tell `u8` from `u64` | Keep |
+| It asserts only what it constructed, and another test checks the same and more | Propose (`no-kills`) |
+| It has the same inputs as another test or case | Propose (`duplicate`) |
+
+Evidence must cover the whole package: a test that catches nothing in this scope may catch
+mutants elsewhere. Pass `report --kills` a matrix from a package-wide run or from the CI shards.
+Logs from runs without `--no-fail-fast` miss kills by integration tests and doctests; `$M`
+passes it, CI before it did not.
+
+Record each proposal in `triage.json`, with a removal question that refs it:
+
+```json
+"removals": [
+  {
+    "tests": ["rle::array::tests::test_try_new"],
+    "kind": "no-kills",
+    "applied": false,
+    "reason": "It asserts only what it constructed; test_try_new_with_validity checks the same and more."
+  }
+]
+```
+
+For `duplicate`, add `"duplicate_of"`: a kept test whose kills include this one's. Leave
+`"applied": false` until a person answers the question `remove`; then delete the test, set it to
+`true`, rerun the scope into a new directory and compare:
+
+```bash
+$M run ... --out target/mutants/rle-after
+$M compare target/mutants/rle target/mutants/rle-after   # exits 2 if a caught mutant now survives
+```
+
+`report` refuses an applied removal without a clean `compare`, a removal answered `keep` but
+applied, and one answered `remove` but not applied.
+
+## Questions
+
+A question is a decision the agent must not make alone. Ask about every proposed removal, every
+`deferred` or `bug` verdict, and any test that would pin a choice rather than a contract:
+
+```json
+"questions": [
+  {
+    "id": "Q2",
+    "topic": "semantics",
+    "question": "Should RLE slicing retain only the values its chunks reference?",
+    "context": "Today it does, but no test says so. If it is a contract, I'll add a test; if not, I'll exclude the mutant.",
+    "options": ["contract: add a test", "not a contract: exclude as equivalent"],
+    "recommendation": "contract: add a test",
+    "default": "not a contract: exclude as equivalent",
+    "refs": ["<mutant or test names, copied exactly>"]
+  }
+]
+```
+
+`topic` is one of `removal`, `semantics`, `equivalence`, `bug` or `other`. `default` is what
+happens with no answer, and must be the conservative option: keep the test, leave the code,
+write no test. Give the context a reviewer needs to answer without opening the code, and say
+what each option leads to.
+
+### The loop
+
+1. `run`, `survivors`, `kills`: gather the evidence.
+2. Triage; write tests; add exclusions; propose removals; write questions.
+3. `verify`; trim cases; `report`. Open the pull request with `report.md` as its body.
+4. A person answers in the pull request. Record the answers in `<run>/answers.json`:
+   `{"Q1": {"answer": "remove", "by": "<reviewer>"}}`.
+5. Apply them: delete approved tests, write the tests that answers call for, add exclusions.
+   Rerun, `compare`, and `report` again. Repeat until no question that blocks a change is open.
 
 ## Reading the report
 
@@ -230,8 +349,12 @@ and paste `report.md` below it. If `report` found no survivors, make no commit.
 - `run_commit`, `run_dirty`: the commit the run tested, and whether it had uncommitted changes.
 - `before`: counts from the run (`caught`, `missed`, `timeout`, `unviable`).
 - `verdicts`: the number of survivors under each verdict.
+- `after`: counts from the rerun, when `compare` ran.
 - `entries`: the triage entries, each with `status`, which maps every mutant to its verified
   result (`caught`, `timeout`, `missed`, `excluded`, `unviable`, `not-found`).
+- `removals`: proposed and applied removals.
+- `questions`: each question with its `answer` (or `null`) and `answered_by`;
+  `open_questions` counts the unanswered.
 - `timeouts`: mutants that timed out in the run.
 - `files_changed`: files that differ from `run_commit`.
 
