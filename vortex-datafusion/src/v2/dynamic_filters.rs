@@ -507,7 +507,8 @@ impl ExactDynamicFilter {
             // DataFusion 55 routes each row of a partitioned join's filter through a CASE on
             // the row's hash partition, then tests the partition's bounds and hash table. Exactly,
             // that costs more per row than the join's own repartition and probe, so only its
-            // widened bounds are pushed. DataFusion 56 emits no CASE.
+            // widened bounds are pushed. DataFusion 56 merges the partitions into one
+            // membership test where it can, which is evaluated exactly.
             .filter(|conjunct| conjunct.downcast_ref::<CaseExpr>().is_none())
             .cloned()
             .collect::<Vec<_>>();
