@@ -687,7 +687,7 @@ mod tests {
     fn test_null_geometry_to_duckdb_scalar() {
         let dtype = ExtDType::<WellKnownBinary>::try_new(
             SpatialMetadata::new(Some("EPSG:4326".to_string())),
-            DType::Binary(Nullability::Nullable),
+            Nullability::Nullable,
         )
         .unwrap()
         .erased();

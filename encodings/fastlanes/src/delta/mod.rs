@@ -8,7 +8,8 @@ pub use array::DeltaData;
 pub use array::DeltaSlots;
 pub use array::delta_compress::delta_compress;
 
-mod compute;
+pub(crate) mod compute;
+mod probe;
 
 #[cfg(test)]
 mod tests;
@@ -16,3 +17,7 @@ mod tests;
 mod vtable;
 pub use vtable::Delta;
 pub use vtable::DeltaArray;
+
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    vtable::initialize(session);
+}

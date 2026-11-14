@@ -27,10 +27,7 @@ pub struct PiecewiseSequenceSlots {
 }
 
 /// Extension methods for [`Array`] values using the [`PiecewiseSequence`] encoding.
-pub trait PiecewiseSequenceArrayExt:
-    TypedArrayRef<PiecewiseSequence> + PiecewiseSequenceArraySlotsExt
-{
-}
+pub trait PiecewiseSequenceArrayExt: TypedArrayRef<PiecewiseSequence> {}
 impl<T: TypedArrayRef<PiecewiseSequence>> PiecewiseSequenceArrayExt for T {}
 
 impl Array<PiecewiseSequence> {

@@ -5,12 +5,10 @@
 
 use itertools::Itertools;
 use vortex::array::ArrayRef;
-use vortex::array::EmptyMetadata;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Chunked;
 use vortex::array::arrays::ChunkedArray;
-use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::List;
 use vortex::array::arrays::ListView;
@@ -21,7 +19,6 @@ use vortex::array::arrays::list::ListArrayExt;
 use vortex::array::arrays::listview::recursive_list_from_list_view;
 use vortex::array::validity::Validity;
 use vortex::dtype::DType;
-use vortex::dtype::extension::ExtDType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -226,27 +223,23 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
 
     // Finally, construct the `FixedSizeListArray` and wrap it in a Vector array.
     let fsl = FixedSizeListArray::try_new(elements, dim_u32, Validity::NonNullable, num_rows)?;
-    let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
-    Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
+    Vector::try_new_vector_array(fsl.into_array())
 }
 
 #[cfg(test)]
 mod tests {
     use vortex::array::Array;
     use vortex::array::ArrayRef;
-    use vortex::array::EmptyMetadata;
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::ChunkedArray;
-    use vortex::array::arrays::ExtensionArray;
     use vortex::array::arrays::FixedSizeListArray;
     use vortex::array::arrays::List;
     use vortex::array::arrays::ListViewArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::validity::Validity;
     use vortex::buffer::BufferMut;
-    use vortex::dtype::extension::ExtDType;
     use vortex_array::assert_arrays_eq;
     use vortex_tensor::vector::Vector;
 
@@ -258,10 +251,7 @@ mod tests {
         let storage =
             FixedSizeListArray::try_new(elements, 3, Validity::NonNullable, values.len() / 3)
                 .unwrap();
-        let dtype = ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())
-            .unwrap()
-            .erased();
-        ExtensionArray::new(dtype, storage.into_array()).into_array()
+        Vector::try_new_vector_array(storage.into_array()).unwrap()
     }
 
     /// Build a `List<f32>` whose elements carry the given [`Validity`]. Passing

@@ -57,6 +57,10 @@ import pandas as pd
 Z_SCORE_99 = 2.5758293035489004
 CONTROL_FORMAT = "parquet"
 FILE_SIZE_METRIC = "file_size"
+# Every format's file sizes are stored; the PR comment compares only the Vortex formats.
+FILE_SIZE_REPORT_FORMAT_PREFIX = "vortex"
+# The columns of a JSONL file with no benchmark rows.
+EMPTY_ROW_COLUMNS = ["commit_id", "name", "storage", "unit", "value", "all_runtimes", "target"]
 QUERY_TARGET_PATTERN = re.compile(r"_q(\d+)/([^:]+):(.+)$")
 FORMAT_DISPLAY_NAMES = {
     "vortex": "vortex-file-compressed",
@@ -93,7 +97,9 @@ def split_file_size_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     metric = df["metric"] if "metric" in df.columns else pd.Series(pd.NA, index=df.index)
     file_size = df["file_size"] if "file_size" in df.columns else pd.Series(pd.NA, index=df.index)
     mask = metric.eq(FILE_SIZE_METRIC) | file_size.notna()
-    return df[mask].copy(), df[~mask].copy()
+    rest = df[~mask].copy()
+    # A file of only file sizes leaves no benchmark rows; give them the columns of an empty file.
+    return df[mask].copy(), rest if not rest.empty else pd.DataFrame(columns=EMPTY_ROW_COLUMNS)
 
 
 def identity_value(value: object) -> object:
@@ -208,6 +214,15 @@ def ingest_record_row(record: dict[str, Any]) -> dict[str, Any] | None:
         row["unit"] = "bytes"
         row["value"] = record["value_bytes"]
         return row
+    elif kind == "file_size":
+        dims = ("benchmark", "scale_factor", "format", "file")
+        return {
+            "commit_id": record.get("commit_sha"),
+            "metric": FILE_SIZE_METRIC,
+            "unit": "bytes",
+            "value": record["value_bytes"],
+            "file_size": {dim: record[dim] for dim in dims},
+        }
     else:
         return None
     row["value"] = record["value_ns"]
@@ -233,7 +248,7 @@ def read_benchmark_rows(path: str) -> pd.DataFrame:
                 if row is not None:
                     rows.append(row)
     if not rows:
-        return pd.DataFrame(columns=["commit_id", "name", "storage", "unit", "value", "all_runtimes", "target"])
+        return pd.DataFrame(columns=EMPTY_ROW_COLUMNS)
     return pd.DataFrame(rows)
 
 
@@ -711,7 +726,7 @@ def format_size(size_bytes: int) -> str:
 def format_size_change(change_bytes: int) -> str:
     """Format a byte change with a sign."""
 
-    sign = "+" if change_bytes > 0 else ""
+    sign = "+" if change_bytes > 0 else "-" if change_bytes < 0 else ""
     return f"{sign}{format_size(abs(change_bytes))}"
 
 
@@ -725,7 +740,7 @@ def format_pct_change(pct: float) -> str:
 def extract_file_size_data(
     df: pd.DataFrame,
 ) -> tuple[dict[tuple[str, str, str, str], int], set[tuple[str, str, str, str]]]:
-    """Extract file-size rows and the identities explicitly ignored for being empty."""
+    """Extract the Vortex formats' file-size rows and the identities ignored for being empty."""
 
     data = {}
     ignored = set()
@@ -743,6 +758,8 @@ def extract_file_size_data(
             str(metadata.get("format", "")),
             str(metadata.get("file", "")),
         )
+        if not key[2].startswith(FILE_SIZE_REPORT_FORMAT_PREFIX):
+            continue
         value = row.get("value")
         if pd.isna(value):
             continue
@@ -1081,9 +1098,11 @@ def main() -> None:
     title = format_title(benchmark_name, pr_results)
     pr_file_sizes, pr = split_file_size_rows(pr_results)
     if args.pr_records:
-        pr_records = read_benchmark_rows(args.pr_records)
+        record_file_sizes, pr_records = split_file_size_rows(read_benchmark_rows(args.pr_records))
         if not pr_records.empty:
             pr = pr_records
+        if not record_file_sizes.empty:
+            pr_file_sizes = record_file_sizes
     base_fetched = os.path.exists(args.base_records)
     base_file_sizes, base = split_file_size_rows(read_benchmark_rows(args.base_records))
 
@@ -1245,8 +1264,8 @@ def main() -> None:
         print("")
         print("</details>")
 
-    # File sizes are not stored in the benchmarks database, so they have no baseline to compare.
-    file_size_report = "" if base_file_sizes.empty else format_file_size_report(base_file_sizes, pr_file_sizes)
+    # Says so when the PR measured file sizes and the baseline has none, rather than dropping the section.
+    file_size_report = format_file_size_report(base_file_sizes, pr_file_sizes)
     if file_size_report:
         print("")
         print("---")

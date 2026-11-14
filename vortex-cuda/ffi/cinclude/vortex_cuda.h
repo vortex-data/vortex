@@ -65,6 +65,16 @@ struct ArrowDeviceArrayStream {
 #define VX_CUDA_SCAN_FLAG_DIRECT_IO (1u << 0)
 
 /**
+ * Dictionary-preserving CUDA scan with an owned Arrow schema per batch.
+ *
+ * Logical dtype and CUDA device are fixed; physical schemas, dictionary values, and index widths
+ * may vary. Uses `DictionaryExport::Preserve`; plain batches remain plain.
+ * Retains runtime/session resources. Use and free only on the creating thread, without concurrent
+ * or reentrant calls. Free with `vx_cuda_device_batches_free`.
+ */
+typedef struct vx_cuda_device_batches vx_cuda_device_batches;
+
+/**
  * Options for scanning a CUDA-compatible Vortex file.
  *
  * Zero-initialize this struct to use buffered file I/O and layout-derived batch splitting.
@@ -110,6 +120,22 @@ void vx_cuda_release_file_mappings(void);
 vx_session *vx_cuda_session_new(vx_error **error_out);
 
 /**
+ * Borrow the session's existing CUDA memory pool as a `CUmemoryPool` / `cudaMemPool_t`.
+ *
+ * Hosts may allocate from this pool to share Vortex's reserve of device memory. Null means
+ * Vortex is using the device allocator fallback. Errors also return null and set `error_out`;
+ * a successful call clears `error_out`.
+ *
+ * # Safety
+ *
+ * `session` must be a live borrowed `vortex-ffi` handle. Keep it alive until all host allocations
+ * from the pool have been freed and their GPU work, including asynchronous frees, has completed.
+ * The returned pool is borrowed and must not be destroyed by the caller. Non-null `error_out`
+ * must be writable for one error pointer.
+ */
+void *vx_cuda_session_mem_pool(const vx_session *session, vx_error **error_out);
+
+/**
  * Open a Vortex file sink configured to produce CUDA-readable files.
  *
  * Push host arrays and close/abort with `vx_array_sink_*`. Only on-disk encodings and layouts
@@ -128,8 +154,8 @@ vx_array_sink *vx_cuda_array_sink_open_file(const vx_session *session,
 /**
  * Open a CUDA-readable Vortex file sink with a fixed row block size.
  *
- * Zero `block_rows` uses default writer sizing. Nonzero values disable byte-size coalescing and
- * outer layout dictionaries, but retain per-block dictionary compression.
+ * Zero `block_rows` selects the GPU default of 8,388,608 rows. Blocks are not byte-size coalesced
+ * and have no outer layout dictionaries, but retain per-block dictionary compression.
  * Write sizing is independent of scan `batch_rows`; see `vx_cuda_scan_options`.
  *
  * # Safety
@@ -248,6 +274,66 @@ int vx_cuda_partition_scan_arrow_device_stream(const vx_session *session,
                                                vx_partition *partition,
                                                struct ArrowDeviceArrayStream *out_stream,
                                                vx_error **error_out);
+
+/**
+ * Open a local CUDA scan that preserves per-batch dictionaries.
+ *
+ * Returns an owned handle, or null on error. Options, projection, and splitting match
+ * `vx_cuda_scan_path_arrow_device_stream_projected`: null options use defaults; zero `ncolumns`
+ * ignores `columns` and selects all. Names must be unique, literal, case-sensitive UTF-8;
+ * unknown names fail, and nonempty projections require a struct file.
+ *
+ * Inputs are borrowed for this call; the handle retains runtime/session resources.
+ * Non-null `error_out` is cleared on success or receives an error to free with `vx_error_free`.
+ *
+ * # Safety
+ *
+ * Borrow a live `session` and readable UTF-8 `path`. Non-null `options` must be aligned and
+ * initialized. For nonzero `ncolumns`, `columns` must reference that many valid, aligned views
+ * with readable name bytes (null only for zero length). Non-null `error_out` must be writable.
+ */
+struct vx_cuda_device_batches *vx_cuda_scan_path_device_batches(const vx_session *session,
+                                                                vx_view path,
+                                                                const struct vx_cuda_scan_options *options,
+                                                                const vx_view *columns,
+                                                                size_t ncolumns,
+                                                                vx_error **error_out);
+
+/**
+ * Return the next owned Arrow schema and CUDA array (`0` on success, `1` on error).
+ *
+ * Use each batch's own schema. EOS (including repeated calls) sets both release callbacks to null;
+ * live zero-row batches are not EOS. Errors leave outputs unchanged. Null/unaligned handle or
+ * output pointers are rejected before polling; scan/export failures, dtype/device mismatches,
+ * and panics make the handle terminal (later calls fail). Free it after a terminal error.
+ * Non-null `error_out` is cleared on success or receives an error to free with `vx_error_free`.
+ *
+ * Outputs outlive the handle/session. Release each independently, exactly once, via its Arrow
+ * callback. Wait on `out_array->sync_event` before consuming buffers; retain the array until GPU
+ * consumers finish. The event/buffers live until array release; output storage is caller-owned.
+ *
+ * # Safety
+ *
+ * Use a live handle exclusively on its creating thread, without reentrancy. Non-null, aligned
+ * output pointers must reference writable storage, disjoint from each other, the handle, and
+ * `error_out`. Outputs may be uninitialized; release previous contents before overwriting them.
+ * Non-null `error_out` must be writable for one error pointer.
+ */
+int vx_cuda_device_batches_next(struct vx_cuda_device_batches *handle,
+                                FFI_ArrowSchema *out_schema,
+                                struct ArrowDeviceArray *out_array,
+                                vx_error **error_out);
+
+/**
+ * Free the handle; null is a no-op.
+ *
+ * Returned outputs remain caller-owned and must be released via their Arrow callbacks.
+ *
+ * # Safety
+ *
+ * Free a live, exclusively owned handle exactly once on its creating thread, without reentrancy.
+ */
+void vx_cuda_device_batches_free(struct vx_cuda_device_batches *handle);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -78,11 +78,14 @@ The current input catalog is:
 | `news/headlines` | "A Million News Headlines" (ABC News), `headline_text` | 1.23M |
 | `twitter/sentiment140` | Sentiment140 tweets, train split, `text` | 1.36M |
 | `fineweb/text` | FineWeb `sample/10BT/001_00000.parquet`, `text` | first 10k |
+| `tinystories/text` | TinyStories, train split, `text` | first 33,121 |
 
 The Amazon, news, and tweet inputs are four of the five datasets the
 [OnPair paper](https://arxiv.org/abs/2508.02280) evaluates on. The fifth,
 OpenWebText URLs, has no public parquet mirror; ClickBench `URL` covers that
-shape. FineWeb adds long web documents.
+shape. FineWeb adds long web documents. TinyStories adds short
+stories with a small vocabulary; 33,121 rows is one file of the NeMo Curator text IO
+benchmark.
 
 On first use, the selected ClickBench shard is downloaded through
 `vortex-bench`'s shared idempotent downloader. TPC-H SF1 is generated

@@ -37,6 +37,7 @@ use crate::dtype::PType;
 use crate::expr::stats::Stat;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
@@ -60,7 +61,7 @@ pub struct ListViewSlots {
     pub sizes: ArrayRef,
     /// The validity bitmap indicating which list elements are non-null.
     #[slot(3)]
-    pub validity: Option<ArrayRef>,
+    pub validity_child: Option<ArrayRef>,
 }
 
 /// The canonical encoding for variable-length list arrays.
@@ -176,7 +177,7 @@ impl ListViewData {
             elements: elements.clone(),
             offsets: offsets.clone(),
             sizes: sizes.clone(),
-            validity: validity_to_child(validity, len),
+            validity_child: validity_to_child(validity, len),
         }
         .into_slots()
     }
@@ -352,7 +353,7 @@ fn fill_referenced_mask<O: IntegerPType, S: IntegerPType>(
     }
 }
 
-pub trait ListViewArrayExt: ListViewArraySlotsExt {
+pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     fn nullability(&self) -> crate::dtype::Nullability {
         match self.dtype() {
             DType::List(_, nullability) => *nullability,
@@ -362,7 +363,7 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
 
     fn listview_validity(&self) -> Validity {
         child_to_validity(
-            self.slots()[ListViewSlots::VALIDITY].as_ref(),
+            self.slots()[ListViewSlots::VALIDITY_CHILD].as_ref(),
             self.nullability(),
         )
     }
@@ -409,7 +410,9 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
     fn list_elements_at(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let offset = self.offset_at(index, ctx);
         let size = self.size_at(index, ctx);
-        self.elements().slice(offset..offset + size)
+        self.elements()
+            .slice(offset..offset + size)?
+            .optimize_ctx(ctx)
     }
 
     /// Returns a [`Mask`] of length `elements.len()` where each bit is set iff that

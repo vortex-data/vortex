@@ -9,6 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use futures::future::join;
+use tracing::error;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
@@ -43,15 +44,13 @@ use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::array::builtins::ArrayBuiltins;
-use vortex::array::match_each_decimal_value_type;
+use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalType;
-use vortex::dtype::NativeDecimalType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
-use vortex::dtype::i256;
 use vortex::encodings::fsst::FSST;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -60,7 +59,6 @@ use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::extension::datetime::AnyTemporal;
 use vortex_cuda_driver::CudaSlice;
-use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::PushKernelArg;
 use vortex_onpair::OnPair;
@@ -75,6 +73,7 @@ use crate::arrow::ArrowArray;
 use crate::arrow::ArrowDeviceArray;
 use crate::arrow::ArrowDeviceArrayWithSchema;
 use crate::arrow::ExportDeviceArray;
+use crate::arrow::PendingArrowChildren;
 use crate::arrow::PrivateData;
 use crate::arrow::SyncEvent;
 use crate::arrow::arrow_device_export_dictionary_codes_dtype;
@@ -89,6 +88,7 @@ use crate::executor::execute_validity_cuda;
 use crate::kernel::DecodedVarBin;
 use crate::kernel::decode_fsst_varbin;
 use crate::kernel::decode_onpair_varbin;
+use crate::kernel::widen_decimal_values;
 use crate::stream::zero_padding;
 
 const BITMAP_THREADS_PER_BLOCK: u32 = 256;
@@ -472,73 +472,11 @@ async fn export_decimal_values(
             "cannot export decimal values from {values_type} storage to Arrow {target_type}: narrowing would require a device-to-host overflow check",
         );
     }
-    let values = ctx.ensure_on_device(values).await?;
     if values_type == target_type {
-        return Ok(values);
+        return ctx.ensure_on_device(values).await;
     }
 
-    match_each_decimal_value_type!(values_type, |S| {
-        export_decimal_values_from::<S>(values, target_type, len, ctx).await
-    })
-}
-
-/// Dispatch from a concrete storage type `S` to the Arrow-required output width.
-async fn export_decimal_values_from<S>(
-    values: BufferHandle,
-    target_type: DecimalType,
-    len: usize,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<BufferHandle>
-where
-    S: NativeDecimalType + DeviceRepr,
-{
-    match target_type {
-        DecimalType::I32 => decimal_cast::<S, i32>(values, len, ctx).await,
-        DecimalType::I64 => decimal_cast::<S, i64>(values, len, ctx).await,
-        DecimalType::I128 => decimal_cast::<S, i128>(values, len, ctx).await,
-        DecimalType::I256 => decimal_cast::<S, i256>(values, len, ctx).await,
-        target_type => {
-            vortex_bail!("cannot export DecimalArray as Arrow decimal value type {target_type}")
-        }
-    }
-}
-
-/// Launches the CUDA kernel that casts from Vortex storage type `S` to Arrow output type `D`.
-///
-/// The caller must ensure this is not a narrowing cast.
-async fn decimal_cast<S, D>(
-    values: BufferHandle,
-    len: usize,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<BufferHandle>
-where
-    S: NativeDecimalType + DeviceRepr,
-    D: NativeDecimalType + DeviceRepr,
-{
-    if len == 0 {
-        return ctx
-            .ensure_on_device(BufferHandle::new_host(
-                Buffer::<D>::empty().into_byte_buffer(),
-            ))
-            .await;
-    }
-
-    let mut output_buffer = ctx.device_alloc::<D>(len)?;
-
-    let values_view = values.cuda_view::<S>()?;
-    let len_u64 = len as u64;
-    let cuda_function = ctx.load_function_with_suffixes(
-        "decimal_cast",
-        &[&S::DECIMAL_TYPE.to_string(), &D::DECIMAL_TYPE.to_string()],
-    )?;
-
-    ctx.launch_kernel(&cuda_function, len, |args| {
-        args.arg(&values_view).arg(&mut output_buffer).arg(&len_u64);
-    })?;
-
-    Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
-        output_buffer,
-    ))))
+    widen_decimal_values(values, values_type, target_type, len, ctx).await
 }
 
 /// Export Vortex binary views as an Arrow Device array with `Utf8View`/`BinaryView` layout.
@@ -709,9 +647,9 @@ async fn export_binary_buffers(
     )?;
     let output_offsets = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
         exclusive_sum_i32(&scan_input, len + 1, ctx)?,
-    )));
+    )?));
     validate_binary_offsets(&output_offsets, len, &mut status, ctx)?;
-    let status = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(status)));
+    let status = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(status)?));
 
     // One status read covers init_scan and offset validation. Both must pass before gather may
     // dereference view payloads through the scanned offsets. Enqueue both copies up front so the
@@ -846,7 +784,7 @@ fn gather_binary_values(
     }
 
     Ok(
-        BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output_values)))
+        BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output_values)?))
             .slice(0..total_bytes),
     )
 }
@@ -1185,6 +1123,8 @@ impl ListChildExport {
         elements: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<ArrowArray> {
+        let elements = elements.optimize_ctx(ctx.execution_ctx())?;
+
         let (elements_child, _) = match self {
             ListChildExport::PreserveConcreteLayout => export_array(elements, ctx).await?,
             ListChildExport::RebuiltListViewChild if elements.as_opt::<Dict>().is_some() => {
@@ -1291,7 +1231,7 @@ fn fixed_size_list_offsets(
 
     Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
         offsets,
-    ))))
+    )?)))
 }
 
 /// Return Arrow Device `List` offsets as an `i32` device buffer.
@@ -1330,15 +1270,19 @@ async fn export_struct(
 
     let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
 
-    // We need the children to be held across await points.
-    let mut children = Vec::with_capacity(fields.len());
+    // Release earlier exports if a later child fails or this future is cancelled.
+    let mut pending = PendingArrowChildren {
+        children: Vec::with_capacity(fields.len()),
+        dictionary: None,
+    };
 
     for field in fields.iter() {
         let (arrow_field, _) = export_array(field.clone(), ctx).await?;
-        children.push(arrow_field);
+        pending.children.push(arrow_field);
     }
 
-    let mut private_data = PrivateData::new(vec![validity_buffer], children, ctx)?;
+    let mut private_data =
+        PrivateData::new(vec![validity_buffer], mem::take(&mut pending.children), ctx)?;
     let sync_event: SyncEvent = private_data.sync_event();
 
     // Populate the ArrowArray with the child arrays.
@@ -1406,10 +1350,10 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
         if !private_data_ptr.is_null() {
             let mut private_data = Box::from_raw(private_data_ptr.cast::<PrivateData>());
             // Queue a non-blocking wait so CudaSlice::Drop frees after export work.
-            let wait_result = private_data.cuda_stream.wait(&private_data.export_event);
-            // Arrow release callbacks cannot return errors, so record wait-enqueue
-            // failures for later CUDA operations to observe on this context.
-            private_data.cuda_stream.context().record_err(wait_result);
+            if let Err(err) = private_data.cuda_stream.wait(&private_data.export_event) {
+                // Arrow release callbacks cannot return errors to their caller.
+                error!(error = ?err, "Failed to enqueue CUDA Arrow release wait");
+            }
             release_children(&mut private_data);
             release_dictionary(&mut private_data);
         }
@@ -1484,6 +1428,7 @@ mod tests {
     use vortex::array::arrays::varbinview::BinaryView;
     use vortex::array::assert_arrays_eq;
     use vortex::array::buffer::BufferHandle;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::array::validity::Validity;
     use vortex::buffer::BitBuffer;
     use vortex::buffer::Buffer;
@@ -1554,6 +1499,7 @@ mod tests {
     fn cuda_ctx_with_varbin_layout(layout: VarBinExportLayout) -> VortexResult<CudaExecutionCtx> {
         let session = VortexSession::empty()
             .with_some(CudaSession::try_default()?.with_varbin_export_layout(layout));
+        vortex::file::register_default_encodings(&session);
         CudaSession::create_execution_ctx(&session)
     }
 
@@ -1821,7 +1767,7 @@ mod tests {
             .map_err(|err| vortex_err!("Failed to upload unpadded test buffer: {err}"))?;
         Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
             allocation,
-        ))))
+        )?)))
     }
 
     /// Assert cuDF word alignment and zeroed tail padding, returning the logical bytes on the host.
@@ -2837,7 +2783,7 @@ mod tests {
             Some(&b"echo"[..]),
         ];
         let fsst = fsst_array_from(values, DType::Utf8(Nullability::Nullable), &mut ctx)?;
-        let sliced = fsst.slice(1..4)?;
+        let sliced = fsst.slice(1..4)?.optimize_ctx(ctx.execution_ctx())?;
         assert!(sliced.as_opt::<FSST>().is_some());
 
         let mut exported = sliced.export_device_array_with_schema(&mut ctx).await?;

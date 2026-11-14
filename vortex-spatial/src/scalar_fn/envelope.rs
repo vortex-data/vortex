@@ -42,7 +42,6 @@ use vortex_session::registry::CachedId;
 use crate::extension::Rect;
 use crate::extension::SpatialMetadata;
 use crate::extension::box_field_names;
-use crate::extension::box_storage_dtype;
 use crate::extension::build_rect_array;
 use crate::extension::coordinate::Dimension;
 use crate::extension::coordinate::box_corners;
@@ -87,12 +86,12 @@ impl SpatialEnvelope {
     }
 }
 
-/// The output dtype: a nullable native 2-D box ([`Rect`], `geoarrow.box`) column. Nullable
-/// because rows without a box — null or empty geometries — are null. Metadata is defaulted.
+/// The output dtype: a nullable, unreferenced 2D box ([`Rect`], `geoarrow.box`). Rows with null or
+/// empty geometries produce null boxes.
 fn output_box_dtype() -> VortexResult<ExtDType<Rect>> {
     ExtDType::<Rect>::try_new(
-        SpatialMetadata::default(),
-        box_storage_dtype(Dimension::Xy, Nullability::Nullable),
+        SpatialMetadata::default().with_dimension(Dimension::Xy),
+        Nullability::Nullable,
     )
 }
 
@@ -301,7 +300,6 @@ mod tests {
     use super::SpatialEnvelope;
     use crate::extension::Rect;
     use crate::extension::SpatialMetadata;
-    use crate::extension::box_storage_dtype;
     use crate::extension::coordinate::Dimension;
     use crate::test_harness::linestring_column;
     use crate::test_harness::multilinestring_column;
@@ -383,8 +381,8 @@ mod tests {
         ])?
         .into_array();
         let ext = ExtDType::<Rect>::try_new(
-            SpatialMetadata::default(),
-            box_storage_dtype(Dimension::Xyz, Nullability::NonNullable),
+            SpatialMetadata::default().with_dimension(Dimension::Xyz),
+            Nullability::NonNullable,
         )?;
         let rects = ExtensionArray::try_new(ext.erased(), storage)?.into_array();
 

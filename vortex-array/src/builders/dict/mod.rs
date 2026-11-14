@@ -12,11 +12,9 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::DictArray;
-use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::VarBin;
-use crate::arrays::VarBinView;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 
@@ -25,7 +23,9 @@ mod primitive;
 
 #[derive(Clone)]
 pub struct DictConstraints {
+    /// Limits the encoded storage for dictionary values.
     pub max_bytes: usize,
+    /// Limits the number of dictionary values.
     pub max_len: usize,
 }
 
@@ -33,6 +33,19 @@ pub const UNCONSTRAINED: DictConstraints = DictConstraints {
     max_bytes: usize::MAX,
     max_len: usize::MAX,
 };
+
+/// Returns the narrowest unsigned code type that can index `max_len` dictionary values.
+///
+/// Codes count from zero, so a code type indexes one more value than its maximum: `u8` codes
+/// index up to 256 values.
+pub const fn codes_ptype_for_max_len(max_len: u64) -> PType {
+    match max_len {
+        len if len <= 1 << u8::BITS => PType::U8,
+        len if len <= 1 << u16::BITS => PType::U16,
+        len if len <= 1 << u32::BITS => PType::U32,
+        _ => PType::U64,
+    }
+}
 
 pub trait DictEncoder: Send {
     /// Assign dictionary codes to the given input array.
@@ -61,18 +74,19 @@ pub fn dict_encoder_in(
     constraints: &DictConstraints,
     allocator: BufferAllocatorRef,
 ) -> Box<dyn DictEncoder> {
-    let dict_builder: Box<dyn DictEncoder> = if let Some(pa) = array.as_opt::<Primitive>() {
-        match_each_native_ptype!(pa.ptype(), |P| {
-            primitive_dict_builder::<P>(pa.dtype().nullability(), constraints, allocator)
-        })
-    } else if let Some(vbv) = array.as_opt::<VarBinView>() {
-        bytes_dict_builder(vbv.dtype().clone(), constraints, allocator)
-    } else if let Some(vb) = array.as_opt::<VarBin>() {
-        bytes_dict_builder(vb.dtype().clone(), constraints, allocator)
-    } else {
-        vortex_panic!("Can only encode primitive or varbin/view arrays")
-    };
-    dict_builder
+    // Choose by dtype: the encoders execute an input that is not already canonical, such as a
+    // lazy slice.
+    match array.dtype() {
+        DType::Primitive(ptype, nullability) => match_each_native_ptype!(*ptype, |P| {
+            primitive_dict_builder::<P>(*nullability, constraints, allocator)
+        }),
+        DType::Utf8(_) | DType::Binary(_) => {
+            bytes_dict_builder(array.dtype().clone(), constraints, allocator)
+        }
+        dtype => {
+            vortex_panic!("Can only dictionary encode primitive or binary arrays, got {dtype}")
+        }
+    }
 }
 
 /// Encode an array as a `DictArray` subject to the given constraints.

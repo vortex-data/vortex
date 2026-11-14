@@ -36,6 +36,7 @@ use jni::Env;
 use jni::JavaVM;
 pub(crate) use read_at::JavaFileSystem;
 pub(crate) use read_at::java_readable;
+pub(crate) use read_at::read_coalesce_config;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -125,6 +126,8 @@ pub(crate) mod tests {
     use jni::refs::Global;
     use vortex::error::VortexResult;
     use vortex::error::vortex_bail;
+    use vortex::error::vortex_err;
+    use vortex::io::CoalesceConfig;
     use vortex::io::filesystem::FileSystem;
     use vortex::io::runtime::BlockingRuntime;
     use vortex::io::runtime::current::CurrentThreadRuntime;
@@ -211,10 +214,20 @@ pub(crate) mod tests {
 
         let runtime = CurrentThreadRuntime::new();
         let mut fs = JavaFileSystem::new(vm.clone(), runtime.handle(), None);
-        fs.insert("data/file.vortex".to_string(), Arc::new(readable), 4)?;
+        fs.insert(
+            "data/file.vortex".to_string(),
+            Arc::new(readable),
+            4,
+            CoalesceConfig::new(0, 1024),
+        )?;
         // `open_read` clones the global ref into a `JavaReadable`; both it and the
         // file system must let go of the Java object once dropped.
         let reader = runtime.block_on(fs.open_read("data/file.vortex"))?;
+        let config = reader
+            .coalesce_config()
+            .ok_or_else(|| vortex_err!("Java readable has no coalescing config"))?;
+        assert_eq!(config.distance, 0);
+        assert_eq!(config.max_size, 1024);
         drop(fs);
         drop(reader);
 

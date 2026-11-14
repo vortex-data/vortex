@@ -2,7 +2,7 @@
 /* SPDX-FileCopyrightText: Copyright the Vortex contributors */
 
 /* The Vortex design system, then the Explorer's own rules. vortex-*.css are copies made by the
-   system's tools/site-styles.mjs (sections base, site, tables, app, and focus): change the system,
+   system's tools/site-styles.mjs (sections base, chrome, site, tables, app, and focus): change the system,
    then copy again. */
 @import './styles/vortex-tokens.css';
 @import './styles/vortex-base.css';

@@ -61,8 +61,11 @@ impl RowFnExecutionArgs<'_> {
 /// Validate the output produced directly by a row function.
 ///
 /// `values` **must** contain `expected_len` rows. Its dtype must match `result_dtype` except for
-/// outer nullability, and every produced row **must** be valid. Batch execution owns strict null
-/// propagation and attaches input-derived validity only after this boundary.
+/// outer nullability, and every produced row **must** be valid. Batch execution attaches
+/// input-derived validity after this check.
+///
+/// A kernel that attaches batch validity under [`RowFnExecutionArgs::execute_dense`]'s contract
+/// skips this all-valid check and goes straight to [`RowFnExecutionArgs::finalize_output`].
 pub(crate) fn finalize_kernel_output(
     id: ScalarFnId,
     result_dtype: &DType,

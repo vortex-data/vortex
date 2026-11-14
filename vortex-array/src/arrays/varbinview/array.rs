@@ -44,7 +44,7 @@ use crate::validity::Validity;
 pub struct VarBinViewSlots {
     /// The validity bitmap indicating which elements are non-null.
     #[slot(0)]
-    pub validity: Option<ArrayRef>,
+    pub validity_child: Option<ArrayRef>,
 }
 
 /// A variable-length binary view array that stores strings and binary data efficiently.
@@ -730,7 +730,7 @@ pub trait VarBinViewArrayExt: TypedArrayRef<VarBinView> {
 
     fn varbinview_validity(&self) -> Validity {
         child_to_validity(
-            self.slots()[VarBinViewSlots::VALIDITY].as_ref(),
+            self.slots()[VarBinViewSlots::VALIDITY_CHILD].as_ref(),
             self.dtype_parts().1,
         )
     }

@@ -191,7 +191,7 @@ where
             .arg(&array_len_u64);
     })?;
 
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let output_device = CudaDeviceBuffer::new(output_slice)?;
     let output_buffer = BufferHandle::new_device(Arc::new(output_device));
     let output_primitive = PrimitiveArray::from_buffer_handle(output_buffer, PType::I64, validity);
 

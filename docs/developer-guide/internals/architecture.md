@@ -1,4 +1,4 @@
-# Crate Architecture
+# Crate architecture
 
 The Vortex workspace is organized as a Rust monorepo with four main groups: core crates,
 encodings, language bindings, and query engine integrations.
@@ -74,12 +74,11 @@ Language bindings expose Vortex to non-Rust environments.
 
 Query engine integrations allow Vortex files to be queried through existing analytics engines.
 
-| Crate / Directory                | Engine     | Notes                                        |
-|----------------------------------| ---------- |----------------------------------------------|
-| `vortex-datafusion/`             | DataFusion | `TableProvider` and `FileFormat` integration |
-| `vortex-duckdb/`                 | DuckDB     | Table function integration                   |
-| `java/vortex-spark/`             | Spark      | Versioned Spark file-source connector via JNI |
-| `java/vortex-trino/`             | Trino      | Trino connector (in development)             |
+| Crate / Directory    | Engine     | Notes                                         |
+|----------------------|------------|-----------------------------------------------|
+| `vortex-datafusion/` | DataFusion | `TableProvider` and `FileFormat` integration  |
+| `vortex-duckdb/`     | DuckDB     | Table function integration                    |
+| `java/vortex-spark/` | Spark      | Versioned Spark file-source connector via JNI |
 
 ## Other Crates
 

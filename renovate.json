@@ -171,7 +171,7 @@
       ]
     },
     {
-      "description": "Renovate passes the 7-day wait to npm as --before, for .github/vercel-cli. It cannot pass the wait to Bun, so for vortex-web the minimumReleaseAge in vortex-web/bunfig.toml enforces it. The top-level npmrc sets allow-remote=all only for Renovate's npm runs: npm 12 refuses some registry tarballs of packages with bundleDependencies (npm/cli#9800). vortex-web had one but now installs with Bun, and the .github/vercel-cli tree has none today. The npmrc stays in case a Vercel CLI update brings one in. Remove it when the bug is fixed.",
+      "description": "Renovate passes the 7-day wait to npm as --before, for .github/vercel-cli. It cannot pass the wait to Bun, so for vortex-web the minimumReleaseAge in vortex-web/bunfig.toml enforces it. A lock refresh has no release timestamp, so timestamp-optional lets its stability check pass instead of holding the branch forever; npm's --before and bunfig.toml still apply the wait. The top-level npmrc sets allow-remote=all only for Renovate's npm runs: npm 12 refuses some registry tarballs of packages with bundleDependencies (npm/cli#9800). vortex-web had one but now installs with Bun, and the .github/vercel-cli tree has none today. The npmrc stays in case a Vercel CLI update brings one in. Remove it when the bug is fixed.",
       "groupName": "JS lock file maintenance",
       "groupSlug": "js-lock-file-maintenance",
       "matchManagers": [
@@ -180,7 +180,8 @@
       "matchUpdateTypes": [
         "lockFileMaintenance"
       ],
-      "minimumReleaseAge": "7 days"
+      "minimumReleaseAge": "7 days",
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
     }
   ],
   "customManagers": [

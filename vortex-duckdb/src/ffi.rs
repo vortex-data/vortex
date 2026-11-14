@@ -21,6 +21,8 @@ use crate::copy::copy_to_initialize_global;
 use crate::copy::copy_to_sink;
 use crate::copy::flush_batch;
 use crate::copy::prepare_batch_push;
+use crate::copy::request_tasks;
+use crate::copy::run_tasks;
 use crate::copy::written_column_stats;
 use crate::copy::written_file_stats;
 use crate::cpp;
@@ -494,14 +496,34 @@ pub unsafe extern "C-unwind" fn duckdb_copy_function_prepare_batch_new() -> cpp:
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_copy_function_prepare_batch_push(
     bind: *const c_void,
+    global: *const c_void,
     batch: *mut c_void,
     chunk: cpp::duckdb_data_chunk,
     error: *mut cpp::duckdb_vx_error,
 ) {
     let bind = unsafe { bind.cast::<CopyFunctionBind>().as_ref() }.vortex_expect("null pointer");
+    let global =
+        unsafe { global.cast::<CopyFunctionGlobal>().as_ref() }.vortex_expect("null pointer");
     let batch = unsafe { batch.cast::<CopyPreparedBatch>().as_mut() }.vortex_expect("null pointer");
     let chunk = unsafe { DataChunk::borrow_mut(chunk) };
-    try_or(error, || prepare_batch_push(bind, batch, chunk))
+    try_or(error, || prepare_batch_push(bind, global, batch, chunk))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_copy_function_request_tasks(
+    global: *const c_void,
+    count: usize,
+) -> usize {
+    let global =
+        unsafe { global.cast::<CopyFunctionGlobal>().as_ref() }.vortex_expect("null pointer");
+    request_tasks(global, count)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_copy_function_run_tasks(global: *const c_void) {
+    let global =
+        unsafe { global.cast::<CopyFunctionGlobal>().as_ref() }.vortex_expect("null pointer");
+    run_tasks(global)
 }
 
 #[unsafe(no_mangle)]

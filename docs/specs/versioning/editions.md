@@ -154,6 +154,10 @@ writers from choosing it, but readers must retain support because existing files
 
 ## Maintaining edition records
 
+Each change to an edition, such as adding, moving, or removing a member or freezing an edition, goes
+in its own pull request labeled `changelog/edition`, so it appears under its own heading in the
+release notes.
+
 Default declarations live in `vortex-edition/src/declarations/`. Optional modules keep declarations
 with their implementation code. The exported TOML records are under `vortex/editions/`, grouped by
 family.

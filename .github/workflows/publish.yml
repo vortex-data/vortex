@@ -5,7 +5,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+  NIGHTLY_TOOLCHAIN: nightly-2026-11-13
 
 on:
   release:
@@ -88,14 +88,15 @@ jobs:
         working-directory: ./java
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad  # v6
-        with:
-          distribution: "corretto"
-          java-version: "17"
-      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6  # v6
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
-        with:
-          pattern: libvortex_jni_*.zip
+      - parallel:
+          - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad  # v6
+            with:
+              distribution: "corretto"
+              java-version: "17"
+          - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+            with:
+              pattern: libvortex_jni_*.zip
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c  # v6
       - name: Copy native JNI libs
         run: |
           mkdir -p vortex-jni/src/main/resources/native/darwin-aarch64

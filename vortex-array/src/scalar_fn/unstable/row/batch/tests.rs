@@ -921,6 +921,24 @@ fn test_bool_output_handles_masked_constant() -> VortexResult<()> {
 }
 
 #[test]
+fn test_partially_valid_bool_output_is_canonical() -> VortexResult<()> {
+    let validity = Validity::from_iter([true, false, true, true]);
+    let lhs = PrimitiveArray::new(vec![1_i64, 3, 3, 0], validity.clone()).into_array();
+    let rhs = ConstantArray::new(2_i64, 4).into_array();
+    let args = VecExecutionArgs::new(vec![lhs, rhs], 4);
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let actual = execute_rows(&PackedGreaterThan::<false>, &EmptyOptions, &args, &mut ctx)?;
+    let expected =
+        BoolArray::new([false, true, true, false].into_iter().collect(), validity).into_array();
+
+    assert!(actual.is_canonical(), "{actual}");
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+
+    Ok(())
+}
+
+#[test]
 fn test_bool_output_rejects_wrong_row_count() {
     let short = PrimitiveArray::from_iter(0_i64..64).into_array();
     let long = PrimitiveArray::from_iter(0_i64..65).into_array();
@@ -1387,13 +1405,24 @@ impl RowFn for DeclaredSinkOutput {
 #[derive(Clone)]
 struct ChangingOutputDType {
     dispatches: Arc<AtomicUsize>,
+    policy: RedispatchPolicy,
+}
+
+/// The policy that [`ChangingOutputDType`] selects. Both policies make a partially valid batch
+/// dispatch twice, and the second dispatch drops the declared output dtype.
+#[derive(Clone, Copy)]
+enum RedispatchPolicy {
+    /// Use a deferred visit, which selects `RowPolicy::DenseWithRetry`.
+    DenseWithRetry,
+    /// Use a [`ValidOnlyI64`] input, which is not dense safe and so selects `RowPolicy::ValidOnly`.
+    ValidOnly,
 }
 
 impl RowFn for ChangingOutputDType {
     type Options = EmptyOptions;
 
     const ARG_NAMES: &'static [&'static str] = &["value"];
-    const INFALLIBLE: bool = true;
+    const INFALLIBLE: bool = false;
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("test.changing_output_dtype");
@@ -1412,7 +1441,12 @@ impl RowFn for ChangingOutputDType {
             visitor
         };
 
-        visitor.visit::<(i64,), i64>(|(value,)| value)
+        match self.policy {
+            RedispatchPolicy::DenseWithRetry => {
+                visitor.visit_deferred::<(i64,), i64, bool>(|(value,)| (value, false), |_| Ok(()))
+            }
+            RedispatchPolicy::ValidOnly => visitor.visit::<(ValidOnlyI64,), i64>(|(value,)| value),
+        }
     }
 }
 
@@ -1589,12 +1623,18 @@ fn test_declared_output_dtype_rejects_mismatched_storage() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn test_execution_rejects_a_changed_output_dtype() -> VortexResult<()> {
+#[rstest]
+#[case::dense_with_retry(RedispatchPolicy::DenseWithRetry)]
+#[case::valid_only(RedispatchPolicy::ValidOnly)]
+fn test_execution_rejects_a_changed_output_dtype(
+    #[case] policy: RedispatchPolicy,
+) -> VortexResult<()> {
     let function = ChangingOutputDType {
         dispatches: Arc::new(AtomicUsize::new(0)),
+        policy,
     };
-    let input = PrimitiveArray::from_iter(vec![1_i64, 2]).into_array();
+    let validity = Validity::from_iter([true, false]);
+    let input = PrimitiveArray::new(vec![1_i64, 2], validity).into_array();
     let args = VecExecutionArgs::new(vec![input], 2);
     let mut ctx = SESSION.create_execution_ctx();
 

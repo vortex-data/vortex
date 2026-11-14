@@ -3,11 +3,12 @@
 
 use std::mem::MaybeUninit;
 use std::mem::size_of;
-use std::slice::from_raw_parts;
 
 use fastlanes::BitPacking;
-use vortex_array::dtype::NativePType;
-use vortex_buffer::BufferMut;
+use vortex_array::arrays::filter::ChunkDecoder;
+use vortex_array::arrays::filter::FILTER_CHUNK_LEN;
+
+use crate::FL_CHUNK_SIZE;
 
 mod between;
 mod cast;
@@ -31,53 +32,57 @@ const fn unpack_chunk_threshold<T>() -> usize {
     }
 }
 
-fn unpack_indices_into<T: NativePType + BitPacking>(
-    output: &mut BufferMut<T>,
+/// The packed FastLanes chunks of a bit-packed array.
+pub(super) struct PackedChunks<'a, T> {
+    packed: &'a [T],
     bit_width: usize,
-    packed: &[T],
-    indices: &[usize],
-) {
-    let output_len = output.len();
-    let destination = &mut output.spare_capacity_mut()[..indices.len()];
+    /// Number of `T` words that hold each packed chunk.
+    packed_chunk_len: usize,
+}
 
-    // SAFETY: `bit_width` comes from validated data and fits `T`.
-    // `packed` contains one complete block, and each index is block-relative.
-    // The destination length equals the index length, and `output` reserves enough space.
-    unsafe {
-        T::unchecked_unpack_indices(bit_width, packed, indices, destination);
-        output.set_len(output_len + indices.len());
+impl<'a, T> PackedChunks<'a, T> {
+    /// The chunks of `packed`, at `bit_width` bits per value.
+    pub(super) fn new(packed: &'a [T], bit_width: usize) -> Self {
+        Self {
+            packed,
+            bit_width,
+            packed_chunk_len: FL_CHUNK_SIZE * bit_width / (8 * size_of::<T>()),
+        }
+    }
+
+    #[inline]
+    fn chunk(&self, chunk_idx: usize) -> &[T] {
+        &self.packed[chunk_idx * self.packed_chunk_len..][..self.packed_chunk_len]
     }
 }
 
-/// Groups consecutive indices by 1024-element chunk without allocating.
-///
-/// Repeated indices can select more than 1024 positions from one chunk, in which case
-/// `chunk_fn` is called more than once for that chunk.
-fn chunked_indices<F: FnMut(usize, &[usize])>(
-    indices: impl Iterator<Item = usize>,
-    offset: usize,
-    mut chunk_fn: F,
-) {
-    let mut indices_within_chunk = [const { MaybeUninit::<usize>::uninit() }; 1024];
-    let mut len = 0;
-    let mut current_chunk_idx = 0;
-    // SAFETY: Callers only read the first `len` entries, which have been written.
-    let initialized =
-        |buf: &[MaybeUninit<usize>], len| unsafe { from_raw_parts(buf.as_ptr().cast(), len) };
-
-    for idx in indices {
-        let chunk_idx = (idx + offset) / 1024;
-        if len != 0 && (chunk_idx != current_chunk_idx || len == indices_within_chunk.len()) {
-            chunk_fn(current_chunk_idx, initialized(&indices_within_chunk, len));
-            len = 0;
+// SAFETY: the FastLanes unpack kernels initialize every value of `dst`.
+unsafe impl<T: BitPacking> ChunkDecoder<T> for PackedChunks<'_, T> {
+    #[inline]
+    fn decode_chunk(&self, chunk_idx: usize, dst: &mut [MaybeUninit<T>; FILTER_CHUNK_LEN]) {
+        // SAFETY: the unpack only writes to `dst`, and the packed chunk holds `FL_CHUNK_SIZE`
+        // values of `bit_width` bits.
+        unsafe {
+            BitPacking::unchecked_unpack(
+                self.bit_width,
+                self.chunk(chunk_idx),
+                dst.assume_init_mut(),
+            );
         }
-        current_chunk_idx = chunk_idx;
-        indices_within_chunk[len].write((idx + offset) % 1024);
-        len += 1;
     }
 
-    if len != 0 {
-        chunk_fn(current_chunk_idx, initialized(&indices_within_chunk, len));
+    #[inline]
+    fn decode_indices(&self, chunk_idx: usize, indices: &[usize], dst: &mut [MaybeUninit<T>]) {
+        debug_assert!(indices.iter().all(|&index| index < FL_CHUNK_SIZE));
+        // SAFETY: every index is within the chunk, and `dst` holds one value for each index.
+        unsafe {
+            BitPacking::unchecked_unpack_indices(
+                self.bit_width,
+                self.chunk(chunk_idx),
+                indices,
+                dst,
+            );
+        }
     }
 }
 
@@ -95,33 +100,15 @@ mod tests {
 
     use crate::BitPackedArray;
     use crate::bitpack_compress::bitpack_encode;
-    use crate::bitpacking::compute::chunked_indices;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     fn bp(array: &PrimitiveArray, bit_width: u8) -> BitPackedArray {
         bitpack_encode(array, bit_width, None, &mut SESSION.create_execution_ctx()).unwrap()
-    }
-
-    #[test]
-    fn chunk_indices_repeated() {
-        let mut calls = Vec::new();
-        chunked_indices([0; 1025].into_iter(), 0, |chunk_idx, idxs| {
-            assert_eq!(chunk_idx, 0);
-            assert!(idxs.iter().all(|&idx| idx == 0));
-            calls.push(idxs.len());
-        });
-        // More than 1024 indices in one chunk are split across calls.
-        assert_eq!(calls, [1024, 1]);
-    }
-
-    #[test]
-    fn chunk_indices_with_offset() {
-        let mut calls = Vec::new();
-        chunked_indices([0, 5, 1000, 3000].into_iter(), 100, |chunk_idx, idxs| {
-            calls.push((chunk_idx, idxs.to_vec()));
-        });
-        assert_eq!(calls, [(0, vec![100, 105]), (1, vec![76]), (3, vec![28])]);
     }
 
     #[rstest]

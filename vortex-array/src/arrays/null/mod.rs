@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -26,17 +25,16 @@ use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::Dict;
 use crate::arrays::dict::TakeExecuteAdaptor;
-use crate::arrays::null::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::NullBuilder;
 use crate::dtype::DType;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar::Scalar;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 pub(crate) mod compute;
+mod plugin;
 
 /// A [`Null`]-encoded Vortex array.
 pub type NullArray = Array<Null>;
@@ -45,6 +43,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     session
         .kernels()
         .register_execute_parent_kernel(Dict.id(), Null, TakeExecuteAdaptor(Null));
+    compute::rules::register_parent_rules(session);
 }
 
 impl VTable for Null {
@@ -91,45 +90,6 @@ impl VTable for Null {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("NullArray slot_name index {idx} out of bounds")
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            metadata.is_empty(),
-            "NullArray expects empty metadata, got {} bytes",
-            metadata.len()
-        );
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            EmptyArrayData,
-            ArraySlots::new(),
-        ))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

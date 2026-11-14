@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The [`MultiLineString`] extension type (`vortex.st.multilinestring`), stored as
-//! `List<List<Struct<x, y[, z][, m]>>>` (line strings → coordinates) and tagged with
-//! [`SpatialMetadata`]. The storage layout matches [`Polygon`](super::Polygon); the two are
-//! distinguished by their GeoArrow extension name, not their shape.
+//! Native multi-line-string geometry (`vortex.st.multilinestring`).
+//!
+//! [`MultiLineString`] stores line strings as `List<List<Struct<x, y[, z][, m]>>>`.
+//! [`SpatialMetadata`] declares the coordinate dimension and optional coordinate reference system.
+//! Coordinates use non-nullable `f64` fields, and only the outer list can be nullable. The storage
+//! layout matches [`Polygon`](super::Polygon), and the extension ID identifies the geometry type.
 
 use std::sync::Arc;
 
@@ -19,7 +21,6 @@ use geoarrow::array::IntoArrow;
 use geoarrow::array::MultiLineStringArray;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::MultiLineStringType;
-use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -33,16 +34,16 @@ use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::ScalarValue;
 use vortex_arrow::ArrowExport;
 use vortex_arrow::ArrowExportOptions;
-use vortex_arrow::ArrowExportVTable;
+use vortex_arrow::ArrowExtVTable;
 use vortex_arrow::ArrowImport;
-use vortex_arrow::ArrowImportVTable;
+use vortex_arrow::ArrowMetadataPolicy;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -62,6 +63,7 @@ pub struct MultiLineString;
 
 impl ExtVTable for MultiLineString {
     type Metadata = SpatialMetadata;
+    type StoredMetadata = super::SpatialStoredMetadata;
     // No cheap owned value like Point's `Coordinate`; expose the raw storage scalar.
     type NativeValue<'a> = &'a ScalarValue;
 
@@ -71,15 +73,30 @@ impl ExtVTable for MultiLineString {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(metadata.encode_to_vec())
+        Ok(metadata.serialize())
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(SpatialMetadata::decode(metadata)?)
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
+        super::SpatialStoredMetadata::deserialize(metadata)
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        multilinestring_dimension(ext_dtype.storage_dtype()).map(|_| ())
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(SpatialMetadata::from_stored_metadata(
+            stored_metadata,
+            Some(multilinestring_dimension(storage_dtype)?),
+        ))
+    }
+
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        multilinestring_storage_dtype(metadata.native_dimension(), Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
+        metadata.validate_native(MultiLineString.id())
     }
 
     fn unpack_native<'a>(
@@ -98,25 +115,18 @@ pub(crate) fn multilinestring_storage_dtype(dim: Dimension, nullability: Nullabi
     DType::List(Arc::new(line), nullability)
 }
 
-/// Validate that `dtype` equals [`multilinestring_storage_dtype`] for its [`Dimension`] and
-/// top-level nullability, and return that dimension. As in GeoArrow, only the outer `List` can be
-/// nullable.
+/// Infers the coordinate [`Dimension`] of `List<List<coordinate-struct>>` storage.
+///
+/// Checks the list nesting and delegates coordinate field-name inference to
+/// [`coordinate_dimension`]. Reads validate the complete storage dtype against the declaration.
 pub(crate) fn multilinestring_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(line, _) = dtype else {
-        vortex_bail!("multilinestring storage must be a List of line strings, was {dtype}");
+        vortex_bail!("multilinestring storage must be a List of line strings, got {dtype}");
     };
     let DType::List(coords, _) = line.as_ref() else {
-        vortex_bail!("multilinestring line storage must be a List of coordinates, was {line}");
+        vortex_bail!("multilinestring line storage must be a List of coordinates, got {line}");
     };
-    let dimension = coordinate_dimension(coords)?;
-
-    vortex_ensure_eq!(
-        *dtype,
-        multilinestring_storage_dtype(dimension, dtype.nullability()),
-        "multilinestring storage can be nullable only at its outer List"
-    );
-
-    Ok(dimension)
+    coordinate_dimension(coords)
 }
 
 static ARROW_MULTILINESTRING: CachedId = CachedId::new(MultiLineStringType::NAME);
@@ -154,8 +164,7 @@ fn multilinestring_array(
         &SpatialMetadata::default(),
         multilinestring_dimension(storage.dtype())?,
     );
-    let session = ctx.session().clone();
-    let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
+    let arrow = storage.clone().execute_arrow(None, ctx)?;
     MultiLineStringArray::try_from((arrow.as_ref(), multilinestring_type))
         .map_err(|e| vortex_err!("failed to construct MultiLineStringArray: {e}"))
 }
@@ -185,27 +194,31 @@ impl MultiLineStringData {
     }
 }
 
-impl ArrowExportVTable for MultiLineString {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_MULTILINESTRING
+impl ArrowExtVTable for MultiLineString {
+    fn metadata_policy() -> ArrowMetadataPolicy {
+        ArrowMetadataPolicy::ArrowNative
     }
 
-    fn vortex_id(&self) -> Id {
-        self.id()
+    fn arrow_ext_id(&self) -> Id {
+        *ARROW_MULTILINESTRING
     }
 
     fn to_arrow_field(
         &self,
         name: &str,
-        dtype: &DType,
-        session: &ArrowSession,
+        ext_dtype: &ExtDType<Self>,
+        _session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
-        let ext_type = dtype.as_extension();
-        let spatial_metadata = ext_type.metadata::<MultiLineString>();
-        let dimension = multilinestring_dimension(ext_type.storage_dtype())?;
+        let spatial_metadata = ext_dtype.metadata();
+        let dimension = spatial_metadata.native_dimension();
 
-        let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
-        field.try_with_extension_type(multilinestring_type(spatial_metadata, dimension))?;
+        let arrow_type = multilinestring_type(spatial_metadata, dimension);
+        let mut field = Field::new(
+            name,
+            arrow_type.data_type(),
+            ext_dtype.storage_dtype().is_nullable(),
+        );
+        field.try_with_extension_type(arrow_type)?;
 
         Ok(Some(field))
     }
@@ -217,15 +230,6 @@ impl ArrowExportVTable for MultiLineString {
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
-        let is_multilinestring = array
-            .dtype()
-            .as_extension_opt()
-            .map(|ext| ext.is::<MultiLineString>())
-            .unwrap_or(false);
-        if !is_multilinestring {
-            return Ok(ArrowExport::Unsupported(array));
-        }
-
         let Ok(multilinestring_meta) = target.try_extension_type::<MultiLineStringType>() else {
             return Ok(ArrowExport::Unsupported(array));
         };
@@ -241,12 +245,8 @@ impl ArrowExportVTable for MultiLineString {
             target.data_type().clone(),
             target.is_nullable(),
         );
-        let session = ctx.session().clone();
         let arrow_storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(&storage_field), ctx)?;
+            storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
         let multilinestrings =
             MultiLineStringArray::try_from((arrow_storage.as_ref(), multilinestring_meta))
@@ -256,20 +256,11 @@ impl ArrowExportVTable for MultiLineString {
             multilinestrings.into_arrow(),
         )))
     }
-}
 
-impl ArrowImportVTable for MultiLineString {
-    fn arrow_ext_id(&self) -> Id {
-        *ARROW_MULTILINESTRING
-    }
-
-    /// Import a `geoarrow.multilinestring` field (matched by GeoArrow name). Accepts the full
-    /// `MultiLineStringType`, or a metadata-less literal (name only), inferring the dimension.
     fn from_arrow_field(
-        &self,
         field: &Field,
         session: &ArrowSession,
-    ) -> VortexResult<Option<DType>> {
+    ) -> VortexResult<Option<ExtDType<Self>>> {
         let (dimension, metadata) =
             if let Ok(multilinestring_meta) = field.try_extension_type::<MultiLineStringType>() {
                 vortex_ensure!(
@@ -304,24 +295,20 @@ impl ArrowImportVTable for MultiLineString {
                 (dimension, SpatialMetadata::default())
             };
 
-        let storage_dtype = multilinestring_storage_dtype(dimension, field.is_nullable().into());
-        Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(MultiLineString, metadata, storage_dtype)?.erased(),
-        )))
+        Ok(Some(ExtDType::try_with_vtable(
+            MultiLineString,
+            metadata.with_dimension(dimension),
+            field.is_nullable().into(),
+        )?))
     }
 
     fn from_arrow_array(
-        &self,
         array: ArrowArrayRef,
         field: &Field,
-        dtype: &DType,
+        ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let Some(ext_dtype) = dtype.as_extension_opt() else {
-            return Ok(ArrowImport::Unsupported(array));
-        };
-        if !ext_dtype.is::<MultiLineString>()
-            || field.try_extension_type::<MultiLineStringType>().is_err()
+        if field.try_extension_type::<MultiLineStringType>().is_err()
             || !matches!(array.data_type(), DataType::List(_))
         {
             return Ok(ArrowImport::Unsupported(array));
@@ -329,7 +316,7 @@ impl ArrowImportVTable for MultiLineString {
 
         let storage = session.from_arrow_array(array, field.is_nullable())?;
         Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(ext_dtype.clone(), storage)?.into_array(),
+            ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array(),
         ))
     }
 }
@@ -342,7 +329,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtDTypePlugin;
     use vortex_error::VortexResult;
 
     use super::MultiLineString;
@@ -352,34 +339,40 @@ mod tests {
     use crate::extension::coordinate::coordinate_storage_dtype;
 
     fn spatial_meta() -> SpatialMetadata {
-        SpatialMetadata {
-            crs: Some("EPSG:4326".to_string()),
-        }
+        SpatialMetadata::new(Some("EPSG:4326".to_string()))
     }
 
-    /// `MultiLineString` accepts the canonical `List<List<coordinate-struct>>` storage of every
+    /// `MultiLineString` reads the canonical `List<List<coordinate-struct>>` storage of every
     /// dimension.
     #[rstest]
     #[case::xy(Dimension::Xy)]
     #[case::xyz(Dimension::Xyz)]
     #[case::xym(Dimension::Xym)]
     #[case::xyzm(Dimension::Xyzm)]
-    fn multilinestring_validates_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
+    fn multilinestring_reads_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
         let storage = multilinestring_storage_dtype(dim, Nullability::NonNullable);
-        ExtDType::<MultiLineString>::try_new(spatial_meta(), storage)?;
+        MultiLineString.deserialize(&spatial_meta().serialize(), storage)?;
         Ok(())
     }
 
-    /// Non-multilinestring storage is rejected: a bare coordinate struct (point) fails.
+    /// Non-multilinestring storage fails to read, for example `f64` or a single list (linestring).
     #[test]
     fn multilinestring_rejects_invalid_storage() -> VortexResult<()> {
         let primitive = DType::Primitive(PType::F64, Nullability::NonNullable);
-        assert!(ExtDType::<MultiLineString>::try_new(spatial_meta(), primitive).is_err());
+        assert!(
+            MultiLineString
+                .deserialize(&spatial_meta().serialize(), primitive)
+                .is_err()
+        );
 
         // A bare list of coordinates is a single line string, not a multilinestring.
         let coords = coordinate_storage_dtype(Dimension::Xy, Nullability::NonNullable);
         let line = DType::List(Arc::new(coords), Nullability::NonNullable);
-        assert!(ExtDType::<MultiLineString>::try_new(spatial_meta(), line).is_err());
+        assert!(
+            MultiLineString
+                .deserialize(&spatial_meta().serialize(), line)
+                .is_err()
+        );
         Ok(())
     }
 }

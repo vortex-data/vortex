@@ -55,11 +55,9 @@ const INPUT_SHAPES: &[InputShape] = &[InputShape::PerRowPerRow];
 
 /// Constant operands are measured on `i64` alone, by the `*_constant` benchmarks below.
 ///
-/// The row executor decodes and orients a constant operand the same way whatever the row kernel
-/// does with the value, so running both constant orientations under every element type and every
-/// output mode measures one path repeatedly, three walltime legs at a time. One infallible pair and
-/// one deferred pair keep it covered: those two differ in how a constant row reaches the kernel,
-/// and that is the difference worth watching.
+/// Constant handling is shared across row kernels, so repeating both orientations for every
+/// element type and output mode would duplicate coverage. Infallible and deferred cases remain
+/// separate because they pass constants through different execution paths.
 const CONSTANT_SHAPES: &[InputShape] = &[InputShape::PerRowConstant, InputShape::ConstantPerRow];
 
 #[derive(Clone, Copy, Debug)]

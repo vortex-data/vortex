@@ -25,6 +25,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::kernel::ExecuteParentKernel;
+use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::variant_get::VariantGet;
@@ -71,7 +72,7 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
                 typed_shredded_path(shredded, parent.options.path().elements(), ctx)?
                     .map(|typed| {
                         let len = typed.len();
-                        typed.mask(core_validity.to_array(len))
+                        typed.mask(core_validity.to_array(len))?.optimize_ctx(ctx)
                     })
                     .transpose()
             })
@@ -164,7 +165,7 @@ fn typed_shredded_path(
         let len = current_struct.len();
         let current_validity = current_struct.validity()?.to_array(len);
 
-        current = field.clone().mask(current_validity.clone())?;
+        current = field.clone().mask(current_validity)?;
     }
 
     Ok(Some(current))

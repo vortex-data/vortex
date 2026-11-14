@@ -582,11 +582,82 @@ def test_file_size_report_omits_formats_the_pr_run_skipped() -> None:
     assert "-100.0%" not in report
 
 
+def file_size_ingest_record(commit: str, size: int, file: str) -> dict[str, object]:
+    return {
+        "kind": "file_size",
+        "commit_sha": commit,
+        "benchmark": "tpch",
+        "scale_factor": "10",
+        "format": "vortex-file-compressed",
+        "file": file,
+        "value_bytes": size,
+    }
+
+
 def test_capture_file_sizes_emits_shared_benchmark_rows(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     format_dir = data_dir / "tpch" / "10" / "vortex-file-compressed"
     format_dir.mkdir(parents=True)
     (format_dir / "part-0.vortex").write_bytes(b"x" * 42)
+    output_path = tmp_path / "sizes.jsonl"
+    ingest_path = tmp_path / "sizes.ingest.jsonl"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(CAPTURE_SCRIPT),
+            str(data_dir),
+            "--benchmark",
+            "tpch",
+            "--dataset-dir",
+            "tpch",
+            "--commit",
+            "deadbeef",
+            "-o",
+            str(output_path),
+            "--ingest-jsonl",
+            str(ingest_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    ingest_records = [json.loads(line) for line in ingest_path.read_text(encoding="utf-8").splitlines()]
+    assert ingest_records == [file_size_ingest_record("deadbeef", 42, "part-0.vortex")]
+    records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+    assert records == [
+        {
+            "metric": "file_size",
+            "unit": "bytes",
+            "value": 42,
+            "commit_id": "deadbeef",
+            "file_size": {
+                "benchmark": "tpch",
+                "scale_factor": "10",
+                "format": "vortex-file-compressed",
+                "file": "part-0.vortex",
+            },
+        }
+    ]
+
+
+def test_capture_file_sizes_records_every_format_but_duckdb_catalogs(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    scale_dir = data_dir / "tpch" / "1.0"
+    for format_name, file_name, size in [
+        ("vortex-file-compressed", "lineitem.vortex", 40),
+        ("vortex-file-compressed", "duckdb.db", 7),
+        ("parquet", "lineitem.parquet", 60),
+        ("parquet", "duckdb.db.wal", 3),
+        ("duckdb", "duckdb.db", 90),
+        ("lance", "lineitem.lance/data/0.lance", 70),
+        ("not-a-format", "notes.txt", 1),
+    ]:
+        path = scale_dir / format_name / file_name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x" * size)
     output_path = tmp_path / "sizes.jsonl"
 
     result = subprocess.run(
@@ -610,20 +681,34 @@ def test_capture_file_sizes_emits_shared_benchmark_rows(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
-    assert records == [
-        {
-            "metric": "file_size",
-            "unit": "bytes",
-            "value": 42,
-            "commit_id": "deadbeef",
-            "file_size": {
-                "benchmark": "tpch",
-                "scale_factor": "10",
-                "format": "vortex-file-compressed",
-                "file": "part-0.vortex",
-            },
-        }
+    assert [(r["file_size"]["format"], r["file_size"]["file"], r["value"]) for r in records] == [
+        ("duckdb", "duckdb.db", 90),
+        ("lance", "lineitem.lance/data/0.lance", 70),
+        ("parquet", "lineitem.parquet", 60),
+        ("vortex-file-compressed", "lineitem.vortex", 40),
     ]
+
+
+def test_file_size_report_compares_only_vortex_formats() -> None:
+    compare = load_module("compare_benchmark_jsons", COMPARE_SCRIPT)
+
+    report = compare.format_file_size_report(
+        pd.DataFrame(
+            [
+                file_size_record_for("base-sha", 100, "tpch", "10", "vortex-file-compressed", "a"),
+                file_size_record_for("base-sha", 100, "tpch", "10", "parquet", "a"),
+            ]
+        ),
+        pd.DataFrame(
+            [
+                file_size_record_for("pr-sha", 125, "tpch", "10", "vortex-file-compressed", "a"),
+                file_size_record_for("pr-sha", 50, "tpch", "10", "parquet", "a"),
+            ]
+        ),
+    )
+
+    assert "<summary>File Size Changes (1 files changed, +25.0% overall, 1↑ 0↓)</summary>" in report
+    assert "parquet" not in report
 
 
 def test_baseline_fetch_refuses_a_shallow_checkout(tmp_path: Path) -> None:
@@ -664,11 +749,15 @@ def test_baseline_fetch_groups_distinct_pr_identities_by_kind() -> None:
         query_record("pr", 1, "datafusion", "parquet", 100),
         random_access_record("pr", "parquet", "cached", 100),
         {"kind": "vector_search_run", "dataset": "cohere"},
+        file_size_ingest_record("pr", 100, "part-0.vortex"),
+        file_size_ingest_record("pr", 100, "part-1.vortex"),
     ]
 
     assert fetch.identities_by_kind(records) == {
         "query_measurement": [("tpch", None, "1", 1, "nvme", "datafusion", "parquet")],
         "random_access_time": [("taxi/uniform", "parquet", "cached")],
+        # One lookup per scope, so the baseline also returns files the PR no longer writes.
+        "file_size": [("tpch", "10", "vortex-file-compressed")],
     }
 
 
@@ -708,7 +797,52 @@ def test_report_compares_ingest_records(tmp_path: Path) -> None:
     assert markdown_row(report, "random-access/taxi/uniform/parquet-cached")[1] == "105 / 100 / +5.0%"
     assert markdown_row(report, "random-access/taxi/uniform/lance-cached")[1] == "300 / — / no baseline"
     assert "<summary>random-access / lance / ns " in report
-    assert "File Size" not in report
+    assert "File Size Changes" not in report
+    assert "_No baseline file sizes found for base commit._" in report
+
+
+def test_report_compares_file_size_records_from_the_database(tmp_path: Path) -> None:
+    base_records = [
+        query_record("base-sha", 1, "datafusion", "vortex-file-compressed", 80),
+        file_size_ingest_record("base-sha", 100, "part-0.vortex"),
+        file_size_ingest_record("base-sha", 50, "part-1.vortex"),
+    ]
+    pr_records = [
+        query_record("pr-sha", 1, "datafusion", "vortex-file-compressed", 80),
+        file_size_ingest_record("pr-sha", 125, "part-0.vortex"),
+    ]
+    pr_results = [stored_timing_row("pr-sha", "ignored when records exist", 1) | {"doc": "benchmarks/tpch.md"}]
+
+    report = render_report(tmp_path, base_records, pr_results, "TPC-H", pr_records)
+
+    assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed")[1] == "80 / 80 / +0.0%"
+    assert "<summary>File Size Changes (2 files changed, -16.7% overall, 1↑ 1↓)</summary>" in report
+    assert "| part-1.vortex | 10 | vortex-file-compressed | 50 B | 0 B | -50 B | -100.0% |" in report
+
+
+def test_report_handles_a_baseline_of_only_file_sizes(tmp_path: Path) -> None:
+    base_records = [file_size_ingest_record("base-sha", 100, "part-0.vortex")]
+    pr_records = [
+        query_record("pr-sha", 1, "datafusion", "vortex-file-compressed", 80),
+        file_size_ingest_record("pr-sha", 125, "part-0.vortex"),
+    ]
+    pr_results = [stored_timing_row("pr-sha", "ignored when records exist", 1) | {"doc": "benchmarks/tpch.md"}]
+
+    report = render_report(tmp_path, base_records, pr_results, "TPC-H", pr_records)
+
+    assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed")[1] == "80 / — / no baseline"
+    assert "<summary>File Size Changes (1 files changed, +25.0% overall, 1↑ 0↓)</summary>" in report
+
+
+def test_baseline_commit_is_chosen_without_file_sizes() -> None:
+    fetch = load_module("fetch_benchmark_baseline", FETCH_BASELINE_SCRIPT)
+    query = ("tpch", None, "1", 1, "nvme", "datafusion", "parquet")
+    scope = ("tpch", "10", "vortex-file-compressed")
+
+    assert fetch.commit_selection_identities({"query_measurement": [query], "file_size": [scope]}) == {
+        "query_measurement": [query]
+    }
+    assert fetch.commit_selection_identities({"file_size": [scope]}) == {"file_size": [scope]}
 
 
 def test_report_says_when_the_baseline_could_not_be_read(tmp_path: Path) -> None:

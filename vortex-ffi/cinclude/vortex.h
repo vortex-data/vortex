@@ -66,6 +66,15 @@ typedef struct ArrowArrayStream FFI_ArrowArrayStream;
 #define vx_bool_view_nth(X, I)                                                                               \
     ((((X).ptr[((I) + (X).bit_offset) / 8] & (1 << (((I) + (X).bit_offset) % 8))) != 0))
 
+// Core edition names accepted by vx_session_enable_edition.
+#define VX_EDITION_CORE_2025_05_0 "core2025.05.0"
+#define VX_EDITION_CORE_2025_06_0 "core2025.06.0"
+#define VX_EDITION_CORE_2025_10_0 "core2025.10.0"
+#define VX_EDITION_CORE_2026_08_0 "core2026.08.0"
+#define VX_EDITION_CORE_2026_08_1 "core2026.08.1"
+#define VX_EDITION_CORE_2026_08_2 "core2026.08.2"
+#define VX_EDITION_CORE_2026_08_3 "core2026.08.3"
+
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -1631,6 +1640,24 @@ vx_session *vx_session_new(void);
  * Clone a vx_session
  */
 vx_session *vx_session_clone(const vx_session *session);
+
+/**
+ * Enable a registered edition by its UTF-8 name. For core editions, use a `VX_EDITION_CORE_*`
+ * macro with `vx_view_from_cstr`.
+ *
+ * This replaces the enabled edition of the same family on the shared session. Call this
+ * before opening a file sink. Use separate sessions for overlapping writes with different editions.
+ *
+ * Returns 0 on success and 1 on failure. If `error_out` is non-NULL, `*error_out` is cleared on
+ * success and set to an error on failure. Free that error with `vx_error_free`.
+ *
+ * # Safety
+ *
+ * `session` must be NULL or a live session handle created by this library. `name.ptr` must be
+ * readable for `name.len` bytes, or NULL when `name.len` is zero. If non-NULL, `error_out` must be
+ * writable.
+ */
+int vx_session_enable_edition(const vx_session *session, vx_view name, vx_error **error_out);
 
 /**
  * Opens a writable array stream, where sink is used to push values into the stream.

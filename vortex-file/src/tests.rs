@@ -59,6 +59,7 @@ use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::gt_eq;
 use vortex_array::expr::lit;
+use vortex_array::expr::lower;
 use vortex_array::expr::lt;
 use vortex_array::expr::lt_eq;
 use vortex_array::expr::or;
@@ -174,13 +175,13 @@ async fn test_eof_values() {
 #[rstest]
 #[case::default(
     BtrBlocksCompressorBuilder::from_session(&SESSION),
-    if cfg!(feature = "zstd") { 70_060 } else { 69_996 }
+    if cfg!(feature = "zstd") { 70_012 } else { 69_948 }
 )]
 #[cfg_attr(
     feature = "zstd",
     case::compact(
         BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-        55_144
+        55_096
     )
 )]
 #[tokio::test]
@@ -373,6 +374,50 @@ async fn decimal_writer_uses_default_or_session_restrictions(
         assert_eq!(uses_v2, (disable_editions || unstable) && !custom_strategy);
         assert_arrays_eq!(array, actual, &mut session.create_execution_ctx());
     }
+    Ok(())
+}
+
+/// A wide decimal with unique values is not dictionary encoded by the dict layout, but its byte
+/// parts are still compressed with every scheme, so the low-cardinality most significant part can
+/// use an integer dictionary.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn rejected_decimal_keeps_nested_int_dict() -> VortexResult<()> {
+    let distinct = [3i128, -5, 7, 11];
+    let values = (0..16_384usize)
+        .map(|i| {
+            (distinct[(i * 7 + i / 3) % distinct.len()] << 64) + i128::try_from(i * 31).unwrap()
+        })
+        .collect::<Buffer<i128>>();
+    let decimal = DecimalArray::new(values, DecimalDType::new(38, 2), Validity::NonNullable);
+    let array = StructArray::from_fields(&[("decimal", decimal.into_array())])?.into_array();
+
+    let mut buffer = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .disable_editions()
+        .write(&mut buffer, array.clone().to_array_stream())
+        .await?;
+    assert!(!layout_has_dict(summary.footer().layout().as_ref()));
+
+    let actual = SESSION
+        .open_options()
+        .open_buffer(buffer)?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    let has_dict_msp = actual.depth_first_traversal().any(|array| {
+        array
+            .as_opt::<DecimalByteParts>()
+            .is_some_and(|parts| parts.msp().is::<Dict>())
+    });
+    assert!(
+        has_dict_msp,
+        "expected a dict-encoded msp in {}",
+        actual.display_tree()
+    );
+    assert_arrays_eq!(actual, array, &mut SESSION.create_execution_ctx());
     Ok(())
 }
 
@@ -3367,6 +3412,65 @@ async fn test_can_prune_nested_struct_field() -> VortexResult<()> {
     Ok(())
 }
 
+async fn lower_pruning_file(values: Vec<Option<String>>) -> VortexResult<VortexFile> {
+    let array = VarBinViewArray::from_iter_nullable_str(values).into_array();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    SESSION.open_options().open_buffer(buf)
+}
+
+#[rstest]
+#[case::constant_final_sigma(&[Some("ΟΣ"), None, Some("ΟΣ")], "οσα", true)]
+#[case::constant_final_sigma_match(&[Some("ΟΣ"), None, Some("ΟΣ")], "ος", false)]
+#[case::constant_expanding_match(&[Some("İ"), None], "i\u{307}", false)]
+#[case::constant_expanding(&[Some("İ"), None], "i", true)]
+#[case::shared_prefix(&[Some("Namespace-000"), Some("Namespace-001")], "namespace-007", true)]
+#[case::shared_prefix_match(&[Some("Namespace-000"), Some("Namespace-001")], "namespace-001", false)]
+#[case::prefix_of_max(&[Some("prefix"), Some("prefix-long")], "other", true)]
+// Lowercase is not monotonic, even on ASCII input.
+#[case::non_monotonic(&[Some("Z"), Some("a")], "a", false)]
+#[case::uppercase_range(&[Some("A"), Some("Z")], "m", false)]
+#[case::mixed_case_range(&[Some("z"), Some("K")], "k", false)]
+#[case::non_ascii_divergence(&[Some("a"), Some("É")], "zzz", false)]
+#[tokio::test]
+async fn test_can_prune_lower_eq(
+    #[case] values: &[Option<&str>],
+    #[case] target: &str,
+    #[case] prunable: bool,
+) -> VortexResult<()> {
+    let file = lower_pruning_file(values.iter().map(|v| v.map(str::to_owned)).collect()).await?;
+    assert_eq!(file.can_prune(&eq(lower(root()), lit(target)))?, prunable);
+    assert_eq!(file.can_prune(&eq(lit(target), lower(root())))?, prunable);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_can_prune_lower_range() -> VortexResult<()> {
+    let file = lower_pruning_file(vec![
+        Some("Namespace-000".into()),
+        Some("Namespace-009".into()),
+    ])
+    .await?;
+    assert!(file.can_prune(&lt(lower(root()), lit("namespace-000")))?);
+    assert!(!file.can_prune(&lt_eq(lower(root()), lit("namespace-000")))?);
+    assert!(file.can_prune(&gt(lower(root()), lit("namespace-00:")))?);
+    assert!(!file.can_prune(&gt(lower(root()), lit("namespace-005")))?);
+    Ok(())
+}
+
+/// Long values can have truncated min/max stats, which must not make the bounds unsound.
+#[tokio::test]
+async fn test_can_prune_lower_truncated_stats() -> VortexResult<()> {
+    let value = "X".repeat(200);
+    let file = lower_pruning_file(vec![Some(value.clone()), Some(value)]).await?;
+    assert!(!file.can_prune(&eq(lower(root()), lit("x".repeat(200))))?);
+    assert!(file.can_prune(&eq(lower(root()), lit("y".repeat(200))))?);
+    Ok(())
+}
+
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_can_prune_three_level_nested_struct_field() -> VortexResult<()> {
@@ -3475,5 +3579,22 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
         .await?;
 
     assert_arrays_eq!(result, mk_struct(vec![big])?, &mut ctx);
+    Ok(())
+}
+
+/// The sparse values cut from a mostly-null column with runs of nulls must not keep a lazy filter
+/// over its compressed validity as theirs: the writer cannot serialize it.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn null_dominated_clustered_f32_writes() -> VortexResult<()> {
+    let values = PrimitiveArray::from_option_iter(
+        (0..262_144u32).map(|i| ((i / 64) % 20 == 0).then_some(i as f32)),
+    );
+    let st = StructArray::from_fields(&[("v", values.into_array())])?;
+    let stream = st.into_array().to_array_stream();
+    SESSION
+        .write_options()
+        .write(&mut ByteBufferMut::empty(), stream)
+        .await?;
     Ok(())
 }

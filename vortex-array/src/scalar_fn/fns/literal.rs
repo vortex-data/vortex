@@ -40,7 +40,7 @@ impl ScalarFnVTable for Literal {
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::LiteralOpts {
-                value: Some(instance.into()),
+                value: Some(instance.to_proto()?),
             }
             .encode_to_vec(),
         ))

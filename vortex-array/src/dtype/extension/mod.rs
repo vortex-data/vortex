@@ -1,26 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Extension DTypes, and interfaces for working with extension types.
+//! Extension dtypes and their typed, erased, and registered interfaces.
 //!
 //! An extension dtype gives semantic meaning to values stored in an ordinary Vortex storage dtype.
 //! For example, a timestamp extension can store an integer while carrying unit/time-zone metadata.
 //! Arrays with [`DType::Extension`](crate::dtype::DType::Extension) use
 //! [`crate::arrays::ExtensionArray`] to pair the extension dtype with the storage array.
 //!
-//! Extension dtype implementations provide an [`ExtVTable`] for identity, metadata
-//! serialization, storage dtype validation, scalar validation, and typed scalar unpacking. Register
-//! extension plugins in a session before deserializing data that may reference them.
+//! Extension dtype implementations provide an [`ExtVTable`] for identity, metadata serialization,
+//! the storage dtype declaration, scalar validation, and typed scalar unpacking. Register extension
+//! plugins in a session before deserializing data that may reference them.
+//!
+//! [`ExtDType<V>`] provides typed access to a concrete [`ExtVTable`]. Its erased handle,
+//! [`ExtDTypeRef`], stores different extension types behind one interface. [`Matcher`] retrieves
+//! metadata for a known type, and [`ExtDTypePlugin`] reconstructs dtypes through the session
+//! registry.
 //!
 //! ## File layout convention
 //!
-//! Each vtable-backed concept `Foo` follows this module structure:
+//! Each vtable-backed concept `Foo` separates these responsibilities:
 //!
-//! - `vtable.rs`  — `FooVTable` (the non-object-safe trait users implement)
-//! - `plugin.rs`  — `FooPlugin` (registry trait for deserialization + blanket impl)
-//! - `typed.rs`   — `Foo<V>` (typed wrapper) + `FooInner<V>` + `DynFoo` (private)
-//! - `erased.rs`  — `FooRef` (erased ref + Display/Debug/PartialEq/Hash impls)
-//! - `matcher.rs` — `Matcher` trait + blanket impl for `V: FooVTable`
+//! - `vtable.rs`: `FooVTable`, the non-object-safe trait users implement.
+//! - `plugin.rs`: `FooPlugin`, the registry trait and its blanket implementation.
+//! - `typed.rs`: `Foo<V>`, the typed wrapper, and the private `DynFoo` dispatch trait.
+//! - `erased.rs`: `FooRef`, including display, debug, equality, and hashing.
+//! - `matcher.rs`: `Matcher` and its implementation for `V: FooVTable`.
 
 mod vtable;
 pub use vtable::*;

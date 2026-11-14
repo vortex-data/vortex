@@ -47,27 +47,20 @@ DEFAULT_COUNT = 100
 # A new target starts with a five-second estimate until simulation logs record its runtime.
 DEFAULT_SECONDS = 5.0
 
-# The packages whose benchmarks run in simulation, with the features each one builds with.
-PACKAGES: dict[str, tuple[str, ...]] = {
-    "vortex": (),
-    "vortex-alp": (),
+# Every workspace package with `[[bench]]` targets runs in simulation, except these. Each entry gives
+# the reason, so that a new benchmark package is measured by default instead of skipped silently.
+EXCLUDED_PACKAGES: dict[str, str] = {
+    "vortex-btrblocks": "its benchmarks are compiled out under `cfg(codspeed)`",
+    "vortex-cuda": "its benchmarks need a GPU and run in the `bench-codspeed-cuda` jobs",
+    "vortex-duckdb": "its build script downloads or builds DuckDB",
+}
+
+# The features that a package builds its benchmarks with, if it needs any.
+PACKAGE_FEATURES: dict[str, tuple[str, ...]] = {
     "vortex-array": ("_test-harness",),
-    "vortex-buffer": (),
-    "vortex-compressor": (),
-    "vortex-compute": (),
-    "vortex-datetime-parts": (),
-    "vortex-decimal-byte-parts": (),
-    "vortex-elias-fano": (),
     "vortex-fastlanes": ("_test-harness",),
-    "vortex-file": (),
     "vortex-fsst": ("_test-harness",),
-    "vortex-layout": (),
-    "vortex-mask": (),
-    "vortex-pco": (),
-    "vortex-row": (),
-    "vortex-sparse": (),
     "vortex-spatial": ("_test-harness",),
-    "vortex-tensor": (),
 }
 
 # vortex-array targets measured without allocator time: deferred allocator cleanup dominates them.
@@ -97,7 +90,7 @@ def excludes_allocations(target: Target) -> bool:
 
 
 def discover_targets(root: Path = REPO_ROOT) -> list[Target]:
-    """Return the `[[bench]]` targets of every package in `PACKAGES`."""
+    """Return the `[[bench]]` targets of every workspace package not in `EXCLUDED_PACKAGES`."""
     members = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["members"]
     targets = []
     for member in members:
@@ -107,12 +100,33 @@ def discover_targets(root: Path = REPO_ROOT) -> list[Target]:
                 continue
             manifest = tomllib.loads(manifest_path.read_text())
             package = manifest.get("package", {}).get("name")
-            if package in PACKAGES:
-                targets.extend((package, bench["name"]) for bench in manifest.get("bench", []))
-    missing = set(PACKAGES) - {package for package, _ in targets}
-    if missing:
-        raise SystemExit(f"no benchmark targets found for {sorted(missing)}")
-    return sorted(targets)
+            targets.extend((package, bench["name"]) for bench in manifest.get("bench", []))
+
+    benchmarked = {package for package, _ in targets}
+    stale = (set(EXCLUDED_PACKAGES) | set(PACKAGE_FEATURES)) - benchmarked
+    if stale:
+        raise SystemExit(f"no benchmark targets found for {sorted(stale)}")
+
+    excluded_with_features = set(EXCLUDED_PACKAGES) & set(PACKAGE_FEATURES)
+    if excluded_with_features:
+        raise SystemExit(f"excluded packages must not set features: {sorted(excluded_with_features)}")
+
+    simulated = sorted(target for target in targets if target[0] not in EXCLUDED_PACKAGES)
+
+    # A shard selects targets with `--bench <name>`, which Cargo matches in every selected package.
+    packages_by_name = collections.defaultdict(list)
+    for package, name in simulated:
+        packages_by_name[name].append(package)
+    shared = {name: packages for name, packages in packages_by_name.items() if len(packages) > 1}
+    if shared:
+        raise SystemExit(f"benchmark target names must be unique across packages: {shared}")
+
+    return simulated
+
+
+def simulated_packages() -> set[str]:
+    """Return the packages whose targets `discover_targets` returns."""
+    return {package for package, _ in discover_targets()}
 
 
 def load_counts(path: Path = COUNTS_PATH) -> dict[Target, int]:
@@ -180,7 +194,9 @@ def plan(
                 continue
             targets = sorted(targets)
             packages = sorted({package for package, _ in targets})
-            features = sorted(f"{package}/{feature}" for package in packages for feature in PACKAGES[package])
+            features = sorted(
+                f"{package}/{feature}" for package in packages for feature in PACKAGE_FEATURES.get(package, ())
+            )
             args = [f"--features {','.join(features)}"] if features else []
             args += [f"-p {package}" for package in packages]
             args += [f"--bench {name}" for name in sorted({name for _, name in targets})]
@@ -208,13 +224,14 @@ def github_outputs(shards: list[Shard]) -> dict[str, str]:
 
 def counts_from_logs(paths: list[Path]) -> dict[str, dict[str, int]]:
     """Count the `Measured:` lines per target in CodSpeed simulation job logs."""
+    packages = simulated_packages()
     counts: dict[str, dict[str, int]] = collections.defaultdict(dict)
     for path in paths:
         current = None
         for line in path.read_text(errors="replace").splitlines():
             if match := re.search(r"\bRunning (\S+) (\S+)$", line):
                 current = (match.group(1), match.group(2))
-                if current[0] in PACKAGES:
+                if current[0] in packages:
                     counts[current[0]].setdefault(current[1], 0)
                 else:
                     current = None
@@ -227,13 +244,14 @@ def counts_from_logs(paths: list[Path]) -> dict[str, dict[str, int]]:
 
 def durations_from_logs(paths: list[Path]) -> dict[str, dict[str, float]]:
     """Measure complete target executions, including startup and untimed fixture construction."""
+    packages = simulated_packages()
     samples: dict[Target, list[float]] = collections.defaultdict(list)
     for path in paths:
         current = None
         started = None
         for line in path.read_text(errors="replace").splitlines():
             if match := re.search(r"\bRunning (\S+) (\S+)$", line):
-                current = (match.group(1), match.group(2)) if match.group(1) in PACKAGES else None
+                current = (match.group(1), match.group(2)) if match.group(1) in packages else None
                 if current:
                     started = datetime.datetime.fromisoformat(line.split()[0])
             elif current and started is not None and re.search(rf"\bDone running {re.escape(current[1])}$", line):

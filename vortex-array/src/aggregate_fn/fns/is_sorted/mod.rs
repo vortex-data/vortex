@@ -977,4 +977,44 @@ mod tests {
         assert_arrays_eq!(acc.finish()?, BoolArray::from_iter(expected), &mut ctx);
         Ok(())
     }
+
+    /// A bool array must agree with the equivalent integer array: nulls sort first, so a null
+    /// after a valid value is unsorted.
+    #[rstest]
+    #[case::null_between_values([Some(false), None, Some(true)])]
+    #[case::null_first([None, Some(false), Some(true)])]
+    #[case::null_last([Some(false), Some(true), None])]
+    fn bool_nulls_sort_first_like_primitive(#[case] values: [Option<bool>; 3]) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let bools = BoolArray::from_iter(values).into_array();
+        let ints = PrimitiveArray::from_option_iter(values.map(|v| v.map(i32::from))).into_array();
+
+        let expected = values[1..].iter().all(|v| v.is_some());
+        assert_eq!(is_sorted(&ints, &mut ctx)?, expected);
+        assert_eq!(is_sorted(&bools, &mut ctx)?, expected);
+        assert_eq!(
+            is_strict_sorted(&bools, &mut ctx)?,
+            is_strict_sorted(&ints, &mut ctx)?
+        );
+        Ok(())
+    }
+
+    /// Splitting a bool array into chunks must not change the non-strict verdict.
+    #[test]
+    fn bool_valid_then_null_matches_chunked() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let flat = BoolArray::from_iter([Some(true), None]).into_array();
+        let chunked = ChunkedArray::try_new(
+            vec![
+                BoolArray::from_iter([Some(true)]).into_array(),
+                BoolArray::from_iter([None::<bool>]).into_array(),
+            ],
+            flat.dtype().clone(),
+        )?
+        .into_array();
+
+        assert!(!is_sorted(&flat, &mut ctx)?);
+        assert!(!is_sorted(&chunked, &mut ctx)?);
+        Ok(())
+    }
 }

@@ -519,35 +519,9 @@ where
         )
     };
 
-    // Returns `true` if every value of `from` is representable in `to` without loss.
-    fn casts_losslessly_to(from: PType, to: PType) -> bool {
-        if from == to {
-            return true;
-        }
-        if (from.is_unsigned_int() && to.is_unsigned_int())
-            || (from.is_signed_int() && to.is_signed_int())
-            || (from.is_float() && to.is_float())
-        {
-            return from.byte_width() <= to.byte_width();
-        }
-        if from.is_unsigned_int() && to.is_signed_int() {
-            return from.byte_width() < to.byte_width();
-        }
-        if from.is_int() && to.is_float() {
-            let minimum_float_width = match from.byte_width() {
-                1 => 2,
-                2 => 4,
-                4 => 8,
-                _ => return false,
-            };
-            return to.byte_width() >= minimum_float_width;
-        }
-        false
-    }
-
     // Skip the fallible kernel when type widening or (cached) min/max prove every value fits.
     let target_dtype = DType::Primitive(T::PTYPE, Nullability::NonNullable);
-    let infallible = casts_losslessly_to(F::PTYPE, T::PTYPE)
+    let infallible = F::PTYPE.casts_losslessly_to(T::PTYPE)
         || cached_values_fit_in(array, &target_dtype).unwrap_or(false);
 
     let len = array.len();

@@ -12,12 +12,15 @@
 //! [`RowInputs`] borrows the input columns, and [`BatchProbe`] classifies them before dispatch.
 //! [`BatchInputs`] keeps the columns with their probe. [`BatchPlan`] carries the nullable execution
 //! strategy selected by a concrete dispatch. [`RowFnExecutionArgs`] applies that strategy, and
-//! [`BorrowedRowFnArgs`] pairs each kernel invocation with its planning metadata.
+//! [`BorrowedRowFnArgs`] pairs each kernel invocation with its planning metadata. A
+//! [`PartiallyValidBatch`] carries a batch that needs a dense retry or valid-row execution after
+//! the planning visit.
 
 use std::borrow::Cow;
 
 use crate::ArrayRef;
 use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::scalar_fn::ScalarFnId;
 use crate::validity::Validity;
 
@@ -53,6 +56,13 @@ pub(crate) struct BatchProbe {
 
     /// Whether any input is a null literal constant.
     has_null_const: bool,
+
+    /// The union of the input dtypes' nullabilities, independent of which rows are valid.
+    ///
+    /// An input's validity can come from non-nullable storage even when its logical dtype is
+    /// nullable. The direct Boolean path has no [`BatchPlan`] to restore that logical nullability,
+    /// so it must retain it here when constructing the output validity.
+    nullability: Nullability,
 }
 
 /// The same-length input columns of one row-function execution, with their [`BatchProbe`].
@@ -65,6 +75,19 @@ pub(crate) struct BatchInputs<'a> {
 
     /// What batch execution derived from `inputs` before planning.
     probe: BatchProbe,
+}
+
+/// A batch, with its plan, that [`BatchInputs::try_execute_without_retry`] could not finish with
+/// one kernel call.
+///
+/// Only that method creates this type, so no caller can reach the slower strategies without trying
+/// the cheaper paths first.
+pub(crate) struct PartiallyValidBatch<'a> {
+    /// The input columns and their probe.
+    batch: BatchInputs<'a>,
+
+    /// The plan that a dispatch selected for `batch`.
+    plan: BatchPlan,
 }
 
 /// The same-length input columns and metadata for one row-function execution.

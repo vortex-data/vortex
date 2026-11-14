@@ -16,7 +16,6 @@ use vortex_session::registry::CachedId;
 use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::EmptyArrayData;
-use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::AggregateFn;
@@ -31,6 +30,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::extension::ExtensionSlots;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
@@ -62,10 +62,7 @@ struct NonZero;
 
 impl NonZero {
     fn dtype(ptype: PType, nullability: Nullability) -> VortexResult<ExtDTypeRef> {
-        Ok(
-            ExtDType::<Self>::try_new(EmptyMetadata, DType::Primitive(ptype, nullability))?
-                .erased(),
-        )
+        Ok(ExtDType::<Self>::try_new(ptype, nullability)?.erased())
     }
 
     fn array(storage: ArrayRef) -> VortexResult<ArrayRef> {
@@ -76,7 +73,8 @@ impl NonZero {
 }
 
 impl ExtVTable for NonZero {
-    type Metadata = EmptyMetadata;
+    type Metadata = PType;
+    type StoredMetadata = ();
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
@@ -88,18 +86,26 @@ impl ExtVTable for NonZero {
         Ok(vec![])
     }
 
-    fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
+    fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
+        Ok(())
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+    fn metadata_from_storage(
+        &self,
+        _stored_metadata: Self::StoredMetadata,
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        PType::try_from(storage_dtype)
+    }
+
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        DType::Primitive(*metadata, Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
         vortex_ensure!(
-            matches!(
-                ext_dtype.storage_dtype(),
-                DType::Primitive(PType::I64 | PType::F64, _)
-            ),
-            "NonZero requires i64 or f64 storage, got {}",
-            ext_dtype.storage_dtype()
+            matches!(metadata, PType::I64 | PType::F64),
+            "NonZero requires i64 or f64 storage, got {metadata}"
         );
 
         Ok(())
@@ -129,7 +135,7 @@ fn test_invalid_values_return_read_errors(#[case] storage: ArrayRef) -> VortexRe
     assert_non_zero_error(array.execute_scalar(0, &mut ctx), "0");
     assert_non_zero_error(array.repeated_probe().execute_scalar(0, &mut ctx), "0");
 
-    let optimized = array.optimize()?;
+    let optimized = array.optimize_ctx(&SESSION)?;
     assert!(optimized.is::<Extension>());
     assert_arrays_eq!(optimized.apply(&ext_storage(root()))?, storage, &mut ctx);
     assert_arrays_eq!(
@@ -147,7 +153,8 @@ fn test_invalid_values_return_read_errors(#[case] storage: ArrayRef) -> VortexRe
 fn test_valid_values_keep_the_extension_dtype(#[case] storage: Scalar) -> VortexResult<()> {
     let ext_dtype = NonZero::dtype(PType::I64, Nullability::Nullable)?;
     let scalar = Scalar::try_extension_ref(ext_dtype.clone(), storage.clone())?;
-    let array = NonZero::array(ConstantArray::new(storage, 2).into_array())?.optimize()?;
+    let array =
+        NonZero::array(ConstantArray::new(storage, 2).into_array())?.optimize_ctx(&SESSION)?;
     let mut ctx = SESSION.create_execution_ctx();
 
     assert_eq!(scalar.dtype(), &DType::Extension(ext_dtype));
@@ -169,14 +176,34 @@ fn test_scalar_values_require_the_storage_dtype(#[case] value: ScalarValue) -> V
 }
 
 #[rstest]
-#[case::wrong_dtype(Scalar::from(1.0f64))]
-#[case::invalid_value(Scalar::from(0i64))]
-fn test_extension_constructor_rejects_invalid_storage(#[case] storage: Scalar) -> VortexResult<()> {
+#[case::wrong_dtype(
+    Scalar::from(1.0f64),
+    "test.non_zero storage must match its declaration\n  left: i64\n right: f64"
+)]
+#[case::invalid_value(Scalar::from(0i64), "NonZero requires a finite nonzero value, got 0")]
+fn test_extension_constructor_rejects_invalid_storage(
+    #[case] storage: Scalar,
+    #[case] expected: &str,
+) -> VortexResult<()> {
     let dtype = NonZero::dtype(PType::I64, Nullability::NonNullable)?;
 
-    assert!(Scalar::try_extension_ref(dtype, storage).is_err());
+    let result = Scalar::try_extension_ref(dtype, storage);
+    assert!(result.is_err_and(|error| error.to_string().contains(expected)));
 
     Ok(())
+}
+
+/// Building an extension array over storage of another dtype fails with an error that names the
+/// type and both storage dtypes.
+#[test]
+fn test_array_constructor_rejects_other_storage_dtype() {
+    let result =
+        ExtensionArray::try_new_from_vtable(NonZero, PType::I64, buffer![1f64].into_array());
+    assert!(result.is_err_and(|error| {
+        error
+            .to_string()
+            .contains("test.non_zero storage must match its declaration\n  left: i64\n right: f64")
+    }));
 }
 
 #[rstest]
@@ -254,4 +281,33 @@ fn test_rejected_extension_zero_cannot_construct_a_scalar(
     }
 
     Scalar::zero_value(&dtype);
+}
+
+/// Storage-based construction preserves outer nullability and scalar validation.
+#[rstest]
+#[case::non_nullable(Nullability::NonNullable)]
+#[case::nullable(Nullability::Nullable)]
+fn storage_constructors(#[case] nullability: Nullability) -> VortexResult<()> {
+    let storage = Scalar::primitive(1i64, nullability);
+    let scalar = Scalar::try_extension_from_storage::<NonZero>((), storage.clone())?;
+    assert_eq!(scalar.dtype().nullability(), nullability);
+
+    let array = ConstantArray::new(storage, 2).into_array();
+    let result = ExtensionArray::try_from_storage::<NonZero>((), array.clone())?;
+    assert_eq!(result.ext_dtype().storage_dtype(), array.dtype());
+
+    assert!(
+        Scalar::try_extension_from_storage::<NonZero>((), Scalar::primitive(0i64, nullability))
+            .is_err()
+    );
+
+    Ok(())
+}
+
+#[test]
+fn storage_constructor_accepts_null_scalar() -> VortexResult<()> {
+    let null = Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable));
+    assert!(Scalar::try_extension_from_storage::<NonZero>((), null)?.is_null());
+
+    Ok(())
 }
