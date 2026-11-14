@@ -968,6 +968,19 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def details(summary: str, items: list[str], indent: str = "  ") -> list[str]:
+    """A collapsed Markdown list, so long mutant names do not bury the decisions."""
+    if not items:
+        return []
+    return [
+        f"{indent}<details><summary>{summary}</summary>",
+        "",
+        *[f"{indent}- {item}" for item in items],
+        "",
+        f"{indent}</details>",
+    ]
+
+
 def render_markdown(report: dict[str, Any]) -> str:
     before = report["before"]
     lines = [
@@ -993,7 +1006,8 @@ def render_markdown(report: dict[str, Any]) -> str:
             lines.append(f"  - expected values: {entry['oracle']}")
             for test in entry["tests"]:
                 lines.append(f"  - test: `{test}`")
-            lines.append(f"  - catches {len(entry['mutants'])} survivors")
+            count = len(entry["mutants"])
+            lines.append(f"  - catches {count} survivor{'' if count == 1 else 's'}")
         lines.append("")
     applied = [r for r in report["removals"] if r.get("applied")]
     if applied:
@@ -1013,8 +1027,10 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines += ["### Other survivors", ""]
         for entry in others:
             lines.append(f"- **{entry['verdict']}**: {entry['reason']}")
-            for name in entry["mutants"]:
-                lines.append(f"  - `{name}` → {entry['status'][name]}")
+            lines += details(
+                f"{len(entry['mutants'])} mutant{'' if len(entry['mutants']) == 1 else 's'}",
+                [f"`{n}` → {entry['status'][n]}" for n in entry["mutants"]],
+            )
         lines.append("")
 
     questions = report["questions"]
@@ -1041,8 +1057,7 @@ def render_markdown(report: dict[str, Any]) -> str:
                 tick = "x" if option == question["answer"] else " "
                 suffix = f" ({', '.join(marks)})" if marks else ""
                 lines.append(f"- [{tick}] {option}{suffix}")
-            for ref in question.get("refs", []):
-                lines.append(f"  - `{ref}`")
+            lines += ["", *details("About", [f"`{ref}`" for ref in question.get("refs", [])], indent="")]
             lines.append("")
     if report["timeouts"]:
         lines += ["### Timed out (counted as detected)", ""]
