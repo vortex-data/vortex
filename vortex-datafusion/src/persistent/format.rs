@@ -665,11 +665,12 @@ impl FileFormat for VortexFormat {
                                 m.footer().dtype().clone(),
                                 m.footer().statistics().cloned(),
                                 m.footer().row_count(),
+                                m.footer().compressed_field_sizes().ok(),
                             )
                         })
                 });
 
-            let (_dtype, file_stats, row_count) = match cached_metadata {
+            let (_dtype, file_stats, row_count, encoded_sizes) = match cached_metadata {
                 Some(metadata) => metadata,
                 None => {
                     // Not entry - open the file
@@ -702,6 +703,7 @@ impl FileFormat for VortexFormat {
                         vxf.dtype().clone(),
                         vxf.file_stats().cloned(),
                         vxf.row_count(),
+                        vxf.footer().compressed_field_sizes().ok(),
                     )
                 }
             };
@@ -779,7 +781,14 @@ impl FileFormat for VortexFormat {
                     max_value: max,
                     sum_value: DFPrecision::Absent,
                     distinct_count,
-                    byte_size: byte_size_to_df(stats_set, field.data_type(), num_rows),
+                    byte_size: byte_size_to_df(
+                        stats_set,
+                        field.data_type(),
+                        num_rows,
+                        encoded_sizes.as_ref().and_then(|sizes| {
+                            sizes.get(&FieldPath::from_name(field.name().as_str()))
+                        }),
+                    ),
                 })
             }
 

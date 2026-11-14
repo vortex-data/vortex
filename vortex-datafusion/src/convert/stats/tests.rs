@@ -209,20 +209,25 @@ fn float_statistics_require_no_nans(
 }
 
 #[rstest]
-#[case::fixed_width(DataType::Int64, Some(4096), Precision::Inexact(800))]
-#[case::fixed_width_without_stats(DataType::Int32, None, Precision::Inexact(400))]
-#[case::variable_width(DataType::Utf8, Some(4096), Precision::Inexact(4096))]
-#[case::variable_width_without_stats(DataType::Utf8View, None, Precision::Absent)]
-fn byte_size_from_width_or_uncompressed_size(
+#[case::fixed_width(DataType::Int64, Some(4096), Some(64), Precision::Inexact(800))]
+#[case::fixed_width_without_stats(DataType::Int32, None, None, Precision::Inexact(400))]
+#[case::variable_width_encoded(DataType::Utf8, Some(4096), Some(256), Precision::Inexact(256))]
+#[case::variable_width(DataType::Utf8, Some(4096), None, Precision::Inexact(4096))]
+#[case::variable_width_without_stats(DataType::Utf8View, None, None, Precision::Absent)]
+fn byte_size_from_width_or_encoded_size(
     #[case] data_type: DataType,
     #[case] uncompressed_size: Option<u64>,
+    #[case] encoded_size: Option<u64>,
     #[case] expected: Precision<usize>,
 ) -> VortexResult<()> {
     let mut stats = StatsSet::default();
     if let Some(size) = uncompressed_size {
         stats.set(Stat::UncompressedSizeInBytes, VortexPrecision::exact(size));
     }
-    assert_eq!(byte_size_to_df(&stats, &data_type, 100), expected);
+    assert_eq!(
+        byte_size_to_df(&stats, &data_type, 100, encoded_size),
+        expected
+    );
     Ok(())
 }
 
