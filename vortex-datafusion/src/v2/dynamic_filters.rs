@@ -504,6 +504,11 @@ impl ExactDynamicFilter {
         let residual = split_conjunction(snapshot)
             .into_iter()
             .filter(|conjunct| !self.conjuncts.is_native(conjunct))
+            // DataFusion 55 routes each row of a partitioned join's filter through a CASE on
+            // the row's hash partition, then tests the partition's bounds and hash table. Exactly,
+            // that costs more per row than the join's own repartition and probe, so only its
+            // widened bounds are pushed. DataFusion 56 emits no CASE.
+            .filter(|conjunct| conjunct.downcast_ref::<CaseExpr>().is_none())
             .cloned()
             .collect::<Vec<_>>();
         if residual.is_empty() {
@@ -754,8 +759,9 @@ mod tests {
             .collect();
         let filter = partitioned(branches, else_expr)?;
         assert_eq!(native(Arc::clone(&filter)), expected.and_then(native));
-        // The hash routing selects each partition's own test, which only DataFusion evaluates.
-        assert!(exact(filter).is_some());
+        // Testing the hash routing exactly costs more than the join's own probe, so only the hull
+        // is pushed.
+        assert_eq!(exact(filter), None);
         Ok(())
     }
 
@@ -823,15 +829,6 @@ mod tests {
             df_lit(true),
             // A collect-left join: bounds and a membership test.
             and(bounds(4, 40), multiple_of(3)),
-            // A partitioned join: each partition has its own bounds and membership test.
-            partitioned(
-                vec![
-                    and(bounds(0, 30), multiple_of(2)),
-                    and(bounds(10, 50), multiple_of(5)),
-                    df_lit(false),
-                ],
-                df_lit(false),
-            )?,
             // A null-aware join keeps the probe side's null keys.
             or(is_null, and(bounds(8, 60), multiple_of(4))),
         ] {
@@ -839,6 +836,24 @@ mod tests {
             let (scan, expected) = kept_rows(&filter, &converted, &batch)?;
             assert_eq!(scan, expected, "{predicate}");
         }
+
+        // A partitioned join, where each partition has its own bounds and membership test, keeps
+        // every row inside the hull of its bounds and no row outside it.
+        let predicate = partitioned(
+            vec![
+                and(bounds(0, 30), multiple_of(2)),
+                and(bounds(10, 50), multiple_of(5)),
+                df_lit(false),
+            ],
+            df_lit(false),
+        )?;
+        dynamic.update(Arc::clone(&predicate))?;
+        let (scan, expected) = kept_rows(&filter, &converted, &batch)?;
+        let hull = (0..64)
+            .map(|value| value % 7 != 3 && (0..=50).contains(&value))
+            .collect::<Vec<_>>();
+        assert_eq!(scan, hull, "{predicate}");
+        assert!(expected.iter().zip(&scan).all(|(expected, scan)| !expected || *scan));
         Ok(())
     }
 }
