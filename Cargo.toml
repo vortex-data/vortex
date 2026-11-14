@@ -474,6 +474,12 @@ debug = false
 debug-assertions = true
 incremental = false
 
+# Used by cargo-mutants (see `.cargo/mutants.toml`). Unlike `ci`, it keeps incremental compilation,
+# because each mutant rebuilds the same crate with a one-line change.
+[profile.mutants]
+inherits = "dev"
+debug = "none"
+
 # This improved build times significantly for default common cases that we use locally
 [profile.dev.package.vortex-fastlanes]
 debug = false

@@ -1,0 +1,44 @@
+# Configuration for cargo-mutants (https://mutants.rs), used by `.github/workflows/mutants.yml`.
+#
+# Run locally with, for example:
+#
+#   cargo mutants -p vortex-zigzag
+#   cargo mutants --in-diff <(git diff origin/develop)
+
+# Incremental builds, without full debuginfo, keep per-mutant rebuilds cheap.
+profile = "mutants"
+test_tool = "nextest"
+
+exclude_globs = [
+    # Excluded until it is split into smaller crates: it holds ~24k of the workspace's ~63k
+    # mutants, and every mutant relinks its large test binary.
+    "vortex-array/**",
+    # Need GPUs, Python, DuckDB or a JVM to test.
+    "vortex-cuda/**",
+    "vortex-python/**",
+    "vortex-python-cuda/**",
+    "vortex-python-abi/**",
+    "vortex-duckdb/**",
+    "vortex-jni/**",
+    "vortex-ffi/**",
+    # Tooling, benchmarks and test harnesses rather than library code.
+    "benchmarks/**",
+    "fuzz/**",
+    "vortex-array-macros/**",
+    "vortex-bench/**",
+    "vortex-sqllogictest/**",
+    "vortex-test/**",
+    "vortex-tui/**",
+    "vortex-web/**",
+    "xtask/**",
+    "**/generated/**",
+]
+
+exclude_re = [
+    # cargo-mutants only recognises return types named `Result`, so for `VortexResult<T>` it
+    # generates container constructors such as `VortexResult::new()` that never compile. That is
+    # ~11k mutants that each cost a build.
+    "with VortexResult::",
+    # Formatting output is rarely asserted on, so these mutants are mostly noise.
+    "<impl (std::)?(fmt::)?(Debug|Display) for ",
+]

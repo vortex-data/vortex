@@ -390,10 +390,9 @@ impl<'a, T: BitPacked> BitUnpackIterator<'a, T> {
 
 #[gat]
 impl<'a, T: BitPacked + 'a> LendingIterator for BitUnpackIterator<'a, T> {
-    type Item<'next>
+    type Item<'next> = &'next mut [T; CHUNK_SIZE]
     where
-        Self: 'next,
-    = &'next mut [T; CHUNK_SIZE];
+        Self: 'next;
 
     fn next(&'_ mut self) -> Option<Item<'_, Self>> {
         if self.idx >= self.num_chunks {
