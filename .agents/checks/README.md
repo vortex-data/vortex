@@ -304,9 +304,9 @@ Each check owns `s3://<bucket>/<prefix>/<check-id>/`. Locally, `--store` default
   runs/<plan time>_<run id>-<attempt>/        one per run; write-once
     plan.json                                 this check's part of the plan
     <crate>/
-      results.json  patch.diff  outcome       what the agent handed over
-      final.json  body.md                     what finalize kept, and why
-      decision.json  pr.md  issue.md          what decide published
+      results.json                            what the agent reported
+      final.json                              what finalize kept, reverted and dropped, and why
+      decision.json                           what decide published, and which findings were new
 ```
 
 **`state.json`** holds, for each reviewed file:
@@ -323,9 +323,11 @@ Every write reads the object and its ETag, merges, and writes with `If-Match: <e
 Merges are idempotent, and each file keeps its newest review, so a retry never rolls the state
 back.
 
-**`runs/`** is the history: what each agent saw, did, and published. The record job writes it
-with `If-None-Match: *` only, so a re-run never rewrites history. It keeps only the files above,
-each up to 5 MB. An S3 lifecycle rule on `*/runs/` can expire old runs.
+**`runs/`** is the history: what each agent reported, what the runner did with it, and what was
+published. It keeps only those three JSON files per crate, each up to 1 MB, because the PR and
+issue bodies are on GitHub and the kept edits are in the PR's commit. The record job writes it
+with `If-None-Match: *` only, so a re-run never rewrites history. An S3 lifecycle rule on
+`*/runs/` can expire old runs.
 
 Only the plan and record jobs touch the store: plan reads, record writes.
 

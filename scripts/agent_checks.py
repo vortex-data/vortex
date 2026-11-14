@@ -1533,17 +1533,11 @@ def unsuppress(store: CheckStore, check_id: str, fingerprints: Collection[str]) 
 
 # What a shard keeps of each run, under `<check>/runs/<run>/<shard>/`. Anything else in a handed-over
 # directory is ignored.
-ARCHIVED_FILES = (
-    "results.json",
-    "patch.diff",
-    "outcome",
-    "final.json",
-    "decision.json",
-    "body.md",
-    "pr.md",
-    "issue.md",
-)
-MAX_ARCHIVED_BYTES = 5 * 1024 * 1024
+# The bodies are on GitHub and the kept edits are in the PR's commit, so only the JSON is kept: what
+# the agent reported, what the runner kept and why, and what was published.
+ARCHIVED_FILES = ("results.json", "final.json", "decision.json")
+# results.json is the agent's raw output; the runner's own JSON is clipped far below this.
+MAX_ARCHIVED_BYTES = 1024 * 1024
 
 
 def run_key(plan: dict[str, Any], run_id: str) -> str:

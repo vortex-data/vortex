@@ -715,8 +715,8 @@ class TestArchive:
         p = plan(repo, tmp_path / "plan-state")
         store = ac.DirStore(tmp_path / "store")
         dirs = [
-            self.handed(tmp_path, "agent", "bench", "beta", {"results.json": "{}", "patch.diff": "d", "junk.sh": "x"}),
-            self.handed(tmp_path, "out", "bench", "beta", {"decision.json": "{}", "pr.md": "pr"}),
+            self.handed(tmp_path, "agent", "bench", "beta", {"results.json": "{}", "patch.diff": "d"}),
+            self.handed(tmp_path, "out", "bench", "beta", {"final.json": "{}", "decision.json": "d", "pr.md": "pr"}),
             self.handed(tmp_path, "forged", "bench", "not-planned", {"results.json": "{}"}),
         ]
         written = ac.archive(store, p, "123-1", dirs)
@@ -724,14 +724,16 @@ class TestArchive:
         assert key == "20261113T120000Z_123-1"
         assert sorted(written) == sorted(
             f"bench/runs/{key}/{name}"
-            for name in ("plan.json", "beta/results.json", "beta/patch.diff", "beta/decision.json", "beta/pr.md")
+            for name in ("plan.json", "beta/results.json", "beta/final.json", "beta/decision.json")
         )
-        assert store.get("bench", f"runs/{key}/beta/junk.sh")[0] is None
+        # Only the JSON is kept: the bodies are on GitHub, and kept edits are in the PR's commit.
+        assert store.get("bench", f"runs/{key}/beta/patch.diff")[0] is None
+        assert store.get("bench", f"runs/{key}/beta/pr.md")[0] is None
 
         # Re-running the record job writes nothing and changes nothing.
-        (dirs[1] / "pr.md").write_text("changed")
+        (dirs[1] / "decision.json").write_text("changed")
         assert ac.archive(store, p, "123-1", dirs) == []
-        assert store.get("bench", f"runs/{key}/beta/pr.md")[0] == b"pr"
+        assert store.get("bench", f"runs/{key}/beta/decision.json")[0] == b"d"
 
 
 class TestApplyPatch:
