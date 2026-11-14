@@ -62,6 +62,9 @@ use vortex::scalar_fn::fns::operators::Operator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
+/// The most values `substr(col, 1, n) IN (...)` converts to an OR of LIKE prefix patterns.
+const MAX_PREFIX_PATTERNS: usize = 16;
+
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
     /// Projection evaluated by the Vortex scan.
@@ -619,6 +622,12 @@ impl DefaultExpressionConverter {
             input.data_type(schema)?,
             DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View
         ) {
+            return Err(Unconverted::Unsupported);
+        }
+        // Each pattern is a separate LIKE over every row, while DataFusion tests membership with
+        // one hash lookup per row. Past a few values the OR costs more than the pushdown saves,
+        // and the patterns span too much of the column's range to prune zones.
+        if values.len() > MAX_PREFIX_PATTERNS {
             return Err(Unconverted::Unsupported);
         }
         let patterns = values
