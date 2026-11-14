@@ -44,27 +44,36 @@ pub(crate) fn stats_set_to_df(
     })
 }
 
-/// The in-memory size of a column of `num_rows` values of `data_type`, as DataFusion estimates
-/// it: the value width times the row count for fixed-width types, otherwise the uncompressed
-/// size recorded in `stats_set`.
+/// The size of a column of `num_rows` values of `data_type`, as DataFusion estimates it for
+/// Parquet: the value width times the row count for fixed-width types, otherwise the size of the
+/// encoded column before general-purpose compression.
+///
+/// For a variable-width column that is `encoded_size`, the bytes of the column's segments in the
+/// file, falling back to the uncompressed size recorded in `stats_set`. Parquet reports the
+/// uncompressed size of its column chunks, which are dictionary encoded, and Vortex's encoded
+/// size is its counterpart; its uncompressed size instead counts the canonical layout (16-byte
+/// string views), several times larger for a dictionary of short strings.
 ///
 /// Both are reported inexact. DataFusion's join selection uses `total_byte_size` instead of the
 /// row count whenever it is known: a build side is collected into one partition only below
 /// `hash_join_single_partition_threshold` (1 MiB in DataFusion 55, 4 MiB later), and
-/// `hash_join_single_partition_threshold_rows` (128 Ki rows) is no longer consulted. A narrow
-/// build side with many rows therefore stays partitioned, while one with few wide rows is no
-/// longer collected. Vortex's uncompressed size counts its own canonical layout (for example
-/// 16-byte string views), so it can overestimate the Arrow size of short strings.
+/// `hash_join_single_partition_threshold_rows` (128 Ki rows) is no longer consulted. Reporting
+/// the canonical size made a projected `date_dim` exceed the threshold that Parquet's stays
+/// under, and partitioned its joins with `store_sales` (TPC-DS Q2, Q54 and Q59).
 pub(crate) fn byte_size_to_df(
     stats_set: &StatsSet,
     data_type: &DataType,
     num_rows: usize,
+    encoded_size: Option<u64>,
 ) -> Precision<usize> {
     match data_type.primitive_width() {
         Some(width) => num_rows
             .checked_mul(width)
             .map_or(Precision::Absent, Precision::Inexact),
-        None => uncompressed_size_to_df(stats_set),
+        None => match encoded_size.and_then(|size| usize::try_from(size).ok()) {
+            Some(size) => Precision::Inexact(size),
+            None => uncompressed_size_to_df(stats_set),
+        },
     }
 }
 
