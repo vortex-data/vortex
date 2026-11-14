@@ -143,7 +143,7 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::parallelism::get_available_parallelism;
 
-use super::dynamic_filters::convert_dynamic_filter;
+use super::dynamic_filters::split_dynamic_filter;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
@@ -953,6 +953,8 @@ impl DataSource for VortexDataSource {
         let mut this = self.clone();
         let mut pushdown_results = Vec::with_capacity(filters.len());
         let mut converted = Vec::new();
+        // Exact conjuncts follow every native one; see `ConvertedDynamicFilter::exact`.
+        let mut exact = Vec::new();
         for filter in filters {
             let filter = match &self.leftover_projection {
                 Some(projection) => projection.unproject_expr(&filter)?,
@@ -960,11 +962,13 @@ impl DataSource for VortexDataSource {
             };
             let filter = reassign_expr_columns(filter, &self.projected_schema)?;
             if DynamicFilterTracking::classify(&filter).contains_dynamic_filter() {
-                converted.push(convert_dynamic_filter(
+                let split = split_dynamic_filter(
                     Arc::clone(&filter),
                     Arc::clone(&self.projected_schema),
                     Arc::clone(&self.expression_converter),
-                ));
+                );
+                converted.push(split.native);
+                exact.extend(split.exact);
                 this.dynamic_filters.push(filter);
                 pushdown_results.push(PushedDown::No);
             } else if let Some(expression) = self
@@ -988,6 +992,7 @@ impl DataSource for VortexDataSource {
         // existing filter.
         let pushed = converted
             .into_iter()
+            .chain(exact)
             .map(|expr| replace(expr, &root(), self.projected_projection.clone()));
         this.filter = and_collect(self.filter.iter().cloned().chain(pushed));
         Ok(
