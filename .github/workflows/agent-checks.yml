@@ -1,29 +1,9 @@
 name: Agent Checks
 
-# Periodic agent-driven code checks. Each check is `.agents/checks/<id>/CHECK.md`; the runner is
-# `scripts/agent_checks.py`. `.agents/checks/README.md` documents the whole system.
-#
-# Jobs
-# - plan: reads each check's state from S3 and the repository's PRs and issues, picks the crates
-#   that need review (new or changed files, rubric version bumps) for every check that is due,
-#   and emits one matrix entry per check.
-# - review: agent-checks-review.yml, called once per check; checks run in parallel. It reviews the
-#   check's crates one after another through agent-checks-shard.yml, which runs the agent on one
-#   runner and publishes from a separate, fresh runner.
-# - record: merges the published shards' reviews, rejected findings and `last_run` into each
-#   check's `state.json` with compare-and-swap, and archives the run under the check's `runs/`.
-#
-# Fault tolerance: a shard that fails or times out records nothing and is offered again on the
-# next run; the other shards are unaffected. A partial results file still records the files the
-# agent finished. One check's state failing does not stop the other checks.
-#
-# Setup (see the README): the `claude-automation` environment, the GitHub App secrets, the
-# `CLAUDE_APP_LOGIN` variable and the Anthropic variables that fuzzer-fix-automation.yml uses. The
-# `vortex-claude-write` federation rule must allow agent-checks-shard.yml as `job_workflow_ref`.
-# State lives in S3: set AGENT_CHECKS_STATE_URI (s3://bucket/prefix), AGENT_CHECKS_AWS_ROLE_ARN and,
-# optionally, AGENT_CHECKS_AWS_REGION. Only the plan and record jobs below assume that role; they
-# run without an environment, so their OIDC subject is `repo:<repo>:ref:refs/heads/develop`, which
-# the agent's job (subject `...:environment:claude-automation`) never has.
+# Weekly agent-driven code checks: plan, then each check's crates one at a time
+# (agent-checks-review.yml -> agent-checks-shard.yml), then record. `.agents/checks/README.md`
+# documents the flow, the setup (variables, federation rule, AWS role), and how to add a check.
+# Only the plan and record jobs here assume the store's AWS role; agents never do.
 
 on:
   # TEMPORARY: dry-run trial of a few shards on the PR that adds this workflow. Remove before merging.
@@ -42,7 +22,7 @@ on:
         description: "Check id (empty: all enabled checks)"
         required: false
         type: string
-      shard:
+      crate:
         description: "Only this crate, e.g. vortex-array"
         required: false
         type: string
@@ -50,11 +30,6 @@ on:
         description: "Override max_shards_per_run"
         required: false
         type: string
-      force:
-        description: "Ignore cadence_days"
-        required: false
-        type: boolean
-        default: false
       dry_run:
         description: "Review and report in the job summary only: no PRs, issues or state"
         required: false
@@ -70,8 +45,8 @@ concurrency:
 permissions: { }
 
 env:
-  # s3://bucket/prefix; each check's state is <prefix>/<check>/state.json.
-  STATE: ${{ vars.AGENT_CHECKS_STATE_URI }}
+  # s3://bucket/prefix; each check stores under <prefix>/<check>/.
+  STORE: ${{ vars.AGENT_CHECKS_STORE_URI }}
   TRUSTED_AUTHOR: ${{ vars.CLAUDE_APP_LOGIN }}
   PR_LABEL: agent-checks
   DRY_RUN: ${{ inputs.dry_run == true || github.event_name == 'pull_request' }}
@@ -112,18 +87,18 @@ jobs:
             echo "::error::Set the CLAUDE_APP_LOGIN variable: only that login's markers are trusted."
             exit 1
           fi
-          if [[ -n "$STATE" ]]; then
-            echo "STATE_SPEC=$STATE" >> "$GITHUB_ENV"
+          if [[ -n "$STORE" ]]; then
+            echo "STORE_SPEC=$STORE" >> "$GITHUB_ENV"
           elif [[ "$DRY_RUN" == "true" ]]; then
-            echo "::warning::AGENT_CHECKS_STATE_URI is not set; this dry run plans from empty state."
-            echo "STATE_SPEC=$RUNNER_TEMP/empty-state" >> "$GITHUB_ENV"
+            echo "::warning::AGENT_CHECKS_STORE_URI is not set; this dry run plans from empty state."
+            echo "STORE_SPEC=$RUNNER_TEMP/empty-store" >> "$GITHUB_ENV"
           else
-            echo "::error::Set the AGENT_CHECKS_STATE_URI variable (s3://bucket/prefix)."
+            echo "::error::Set the AGENT_CHECKS_STORE_URI variable (s3://bucket/prefix)."
             exit 1
           fi
 
-      - name: Configure AWS credentials for the state store
-        if: vars.AGENT_CHECKS_STATE_URI != ''
+      - name: Configure AWS credentials for the store
+        if: vars.AGENT_CHECKS_STORE_URI != ''
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
         with:
           role-to-assume: ${{ vars.AGENT_CHECKS_AWS_ROLE_ARN }}
@@ -137,32 +112,30 @@ jobs:
           # Authors are listed so that only the App's own markers are trusted.
           gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 1000 \
             --json number,state,body,mergedAt,headRefName,author,isCrossRepository > open-prs.json
-          gh pr list --repo "$GITHUB_REPOSITORY" --label "$PR_LABEL" --state closed --limit 500 \
-            --json number,state,body,mergedAt,headRefName,author,isCrossRepository > closed-prs.json
-          gh issue list --repo "$GITHUB_REPOSITORY" --label "$PR_LABEL" --state closed --limit 500 \
-            --json number,state,stateReason,body,author,comments > closed-issues.json
+          # Closed ones are listed for rejections: issues closed as not planned, and PRs or issues
+          # closed with the agent-checks:rejected label.
+          gh pr list --repo "$GITHUB_REPOSITORY" --label "$PR_LABEL" --state closed --limit 1000 \
+            --json number,state,body,mergedAt,headRefName,author,isCrossRepository,labels > closed-prs.json
+          gh issue list --repo "$GITHUB_REPOSITORY" --label "$PR_LABEL" --state closed --limit 1000 \
+            --json number,state,stateReason,body,author,comments,labels > closed-issues.json
           jq -s 'add' open-prs.json closed-prs.json closed-issues.json > github.json
 
       - name: Plan
         id: plan
         env:
           CHECK: ${{ inputs.check }}
-          SHARD: ${{ inputs.shard }}
+          CRATE: ${{ inputs.crate }}
           MAX_SHARDS: ${{ inputs.max_shards }}
-          FORCE: ${{ inputs.force }}
           EVENT: ${{ github.event_name }}
         run: |
-          args=(plan --state "$STATE_SPEC" --github github.json --out plan.json)
+          args=(plan --store "$STORE_SPEC" --github github.json --out plan.json)
           [[ -n "$TRUSTED_AUTHOR" ]] && args+=(--trusted-author "$TRUSTED_AUTHOR")
           [[ -n "$CHECK" ]] && args+=(--check "$CHECK")
-          [[ -n "$SHARD" ]] && args+=(--shard "$SHARD")
+          [[ -n "$CRATE" ]] && args+=(--crate "$CRATE")
           [[ -n "$MAX_SHARDS" ]] && args+=(--max-shards "$MAX_SHARDS")
-          [[ "$FORCE" == "true" ]] && args+=(--force)
-          # Only scheduled runs move a check's weekly clock.
-          [[ "$EVENT" == "schedule" ]] && args+=(--scheduled)
           if [[ "$EVENT" == "pull_request" ]]; then
             # TEMPORARY trial: two small crates for each check.
-            args+=(--force --shard vortex-compute --shard vortex-mask --max-shards 2)
+            args+=(--crate vortex-compute --crate vortex-mask --max-shards 2)
           fi
           python3 scripts/agent_checks.py "${args[@]}"
 
@@ -217,11 +190,11 @@ jobs:
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
-          pattern: agent-checks-state-*
+          pattern: agent-checks-update-*
           path: updates
           merge-multiple: true
 
-      - name: Configure AWS credentials for the state store
+      - name: Configure AWS credentials for the store
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
         with:
           role-to-assume: ${{ vars.AGENT_CHECKS_AWS_ROLE_ARN }}
@@ -232,7 +205,7 @@ jobs:
           shopt -s nullglob
           # Compare-and-swap per check document, retried on conflict. A failure for one check is
           # reported at the end, after every other check is recorded.
-          python3 scripts/agent_checks.py record --state "$STATE" --trusted-author "$TRUSTED_AUTHOR" \
+          python3 scripts/agent_checks.py record --store "$STORE" --trusted-author "$TRUSTED_AUTHOR" \
             --plan plan/plan.json --github plan/github.json updates/*.json
 
       # One directory per artifact under archive/, each tagged with its check and shard by meta.json.
@@ -253,5 +226,5 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           shopt -s nullglob
-          python3 scripts/agent_checks.py archive --state "$STATE" --plan plan/plan.json \
+          python3 scripts/agent_checks.py archive --store "$STORE" --plan plan/plan.json \
             --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" archive/*/

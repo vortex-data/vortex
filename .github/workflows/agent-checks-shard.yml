@@ -1,17 +1,11 @@
 name: Agent Checks (one shard)
 
-# Called by agent-checks-review.yml for one shard (crate) of one check. See
+# Called by agent-checks-review.yml for one crate of one check. Two jobs on two runners, so the
+# agent never shares a machine with a write credential: `agent` runs Claude with a read-only token
+# and hands over a patch; `publish` applies it on a fresh checkout within the crate's files,
+# formats, verifies, decides, and only then mints the App token. The agent job is this file's
+# `job_workflow_ref`, which the `vortex-claude-write` federation rule must allow. See
 # `.agents/checks/README.md`.
-#
-# Two jobs on two runners, so the agent never shares a machine with a write credential:
-# - agent: runs Claude with only the read-only GITHUB_TOKEN. It may run cargo, so treat everything
-#   it leaves behind as untrusted; it hands over only a patch and its results file.
-# - publish: a fresh checkout and the runner script from it. It applies the patch only for paths
-#   the shard may edit, with git hooks disabled; formats and verifies the edits; decides from live
-#   GitHub state what to publish; and only then mints the App token.
-#
-# The agent job is this file's `job_workflow_ref`, so the `vortex-claude-write` federation rule
-# must allow this file.
 
 on:
   workflow_call:
@@ -69,7 +63,7 @@ jobs:
           ATTEMPT: ${{ github.run_attempt }}
         run: |
           mkdir -p "$(dirname "$RESULTS")"
-          args=(prompt --plan "$RUNNER_TEMP/plan/plan.json" --check "$CHECK" --shard "$SHARD" \
+          args=(prompt --plan "$RUNNER_TEMP/plan/plan.json" --check "$CHECK" --crate "$SHARD" \
             --results "$RESULTS" --out "$RUNNER_TEMP/prompt.md")
           # A re-run of an old run would review stale assignments; refuse it once the plan is old.
           [[ "$ATTEMPT" != "1" ]] && args+=(--rerun)
@@ -167,14 +161,14 @@ jobs:
           mkdir -p "$OUT"
           jq -n --arg check "$CHECK" --arg shard "$SHARD" '{check: $check, shard: $shard}' > "$OUT/meta.json"
           python3 -I scripts/agent_checks.py --root "$GITHUB_WORKSPACE" apply --plan "$PLAN" \
-            --check "$CHECK" --shard "$SHARD" --patch "$AGENT/patch.diff" --notes "$OUT/apply-notes.json"
+            --check "$CHECK" --crate "$SHARD" --patch "$AGENT/patch.diff" --notes "$OUT/apply-notes.json"
 
       - name: Finalize
         id: finalize
         run: |
           python3 -I scripts/agent_checks.py --root "$GITHUB_WORKSPACE" finalize --plan "$PLAN" \
-            --check "$CHECK" --shard "$SHARD" --results "$AGENT/results.json" --out-dir "$OUT" \
-            --run-url "$RUN_URL" --revert-out-of-scope --verify --notes "$OUT/apply-notes.json" \
+            --check "$CHECK" --crate "$SHARD" --results "$AGENT/results.json" --out-dir "$OUT" \
+            --run-url "$RUN_URL" --verify --notes "$OUT/apply-notes.json" \
             --format-cmd "rustup run $NIGHTLY_TOOLCHAIN rustfmt --edition 2024"
           mkdir -p "$OUT/state-update"
           cp "$OUT/state-update.json" "$OUT/state-update/$CHECK--$SHARD.json"
@@ -192,7 +186,7 @@ jobs:
           gh issue list --repo "$GITHUB_REPOSITORY" --label "$PR_LABEL" --state open --limit 1000 \
             --json number,state,body,author,comments > "$OUT/open-issues.json"
           jq -s 'add' "$OUT/open-prs.json" "$OUT/open-issues.json" > "$OUT/live.json"
-          args=(decide --plan "$PLAN" --check "$CHECK" --shard "$SHARD" --out-dir "$OUT" --github "$OUT/live.json")
+          args=(decide --plan "$PLAN" --check "$CHECK" --crate "$SHARD" --out-dir "$OUT" --github "$OUT/live.json")
           [[ -n "$TRUSTED_AUTHOR" ]] && args+=(--trusted-author "$TRUSTED_AUTHOR")
           python3 -I scripts/agent_checks.py "${args[@]}"
 
@@ -245,19 +239,41 @@ jobs:
         run: |
           gh label create "$PR_LABEL" --repo "$GITHUB_REPOSITORY" --color "5319e7" \
             --description "Opened by the scheduled agent checks" 2>/dev/null || true
+          gh label create "agent-checks:rejected" --repo "$GITHUB_REPOSITORY" --color "b60205" \
+            --description "Close an agent PR or issue with this to reject its findings for good" 2>/dev/null || true
           IFS=',' read -ra extra <<< "$LABELS"
           for l in "${extra[@]}"; do
             [[ -n "$l" ]] && gh label create "$l" --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
           done
 
-      - name: Open the shard's draft pull request
+      - name: Report new unfixed findings on the crate's issue
+        id: issue
+        # Before the PR, so the PR can link the issue.
+        if: steps.app-token.outcome == 'success' && steps.decide.outputs.issue != 'none'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE: ${{ steps.decide.outputs.issue }}
+          NUMBER: ${{ steps.decide.outputs.issue_number }}
+          TITLE: ${{ steps.decide.outputs.issue_title }}
+        run: |
+          if [[ "$ISSUE" == "comment" ]]; then
+            gh issue comment "$NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$OUT/issue.md"
+          else
+            url="$(gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --label "$PR_LABEL" \
+              --body-file "$OUT/issue.md")"
+            NUMBER="${url##*/}"
+          fi
+          echo "ref=#$NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Open the crate's draft pull request
         id: pr
         if: steps.app-token.outcome == 'success' && steps.decide.outputs.pr == 'open'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           BASE_BRANCH: ${{ github.event.repository.default_branch || 'develop' }}
           BRANCH: ${{ steps.finalize.outputs.branch }}
-          TITLE: ${{ steps.finalize.outputs.title }}
+          TITLE: ${{ steps.decide.outputs.pr_title }}
+          ISSUE_REF: ${{ steps.issue.outputs.ref || 'the findings issue for this crate' }}
           LABELS: ${{ steps.finalize.outputs.labels }}
         run: |
           # Decide saw no open PR on this branch moments ago. Look once more right before the force
@@ -272,7 +288,7 @@ jobs:
           git config user.name "vortex-claude[bot]"
           git config user.email "274007616+vortex-claude[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          jq -r '.edits[]' "$OUT/summary.json" | xargs -d '\n' git add --
+          jq -r '.edits[]' "$OUT/final.json" | xargs -d '\n' git add --
           git -c core.hooksPath=/dev/null commit -s -m "$TITLE" -m "Automated agent check \`$CHECK\`. $RUN_URL"
           git -c core.hooksPath=/dev/null push --force \
             "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
@@ -280,24 +296,9 @@ jobs:
           label_args=(--label "$PR_LABEL")
           IFS=',' read -ra extra <<< "$LABELS"
           for l in "${extra[@]}"; do [[ -n "$l" ]] && label_args+=(--label "$l"); done
+          sed "s|AGENT_CHECKS_ISSUE_REF|$ISSUE_REF|g" "$OUT/pr.md" > "$OUT/pr-final.md"
           gh pr create --repo "$GITHUB_REPOSITORY" --draft --base "$BASE_BRANCH" --head "$BRANCH" \
-            --title "$TITLE" --body-file "$OUT/pr.md" "${label_args[@]}"
-
-      - name: Report new unfixed findings on the shard's issue
-        id: issue
-        if: steps.app-token.outcome == 'success' && steps.decide.outputs.issue != 'none'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          ISSUE: ${{ steps.decide.outputs.issue }}
-          NUMBER: ${{ steps.decide.outputs.issue_number }}
-          TITLE: ${{ steps.finalize.outputs.title }}
-        run: |
-          if [[ "$ISSUE" == "comment" ]]; then
-            gh issue comment "$NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$OUT/issue.md"
-          else
-            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --label "$PR_LABEL" \
-              --body-file "$OUT/issue.md"
-          fi
+            --title "$TITLE" --body-file "$OUT/pr-final.md" "${label_args[@]}"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         # Hand the review to the record job only once everything decide asked for is published.
@@ -310,7 +311,7 @@ jobs:
               (steps.decide.outputs.pr != 'open' || steps.pr.outcome == 'success') &&
               (steps.decide.outputs.issue == 'none' || steps.issue.outcome == 'success')))
         with:
-          name: agent-checks-state-${{ inputs.check }}-${{ inputs.shard }}
+          name: agent-checks-update-${{ inputs.check }}-${{ inputs.shard }}
           path: ${{ github.workspace }}/target/agent-checks/out/state-update/
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7

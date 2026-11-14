@@ -5,20 +5,8 @@ description = "Benchmarks measure what they claim, without setup, teardown or de
 include = ["**/benches/**/*.rs"]
 # CI cannot build these here: vortex-cuda needs the CUDA toolkit and vortex-duckdb downloads DuckDB.
 exclude = ["vortex-cuda/**", "vortex-duckdb/**"]
-max_files_per_shard = 12
-max_shards_per_run = 8
-cadence_days = 7
-action = "pr"
 labels = ["changelog/chore"]
 max_findings = 15
-max_turns = 120
-allowed_tools = [
-  "Bash(cargo check:*)",
-  "Bash(cargo clippy:*)",
-  "Bash(RUSTC_WRAPPER= cargo check:*)",
-  "Bash(RUSTC_WRAPPER= cargo clippy:*)",
-  "Bash(git status:*)",
-]
 # The runner checks edits with these after the agent finishes. If one fails, every edit is
 # reverted and the findings are reported unfixed.
 verify = ["cargo clippy -p {crate} --benches --all-features -- -D warnings"]
@@ -40,8 +28,7 @@ into a pull request and your report into its description.
   review: do not report formatting, lint-level nits, or `unwrap` use.
 - **Never run benchmarks** (`cargo bench`, `cargo codspeed`) or release builds. Static reading
   plus the checks in "Verifying edits" only.
-- Skip any finding whose fingerprint is in the suppressed list the runner gives you: do not report
-  it and do not fix it. A human already declined it.
+- Skip any finding the runner lists as rejected: do not report it and do not fix it. A human already declined it.
 - Review every assigned file in full, whatever its status. For a changed file, start with the diff
   hint, then read the whole file: a change can break a benchmark far from the edited lines.
 
@@ -202,18 +189,11 @@ The runner appends the results format to this prompt. For this check:
 - `line` is the 1-based line of the offending statement, or of the `#[divan::bench]` attribute for
   benchmark-wide issues. `detail` states the evidence and its effect on the measurement in one to
   three sentences. For a report-only finding, add the fix you would suggest.
-- `fingerprint` is `<category>:<repo-relative path>:<item>`, where `<item>` is the benchmark
-  function name. If the problem lives in a shared helper, use the helper's name; if it applies to
-  the whole file, use `-`. If one item has two findings in the same category, append
-  `:<short-stable-word>`, such as `:output` or `:input`. Never put line numbers, severities, or
-  wording in a fingerprint: it must stay the same when the file shifts.
-- `fixed` is `true` only if the edit is in the working tree and passed "Verifying edits".
-- `summary` is a Markdown section for the PR body, with no top-level heading:
-  - one sentence on what you reviewed;
-  - **Fixed**: one bullet per fix, giving the benchmark path, the change, and the expected CodSpeed
-    effect (for example, "drop moved out of the timed region, so expect a lower number");
-  - **Follow-ups**: one bullet per report-only finding, highest severity first;
-  - **Checks**: each command you ran and its result, and any check you could not run, with the
-    reason.
-
-  Write valid GitHub Markdown and do not mention fingerprints.
+- `item` is the benchmark function's name. Use a shared helper's name if the problem lives there,
+  or `-` if it applies to the whole file. If one benchmark has two findings in the same category,
+  add a short stable word, such as `bench_take:output`.
+- `fixed` is `true` only if the edit is in the working tree and passed "Verifying edits". For each
+  fixed finding, say in `detail` how the CodSpeed number should move (for example, "the drop moves
+  out of the timed region, so expect a lower number").
+- `summary`: what you changed in a sentence or two, and each check you ran with its result,
+  including any you could not run and why.

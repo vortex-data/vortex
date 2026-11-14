@@ -30,23 +30,12 @@ exclude = [
   "wasm-test/**",
   "xtask/**",
 ]
-max_files_per_shard = 12
 max_lines_per_shard = 6000
-max_shards_per_run = 8
-cadence_days = 7
-action = "pr"
 labels = ["changelog/chore"]
 max_findings = 12
-max_turns = 120
 allowed_tools = [
-  "Bash(cargo clippy:*)",
-  "Bash(cargo check:*)",
-  "Bash(cargo nextest run:*)",
   "Bash(cargo test:*)",
-  "Bash(RUSTC_WRAPPER= cargo check:*)",
-  "Bash(RUSTC_WRAPPER= cargo clippy:*)",
   "Bash(RUSTC_WRAPPER= cargo test:*)",
-  "Bash(git status:*)",
   "Bash(git restore:*)",
 ]
 # The runner checks edits with these after the agent finishes. If one fails, every edit is
@@ -69,8 +58,7 @@ start. They take precedence over this file.
   other files: the code under test, shared fixtures, guard messages, and conformance suites. Do not
   edit them, and do not report findings in them.
 - **Precision over recall.** Report only problems you have confirmed by reading the code. Zero
-  findings is a normal, good result. Do not pad the report. Report at most 12 findings, the most
-  severe first.
+  findings is a normal, good result. Do not pad the report.
 - **Tests only.** Do not change non-test code. If a test exposes a real bug in the code under test,
   report it. Do not fix it.
 - **Never weaken coverage.** Do not delete a test, case, or assertion. Do not loosen an assertion
@@ -133,23 +121,16 @@ style.
 - If you cannot run the checks (a missing toolchain, a timeout), revert your edits in that crate,
   report the findings unfixed, and say so in the summary.
 
-## Fingerprints
+## Naming findings
 
-`test-focus:<category>:<file>:<test path>`. The test path is the module path inside the file plus
-the function name, such as `tests::roaring_tests::test_roaring_include_basic`. For a
-`copy-paste-cases` group, use the alphabetically first function name. For a conformance helper, use
-the helper's name. Never put line numbers in it. A test that you rename keeps the fingerprint of its
-old name. Report `line` as the line of the test's `fn` after your edits.
+`item` is the test's path inside the file: the module path plus the function name, such as
+`tests::roaring_tests::test_roaring_include_basic`. For a `copy-paste-cases` group, use the
+alphabetically first function name; for a conformance helper, the helper's name. A test that you
+rename keeps the `item` of its old name. Report `line` as the line of the test's `fn` after your
+edits.
 
-## Summary (PR body section)
+## Summary
 
-Write `summary` as GitHub Markdown for reviewers who have not seen this prompt:
-
-- One sentence on scope: the crate or crates, and the number of files reviewed.
-- **Fixed**: one bullet per fixed finding: `` `file` `test` `` (category): what changed and why the
-  meaning is preserved.
-- **Reported, not fixed**: one bullet per remaining finding, most severe first, with the reason it
-  was not fixed.
-- **Checks**: the exact commands you ran and their results, and any checks you could not run.
-- No preamble and no restating of this rubric. If there are no findings, write one line saying the
-  assigned tests were reviewed and none needed changes.
+`summary` is for reviewers who have not seen this prompt: in a sentence or two, what you changed
+and why each change keeps the test's meaning, then the exact commands you ran with their results,
+including any you could not run and why. No preamble, and no restating of this rubric.

@@ -2,38 +2,33 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-"""Runner for periodic, agent-driven code checks.
+"""Runner for periodic, agent-driven code checks. `.agents/checks/README.md` is the manual.
 
-A check is a directory `.agents/checks/<id>/` holding a `CHECK.md`: TOML frontmatter between `+++`
-lines declares what the check covers and how it is sharded, and the Markdown body is the rubric
-the agent follows. See `.agents/checks/README.md` for the format.
+A check is `.agents/checks/<id>/CHECK.md`: TOML frontmatter between `+++` lines declares what it
+covers, and the Markdown body is the rubric the agent follows. The runner plans the work, renders
+the prompt, and turns what the agent hands back into PRs, issues and state; the agent itself is
+launched by CI (`.github/workflows/agent-checks-shard.yml`) or by `run` for local use.
 
-The runner is deliberately agent-agnostic. It plans work, renders a prompt, and validates what the
-agent wrote back; the agent itself is launched by CI (`.github/workflows/agent-checks-shard.yml`,
-called from `agent-checks.yml`) or by `run` for local use.
+Subcommands, in the order a run uses them:
 
-Subcommands:
+    plan                       Pick the crates that need review, and say why the others wait.
+    prompt                     Render the agent prompt for one crate.
+    apply                      Apply the agent's patch on a fresh checkout, only for the crate's files.
+    finalize                   Validate the results; revert, format and verify the edits.
+    decide                     From live GitHub state, decide what to publish, without repeats.
+    record                     Merge reviews and rejected findings into each check's state, with CAS.
+    archive                    Keep a write-once record of the run under each check's `runs/`.
 
-    list                       List checks and their configuration.
-    plan                       Pick shards that need review and write a plan JSON.
-    prompt                     Render the agent prompt for one shard of a plan.
-    apply                      Apply the agent's patch on a fresh checkout, limited to the shard's scope.
-    finalize                   Validate the results, revert out-of-scope edits, format, verify.
-    decide                     From live GitHub state, decide what a shard publishes and dedup findings.
-    record                     Merge state updates and suppressions into the state store, with CAS.
-    archive                    Keep a write-once record of a run under each check's `runs/` prefix.
-    run                        Local convenience: plan, prompt, invoke `claude -p`, finalize, record.
+    list                       List the checks.
+    run                        Review crates locally with the `claude` CLI.
+    unsuppress                 Forget rejected findings, so agents may report them again.
 
-Each check owns a storage prefix, `<store>/<check>/`: the mutable `state.json`, and write-once run
-records under `runs/<run>/`. CI keeps it in S3 (`--state s3://bucket/prefix`); locally it defaults
-to the directory `target/agent-checks-state`.
-Writes are compare-and-swap (S3 conditional writes on the ETag), so concurrent writers never lose
-each other's updates. CI records every published shard once, at the end of the run. For every
-reviewed file the state keeps the git blob hashes that were reviewed (before and after the agent's
-own fix), so unchanged files are skipped and a merged fix does not trigger its own re-review.
+Each check owns a storage prefix, `<store>/<check>/`: the mutable `state.json`, written with
+compare-and-swap, and write-once run records under `runs/`. CI keeps it in S3
+(`--store s3://bucket/prefix`); locally it defaults to the directory `target/agent-checks-state`.
 
-PR and issue bodies carry a hidden marker. Only markers by a trusted author (`--trusted-author`,
-the App's login in CI) on same-repository items count; see `GitHubView`.
+PR and issue bodies end with a hidden marker. Only markers by a trusted author
+(`--trusted-author`, the App's login in CI) on same-repository items count; see `GitHubView`.
 
 Run the tests with:
 
@@ -75,7 +70,7 @@ SEVERITIES = ("high", "medium", "low")
 MAX_PLAN_AGE = dt.timedelta(hours=20)
 CHECK_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 FINGERPRINT_RE = re.compile(r"[\w./:#@+=,-]{1,200}")
-STATUS_RANK = {"changed": 0, "new": 1, "rubric": 2, "stale": 3, "full": 4}
+STATUS_RANK = {"changed": 0, "new": 1, "rubric": 2, "stale": 3}
 # Tools every check gets. Checks add more with `allowed_tools`.
 BASE_TOOLS = (
     "Read",
@@ -87,9 +82,13 @@ BASE_TOOLS = (
     "Bash(git log:*)",
     "Bash(git show:*)",
     "Bash(git blame:*)",
+    "Bash(git status:*)",
     # Lets the agent undo its own edits; finalize reverts anything outside the shard regardless.
     "Bash(git checkout -- :*)",
-    "Skill",
+    "Bash(cargo check:*)",
+    "Bash(cargo clippy:*)",
+    "Bash(RUSTC_WRAPPER= cargo check:*)",
+    "Bash(RUSTC_WRAPPER= cargo clippy:*)",
 )
 
 
@@ -111,27 +110,29 @@ class Check:
     include: tuple[str, ...]
     exclude: tuple[str, ...] = ()
     content_match: str | None = None
-    edit_scope: str = "files"
-    max_files_per_shard: int = 10
+    max_files_per_shard: int = 12
     max_lines_per_shard: int | None = None
-    max_shards_per_run: int = 4
-    mode: str = "incremental"
+    max_shards_per_run: int = 8
+    max_open_prs: int = 10
     revisit_after_days: int | None = None
-    cadence_days: int = 7
     version: int = 1
-    action: str = "pr"
+    fixes: bool = True
     labels: tuple[str, ...] = ()
-    skills: tuple[str, ...] = ()
     allowed_tools: tuple[str, ...] = ()
     verify: tuple[str, ...] = ()
     max_findings: int = 20
     model: str | None = None
-    max_turns: int = 80
+    max_turns: int = 120
     enabled: bool = True
 
-    @property
-    def tools(self) -> list[str]:
-        return list(dict.fromkeys([*BASE_TOOLS, *self.allowed_tools]))
+    def tools(self, crate: str) -> list[str]:
+        """The agent's tools: the base set, the check's extras, and exactly its verify commands."""
+        verify = [f"Bash({c})" for c in self.verify_commands(crate)]
+        return list(dict.fromkeys([*BASE_TOOLS, *self.allowed_tools, *verify]))
+
+    def verify_commands(self, crate: str) -> list[str]:
+        # Plain substitution, not str.format, so commands may contain other braces.
+        return [template.replace("{crate}", crate) for template in self.verify]
 
 
 _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
@@ -141,17 +142,14 @@ _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "include": list,
     "exclude": list,
     "content_match": str,
-    "edit_scope": str,
     "max_files_per_shard": int,
     "max_lines_per_shard": int,
     "max_shards_per_run": int,
-    "mode": str,
+    "max_open_prs": int,
     "revisit_after_days": int,
-    "cadence_days": int,
     "version": int,
-    "action": str,
+    "fixes": bool,
     "labels": list,
-    "skills": list,
     "allowed_tools": list,
     "verify": list,
     "max_findings": int,
@@ -159,11 +157,7 @@ _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "max_turns": int,
     "enabled": bool,
 }
-_CHOICES = {
-    "edit_scope": ("files", "crate"),
-    "mode": ("incremental", "full"),
-    "action": ("pr", "report"),
-}
+_CHOICES: dict[str, tuple[str, ...]] = {}
 _REQUIRED = ("id", "title", "description", "include")
 
 
@@ -207,7 +201,7 @@ def parse_check(text: str, source: str = "<check>") -> Check:
         except re.error as e:
             raise CheckError(f"{source}: invalid `content_match`: {e}") from None
 
-    for key in ("include", "exclude", "labels", "skills", "allowed_tools", "verify"):
+    for key in ("include", "exclude", "labels", "allowed_tools", "verify"):
         if key in meta:
             meta[key] = tuple(meta[key])
     return Check(body="".join(lines[end + 1 :]).strip() + "\n", **meta)
@@ -333,7 +327,7 @@ def line_count(root: Path, path: str) -> int:
 
 
 def empty_state(check_id: str) -> dict[str, Any]:
-    return {"schema": STATE_SCHEMA, "check": check_id, "last_run": None, "files": {}, "suppressed": {}}
+    return {"schema": STATE_SCHEMA, "check": check_id, "files": {}, "suppressed": {}}
 
 
 def _parse_state(raw: bytes | None, check_id: str, where: str) -> dict[str, Any]:
@@ -544,7 +538,7 @@ def valid_marker(data: object) -> bool:
         return False
     if not CHECK_ID_RE.fullmatch(data["check"]) or not isinstance(data.get("shard", ""), str):
         return False
-    for key in ("files", "claims"):
+    for key in ("claims",):
         if not isinstance(data.get(key, []), list) or not all(isinstance(p, str) for p in data.get(key, [])):
             return False
     fps = data.get("fingerprints", {})
@@ -630,19 +624,19 @@ class GitHubView:
         return out
 
     def rejections(self) -> dict[str, dict[int, dict[str, str]]]:
-        """Per check, the agent PRs closed unmerged and issues closed as not planned.
+        """Per check, the findings that maintainers explicitly rejected.
 
-        Maps check id -> item number -> {fingerprint: file}. Closing either rejects every finding
-        listed in it, comments included.
+        Maps check id -> item number -> {fingerprint: file}. A finding is rejected by closing its
+        issue as "not planned", or by closing its PR or issue with the `agent-checks:rejected`
+        label. Closing an unlabelled PR rejects nothing: PRs get closed for many reasons.
         """
         out: dict[str, dict[int, dict[str, str]]] = {}
         for item in self.items:
-            if str(item.get("state", "")).upper() not in ("CLOSED", "MERGED"):
+            if str(item.get("state", "")).upper() != "CLOSED" or item.get("mergedAt"):
                 continue
-            if is_pr(item):
-                if item.get("mergedAt") or str(item.get("state")).upper() == "MERGED":
-                    continue
-            elif str(item.get("stateReason") or "").upper() != "NOT_PLANNED":
+            labels = {str(label.get("name", "")) for label in item.get("labels") or [] if isinstance(label, dict)}
+            not_planned = not is_pr(item) and str(item.get("stateReason") or "").upper() == "NOT_PLANNED"
+            if REJECTED_LABEL not in labels and not not_planned:
                 continue
             for marker in self.markers(item):
                 fps = out.setdefault(marker["check"], {}).setdefault(int(item.get("number") or 0), {})
@@ -685,8 +679,6 @@ def branch_name(check_id: str, shard_id: str) -> str:
 
 def file_status(check: Check, record: dict[str, Any] | None, blob: str, now: dt.datetime) -> str | None:
     """Why `blob` needs review, or None if it is up to date."""
-    if check.mode == "full":
-        return "full"
     if record is None:
         return "new"
     if blob not in record.get("blobs", []):
@@ -724,18 +716,6 @@ def _file_priority(f: dict[str, Any]) -> tuple[int, str, str]:
     return STATUS_RANK[str(f["status"])], str(f["last_reviewed"] or ""), str(f["path"])
 
 
-# Scheduled runs start at slightly different times each day; without slack a check whose last run
-# started a few minutes late would wait an extra day.
-CADENCE_SLACK = dt.timedelta(hours=12)
-
-
-def is_due(check: Check, state: dict[str, Any], now: dt.datetime) -> bool:
-    last_run = state.get("last_run")
-    if not last_run:
-        return True
-    return now - dt.datetime.fromisoformat(last_run) >= dt.timedelta(days=check.cadence_days) - CADENCE_SLACK
-
-
 def plan_check(
     check: Check,
     root: Path,
@@ -746,8 +726,10 @@ def plan_check(
     claimed: set[str] | None = None,
     only_shards: Collection[str] | None = None,
     max_shards: int | None = None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     """Return the shards of `check` to review this run, highest priority first.
+
+    Returns the selected shards and, for every crate with pending files that was not selected, why.
 
     A shard is one Cargo package and is never split: at most one agent works on a crate per check
     at a time, on a stable branch `agent-checks/<check>/<crate>`. When a crate has more pending
@@ -811,7 +793,7 @@ def plan_check(
                 "crate": group["crate"],
                 "branch": branch_name(check.id, sid),
                 "crate_dir": crate_dir,
-                "edit_scope": [crate_dir] if check.edit_scope == "crate" else [f["path"] for f in files],
+                "edit_scope": [f["path"] for f in files],
                 "files": files,
                 "deferred": len(pending) - len(files),
                 "changed": any(f["status"] == "changed" for f in files),
@@ -826,15 +808,26 @@ def plan_check(
     shards = [sh for pair in itertools.zip_longest(changed, others) for sh in pair if sh is not None]
     if only_shards:
         shards = [sh for sh in shards if sh["id"] in only_shards or sh["crate"] in only_shards]
+    open_prs = sum(1 for b in busy if b.startswith(f"{BRANCH_PREFIX}/{check.id}/"))
     selected: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
     for shard in shards:
-        if len(selected) >= (max_shards or check.max_shards_per_run):
-            break
-        if shard["branch"] in busy or overlaps(shard["edit_scope"], claimed):
+        if shard["branch"] in busy:
+            reason = "its agent PR is still open"
+        elif overlaps(shard["edit_scope"], claimed):
+            reason = "another shard or open PR may edit the same files"
+        elif open_prs + len(selected) >= check.max_open_prs:
+            reason = f"{check.max_open_prs} agent PRs of this check are open (max_open_prs)"
+        elif len(selected) >= (max_shards or check.max_shards_per_run):
+            reason = "this run's crate budget is used up (max_shards_per_run)"
+        else:
+            selected.append(shard)
+            claimed.update(shard["edit_scope"])
             continue
-        selected.append(shard)
-        claimed.update(shard["edit_scope"])
-    return selected
+        skipped.append(
+            {"crate": shard["id"], "pending": str(len(shard["files"]) + shard["deferred"]), "reason": reason}
+        )
+    return selected, skipped
 
 
 def build_plan(
@@ -846,17 +839,12 @@ def build_plan(
     github: GitHubView | None = None,
     only_shards: Collection[str] | None = None,
     max_shards: int | None = None,
-    force: bool = False,
-    scheduled: bool = False,
 ) -> dict[str, Any]:
-    """Plan a run.
+    """Plan a run: for each check, the crates to review now and why the others wait.
 
-    A check is planned when its cadence has passed, or with `force`. Its `stamp` flag, which tells
-    `record` to set `last_run`, is set only for a due check on a `scheduled` run that covers all
-    crates. Manual runs never move the weekly clock, so the schedule stays on its weekday.
-
-    A check whose state cannot be read is left out with an `error`, and the other checks are
-    planned as usual.
+    There is no cadence of its own: the workflow's weekly schedule is the cadence, and any run
+    reviews only what changed since the last review. A check whose state cannot be read is left
+    out with an `error`, and the other checks are planned as usual.
     """
     github = github or GitHubView([])
     busy = github.busy_branches()
@@ -869,40 +857,49 @@ def build_plan(
         "checks": {},
     }
     for check in checks:
+        entry: dict[str, Any] = {
+            # Later jobs read the check from here, never from the working tree that the agent can
+            # edit, and every job of the run sees the same definition.
+            "definition": dataclasses.asdict(check),
+            "shards": [],
+            "skipped": [],
+            "suppressed": {},
+        }
+        plan["checks"][check.id] = entry
         try:
             state = load_state(store, check.id)
         except CheckError as e:
-            plan["checks"][check.id] = {
-                "definition": dataclasses.asdict(check),
-                "stamp": False,
-                "shards": [],
-                "suppressed": {},
-                "error": str(e),
-            }
+            entry["error"] = str(e)
             continue
-        due = is_due(check, state, now)
-        suppressed = {**state.get("suppressed", {}), **new_suppressions(state, rejections.get(check.id, {}))}
-        shards = []
-        if due or force:
-            shards = plan_check(
-                check,
-                root,
-                state,
-                now=now,
-                busy=busy,
-                claimed=claimed,
-                only_shards=only_shards,
-                max_shards=max_shards,
-            )
-        plan["checks"][check.id] = {
-            # The review jobs read the check from here, never from the working tree that the agent
-            # can edit, and every job of the run sees the same definition.
-            "definition": dataclasses.asdict(check),
-            "stamp": due and scheduled and not only_shards,
-            "shards": shards,
-            "suppressed": suppressed,
-        }
+        entry["suppressed"] = {**state.get("suppressed", {}), **new_suppressions(state, rejections.get(check.id, {}))}
+        entry["shards"], entry["skipped"] = plan_check(
+            check,
+            root,
+            state,
+            now=now,
+            busy=busy,
+            claimed=claimed,
+            only_shards=only_shards,
+            max_shards=max_shards,
+        )
     return plan
+
+
+def plan_summary(plan: dict[str, Any]) -> str:
+    """A Markdown table of what the plan reviews and what waits, for the job summary and `plan`."""
+    rows = ["| Check | Crate | Files | Status |", "| --- | --- | --- | --- |"]
+    for cid, c in plan["checks"].items():
+        if "error" in c:
+            rows.append(f"| `{cid}` | | | not planned: {c['error']} |")
+        for sh in c["shards"]:
+            reasons = sorted({f["status"] for f in sh["files"]})
+            more = f", {sh['deferred']} deferred" if sh["deferred"] else ""
+            rows.append(f"| `{cid}` | `{sh['id']}` | {len(sh['files'])}{more} | review ({', '.join(reasons)}) |")
+        for sk in c["skipped"]:
+            rows.append(f"| `{cid}` | `{sk['crate']}` | {sk['pending']} | waits: {sk['reason']} |")
+        if not c["shards"] and not c["skipped"] and "error" not in c:
+            rows.append(f"| `{cid}` | | | up to date |")
+    return "\n".join(rows) + "\n"
 
 
 def check_from_plan(plan: dict[str, Any], check_id: str, *, rerun_at: dt.datetime | None = None) -> Check:
@@ -921,10 +918,6 @@ def check_from_plan(plan: dict[str, Any], check_id: str, *, rerun_at: dt.datetim
         if isinstance(value, list):
             fields[key] = tuple(value)
     return Check(**fields)
-
-
-def matrix(plan: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
-    return {"include": [{"check": cid, "shard": s["id"]} for cid, c in plan["checks"].items() for s in c["shards"]]}
 
 
 def check_matrix(plan: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
@@ -963,80 +956,70 @@ file is missing or malformed, the runner records nothing as reviewed.
     {{
       "file": "<assigned repo-relative path>",
       "line": 123,
+      "item": "<the function, test or benchmark the finding is about, as the rubric names it>",
       "severity": "high | medium | low",
       "category": "<kebab-case category from the rubric>",
       "title": "<one line>",
       "detail": "<what is wrong, why it matters, and the fix you made or suggest>",
-      "fingerprint": "<stable id, built as the rubric says; letters, digits and ./:#@+=,_- only>",
       "fixed": true
     }}
   ],
-  "summary": "<Markdown for the pull request body: what you changed and why, in a few lines>"
+  "summary": "<a few Markdown lines for the PR: what you changed, and the checks you ran with results>"
 }}
 ```
 
 Rules the runner enforces:
 
 - Only files assigned below may be reviewed or reported on. Findings about other files are dropped.
-- {edit_rule} Edits elsewhere are reverted. Never edit `Cargo.lock`.
+- Edits may touch only your assigned files; edits elsewhere are reverted. Other agents are editing
+  other files at the same time, so report problems that need changes elsewhere instead. Never edit
+  `Cargo.lock`.
 - Do not run `git commit`, `git push`, or open pull requests or issues: the runner does that.
 - List a file in `reviewed` only if you reviewed all of it, and finished and checked any edits to
   it. Edits to files missing from `reviewed` are reverted. Files you skip are offered again later.
 - `fixed: true` only for findings your working-tree edits resolve. Leave the rest `false`.
+- The runner identifies a finding by `<category>:<file>:<item>`, to avoid reporting it twice and to
+  honor maintainers' rejections. Keep `item` stable: a name, never a line number. Use the
+  enclosing function or helper's name, or `-` for the whole file. Letters, digits and `._:-` only.
+- Do not list the findings in `summary`: the runner lists them in the PR and the issue.
 {verify_rule}
 - Precision over recall. Zero findings is a good result when the code is fine.
 - At most {max_findings} findings are kept, most severe first.
 """
 
+STATUS_NOTES = {
+    "new": "never reviewed",
+    "changed": "changed since the last review",
+    "rubric": "unchanged, but the rubric changed since the last review",
+    "stale": "unchanged; due for a periodic re-review",
+}
+
 
 def render_prompt(check: Check, plan: dict[str, Any], shard: dict[str, Any], results: str) -> str:
     base = plan["base_commit"]
     out = [f"Agent check `{check.id}`, rubric version {check.version}.\n\n", check.body]
-    if check.skills:
-        names = ", ".join(f"`{s}`" for s in check.skills)
-        out.append(f"\nLoad these skills before you start: {names}.\n")
-    if check.edit_scope == "crate":
-        dirs = ", ".join(f"`{d or '.'}/`" for d in shard["edit_scope"])
-        edit_rule = f"Edits may touch only files inside {dirs}."
-    else:
-        edit_rule = (
-            "Edits may touch only your assigned files. Other agents are editing other files at the same "
-            "time, so report problems that need changes elsewhere instead of making them."
-        )
-    if check.verify:
-        commands = "\n".join(f"  `{c.format(crate=shard['crate'])}`" for c in check.verify)
+    verify_rule = ""
+    if commands := check.verify_commands(shard["crate"]):
         verify_rule = (
             "- After you finish, the runner runs these commands. If any fails, for any reason, every edit in this\n"
-            "  shard is discarded and its findings are reported unfixed, so run them yourself before you finish\n"
-            "  and undo edits that make them fail:\n" + commands
+            "  crate is discarded and its findings are reported unfixed, so run them yourself before you finish\n"
+            "  and undo edits that make them fail:\n" + "\n".join(f"  `{c}`" for c in commands)
         )
-    else:
-        verify_rule = ""
     out.append(
-        "\n"
-        + RESULTS_CONTRACT.format(
-            results=results, edit_rule=edit_rule, verify_rule=verify_rule, max_findings=check.max_findings
-        )
+        "\n" + RESULTS_CONTRACT.format(results=results, verify_rule=verify_rule, max_findings=check.max_findings)
     )
-    out.append(f"\n## Assignment\n\nShard `{shard['id']}`, base commit `{base}`. Files:\n")
+    out.append(f"\n## Assignment\n\nCrate `{shard['id']}`, base commit `{base}`. Files:\n")
     for f in shard["files"]:
+        note = STATUS_NOTES[f["status"]]
         if f["status"] == "changed" and f["last_commit"]:
-            note = f"changed since the last review; `git diff {f['last_commit'][:12]} -- {f['path']}` shows how"
-        else:
-            note = {
-                "new": "never reviewed",
-                "changed": "changed since the last review",
-                "rubric": "unchanged, but the rubric changed since the last review",
-                "stale": "unchanged; due for a periodic re-review",
-                "full": "full review",
-            }[f["status"]]
+            note += f"; `git diff {f['last_commit'][:12]} -- {f['path']}` shows how"
         out.append(f"- `{f['path']}` ({f['lines']} lines): {note}\n")
     paths = {f["path"] for f in shard["files"]}
     suppressed = {
         fp: info for fp, info in plan["checks"][check.id].get("suppressed", {}).items() if info.get("file") in paths
     }
     if suppressed:
-        out.append("\nMaintainers rejected these findings before. Do not report them again:\n\n")
+        out.append("\nMaintainers rejected these findings (`<category>:<file>:<item>`). Do not report them again:\n\n")
         out.extend(f"- `{fp}`\n" for fp in sorted(suppressed))
     return "".join(out)
 
@@ -1065,20 +1048,38 @@ def validate_results(data: object) -> dict[str, Any]:
             invalid.append(f"dropped malformed finding {i}: {problem}")
         else:
             valid.append(f)
-    clipped = [{**f, "title": _clip(f["title"], MAX_TITLE), "detail": _clip(f["detail"], MAX_DETAIL)} for f in valid]
+    clipped = [
+        {
+            **f,
+            "title": _clip(f["title"], MAX_TITLE),
+            "detail": _clip(f["detail"], MAX_DETAIL),
+            "fingerprint": fingerprint(f),
+        }
+        for f in valid
+    ]
     return {**data, "findings": clipped, "invalid": invalid, "summary": _clip(data.get("summary", ""), MAX_SUMMARY)}
+
+
+ITEM_RE = re.compile(r"[\w.:-]{1,120}")
+
+
+def fingerprint(f: dict[str, Any]) -> str:
+    """How the runner identifies a finding across runs: `<category>:<file>:<item>`."""
+    return f"{f['category']}:{f['file']}:{f['item']}"
 
 
 def finding_problem(f: object) -> str | None:
     if not isinstance(f, dict):
         return "not an object"
-    for key in ("file", "severity", "category", "title", "detail", "fingerprint"):
+    for key in ("file", "item", "severity", "category", "title", "detail"):
         if not (isinstance(f.get(key), str) and f[key]):
             return f"needs string `{key}`"
     if f["severity"] not in SEVERITIES:
         return f"unknown severity {f['severity']!r}"
-    if not FINGERPRINT_RE.fullmatch(f["fingerprint"]):
-        return f"fingerprint {f['fingerprint'][:80]!r} has characters outside {FINGERPRINT_RE.pattern}"
+    if not ITEM_RE.fullmatch(f["item"]) or not ITEM_RE.fullmatch(f["category"]):
+        return f"`item` and `category` may use only letters, digits and `._:-`: {f['category']!r}, {f['item'][:80]!r}"
+    if not FINGERPRINT_RE.fullmatch(fingerprint(f)):
+        return f"`file` {f['file'][:80]!r} cannot be part of a fingerprint"
     if not isinstance(f.get("line", 0), int) or isinstance(f.get("line", 0), bool):
         return "`line` must be an integer"
     if not isinstance(f.get("fixed", False), bool):
@@ -1127,13 +1128,12 @@ def finalize(
     *,
     now: dt.datetime,
     run_url: str | None = None,
-    revert_out_of_scope: bool = False,
     run_verify: bool = False,
     format_cmd: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Turn an agent's results into the shard's outcome: findings, kept edits, and a state update.
 
-    Edits are kept only inside the shard's scope and only for files the agent finished. Then they
+    Edits are kept only for assigned files that the agent finished. Then they
     are formatted with `format_cmd` and checked with the check's `verify` commands; if either
     fails, every edit is reverted and the findings are reported unfixed.
     """
@@ -1159,22 +1159,15 @@ def finalize(
         findings = findings[: check.max_findings]
 
     # Only files the agent finished may change: an edit to an assigned file it did not list as
-    # reviewed may be half done, for example when the run hit its time or turn limit. With crate
-    # scope, other files in the crate may change too. A `report` check never commits edits.
-    unfinished = set(assigned) - set(reviewed)
-    if check.action == "report":
-        scope: list[str] = []
-    elif check.edit_scope == "files":
-        scope = reviewed
-    else:
-        scope = shard["edit_scope"]
+    # reviewed may be half done, for example when the run hit its time or turn limit. A check
+    # with `fixes = false` never keeps edits.
+    scope = reviewed if check.fixes else []
     changed = working_tree_changes(root)
-    allowed = [p for p in changed if _within(p, scope) and p not in unfinished and not p.endswith("Cargo.lock")]
+    allowed = [p for p in changed if p in scope and not p.endswith("Cargo.lock")]
     rejected = [p for p in changed if p not in allowed]
     if rejected:
-        notes.append(f"edits outside the scope {'reverted' if revert_out_of_scope else 'excluded'}: {rejected}")
-        if revert_out_of_scope:
-            revert(root, rejected)
+        notes.append(f"reverted edits outside the reviewed files: {rejected}")
+        revert(root, rejected)
     edits = allowed
 
     if edits and format_cmd:
@@ -1205,12 +1198,13 @@ def finalize(
             "findings": sorted(f["fingerprint"] for f in findings if f["file"] == path),
         }
 
-    title = f"{check.title}: {shard['id']}"
+    title = f"{check.title} fixes in {shard['id']}"
     return {
         "check": check.id,
         "shard": shard["id"],
         "branch": shard["branch"],
         "title": title,
+        "issue_title": f"{check.title} findings in {shard['id']}",
         "labels": list(check.labels),
         "edits": edits,
         "findings": findings,
@@ -1228,7 +1222,12 @@ def finalize(
 
 
 def decide(
-    check: Check, plan: dict[str, Any], shard: dict[str, Any], final: dict[str, Any], github: GitHubView
+    check: Check,
+    plan: dict[str, Any],
+    shard: dict[str, Any],
+    final: dict[str, Any],
+    github: GitHubView,
+    repo: str | None = None,
 ) -> dict[str, Any]:
     """Decide what one shard publishes, from live GitHub state fetched just before publishing.
 
@@ -1278,15 +1277,19 @@ def decide(
         "issue": issue,
         "issue_number": shard_issue,
         "findings": fixed + unfixed,
-        "pr_body": render_body(check, plan, shard, summary, fixed, edits, notes, run_url, "pr", unfixed=len(unfixed)),
-        "issue_body": render_body(check, plan, shard, summary, unfixed, [], notes, run_url, "issue"),
+        "pr_title": final["title"],
+        "issue_title": final["issue_title"],
+        "pr_body": render_body(
+            check, plan, shard, summary, fixed, edits, notes, run_url, "pr", unfixed=len(unfixed), repo=repo
+        ),
+        "issue_body": render_body(check, plan, shard, summary, unfixed, [], notes, run_url, "issue", repo=repo),
     }
 
 
-def apply_patch(root: Path, patch: Path, check: Check, shard: dict[str, Any]) -> tuple[list[str], list[str]]:
+def apply_patch(root: Path, patch: Path, shard: dict[str, Any]) -> tuple[list[str], list[str]]:
     """Apply the agent's patch to a fresh checkout, but only for paths the shard may edit.
 
-    The patch comes from the agent's job, so it is untrusted: anything outside the shard's scope,
+    The patch comes from the agent's job, so it is untrusted: anything but the crate's assigned files,
     `Cargo.lock`, `.git` paths, symlinks and submodules are left out. Git hooks are disabled for the
     apply. Returns (applied, rejected) paths.
     """
@@ -1313,7 +1316,7 @@ def apply_patch(root: Path, patch: Path, check: Check, shard: dict[str, Any]) ->
             paths.append(parts[-1])
             i += 1
     special = {line.split()[-1] for line in summary.splitlines() if " 120000 " in line or " 160000 " in line}
-    scope = [str(shard["crate_dir"])] if check.edit_scope == "crate" else [str(f["path"]) for f in shard["files"]]
+    scope = [str(f["path"]) for f in shard["files"]]
     allowed: list[str] = []
     rejected: list[str] = []
     for path in dict.fromkeys(paths):
@@ -1357,14 +1360,9 @@ def format_edits(format_cmd: Sequence[str], edits: list[str], root: Path) -> str
     return None
 
 
-def verify_commands(check: Check, shard: dict[str, Any]) -> list[str]:
-    # Plain substitution, not str.format, so commands may contain other braces.
-    return [template.replace("{crate}", shard["crate"]) for template in check.verify]
-
-
 def verify_edits(check: Check, shard: dict[str, Any], root: Path) -> str | None:
     """Run the check's `verify` commands; return a description of the first failure, if any."""
-    for command in verify_commands(check, shard):
+    for command in check.verify_commands(shard["crate"]):
         print(f"verify: {command}", file=sys.stderr, flush=True)
         try:
             result = subprocess.run(shlex.split(command), cwd=root, check=False)
@@ -1373,6 +1371,15 @@ def verify_edits(check: Check, shard: dict[str, Any], root: Path) -> str | None:
         if result.returncode != 0:
             return f"verification `{command}` failed with exit code {result.returncode}"
     return None
+
+
+# The publish job replaces this with `#<issue number>` once the shard's issue exists.
+ISSUE_REF = "AGENT_CHECKS_ISSUE_REF"
+REJECTED_LABEL = "agent-checks:rejected"
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
 def render_body(
@@ -1387,20 +1394,26 @@ def render_body(
     kind: str,
     *,
     unfixed: int = 0,
+    repo: str | None = None,
 ) -> str:
     """The body of the shard's PR (`kind="pr"`), issue post (`"issue"`), or job summary (`"summary"`).
 
-    Everything agent-written is neutralized and clipped, and the runner's marker comes last.
+    With `repo`, file locations link to the reviewed commit. Everything agent-written is
+    neutralized and clipped, and the runner's marker comes last.
     """
-    out = [
-        f"Automated `{check.id}` review of `{shard['id']}` at {plan['base_commit'][:12]}.\n\n",
-        _safe(summary.strip()) + "\n\n" if kind != "issue" and summary.strip() else "",
-    ]
+    base = plan["base_commit"]
+    out = [f"Automated `{check.id}` review of `{shard['id']}` at {base[:12]}.\n\n"]
+    if kind != "issue" and summary.strip():
+        out.append(_safe(summary.strip()) + "\n\n")
 
     def bullet(f: dict[str, Any]) -> str:
         loc = f"{f['file']}:{f['line']}" if f.get("line") else f["file"]
+        where = f"`{_safe(loc)}`"
+        if repo:
+            anchor = f"#L{f['line']}" if f.get("line") else ""
+            where = f"[{where}](https://github.com/{repo}/blob/{base}/{f['file']}{anchor})"
         detail = _safe(f["detail"].strip())
-        return f"- **{f['severity']}** `{_safe(loc)}` ({_safe(f['category'])}): {_safe(f['title'])}\n  {detail}\n"
+        return f"- **{f['severity']}** {where} ({_safe(f['category'])}): {_safe(f['title'])}\n  {detail}\n"
 
     fixed = [f for f in findings if f["fixed"]]
     open_ = [f for f in findings if not f["fixed"]]
@@ -1413,7 +1426,7 @@ def render_body(
         out.extend(bullet(f) for f in open_)
         out.append("\n")
     if unfixed:
-        out.append(f"{unfixed} findings that this PR does not fix are on the `{shard['id']}` issue.\n\n")
+        out.append(f"{_plural(unfixed, 'finding')} that this PR does not fix: see {ISSUE_REF}.\n\n")
     if not findings and not unfixed:
         out.append("No findings.\n\n")
     if notes:
@@ -1421,9 +1434,15 @@ def render_body(
         out.extend(f"- {_safe(_clip(n, 1_000))}\n" for n in notes)
         out.append("\n</details>\n\n")
     if kind == "pr":
-        out.append("Closing this PR without merging suppresses the findings it lists in future runs. ")
+        out.append(
+            "Review and merge, or close. To reject these fixes for good, add the "
+            f"`{REJECTED_LABEL}` label before closing; closing without it rejects nothing. "
+        )
     elif kind == "issue":
-        out.append("Closing this issue as not planned suppresses the findings it lists in future runs. ")
+        out.append(
+            "Fix what you agree with and close this issue as completed. To reject the findings for good, "
+            "close it as not planned. "
+        )
     out.append(f"The rubric is `.agents/checks/{check.id}/CHECK.md`.\n")
     if run_url:
         out.append(f"\n[Agent run]({run_url})\n")
@@ -1431,8 +1450,8 @@ def render_body(
     marker = {
         "check": check.id,
         "shard": shard["id"],
-        "files": sorted(f["path"] for f in shard["files"]),
-        "claims": sorted({*shard["edit_scope"], *edits}) if kind != "issue" else [],
+        # The files this PR may still change, so no other shard edits them meanwhile.
+        "claims": sorted(edits) if kind == "pr" else [],
         "fingerprints": {f["fingerprint"]: f["file"] for f in findings},
     }
     return text + f"\n<!-- agent-check: {json.dumps(marker, sort_keys=True)} -->\n"
@@ -1443,41 +1462,31 @@ def render_body(
 # --------------------------------------------------------------------------------------------------
 
 
-def record(
-    store: CheckStore,
-    updates: list[dict[str, Any]],
-    *,
-    plan: dict[str, Any] | None = None,
-    github: GitHubView | None = None,
-) -> list[str]:
-    """Merge state updates and suppressions into the store. Returns the touched check ids.
+def record(store: CheckStore, updates: list[dict[str, Any]], *, github: GitHubView | None = None) -> list[str]:
+    """Merge state updates and newly rejected findings into the store. Returns summary lines.
 
     Each check's document is updated with compare-and-swap, so concurrent writers never lose each
     other's updates. Checks are independent: if one check's state cannot be read or written, the
     others are still recorded, and a CheckError naming the failures is raised at the end.
 
-    A check the plan marked `stamp` gets `last_run` set to the plan's start time if at least one
-    of its shards was recorded, or if it had nothing to review. When every shard failed, the clock
-    is left alone so the next scheduled run tries again.
-
     Each rejected PR or issue is turned into suppressions once and then remembered in
-    `suppression_refs`, so a suppression a maintainer deletes stays deleted.
+    `suppression_refs`, so a suppression removed with `unsuppress` stays removed.
 
     Merging is idempotent, and a file keeps whichever review is newer, so retrying a write or
     re-running an old run never rolls the state back.
     """
     rejections = (github or GitHubView([])).rejections()
-    plan_checks = (plan or {}).get("checks", {})
-    updated: set[str] = {str(u["check"]) for u in updates}
-    stamped = {cid for cid, c in plan_checks.items() if c.get("stamp") and (cid in updated or not c.get("shards"))}
-    touched: list[str] = sorted(updated | stamped | set(rejections))
+    touched = sorted({str(u["check"]) for u in updates} | set(rejections))
+    lines: list[str] = []
     failures: list[str] = []
     for check_id in touched:
         if not CHECK_ID_RE.fullmatch(check_id):
             failures.append(f"invalid check id {check_id!r} in a state update")
             continue
+        counts = {"files": 0, "suppressed": 0}
 
-        def change(state: dict[str, Any], check_id: str = check_id) -> None:
+        def change(state: dict[str, Any], check_id: str = check_id, counts: dict[str, int] = counts) -> None:
+            counts.update(files=0, suppressed=0)
             for update in updates:
                 if update["check"] != check_id:
                     continue
@@ -1485,23 +1494,37 @@ def record(
                     current = state["files"].get(path)
                     if current is None or str(entry["reviewed_at"]) >= str(current.get("reviewed_at", "")):
                         state["files"][path] = entry
+                        counts["files"] += 1
             rejected = rejections.get(check_id, {})
-            state["suppressed"].update(new_suppressions(state, rejected))
+            new = new_suppressions(state, rejected)
+            state["suppressed"].update(new)
+            counts["suppressed"] = len(new)
             refs = set(state.get("suppression_refs", [])) | set(rejected)
             if refs:
                 state["suppression_refs"] = sorted(refs)
-            if check_id in stamped:
-                stamp = str((plan or {})["generated_at"])
-                if not state.get("last_run") or stamp > state["last_run"]:
-                    state["last_run"] = stamp
 
         try:
             update_state(store, check_id, change)
+            lines.append(f"`{check_id}`: recorded {counts['files']} files, {counts['suppressed']} new suppressions")
         except CheckError as e:
             failures.append(f"{check_id}: {e}")
     if failures:
         raise CheckError("could not record: " + "; ".join(failures))
-    return touched
+    return lines
+
+
+def unsuppress(store: CheckStore, check_id: str, fingerprints: Collection[str]) -> list[str]:
+    """Forget suppressed findings, with compare-and-swap. Returns the fingerprints removed."""
+    removed: list[str] = []
+
+    def change(state: dict[str, Any]) -> None:
+        removed.clear()
+        for fp in fingerprints:
+            if state["suppressed"].pop(fp, None) is not None:
+                removed.append(fp)
+
+    update_state(store, check_id, change)
+    return removed
 
 
 # --------------------------------------------------------------------------------------------------
@@ -1514,7 +1537,7 @@ ARCHIVED_FILES = (
     "results.json",
     "patch.diff",
     "outcome",
-    "summary.json",
+    "final.json",
     "decision.json",
     "body.md",
     "pr.md",
@@ -1617,7 +1640,7 @@ def _github_view(args: argparse.Namespace) -> GitHubView:
 
 
 def _store(args: argparse.Namespace) -> CheckStore:
-    return open_store(args.state if args.state is not None else Path(args.root) / DEFAULT_LOCAL_STATE)
+    return open_store(args.store if args.store is not None else Path(args.root) / DEFAULT_LOCAL_STATE)
 
 
 def _select(checks: dict[str, Check], ids: list[str] | None) -> list[Check]:
@@ -1641,13 +1664,19 @@ def _github_output(values: dict[str, str]) -> None:
                 f.write(f"{key}={value}\n")
 
 
+def _summary(text: str) -> None:
+    """Append Markdown to the GitHub Actions job summary, if there is one."""
+    if path := os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(path, "a") as f:
+            f.write(text + "\n")
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     for check in load_checks(args.root).values():
         flag = "" if check.enabled else " (disabled)"
         print(
-            f"{check.id}{flag}: {check.title}\n  edit_scope={check.edit_scope} mode={check.mode} "
-            f"action={check.action} cadence={check.cadence_days}d "
-            f"max_shards_per_run={check.max_shards_per_run} include={list(check.include)}"
+            f"{check.id}{flag}: {check.title}\n  include={list(check.include)} fixes={check.fixes} "
+            f"crates/run={check.max_shards_per_run} files/crate={check.max_files_per_shard} verify={list(check.verify)}"
         )
     return 0
 
@@ -1660,66 +1689,64 @@ def cmd_plan(args: argparse.Namespace) -> int:
         _store(args),
         now=_now(args),
         github=_github_view(args),
-        only_shards=args.shard,
+        only_shards=args.crate,
         max_shards=args.max_shards,
-        force=args.force,
-        scheduled=args.scheduled,
     )
     text = json.dumps(plan, indent=2) + "\n"
     if args.out:
         Path(args.out).write_text(text)
     else:
         sys.stdout.write(text)
-    m = matrix(plan)
-    for entry in m["include"]:
-        print(f"planned {entry['check']} / {entry['shard']}", file=sys.stderr)
+    table = plan_summary(plan)
+    print(table, file=sys.stderr)
+    _summary("## Plan\n\n" + table)
     for cid, c in plan["checks"].items():
         if "error" in c:
             # The other checks still run; the error shows on the run's summary page.
             print(f"::error::{cid} was not planned: {c['error']}", file=sys.stderr)
-    _github_output(
-        {
-            "matrix": json.dumps(m),
-            "count": str(len(m["include"])),
-            "checks": json.dumps(list(plan["checks"])),
-            "check_matrix": json.dumps(check_matrix(plan)),
-        }
-    )
+    m = check_matrix(plan)
+    _github_output({"check_matrix": json.dumps(m), "count": str(len(m["include"]))})
     return 0
 
 
 def cmd_prompt(args: argparse.Namespace) -> int:
     plan = _read_dict(args.plan)
     check = check_from_plan(plan, args.check, rerun_at=_now(args) if args.rerun else None)
-    shard = find_shard(plan, args.check, args.shard)
+    shard = find_shard(plan, args.check, args.crate)
     prompt = render_prompt(check, plan, shard, args.results)
-    # The agent may run exactly the verify commands it is told the runner will run.
-    tools = list(dict.fromkeys([*check.tools, *(f"Bash({c})" for c in verify_commands(check, shard))]))
     if args.out:
         Path(args.out).write_text(prompt)
     else:
         sys.stdout.write(prompt)
     _github_output(
         {
-            "allowed_tools": ",".join(tools),
+            "allowed_tools": ",".join(check.tools(shard["crate"])),
             "model": check.model or "",
             "max_turns": str(check.max_turns),
-            "action": check.action,
-            "branch": shard["branch"],
             "prompt": prompt,
         }
     )
     return 0
 
 
+def cmd_apply(args: argparse.Namespace) -> int:
+    plan = _read_dict(args.plan)
+    shard = find_shard(plan, args.check, args.crate)
+    applied, rejected = apply_patch(Path(args.root), Path(args.patch), shard)
+    print(f"applied {applied}; rejected {rejected}", file=sys.stderr)
+    if rejected:
+        Path(args.notes).write_text(json.dumps([f"patch paths outside the crate's files were not applied: {rejected}"]))
+    return 0
+
+
 def cmd_finalize(args: argparse.Namespace) -> int:
     plan = _read_dict(args.plan)
     check = check_from_plan(plan, args.check)
-    shard = find_shard(plan, args.check, args.shard)
+    shard = find_shard(plan, args.check, args.crate)
     if not Path(args.results).exists():
         raise CheckError(
-            f"the agent wrote no results to {args.results}, so nothing is recorded and the shard is retried "
-            "on the next run; the agent step's log says why"
+            f"the agent wrote no results to {args.results}, so nothing is recorded and the crate is retried "
+            "on the next run; the agent job's log says why"
         )
     results = validate_results(_read_json(args.results))
     if args.notes and Path(args.notes).exists():
@@ -1732,7 +1759,6 @@ def cmd_finalize(args: argparse.Namespace) -> int:
         args.root,
         now=_now(args),
         run_url=args.run_url,
-        revert_out_of_scope=args.revert_out_of_scope,
         run_verify=args.verify,
         format_cmd=shlex.split(args.format_cmd) if args.format_cmd else (),
     )
@@ -1740,7 +1766,7 @@ def cmd_finalize(args: argparse.Namespace) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "body.md").write_text(out["body"])
     (out_dir / "state-update.json").write_text(json.dumps(out["state_update"], indent=2) + "\n")
-    (out_dir / "summary.json").write_text(json.dumps({k: v for k, v in out.items() if k != "body"}, indent=2) + "\n")
+    (out_dir / "final.json").write_text(json.dumps({k: v for k, v in out.items() if k != "body"}, indent=2) + "\n")
     for note in out["notes"]:
         print(f"note: {note}", file=sys.stderr)
     print(
@@ -1748,64 +1774,53 @@ def cmd_finalize(args: argparse.Namespace) -> int:
         f"{len(out['findings'])} findings, {len(out['edits'])} edited files",
         file=sys.stderr,
     )
-    _github_output(
-        {
-            "has_edits": str(bool(out["edits"])).lower(),
-            "has_findings": str(bool(out["findings"])).lower(),
-            "has_unfixed": str(any(not f["fixed"] for f in out["findings"])).lower(),
-            "title": out["title"],
-            "branch": out["branch"],
-            "labels": ",".join(out["labels"]),
-        }
-    )
+    _github_output({"branch": out["branch"], "labels": ",".join(out["labels"])})
     return 0
 
 
 def cmd_decide(args: argparse.Namespace) -> int:
     plan = _read_dict(args.plan)
     check = check_from_plan(plan, args.check)
-    shard = find_shard(plan, args.check, args.shard)
+    shard = find_shard(plan, args.check, args.crate)
     out_dir = Path(args.out_dir)
-    final = _read_dict(str(out_dir / "summary.json"))
-    decision = decide(check, plan, shard, final, _github_view(args))
+    final = _read_dict(str(out_dir / "final.json"))
+    decision = decide(check, plan, shard, final, _github_view(args), repo=args.repo or None)
     (out_dir / "pr.md").write_text(decision["pr_body"])
     (out_dir / "issue.md").write_text(decision["issue_body"])
-    summary = {k: decision[k] for k in ("pr", "issue", "issue_number")}
-    summary["fingerprints"] = sorted(f["fingerprint"] for f in decision["findings"])
-    (out_dir / "decision.json").write_text(json.dumps(summary, indent=2) + "\n")
-    print(
-        f"{check.id}/{shard['id']}: pr={decision['pr']} issue={decision['issue']} "
-        f"({len(decision['findings'])} of {len(final['findings'])} findings are new or fixed)",
-        file=sys.stderr,
-    )
+    record_of = {k: decision[k] for k in ("pr", "issue", "issue_number")}
+    record_of["fingerprints"] = sorted(f["fingerprint"] for f in decision["findings"])
+    (out_dir / "decision.json").write_text(json.dumps(record_of, indent=2) + "\n")
+    print(f"{check.id}/{shard['id']}: pr={decision['pr']} issue={decision['issue']}", file=sys.stderr)
     _github_output(
-        {"pr": decision["pr"], "issue": decision["issue"], "issue_number": str(decision["issue_number"] or "")}
+        {
+            "pr": decision["pr"],
+            "issue": decision["issue"],
+            "issue_number": str(decision["issue_number"] or ""),
+            "pr_title": decision["pr_title"],
+            "issue_title": decision["issue_title"],
+        }
     )
     return 0
 
 
-def cmd_apply(args: argparse.Namespace) -> int:
-    plan = _read_dict(args.plan)
-    shard = find_shard(plan, args.check, args.shard)
-    check = check_from_plan(plan, args.check)
-    applied, rejected = apply_patch(Path(args.root), Path(args.patch), check, shard)
-    print(f"applied {applied}; rejected {rejected}", file=sys.stderr)
-    if rejected:
-        Path(args.notes).write_text(json.dumps([f"patch paths outside the shard were not applied: {rejected}"]))
+def cmd_record(args: argparse.Namespace) -> int:
+    updates = [_read_dict(p) for p in args.updates]
+    lines = record(_store(args), updates, github=_github_view(args))
+    for line in lines:
+        print(line, file=sys.stderr)
+    _summary("## Recorded\n\n" + "".join(f"- {line}\n" for line in lines or ["nothing to record"]))
+    return 0
+
+
+def cmd_unsuppress(args: argparse.Namespace) -> int:
+    removed = unsuppress(_store(args), args.check, args.fingerprints)
+    print(f"removed {removed}; not suppressed: {sorted(set(args.fingerprints) - set(removed))}", file=sys.stderr)
     return 0
 
 
 def cmd_archive(args: argparse.Namespace) -> int:
     written = archive(_store(args), _read_dict(args.plan), args.run_id, [Path(d) for d in args.dirs])
     print(f"archived {len(written)} objects", file=sys.stderr)
-    return 0
-
-
-def cmd_record(args: argparse.Namespace) -> int:
-    updates = [_read_dict(p) for p in args.updates]
-    plan = _read_dict(args.plan) if args.plan else None
-    touched = record(_store(args), updates, plan=plan, github=_github_view(args))
-    print(f"updated state for {touched}", file=sys.stderr)
     return 0
 
 
@@ -1817,10 +1832,18 @@ def cmd_run(args: argparse.Namespace) -> int:
     work = root / "target" / "agent-checks" / check.id
     work.mkdir(parents=True, exist_ok=True)
     store = _store(args)
-    plan = build_plan([check], root, store, now=now, only_shards=args.shard, max_shards=args.max_shards, force=True)
+    plan = build_plan([check], root, store, now=now, only_shards=args.crate, max_shards=args.max_shards)
     shards = plan["checks"][check.id]["shards"]
     if not shards:
-        print("nothing to review", file=sys.stderr)
+        known = {crate for crate in crate_roots(root, tracked_blobs(root)).values()}
+        unknown = [c for c in args.crate or [] if c not in known]
+        if unknown:
+            raise CheckError(f"no such crate: {unknown}")
+        print("nothing to review:\n\n" + plan_summary(plan), file=sys.stderr)
+        print(
+            f"Local state is in {args.store or DEFAULT_LOCAL_STATE}; delete it to review everything again.",
+            file=sys.stderr,
+        )
         return 0
     (work / "plan.json").write_text(json.dumps(plan, indent=2) + "\n")
     if args.dry_run:
@@ -1837,34 +1860,34 @@ def cmd_run(args: argparse.Namespace) -> int:
         results_path = work / f"{shard_slug(shard['id'])}.results.json"
         results_path.unlink(missing_ok=True)
         prompt = render_prompt(check, plan, shard, str(results_path))
-        cmd = [claude, "-p", prompt, "--allowedTools", ",".join(check.tools), "--max-turns", str(check.max_turns)]
+        tools = ",".join(check.tools(shard["crate"]))
+        cmd = [claude, "-p", prompt, "--allowedTools", tools, "--max-turns", str(check.max_turns)]
         if check.model:
             cmd += ["--model", check.model]
         print(f"running {check.id} / {shard['id']} ({len(shard['files'])} files)", file=sys.stderr)
         subprocess.run(cmd, cwd=root, check=False)
+        if not results_path.exists():
+            raise CheckError(f"the agent wrote no results to {results_path}")
         out = finalize(
             check,
             plan,
             shard,
-            validate_results(_read_json(str(results_path)) if results_path.exists() else None),
+            validate_results(_read_json(str(results_path))),
             root,
             now=now,
             run_verify=True,
+            format_cmd=shlex.split(args.format_cmd) if args.format_cmd else (),
         )
         body_path = work / f"{shard_slug(shard['id'])}.md"
         body_path.write_text(out["body"])
-        handed = work / shard_slug(shard["id"])
-        handed.mkdir(exist_ok=True)
-        (handed / "meta.json").write_text(json.dumps({"check": check.id, "shard": shard["id"]}))
-        (handed / "body.md").write_text(out["body"])
-        shutil.copy(results_path, handed / "results.json")
-        archive(store, plan, f"local-{os.getpid()}", [handed])
         print(f"wrote {body_path}; edits left in the working tree: {out['edits']}", file=sys.stderr)
         updates.append(out["state_update"])
         if len(shards) > 1 and working_tree_changes(root):
-            print("stopping after the first shard with edits; review and commit them, then rerun", file=sys.stderr)
+            print("stopping after the first crate with edits; review and commit them, then rerun", file=sys.stderr)
             break
-    record(store, updates, plan=plan)
+    if args.record:
+        record(store, updates)
+        print(f"recorded the review in {args.store or DEFAULT_LOCAL_STATE}", file=sys.stderr)
     return 0
 
 
@@ -1874,100 +1897,77 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--now", help="override the current time (ISO 8601), for tests")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
+    store = argparse.ArgumentParser(add_help=False)
+    store.add_argument(
+        "--store",
+        "--state",
+        dest="store",
+        help="s3://bucket/prefix or a directory (default: target/agent-checks-state)",
+    )
+    github = argparse.ArgumentParser(add_help=False)
+    github.add_argument("--github", help="JSON list of `gh pr list` / `gh issue list` items, with authors and labels")
+    github.add_argument("--trusted-author", action="append", help="login whose markers count (default: everyone)")
+    shard = argparse.ArgumentParser(add_help=False)
+    shard.add_argument("--plan", required=True)
+    shard.add_argument("--check", required=True)
+    shard.add_argument("--crate", "--shard", dest="crate", required=True, help="the crate (shard id) in the plan")
+
     sub.add_parser("list", help="list checks").set_defaults(func=cmd_list)
 
-    p = sub.add_parser("plan", help="choose shards to review")
+    p = sub.add_parser("plan", parents=[store, github], help="choose the crates to review")
     p.add_argument("--check", action="append", help="check id (repeatable; default: all enabled)")
-    p.add_argument("--state", help="s3://bucket/prefix or a directory (default: <root>/target/agent-checks-state)")
-    p.add_argument(
-        "--github",
-        help="JSON list of `gh pr list` / `gh issue list` items (number, state, body; PRs: headRefName, "
-        "mergedAt; issues: stateReason, comments)",
-    )
-    p.add_argument("--shard", action="append", help="plan only this crate (repeatable)")
-    p.add_argument("--scheduled", action="store_true", help="a scheduled run: due checks move their clock")
-    p.add_argument(
-        "--trusted-author",
-        action="append",
-        help="login whose markers count (repeatable; default: every author)",
-    )
+    p.add_argument("--crate", "--shard", dest="crate", action="append", help="plan only this crate (repeatable)")
     p.add_argument("--max-shards", type=int, help="override max_shards_per_run")
-    p.add_argument("--force", action="store_true", help="ignore cadence_days")
     p.add_argument("--out", help="write the plan here instead of stdout")
     p.set_defaults(func=cmd_plan)
 
-    p = sub.add_parser("prompt", help="render the agent prompt for one shard")
-    p.add_argument("--plan", required=True)
-    p.add_argument("--check", required=True)
-    p.add_argument("--shard", required=True)
+    p = sub.add_parser("prompt", parents=[shard], help="render the agent prompt for one crate")
     p.add_argument("--results", required=True, help="path the agent must write its results to")
     p.add_argument("--out")
     p.add_argument("--rerun", action="store_true", help="a re-run attempt: refuse plans that are too old")
     p.set_defaults(func=cmd_prompt)
 
-    p = sub.add_parser("finalize", help="validate results and build the PR body and state update")
-    p.add_argument("--plan", required=True)
-    p.add_argument("--check", required=True)
-    p.add_argument("--shard", required=True)
+    p = sub.add_parser("apply", parents=[shard], help="apply an agent's patch, limited to the crate's files")
+    p.add_argument("--patch", required=True)
+    p.add_argument("--notes", required=True, help="where to write notes about rejected paths")
+    p.set_defaults(func=cmd_apply)
+
+    p = sub.add_parser("finalize", parents=[shard], help="validate results; revert, format and verify edits")
     p.add_argument("--results", required=True)
-    p.add_argument("--out-dir", required=True)
+    p.add_argument("--out-dir", required=True, help="writes body.md, final.json and state-update.json")
     p.add_argument("--run-url")
-    p.add_argument("--revert-out-of-scope", action="store_true")
     p.add_argument("--verify", action="store_true", help="run the check's `verify` commands on edits")
     p.add_argument("--format-cmd", help="formatter run on edited .rs files, e.g. `rustfmt --edition 2024`")
     p.add_argument("--notes", help="JSON list of extra notes for the body, such as from `apply`")
     p.set_defaults(func=cmd_finalize)
 
-    p = sub.add_parser("decide", help="decide from live GitHub state what a finalized shard publishes")
-    p.add_argument("--plan", required=True)
-    p.add_argument("--check", required=True)
-    p.add_argument("--shard", required=True)
-    p.add_argument("--out-dir", required=True, help="finalize's output directory; publish.md is written here")
-    p.add_argument("--github", required=True, help="the open PRs and issues, as `gh ... list --json` items")
-    p.add_argument(
-        "--trusted-author",
-        action="append",
-        help="login whose markers count (repeatable; default: every author)",
-    )
+    p = sub.add_parser("decide", parents=[shard, github], help="decide from live GitHub state what to publish")
+    p.add_argument("--out-dir", required=True, help="finalize's output; writes pr.md, issue.md, decision.json")
+    p.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""), help="owner/name, for file links")
     p.set_defaults(func=cmd_decide)
 
-    p = sub.add_parser("apply", help="apply an agent's patch, limited to the shard's scope")
-    p.add_argument("--plan", required=True)
-    p.add_argument("--check", required=True)
-    p.add_argument("--shard", required=True)
-    p.add_argument("--patch", required=True)
-    p.add_argument("--notes", required=True, help="where to write notes about rejected paths")
-    p.set_defaults(func=cmd_apply)
-
-    p = sub.add_parser("record", help="merge state updates and suppressions into the state store")
-    p.add_argument("--state", help="s3://bucket/prefix or a directory (default: <root>/target/agent-checks-state)")
-    p.add_argument("--plan", help="the run's plan; its checks marked `stamp` get `last_run` set")
-    p.add_argument(
-        "--github",
-        help="JSON list of `gh pr list` / `gh issue list` items (number, state, body; PRs: headRefName, "
-        "mergedAt; issues: stateReason, comments)",
-    )
+    p = sub.add_parser("record", parents=[store, github], help="merge state updates and rejections into the store")
     p.add_argument("updates", nargs="*")
-    p.add_argument(
-        "--trusted-author",
-        action="append",
-        help="login whose markers count (repeatable; default: every author)",
-    )
     p.set_defaults(func=cmd_record)
 
-    p = sub.add_parser("archive", help="keep a write-once record of a run in each check's storage")
-    p.add_argument("--state", help="s3://bucket/prefix or a directory (default: <root>/target/agent-checks-state)")
+    p = sub.add_parser("unsuppress", parents=[store], help="forget rejected findings, so agents may report them again")
+    p.add_argument("--check", required=True)
+    p.add_argument("fingerprints", nargs="+", help="`<category>:<file>:<item>`, as listed in the state")
+    p.set_defaults(func=cmd_unsuppress)
+
+    p = sub.add_parser("archive", parents=[store], help="keep a write-once record of a run in each check's storage")
     p.add_argument("--plan", required=True)
     p.add_argument("--run-id", required=True, help="unique per run attempt, such as `<run id>-<attempt>`")
     p.add_argument("dirs", nargs="*", help="handed-over directories, each with a meta.json")
     p.set_defaults(func=cmd_archive)
 
-    p = sub.add_parser("run", help="run a check locally with the `claude` CLI")
+    p = sub.add_parser("run", parents=[store], help="run a check locally with the `claude` CLI")
     p.add_argument("check")
-    p.add_argument("--shard", action="append", help="review only this crate (repeatable)")
+    p.add_argument("--crate", "--shard", dest="crate", action="append", help="review only this crate (repeatable)")
     p.add_argument("--max-shards", type=int, default=1)
-    p.add_argument("--state", help="s3://bucket/prefix or a directory (default: <root>/target/agent-checks-state)")
     p.add_argument("--dry-run", action="store_true", help="print prompts without running the agent")
+    p.add_argument("--record", action="store_true", help="record the review, so the files are not offered again")
+    p.add_argument("--format-cmd", help="formatter run on edited .rs files, e.g. `rustfmt --edition 2024`")
     p.set_defaults(func=cmd_run)
 
     args = parser.parse_args(argv)
