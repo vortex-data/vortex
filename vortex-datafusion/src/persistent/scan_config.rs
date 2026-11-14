@@ -33,7 +33,6 @@ use datafusion_physical_plan::execution_plan::SchedulingType;
 use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::filter_pushdown::FilterPushdownPropagation;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
-
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::VortexSource;

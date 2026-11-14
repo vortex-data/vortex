@@ -162,9 +162,6 @@ pub(crate) struct VortexOpener {
     /// How many partitions the engine runs the scan on, so a V2 scan parallelises inside a
     /// partition only as far as the engine has not.
     pub partitions: usize,
-    /// The most rows of a batch a V2 scan yields, from the engine's batch size. A longer scan
-    /// batch is sliced before it is decoded to Arrow.
-    pub batch_size: Option<usize>,
     /// The DataFusion metrics a V2 scan reports into, when the scan is a V2 scan.
     pub v2_metrics: Option<V2ScanMetrics>,
 }
@@ -260,7 +257,6 @@ impl FileOpener for VortexOpener {
         let scan_concurrency = self.scan_concurrency;
         let partitions = self.partitions.max(1);
         let scan_v2 = self.scan_v2;
-        let batch_size = self.batch_size;
         let v2_metrics = self.v2_metrics.clone();
         let export_options = if self.dictionary_export {
             ArrowExportOptions::default().with(DictionaryValuesCache::default())
@@ -648,10 +644,7 @@ impl FileOpener for VortexOpener {
                     chunks(None)
                 };
 
-                let mut driver = ScanDriver::new(handle, concurrency, has_output_ordering);
-                if let Some(batch_size) = batch_size {
-                    driver = driver.with_batch_size(batch_size);
-                }
+                let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
                 let batches = driver.run(scan, root, map_batch);
                 Ok(match v2_metrics {
                     Some(metrics) => {
@@ -1309,60 +1302,6 @@ mod tests {
         Ok(())
     }
 
-    /// A V2 scan yields batches of at most the engine's batch size, with every row in order,
-    /// whether its chunks run inline or beside each other and whether a filter thins them.
-    #[rstest]
-    #[tokio::test]
-    async fn test_v2_batches_fit_batch_size(
-        #[values(1000, 8192, 100_000)] batch_size: usize,
-        #[values(None, Some(0), Some(4))] scan_concurrency: Option<usize>,
-        #[values(false, true)] filtered: bool,
-    ) -> anyhow::Result<()> {
-        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
-        let file_path = "batch_size/file.vortex";
-        let values: Vec<Option<i32>> = (0..200_000).map(Some).collect();
-        let batch = record_batch!(("a", Int32, values)).unwrap();
-        let data_size =
-            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
-        let file = PartitionedFile::new(file_path.to_string(), data_size);
-        let table_schema = TableSchema::from(batch.schema());
-
-        // Keeps every row but the first 1,000 of each 10,000, so batches are sliced after the
-        // filter selected them.
-        let filter = filtered.then(|| {
-            logical2physical(
-                &(col("a") % lit(10_000_i32)).gt_eq(lit(1_000_i32)),
-                table_schema.table_schema(),
-            )
-        });
-        let mut opener = make_opener(object_store, table_schema, filter);
-        opener.scan_v2 = true;
-        opener.has_output_ordering = true;
-        opener.scan_concurrency = scan_concurrency;
-        opener.batch_size = Some(batch_size);
-
-        let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
-        assert!(
-            batches.iter().all(|batch| batch.num_rows() <= batch_size),
-            "batch sizes {:?} exceed {batch_size}",
-            batches
-                .iter()
-                .map(RecordBatch::num_rows)
-                .collect::<Vec<_>>()
-        );
-        let expected = if filtered {
-            let kept: Vec<Option<i32>> = (0..200_000)
-                .filter(|value| value % 10_000 >= 1_000)
-                .map(Some)
-                .collect();
-            record_batch!(("a", Int32, kept)).unwrap()
-        } else {
-            batch
-        };
-        assert_eq!(concat_batches(&expected.schema(), &batches)?, expected);
-        Ok(())
-    }
-
     /// Byte partitions read every row exactly once, independently of footer cache state.
     #[rstest]
     #[tokio::test]
@@ -1522,7 +1461,6 @@ mod tests {
     #[tokio::test]
     async fn test_v2_metrics_report_pruning(
         #[values(None, Some(0), Some(4))] scan_concurrency: Option<usize>,
-        #[values(None, Some(1_000))] batch_size: Option<usize>,
     ) -> anyhow::Result<()> {
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "metrics/file.vortex";
@@ -1553,9 +1491,6 @@ mod tests {
         let mut opener = make_opener(object_store, table_schema, Some(filter));
         opener.scan_v2 = true;
         opener.scan_concurrency = scan_concurrency;
-        // Slicing batches to the batch size changes how many batches the scan yields, not what
-        // it counts.
-        opener.batch_size = batch_size;
         opener.file_metadata_cache = Some(Arc::new(
             DefaultCache::<Path, CachedFileMetadataEntry>::new(64 * 1024 * 1024),
         ));
@@ -1607,7 +1542,6 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
-            batch_size: None,
             v2_metrics: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
@@ -2022,7 +1956,6 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
-            batch_size: None,
             v2_metrics: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
@@ -2119,7 +2052,6 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
-            batch_size: None,
             v2_metrics: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
@@ -2307,7 +2239,6 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
-            batch_size: None,
             v2_metrics: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
@@ -2377,7 +2308,6 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
-            batch_size: None,
             v2_metrics: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
@@ -2598,7 +2528,6 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
-            batch_size: None,
             v2_metrics: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),

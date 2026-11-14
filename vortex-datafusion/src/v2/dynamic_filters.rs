@@ -853,7 +853,12 @@ mod tests {
             .map(|value| value % 7 != 3 && (0..=50).contains(&value))
             .collect::<Vec<_>>();
         assert_eq!(scan, hull, "{predicate}");
-        assert!(expected.iter().zip(&scan).all(|(expected, scan)| !expected || *scan));
+        assert!(
+            expected
+                .iter()
+                .zip(&scan)
+                .all(|(expected, scan)| !expected || *scan)
+        );
         Ok(())
     }
 }
