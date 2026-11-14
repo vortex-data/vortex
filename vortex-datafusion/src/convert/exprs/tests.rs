@@ -2900,6 +2900,10 @@ fn test_substr_equality_converts_to_prefix_like(
 #[case::longer_value(1, 3, &["abcd"])]
 #[case::later_start(2, 4, &["4128"])]
 #[case::zero_length(1, 0, &[""])]
+#[case::many_values(1, 2, &[
+    "00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15",
+    "16",
+])]
 fn test_substr_membership_falls_back(
     #[case] start: i64,
     #[case] length: i64,
