@@ -52,34 +52,88 @@ use super::datafusion_predicate::DataFusionPredicateOptions;
 use crate::convert::ExpressionConverter;
 use crate::convert::exprs::is_infallible;
 
-pub(crate) fn convert_dynamic_filter(
+/// A dynamic filter converted to Vortex, split into the part zone pruning can prove and the part
+/// that evaluates its unconverted conjuncts exactly.
+pub(crate) struct ConvertedDynamicFilter {
+    /// The converted or widened filter.
+    pub(crate) native: Expression,
+    /// The conjuncts Vortex does not convert, evaluated with DataFusion over every row they reach.
+    ///
+    /// A scan measures each conjunct's selectivity on the rows earlier conjuncts kept. A hash
+    /// lookup only keeps rows that already match the join, which then pass every other filter of
+    /// the join, so an exact conjunct evaluated before a cheap native one makes that conjunct look
+    /// unselective and keeps it behind the expensive lookup. Callers place every exact conjunct
+    /// after every native one.
+    pub(crate) exact: Option<Expression>,
+}
+
+impl ConvertedDynamicFilter {
+    fn native(native: Expression) -> Self {
+        Self {
+            native,
+            exact: None,
+        }
+    }
+
+    /// The filter as a single expression, its native part first.
+    pub(crate) fn into_expression(self) -> Expression {
+        match self.exact {
+            Some(exact) => binary(Operator::And, self.native, exact),
+            None => self.native,
+        }
+    }
+}
+
+#[cfg(test)]
+fn convert_dynamic_filter(
     expression: Arc<dyn PhysicalExpr>,
     schema: SchemaRef,
     converter: Arc<dyn ExpressionConverter>,
 ) -> Expression {
+    split_dynamic_filter(expression, schema, converter).into_expression()
+}
+
+/// Converts a predicate holding dynamic filters, keeping the exact conjuncts of its top-level
+/// conjunction apart from the native ones.
+pub(crate) fn split_dynamic_filter(
+    expression: Arc<dyn PhysicalExpr>,
+    schema: SchemaRef,
+    converter: Arc<dyn ExpressionConverter>,
+) -> ConvertedDynamicFilter {
     // A converter can retain a comparison whose producer guarantees a fixed shape.
     if let Ok(Some(converted)) = converter.try_convert(&expression, &schema)
         && is_infallible(&converted)
     {
-        return converted;
+        return ConvertedDynamicFilter::native(converted);
     }
 
     // AND/OR preserve a conservative true fallback for unsupported children; NOT does not.
     if let Some(expr) = expression.downcast_ref::<BinaryExpr>()
         && let Some(operator) = boolean_operator(expr.op())
     {
-        return binary(
-            operator,
-            convert_dynamic_filter(
-                Arc::clone(expr.left()),
-                Arc::clone(&schema),
-                Arc::clone(&converter),
-            ),
-            convert_dynamic_filter(Arc::clone(expr.right()), schema, converter),
+        let left = split_dynamic_filter(
+            Arc::clone(expr.left()),
+            Arc::clone(&schema),
+            Arc::clone(&converter),
         );
+        let right = split_dynamic_filter(Arc::clone(expr.right()), schema, converter);
+        if operator == Operator::And {
+            return ConvertedDynamicFilter {
+                native: binary(Operator::And, left.native, right.native),
+                exact: match (left.exact, right.exact) {
+                    (Some(left), Some(right)) => Some(binary(Operator::And, left, right)),
+                    (left, right) => left.or(right),
+                },
+            };
+        }
+        return ConvertedDynamicFilter::native(binary(
+            operator,
+            left.into_expression(),
+            right.into_expression(),
+        ));
     }
     if !DynamicFilterTracking::classify(&expression).contains_dynamic_filter() {
-        return lit(true);
+        return ConvertedDynamicFilter::native(lit(true));
     }
 
     // A DataFusion dynamic filter may replace its entire body, regardless of its current shape.
@@ -118,7 +172,10 @@ pub(crate) fn convert_dynamic_filter(
         }),
         inputs,
     );
-    binary(Operator::And, native, exact)
+    ConvertedDynamicFilter {
+        native,
+        exact: Some(exact),
+    }
 }
 
 fn boolean_operator(operator: &DFOperator) -> Option<Operator> {

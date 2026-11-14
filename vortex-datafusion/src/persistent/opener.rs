@@ -86,7 +86,7 @@ use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::scan_v2::ScanDriver;
 use crate::persistent::stream::PrunableStream;
-use crate::v2::dynamic_filters::convert_dynamic_filter;
+use crate::v2::dynamic_filters::split_dynamic_filter;
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
@@ -134,7 +134,7 @@ pub(crate) struct VortexOpener {
     /// The Vortex expression of each dynamic filter of `filter`, converted once for every file
     /// and partition of the scan. Sharing it lets the scan cache of each file keep the filter's
     /// plans for every partition that scans the file.
-    pub dynamic_filters: Arc<DashMap<DynamicFilterKey, Expression>>,
+    pub dynamic_filters: Arc<DashMap<DynamicFilterKey, (Expression, Option<Expression>)>>,
     /// Whether the query has output ordering specified
     pub has_output_ordering: bool,
 
@@ -157,7 +157,13 @@ impl VortexOpener {
     /// The predicate without its dynamic filters, and each dynamic filter's columns and Vortex
     /// expression. A dynamic filter is converted once, against the table schema, for the whole
     /// scan.
-    fn split_dynamic_filters(&self) -> (Option<PhysicalExprRef>, Vec<(Vec<String>, Expression)>) {
+    #[expect(clippy::type_complexity, reason = "private helper")]
+    fn split_dynamic_filters(
+        &self,
+    ) -> (
+        Option<PhysicalExprRef>,
+        Vec<(Vec<String>, (Expression, Option<Expression>))>,
+    ) {
         let Some(filter) = &self.filter else {
             return (None, Vec::new());
         };
@@ -180,11 +186,12 @@ impl VortexOpener {
                     .dynamic_filters
                     .entry(key)
                     .or_insert_with(|| {
-                        convert_dynamic_filter(
+                        let converted = split_dynamic_filter(
                             Arc::clone(conjunct),
                             Arc::clone(self.table_schema.file_schema()),
                             Arc::clone(&self.expression_converter),
-                        )
+                        );
+                        (converted.native, converted.exact)
                     })
                     .clone();
                 (columns, expression)
@@ -398,17 +405,19 @@ impl FileOpener for VortexOpener {
             }
             // The operator that produces a dynamic filter enforces it exactly, so the scan
             // evaluates it only where the file has every column it reads.
-            native_filters.extend(
-                dynamic_filters
-                    .iter()
-                    .filter(|(columns, _)| {
-                        columns.iter().all(|column| {
-                            this_file_schema.field_with_name(column).is_ok()
-                                && !literal_value_cols.contains_key(column)
-                        })
+            // Exact conjuncts follow every native one; see `ConvertedDynamicFilter::exact`.
+            let readable = dynamic_filters
+                .iter()
+                .filter(|(columns, _)| {
+                    columns.iter().all(|column| {
+                        this_file_schema.field_with_name(column).is_ok()
+                            && !literal_value_cols.contains_key(column)
                     })
-                    .map(|(_, expression)| expression.clone()),
-            );
+                })
+                .map(|(_, expression)| expression)
+                .collect::<Vec<_>>();
+            native_filters.extend(readable.iter().map(|(native, _)| native.clone()));
+            native_filters.extend(readable.iter().filter_map(|(_, exact)| exact.clone()));
             let residual_filter = conjunction_opt(residual_filters);
             let native_filter = and_collect(native_filters)
                 .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
