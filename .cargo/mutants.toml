@@ -13,12 +13,17 @@ exclude_re = [
     # values, so only moving the crossover by one (`>=`) is equivalent.
     'encodings/fastlanes/src/take_chunks\.rs:\d+:\d+: replace > with >= in take_grouped$',
     # A benchmark-tuned crossover: every use picks between decode paths with equal results or
-    # sizes a buffer by the same threshold, so replacing it changes only speed.
-    'encodings/fastlanes/src/bitpacking/compute/mod\.rs:\d+:\d+: replace unpack_chunk_threshold -> usize with ',
+    # sizes a buffer by the same threshold, so replacing it changes only speed. Equal results
+    # hold for in-bounds indices only: BitPacked's take trusts its caller for bounds
+    # (bitpacking/compute/take.rs:333), and the range path errors on an out-of-bounds run.
+    'encodings/fastlanes/src/bitpacking/compute/mod\.rs:\d+:\d+: replace unpack_chunk_threshold -> usize with [01]$',
     # With the first valid value at index 0, `chunk[..0].fill(..)` does nothing, so `> 0` and
     # `>= 0` behave the same.
     'encodings/fastlanes/src/lib\.rs:\d+:\d+: replace > with >= in backfill_leading_nulls$',
     # With every index valid, `nullable_positions` returns the same positions as
     # `valid_positions`, so the `AllTrue` arm is only a fast path.
     'encodings/fastlanes/src/delta/compute/take\.rs:\d+:\d+: delete match arm Mask::AllTrue\(_\) in take_from_chunks$',
+    # RLE has no buffers (`nbuffers` returns 0), and every caller loops over `0..nbuffers()`, so
+    # `buffer_name` is never called.
+    'encodings/fastlanes/src/rle/vtable/mod\.rs:\d+:\d+: replace <impl VTable for RLE>::buffer_name -> Option<String> with ',
 ]

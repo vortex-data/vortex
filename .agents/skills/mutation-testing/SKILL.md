@@ -67,7 +67,11 @@ When the scope has no mutants or no survivors, still write the report and make n
    arbitrary, or when a test would pin a performance or representation choice (an array stays
    RLE after slicing, a slice keeps only the values it needs), do not write the test: record the
    survivor as `deferred` or `bug` and ask a question that gives each reading and what it leads
-   to. `report` refuses a `deferred` or `bug` verdict without a question.
+   to. `report` refuses a `deferred` or `bug` verdict without a question. Before you call a change
+   performance- or representation-only, check that the changed representation still passes the
+   constructor's `validate` and the decoder's bounds on a reachable input. For RLE these include
+   `indices.len() >= values.len()` and at most 1024 values per chunk. If any input breaks them,
+   the survivor is a gap: test it against the reference.
 
 ## Steps
 
@@ -125,6 +129,32 @@ Check the equivalent row carefully. One path that is only valid for some inputs 
 detectable. For example, in `take_grouped` a group can hold more positions than the selective
 decode buffer, so forcing selective decoding can panic. Those mutants are gaps, not equivalents.
 
+When the original guard sends an input to only one path, try the degenerate inputs on the other
+path: empty arrays, zero chunks, all-null indices, a group longer than a chunk. A `/` or `==`
+mutant of a size ratio often sends an empty array down a path that indexes `num_chunks + 1`
+slots. For example, under `indices.len() / FULL_ARRAY_DECODE_RATIO` in Delta's `take`, three null
+indices on an empty array reach `take_grouped` and panic.
+
+If two paths agree only for inputs that meet a precondition, such as in-bounds indices, or "errors
+now" versus "errors when executed", say so in the argument. Then treat every such survivor in the
+scope the same way: either exclude all of them, naming the precondition in each comment, or defer
+all of them under one question about the contract.
+
+An equivalence that rests on an invariant needs the check that enforces it, with its file and
+line, and that check must cover every way to build the value: `validate`, the Safety section of
+`new_unchecked`, and deserialization. If only the checked constructor enforces it, record
+`deferred` with an `equivalence` question that offers moving the check into `validate`. Before
+you call a survivor unused or display-only, find its callers. If no caller can reach the mutated
+code, for example an empty `0..nbuffers()` loop or a method shadowed by a trait method, it is
+equivalent. If the code is public, say who outside the crate can call it.
+
+Mutants only change code that exists, so they cannot find a missing check. For each function in
+scope, list the inputs it never looks at, such as validity, offsets or empty input, and run them
+against the reference. A wrong answer is a `bug` with a question, not a test to commit: the bit-
+packed `is_constant` kernel ignored validity, and missed a 1024-row array, and neither showed up
+as a survivor. Also run `git log --all --oneline -- <file>`: a fix on another branch that is not
+on the base branch is a known bug to record.
+
 To tell "unreached" from "reached but unchecked", probe a line that starts a statement in the
 function:
 
@@ -148,20 +178,34 @@ Follow `AGENTS.md` and `STYLE.md`. Then, for this kind of test:
   `encodings/fastlanes/src/delta/compute/is_constant.rs` show the pattern. Also check the public
   answer against the reference, so the test covers both.
 - **Build the shapes the kernel handles separately.** FastLanes code works in 1024-value chunks:
-  cover a partial first chunk (a slice with an offset), full chunks, a trailer, and a one-row
-  trailer, with patches or nulls in each. Name each `rstest` case for the part it covers.
+  cover a single partial chunk (fewer than 1024 rows), exactly one full chunk (1024 rows at
+  offset 0, or a slice from one chunk boundary to the next), a partial first chunk (a slice with
+  an offset), several full chunks, a trailer, and a one-row trailer. Put patches in each, and add
+  a nullable variant whose null slots hold the same value as the valid ones, so that a kernel
+  that ignores validity gives a wrong answer. Use many distinct values as well as few: with few
+  values, RLE and dictionary bounds never bind. Name each `rstest` case for the part it covers.
+  `bitpacking/array/unpack_iter.rs` is skipped by cargo-mutants, so no mutant checks how a kernel
+  walks these shapes; only these cases do.
 - **Slice with the slice kernel when patches are involved.** `ArrayRef::slice` stays a lazy
   `SliceArray` over a patched `BitPacked` array. Use `<BitPacked as SliceKernel>::slice` to get a
   sliced `BitPacked` array with sliced patches.
 - **Compare with a reference.** Use `assert_arrays_eq!` for arrays, with the result under test
-  on the left. For scalars, compare against the same operation on the canonical source. Record
+  on the left. For scalars, compare against the same operation on the canonical source. When a
+  reference exists, compare the kernel's answer with it, not with a literal you wrote. Record
   where the expected values come from as the entry's `oracle`; `report` requires it.
 - **Reach the guard you mean to test.** For invalid input, assert the specific error, as
-  `test_decode_rejects_index_into_next_chunk_after_slicing` does, so the test cannot pass on an
-  earlier, unrelated failure.
+  `test_deserialize_rejects_unknown_ptype` in `encodings/fastlanes/src/rle/vtable/mod.rs` does, so
+  the test cannot pass on an earlier, unrelated failure.
+- **Pin the path, not only the result.** When a tuned constant such as a ratio or a threshold
+  picks the path under test, size the input from the constant, or assert the precondition, in a
+  test module that can see the constant. Otherwise retuning the constant silently moves the test
+  to the other path, where it still passes and catches nothing.
 - **Keep only cases that earn their place.** After `verify`, `$M kills <run>/verify` shows which
-  cases catch which mutants. Drop a case whose kills another case of the same test also makes,
-  unless it covers a type, nullability or shape the mutants cannot tell apart.
+  cases catch which mutants. Drop a case whose kills another case also makes only if it covers no
+  shape, type or nullability of its own. The kill matrix cannot see code outside the scope or
+  under `mutants::skip`, so keep one case for each shape in the list above even when it catches
+  nothing new, and name those cases in the report. Say what each case covers in its name or
+  comment, never "these cases catch every mutant": that records a tool result that goes stale.
 - Put tests in the module's `tests` module. Promote `foo.rs` to `foo/mod.rs` plus `foo/tests.rs`
   if it grows large.
 
@@ -172,8 +216,8 @@ Run the new tests before verifying: `cargo test -p <crate> --lib <module path>`.
 Add one `exclude_re` entry to `.cargo/mutants.toml` per equivalent mutant or per tight family of
 them, with a comment that gives the argument. Patterns match `path:line:col: description`:
 escape the path's dots, match the position with `\d+:\d+`, and name the operator and function so
-the entry cannot hide anything else. Check that each new pattern matches only the mutants you
-mean:
+the entry cannot hide anything else. For a replaced function body, name the replacement values
+too, as in `with [01]$`. Check that each new pattern matches only the mutants you mean:
 
 ```bash
 cargo mutants -p <crate> --list | wc -l   # should drop by exactly the number you excluded
@@ -238,7 +282,17 @@ matching exclusion, or leaves a `deferred` or `bug` verdict without a question. 
 every removal against the kill matrix. Fix what it lists and rerun it. On success it writes
 `report.json` and `report.md`.
 
-### 9. Check and commit
+### 9. Get an independent review
+
+Before you write the pull request, have a second agent review the change without your
+conclusions: give it the test diff, the code under test and `triage.json`, and ask it to check
+each oracle, each verdict and each question against the code, and to look for inputs no case
+covers. Work read-only and never in parallel with `run`, `verify` or `probe`. Check every claim
+it makes before you act on it: run the input it names against the reference, or rerun the
+mutants it says are caught. On the first three scopes this found two kernel bugs and four wrong
+verdicts that mutation testing alone did not.
+
+### 10. Check and commit
 
 Run the checks for the crate you changed:
 
@@ -286,15 +340,17 @@ Record each proposal in `triage.json`, with a removal question that refs it:
 ```json
 "removals": [
   {
-    "tests": ["rle::array::tests::test_try_new"],
+    "tests": ["<module>::tests::<test>"],
     "kind": "no-kills",
     "applied": false,
-    "reason": "It asserts only what it constructed; test_try_new_with_validity checks the same and more."
+    "reason": "It asserts only what it constructed; <kept test> builds the same shape and asserts all of it and more."
   }
 ]
 ```
 
-For `duplicate`, add `"duplicate_of"`: a kept test whose kills include this one's. Leave
+Name a kept test that asserts everything the removed one does, with the same inputs; check it
+line by line, not by its name. For `duplicate`, add `"duplicate_of"`: a kept test whose kills
+include this one's. Leave
 `"applied": false` until a person answers the question `remove`; then delete the test, set it to
 `true`, rerun the scope into a new directory and compare:
 
@@ -316,11 +372,11 @@ A question is a decision the agent must not make alone. Ask about every proposed
   {
     "id": "Q2",
     "topic": "semantics",
-    "question": "Should RLE slicing retain only the values its chunks reference?",
-    "context": "Today it does, but no test says so. If it is a contract, I'll add a test; if not, I'll exclude the mutant.",
-    "options": ["contract: add a test", "not a contract: exclude as equivalent"],
-    "recommendation": "contract: add a test",
-    "default": "not a contract: exclude as equivalent",
+    "question": "Should Delta's take reject an out-of-bounds index when called, or when the result executes?",
+    "context": "Small takes fail in `check_indices` (delta/compute/take.rs:82); large ones decode fully and return a lazy take that fails on execution. Two mutants of the size ratio (take.rs:44) change only which happens. If eager is the contract, I'll add a test for a large take; if not, I'll exclude them.",
+    "options": ["eager: add a test", "either: exclude as equivalent"],
+    "recommendation": "eager: add a test",
+    "default": "either: exclude as equivalent",
     "refs": ["<mutant or test names, copied exactly>"]
   }
 ]
@@ -328,8 +384,11 @@ A question is a decision the agent must not make alone. Ask about every proposed
 
 `topic` is one of `removal`, `semantics`, `equivalence`, `bug` or `other`. `default` is what
 happens with no answer, and must be the conservative option: keep the test, leave the code,
-write no test. Give the context a reviewer needs to answer without opening the code, and say
-what each option leads to.
+write no test, and add no exclusion. An exclusion hides survivors for good, so only an answer may
+add one; the example above is wrong on that count, so in a real question make the default "leave
+deferred". Give the context a reviewer needs to answer without opening the code, and say what
+each option leads to. Every factual claim in `context` must come from a line you read: quote it,
+or cite the file and line.
 
 ### The loop
 
@@ -340,6 +399,11 @@ what each option leads to.
    `{"Q1": {"answer": "remove", "by": "<reviewer>"}}`.
 5. Apply them: delete approved tests, write the tests that answers call for, add exclusions.
    Rerun, `compare`, and `report` again. Repeat until no question that blocks a change is open.
+
+## Maintaining this skill
+
+Examples here must name code that exists on the skill's own branch, and claims that a reviewer
+checked. Never copy them from a run that is still being triaged.
 
 ## Reading the report
 
