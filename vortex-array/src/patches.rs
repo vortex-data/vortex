@@ -651,6 +651,7 @@ impl Patches {
         if retained.is_none() {
             return self.get_patched(index, ctx);
         }
+
         let indices = children
             .slot(slots.indices)?
             .ok_or_else(|| vortex_err!("patch indices slot is missing"))?;
@@ -659,9 +660,11 @@ impl Patches {
             SearchSortedPrimitiveArray::<T>::with_probe(indices, ctx)
                 .search_sorted(&needle, SearchSortedSide::Left)?
         });
+
         let SearchResult::Found(position) = found else {
             return Ok(None);
         };
+
         children
             .slot(slots.values)?
             .ok_or_else(|| vortex_err!("patch values slot is missing"))?
