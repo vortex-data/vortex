@@ -38,6 +38,7 @@ use crate::flatbuffers::FlatBuffer;
 use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::array as fba;
 use crate::flatbuffers::array::Compression;
+use crate::optimizer::mark_decoded_optimized;
 use crate::session::ArraySessionExt;
 use crate::stats::StatsSet;
 
@@ -430,6 +431,7 @@ impl SerializedArray {
             decoded.statistics().set_all(stats);
         }
 
+        mark_decoded_optimized(&decoded);
         Ok(decoded)
     }
 
@@ -787,7 +789,6 @@ mod tests {
     use vortex_session::registry::CachedId;
 
     use super::*;
-    use crate::Array;
     use crate::ArrayPlugin;
     use crate::ArraySerialization;
     use crate::ArrayVTable;
@@ -818,7 +819,11 @@ mod tests {
             old_primitive_id()
         }
 
-        fn serialized_ids(&self) -> Vec<ArrayId> {
+        fn read_ids(&self) -> Vec<ArrayId> {
+            vec![old_primitive_id(), new_primitive_id()]
+        }
+
+        fn write_ids(&self) -> Vec<ArrayId> {
             vec![old_primitive_id(), new_primitive_id()]
         }
 
@@ -862,16 +867,18 @@ mod tests {
                 "old primitive wire ID cannot represent length {}",
                 parts.len,
             );
-            Ok(Array::<Primitive>::try_from_parts(ArrayVTable::deserialize(
+            ArrayPlugin::deserialize(
                 &Primitive,
-                parts.dtype,
-                parts.len,
-                parts.metadata,
-                parts.buffers,
-                parts.children,
+                ArrayDeserialization::new(
+                    old_primitive_id(),
+                    parts.dtype,
+                    parts.len,
+                    parts.metadata,
+                    parts.buffers,
+                    parts.children,
+                ),
                 session,
-            )?)?
-            .into_array())
+            )
         }
     }
 
@@ -883,8 +890,12 @@ mod tests {
             VersionedPrimitivePlugin.id()
         }
 
-        fn serialized_ids(&self) -> Vec<ArrayId> {
-            VersionedPrimitivePlugin.serialized_ids()
+        fn read_ids(&self) -> Vec<ArrayId> {
+            VersionedPrimitivePlugin.read_ids()
+        }
+
+        fn write_ids(&self) -> Vec<ArrayId> {
+            VersionedPrimitivePlugin.write_ids()
         }
 
         fn serialize(

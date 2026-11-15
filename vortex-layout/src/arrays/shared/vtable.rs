@@ -27,7 +27,6 @@ use vortex_array::with_empty_buffers;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::arrays::shared::SharedArrayExt;
@@ -98,26 +97,6 @@ impl VTable for Shared {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SharedSlots::NAMES[idx].to_string()
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-
-        _buffers: &[BufferHandle],
-        _children: &dyn vortex_array::serde::ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_error::vortex_bail!("Shared array is not serializable")
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

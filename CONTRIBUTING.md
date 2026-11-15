@@ -96,6 +96,28 @@ Run `cargo shear --fix` to apply suggested fixes, then review the manifest chang
 used only by generated code or to enable transitive features may need an entry in the affected
 crate's `[package.metadata.cargo-shear]` `ignored` list, with a comment explaining why.
 
+### Dependency release cooldown
+
+New releases wait 7 days before they reach the Python and JavaScript lock files, so most malicious
+publishes are found and removed upstream first. Renovate applies the wait to the version updates
+that it proposes. For lock file refreshes, uv applies the wait to `uv.lock` through `exclude-newer`
+in the root `pyproject.toml`. npm and Bun apply it to the JavaScript lock files, as `renovate.json`
+describes. `Cargo.lock` has no such wait. The weekly Rust lock file maintenance takes the latest
+compatible crate releases at once.
+
+Renovate opens security updates at once, but uv still refuses a fix released less than 7 days ago.
+The security PR then reports that it could not update `uv.lock`. To take the fix, add this
+exception to the PR's `pyproject.toml`:
+
+```toml
+[tool.uv]
+exclude-newer-package = { <package> = false }
+```
+
+Then run `uv lock --upgrade-package <package>`. Plain `uv lock` keeps the vulnerable version if it
+still satisfies the constraints, for example for a transitive dependency. Remove the exception once
+that release is 7 days old.
+
 ### Python bindings
 
 `vortex-data` is a mixed Python and Rust package. `uv` manages its Python environment, and
@@ -158,8 +180,9 @@ Use `make -C docs help` to list focused targets, and finish documentation change
 
 #### PR previews
 
-PRs with branches in `vortex-data/vortex` get a docs preview when they change `docs/`, a docs
-workflow, or the Vercel deploy files in `.github/vercel-cli/`. This includes draft PRs and PRs
+PRs with branches in `vortex-data/vortex` get a docs preview when they change `docs/`,
+`vortex-web/`, a docs or Explorer build workflow, or the Vercel deploy files in
+`.github/vercel-cli/`. This includes draft PRs and PRs
 targeting another feature branch. Fork PRs do not get hosted previews. Resolve merge conflicts
 before building a preview.
 
@@ -168,7 +191,8 @@ source code. The label stays on the PR and enables previews for later pushes. Re
 updates only if the PR no longer changes docs or a docs workflow.
 
 Previews are hosted on Vercel. The `vercel-docs` deployment status links to the latest preview for
-the PR, and the workflow summary records its URL. Each preview keeps its own URL. Previews build the
+the PR, and the workflow summary records its URL. One Vercel project serves the docs and the
+Explorer, so each preview also serves the Explorer at `/explorer/`. Each preview keeps its own URL. Previews build the
 PR head commit. Eligibility uses the complete PR diff, so rebasing over upstream docs changes does
 not enable a preview for an unrelated PR.
 

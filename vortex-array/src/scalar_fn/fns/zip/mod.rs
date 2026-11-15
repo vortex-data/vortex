@@ -30,6 +30,7 @@ use crate::dtype::StructFields;
 use crate::expr::BoundExpression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
@@ -140,11 +141,11 @@ impl ScalarFnVTable for Zip {
         let return_dtype = zip_return_dtype(if_true.dtype(), if_false.dtype())?;
 
         if mask.all_true() {
-            return if_true.cast(return_dtype)?.execute(ctx);
+            return if_true.cast(return_dtype);
         }
 
         if mask.all_false() {
-            return if_false.cast(return_dtype)?.execute(ctx);
+            return if_false.cast(return_dtype);
         }
 
         if !if_true.is_canonical() || !if_false.is_canonical() {
@@ -212,8 +213,8 @@ fn zip_impl(
 
     // `append_to_builder` requires exact dtype equality, so normalize branch
     // nullability to the output dtype before appending slices into the builder.
-    let if_true = if_true.cast(return_type.clone())?;
-    let if_false = if_false.cast(return_type.clone())?;
+    let if_true = if_true.cast(return_type.clone())?.optimize_ctx(ctx)?;
+    let if_false = if_false.cast(return_type.clone())?.optimize_ctx(ctx)?;
 
     zip_impl_with_builder(
         &if_true,
@@ -344,6 +345,7 @@ pub(crate) fn zip_validity(
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
@@ -352,6 +354,7 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::Struct;
@@ -434,6 +437,30 @@ mod tests {
 
         assert_arrays_eq!(result, expected, &mut ctx);
         assert_eq!(result.dtype(), if_true.dtype());
+    }
+
+    #[rstest]
+    #[case::all_true(Some(true), 10)]
+    #[case::all_false(Some(false), 20)]
+    #[case::null_mask(None, 20)]
+    fn test_zip_constant_mask_preserves_constant(
+        #[case] mask: Option<bool>,
+        #[case] expected: i32,
+        #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let if_true = ConstantArray::new(10i32, 4).into_array();
+        let if_false = ConstantArray::new(Scalar::primitive(20i32, nullability), 4).into_array();
+        let result = ConstantArray::new(mask, 4)
+            .into_array()
+            .zip(if_true, if_false)?
+            .execute::<Columnar>(&mut ctx)?
+            .into_array();
+
+        assert!(result.is::<Constant>());
+        let expected = ConstantArray::new(Scalar::primitive(expected, nullability), 4);
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
     }
 
     #[test]

@@ -9,6 +9,11 @@ mod sample;
 mod select;
 mod structural;
 
+pub(crate) use cascade::TrialOutput;
+pub(crate) use cascade::exact_uncompressed_size;
+pub(crate) use sample::estimate_compression_ratio_with_sampling;
+pub(crate) use sample::sample_slices;
+
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
 use crate::scheme::DescendantExclusion;

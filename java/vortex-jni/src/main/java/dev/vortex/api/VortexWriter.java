@@ -6,15 +6,18 @@ package dev.vortex.api;
 import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.io.NativeWritable;
+import dev.vortex.jni.NativeBuffers;
 import dev.vortex.jni.NativeWriter;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.apache.arrow.c.ArrowArray;
 import org.apache.arrow.c.ArrowSchema;
 import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 /**
@@ -23,9 +26,10 @@ import org.apache.arrow.vector.types.pojo.Schema;
  * <p>Open one with {@link #builder(Session, String, Schema, BufferAllocator)} to write to a URI, or
  * {@link #builder(Session, NativeWritable, Schema, BufferAllocator)} to write into a caller-provided byte sink.
  *
- * <p>Batches are accepted via the Arrow C Data Interface: callers export an Arrow record batch to an {@code ArrowArray}
- * / {@code ArrowSchema} pair and pass the addresses to {@link #writeBatch(long, long)}. The writer accepts up to four
- * in-flight batches on the session's runtime thread before back-pressuring the caller.
+ * <p>Use {@link #writeBatch(VectorSchemaRoot, BufferAllocator)} for zero-copy Java batches with independent buffer
+ * lifetimes. Batches are also accepted via the Arrow C Data Interface: callers export an Arrow record batch to an
+ * {@code ArrowArray} / {@code ArrowSchema} pair and pass the addresses to {@link #writeBatch(long, long)}. The writer
+ * accepts up to four in-flight batches on the session's runtime thread before back-pressuring the caller.
  *
  * <p>Call {@link #close()} to flush remaining batches and finalize the file. If the writer becomes unreachable without
  * an explicit {@code close()}, {@link VortexCleaner} will flush and release native resources as a backstop — but
@@ -33,12 +37,14 @@ import org.apache.arrow.vector.types.pojo.Schema;
  */
 public final class VortexWriter implements AutoCloseable {
     private final long pointer;
+    private final Schema arrowSchema;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private volatile VortexWriteSummary summary;
 
-    private VortexWriter(long pointer) {
+    private VortexWriter(long pointer, Schema arrowSchema) {
         Preconditions.checkArgument(pointer != 0, "invalid writer pointer");
         this.pointer = pointer;
+        this.arrowSchema = arrowSchema;
         AtomicBoolean closedRef = this.closed;
         VortexCleaner.register(this, () -> {
             if (closedRef.compareAndSet(false, true)) {
@@ -86,6 +92,7 @@ public final class VortexWriter implements AutoCloseable {
         private final BufferAllocator allocator;
         private final Map<String, String> options = new HashMap<>();
         private final Map<String, byte[]> metadata = new HashMap<>();
+        private boolean compact;
 
         private Builder(
                 Session session, String uri, NativeWritable writable, Schema arrowSchema, BufferAllocator allocator) {
@@ -140,6 +147,16 @@ public final class VortexWriter implements AutoCloseable {
         }
 
         /**
+         * Write with the compact strategy, which prefers a smaller file over read throughput and latency. It is what
+         * {@code vortex.io.VortexWriteOptions.compact()} selects in Python, and is off by default. The file is read
+         * like any other.
+         */
+        public Builder compact(boolean compact) {
+            this.compact = compact;
+            return this;
+        }
+
+        /**
          * Open the writer.
          *
          * @throws IOException if the writer cannot be opened, including when the native side rejects the configured
@@ -152,9 +169,10 @@ public final class VortexWriter implements AutoCloseable {
                 final long pointer;
                 try {
                     pointer = uri != null
-                            ? NativeWriter.create(session.nativePointer(), uri, ffi.memoryAddress(), options, metadata)
+                            ? NativeWriter.create(
+                                    session.nativePointer(), uri, ffi.memoryAddress(), options, metadata, compact)
                             : NativeWriter.createStream(
-                                    session.nativePointer(), writable, ffi.memoryAddress(), metadata);
+                                    session.nativePointer(), writable, ffi.memoryAddress(), metadata, compact);
                 } catch (RuntimeException e) {
                     // Native failures arrive as RuntimeException. Wrap them so callers can handle every
                     // failure to open a writer as an IOException, as writeBatch and finish already do.
@@ -163,8 +181,12 @@ public final class VortexWriter implements AutoCloseable {
                 if (pointer <= 0) {
                     throw new IOException("failed to create writer for " + destination() + " (ptr=" + pointer + ")");
                 }
-                return new VortexWriter(pointer);
+                return new VortexWriter(pointer, arrowSchema);
             } finally {
+                // Native code takes and releases the schema. If it failed before it took the schema, release it here.
+                if (ffi.snapshot().release != 0) {
+                    ffi.release();
+                }
                 ffi.close();
             }
         }
@@ -178,8 +200,39 @@ public final class VortexWriter implements AutoCloseable {
         }
     }
 
-    /** Write a batch directly from Arrow C Data Interface addresses. */
-    public void writeBatch(long arrowArrayAddr, long arrowSchemaAddr) throws IOException {
+    /**
+     * Write a Java Arrow batch without copying its data. Native buffers retain their allocations independently, so a
+     * retained column does not pin the entire batch. The caller may close or clear the root after this method returns,
+     * but must not overwrite its retained buffers.
+     *
+     * @param root batch to write; dictionary-encoded fields require the address-based API
+     * @param allocator allocator for temporary C Data Interface metadata
+     */
+    public synchronized void writeBatch(VectorSchemaRoot root, BufferAllocator allocator) throws IOException {
+        Preconditions.checkState(!closed.get(), "writer already closed");
+        if (!arrowSchema.equals(root.getSchema())) {
+            throw new IOException("batch schema does not match writer schema");
+        }
+        try (ArrowArray array = ArrowArray.allocateNew(allocator)) {
+            try {
+                Data.exportVectorSchemaRoot(allocator, root, null, array);
+                if (!NativeWriter.writeBatchBuffers(pointer, array.memoryAddress(), NativeBuffers.collect(root))) {
+                    throw new IOException("failed to write batch");
+                }
+            } finally {
+                array.release();
+            }
+        } catch (RuntimeException e) {
+            throw new IOException("failed to write batch", e);
+        }
+    }
+
+    /**
+     * Write a batch directly from Arrow C Data Interface addresses. Native code takes both the array and the schema,
+     * and releases them. These buffers share the producer's batch release callback; use
+     * {@link #writeBatch(VectorSchemaRoot, BufferAllocator)} for independently retained Java allocations.
+     */
+    public synchronized void writeBatch(long arrowArrayAddr, long arrowSchemaAddr) throws IOException {
         Preconditions.checkState(!closed.get(), "writer already closed");
         final boolean ok;
         try {

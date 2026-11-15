@@ -19,9 +19,6 @@ use vortex_session::registry::CachedId;
 use super::DecimalByteParts;
 use super::DecimalBytePartsArraySlotsExt;
 
-#[cfg(test)]
-mod tests;
-
 mod v1;
 mod v2;
 
@@ -45,8 +42,8 @@ pub fn decimal_byte_parts_v2_id() -> ArrayId {
 /// array has no lower parts, so such arrays stay readable by older readers, and v2 otherwise.
 /// The v2 format itself accepts any lower part count up to the maximum.
 ///
-/// Register this plugin, or call [`crate::initialize`], to enable both formats. Direct registration
-/// of [`DecimalByteParts`] does not support serde.
+/// Register this plugin, or call [`crate::initialize`], to enable both formats.
+/// [`DecimalByteParts`] does not implement [`ArrayPlugin`], so it cannot be registered on its own.
 #[derive(Clone, Debug)]
 pub struct DecimalBytePartsPlugin;
 
@@ -55,7 +52,11 @@ impl ArrayPlugin for DecimalBytePartsPlugin {
         VTable::id(&DecimalByteParts)
     }
 
-    fn serialized_ids(&self) -> Vec<ArrayId> {
+    fn read_ids(&self) -> Vec<ArrayId> {
+        vec![decimal_byte_parts_v1_id(), decimal_byte_parts_v2_id()]
+    }
+
+    fn write_ids(&self) -> Vec<ArrayId> {
         vec![decimal_byte_parts_v1_id(), decimal_byte_parts_v2_id()]
     }
 
@@ -96,3 +97,6 @@ impl ArrayPlugin for DecimalBytePartsPlugin {
         Ok(array.into_array())
     }
 }
+
+#[cfg(test)]
+mod tests;

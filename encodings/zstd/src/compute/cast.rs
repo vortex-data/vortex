@@ -35,14 +35,14 @@ impl CastReduce for Zstd {
             (Nullability::NonNullable, Nullability::Nullable) => {
                 // nonnull => null, trivial cast by altering the validity
                 child_to_validity(
-                    array.slots()[ZstdSlots::VALIDITY].as_ref(),
+                    array.slots()[ZstdSlots::VALIDITY_CHILD].as_ref(),
                     array.dtype().nullability(),
                 )
             }
             (Nullability::Nullable, Nullability::NonNullable) => {
                 // null => non-null works if there are no nulls in the sliced range
                 let unsliced_validity = child_to_validity(
-                    array.slots()[ZstdSlots::VALIDITY].as_ref(),
+                    array.slots()[ZstdSlots::VALIDITY_CHILD].as_ref(),
                     array.dtype().nullability(),
                 );
                 let has_nulls = !unsliced_validity
@@ -95,7 +95,11 @@ mod tests {
 
     use crate::Zstd;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_cast_zstd_i32_to_i64() {

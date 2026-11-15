@@ -149,7 +149,7 @@ impl ScalarFnVTable for Cast {
             }
             ColumnarView::Constant(constant) => match cast_constant(constant, target_dtype)? {
                 Some(result) => Ok(result),
-                // Some array conversions, including bool to numeric, have no scalar cast.
+                // Some array conversions have no scalar cast.
                 None => input
                     .execute::<Canonical>(ctx)?
                     .into_array()

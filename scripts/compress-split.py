@@ -11,6 +11,8 @@ import glob
 import os
 import re
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -32,6 +34,16 @@ def drop_os_caches() -> None:
         pass
 
 
+@contextmanager
+def log_group(title: str) -> Iterator[None]:
+    """Fold the output printed inside into a collapsible GitHub Actions log group."""
+    print(f"::group::{title}", flush=True)
+    try:
+        yield
+    finally:
+        print("::endgroup::", flush=True)
+
+
 def list_datasets(gpu_decompress: bool) -> list[str]:
     cmd = [BINARY, "--print-datasets"]
     if gpu_decompress:
@@ -40,10 +52,21 @@ def list_datasets(gpu_decompress: bool) -> list[str]:
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
+def prepare_data(gpu_decompress: bool) -> None:
+    for dataset in list_datasets(gpu_decompress):
+        args = [BINARY, "--prepare-data", "--datasets", f"^{re.escape(dataset)}$"]
+        if gpu_decompress:
+            args.append("--gpu-decompress")
+        with log_group(f"Generate {dataset}"):
+            print("+", " ".join(args), flush=True)
+            subprocess.run(args, check=True)
+
+
 def run_datasets(formats: str, emit_ingest_records: bool, gpu_decompress: bool, cpus: int | None) -> list[str]:
     PARTS_DIR.mkdir(parents=True, exist_ok=True)
     failures: list[str] = []
-    for i, dataset in enumerate(list_datasets(gpu_decompress)):
+    datasets = list_datasets(gpu_decompress)
+    for i, dataset in enumerate(datasets):
         drop_os_caches()
 
         args = [
@@ -63,14 +86,15 @@ def run_datasets(formats: str, emit_ingest_records: bool, gpu_decompress: bool, 
         args += ["-d", "gh-json", "-o", str(PARTS_DIR / f"{i}.gh.json")]
         if emit_ingest_records:
             args += ["--ingest-jsonl", str(PARTS_DIR / f"{i}.ingest.jsonl")]
-        print("+", " ".join(args), flush=True)
 
         env = os.environ.copy()
         if cpus is not None:
             # Pin the process to `cpus` CPUs (bench-taskset.sh) and size the runtime to match,
             # so every format runs on the same fixed core budget.
             env["BENCH_MAX_CPUS"] = str(cpus)
-        result = subprocess.run(args, check=not gpu_decompress, env=env)
+        with log_group(f"Benchmark [{i + 1}/{len(datasets)}] {dataset}"):
+            print("+", " ".join(args), flush=True)
+            result = subprocess.run(args, check=not gpu_decompress, env=env)
         if result.returncode != 0:
             failures.append(dataset)
     return failures
@@ -110,7 +134,16 @@ def main() -> None:
         default=16,
         help="CPU cores (and worker threads) the timed CPU benchmark runs on; 0 means all",
     )
+    parser.add_argument(
+        "--prepare-data",
+        action="store_true",
+        help="only generate the benchmark data files, without running the benchmark",
+    )
     args = parser.parse_args()
+
+    if args.prepare_data:
+        prepare_data(args.gpu_decompress)
+        return
 
     cpus = None if args.gpu_decompress or args.cpus <= 0 else args.cpus
     failures = run_datasets(args.formats, args.emit_ingest_records, args.gpu_decompress, cpus)

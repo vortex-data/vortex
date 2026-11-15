@@ -30,6 +30,9 @@ use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::VTable;
 use crate::children::OwnedLayoutChildren;
+use crate::plan::physical::PlanRef;
+use crate::plan::physical::PlanSlots;
+use crate::plan::physical::TakePlan;
 use crate::segments::SegmentSource;
 
 /// Dictionary layout vtable.
@@ -126,6 +129,21 @@ impl VTable for Dict {
             session.clone(),
             ctx.clone(),
         )?))
+    }
+
+    fn new_plan(layout: &Layout<Self>) -> VortexResult<PlanRef> {
+        // Dict serialization stores values before codes; the plan order is deliberately codes,
+        // values because that is the optimizer-facing logical shape.
+        // SAFETY: Dict layout construction validates its values and codes slots. The plan reorders
+        // those slots to [codes, values] while preserving the derived output dtype and row domain.
+        let plan = unsafe {
+            TakePlan::from_slots_unchecked(
+                layout.dtype().clone(),
+                layout.row_count(),
+                PlanSlots::from_layout_slots(&layout.to_layout(), [1, 0]),
+            )
+        };
+        Ok(plan.into_plan())
     }
 }
 

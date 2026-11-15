@@ -14,7 +14,6 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::StructArray;
@@ -36,6 +35,8 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::pack::Pack;
+use crate::scalar_fn::fns::select::FieldSelection;
+use crate::scalar_fn::fns::select::Select;
 
 #[derive(Clone)]
 pub struct GetItem;
@@ -73,13 +74,31 @@ impl GetItem {
         )
     }
 
-    /// Read `field_name` straight out of a `pack` node, which holds each field as a child.
-    ///
-    /// Returns `None` if `struct_node` is not a `pack`, or does not hold `field_name`.
+    /// Extract a constant field, bypass a selection, or read a field directly from a pack.
     fn maybe_apply_now<T: ReduceNode>(
         struct_node: &T,
         field_name: &FieldName,
     ) -> VortexResult<Option<T>> {
+        if let Some(scalar) = struct_node.as_constant() {
+            return Ok(Some(
+                struct_node.new_constant(Self::constant_field(scalar, field_name)?),
+            ));
+        }
+
+        if let Some(selection) = struct_node
+            .scalar_fn()
+            .and_then(|scalar_fn| scalar_fn.as_opt::<Select>())
+        {
+            let included = match selection {
+                FieldSelection::Include(fields) => fields.as_ref().contains(field_name),
+                FieldSelection::Exclude(fields) => !fields.as_ref().contains(field_name),
+            };
+            if included {
+                return Self::apply_now(&struct_node.child(0), field_name).map(Some);
+            }
+            return Ok(None);
+        }
+
         let Some(pack) = struct_node
             .scalar_fn()
             .and_then(|scalar_fn| scalar_fn.as_opt::<Pack>())
@@ -102,6 +121,24 @@ impl GetItem {
             &[field, struct_node.new_constant(true.into())],
         )?))
     }
+
+    fn constant_field(scalar: &Scalar, field_name: &FieldName) -> VortexResult<Scalar> {
+        let dtype = Self.return_dtype(field_name, &[scalar.dtype().clone()])?;
+        if scalar.is_null() {
+            return Ok(Scalar::null(dtype));
+        }
+        scalar
+            .as_struct()
+            .field(field_name)
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Field '{}' missing from constant struct array {}",
+                    field_name,
+                    scalar.dtype()
+                )
+            })?
+            .cast(&dtype)
+    }
 }
 
 impl ScalarFnVTable for GetItem {
@@ -115,7 +152,7 @@ impl ScalarFnVTable for GetItem {
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::GetItemOpts {
-                path: instance.to_string(),
+                path: instance.as_ref().to_owned(),
             }
             .encode_to_vec(),
         ))
@@ -178,26 +215,11 @@ impl ScalarFnVTable for GetItem {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
-        if let Some(constant) = input.as_opt::<Constant>() {
-            let dtype = self.return_dtype(field_name, &[input.dtype().clone()])?;
-            let scalar = if constant.scalar().is_null() {
-                Scalar::null(dtype)
-            } else {
-                constant
-                    .scalar()
-                    .as_struct()
-                    .field(field_name)
-                    .ok_or_else(|| {
-                        vortex_err!(
-                            "Field '{}' missing from constant struct array {}",
-                            field_name,
-                            input.dtype()
-                        )
-                    })?
-                    .cast(&dtype)?
-            };
-
-            return Ok(ConstantArray::new(scalar, input.len()).into_array());
+        if let Some(scalar) = input.as_constant() {
+            return Ok(
+                ConstantArray::new(Self::constant_field(scalar, field_name)?, input.len())
+                    .into_array(),
+            );
         }
 
         let input = input.execute::<StructArray>(ctx)?;
@@ -227,6 +249,7 @@ impl ScalarFnVTable for GetItem {
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -241,6 +264,7 @@ mod tests {
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFn;
+    use crate::arrays::ScalarFnArray;
     use crate::arrays::Slice;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
@@ -251,13 +275,21 @@ mod tests {
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::expr::Expression;
     use crate::expr::checked_add;
     use crate::expr::get_item;
     use crate::expr::lit;
     use crate::expr::pack;
+    use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::root;
+    use crate::expr::select;
+    use crate::expr::select_exclude;
+    use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::fns::get_item::StructArray;
+    use crate::scalar_fn::fns::select::FieldSelection;
+    use crate::scalar_fn::fns::select::Select;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -268,6 +300,27 @@ mod tests {
             ("b", buffer![4i64, 5, 6].into_array()),
         ])
         .unwrap()
+    }
+
+    #[test]
+    fn test_roundtrip_preserves_field_names() -> VortexResult<()> {
+        let name = "quote\"slash\\line\n\t\r\0 ♡";
+        let escaped_name = name.escape_debug().to_string();
+        let expected = buffer![1i32, 2].into_array();
+        let input = StructArray::from_fields(&[
+            (name, expected.clone()),
+            (escaped_name.as_str(), buffer![3i32, 4].into_array()),
+        ])?
+        .into_array();
+        let expression = get_item(name, root());
+        let restored = Expression::from_proto(&expression.serialize_proto()?, &SESSION)?;
+
+        assert_arrays_eq!(
+            input.apply(&restored)?,
+            expected,
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
     }
 
     #[test]
@@ -372,6 +425,92 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case::include(FieldSelection::Include(FieldNames::from(["a"])))]
+    #[case::exclude(FieldSelection::Exclude(FieldNames::from(["b"])))]
+    fn get_item_reduces_through_select(
+        #[case] selection: FieldSelection,
+        #[values(
+            Validity::NonNullable,
+            Validity::AllValid,
+            Validity::AllInvalid,
+            Validity::from_iter([true, false, true])
+        )]
+        validity: Validity,
+    ) -> VortexResult<()> {
+        let array = StructArray::try_new(
+            FieldNames::from(["a", "b"]),
+            vec![
+                ConstantArray::new(42i32, 3).into_array(),
+                buffer![1i32, 2, 3].into_array(),
+            ],
+            3,
+            validity,
+        )?
+        .into_array();
+        let expected = array.get_item("a")?.optimize_ctx(&SESSION)?;
+        let selected = ScalarFnArray::try_new(Select.bind(selection), [array])?.into_array();
+        let item = GetItem::try_new(selected, "a")?
+            .into_array()
+            .optimize_ctx(&SESSION)?;
+
+        assert_eq!(item.encoding_id(), expected.encoding_id());
+        assert_eq!(item.dtype(), expected.dtype());
+        assert_arrays_eq!(item, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::include(select(["a"], root()))]
+    #[case::exclude(select_exclude(["b"], root()))]
+    fn get_item_select_expression_reduces(#[case] selected: Expression) -> VortexResult<()> {
+        let dtype = test_array().dtype().clone();
+        let result = get_item("a", selected).bind(&dtype)?.optimize_recursive()?;
+        assert_eq!(result, get_item("a", root()).bind(&dtype)?);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::include(select(["b"], root()))]
+    #[case::exclude(select_exclude(["a"], root()))]
+    fn get_item_select_rejects_removed_field(#[case] selected: Expression) {
+        assert!(
+            test_array()
+                .into_array()
+                .apply(&get_item("a", selected))
+                .is_err()
+        );
+    }
+
+    #[rstest]
+    fn get_item_constant_reduces(
+        #[values(false, true)] null: bool,
+        #[values(0, 3)] len: usize,
+    ) -> VortexResult<()> {
+        let dtype = DType::Struct(
+            StructFields::new(FieldNames::from(["a"]), vec![DType::from(PType::I32)]),
+            Nullability::Nullable,
+        );
+        let scalar = if null {
+            Scalar::null(dtype)
+        } else {
+            Scalar::struct_(dtype, [Scalar::from(42i32)])
+        };
+        let item = ConstantArray::new(scalar, len)
+            .into_array()
+            .apply(&get_item("a", root()))?
+            .optimize_ctx(&SESSION)?;
+        let expected = if null {
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
+        } else {
+            Scalar::primitive(42i32, Nullability::Nullable)
+        };
+
+        assert_eq!(item.as_::<Constant>().scalar(), &expected);
+        assert_eq!(item.len(), len);
+        Ok(())
+    }
+
     #[test]
     fn get_item_pushes_through_filter() -> VortexResult<()> {
         use vortex_mask::Mask;
@@ -380,7 +519,7 @@ mod tests {
             .into_array()
             .filter(Mask::from_iter([true, false, true]))?;
 
-        let item = filtered.get_item("a")?;
+        let item = filtered.get_item("a")?.optimize_ctx(&SESSION)?;
 
         assert!(item.is::<Filter>());
         assert!(!item.is::<ScalarFn>());
@@ -396,7 +535,7 @@ mod tests {
     fn get_item_pushes_through_slice() -> VortexResult<()> {
         let sliced = test_array().into_array().slice(1..3)?;
 
-        let item = sliced.get_item("a")?;
+        let item = sliced.get_item("a")?.optimize_ctx(&SESSION)?;
 
         assert!(item.is::<Primitive>());
         assert!(!item.is::<Slice>());
@@ -413,9 +552,10 @@ mod tests {
     fn get_item_pushes_through_masked() -> VortexResult<()> {
         let masked = test_array()
             .into_array()
-            .mask(Validity::from_iter([true, false, true]).to_array(3))?;
+            .mask(Validity::from_iter([true, false, true]).to_array(3))?
+            .optimize_ctx(&SESSION)?;
 
-        let item = masked.get_item("a")?;
+        let item = masked.get_item("a")?.optimize_ctx(&SESSION)?;
 
         assert!(item.is::<Primitive>());
         assert_eq!(

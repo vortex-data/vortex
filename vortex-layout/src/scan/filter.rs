@@ -5,6 +5,7 @@ use std::iter;
 
 use bit_vec::BitVec;
 use itertools::Itertools;
+use parking_lot::Mutex;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
 use vortex_array::expr::BoundExpression;
@@ -17,6 +18,13 @@ use vortex_error::vortex_panic;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
+
+/// A dynamic conjunct keeping at least this fraction of its input rows is considered unselective.
+const UNSELECTIVE_DYNAMIC_SELECTIVITY: f64 = 0.99;
+
+/// Consecutive unselective evaluations, at one dynamic version, after which a skippable dynamic
+/// conjunct stops being evaluated until its dynamic values change.
+pub(crate) const UNSELECTIVE_DYNAMIC_SPLITS: u32 = 4;
 
 /// A [`FilterExpr`] splits boolean expressions into individual conjunctions, tracks
 /// statistics about selectivity, and uses this information to reorder the evaluation of the
@@ -32,6 +40,9 @@ pub struct FilterExpr {
     ordering: RwLock<Vec<usize>>,
     /// The quantile to use from the selectivity histogram of each conjunct.
     selectivity_quantile: f64,
+    /// For each conjunct, the dynamic version and how many consecutive evaluations at that version
+    /// kept almost every row. `None` unless unselective dynamic conjuncts may be skipped.
+    unselective_dynamic: Option<Vec<Mutex<(u64, u32)>>>,
 }
 
 fn bound_conjuncts(expr: &BoundExpression) -> Vec<BoundExpression> {
@@ -70,6 +81,68 @@ impl FilterExpr {
             // comparison operator to perform. e.g. == might be more selective than <=? Not obvious.
             ordering: RwLock::new((0..num_conjuncts).collect()),
             selectivity_quantile: DEFAULT_SELECTIVITY_QUANTILE,
+            unselective_dynamic: None,
+        }
+    }
+
+    /// Allows skipping dynamic conjuncts that keep almost every row.
+    ///
+    /// Once a conjunct containing dynamic expressions has kept almost every row for several
+    /// consecutive evaluations, it is not evaluated again until its dynamic values change. The scan
+    /// may then return rows the conjunct would reject, so only enable this when dynamic
+    /// expressions are optimization hints whose producer applies them again.
+    pub fn with_skip_unselective_dynamic(mut self, skip: bool) -> Self {
+        self.unselective_dynamic = skip.then(|| {
+            iter::repeat_with(|| Mutex::new((0, 0)))
+                .take(self.conjuncts.len())
+                .collect()
+        });
+        self
+    }
+
+    /// Whether unselective dynamic conjuncts may be skipped.
+    #[inline]
+    pub fn skips_unselective_dynamic(&self) -> bool {
+        self.unselective_dynamic.is_some()
+    }
+
+    /// The current dynamic version of the conjunct, or `None` when it has no dynamic expressions.
+    #[inline]
+    pub fn dynamic_version(&self, conjunct_idx: usize) -> Option<u64> {
+        self.dynamic_updates(conjunct_idx)
+            .map(DynamicExprUpdates::version)
+    }
+
+    /// Whether the dynamic conjunct can be skipped at dynamic `version`, because it kept almost
+    /// every row for its last evaluations at that version.
+    pub fn skips_dynamic_conjunct(&self, conjunct_idx: usize, version: u64) -> bool {
+        self.unselective_dynamic.as_ref().is_some_and(|states| {
+            let (state_version, streak) = *states[conjunct_idx].lock();
+            state_version == version && streak >= UNSELECTIVE_DYNAMIC_SPLITS
+        })
+    }
+
+    /// Whether the conjunct is a dynamic conjunct that is currently switched off.
+    pub fn is_switched_off(&self, conjunct_idx: usize) -> bool {
+        self.unselective_dynamic.is_some()
+            && self
+                .dynamic_version(conjunct_idx)
+                .is_some_and(|version| self.skips_dynamic_conjunct(conjunct_idx, version))
+    }
+
+    /// Records the selectivity of a dynamic conjunct evaluated at dynamic `version`.
+    pub fn report_dynamic_selectivity(&self, conjunct_idx: usize, version: u64, selectivity: f64) {
+        let Some(states) = &self.unselective_dynamic else {
+            return;
+        };
+        let mut state = states[conjunct_idx].lock();
+        if state.0 != version {
+            *state = (version, 0);
+        }
+        if selectivity >= UNSELECTIVE_DYNAMIC_SELECTIVITY {
+            state.1 = state.1.saturating_add(1);
+        } else {
+            state.1 = 0;
         }
     }
 
@@ -168,6 +241,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::FilterExpr;
+    use super::UNSELECTIVE_DYNAMIC_SPLITS;
 
     #[test]
     fn bound_conjuncts_preserve_order_and_types() -> VortexResult<()> {
@@ -208,6 +282,51 @@ mod tests {
 
         filter.report_selectivity(1, 0.1);
         assert_eq!(*filter.ordering.read(), vec![1, 0]);
+        Ok(())
+    }
+
+    #[test]
+    fn skips_unselective_dynamic_conjunct_until_version_changes() -> VortexResult<()> {
+        let dtype = DType::Bool(Nullability::Nullable);
+        let filter = FilterExpr::new(and(root(), not(root())).bind(&dtype)?)
+            .with_skip_unselective_dynamic(true);
+
+        for _ in 0..UNSELECTIVE_DYNAMIC_SPLITS {
+            assert!(!filter.skips_dynamic_conjunct(0, 1));
+            filter.report_dynamic_selectivity(0, 1, 1.0);
+        }
+        assert!(filter.skips_dynamic_conjunct(0, 1));
+        assert!(!filter.skips_dynamic_conjunct(1, 1));
+        // New dynamic values must be evaluated again.
+        assert!(!filter.skips_dynamic_conjunct(0, 2));
+        filter.report_dynamic_selectivity(0, 2, 1.0);
+        assert!(!filter.skips_dynamic_conjunct(0, 2));
+        Ok(())
+    }
+
+    #[test]
+    fn selective_evaluation_resets_unselective_streak() -> VortexResult<()> {
+        let dtype = DType::Bool(Nullability::Nullable);
+        let filter = FilterExpr::new(root().bind(&dtype)?).with_skip_unselective_dynamic(true);
+
+        for _ in 1..UNSELECTIVE_DYNAMIC_SPLITS {
+            filter.report_dynamic_selectivity(0, 1, 1.0);
+        }
+        filter.report_dynamic_selectivity(0, 1, 0.5);
+        filter.report_dynamic_selectivity(0, 1, 1.0);
+        assert!(!filter.skips_dynamic_conjunct(0, 1));
+        Ok(())
+    }
+
+    #[test]
+    fn never_skips_without_opt_in() -> VortexResult<()> {
+        let dtype = DType::Bool(Nullability::Nullable);
+        let filter = FilterExpr::new(root().bind(&dtype)?);
+        for _ in 0..=UNSELECTIVE_DYNAMIC_SPLITS {
+            filter.report_dynamic_selectivity(0, 1, 1.0);
+        }
+        assert!(!filter.skips_dynamic_conjunct(0, 1));
+        assert!(!filter.is_switched_off(0));
         Ok(())
     }
 }

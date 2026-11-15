@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT * FROM (VALUES
+    (UUID '00000000-0000-0000-0000-000000000001', TIMESTAMP_MS '1970-01-01 00:00:01'),
+    (UUID '00000000-0000-0000-0000-000000000002', TIMESTAMP_MS '1970-01-01 00:00:02'),
+    (UUID '00000000-0000-0000-0000-000000000003', TIMESTAMP_MS '1970-01-01 00:00:03'),
+    (NULL, NULL)
+) AS input(id, created_at)) TO '${WORK_DIR}/extension_literals.vortex' (FORMAT VORTEX);
+
+# Each predicate must run inside the Vortex scan, without a residual DuckDB filter.
+query TT
+EXPLAIN SELECT count(*) FROM '${WORK_DIR}/extension_literals.vortex'
+WHERE id = UUID '00000000-0000-0000-0000-000000000002';
+----
+<REGEX>:Read Vortex
+
+query TT
+EXPLAIN SELECT count(*) FROM '${WORK_DIR}/extension_literals.vortex'
+WHERE id = UUID '00000000-0000-0000-0000-000000000002';
+----
+<!REGEX>:FILTER
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/extension_literals.vortex'
+WHERE id = UUID '00000000-0000-0000-0000-000000000002';
+----
+1
+
+query TT
+EXPLAIN SELECT count(*) FROM '${WORK_DIR}/extension_literals.vortex'
+WHERE UUID '00000000-0000-0000-0000-000000000002' < id;
+----
+<REGEX>:Read Vortex
+
+query TT
+EXPLAIN SELECT count(*) FROM '${WORK_DIR}/extension_literals.vortex'
+WHERE UUID '00000000-0000-0000-0000-000000000002' < id;
+----
+<!REGEX>:FILTER
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/extension_literals.vortex'
+WHERE UUID '00000000-0000-0000-0000-000000000002' < id;
+----
+1
+
+query TT
+EXPLAIN SELECT count(*) FROM '${WORK_DIR}/extension_literals.vortex'
+WHERE created_at = TIMESTAMP_MS '1970-01-01 00:00:02';
+----
+<REGEX>:Read Vortex
+
+query TT
+EXPLAIN SELECT count(*) FROM '${WORK_DIR}/extension_literals.vortex'
+WHERE created_at = TIMESTAMP_MS '1970-01-01 00:00:02';
+----
+<!REGEX>:FILTER
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/extension_literals.vortex'
+WHERE created_at = TIMESTAMP_MS '1970-01-01 00:00:02';
+----
+1
+
+query TT
+EXPLAIN SELECT count(*) FROM '${WORK_DIR}/extension_literals.vortex'
+WHERE created_at < TIMESTAMP_MS '1970-01-01 00:00:01.500';
+----
+<REGEX>:Read Vortex
+
+query TT
+EXPLAIN SELECT count(*) FROM '${WORK_DIR}/extension_literals.vortex'
+WHERE created_at < TIMESTAMP_MS '1970-01-01 00:00:01.500';
+----
+<!REGEX>:FILTER
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/extension_literals.vortex'
+WHERE created_at < TIMESTAMP_MS '1970-01-01 00:00:01.500';
+----
+1
+
+query TT
+EXPLAIN SELECT count(*) FROM '${WORK_DIR}/extension_literals.vortex'
+WHERE TIMESTAMP_MS '1970-01-01 00:00:01.500' < created_at;
+----
+<REGEX>:Read Vortex
+
+query TT
+EXPLAIN SELECT count(*) FROM '${WORK_DIR}/extension_literals.vortex'
+WHERE TIMESTAMP_MS '1970-01-01 00:00:01.500' < created_at;
+----
+<!REGEX>:FILTER
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/extension_literals.vortex'
+WHERE TIMESTAMP_MS '1970-01-01 00:00:01.500' < created_at;
+----
+2

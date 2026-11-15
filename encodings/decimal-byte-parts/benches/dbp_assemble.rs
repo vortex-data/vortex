@@ -114,6 +114,7 @@ mod arrays {
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::DecimalType;
     use vortex_array::optimizer::kernels::KernelSession;
+    use vortex_array::test_harness::mark_optimized;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_decimal_byte_parts::_benchmarking::assemble_decimal;
@@ -170,6 +171,11 @@ mod arrays {
         lower_parts: Vec<ArrayRef>,
         decimal_dtype: DecimalDType,
     ) {
+        mark_optimized(&msp, &SESSION).vortex_expect("mark the MSP as optimized");
+        for part in &lower_parts {
+            mark_optimized(part, &SESSION).vortex_expect("mark the lower part as optimized");
+        }
+
         bencher
             .with_inputs(|| SESSION.create_execution_ctx())
             .bench_refs(|ctx| {

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![expect(clippy::unwrap_used)]
+
 use std::sync::LazyLock;
 
 use divan::Bencher;
@@ -20,6 +22,7 @@ use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::i256;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -47,10 +50,10 @@ fn max_i32(bencher: Bencher) {
     let data: Vec<i32> = (0..N).map(|_| rng.random::<i32>()).collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_max::<i32>(ctx));
 }
@@ -61,10 +64,10 @@ fn max_i64(bencher: Bencher) {
     let data: Vec<i64> = (0..N).map(|_| rng.random::<i64>()).collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_max::<i64>(ctx));
 }
@@ -96,10 +99,11 @@ fn bench_decimal_min_max<T: NativeDecimalType>(
 
     bencher
         .with_inputs(|| {
-            (
-                DecimalArray::new(values.clone(), decimal_dtype, validity.clone()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array =
+                DecimalArray::new(values.clone(), decimal_dtype, validity.clone()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(array, ctx)| min_max(array, ctx, NumericalAggregateOpts::default()));
 }
@@ -131,10 +135,10 @@ fn max_f64(bencher: Bencher) {
     let data: Vec<f64> = (0..N).map(|_| rng.random::<f64>()).collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_max::<f64>(ctx));
 }
@@ -154,10 +158,10 @@ fn max_i32_nulls_clustered(bencher: Bencher) {
         .collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_option_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_max::<i32>(ctx));
 }
@@ -171,10 +175,10 @@ fn max_i32_nulls_scattered(bencher: Bencher) {
         .collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_option_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_max::<i32>(ctx));
 }
@@ -194,14 +198,14 @@ const STRING_N: usize = 4_096;
 fn bench_min_max(bencher: Bencher, values: Vec<Option<String>>) {
     bencher
         .with_inputs(|| {
-            (
-                VarBinViewArray::from_iter(
-                    values.iter().map(|v| v.as_deref()),
-                    DType::Utf8(Nullability::Nullable),
-                )
-                .into_array(),
-                SESSION.create_execution_ctx(),
+            let array = VarBinViewArray::from_iter(
+                values.iter().map(|v| v.as_deref()),
+                DType::Utf8(Nullability::Nullable),
             )
+            .into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| min_max(a, ctx, NumericalAggregateOpts::default()));
 }

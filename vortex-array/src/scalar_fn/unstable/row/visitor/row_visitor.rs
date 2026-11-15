@@ -116,10 +116,15 @@ pub trait RowVisitor: private::Sealed + Sized {
 
     /// Visit an infallible Boolean row computation and pack its output during evaluation.
     ///
-    /// This has the same requirements as [`visit`](Self::visit). Set `MULTIVERSIONED` to `true`
-    /// to select the packing loop for the current CPU at runtime. This mode is intended only for
-    /// small predicates and requires benchmark evidence. Set it to `false` to use the inlined
-    /// packing loop.
+    /// This has the same requirements as [`visit`](Self::visit), whose Boolean output type also
+    /// supports direct packing. This entry point additionally lets the collector attach batch
+    /// validity while constructing the array, avoiding a separate masking step, and optionally
+    /// selects CPU-specific packing.
+    ///
+    /// Set `MULTIVERSIONED` to `true` to select the packing loop for the current CPU at runtime.
+    /// Runtime dispatch and additional compiled copies of the predicate are a tradeoff for that
+    /// target-specific packing, so this mode is intended for small predicates and requires
+    /// benchmark evidence. Set it to `false` to use the inlined packing loop.
     fn visit_bool<Args, const MULTIVERSIONED: bool>(
         self,
         apply: impl Fn(Args::Elems<'_>) -> bool,
@@ -317,7 +322,9 @@ pub trait RowVisitor: private::Sealed + Sized {
     ///
     /// This has the same requirements and failure handling as
     /// [`visit_deferred`](Self::visit_deferred). It selects direct packed collection instead of the
-    /// generic owned-output path.
+    /// generic owned-output path, which buffers a Boolean per row and packs the result afterward.
+    /// Combining evaluation, failure reduction, and packing avoids that temporary buffer and the
+    /// extra packing pass.
     ///
     /// Set `MULTIVERSIONED` to `true` to select the packing loop for the current CPU at runtime.
     /// This mode is intended only for small predicates and requires benchmark evidence. Set it to

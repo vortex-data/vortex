@@ -19,6 +19,7 @@ macro_rules! throw_runtime {
 }
 
 mod arrow_compat;
+mod buffer;
 mod data_source;
 mod errors;
 mod expression;
@@ -29,6 +30,7 @@ mod object_store;
 mod runtime;
 mod scan;
 mod session;
+mod statistics;
 mod writer;
 
 /// Shared current-thread runtime backing every JNI call. Using a current-thread

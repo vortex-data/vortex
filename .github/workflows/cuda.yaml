@@ -10,7 +10,8 @@ concurrency:
 on:
   push:
     branches: [develop]
-  pull_request: { }
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch: { }
 
 permissions:
@@ -19,10 +20,12 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  TY_VERSION: 0.0.98
 
 jobs:
   changes:
     name: "Detect CUDA changes"
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -143,7 +146,7 @@ jobs:
               MATURIN_PEP517_ARGS: "--profile ci"
             run: |
               uv sync --all-packages --extra cuda
-              uvx ty check vortex-python vortex-python-cuda
+              uvx ty@$TY_VERSION check vortex-python vortex-python-cuda
               uv run --all-packages --extra cuda pytest --benchmark-disable vortex-python/test/test_cuda.py vortex-python-cuda/test
 
   cuda-test-sanitizer:

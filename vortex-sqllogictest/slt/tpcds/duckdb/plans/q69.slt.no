@@ -865,13 +865,13 @@ logical_opt [
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
                                                                             "Conditions": "(ss_sold_date_sk = d_date_sk)",
-                                                                            "Estimated Cardinality": "48097"
+                                                                            "Estimated Cardinality": "9618"
                                                                         }
                                                                     }
                                                                 ],
                                                                 "extra_info": {
                                                                     "Expressions": "c_customer_sk",
-                                                                    "Estimated Cardinality": "48097"
+                                                                    "Estimated Cardinality": "9618"
                                                                 }
                                                             },
                                                             {
@@ -909,13 +909,13 @@ logical_opt [
                                                                                 "extra_info": {
                                                                                     "Join Type": "INNER",
                                                                                     "Conditions": "(cs_sold_date_sk = d_date_sk)",
-                                                                                    "Estimated Cardinality": "35904"
+                                                                                    "Estimated Cardinality": "7180"
                                                                                 }
                                                                             }
                                                                         ],
                                                                         "extra_info": {
                                                                             "Expressions": "c_customer_sk",
-                                                                            "Estimated Cardinality": "35904"
+                                                                            "Estimated Cardinality": "7180"
                                                                         }
                                                                     },
                                                                     {
@@ -953,13 +953,13 @@ logical_opt [
                                                                                         "extra_info": {
                                                                                             "Join Type": "INNER",
                                                                                             "Conditions": "(ws_sold_date_sk = d_date_sk)",
-                                                                                            "Estimated Cardinality": "14326"
+                                                                                            "Estimated Cardinality": "2865"
                                                                                         }
                                                                                     }
                                                                                 ],
                                                                                 "extra_info": {
                                                                                     "Expressions": "c_customer_sk",
-                                                                                    "Estimated Cardinality": "14326"
+                                                                                    "Estimated Cardinality": "2865"
                                                                                 }
                                                                             },
                                                                             {
@@ -1158,13 +1158,13 @@ physical_plan [
                                                                                 "extra_info": {
                                                                                     "Join Type": "INNER",
                                                                                     "Conditions": "ss_sold_date_sk = d_date_sk",
-                                                                                    "Estimated Cardinality": "48097"
+                                                                                    "Estimated Cardinality": "9618"
                                                                                 }
                                                                             }
                                                                         ],
                                                                         "extra_info": {
                                                                             "Projections": "c_customer_sk",
-                                                                            "Estimated Cardinality": "48097"
+                                                                            "Estimated Cardinality": "9618"
                                                                         }
                                                                     },
                                                                     {
@@ -1207,13 +1207,13 @@ physical_plan [
                                                                                         "extra_info": {
                                                                                             "Join Type": "INNER",
                                                                                             "Conditions": "cs_sold_date_sk = d_date_sk",
-                                                                                            "Estimated Cardinality": "35904"
+                                                                                            "Estimated Cardinality": "7180"
                                                                                         }
                                                                                     }
                                                                                 ],
                                                                                 "extra_info": {
                                                                                     "Projections": "c_customer_sk",
-                                                                                    "Estimated Cardinality": "35904"
+                                                                                    "Estimated Cardinality": "7180"
                                                                                 }
                                                                             },
                                                                             {
@@ -1256,13 +1256,13 @@ physical_plan [
                                                                                                 "extra_info": {
                                                                                                     "Join Type": "INNER",
                                                                                                     "Conditions": "ws_sold_date_sk = d_date_sk",
-                                                                                                    "Estimated Cardinality": "14326"
+                                                                                                    "Estimated Cardinality": "2865"
                                                                                                 }
                                                                                             }
                                                                                         ],
                                                                                         "extra_info": {
                                                                                             "Projections": "c_customer_sk",
-                                                                                            "Estimated Cardinality": "14326"
+                                                                                            "Estimated Cardinality": "2865"
                                                                                         }
                                                                                     },
                                                                                     {

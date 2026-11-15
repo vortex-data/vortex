@@ -24,8 +24,6 @@ mod arrow;
 mod metadata;
 mod vtable;
 
-use std::sync::Arc;
-
 pub use metadata::UuidMetadata;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::session::DTypeSessionExt;
@@ -44,8 +42,7 @@ pub struct Uuid;
 pub fn initialize(session: &VortexSession) {
     session.dtypes().register(Uuid);
     session.aggregate_fns().register_storage_ordered(Uuid);
-    session.arrow().register_exporter(Arc::new(Uuid));
-    session.arrow().register_importer(Arc::new(Uuid));
+    session.arrow().register_extension(Uuid);
 }
 
 #[cfg(test)]
@@ -102,8 +99,11 @@ mod tests {
             leading_bytes.len(),
         )
         .into_array();
-        let ext_dtype =
-            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage.dtype().clone())?;
+        let ext_dtype = ExtDType::try_with_vtable(
+            Uuid,
+            UuidMetadata::default(),
+            storage.dtype().nullability(),
+        )?;
         Ok(ExtensionArray::new(ext_dtype.erased(), storage).into_array())
     }
 

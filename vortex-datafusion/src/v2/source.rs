@@ -138,6 +138,7 @@ use vortex::scan::PartitionStream;
 use vortex::scan::ScanRequest;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use super::dynamic_filters::convert_dynamic_filter;
@@ -589,11 +590,8 @@ impl VortexDataSource {
                         let _timer = metrics.elapsed_compute().timer();
                         let mut ctx = session.create_execution_ctx();
                         result.and_then(|chunk| {
-                            let arrow = session.arrow().execute_arrow(
-                                chunk,
-                                Some(target_field.as_ref()),
-                                &mut ctx,
-                            )?;
+                            let arrow =
+                                chunk.execute_arrow(Some(target_field.as_ref()), &mut ctx)?;
                             Ok(RecordBatch::from(arrow.as_struct().clone()))
                         })
                     })

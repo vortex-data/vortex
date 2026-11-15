@@ -28,6 +28,7 @@ pub mod selection;
 pub mod strict_sorted_buffer;
 
 use std::any::Any;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -170,6 +171,13 @@ pub struct ScanRequest {
     /// order is completion order, so each partition applies the limit locally and the caller must
     /// trim the concatenated result.
     pub limit: Option<u64>,
+    /// The most splits of each partition to decode at once, in all.
+    ///
+    /// `None` keeps the reader's default, which scales with the machine's cores. Each split being
+    /// decoded holds the decoded chunks of every column it overlaps, so a scan that runs alongside
+    /// others, such as one task of several on a machine, can set this to bound its memory. It does
+    /// not bound I/O: segment reads for later splits may still be coalesced ahead of them.
+    pub split_concurrency: Option<NonZeroUsize>,
 }
 
 impl Default for ScanRequest {
@@ -183,6 +191,7 @@ impl Default for ScanRequest {
             ordered: false,
             limit: None,
             partition_range: None,
+            split_concurrency: None,
         }
     }
 }

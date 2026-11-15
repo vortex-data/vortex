@@ -18,7 +18,6 @@ use crate::arrays::InterleaveArray;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::expr::Expression;
-use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -173,7 +172,7 @@ impl ArrayBuiltins for ArrayRef {
         if self.dtype() == &dtype {
             return Ok(self.clone());
         }
-        Cast::new(self.clone(), dtype).into_array().optimize()
+        Ok(Cast::new(self.clone(), dtype).into_array())
     }
 
     fn fill_null(&self, fill_value: impl Into<Scalar>) -> VortexResult<ArrayRef> {
@@ -181,34 +180,31 @@ impl ArrayBuiltins for ArrayRef {
         if !self.dtype().is_nullable() {
             return self.cast(fill_value.dtype().clone());
         }
-        FillNull::try_new(
+        Ok(FillNull::try_new(
             self.clone(),
             ConstantArray::new(fill_value, self.len()).into_array(),
         )?
-        .into_array()
-        .optimize()
+        .into_array())
     }
 
     fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<ArrayRef> {
-        GetItem::try_new(self.clone(), field_name)?
-            .into_array()
-            .optimize()
+        Ok(GetItem::try_new(self.clone(), field_name)?.into_array())
     }
 
     fn is_null(&self) -> VortexResult<ArrayRef> {
-        IsNull::new(self.clone()).into_array().optimize()
+        Ok(IsNull::new(self.clone()).into_array())
     }
 
     fn is_not_null(&self) -> VortexResult<ArrayRef> {
-        IsNotNull::new(self.clone()).into_array().optimize()
+        Ok(IsNotNull::new(self.clone()).into_array())
     }
 
     fn mask(self, mask: ArrayRef) -> VortexResult<ArrayRef> {
-        Mask::try_new(self, mask)?.into_array().optimize()
+        Ok(Mask::try_new(self, mask)?.into_array())
     }
 
     fn not(&self) -> VortexResult<ArrayRef> {
-        Not::try_new(self.clone())?.into_array().optimize()
+        Ok(Not::try_new(self.clone())?.into_array())
     }
 
     fn zip(&self, if_true: ArrayRef, if_false: ArrayRef) -> VortexResult<ArrayRef> {
@@ -227,15 +223,11 @@ impl ArrayBuiltins for ArrayRef {
     }
 
     fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef> {
-        ListContains::try_new(self.clone(), value)?
-            .into_array()
-            .optimize()
+        Ok(ListContains::try_new(self.clone(), value)?.into_array())
     }
 
     fn binary(&self, rhs: ArrayRef, op: Operator) -> VortexResult<ArrayRef> {
-        Binary::try_new(self.clone(), rhs, op)?
-            .into_array()
-            .optimize()
+        Ok(Binary::try_new(self.clone(), rhs, op)?.into_array())
     }
 
     fn between(
@@ -244,8 +236,6 @@ impl ArrayBuiltins for ArrayRef {
         upper: ArrayRef,
         options: BetweenOptions,
     ) -> VortexResult<ArrayRef> {
-        Between::try_new(self, lower, upper, options)?
-            .into_array()
-            .optimize()
+        Ok(Between::try_new(self, lower, upper, options)?.into_array())
     }
 }

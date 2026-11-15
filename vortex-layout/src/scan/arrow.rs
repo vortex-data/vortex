@@ -14,7 +14,7 @@ use futures::TryStreamExt;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
-use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
 
@@ -69,8 +69,7 @@ pub(super) fn to_record_batch(
     data_type: &Field,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<RecordBatch> {
-    let session = ctx.session().clone();
-    let arrow = session.arrow().execute_arrow(chunk, Some(data_type), ctx)?;
+    let arrow = chunk.execute_arrow(Some(data_type), ctx)?;
     Ok(RecordBatch::from(arrow.as_struct().clone()))
 }
 

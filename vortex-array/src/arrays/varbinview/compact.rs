@@ -18,6 +18,13 @@ use crate::builders::VarBinViewBuilder;
 const DEFAULT_COMPACTION_THRESHOLD: f64 = 0.5;
 const MIN_RETAINED_BYTES_PER_ROW_TO_CHECK_COMPACTION: u64 = 128;
 
+/// The maximum number of data buffers that compaction keeps as they are, well below the
+/// `u16::MAX` buffers that the serializer accepts for an array and all its descendants.
+const MAX_RETAINED_DATA_BUFFERS: usize = u16::MAX as usize / 2;
+
+/// A utilization threshold that no buffer can reach, thus compaction rewrites every buffer.
+const REWRITE_ALL_THRESHOLD: f64 = f64::INFINITY;
+
 impl VarBinViewArray {
     /// Returns a compacted copy of the input array, where all wasted space has been cleaned up. This
     /// operation can be very expensive, in the worst case copying all existing string data into
@@ -33,6 +40,12 @@ impl VarBinViewArray {
             return Ok(self.clone());
         }
 
+        // Many buffers fail to serialize even when each one is well used. Copy all referenced
+        // bytes into new buffers, which the builder fills before it starts the next one.
+        if self.data_buffers().len() > MAX_RETAINED_DATA_BUFFERS {
+            return self.compact_with_threshold(REWRITE_ALL_THRESHOLD, ctx);
+        }
+
         self.compact_with_threshold(DEFAULT_COMPACTION_THRESHOLD, ctx)
     }
 
@@ -45,7 +58,7 @@ impl VarBinViewArray {
         }
 
         // These will fail to write, so in most cases we want to compact this.
-        if nbuffers > u16::MAX as usize {
+        if nbuffers > MAX_RETAINED_DATA_BUFFERS {
             return Ok(true);
         }
 
@@ -200,16 +213,21 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::MAX_RETAINED_DATA_BUFFERS;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
+    use crate::arrays::varbinview::BinaryView;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
     #[test]
@@ -522,5 +540,56 @@ mod tests {
             .map(|u| u.overall_utilization())
             .collect();
         assert_eq!(utils, expected_utils);
+    }
+
+    /// Each 16-byte value sits in its own fully referenced data buffer.
+    fn one_buffer_per_value(nbuffers: usize) -> VortexResult<VarBinViewArray> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values: Vec<[u8; 16]> = (0u32..)
+            .take(nbuffers)
+            .map(|i| {
+                let mut value = [b'a'; 16];
+                value[..4].copy_from_slice(&i.to_le_bytes());
+                value
+            })
+            .collect();
+
+        VarBinViewArray::try_new(
+            values
+                .iter()
+                .zip(0u32..)
+                .map(|(value, i)| BinaryView::make_view(value, i, 0))
+                .collect(),
+            values.iter().map(ByteBuffer::copy_from).collect(),
+            DType::Binary(Nullability::NonNullable),
+            Validity::NonNullable,
+            &mut ctx,
+        )
+    }
+
+    #[test]
+    fn test_compact_keeps_full_buffers_at_limit() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let original = one_buffer_per_value(MAX_RETAINED_DATA_BUFFERS)?;
+
+        let compacted = original.compact_buffers(&mut ctx)?;
+
+        assert_eq!(compacted.data_buffers().len(), MAX_RETAINED_DATA_BUFFERS);
+        assert_arrays_eq!(compacted, original, &mut ctx);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_compact_too_many_buffers_fits_serializer_limit() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let original = one_buffer_per_value(u16::MAX as usize + 1)?;
+
+        let compacted = original.compact_buffers(&mut ctx)?;
+
+        assert!(compacted.data_buffers().len() < u16::MAX as usize);
+        assert_arrays_eq!(compacted, original, &mut ctx);
+
+        Ok(())
     }
 }

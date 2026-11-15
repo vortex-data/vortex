@@ -12,6 +12,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
@@ -28,6 +29,7 @@ use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_session::VortexSession;
@@ -50,20 +52,24 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 });
 
 // [(string_count, avg_len, unique_chars)]
-const BENCH_ARGS: &[(usize, usize, u8)] = &[
-    (200, 4, 4),
-    (200, 4, 8),
-    (200, 16, 4),
-    (200, 16, 8),
-    (200, 64, 4),
-    (200, 64, 8),
-    (500, 4, 4),
-    (500, 4, 8),
-    (500, 16, 4),
-    (500, 16, 8),
-    (500, 64, 4),
-    (500, 64, 8),
-];
+const BENCH_ARGS: &[(usize, usize, u8)] = if cfg!(codspeed) {
+    &[(500, 4, 4), (500, 16, 4), (500, 64, 4), (500, 64, 8)]
+} else {
+    &[
+        (200, 4, 4),
+        (200, 4, 8),
+        (200, 16, 4),
+        (200, 16, 8),
+        (200, 64, 4),
+        (200, 64, 8),
+        (500, 4, 4),
+        (500, 4, 8),
+        (500, 16, 4),
+        (500, 16, 8),
+        (500, 64, 4),
+        (500, 64, 8),
+    ]
+};
 
 #[divan::bench(args = BENCH_ARGS)]
 fn compress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usize, usize, u8)) {
@@ -82,6 +88,7 @@ fn decompress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usi
     let encoded = fsst_compress(&array, &compressor, &mut ctx)
         .unwrap()
         .into_array();
+    mark_optimized(&encoded, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&encoded, SESSION.create_execution_ctx()))
@@ -97,7 +104,9 @@ fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (us
     let fsst_array = fsst_compress(&array, &compressor, &mut ctx)
         .unwrap()
         .into_array();
-    let constant = ConstantArray::new(Scalar::from(&b"const"[..]), len);
+    let constant = ConstantArray::new(needle(&array, &mut ctx), len);
+    mark_optimized(&fsst_array, &SESSION).unwrap();
+    mark_optimized(constant.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
@@ -123,7 +132,9 @@ fn canonicalize_compare(
     let fsst_array = fsst_compress(&array, &compressor, &mut ctx)
         .unwrap()
         .into_array();
-    let constant = ConstantArray::new(Scalar::from(&b"const"[..]), len);
+    let constant = ConstantArray::new(needle(&array, &mut ctx), len);
+    mark_optimized(&fsst_array, &SESSION).unwrap();
+    mark_optimized(constant.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
@@ -141,17 +152,21 @@ fn canonicalize_compare(
 }
 
 // [(chunk_size, string_count, avg_len, unique_chars)]
-const CHUNKED_BENCH_ARGS: &[(usize, usize, usize, u8)] = &[
-    (20, 100, 16, 4),
-    (20, 100, 16, 16),
-    (20, 100, 16, 64),
-    (20, 50, 8, 4),
-    (20, 50, 8, 16),
-    (20, 50, 8, 64),
-    (10, 150, 4, 4),
-    (10, 150, 16, 4),
-    (10, 150, 64, 4),
-];
+const CHUNKED_BENCH_ARGS: &[(usize, usize, usize, u8)] = if cfg!(codspeed) {
+    &[(20, 100, 16, 4), (20, 50, 8, 4), (10, 150, 64, 4)]
+} else {
+    &[
+        (20, 100, 16, 4),
+        (20, 100, 16, 16),
+        (20, 100, 16, 64),
+        (20, 50, 8, 4),
+        (20, 50, 8, 16),
+        (20, 50, 8, 64),
+        (10, 150, 4, 4),
+        (10, 150, 16, 4),
+        (10, 150, 64, 4),
+    ]
+};
 
 #[divan::bench(args = CHUNKED_BENCH_ARGS)]
 fn chunked_canonicalize_into(
@@ -185,6 +200,10 @@ fn chunked_into_canonical(
         .bench_refs(|(array, ctx)| array.clone().execute::<Canonical>(ctx));
 }
 
+fn needle(array: &ArrayRef, ctx: &mut ExecutionCtx) -> Scalar {
+    array.execute_scalar(0, ctx).unwrap()
+}
+
 /// Helper function to generate random string data.
 fn generate_test_data(string_count: usize, avg_len: usize, unique_chars: u8) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(0);
@@ -202,13 +221,16 @@ fn generate_test_data(string_count: usize, avg_len: usize, unique_chars: u8) -> 
         ));
     }
 
-    VarBinArray::from_iter(
+    let array = VarBinArray::from_iter(
         strings
             .into_iter()
             .map(|opt_s| opt_s.map(Vec::into_boxed_slice)),
         DType::Binary(Nullability::NonNullable),
     )
-    .into_array()
+    .into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 fn generate_chunked_test_data(
@@ -218,7 +240,7 @@ fn generate_chunked_test_data(
     unique_chars: u8,
 ) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
-    (0..chunk_size)
+    let array = (0..chunk_size)
         .map(|_| {
             let array = generate_test_data(string_count, avg_len, unique_chars);
             let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
@@ -227,5 +249,8 @@ fn generate_chunked_test_data(
                 .into_array()
         })
         .collect::<ChunkedArray>()
-        .into_array()
+        .into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }

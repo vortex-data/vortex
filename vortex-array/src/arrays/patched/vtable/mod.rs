@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use prost::Message;
-
 use crate::ArrayEq;
 use crate::ArrayHash;
 mod kernels;
 mod operations;
+mod plugin;
 mod slice;
 
 use std::hash::Hash;
@@ -40,17 +39,14 @@ use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::patched::PatchedData;
 use crate::arrays::patched::PatchedSlots;
 use crate::arrays::patched::PatchedSlotsView;
-use crate::arrays::patched::compute::rules::PARENT_RULES;
 use crate::arrays::primitive::PrimitiveDataParts;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
-use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::require_child;
-use crate::serde::ArrayChildren;
 
 /// A [`Patched`]-encoded Vortex array.
 pub type PatchedArray = Array<Patched>;
@@ -136,60 +132,6 @@ impl VTable for Patched {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            PatchedMetadata {
-                n_patches: u32::try_from(array.patch_indices().len())?,
-                n_lanes: u32::try_from(array.n_lanes())?,
-                offset: u32::try_from(array.offset())?,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = PatchedMetadata::decode(metadata)?;
-        let n_patches = metadata.n_patches as usize;
-        let n_lanes = metadata.n_lanes as usize;
-        let offset = metadata.offset as usize;
-
-        // n_chunks should correspond to the chunk in the `inner`.
-        // After slicing when offset > 0, there may be additional chunks.
-        let n_chunks = (len + offset).div_ceil(1024);
-
-        let inner = children.get(0, dtype, len)?;
-        let lane_offsets = children.get(1, PType::U32.into(), n_chunks * n_lanes + 1)?;
-        let indices = children.get(2, PType::U16.into(), n_patches)?;
-        let values = children.get(3, dtype, n_patches)?;
-
-        let data = PatchedData { n_lanes, offset };
-        let slots = PatchedSlots {
-            inner,
-            lane_offsets,
-            patch_indices: indices,
-            patch_values: values,
-        }
-        .into_slots();
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            slots,
-        ))
     }
 
     fn append_to_builder(
@@ -307,14 +249,6 @@ impl VTable for Patched {
 
         Ok(ExecutionResult::done(patched_values.into_array()))
     }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
-    }
 }
 
 /// Apply patches on top of the existing value types.
@@ -373,6 +307,7 @@ mod tests {
     use crate::arrays::patched::PatchedSlotsView;
     use crate::assert_arrays_eq;
     use crate::builders::builder_with_capacity_in;
+    use crate::optimizer::ArrayOptimizer;
     use crate::patches::Patches;
     use crate::serde::SerializeOptions;
     use crate::serde::SerializedArray;
@@ -595,7 +530,7 @@ mod tests {
     )]
     #[case::sliced({
         let arr = make_patched_array(vec![0u16; 1024], &[1, 2, 3], &[10, 20, 30]).unwrap();
-        arr.into_array().slice(2..1024).unwrap()
+        arr.into_array().slice(2..1024).unwrap().optimize_ctx(&SESSION).unwrap()
     }, (2..1024).map(|i| match i { 2 => 20u16, 3 => 30, _ => 0 }).collect::<Vec<_>>())]
     fn test_serde_roundtrip(#[case] array: crate::ArrayRef, #[case] expected: Vec<u16>) {
         let dtype = array.dtype().clone();

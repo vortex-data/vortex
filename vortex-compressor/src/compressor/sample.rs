@@ -43,24 +43,30 @@ pub(crate) fn sample(input: &ArrayRef, sample_size: u32, sample_count: u32) -> A
         return input.clone();
     }
 
-    let slices = stratified_slices(
-        input.len(),
+    let slices = sample_slices(input.len(), sample_size, sample_count);
+
+    // For every slice, grab the relevant slice and repack into a new PrimitiveArray.
+    let chunks = slices.into_iter().map(|(start, end)| {
+        input
+            .slice(start..end)
+            .vortex_expect("slice should succeed")
+    });
+    // SAFETY: all chunks are slices of `input`, so they share its dtype.
+    unsafe { ChunkedArray::new_unchecked(chunks, input.dtype().clone()) }.into_array()
+}
+
+/// Returns deterministic stratified sample ranges for an array length.
+pub(crate) fn sample_slices(
+    length: usize,
+    sample_size: u32,
+    sample_count: u32,
+) -> Vec<(usize, usize)> {
+    stratified_slices(
+        length,
         sample_size,
         sample_count,
         &mut StdRng::seed_from_u64(SAMPLE_SEED),
-    );
-
-    // For every slice, grab the relevant slice and repack into a new PrimitiveArray.
-    let chunks: Vec<_> = slices
-        .into_iter()
-        .map(|(start, end)| {
-            input
-                .slice(start..end)
-                .vortex_expect("slice should succeed")
-        })
-        .collect();
-    // SAFETY: all chunks are slices of `input`, so they share its dtype.
-    unsafe { ChunkedArray::new_unchecked(chunks, input.dtype().clone()) }.into_array()
+    )
 }
 
 /// Computes the number of sample chunks to cover approximately 1% of `len` elements,
@@ -150,7 +156,7 @@ fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> 
 /// # Errors
 ///
 /// Returns an error if sample compression fails.
-pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
+pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     compressor: &CascadingCompressor,
     scheme: &S,
     array: &ArrayRef,
@@ -165,6 +171,12 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
         let canonical: Canonical = sample(array, SAMPLE_SIZE, sample_count).execute(exec_ctx)?;
         canonical.into_array()
     };
+
+    // A sample of only nulls compresses to almost nothing whatever the scheme, so its ratio says
+    // nothing about how the scheme handles the array's values.
+    if !compress_ctx.is_sample() && sample_array.all_invalid(exec_ctx)? {
+        return Ok(EstimateScore::ZeroBytes);
+    }
 
     let sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
     let error_ctx = trace::enabled_error_context(&compress_ctx);

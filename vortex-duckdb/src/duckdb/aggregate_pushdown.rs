@@ -6,6 +6,8 @@ use num_traits::AsPrimitive;
 use crate::cpp;
 use crate::duckdb::Expression;
 use crate::duckdb::ExpressionRef;
+use crate::duckdb::TableFilterSet;
+use crate::duckdb::TableFilterSetRef;
 use crate::lifetime_wrapper;
 
 lifetime_wrapper!(
@@ -41,5 +43,15 @@ impl AggregatePushdownInputRef {
             expr,
             projection_id,
         }
+    }
+
+    /// Table filters of the scan, keyed by scan column index
+    pub fn table_filters(&self) -> &TableFilterSetRef {
+        unsafe { TableFilterSet::borrow(cpp::duckdb_vx_aggregate_table_filters(self.as_ptr())) }
+    }
+
+    /// Storage index of the scan column
+    pub fn column_id(&self, scan_index: u64) -> u64 {
+        unsafe { cpp::duckdb_vx_aggregate_column_id(self.as_ptr(), scan_index) }
     }
 }

@@ -24,6 +24,7 @@ workspace = true
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
+arc-swap = { workspace = true }
 arcref = { workspace = true }
 arrow-buffer = { workspace = true }
 bytes = { workspace = true }
@@ -339,6 +340,10 @@ harness = false
 
 [[bench]]
 name = "widen"
+harness = false
+
+[[bench]]
+name = "widen_decimal"
 harness = false
 
 [[bench]]

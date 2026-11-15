@@ -186,6 +186,11 @@ impl EditionSession {
         self.inner.read().editions.get(&id.to_string()).copied()
     }
 
+    /// Find a declared edition by its name, for example `core2025.10.0`.
+    pub fn find_by_name(&self, name: &str) -> Option<Edition> {
+        self.inner.read().editions.get(name).copied()
+    }
+
     /// The newest frozen edition of a family, if any. Drafts are never current.
     pub fn current(&self, family: &str) -> Option<Edition> {
         self.editions()

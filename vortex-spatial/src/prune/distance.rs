@@ -285,15 +285,25 @@ mod tests {
         Ok(())
     }
 
-    /// An extension-typed radius passes `Binary`'s typecheck (extension operands are exempt) but
-    /// has no numeric value - the rule declines rather than erroring, and the chunk is scanned.
+    /// A geometry scalar is not a numeric radius, so the comparison fails while binding.
     #[test]
-    fn extension_radius_never_prunes() -> VortexResult<()> {
+    fn test_extension_radius_fails_binding() -> VortexResult<()> {
         let session = spatial_session();
         let mut ctx = session.create_execution_ctx();
 
         let geometry = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
-        assert!(falsify_distance(Operator::Lte, true, geometry)?.is_none());
+        let scope = geometry.dtype().clone();
+        let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(geometry.clone())]);
+        let predicate = Binary.new_expr(Operator::Lte, [distance, lit(geometry)]);
+        let error = predicate
+            .bind(&scope)
+            .expect_err("a geometry scalar cannot be compared with a numeric distance");
+        assert!(
+            error
+                .to_string()
+                .contains("Comparison requires equal dtypes ignoring nullability")
+        );
+
         Ok(())
     }
 

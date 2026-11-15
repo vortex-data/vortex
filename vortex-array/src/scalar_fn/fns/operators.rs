@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 
 use vortex_error::VortexError;
 
+use crate::dtype::NativePType;
 use crate::proto::expr::binary_opts::BinaryOp;
 
 /// Equalities, inequalities, and boolean operations over possibly null values.
@@ -238,6 +239,18 @@ impl CompareOperator {
             CompareOperator::Gte => CompareOperator::Lte,
             CompareOperator::Lt => CompareOperator::Gt,
             CompareOperator::Lte => CompareOperator::Gte,
+        }
+    }
+
+    /// Returns the total-order comparison that this operator applies to two native values.
+    pub fn to_predicate<T: NativePType>(self) -> fn(T, T) -> bool {
+        match self {
+            CompareOperator::Eq => T::is_eq,
+            CompareOperator::NotEq => |lhs, rhs| !lhs.is_eq(rhs),
+            CompareOperator::Gt => T::is_gt,
+            CompareOperator::Gte => T::is_ge,
+            CompareOperator::Lt => T::is_lt,
+            CompareOperator::Lte => T::is_le,
         }
     }
 }

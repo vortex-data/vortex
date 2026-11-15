@@ -5,6 +5,8 @@ use std::fs;
 use std::future::Future;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -13,6 +15,27 @@ use get_dir::FileTarget;
 use get_dir::GetDir;
 use get_dir::Target;
 use url::Url;
+
+static DATA_GENERATION_FORBIDDEN: AtomicBool = AtomicBool::new(false);
+
+/// Make [`idempotent`] and [`idempotent_async`] fail instead of creating a missing file.
+///
+/// Engine benchmark binaries call this so they only run against data prepared up front by
+/// `data-gen` (`vx-bench prepare-data`), and never generate data while benchmarking.
+pub fn forbid_data_generation() {
+    DATA_GENERATION_FORBIDDEN.store(true, Ordering::Relaxed);
+}
+
+fn check_data_generation_allowed(data_path: &Path) -> Result<()> {
+    if DATA_GENERATION_FORBIDDEN.load(Ordering::Relaxed) {
+        bail!(
+            "benchmark data is missing at {}, and this binary does not generate data. \
+             Prepare it first with `vx-bench prepare-data` or `cargo run --bin data-gen`.",
+            data_path.display()
+        );
+    }
+    Ok(())
+}
 
 /// Creates a file if it doesn't already exist.
 /// NB: Does NOT modify the given path to ensure that it resides in the data directory.
@@ -23,6 +46,7 @@ pub fn idempotent<T, P: IdempotentPath + ?Sized>(
     let data_path = path.to_data_path();
     let temp_path = temp_download_filepath();
     if !data_path.exists() {
+        check_data_generation_allowed(&data_path)?;
         // Ensure parent directory exists
         if let Some(parent) = data_path.parent() {
             fs::create_dir_all(parent).context("Failed to create parent directories")?;
@@ -42,6 +66,7 @@ where
     let data_path = path.to_data_path();
     let temp_path = temp_download_filepath();
     if !data_path.exists() {
+        check_data_generation_allowed(&data_path)?;
         // Ensure parent directory exists
         if let Some(parent) = data_path.parent() {
             fs::create_dir_all(parent).context("Failed to create parent directories")?;
@@ -141,7 +166,7 @@ pub fn resolve_data_url(remote_data_dir: Option<&str>, local_subdir: &str) -> Re
                     local_subdir,
                 );
             }
-            tracing::info!(
+            tracing::debug!(
                 concat!(
                     "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
                     "If it does not, you should kill this command, locally generate the files ",

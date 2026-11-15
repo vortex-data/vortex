@@ -317,6 +317,55 @@ static Value &UnwrapValue(duckdb_value value) {
     return *(reinterpret_cast<Value *>(value));
 }
 
+// Duckdb's JOIN planner incorrectly estimates cardinality for a table function
+// which pushes down filters. This leads to inability to run sf=100 benchmarks.
+// However, the planner has a better estimate if we provide distinct count.
+// We don't store it in Vortex files so we estimate it here based on min/max
+// stats. DuckDB does it on its own so we're partially duplicating the logic
+// here, see GetMinMaxDistinctCount.
+// TODO(myrrc) remove after https://github.com/duckdb/duckdb/pull/28099 is
+// merged
+
+template <class T>
+static idx_t span_distinct_count(const BaseStatistics &stats, idx_t row_count) {
+    const hugeint_t min = Hugeint::Convert(NumericStats::Min(stats).GetValueUnsafe<T>());
+    const hugeint_t max = Hugeint::Convert(NumericStats::Max(stats).GetValueUnsafe<T>());
+    if (max < min) {
+        return 0;
+    }
+    const hugeint_t span = max - min + hugeint_t(1);
+    if (span > hugeint_t(row_count)) {
+        return row_count;
+    }
+    return Hugeint::Cast<idx_t>(span);
+}
+
+static idx_t min_max_distinct_count(const BaseStatistics &stats, idx_t row_count) {
+    if (row_count == 0 || !NumericStats::HasMinMax(stats)) {
+        return 0;
+    }
+    switch (stats.GetType().InternalType()) {
+    case PhysicalType::INT8:
+        return span_distinct_count<int8_t>(stats, row_count);
+    case PhysicalType::INT16:
+        return span_distinct_count<int16_t>(stats, row_count);
+    case PhysicalType::INT32:
+        return span_distinct_count<int32_t>(stats, row_count);
+    case PhysicalType::INT64:
+        return span_distinct_count<int64_t>(stats, row_count);
+    case PhysicalType::UINT8:
+        return span_distinct_count<uint8_t>(stats, row_count);
+    case PhysicalType::UINT16:
+        return span_distinct_count<uint16_t>(stats, row_count);
+    case PhysicalType::UINT32:
+        return span_distinct_count<uint32_t>(stats, row_count);
+    case PhysicalType::UINT64:
+        return span_distinct_count<uint64_t>(stats, row_count);
+    default:
+        return 0;
+    }
+}
+
 static unique_ptr<BaseStatistics> numeric_stats(duckdb_column_statistics &stats, LogicalType type) {
     BaseStatistics out = NumericStats::CreateUnknown(type);
     if (stats.min) {
@@ -330,6 +379,7 @@ static unique_ptr<BaseStatistics> numeric_stats(duckdb_column_statistics &stats,
     if (!stats.has_null) {
         out.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
     }
+    out.SetDistinctCount(min_max_distinct_count(out, stats.row_count));
     return out.ToUnique();
 }
 

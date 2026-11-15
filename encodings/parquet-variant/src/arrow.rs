@@ -45,6 +45,7 @@ use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_arrow::to_arrow_null_buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -84,9 +85,6 @@ pub(crate) fn export_storage_to_target<T: ParquetVariantArrayExt>(
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let session = ctx.session().clone();
-    let arrow = session.arrow();
-    let exporter = arrow.exporter(options);
     let mut arrays = Vec::with_capacity(target_fields.len());
 
     for field in target_fields {
@@ -104,7 +102,7 @@ pub(crate) fn export_storage_to_target<T: ParquetVariantArrayExt>(
             );
         };
 
-        arrays.push(exporter.execute_arrow(child, Some(field.as_ref()), ctx)?);
+        arrays.push(child.execute_arrow_with_options(Some(field.as_ref()), options, ctx)?);
     }
 
     let nulls = to_arrow_null_buffer(
@@ -471,6 +469,7 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
+    use vortex_arrow::ExecuteArrowExt;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -490,9 +489,7 @@ mod tests {
     fn export_variant(session: &VortexSession, array: ArrayRef) -> VortexResult<ArrowVariantArray> {
         let mut ctx = session.create_execution_ctx();
         let field = session.arrow().to_arrow_field("variant", array.dtype())?;
-        let result = session
-            .arrow()
-            .execute_arrow(array, Some(&field), &mut ctx)?;
+        let result = array.execute_arrow(Some(&field), &mut ctx)?;
 
         Ok(ArrowVariantArray::try_new(result.as_ref())?)
     }
@@ -784,9 +781,7 @@ mod tests {
         assert!(imported.as_opt::<ParquetVariant>().is_some());
 
         let mut ctx = session.create_execution_ctx();
-        let exported = session
-            .arrow()
-            .execute_arrow(imported, Some(&field), &mut ctx)?;
+        let exported = imported.execute_arrow(Some(&field), &mut ctx)?;
         let exported = exported.as_struct();
 
         assert_struct_arrays_eq(exported, &storage);
@@ -805,9 +800,7 @@ mod tests {
         let canonical = VariantArray::try_new(core_storage, None)?.into_array();
 
         let mut ctx = session.create_execution_ctx();
-        let exported = session
-            .arrow()
-            .execute_arrow(canonical, Some(&field), &mut ctx)?;
+        let exported = canonical.execute_arrow(Some(&field), &mut ctx)?;
         let exported = exported.as_struct();
 
         assert_struct_arrays_eq(exported, &storage);
@@ -855,9 +848,7 @@ mod tests {
             .into(),
         );
 
-        let exported = session
-            .arrow()
-            .execute_arrow(canonical, Some(&field), &mut ctx)?;
+        let exported = canonical.execute_arrow(Some(&field), &mut ctx)?;
         assert_eq!(exported.data_type(), field.data_type());
 
         let actual = session.arrow().from_arrow_array(exported, &field)?;
@@ -883,9 +874,7 @@ mod tests {
         let expected = array.clone();
 
         let mut ctx = session.create_execution_ctx();
-        let exported = session
-            .arrow()
-            .execute_arrow(array.clone(), None, &mut ctx)?;
+        let exported = array.clone().execute_arrow(None, &mut ctx)?;
 
         let field = Field::new(
             "",
@@ -926,9 +915,7 @@ mod tests {
                 .into_array();
 
         let mut ctx = session.create_execution_ctx();
-        let exported = session
-            .arrow()
-            .execute_arrow(expected.clone(), None, &mut ctx)?;
+        let exported = expected.clone().execute_arrow(None, &mut ctx)?;
 
         assert_eq!(
             exported.data_type(),
@@ -999,9 +986,7 @@ mod tests {
         );
 
         let mut ctx = session.create_execution_ctx();
-        let exported = session
-            .arrow()
-            .execute_arrow(expected.clone(), Some(&field), &mut ctx)?;
+        let exported = expected.clone().execute_arrow(Some(&field), &mut ctx)?;
         assert_eq!(exported.data_type(), field.data_type());
 
         let actual = session.arrow().from_arrow_array(exported, &field)?;
@@ -1044,9 +1029,8 @@ mod tests {
         );
 
         let mut ctx = session.create_execution_ctx();
-        let err = session
-            .arrow()
-            .execute_arrow(array, Some(&field), &mut ctx)
+        let err = array
+            .execute_arrow(Some(&field), &mut ctx)
             .unwrap_err()
             .to_string();
         assert!(
@@ -1094,9 +1078,7 @@ mod tests {
             .into(),
         );
         let mut ctx = session.create_execution_ctx();
-        let exported = session
-            .arrow()
-            .execute_arrow(array, Some(&field), &mut ctx)?;
+        let exported = array.execute_arrow(Some(&field), &mut ctx)?;
         assert_eq!(
             exported.data_type(),
             field.data_type(),

@@ -47,7 +47,7 @@ use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
-use vortex::arrow::ArrowSessionExt;
+use vortex::arrow::ExecuteArrowExt;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
@@ -417,13 +417,9 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
     let array = make_array(array_data);
     let struct_array = array.as_struct();
 
-    let primitive = SESSION
-        .arrow()
-        .execute_arrow(
-            primitive_array().expect("expected primitive array"),
-            None,
-            &mut SESSION.create_execution_ctx(),
-        )
+    let primitive = primitive_array()
+        .expect("expected primitive array")
+        .execute_arrow(None, &mut SESSION.create_execution_ctx())
         .expect("expected primitive Arrow array");
     let bools = BooleanArray::from(vec![true, false, false, true, true]);
     let sliced_i32 = Int32Array::from(vec![Some(10), None, Some(30), Some(40), None]);
@@ -473,17 +469,11 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         .into_iter()
         .collect::<DictionaryArray<Int16Type>>(),
     );
-    let list = SESSION
-        .arrow()
-        .execute_arrow(list_array(), None, &mut SESSION.create_execution_ctx())
+    let list = list_array()
+        .execute_arrow(None, &mut SESSION.create_execution_ctx())
         .expect("expected list Arrow array");
-    let fixed_size_list = SESSION
-        .arrow()
-        .execute_arrow(
-            fixed_size_list_as_list_array(),
-            None,
-            &mut SESSION.create_execution_ctx(),
-        )
+    let fixed_size_list = fixed_size_list_as_list_array()
+        .execute_arrow(None, &mut SESSION.create_execution_ctx())
         .expect("expected fixed-size-list-as-list Arrow array");
 
     let expected_fields = Fields::from_iter([

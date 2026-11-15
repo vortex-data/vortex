@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -182,6 +183,7 @@ impl DataSource for LayoutReaderDataSource {
             row_limit,
             selection: scan_request.selection,
             ordered: scan_request.ordered,
+            split_concurrency: scan_request.split_concurrency,
             metrics_registry: self.metrics_registry.clone(),
             next_row: row_range.start,
             end_row: row_range.end,
@@ -207,6 +209,7 @@ struct LayoutReaderScan {
     /// A row budget shared by every split of an unordered limited scan; see [`RowLimit`].
     row_limit: Option<RowLimit>,
     ordered: bool,
+    split_concurrency: Option<NonZeroUsize>,
     selection: Selection,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
     next_row: u64,
@@ -276,6 +279,7 @@ impl Stream for LayoutReaderScan {
             limit: split_limit,
             row_limit: this.row_limit.clone(),
             ordered: this.ordered,
+            split_concurrency: this.split_concurrency,
             row_range,
             selection: this.selection.clone(),
             metrics_registry: this.metrics_registry.clone(),
@@ -309,6 +313,7 @@ struct LayoutReaderSplit {
     /// A row budget shared with the scan's other splits (unordered limited scans only).
     row_limit: Option<RowLimit>,
     ordered: bool,
+    split_concurrency: Option<NonZeroUsize>,
     row_range: Range<u64>,
     selection: Selection,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
@@ -347,7 +352,8 @@ impl Partition for LayoutReaderSplit {
             .with_projection(self.projection)
             .with_some_filter(self.filter)
             .with_some_metrics_registry(self.metrics_registry)
-            .with_ordered(self.ordered);
+            .with_ordered(self.ordered)
+            .with_some_max_splits_in_flight(self.split_concurrency);
         let builder = match self.row_limit {
             Some(row_limit) => builder.with_shared_limit(row_limit),
             None => builder.with_some_limit(self.limit),

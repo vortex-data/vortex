@@ -21,14 +21,17 @@ pub(super) fn accumulate_extension(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     let non_nullable_ext_dtype = array.ext_dtype().with_nullability(Nullability::NonNullable);
+
     // A NaN in float storage comes back as NaN extrema, which `merge` skips or poisons with.
-    let local =
-        min_max(array.storage_array(), ctx, *args.options)?.map(|MinMaxResult { min, max }| {
-            MinMaxResult {
-                min: Scalar::extension_ref(non_nullable_ext_dtype.clone(), min),
-                max: Scalar::extension_ref(non_nullable_ext_dtype, max),
-            }
-        });
-    partial.merge(args, local);
-    Ok(())
+    let Some(MinMaxResult { min, max }) = min_max(array.storage_array(), ctx, *args.options)?
+    else {
+        return Ok(());
+    };
+
+    let local = MinMaxResult {
+        min: Scalar::try_extension_ref(non_nullable_ext_dtype.clone(), min)?,
+        max: Scalar::try_extension_ref(non_nullable_ext_dtype, max)?,
+    };
+
+    partial.merge(args, Some(local))
 }

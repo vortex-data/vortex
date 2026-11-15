@@ -15,6 +15,7 @@ use vortex_array::arrays::Constant;
 use vortex_array::arrays::PiecewiseSequence;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
+use vortex_array::arrays::filter::ChunkDecoder;
 use vortex_array::arrays::piecewise_sequence::array::PiecewiseSequenceArraySlotsExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
@@ -31,14 +32,17 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 
-use super::chunked_indices;
+use super::PackedChunks;
 use super::unpack_chunk_threshold;
-use super::unpack_indices_into;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
+use crate::take_chunks::nullable_positions;
+use crate::take_chunks::take_in_order;
+use crate::take_chunks::valid_positions;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 use crate::unpack_iter::BitPackingStrategy;
 use crate::unpack_iter::BitUnpackedChunks;
@@ -207,6 +211,7 @@ fn take_ranges<T: NativePType + BitPacking + BitPackedIter<Physical = T>>(
 ) -> PrimitiveArray {
     let bit_width = usize::from(bit_width);
     let packed = array.packed_slice::<T>();
+    let chunks = PackedChunks::new(packed, bit_width);
     let chunk_len = 128 * bit_width / size_of::<T>();
     let offset = usize::from(array.offset());
     let mut output = BufferMut::<T>::with_capacity(output_len);
@@ -225,12 +230,14 @@ fn take_ranges<T: NativePType + BitPacking + BitPackedIter<Physical = T>>(
         if range.len() <= threshold {
             continue;
         }
-        take_indices_into(
+        take_in_order(
+            &chunks,
             &mut output,
-            packed,
-            bit_width,
-            offset,
-            ranges[short_runs_start..i].iter().flat_map(Range::clone),
+            ranges[short_runs_start..i]
+                .iter()
+                .flat_map(Range::clone)
+                .map(|index| index + offset),
+            threshold,
             &mut scratch,
         );
         short_runs_start = i + 1;
@@ -243,8 +250,7 @@ fn take_ranges<T: NativePType + BitPacking + BitPackedIter<Physical = T>>(
 
         unpack_fragment_into(
             &mut output,
-            packed,
-            bit_width,
+            &chunks,
             range.start + offset..middle_start + offset,
             &mut fragment_indices,
         );
@@ -269,18 +275,19 @@ fn take_ranges<T: NativePType + BitPacking + BitPackedIter<Physical = T>>(
         }
         unpack_fragment_into(
             &mut output,
-            packed,
-            bit_width,
+            &chunks,
             middle_end + offset..range.end + offset,
             &mut fragment_indices,
         );
     }
-    take_indices_into(
+    take_in_order(
+        &chunks,
         &mut output,
-        packed,
-        bit_width,
-        offset,
-        ranges[short_runs_start..].iter().flat_map(Range::clone),
+        ranges[short_runs_start..]
+            .iter()
+            .flat_map(Range::clone)
+            .map(|index| index + offset),
+        threshold,
         &mut scratch,
     );
     PrimitiveArray::new(output, validity)
@@ -289,55 +296,26 @@ fn take_ranges<T: NativePType + BitPacking + BitPackedIter<Physical = T>>(
 /// Appends the values at `positions`, which lie within one chunk, without decoding the whole chunk.
 fn unpack_fragment_into<T: NativePType + BitPacking>(
     output: &mut BufferMut<T>,
-    packed: &[T],
-    bit_width: usize,
+    chunks: &PackedChunks<'_, T>,
     positions: Range<usize>,
     indices: &mut [usize],
 ) {
     if positions.is_empty() {
         return;
     }
-    let chunk_len = 128 * bit_width / size_of::<T>();
-    let packed = &packed[positions.start / FL_CHUNK_SIZE * chunk_len..][..chunk_len];
+    let chunk = positions.start / FL_CHUNK_SIZE;
     let indices = &mut indices[..positions.len()];
     for (index, position) in indices.iter_mut().zip(positions) {
         *index = position % FL_CHUNK_SIZE;
     }
-    unpack_indices_into(output, bit_width, packed, indices);
-}
-
-/// Appends the values at `indices` to `output`, decoding each visited chunk either fully or only
-/// at the selected positions.
-fn take_indices_into<T: NativePType + BitPacking>(
-    output: &mut BufferMut<T>,
-    packed: &[T],
-    bit_width: usize,
-    offset: usize,
-    indices: impl Iterator<Item = usize>,
-    unpacked: &mut [MaybeUninit<T>; FL_CHUNK_SIZE],
-) {
-    let chunk_len = 128 * bit_width / size_of::<T>();
-    chunked_indices(indices, offset, |chunk_idx, indices_within_chunk| {
-        let packed = &packed[chunk_idx * chunk_len..][..chunk_len];
-
-        if indices_within_chunk.len() > unpack_chunk_threshold::<T>() {
-            // SAFETY: The validated bit width fits `T`. The source and destination contain one
-            // complete FastLanes block. The call initializes every destination value.
-            unsafe {
-                let dst: &mut [MaybeUninit<T>] = unpacked;
-                let dst: &mut [T] = std::mem::transmute(dst);
-                BitPacking::unchecked_unpack(bit_width, packed, dst);
-            }
-            output.extend_trusted(
-                indices_within_chunk
-                    .iter()
-                    // SAFETY: The preceding unpack initialized the complete temporary block.
-                    .map(|&index| unsafe { unpacked.get_unchecked(index).assume_init() }),
-            );
-        } else {
-            unpack_indices_into(output, bit_width, packed, indices_within_chunk);
-        }
-    });
+    let start = output.len();
+    chunks.decode_indices(
+        chunk,
+        indices,
+        &mut output.spare_capacity_mut()[..indices.len()],
+    );
+    // SAFETY: `decode_indices` wrote one value for each index.
+    unsafe { output.set_len(start + indices.len()) };
 }
 
 fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
@@ -351,19 +329,32 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
         return Ok(PrimitiveArray::new(Buffer::<T>::empty(), taken_validity));
     }
 
+    let index_validity = indices.validity()?.execute_mask(indices.len(), ctx)?;
+    // Like the rest of BitPacked's take, this trusts the caller for the bounds of valid indices: a
+    // check costs as much as the take for small batches of `u64` indices, which the baseline
+    // instruction set cannot compare in vectors.
+    let indices_slice = indices.as_slice::<I>();
+    let chunks = PackedChunks::new(array.packed_slice::<T>(), usize::from(bit_width));
+    let offset = usize::from(array.offset());
+    let sparse_limit = unpack_chunk_threshold::<T>();
     let mut output = BufferMut::<T>::with_capacity(indices.len());
-    let mut unpacked = [const { MaybeUninit::uninit() }; FL_CHUNK_SIZE];
-    take_indices_into(
-        &mut output,
-        array.packed_slice::<T>(),
-        usize::from(bit_width),
-        usize::from(array.offset()),
-        indices.as_slice::<I>().iter().map(|i| {
-            i.to_usize()
-                .vortex_expect("index must be expressible as usize")
-        }),
-        &mut unpacked,
-    );
+    let mut scratch = [const { MaybeUninit::uninit() }; FL_CHUNK_SIZE];
+    match index_validity {
+        Mask::AllTrue(_) => take_in_order(
+            &chunks,
+            &mut output,
+            valid_positions(indices_slice, offset),
+            sparse_limit,
+            &mut scratch,
+        ),
+        _ => take_in_order(
+            &chunks,
+            &mut output,
+            nullable_positions(indices_slice, &index_validity, offset),
+            sparse_limit,
+            &mut scratch,
+        ),
+    }
 
     let unpatched_taken = if array.dtype().as_ptype().is_signed_int() {
         let primitive = PrimitiveArray::new(output, taken_validity);

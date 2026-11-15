@@ -39,6 +39,7 @@ use vortex_array::dtype::PType;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
@@ -219,9 +220,12 @@ impl Input {
             .map_or(Validity::NonNullable, Validity::from);
         let msp =
             PrimitiveArray::from_byte_buffer(self.msp_values.clone(), self.msp_ptype, validity);
-        DecimalByteParts::try_new(msp.into_array(), self.decimal_dtype)
+        let array = DecimalByteParts::try_new(msp.into_array(), self.decimal_dtype)
             .vortex_expect("the MSP of every benchmark input is a signed integer array")
-            .into_array()
+            .into_array();
+        mark_optimized(&array, &SESSION).vortex_expect("mark the benchmark input as optimized");
+
+        array
     }
 }
 
@@ -257,6 +261,8 @@ fn decode(bencher: Bencher, case: Case) {
 /// Compares a new array of `case` with `Gte` against a constant of `value` in each iteration.
 fn bench_compare(bencher: Bencher, case: Case, value: DecimalValue) {
     let constant = case.constant(value);
+    mark_optimized(&constant, &SESSION).vortex_expect("mark the constant as optimized");
+
     bench_case(bencher, case, |array, ctx| {
         array
             .binary(constant.clone(), Operator::Gte)

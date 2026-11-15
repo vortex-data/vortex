@@ -12,6 +12,7 @@ use arrow_schema::Fields;
 use arrow_select::concat::concat_batches;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use itertools::Itertools;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderMetadata;
@@ -25,6 +26,7 @@ use tokio::fs::OpenOptions;
 use tokio::fs::create_dir_all;
 use tokio::io::AsyncWriteExt;
 use tracing::Instrument;
+use tracing::debug;
 use tracing::info;
 use tracing::trace;
 use vortex::VortexSessionDefault;
@@ -47,6 +49,7 @@ use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
 use vortex::dtype::Field;
 use vortex::dtype::FieldPath;
+use vortex::dtype::Nullability;
 use vortex::dtype::StructFields;
 use vortex::dtype::extension::ExtDType;
 use vortex::dtype::extension::ExtDTypeRef;
@@ -92,7 +95,7 @@ fn calculate_concurrency() -> usize {
     let max_concurrency = get_available_parallelism().unwrap_or(1) as u64;
     let concurrency = (available_gb / MEMORY_PER_STREAM_GB).clamp(MIN_CONCURRENCY, max_concurrency);
 
-    info!(
+    debug!(
         "Available memory: {}GB, maximum concurrency is: {}",
         available_gb, concurrency
     );
@@ -148,13 +151,16 @@ pub async fn parquet_to_vortex_chunks_with_batch_size(
         .ok_or_else(|| anyhow::anyhow!("cannot convert an empty Parquet file"))?;
     let combined = concat_batches(&schema, &batches)?;
 
-    let mut chunks = Vec::with_capacity(combined.num_rows().div_ceil(batch_size));
-    for start in (0..combined.num_rows()).step_by(batch_size) {
+    let dtype = SESSION.arrow().from_arrow_schema(schema.as_ref())?;
+    let chunks = (0..combined.num_rows()).step_by(batch_size).map(|start| {
         let len = batch_size.min(combined.num_rows() - start);
-        chunks.push(record_batch_to_vortex(combined.slice(start, len), false)?);
-    }
-
-    Ok(ChunkedArray::from_iter(chunks))
+        record_batch_to_vortex(combined.slice(start, len), false)
+    });
+    let expected_nchunks = combined.num_rows().div_ceil(batch_size);
+    Ok(chunks.process_results(|chunks| {
+        // SAFETY: every batch is a slice of `combined` and is converted using the same schema.
+        unsafe { ChunkedArray::new_unchecked_sized(chunks, dtype, expected_nchunks) }
+    })?)
 }
 
 /// Convert one Arrow [`RecordBatch`] into a Vortex array.
@@ -535,9 +541,9 @@ fn geoparquet_columns(metadata: &ParquetMetaData) -> HashSet<String> {
         .unwrap_or_default()
 }
 
-/// The erased `vortex.st.wkb` extension dtype over a binary `storage` dtype.
-fn wkb_ext_dtype(storage: &DType) -> VortexResult<ExtDTypeRef> {
-    Ok(ExtDType::<WellKnownBinary>::try_new(SpatialMetadata::default(), storage.clone())?.erased())
+/// The erased `vortex.st.wkb` extension dtype with `nullability`.
+fn wkb_ext_dtype(nullability: Nullability) -> VortexResult<ExtDTypeRef> {
+    Ok(ExtDType::<WellKnownBinary>::try_new(SpatialMetadata::default(), nullability)?.erased())
 }
 
 /// Re-type the named binary columns of a struct `dtype` as `vortex.st.wkb`, so the column
@@ -555,7 +561,7 @@ fn tag_spatial_dtype(dtype: DType, spatial_columns: &HashSet<String>) -> VortexR
         .zip(fields.fields())
         .map(|(name, field)| {
             if spatial_columns.contains(name.as_ref()) && field.is_binary() {
-                Ok(DType::Extension(wkb_ext_dtype(&field)?))
+                Ok(DType::Extension(wkb_ext_dtype(field.nullability())?))
             } else {
                 Ok(field)
             }
@@ -583,7 +589,7 @@ fn tag_spatial_array(chunk: ArrayRef, spatial_columns: &HashSet<String>) -> Vort
     let mut tagged = Vec::with_capacity(names.len());
     for (name, field) in names.iter().zip(struct_array.iter_unmasked_fields()) {
         if spatial_columns.contains(name.as_ref()) && field.dtype().is_binary() {
-            let ext = wkb_ext_dtype(field.dtype())?;
+            let ext = wkb_ext_dtype(field.dtype().nullability())?;
             let little_endian = wkb_field_to_little_endian(field, &mut ctx)?;
             tagged.push(ExtensionArray::try_new(ext, little_endian)?.into_array());
         } else {

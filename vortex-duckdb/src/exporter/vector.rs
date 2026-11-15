@@ -60,11 +60,11 @@ impl VectorRef {
             unsafe { self.set_validity_data(u64_offset, len, validity_data) };
         } else {
             debug_assert!(zero_copy.is_none() || !offset.is_multiple_of(64));
-            let source = values.bit_buffer().inner().as_slice();
+            let bits = values.bit_buffer();
             copy_from_slice(
                 unsafe { self.ensure_validity_slice(len) },
-                source,
-                offset,
+                bits.inner().as_slice(),
+                bits.offset() + offset,
                 len,
             );
         }

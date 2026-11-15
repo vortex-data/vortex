@@ -17,7 +17,7 @@ use crate::OnPair;
 use crate::OnPairArraySlotsExt;
 use crate::array::dict_view;
 use crate::decode::code_boundary_at;
-use crate::decode::collect_widened;
+use crate::decode::collect_widened_range;
 
 impl OperationsVTable<OnPair> for OnPair {
     type ProbeState = ();
@@ -36,7 +36,7 @@ impl OperationsVTable<OnPair> for OnPair {
         let row_start = code_boundary_at(codes_offsets, index, ctx)?;
         let row_end = code_boundary_at(codes_offsets, index + 1, ctx)?;
 
-        let codes = collect_widened::<u16>(&array.codes().slice(row_start..row_end)?, ctx)?;
+        let codes = collect_widened_range::<u16>(array.codes(), row_start..row_end, ctx)?;
         let dict = dict_view(array, ctx)?;
 
         // The per-row decoded length is recorded in the `uncompressed_lengths`

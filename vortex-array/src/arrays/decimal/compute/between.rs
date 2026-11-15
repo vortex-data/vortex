@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -104,51 +106,62 @@ fn between_unpack<T: NativeDecimalType>(
         }
     };
 
-    let lower_op = match options.lower_strict {
-        StrictComparison::Strict => |a, b| a < b,
-        StrictComparison::NonStrict => |a, b| a <= b,
+    let buffer = arr.buffer::<T>();
+    let (l, u) = (lower_value, upper_value);
+    let allocator = ctx.allocator().clone();
+
+    let between_bits = match (options.lower_strict, options.upper_strict) {
+        (StrictComparison::Strict, StrictComparison::Strict) => {
+            between_impl::<T>(buffer, l, u, T::lt, T::lt, allocator)
+        }
+        (StrictComparison::Strict, StrictComparison::NonStrict) => {
+            between_impl::<T>(buffer, l, u, T::lt, T::le, allocator)
+        }
+        (StrictComparison::NonStrict, StrictComparison::Strict) => {
+            between_impl::<T>(buffer, l, u, T::le, T::lt, allocator)
+        }
+        (StrictComparison::NonStrict, StrictComparison::NonStrict) => {
+            between_impl::<T>(buffer, l, u, T::le, T::le, allocator)
+        }
     };
 
-    let upper_op = match options.upper_strict {
-        StrictComparison::Strict => |a, b| a < b,
-        StrictComparison::NonStrict => |a, b| a <= b,
-    };
-
-    Ok(Some(between_impl::<T>(
-        arr,
-        lower_value,
-        upper_value,
-        nullability,
-        lower_op,
-        upper_op,
-        ctx,
-    )))
+    let validity = arr
+        .validity()
+        .vortex_expect("validity should be derivable")
+        .union_nullability(nullability);
+    Ok(Some(BoolArray::new(between_bits, validity).into_array()))
 }
 
 fn between_impl<T: NativeDecimalType>(
-    arr: ArrayView<'_, Decimal>,
+    buffer: Buffer<T>,
     lower: Option<T>,
     upper: Option<T>,
-    nullability: Nullability,
-    lower_op: impl Fn(T, T) -> bool,
-    upper_op: impl Fn(T, T) -> bool,
-    ctx: &mut ExecutionCtx,
-) -> ArrayRef {
-    let buffer = arr.buffer::<T>();
-    BoolArray::new(
-        BitBuffer::collect_bool_multiversioned_in(
+    lower_op: impl Fn(&T, &T) -> bool,
+    upper_op: impl Fn(&T, &T) -> bool,
+    allocator: BufferAllocatorRef,
+) -> BitBuffer {
+    // SAFETY: `collect_bool_multiversioned_in` only accesses `0..buffer.len()`.
+    let value_at = |idx| unsafe { *buffer.get_unchecked(idx) };
+
+    match (lower, upper) {
+        (Some(lower), Some(upper)) => BitBuffer::collect_bool_multiversioned_in(
             buffer.len(),
             |idx| {
-                // SAFETY: `collect_bool_multiversioned` invokes the predicate with indices
-                // `0..buffer.len()` only.
-                let value = unsafe { *buffer.get_unchecked(idx) };
-                lower.is_none_or(|l| lower_op(l, value)) & upper.is_none_or(|u| upper_op(value, u))
+                let value = value_at(idx);
+                lower_op(&lower, &value) & upper_op(&value, &upper)
             },
-            ctx.allocator().clone(),
+            allocator,
         ),
-        arr.validity()
-            .vortex_expect("validity should be derivable")
-            .union_nullability(nullability),
-    )
-    .into_array()
+        (Some(lower), None) => BitBuffer::collect_bool_multiversioned_in(
+            buffer.len(),
+            |idx| lower_op(&lower, &value_at(idx)),
+            allocator,
+        ),
+        (None, Some(upper)) => BitBuffer::collect_bool_multiversioned_in(
+            buffer.len(),
+            |idx| upper_op(&value_at(idx), &upper),
+            allocator,
+        ),
+        (None, None) => BitBuffer::new_set_in(buffer.len(), allocator),
+    }
 }

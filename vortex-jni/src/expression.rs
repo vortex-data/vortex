@@ -48,6 +48,7 @@ use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_contains_opts;
 use vortex::expr::lit;
+use vortex::expr::mask;
 use vortex::expr::merge_opts;
 use vortex::expr::not;
 use vortex::expr::or_collect;
@@ -358,6 +359,18 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_isNotNull(
 ) -> jlong {
     let child = unsafe { expr_ref(child) }.clone();
     into_raw(is_not_null(child))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_mask(
+    _env: EnvUnowned,
+    _class: JClass,
+    child: jlong,
+    mask_expr: jlong,
+) -> jlong {
+    let child = unsafe { expr_ref(child) }.clone();
+    let mask_expr = unsafe { expr_ref(mask_expr) }.clone();
+    into_raw(mask(child, mask_expr))
 }
 
 #[unsafe(no_mangle)]
@@ -746,18 +759,10 @@ const UUID_BYTE_LEN: usize = 16;
 
 /// Build the version-agnostic UUID extension [`DType`] with the given nullability.
 ///
-/// The storage is a non-nullable `FixedSizeList(U8, 16)`, matching Vortex's UUID extension and
-/// Arrow's canonical UUID type. The metadata records no version constraint, so the dtype is
-/// compatible with any UUID column regardless of the UUID versions it contains.
+/// The metadata records no version constraint, so the dtype is compatible with any UUID column
+/// regardless of the UUID versions it contains.
 fn uuid_dtype(nullability: Nullability) -> Result<DType, JNIError> {
-    let list_size = u32::try_from(UUID_BYTE_LEN)
-        .map_err(|_| vortex_err!("UUID byte length {UUID_BYTE_LEN} does not fit in u32"))?;
-    let storage_dtype = DType::FixedSizeList(
-        Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
-        list_size,
-        nullability,
-    );
-    let ext = ExtDType::<Uuid>::try_new(UuidMetadata::default(), storage_dtype)?;
+    let ext = ExtDType::<Uuid>::try_new(UuidMetadata::default(), nullability)?;
     Ok(DType::Extension(ext.erased()))
 }
 

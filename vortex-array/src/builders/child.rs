@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BufferAllocatorRef;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 
@@ -12,6 +13,7 @@ use crate::arrays::ChunkedArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 
 /// Accumulates the child of a nested [`ArrayBuilder`] without canonicalizing appended arrays.
@@ -70,10 +72,8 @@ impl ChildBuilder {
     /// append and the final [`finish`](Self::finish) walk. Nesting costs one level, not one per
     /// appended array.
     ///
-    /// Nothing is decoded here, so `_ctx` goes unused; it stays in the signature so that the
-    /// nested builders forwarding their [`ExecutionCtx`] here do not have to explain why they
-    /// don't.
-    pub fn append_array(&mut self, array: &ArrayRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    /// Nothing is decoded here.
+    pub fn append_array(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         vortex_ensure_eq!(
             array.dtype(),
             &self.dtype,
@@ -87,7 +87,8 @@ impl ChildBuilder {
         self.flush_pending();
         self.chunks_len += array.len();
 
-        self.chunks.push(array.clone());
+        let array = array.optimize_ctx(ctx)?;
+        self.chunks.push(array);
 
         Ok(())
     }
@@ -133,12 +134,13 @@ impl ChildBuilder {
         self.flush_pending();
         self.chunks_len = 0;
 
-        let mut chunks = std::mem::take(&mut self.chunks);
-        if chunks.len() == 1 {
-            return chunks.remove(0);
+        if self.chunks.len() == 1 {
+            return self.chunks.pop().vortex_expect("single chunk");
         }
 
-        unsafe { ChunkedArray::new_unchecked(chunks, self.dtype.clone()) }.into_array()
+        // SAFETY: every accumulated chunk has the builder's dtype.
+        unsafe { ChunkedArray::new_unchecked(self.chunks.drain(..), self.dtype.clone()) }
+            .into_array()
     }
 
     /// Moves whatever the scalar builder holds into `chunks`, keeping the chunks in logical order.

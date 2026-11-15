@@ -134,7 +134,7 @@ pub trait PlanParentReduceRule<C: PlanVTable>: Debug + Send + Sync + 'static {
     /// The concrete parent operator matched by this rule.
     type Parent: PlanVTable;
 
-    /// Attempts to replace `parent` based on its child at `child_idx`.
+    /// Attempts to replace `parent` based on its child in slot `child_idx`.
     fn reduce_parent(
         &self,
         child: &Plan<C>,
@@ -149,7 +149,7 @@ pub trait DynPlanParentReduceRule: Debug + Send + Sync + 'static {
     /// Returns whether this rule supports the concrete child and parent operators.
     fn matches(&self, child: &PlanRef, parent: &PlanRef) -> bool;
 
-    /// Attempts to replace `parent` based on `child` at `child_idx`.
+    /// Attempts to replace `parent` based on `child` in slot `child_idx`.
     fn reduce_parent(
         &self,
         child: &PlanRef,

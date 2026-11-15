@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::mem::MaybeUninit;
-
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::filter::ChunkDecoder;
 use vortex_array::arrays::filter::FILTER_CHUNK_LEN;
 use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::arrays::filter::filter_chunked;
@@ -21,6 +18,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
+use super::PackedChunks;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
@@ -81,55 +79,8 @@ fn filter_values<T: NativePType + BitPacking>(
     mask: &MaskValues,
     allocator: &BufferAllocatorRef,
 ) -> Buffer<T> {
-    let bit_width = bit_width as usize;
-    let chunks = PackedChunks {
-        packed: array.packed_slice::<T>(),
-        bit_width,
-        packed_chunk_len: FL_CHUNK_SIZE * bit_width / (8 * size_of::<T>()),
-    };
+    let chunks = PackedChunks::new(array.packed_slice::<T>(), usize::from(bit_width));
     filter_chunked(&chunks, array.offset() as usize, mask, allocator)
-}
-
-/// The packed FastLanes chunks of a bit-packed array.
-struct PackedChunks<'a, T> {
-    packed: &'a [T],
-    bit_width: usize,
-    /// Number of `T` words that hold each packed chunk.
-    packed_chunk_len: usize,
-}
-
-impl<T> PackedChunks<'_, T> {
-    fn chunk(&self, chunk_idx: usize) -> &[T] {
-        &self.packed[chunk_idx * self.packed_chunk_len..][..self.packed_chunk_len]
-    }
-}
-
-// SAFETY: the FastLanes unpack kernels initialize every value of `dst`.
-unsafe impl<T: BitPacking> ChunkDecoder<T> for PackedChunks<'_, T> {
-    fn decode_chunk(&self, chunk_idx: usize, dst: &mut [MaybeUninit<T>; FILTER_CHUNK_LEN]) {
-        // SAFETY: the unpack only writes to `dst`, and the packed chunk holds `FL_CHUNK_SIZE`
-        // values of `bit_width` bits.
-        unsafe {
-            BitPacking::unchecked_unpack(
-                self.bit_width,
-                self.chunk(chunk_idx),
-                dst.assume_init_mut(),
-            );
-        }
-    }
-
-    fn decode_indices(&self, chunk_idx: usize, indices: &[usize], dst: &mut [MaybeUninit<T>]) {
-        debug_assert!(indices.iter().all(|&index| index < FL_CHUNK_SIZE));
-        // SAFETY: every index is within the chunk, and `dst` holds one value for each index.
-        unsafe {
-            BitPacking::unchecked_unpack_indices(
-                self.bit_width,
-                self.chunk(chunk_idx),
-                indices,
-                dst,
-            );
-        }
-    }
 }
 
 #[cfg(test)]
@@ -150,6 +101,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::dtype::NativePType;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
@@ -507,7 +459,8 @@ mod tests {
             PrimitiveArray::from_iter((0..5000u32).map(|i| <T as From<u8>>::from((i % 100) as u8)));
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7, &mut ctx)?
             .into_array()
-            .slice(range.clone())?;
+            .slice(range.clone())?
+            .optimize_ctx(&SESSION)?;
         let bitpacked = bitpacked.as_::<BitPacked>();
 
         let bits = selection(pattern, range.len());

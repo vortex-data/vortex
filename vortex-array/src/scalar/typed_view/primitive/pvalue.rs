@@ -381,6 +381,23 @@ impl PValue {
         }
     }
 
+    /// Widens an integer value to `i128`, which holds every integer `PValue` exactly.
+    ///
+    /// Returns `None` for floating-point values.
+    pub fn as_i128(self) -> Option<i128> {
+        match self {
+            PValue::U8(v) => Some(v.into()),
+            PValue::U16(v) => Some(v.into()),
+            PValue::U32(v) => Some(v.into()),
+            PValue::U64(v) => Some(v.into()),
+            PValue::I8(v) => Some(v.into()),
+            PValue::I16(v) => Some(v.into()),
+            PValue::I32(v) => Some(v.into()),
+            PValue::I64(v) => Some(v.into()),
+            PValue::F16(_) | PValue::F32(_) | PValue::F64(_) => None,
+        }
+    }
+
     as_primitive!(i8, I8);
     as_primitive!(i16, I16);
     as_primitive!(i32, I32);

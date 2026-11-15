@@ -22,12 +22,11 @@ use vortex_session::registry::CachedId;
 
 use crate::plan::physical::PackPlan;
 use crate::plan::physical::Plan;
-use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanId;
 use crate::plan::physical::PlanParts;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::PlanSlots;
 use crate::plan::physical::PlanVTable;
-use crate::plan::physical::check_child_count;
 use crate::plan::physical::operators::EvalStage;
 use crate::plan::physical::optimizer::PlanParentReduceRule;
 use crate::plan::physical::optimizer::PlanReduceRule;
@@ -66,7 +65,7 @@ impl EvalPlan {
             vtable: Eval,
             dtype: expression.dtype().clone(),
             row_count: child.row_count(),
-            children: vec![child].into(),
+            slots: [child].into(),
             data: EvalData { expression },
         }
         .into_typed()
@@ -79,7 +78,7 @@ impl EvalPlan {
 
     /// Returns the child plan supplying the expression root.
     pub fn child_plan(&self) -> VortexResult<PlanRef> {
-        self.child_required(0)
+        self.slot_required(0)
     }
 }
 
@@ -101,16 +100,14 @@ impl PlanVTable for Eval {
         None
     }
 
-    fn with_children(
+    fn with_slots(
         plan: &Plan<Self>,
-        children: &PlanChildren,
+        slots: &PlanSlots,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        check_child_count("Eval", children, 1)?;
-        let child = children
-            .get(0)?
-            .ok_or_else(|| vortex_error::vortex_err!("Eval child is absent"))?;
-        validate_expression_child(plan.expression(), &child)?;
+        slots.check_len("Eval", 1)?;
+        let child = slots.required(0)?;
+        validate_expression_child(plan.expression(), child)?;
         if child.row_count() != plan.row_count() {
             vortex_error::vortex_bail!(
                 "Eval child has {} rows but the plan has {}",
@@ -121,11 +118,11 @@ impl PlanVTable for Eval {
         Ok(())
     }
 
-    fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
+    fn slot_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
         if index == 0 {
             Cow::Borrowed("child")
         } else {
-            Cow::Owned(format!("child[{index}]"))
+            Cow::Owned(format!("slot[{index}]"))
         }
     }
 
@@ -210,7 +207,7 @@ impl PlanReduceRule<Eval> for EvalPackRule {
         };
         let fields = StructFields::new(expr.names.clone(), vec![child_expr.dtype().clone()]);
 
-        let child_plan = plan.child(0)?.vortex_expect("no child plan");
+        let child_plan = plan.slot(0)?.vortex_expect("no child plan");
         let child_plan = EvalPlan::try_new(child_expr.clone(), child_plan)?.into_plan();
 
         let plan = PackPlan::try_new(
