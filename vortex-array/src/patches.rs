@@ -688,6 +688,7 @@ impl Patches {
         let Some(retained) = retained else {
             return self.get_patched(index, ctx);
         };
+
         let indices = retained.as_mut().indices(&self.indices, ctx)?;
 
         // A needle past `u64` is past every patch index.
@@ -697,6 +698,7 @@ impl Patches {
         let Ok(position) = indices.binary_search(&needle) else {
             return Ok(None);
         };
+
         children
             .slot(slots.values)?
             .ok_or_else(|| vortex_err!("patch values slot is missing"))?

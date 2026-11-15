@@ -3,8 +3,9 @@
 
 //! Sorted searches over compressed children: reads, through one-off and repeated probes, of a
 //! Sparse array whose patch indices are BitPacked and of a RunEnd array whose ends are BitPacked,
-//! and slices of those patches and of that RunEnd array. Each read or slice binary searches the compressed child, so
-//! these measure how much of the child's preparation is shared across searches.
+//! and slices of those patches and of that RunEnd array. Each read or slice binary searches the
+//! compressed child, so these measure how much of the child's preparation is shared across
+//! searches.
 
 use std::ops::Range;
 use std::sync::LazyLock;
@@ -52,9 +53,10 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 const LEN: usize = 1 << 20;
 /// One patch, or one run end, every `STRIDE` rows.
 const STRIDE: usize = 64;
-// Sized to keep the CodSpeed simulation short per benchmark.
-const ACCESSES: usize = 256;
-const SLICES: usize = 64;
+// A simulated read costs up to about 22µs and a simulated slice up to about 52µs, so these
+// counts keep each CodSpeed benchmark below 1ms.
+const ACCESSES: usize = if cfg!(codspeed) { 16 } else { 256 };
+const SLICES: usize = if cfg!(codspeed) { 8 } else { 64 };
 const SLICE_LEN: usize = 4_096;
 
 /// Sorted positions every `STRIDE` rows, BitPacked.
