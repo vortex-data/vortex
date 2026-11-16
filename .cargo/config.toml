@@ -3,6 +3,12 @@ rustflags = [
     "-C", "force-frame-pointers=yes",
 ]
 
+[target.aarch64-apple-darwin]
+rustflags = [
+    # Avoid instruction-placement slowdowns in short loops on Apple Silicon.
+    "-C", "llvm-args=-align-loops=32",
+]
+
 [alias]
 vx = "run -p vortex-tui --"
 xtask = "run -p xtask --"
