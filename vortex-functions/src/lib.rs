@@ -44,6 +44,7 @@ pub mod stat;
 pub mod strpos;
 pub mod variant_get;
 pub mod variant_pack;
+pub mod variant_shred;
 pub mod zip;
 
 #[cfg(test)]
@@ -70,6 +71,7 @@ pub fn initialize(session: &VortexSession) {
     scalar_fns.register(stat::StatFn);
     scalar_fns.register(strpos::Strpos);
     scalar_fns.register(variant_pack::VariantPack);
+    scalar_fns.register(variant_shred::VariantShred);
 }
 
 /// A scalar function has a negative cost if applying it to an array and

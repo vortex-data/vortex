@@ -57,6 +57,8 @@ use crate::variant_get::VariantGetOptions;
 use crate::variant_get::VariantPath;
 use crate::variant_pack::VariantPack;
 use crate::variant_pack::VariantPackOptions;
+use crate::variant_shred::VariantShred;
+use crate::variant_shred::VariantShredOptions;
 use crate::zip::Zip;
 
 /// Creates a CASE WHEN expression with one WHEN/THEN pair and an ELSE value.
@@ -666,6 +668,12 @@ pub fn variant_pack_with_validity(
         VariantPackOptions::with_shredded_validity(complete),
         vec![core, shredded, validity],
     )
+}
+
+/// Creates an expression that shreds the unshredded Variant `child` by `schema`, keeping the
+/// values it holds.
+pub fn variant_shred(child: Expression, schema: DType) -> Expression {
+    VariantShred.new_expr(VariantShredOptions::new(schema), vec![child])
 }
 
 // ---- Like ----
