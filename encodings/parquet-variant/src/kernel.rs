@@ -40,7 +40,6 @@ use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::PType;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::scalar::Scalar;
@@ -64,6 +63,7 @@ use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
 use crate::ParquetVariantArraySlotsExt;
 use crate::compute::AllNonDistinctParquetVariant;
+use crate::extract::covers;
 use crate::extract::extract;
 
 pub(crate) fn initialize(session: &VortexSession) {
@@ -180,7 +180,7 @@ fn extract_in_place(
     else {
         return Ok(None);
     };
-    if !matches!(dtype, DType::Utf8(_) | DType::Primitive(PType::I64, _)) {
+    if !covers(dtype) {
         return Ok(None);
     }
     let Some(path) = parent
