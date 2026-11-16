@@ -481,7 +481,7 @@ impl<'py> FromPyObject<'_, 'py> for PyIntoArrayIterator {
         }
 
         // Try to convert from Arrow objects (Table, RecordBatchReader, etc.)
-        if let Ok(arrow_iter) = try_arrow_stream_to_iterator(&ob) {
+        if let Some(arrow_iter) = try_arrow_stream_to_iterator(&ob)? {
             return Ok(PyVortex(arrow_iter));
         }
 
@@ -492,9 +492,12 @@ impl<'py> FromPyObject<'_, 'py> for PyIntoArrayIterator {
 }
 
 /// Try to convert a PyArrow object to a Vortex ArrayIterator using Arrow FFI streams.
+///
+/// Returns `None` if the object is not a PyArrow table or reader, and an error if it is one that
+/// cannot be imported.
 fn try_arrow_stream_to_iterator(
     ob: &Borrowed<'_, '_, PyAny>,
-) -> PyResult<Box<dyn ArrayIterator + Send>> {
+) -> PyResult<Option<Box<dyn ArrayIterator + Send>>> {
     let py = ob.py();
 
     let pa_table = table_class(py)?;
@@ -517,10 +520,11 @@ fn try_arrow_stream_to_iterator(
                 session().arrow().from_arrow_record_batch(batch, &schema)
             });
 
-        Ok(Box::new(ArrayIteratorAdapter::new(dtype, vortex_iter)))
+        Ok(Some(Box::new(ArrayIteratorAdapter::new(
+            dtype,
+            vortex_iter,
+        ))))
     } else {
-        Err(PyTypeError::new_err(
-            "Object is not a supported Arrow streaming type",
-        ))
+        Ok(None)
     }
 }
