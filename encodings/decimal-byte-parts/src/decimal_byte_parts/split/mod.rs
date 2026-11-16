@@ -18,6 +18,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::for_each_mask_word;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -179,21 +180,19 @@ pub fn split_wide<T: Copy, const N: usize>(
                 len,
                 "values and validity must have the same length"
             );
-            for (chunk_index, ((chunk, bits), msp)) in values
-                .chunks(64)
-                .zip(validity.bit_buffer().chunks().iter_padded())
-                .zip(msp_out.chunks_mut(64))
-                .enumerate()
-            {
+            for_each_mask_word(validity.bit_buffer(), |bits, start, word_len| {
+                let chunk = &values[start..start + word_len];
+                let msp = &mut msp_out[start..start + word_len];
+
                 for (i, (&value, msp)) in chunk.iter().zip(msp).enumerate() {
                     let mask = 0u64.wrapping_sub((bits >> i) & 1);
                     let (high, words) = to_parts(value);
                     msp.write(high & mask.cast_signed());
                     for (part, word) in lower_out.iter_mut().zip(words) {
-                        part[chunk_index * 64 + i].write(word & mask);
+                        part[start + i].write(word & mask);
                     }
                 }
-            }
+            });
         }
         Mask::AllFalse(_) => unreachable!("all-null arrays are handled by split_decimal"),
     }
