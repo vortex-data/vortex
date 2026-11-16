@@ -5,13 +5,18 @@ use std::sync::Arc;
 
 use arrow_array::Int64Array;
 use arrow_schema::DataType;
+use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
 use rstest::rstest;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar::ScalarValue;
+use vortex_error::VortexError;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -20,10 +25,11 @@ use super::*;
 use crate::ArrowExportVTable;
 use crate::ArrowImportVTable;
 use crate::ArrowSessionExt;
+use crate::ExecuteArrowExt;
 use crate::ext_metadata::VORTEX_EXTENSION_METADATA_KEY;
 use crate::ext_metadata::set_arrow_extension_name;
 
-/// Exports a tagged field through its registered policy and checks its complete dtype on import.
+/// Checks a tagged field's complete dtype and round-trips its values through the registered policy.
 #[track_caller]
 fn round_trip_field<const PRESERVE_VORTEX: bool>(tag: u8, nullable: bool) -> VortexResult<Field> {
     let session = tagged_session::<PRESERVE_VORTEX>();
@@ -32,6 +38,22 @@ fn round_trip_field<const PRESERVE_VORTEX: bool>(tag: u8, nullable: bool) -> Vor
 
     let field = arrow.to_arrow_field("tag", &dtype)?;
     assert_eq!(arrow.from_arrow_field(&field)?, dtype);
+
+    let storage = if nullable {
+        PrimitiveArray::from_option_iter([Some(1i64)]).into_array()
+    } else {
+        PrimitiveArray::from_iter([1i64]).into_array()
+    };
+    let expected = ExtensionArray::try_new(dtype.as_extension().clone(), storage)?.into_array();
+    let mut ctx = session.create_execution_ctx();
+
+    let array: ArrowArrayRef = Arc::new(Int64Array::from(vec![1]));
+    let imported = arrow.from_arrow_array(array, &field)?;
+    assert_arrays_eq!(imported, expected, &mut ctx);
+
+    let exported = expected.clone().execute_arrow(Some(&field), &mut ctx)?;
+    let round_tripped = arrow.from_arrow_array(exported, &field)?;
+    assert_arrays_eq!(round_tripped, expected, &mut ctx);
 
     Ok(field)
 }
@@ -56,7 +78,9 @@ fn raw_tagged_session() -> VortexSession {
     session
 }
 
-/// The native field infers tag 255. Tag zero deliberately has an empty serialized payload.
+/// The native field always carries the decimal text `255`, so it can express no other tag. This
+/// text differs from the one-byte wire metadata of the same tag, as a real plugin's native metadata
+/// can. Tag zero deliberately has an empty serialized payload.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 struct Tagged<const PRESERVE_VORTEX: bool>;
 
@@ -139,6 +163,9 @@ impl<const PRESERVE_VORTEX: bool> ArrowExtVTable for Tagged<PRESERVE_VORTEX> {
             ext_dtype.storage_dtype().is_nullable(),
         );
         set_arrow_extension_name(&mut field, self.arrow_ext_id().to_string());
+        field
+            .metadata_mut()
+            .insert(EXTENSION_TYPE_METADATA_KEY.to_owned(), "255".to_owned());
 
         Ok(Some(field))
     }
@@ -157,16 +184,25 @@ impl<const PRESERVE_VORTEX: bool> ArrowExtVTable for Tagged<PRESERVE_VORTEX> {
         field: &Field,
         _session: &ArrowSession,
     ) -> VortexResult<Option<ExtDType<Self>>> {
-        Ok(Some(Self::dtype(255, field.is_nullable())?))
+        let tag = field
+            .metadata()
+            .get(EXTENSION_TYPE_METADATA_KEY)
+            .map_or(Ok(255), |tag| tag.parse::<u8>())
+            .map_err(|error| VortexError::external(error).with_context("invalid native tag"))?;
+
+        Ok(Some(Self::dtype(tag, field.is_nullable())?))
     }
 
     fn from_arrow_array(
         array: ArrowArrayRef,
-        _field: &Field,
-        _ext_dtype: &ExtDType<Self>,
-        _session: &ArrowSession,
+        field: &Field,
+        ext_dtype: &ExtDType<Self>,
+        session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        Ok(ArrowImport::Unsupported(array))
+        let storage = session.from_arrow_array(array, field.is_nullable())?;
+        let imported = ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array();
+
+        Ok(ArrowImport::Imported(imported))
     }
 }
 
@@ -262,6 +298,35 @@ fn policy_preserves_dtype(
             .map(String::as_str),
         expected_payload
     );
+
+    Ok(())
+}
+
+#[rstest]
+// Native text "7" means tag 7, but its byte is the Vortex wire encoding of tag 55.
+#[case::different_native_parameter(b'7', DataType::Int64, "7", "must describe")]
+#[case::different_physical_storage(255, DataType::Int32, "255", "must have an Arrow type")]
+fn declined_export_rejects_incompatible_target(
+    #[case] tag: u8,
+    #[case] data_type: DataType,
+    #[case] native_metadata: &str,
+    #[case] message: &str,
+) -> VortexResult<()> {
+    let session = tagged_session::<false>();
+    let dtype = Tagged::<false>::dtype(tag, false)?.erased();
+    let array = ExtensionArray::try_new(dtype, PrimitiveArray::from_iter([1i64]).into_array())?
+        .into_array();
+    let mut field = Field::new("tag", data_type, false);
+    set_arrow_extension_name(&mut field, Tagged::<false>.id().to_string());
+    field.metadata_mut().insert(
+        EXTENSION_TYPE_METADATA_KEY.to_owned(),
+        native_metadata.to_owned(),
+    );
+
+    let error = array
+        .execute_arrow(Some(&field), &mut session.create_execution_ctx())
+        .expect_err("native parameter and physical storage mismatches must be rejected");
+    assert!(error.to_string().contains(message), "{error}");
 
     Ok(())
 }

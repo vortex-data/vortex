@@ -46,18 +46,19 @@ jobs:
           - uses: runs-on/action@v2
             if: github.repository == 'vortex-data/vortex'
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
-        with:
-          sync: false
-      - name: Install missing formatting tools
-        run: |
-          packages=()
-          command -v yamllint >/dev/null || packages+=(yamllint)
-          command -v clang-format >/dev/null || packages+=(clang-format)
-          if [ ${#packages[@]} -gt 0 ]; then
-            sudo apt-get update
-            sudo apt-get install -y "${packages[@]}"
-          fi
+      - parallel:
+          - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+            with:
+              sync: false
+          - name: Install missing formatting tools
+            run: |
+              packages=()
+              command -v yamllint >/dev/null || packages+=(yamllint)
+              command -v clang-format >/dev/null || packages+=(clang-format)
+              if [ ${#packages[@]} -gt 0 ]; then
+                sudo apt-get update
+                sudo apt-get install -y "${packages[@]}"
+              fi
       - name: TOML Lint
         if: "!cancelled()"
         uses: spiraldb/actions/.github/actions/lint-toml@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
@@ -137,27 +138,28 @@ jobs:
           uv run --all-packages pytest --benchmark-disable -n auto test/
         working-directory: vortex-python/
 
-      # The datasets integration relies on private `datasets` APIs, so exercise the oldest
-      # supported release in addition to the locked one.
-      - name: Pytest - Vortex (datasets 4.x floor)
-        run: |
-          uv run --all-packages --with 'datasets==4.0.0' --with 'huggingface-hub<1' \
-            pytest --benchmark-disable test/test_hf_datasets.py
-        working-directory: vortex-python/
-
-      # The lockfile tracks Polars 2, so also exercise the oldest supported 1.x release. The
-      # Polars integration parses Polars' serialized expression format, which differs across
-      # versions.
-      - name: Pytest - Vortex (Polars 1.x floor)
-        run: |
-          uv run --all-packages --with 'polars==1.32.0' \
-            pytest --benchmark-disable test/test_polars_.py test/test_dataset.py
-        working-directory: vortex-python/
-
-      - name: Check Python documentation
-        run: |
-          uv run --all-packages make check
-        working-directory: docs/
+      # The first `uv run` above builds the extension and syncs the environment. These checks
+      # reuse it, and uv locks the environment, so they run at the same time.
+      - parallel:
+          # The datasets integration relies on private `datasets` APIs, so exercise the oldest
+          # supported release in addition to the locked one.
+          - name: Pytest - Vortex (datasets 4.x floor)
+            run: |
+              uv run --all-packages --with 'datasets==4.0.0' --with 'huggingface-hub<1' \
+                pytest --benchmark-disable test/test_hf_datasets.py
+            working-directory: vortex-python/
+          # The lockfile tracks Polars 2, so also exercise the oldest supported 1.x release. The
+          # Polars integration parses Polars' serialized expression format, which differs across
+          # versions.
+          - name: Pytest - Vortex (Polars 1.x floor)
+            run: |
+              uv run --all-packages --with 'polars==1.32.0' \
+                pytest --benchmark-disable test/test_polars_.py test/test_dataset.py
+            working-directory: vortex-python/
+          - name: Check Python documentation
+            run: |
+              uv run --all-packages make check
+            working-directory: docs/
 
   python-cuda-test:
     name: "Python CUDA (test)"
@@ -650,9 +652,27 @@ jobs:
           cargo nextest run --cargo-profile ci --locked --no-fail-fast \
             -p vortex-buffer -p vortex-mask -p vortex-array
 
-  build-java:
-    name: "Java"
+  # The Spark 4.x compat suites all live in one Gradle project, and Gradle runs one project's
+  # tasks one at a time, so they took about 6.5 minutes in series. Each now runs on its own runner.
+  java-tests:
+    name: "Java (${{ matrix.name }})"
     if: github.event.pull_request.draft != true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: checks
+            tasks: >-
+              --parallel javadoc check
+              -x :vortex-spark-4.0_2.13:spark41CompatTest
+              -x :vortex-spark-4.0_2.13:spark42CompatTest
+              -x :vortex-spark-4.0_2.13:spark43CompatTest
+          - name: Spark 4.1 compat
+            tasks: ":vortex-spark-4.0_2.13:spark41CompatTest"
+          - name: Spark 4.2 compat
+            tasks: ":vortex-spark-4.0_2.13:spark42CompatTest"
+          - name: Spark 4.3 compat
+            tasks: ":vortex-spark-4.0_2.13:spark43CompatTest"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=java', github.run_id)
@@ -671,8 +691,29 @@ jobs:
               enable-sccache: "true"
           - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c  # v6
       - name: Build documentation and run Java checks
-        run: ./gradlew --parallel javadoc check
+        env:
+          TASKS: ${{ matrix.tasks }}
+        run: ./gradlew $TASKS
         working-directory: ./java
+
+  # Keeps the "Java" check, which now gathers the java-tests matrix.
+  build-java:
+    name: "Java"
+    needs: [java-tests]
+    # always(): a cancelled run must fail this check, not skip it (a skipped check passes).
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the jobs it gathers
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          # A skipped job counts as passed, as it did when this check was a single job.
+          if echo "$RESULTS" | grep -qE '"(failure|cancelled)"'; then
+            exit 1
+          fi
 
   license-check-and-audit-check:
     # The name is a required status check on develop; keep it unchanged.
@@ -682,22 +723,25 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      # Prevent sudden announcement of a new advisory from failing ci:
-      - name: cargo deny check advisories
-        id: advisories
-        continue-on-error: true
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
-        with:
-          command: check advisories
+      # The two checks are independent, so they run at the same time.
+      - parallel:
+          # Prevent sudden announcement of a new advisory from failing ci:
+          - name: cargo deny check advisories
+            id: advisories
+            continue-on-error: true
+            uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
+            with:
+              command: check advisories
+          - name: cargo deny check bans licenses sources
+            uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
+            with:
+              command: check bans licenses sources
       - name: Warn on advisory failures
-        if: steps.advisories.outcome == 'failure'
+        # `!cancelled()` keeps the warning when bans/licenses/sources fails alongside it.
+        if: "!cancelled() && steps.advisories.outcome == 'failure'"
         run: >-
           echo "::warning title=cargo deny advisories::cargo deny check advisories
           failed; see the 'cargo deny check advisories' step log."
-      - name: cargo deny check bans licenses sources
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
-        with:
-          command: check bans licenses sources
 
   sqllogic-test:
     name: "SQL logic tests"

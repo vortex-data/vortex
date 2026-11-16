@@ -205,6 +205,8 @@ fn materialise(arr: &OnPairArray, ctx: &mut ExecutionCtx) -> (DecodeInputs, usiz
 
 const CASES: &[(Shape, usize)] = &[
     (Shape::UrlLog, 100_000),
+    // Keep the larger scaling case for local runs without lengthening CPU simulation.
+    #[cfg(not(codspeed))]
     (Shape::UrlLog, 1_000_000),
     (Shape::Short, 100_000),
     (Shape::Long, 100_000),
@@ -246,7 +248,11 @@ fn canonicalize_to_varbinview(bencher: Bencher, case: (Shape, usize)) {
 
 // ─── Compute kernels ─────────────────────────────────────────────────────
 
-const COMPUTE_CASES: &[(Shape, usize)] = &[(Shape::UrlLog, 100_000), (Shape::UrlLog, 1_000_000)];
+const COMPUTE_CASES: &[(Shape, usize)] = &[
+    (Shape::UrlLog, 100_000),
+    #[cfg(not(codspeed))]
+    (Shape::UrlLog, 1_000_000),
+];
 
 /// Filter — share-dict path. Builds a 1-in-7 mask so we keep ~14 % of
 /// rows; the cost is dominated by the `codes` segment copy + offsets.

@@ -145,18 +145,6 @@ fn for_each_invalid_range(mask: &Mask, len: usize, mut f: impl FnMut(usize, usiz
     }
 }
 
-/// Calls `f` for each valid index of `mask`, and stops at the first error.
-fn try_for_each_valid(
-    mask: &Mask,
-    mut f: impl FnMut(usize) -> VortexResult<()>,
-) -> VortexResult<()> {
-    match mask.bit_buffer() {
-        AllOr::All => (0..mask.len()).try_for_each(f),
-        AllOr::None => Ok(()),
-        AllOr::Some(buffer) => buffer.set_indices().try_for_each(&mut f),
-    }
-}
-
 /// Returns `true` if all the inlined bytes of `view` are ASCII.
 fn is_inlined_ascii(view: &BinaryView) -> bool {
     const HIGH_BITS: u128 = u128::from_le_bytes([0x80; 16]);
@@ -445,9 +433,12 @@ impl VarBinViewData {
         let buffers_utf8 = Self::buffers_utf8(mask, buffers, check_utf8);
         let buffers_utf8 = buffers_utf8.as_deref();
 
-        try_for_each_valid(mask, |idx| {
-            Self::validate_view(idx, &views[idx], buffers, buffers_utf8)
-        })
+        let validate = |idx: usize| Self::validate_view(idx, &views[idx], buffers, buffers_utf8);
+        match mask.bit_buffer() {
+            AllOr::All => (0..mask.len()).try_for_each(validate),
+            AllOr::None => Ok(()),
+            AllOr::Some(bits) => bits.try_for_each_set_index(validate),
+        }
     }
 
     /// The approximate cost of a per-view UTF-8 check, in bytes of a whole-buffer check.
