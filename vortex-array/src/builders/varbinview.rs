@@ -19,6 +19,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -26,11 +27,13 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::filter::append_filtered_slice;
 use crate::arrays::varbinview::VarBinViewArrayExt;
 use crate::arrays::varbinview::build_views::BinaryView;
 use crate::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use crate::arrays::varbinview::build_views::extend_views;
 use crate::arrays::varbinview::compact::BufferUtilization;
+use crate::arrays::varbinview::for_each_invalid_range;
 use crate::builders::ArrayBuilder;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
@@ -456,6 +459,79 @@ impl VarBinViewBuilder {
 
         self.nulls.append_validity_mask(validity);
         debug_assert_eq!(self.nulls.len(), self.views_builder.len());
+    }
+
+    /// Appends selected views directly, with one output validity entry per selected row.
+    pub(crate) fn append_views_filtered(
+        &mut self,
+        buffers: impl IntoIterator<Item = ByteBuffer>,
+        views: &[BinaryView],
+        selection: &MaskValues,
+        validity: &Mask,
+    ) {
+        assert_eq!(selection.len(), views.len());
+        assert_eq!(selection.true_count(), validity.len());
+        if validity.all_false() {
+            self.views_builder
+                .push_n(BinaryView::empty_view(), validity.len());
+            self.nulls.append_validity_mask(validity);
+            return;
+        }
+        let start = self.views_builder.len();
+        append_filtered_slice(views, selection, &mut self.views_builder);
+        let selected = &mut self.views_builder[start..];
+        for_each_invalid_range(validity, selected.len(), |start, end| {
+            selected[start..end].fill(BinaryView::empty_view());
+        });
+        if self.compacts_buffers() {
+            let buffers = buffers.into_iter().collect::<Vec<_>>();
+            let mut utilizations = unmeasured_utilizations(&buffers);
+            for view in &self.views_builder[start..] {
+                measure_view(&mut utilizations, view);
+            }
+            let slots = self.push_buffers_compacted(buffers, &utilizations);
+            for row in start..self.views_builder.len() {
+                self.views_builder[row] =
+                    self.remap_view_compacted(self.views_builder[row], &slots);
+            }
+        } else {
+            self.flush_in_progress();
+            let ViewAdjustment::Precomputed(adjustment) =
+                self.completed
+                    .extend_from_compaction(BuffersWithOffsets::AllKept {
+                        buffers: buffers.into_iter().collect(),
+                        offsets: None,
+                    })
+            else {
+                unreachable!("keeping every buffer never requires rewriting views");
+            };
+            match adjustment {
+                PrecomputedViewAdjustment::Shift {
+                    buffer_offset,
+                    offsets: None,
+                } => {
+                    if buffer_offset != 0 {
+                        for view in &mut self.views_builder[start..] {
+                            if !view.is_inlined() {
+                                let reference = view.as_view();
+                                *view = reference
+                                    .with_buffer_and_offset(
+                                        reference.buffer_index + buffer_offset,
+                                        reference.offset,
+                                    )
+                                    .into();
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    for view in &mut self.views_builder[start..] {
+                        *view = adjustment.adjust_view(view);
+                    }
+                }
+            }
+        }
+        self.nulls.append_validity_mask(validity);
     }
 
     /// The compacting arm of [`append_views_gathered`](Self::append_views_gathered): marks the
