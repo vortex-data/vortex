@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMeta;
 use vortex_error::VortexResult;
 
@@ -22,6 +23,26 @@ impl BoolArray {
         };
 
         Self::try_new_from_handle(bits, self.meta.offset(), self.len(), self.validity()?)
+    }
+
+    /// Trims the packed bit buffer as [`trim_bits`](Self::trim_bits) does, and also drops the
+    /// leading bit offset when it costs a byte.
+    ///
+    /// The bits of `len` values fit in `len.div_ceil(8)` bytes, but a nonzero bit offset can push
+    /// the last of them into one more byte. That case copies the bits to start at offset zero, so
+    /// the buffer holds exactly the bytes its values need. Bits on a device are only trimmed.
+    pub fn trim_bits_exact(&self) -> VortexResult<Self> {
+        let trimmed = self.trim_bits()?;
+        let packed_len = trimmed.len().div_ceil(8);
+        if BitBufferMeta::new(trimmed.meta.offset(), trimmed.len()).byte_len() == packed_len {
+            return Ok(trimmed);
+        }
+        let Some(host) = trimmed.bits.as_host_opt() else {
+            return Ok(trimmed);
+        };
+        let bits = BitBuffer::new_with_offset(host.clone(), trimmed.len(), trimmed.meta.offset());
+        let aligned = BitBuffer::collect_bool(bits.len(), |index| bits.value(index));
+        Ok(Self::new(aligned, trimmed.validity()?))
     }
 }
 
