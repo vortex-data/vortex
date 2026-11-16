@@ -2,6 +2,21 @@
 
 `vortex-cuda` provides CUDA execution and Arrow C Device export support for Vortex arrays.
 
+## Development environment
+
+The optional Pixi `cpp` environment provides locked CUDA/cuDF and C++ build/test dependencies
+for Linux x86-64 and AArch64. Requires Pixi 0.84.2 and a driver supporting CUDA 13.0.
+
+From the repository root:
+
+```sh
+pixi shell --locked --manifest-path vortex-cuda/pixi.toml -e cpp
+```
+
+Run CMake/CTest commands inside that shell. GPU AMI provisioning uses the same manifest and
+lockfile. After changing dependencies, run `pixi lock --manifest-path vortex-cuda/pixi.toml`
+with Pixi 0.84.2.
+
 ## Arrow Device export
 
 Key files:
