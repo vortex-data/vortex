@@ -28,8 +28,8 @@ phases 2 to 4 use hardcoded lists of types (X35).
 
 Phases 0 and 1 can run in parallel. Phase 1 builds on U4 and U5, which merged on 2026-11-02 and
 2026-10-30. Its storage declaration SD (#11184) merged on 2026-11-13 with strict reads, after
-the spatial validator fix SN1, which merged on 2026-11-04 (see "Order constraints", items 3 and 6). The Arrow
-export with metadata is part of phase 7, but it lands in phase 0, before U1. Phase 2 adds
+the spatial validator fix SN1, which merged on 2026-11-04 (see "Order constraints", items 3 and 6).
+The Arrow export with metadata is part of phase 7, but it lands in phase 0, before U1. Phase 2 adds
 declarations that nothing reads yet, so it can start at any time. U9 was dropped, and SP4 fixes the
 results of the composite aggregates (#11243). Phase 3 is the critical step: it turns on typing,
 and from then on extension types are opaque. Phases 4 and 5 build on it. Phase 6 runs in parallel
@@ -272,8 +272,8 @@ breaks something that works today. Those parts must land together, or in a fixed
 6. The spatial validator fix SN1 (EXT-N2) merged before the storage declaration SD (#11184),
    which merged on 2026-11-13 and makes reads strict (X29). Before SD, `validate_dtype` ran on
    every read, so SN1 already made these spatial reads strict. A check on 2026-11-03 found that
-   no Vortex producer wrote a spatial dtype with a nullable nested level. Only storage that a user builds by hand through the public Rust API can
-   have one. The maintainer accepted that such files stop reading, so no read plugin is needed.
+   no Vortex producer wrote a spatial dtype with a nullable nested level. Only storage that a user
+   builds by hand through the public Rust API can have one. The maintainer accepted that such files stop reading, so no read plugin is needed.
    SN1 ([#11183](https://github.com/vortex-data/vortex/pull/11183)) merged on 2026-11-04 as
    `956c1ea188`, so this order holds.
 7. The declarations of phase 2 (TY1 to TY5) land before the typing check of phase 3, or with it.
@@ -319,6 +319,14 @@ implementations that they change into `vortex-aggregates`.
   declines it first, and the session then retries with the value type. DP peels the dictionary
   before the importers run, so importers never see dictionaries and can fail. The result stays
   `Dict(codes, Ext(values))`.
+- #11464, "Make successful Arrow plugin imports final", merged on 2026-11-13. A successful
+  plugin import is final after the dtype and length checks. Map entries import as a plain struct,
+  while the key and value fields still use plugins. SN2 must preserve these rules.
+- #11497, "fix(arrow): import fixed-size lists whose null rows hold null items", merged on
+  2026-11-16. `vortex-arrow/src/convert.rs` and `vortex-arrow/src/session.rs` now drop null items
+  masked by null fixed-size list rows when the item field is non-nullable. A null item in a valid
+  row still fails. This shares the fixed-size list import code with SN2 and part of the masked-null
+  work of SN3. It does not complete either step.
 - SN3 builds on SN2, and the import then drops masked nulls below every nested level. SN2 drops
   them through structs, lists, large lists, and fixed-size lists. List views, maps, run-end arrays,
   and dictionaries do not pass their visible rows to their children. So a masked null below one of
