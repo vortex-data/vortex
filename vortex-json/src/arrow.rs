@@ -129,7 +129,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
-    use arrow_array::Array;
     use arrow_array::ArrayRef as ArrowArrayRef;
     use arrow_array::StringArray;
     use arrow_array::cast::AsArray;
@@ -144,7 +143,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -153,7 +151,6 @@ mod tests {
     use vortex_arrow::ArrowSessionExt;
     use vortex_arrow::CompactBuffers;
     use vortex_arrow::ExecuteArrowExt;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -165,10 +162,6 @@ mod tests {
         initialize(&session);
         session
     });
-
-
-
-
 
     /// A field that names `arrow.json` over `data_type`, with `metadata` under the metadata key when
     /// it is given.

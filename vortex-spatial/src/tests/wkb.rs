@@ -16,7 +16,12 @@ fn import_string_field_fails() {
     let field = Field::new("geom", DataType::Binary, false)
         .with_extension_type(WkbType::new(Default::default()))
         .with_data_type(DataType::Utf8);
-    let err = SESSION.arrow().from_arrow_field(&field)
+    let err = SESSION
+        .arrow()
+        .from_arrow_field(&field)
         .expect_err("a string field must fail to import as WKB");
-    assert!(err.to_string().contains("as geoarrow.wkb"), "unexpected error: {err}");
+    assert!(
+        err.to_string().contains("as geoarrow.wkb"),
+        "unexpected error: {err}"
+    );
 }

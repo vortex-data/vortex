@@ -8,13 +8,10 @@ use std::sync::Arc;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::Float64Array;
 use arrow_array::StructArray as ArrowStructArray;
-use arrow_array::cast::AsArray;
-use arrow_array::types::Float64Type;
 use arrow_buffer::NullBuffer;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Fields;
-use arrow_schema::extension::ExtensionType as _;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::Crs;
 use geoarrow::datatypes::Dimension as GeoArrowDimension;
@@ -22,19 +19,11 @@ use geoarrow::datatypes::Metadata;
 use geoarrow::datatypes::PointType;
 use vortex_array::VortexSessionExecute;
 use vortex_array::assert_arrays_eq;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 
 use super::SESSION;
-use crate::extension::Point;
-use crate::extension::coordinate::Coordinate;
-use crate::test_harness::coordinate_from_scalar;
 use crate::test_harness::nullable_point_column;
-use crate::test_harness::point_column;
 
 /// A `geoarrow.point` Arrow field with separated (struct) XY coordinates.
 fn point_field(name: &str, nullable: bool, crs: Option<&str>) -> Field {
@@ -45,14 +34,6 @@ fn point_field(name: &str, nullable: bool, crs: Option<&str>) -> Field {
     PointType::new(GeoArrowDimension::XY, metadata).to_field(name, nullable)
 }
 
-
-
-
-
-
-
-
-
 /// A field with interleaved (`FixedSizeList`) coordinates fails to import.
 #[test]
 fn import_interleaved_field_fails() {
@@ -61,8 +42,6 @@ fn import_interleaved_field_fails() {
     let field = point_type.to_field("loc", false);
     assert!(SESSION.arrow().from_arrow_field(&field).is_err());
 }
-
-
 
 /// A nullable `geoarrow.point` column whose coordinate fields Arrow marks nullable, over the given
 /// coordinates, where `points` is the validity of the points.
@@ -118,5 +97,3 @@ fn null_coordinate_of_valid_point_fails() {
         "unexpected error: {err}"
     );
 }
-
-

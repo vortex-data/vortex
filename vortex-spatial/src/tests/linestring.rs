@@ -13,7 +13,6 @@ use arrow_buffer::OffsetBuffer;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Fields;
-use arrow_schema::extension::ExtensionType as _;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::Crs;
 use geoarrow::datatypes::Dimension as GeoArrowDimension;
@@ -21,13 +20,10 @@ use geoarrow::datatypes::LineStringType;
 use geoarrow::datatypes::Metadata;
 use vortex_array::VortexSessionExecute;
 use vortex_array::assert_arrays_eq;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 
 use super::SESSION;
-use crate::extension::LineString;
 use crate::test_harness::linestring_column;
 
 /// A `geoarrow.linestring` Arrow field with separated (struct) XY coordinates.
@@ -38,8 +34,6 @@ fn linestring_field(name: &str, nullable: bool, crs: Option<&str>) -> Field {
     let metadata = Arc::new(Metadata::new(crs, None));
     LineStringType::new(GeoArrowDimension::XY, metadata).to_field(name, nullable)
 }
-
-
 
 /// A field with interleaved (`FixedSizeList`) coordinates fails to import.
 #[test]
@@ -99,5 +93,3 @@ fn imports_large_list() -> VortexResult<()> {
     assert_arrays_eq!(imported, expected, &mut SESSION.create_execution_ctx());
     Ok(())
 }
-
-
