@@ -260,20 +260,21 @@ fn compose(scan: &Arc<PreparedScan>, rows: Range<u64>) -> Box<dyn Planner> {
 async fn run_batches(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Vec<Batch>> {
     let io = scan.io();
     let mut run = Run::new();
-    run.admit(
+    run.admit_with_liveness(
         compose(scan, rows.clone()),
         WorkScope {
             file_ordinal: 0,
             rows,
         },
         io.session(),
+        scan.liveness(),
     );
     let mut batches = Vec::new();
     loop {
         match run.advance()? {
             Progress::Batch(batch) => batches.push(batch),
-            Progress::Spawn(scope, chunk) => {
-                run.admit(chunk, scope, io.session());
+            Progress::Spawn(scope, chunk, claim) => {
+                run.admit_spawned(chunk, scope, io.session(), claim);
             }
             Progress::RootDone(_) if run.live_roots() > 0 => {}
             Progress::RootDone(_) | Progress::Idle => break,
@@ -939,8 +940,8 @@ async fn prune(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Optio
     loop {
         match run.advance()? {
             Progress::Batch(_) => vortex_bail!("pruning alone produced a batch"),
-            Progress::Spawn(scope, planner) => {
-                run.admit(planner, scope, io.session());
+            Progress::Spawn(scope, planner, claim) => {
+                run.admit_spawned(planner, scope, io.session(), claim);
             }
             Progress::RootDone(_) if run.live_roots() > 0 => {}
             Progress::RootDone(_) | Progress::Idle => return Ok(kept.lock().take()),

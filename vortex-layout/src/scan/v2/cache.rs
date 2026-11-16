@@ -11,11 +11,13 @@ use std::sync::Weak;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::expr::BoundExpression;
+use vortex_scan::planning::driver::Liveness;
 
 use super::io::SegmentRanges;
 use super::retain::RetainedSegments;
 use super::retain::RetainingSegmentSource;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::pipeline::DecodedSegments;
 use crate::plan::physical::pipeline::ValueCache;
 use crate::scan::execution::FilterPlans;
 use crate::segments::SegmentSource;
@@ -31,6 +33,10 @@ use crate::segments::SegmentSource;
 /// zones those plans have already excluded, and dictionary values stay keyed by the cached plan
 /// that produced them. Recently read segments are retained up to a byte budget, so the chunks of
 /// the file's scans that share a stored segment read it once.
+///
+/// The cache also holds the file's [`Liveness`], which every scan of the file reports its live
+/// work to, and the segments those scans decoded, each kept while that work still covers the
+/// rows the segment serves.
 ///
 /// A cache describes one file's layout, segment locations, and segment source. Use a new cache
 /// when any of them changes. Cached plans and values live as long as the cache, one set per
@@ -51,16 +57,41 @@ struct Inner {
     values: ValueCache,
     /// Recently read segments, shared by the chunks of every scan of the file.
     retained: Arc<RetainedSegments>,
+    /// The rows of the file live work of its scans still claims.
+    liveness: Liveness,
+    /// Decoded segments, built on the first scan that asks for them.
+    decoded: Mutex<Option<DecodedSegments>>,
+    /// Whether scans decode every segment they read themselves.
+    decode_alone: bool,
 }
 
 impl ScanCache {
     /// A cache whose scans retain up to `bytes` of recently read segments, so chunks that share
-    /// a stored segment read it once. The default retains 64 MiB; zero retains nothing.
+    /// a stored segment read it once. The default retains 64 MiB; zero retains nothing, and
+    /// also stops the file's scans sharing the segments they decode.
     pub fn with_retained_bytes(bytes: u64) -> Self {
         Self(Arc::new(Inner {
             retained: Arc::new(RetainedSegments::new(bytes)),
+            decode_alone: bytes == 0,
             ..Inner::default()
         }))
+    }
+
+    /// The liveness every scan of the file reports its live work to.
+    pub fn liveness(&self) -> Liveness {
+        self.0.liveness.clone()
+    }
+
+    /// The segments the file's scans decoded.
+    pub(super) fn decoded(&self) -> DecodedSegments {
+        if self.0.decode_alone {
+            return DecodedSegments::default();
+        }
+        self.0
+            .decoded
+            .lock()
+            .get_or_insert_with(|| DecodedSegments::new(self.0.liveness.clone()))
+            .clone()
     }
 
     /// The lowered root plan an earlier scan kept.

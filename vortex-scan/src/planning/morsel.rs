@@ -4,6 +4,7 @@
 //! The morsel side of the protocol: array-producing work and its outputs.
 
 use std::fmt;
+use std::ops::Range;
 
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
@@ -40,6 +41,12 @@ pub trait Morsel: IoConsumer + Send {
 
     /// Advances CPU work. Only called when [`state`](Self::state) is `NeedsCompute`.
     fn compute(&mut self) -> VortexResult<MorselOutput>;
+
+    /// The rows of its scope this morsel may still touch. See
+    /// [`Planner::remaining_rows`](crate::planning::planner::Planner::remaining_rows).
+    fn remaining_rows(&self) -> Option<Range<u64>> {
+        None
+    }
 }
 
 impl fmt::Debug for MorselOutput {

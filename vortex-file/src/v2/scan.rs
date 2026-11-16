@@ -38,7 +38,9 @@ use vortex_layout::scan::v2::PreparedScan;
 use vortex_layout::scan::v2::PrunePlanner;
 use vortex_layout::scan::v2::ScanBuilder;
 use vortex_mask::Mask;
+use vortex_scan::planning::driver::Liveness;
 use vortex_scan::planning::driver::Progress;
+use vortex_scan::planning::driver::RowClaim;
 use vortex_scan::planning::driver::Run;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
@@ -134,20 +136,27 @@ impl ScanDriver {
         let root = compose(&scan);
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map_fn));
-        let batches = run_stream(self.handle, root, scope, io.session(), map_fn, inline)
-            .map_ok(move |yielded| match yielded {
-                Yielded::Batch(start, batch) => {
-                    stream::once(future::ready(Ok((start, batch)))).boxed()
-                }
-                Yielded::Spawn(scope, chunk) => chunk_stream(
-                    &chunk_handle,
-                    chunk,
-                    scope,
-                    chunk_io.session(),
-                    Arc::clone(&chunk_map),
-                ),
-            })
-            .try_flatten_unordered(in_flight);
+        let batches = run_stream(
+            self.handle,
+            root,
+            scope,
+            io.session(),
+            scan.liveness(),
+            map_fn,
+            inline,
+        )
+        .map_ok(move |yielded| match yielded {
+            Yielded::Batch(start, batch) => stream::once(future::ready(Ok((start, batch)))).boxed(),
+            Yielded::Spawn(scope, chunk, claim) => chunk_stream(
+                &chunk_handle,
+                chunk,
+                scope,
+                claim,
+                chunk_io.session(),
+                Arc::clone(&chunk_map),
+            ),
+        })
+        .try_flatten_unordered(in_flight);
         // The prepared scan holds the file's shared cache: keep it until the stream ends, so
         // scans of the file that start meanwhile find it.
         let batches = batches.chain(stream::poll_fn(move |_| {
@@ -194,13 +203,13 @@ type MapFn<A> = Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>;
 /// planner of the run spawned.
 enum Yielded<A> {
     Batch(u64, A),
-    Spawn(WorkScope, Box<dyn Planner>),
+    Spawn(WorkScope, Box<dyn Planner>, Option<RowClaim>),
 }
 
 /// One CPU step of a run, taken on a `spawn_cpu` task with the run.
 enum Step<A> {
     Batch(u64, A),
-    Spawn(WorkScope, Box<dyn Planner>),
+    Spawn(WorkScope, Box<dyn Planner>, Option<RowClaim>),
     RootDone,
     Idle,
     Waiting,
@@ -225,11 +234,12 @@ fn run_stream<A: Send + 'static>(
     root: Box<dyn Planner>,
     scope: WorkScope,
     io: Arc<dyn IoSource>,
+    liveness: Liveness,
     map_fn: MapFn<A>,
     inline: bool,
 ) -> BoxStream<'static, VortexResult<Yielded<A>>> {
     let mut run = Run::new();
-    run.admit(root, scope, Arc::clone(&io));
+    run.admit_with_liveness(root, scope, Arc::clone(&io), liveness);
     let state = RunState {
         handle,
         run: Some(run),
@@ -253,7 +263,9 @@ fn run_stream<A: Send + 'static>(
                             Progress::Batch(batch) => {
                                 Step::Batch(batch.scope.rows.start, map_fn(batch.array)?)
                             }
-                            Progress::Spawn(scope, child) => Step::Spawn(scope, child),
+                            Progress::Spawn(scope, child, claim) => {
+                                Step::Spawn(scope, child, claim)
+                            }
                             Progress::RootDone(_) => Step::RootDone,
                             Progress::Idle => Step::Idle,
                             Progress::Waiting => Step::Waiting,
@@ -267,11 +279,11 @@ fn run_stream<A: Send + 'static>(
                 Step::Batch(start, batch) => {
                     return Ok(Some((Yielded::Batch(start, batch), state)));
                 }
-                Step::Spawn(scope, child) if state.inline => {
-                    run.admit(child, scope, Arc::clone(&state.io));
+                Step::Spawn(scope, child, claim) if state.inline => {
+                    run.admit_spawned(child, scope, Arc::clone(&state.io), claim);
                 }
-                Step::Spawn(scope, child) => {
-                    return Ok(Some((Yielded::Spawn(scope, child), state)));
+                Step::Spawn(scope, child, claim) => {
+                    return Ok(Some((Yielded::Spawn(scope, child, claim), state)));
                 }
                 Step::RootDone if run.live_roots() > 0 => {}
                 Step::RootDone | Step::Idle => return Ok(None),
@@ -289,13 +301,14 @@ fn chunk_stream<A: Send + 'static>(
     handle: &Handle,
     root: Box<dyn Planner>,
     scope: WorkScope,
+    claim: Option<RowClaim>,
     io: Arc<dyn IoSource>,
     map_fn: MapFn<A>,
 ) -> BoxStream<'static, VortexResult<(u64, A)>> {
     let (mut send, recv) = mpsc::channel(1);
     let task = handle.spawn(async move {
         let mut run = Run::new();
-        run.admit(root, scope, Arc::clone(&io));
+        run.admit_spawned(root, scope, Arc::clone(&io), claim);
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => {
@@ -306,8 +319,8 @@ fn chunk_stream<A: Send + 'static>(
                         return Ok(());
                     }
                 }
-                Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, Arc::clone(&io));
+                Progress::Spawn(scope, child, claim) => {
+                    run.admit_spawned(child, scope, Arc::clone(&io), claim);
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(()),
