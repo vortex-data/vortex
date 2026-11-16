@@ -61,6 +61,28 @@ def test_take(ds: pd.Dataset) -> None:
     ]
 
 
+@pytest.mark.parametrize("indices", [[999_999, 10], [50, 10, 50], [10, 10], [1_000, 10, 999_999, 50]])
+def test_take_unordered(ds: pd.Dataset, indices: list[int]) -> None:
+    assert ds.take(pa.array(indices)).column("index").to_pylist() == indices
+
+
+def test_take_unordered_on_filtered_dataset_requires_sorted_indices(ds: vx.dataset.VortexDataset) -> None:
+    filtered = ds.filter(pc.field("index") >= 50)
+    assert filtered.take(pa.array([50, 999_999])).column("index").to_pylist() == [50, 999_999]
+    with pytest.raises(RuntimeError, match="strictly increasing"):
+        filtered.take(pa.array([999_999, 10]))
+
+
+def test_fragment_take_unordered(ds: vx.dataset.VortexDataset) -> None:
+    fragment = list(ds.get_fragments())[-1]
+    assert fragment.take(pa.array([999_999, 999_998, 999_999])).column("index").to_pylist() == [
+        999_999,
+        999_998,
+        999_999,
+    ]
+    assert fragment.take(pa.array([999_999, 10, 999_998])).column("index").to_pylist() == [999_999, 999_998]
+
+
 def test_to_batches(ds: pd.Dataset) -> None:
     assert sum(len(x) for x in ds.to_batches(columns=["float", "bool"])) == 1_000_000
 
