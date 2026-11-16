@@ -120,26 +120,29 @@ Every run is also archived under the check's `runs/` prefix in S3 (see [Storage]
 
 ## Setup
 
-**GitHub.** The `claude-automation` environment, as for `fuzzer-fix-automation.yml`, with:
+**GitHub.** What `claude-review.yml` and `fuzzer-fix-automation.yml` already use:
 
-- the App secrets `APP_ID` and `APP_PRIVATE_KEY`,
+- the `claude-automation` environment with the App secrets `APP_ID` and `APP_PRIVATE_KEY`, for
+  the publish job;
 - the variable `CLAUDE_APP_LOGIN`, the App's bot login. Only its markers are trusted, and
-  non-dry runs refuse to start without it.
+  non-dry runs refuse to start without it;
 - the Anthropic variables `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID` and
-  `ANTHROPIC_FEDERATION_RULE_WRITE`, the id of the `vortex-claude-write` rule.
+  `ANTHROPIC_FEDERATION_RULE_CI`, the id of the `vortex-claude-ci` rule.
 
-**Anthropic.** The `vortex-claude-write` federation rule must allow
-`vortex-data/vortex/.github/workflows/agent-checks-shard.yml@refs/heads/develop` as
-`job_workflow_ref`. For a dry run from a branch or PR, also allow `@refs/heads/<branch>` or
-`@refs/pull/<n>/merge`. Without it, every agent fails its token exchange with a 401, and nothing
-is recorded.
+The plan and record jobs also use an `agent-checks-store` environment, which GitHub creates on
+the first run. It holds nothing; it only gives those two jobs an OIDC subject of their own.
+
+**Anthropic.** No change. The agent job holds no secrets, so it uses the read-only
+`vortex-claude-ci` rule, which accepts runs on the default branch. Agents therefore only run on
+`develop`: a run from any other branch fails each agent's token exchange with a 401 and records
+nothing.
 
 **AWS.** A bucket, with versioning on, and these repository variables:
 
 | Variable | Value |
 | --- | --- |
 | `AGENT_CHECKS_STORE_URI` | `s3://<bucket>/<prefix>`, for example `s3://vortex-ci/agent-checks` |
-| `AGENT_CHECKS_AWS_ROLE_ARN` | A role for GitHub's OIDC provider. Its trust policy must require `token.actions.githubusercontent.com:sub` = `repo:vortex-data/vortex:ref:refs/heads/develop` and `aud` = `sts.amazonaws.com`. |
+| `AGENT_CHECKS_AWS_ROLE_ARN` | A role for GitHub's OIDC provider. Its trust policy must require `token.actions.githubusercontent.com:sub` = `repo:vortex-data/vortex:environment:agent-checks-store` and `aud` = `sts.amazonaws.com`. |
 | `AGENT_CHECKS_AWS_REGION` | The bucket's region (default `us-east-1`) |
 
 The role needs these permissions:
@@ -151,9 +154,9 @@ The role needs these permissions:
 To use S3 locally, you need an AWS CLI v2 recent enough for `put-object --if-match` (late 2024 or
 later).
 
-**Dry runs** may start from any branch. Without `AGENT_CHECKS_STORE_URI` they plan from empty
-state. The role's subject condition rejects other branches, so leave the variable unset for branch
-dry runs.
+**Trying it out.** After merging, run **Actions → Agent Checks → Run workflow** on `develop` with
+`dry_run` and one `crate`. That exercises every step except publishing and recording. Without
+`AGENT_CHECKS_STORE_URI`, a dry run plans from empty state.
 
 ## Reference
 
@@ -283,10 +286,15 @@ So its runner holds nothing worth stealing:
   plan from the plan job. It applies the patch only for assigned files, never `.git`,
   `Cargo.lock`, symlinks or submodules, and with git hooks disabled. It compiles the edits, which
   does not run them, and only then mints the App token.
-- **The AWS role** is assumed only by the plan and record jobs, which run without an environment.
-  Their OIDC subject is `repo:vortex-data/vortex:ref:refs/heads/develop`. The agent's job has the
-  subject `repo:vortex-data/vortex:environment:claude-automation`, so it can never assume the
-  role.
+- **OIDC subjects keep the credentials apart.** Each job's subject decides what it can reach:
+
+  | Job | OIDC subject | Can reach |
+  | --- | --- | --- |
+  | agent | `repo:vortex-data/vortex:ref:refs/heads/develop` (no environment) | Anthropic, through the read-only `vortex-claude-ci` rule |
+  | publish | `…:environment:claude-automation` | the App secrets, to publish |
+  | plan, record | `…:environment:agent-checks-store` | the store's AWS role |
+
+  The agent's job never has a subject that the App's environment or the AWS role trusts.
 - **Agent-written text** is neutralized and clipped in PR and issue bodies, so it cannot forge the
   runner's marker.
 

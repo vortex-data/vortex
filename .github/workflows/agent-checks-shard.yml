@@ -3,9 +3,9 @@ name: Agent Checks (one shard)
 # Called by agent-checks-review.yml for one crate of one check. Two jobs on two runners, so the
 # agent never shares a machine with a write credential: `agent` runs Claude with a read-only token
 # and hands over a patch; `publish` applies it on a fresh checkout within the crate's files,
-# formats, verifies, decides, and only then mints the App token. The agent job is this file's
-# `job_workflow_ref`, which the `vortex-claude-write` federation rule must allow. See
-# `.agents/checks/README.md`.
+# formats, verifies, decides, and only then mints the App token. The agent job holds no secrets, so
+# it authenticates to Anthropic with the read-only `vortex-claude-ci` rule, which accepts only runs
+# on the default branch. See `.agents/checks/README.md`.
 
 on:
   workflow_call:
@@ -35,11 +35,9 @@ jobs:
     name: Agent
     runs-on: ubuntu-latest
     timeout-minutes: 100
-    environment:
-      # Puts `environment:claude-automation` in the OIDC subject, which the Anthropic federation
-      # rule matches. This job references none of the environment's secrets.
-      name: claude-automation
-      deployment: false
+    # No environment: the agent's runner gets no secrets, and its OIDC subject
+    # (`repo:<repo>:ref:refs/heads/develop`) is what the read-only `vortex-claude-ci` rule accepts,
+    # and what neither the App's environment nor the store's AWS role trusts.
     permissions:
       contents: read
       id-token: write
@@ -80,7 +78,7 @@ jobs:
         timeout-minutes: 80
         uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d  # v1.0.266
         with:
-          anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_WRITE }}
+          anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_CI }}
           anthropic_organization_id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
           anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
           github_token: ${{ github.token }}
