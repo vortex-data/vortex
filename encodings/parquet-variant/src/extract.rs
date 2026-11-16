@@ -9,14 +9,17 @@
 //! row and every path: building an Arrow array of the storage, a `Variant` over each row, and a
 //! `Variant` over each object on the way down.
 //!
-//! [`extract`] returns `None` for anything it does not cover, such as a value that would need a
-//! cast, and the caller falls back to the general kernel. So it never has to decide how a cast
-//! behaves, only to recognise the values that need none.
+//! The values that need no conversion are read from their bytes. Every other value is decoded and
+//! converted with the `Variant` method that the general kernel converts it with, so the result is
+//! the kernel's whatever a row holds. [`extract`] returns `None` only for an extraction it does
+//! not cover at all, or for bytes that are not what the encoding says they are, and the caller
+//! then falls back to the general kernel.
 //!
 //! [Variant encoding]: https://github.com/apache/parquet-format/blob/master/VariantEncoding.md
 
 use std::sync::Arc;
 
+use parquet_variant::Variant;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -33,8 +36,8 @@ use vortex_mask::Mask;
 
 /// The value of a path in one row.
 enum Extracted<'a> {
-    /// The path does not exist in the row.
-    Missing,
+    /// The path does not exist in the row, or its value converts to null.
+    Null,
     Utf8(&'a str),
     Int(i64),
 }
@@ -49,9 +52,9 @@ enum Target {
 /// Extracts `path`, a path of object fields, from each row of unshredded storage as `dtype`.
 ///
 /// `metadata` and `value` are the storage children, and `valid` the rows that hold a value.
-/// Returns `None` if this does not cover the extraction: the dtype is not a string or a 64-bit
-/// integer, a row holds a value of another type at the path, or the bytes are not what the
-/// encoding says they are. A missing path, or a row without a value, is a null.
+/// A value of another type is converted as the general kernel converts it. Returns `None` if this
+/// does not cover the extraction: the dtype is not a string or a 64-bit integer, or the bytes are
+/// not what the encoding says they are. A missing path, or a row without a value, is a null.
 pub(crate) fn extract(
     metadata: &VarBinViewArray,
     value: &VarBinViewArray,
@@ -72,7 +75,7 @@ pub(crate) fn extract(
     let mut fields = FieldCache::new(path);
     let mut row = |idx: usize| -> Option<Extracted<'_>> {
         if !valid.value(idx) {
-            return Some(Extracted::Missing);
+            return Some(Extracted::Null);
         }
         let fields = fields.resolve(metadata, idx)?;
         extract_row(fields, bytes_at(value, idx), path, target)
@@ -88,7 +91,8 @@ pub(crate) fn extract(
             for idx in 0..len {
                 let string = match row(idx)? {
                     Extracted::Utf8(string) => Some(string.as_bytes()),
-                    Extracted::Missing => None,
+                    Extracted::Null => None,
+                    // A conversion to a string never makes an integer.
                     Extracted::Int(_) => return None,
                 };
                 validity.append(string.is_some());
@@ -116,7 +120,8 @@ pub(crate) fn extract(
             for idx in 0..len {
                 let value = match row(idx)? {
                     Extracted::Int(value) => Some(value),
-                    Extracted::Missing => None,
+                    Extracted::Null => None,
+                    // A conversion to an integer never makes a string.
                     Extracted::Utf8(_) => return None,
                 };
                 validity.append(value.is_some());
@@ -216,8 +221,7 @@ impl<'a> FieldCache<'a> {
 
 /// Follows `path` from `value`, and reads what it reaches as `target`.
 ///
-/// Returns `None` for a value that is neither missing nor of the target's type, and for bytes
-/// that are cut short.
+/// Returns `None` for bytes that are cut short.
 fn extract_row<'a>(
     fields: Fields<'_>,
     mut value: &'a [u8],
@@ -227,7 +231,7 @@ fn extract_row<'a>(
     for (depth, name) in path.iter().enumerate() {
         // A value that is not an object has no fields.
         let Some(object) = Object::new(value)? else {
-            return Some(Extracted::Missing);
+            return Some(Extracted::Null);
         };
         let field = match &fields {
             Fields::Ids(ids) => object.field_with_id(ids[depth])?,
@@ -235,7 +239,7 @@ fn extract_row<'a>(
         };
         match field {
             Some(field) => value = field,
-            None => return Some(Extracted::Missing),
+            None => return Some(Extracted::Null),
         }
     }
 
@@ -259,9 +263,30 @@ fn extract_row<'a>(
         (PRIMITIVE, INT64, Target::Int64) => {
             Some(Extracted::Int(i64::from_le_bytes(array(payload)?)))
         }
-        // Anything else is for the general kernel to cast, a Variant null included.
-        _ => None,
+        // Neither a string nor a number is read from an object or an array.
+        (OBJECT | ARRAY, ..) => Some(Extracted::Null),
+        _ => convert(value, target),
     }
+}
+
+/// A dictionary without names. A primitive value has no fields, so it never reads the dictionary.
+const EMPTY_METADATA: &[u8] = &[0x01, 0, 0];
+
+/// Converts the primitive `value` to `target` with the conversion of the general kernel.
+///
+/// The kernel converts each value with [`Variant::as_string`] or [`Variant::as_int64`], and a
+/// value that does not convert is a null. Returns `None` for bytes that do not decode.
+fn convert(value: &[u8], target: Target) -> Option<Extracted<'_>> {
+    let variant = Variant::try_new(EMPTY_METADATA, value).ok()?;
+    Some(match target {
+        // What `Variant::as_string` returns, which borrows from the variant and not the value.
+        Target::Utf8 => match variant {
+            Variant::String(string) => Extracted::Utf8(string),
+            Variant::ShortString(string) => Extracted::Utf8(string.as_str()),
+            _ => Extracted::Null,
+        },
+        Target::Int64 => variant.as_int64().map_or(Extracted::Null, Extracted::Int),
+    })
 }
 
 fn utf8(bytes: &[u8]) -> Option<Extracted<'_>> {
@@ -296,6 +321,7 @@ const BASIC_TYPE_MASK: u8 = 0b11;
 const PRIMITIVE: u8 = 0;
 const SHORT_STRING: u8 = 1;
 const OBJECT: u8 = 2;
+const ARRAY: u8 = 3;
 
 /// Primitive type ids, the six high bits of a primitive value's first byte.
 const INT8: u8 = 3;
@@ -551,29 +577,40 @@ mod tests {
         Ok(())
     }
 
-    /// A value of another type than the one asked for needs a cast, which is the kernel's.
+    /// A value of another type than the one asked for converts as the general kernel converts
+    /// it, so a row of another type does not turn the extraction down.
     #[rstest]
     #[case::integer_as_string(r#"{"a":1}"#, utf8())]
-    #[case::string_as_integer(r#"{"a":"1"}"#, int64())]
+    #[case::double_as_string(r#"{"a":1.5}"#, utf8())]
+    #[case::boolean_as_string(r#"{"a":true}"#, utf8())]
     #[case::null_as_string(r#"{"a":null}"#, utf8())]
-    #[case::object_as_string(r#"{"a":{"b":1}}"#, utf8())]
-    #[case::double_as_integer(r#"{"a":1.5}"#, int64())]
-    fn leaves_casts_to_the_kernel(#[case] row: &str, #[case] dtype: DType) -> VortexResult<()> {
-        // The first row is covered, so only the second can turn the extraction down.
-        let covered = if matches!(dtype, DType::Utf8(_)) {
+    #[case::object_as_string(r#"{"a":{"b":"x"}}"#, utf8())]
+    #[case::array_as_string(r#"{"a":["x"]}"#, utf8())]
+    #[case::string_as_integer(r#"{"a":"1"}"#, int64())]
+    #[case::null_as_integer(r#"{"a":null}"#, int64())]
+    #[case::boolean_as_integer(r#"{"a":true}"#, int64())]
+    #[case::fraction_as_integer(r#"{"a":1.5}"#, int64())]
+    #[case::whole_fraction_as_integer(r#"{"a":12.00}"#, int64())]
+    #[case::negative_fraction_as_integer(r#"{"a":-7.25}"#, int64())]
+    #[case::out_of_range_as_integer(r#"{"a":1e300}"#, int64())]
+    #[case::object_as_integer(r#"{"a":{"b":1}}"#, int64())]
+    #[case::array_as_integer(r#"{"a":[1]}"#, int64())]
+    fn converts_as_the_kernel_does(#[case] row: &str, #[case] dtype: DType) -> VortexResult<()> {
+        // Rows that are read without a conversion around the one that needs it.
+        let plain = if matches!(dtype, DType::Utf8(_)) {
             r#"{"a":"x"}"#
         } else {
             r#"{"a":5}"#
         };
-        let rows = vec![covered.to_string(), row.to_string()];
+        let rows = vec![plain.to_string(), row.to_string(), plain.to_string()];
 
-        let (actual, _) = extract_both(&rows, "a", &dtype)?;
+        let (actual, expected) = extract_both(&rows, "a", &dtype)?;
 
-        assert!(actual.is_none());
+        let actual = actual.ok_or_else(|| vortex_err!("{row} as {dtype} must be covered"))?;
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 
-    /// Rows that hold no value are null, whatever their bytes are.
     /// A dictionary may hold a name twice unless it is sorted, and an object may then use
     /// either id.
     #[rstest]
@@ -600,6 +637,7 @@ mod tests {
         Ok(())
     }
 
+    /// Rows that hold no value are null, whatever their bytes are.
     #[test]
     fn rows_without_a_value_are_null() -> VortexResult<()> {
         let json: ArrowArrayRef = Arc::new(StringArray::from(vec![r#"{"a":"x"}"#, r#"{"a":"y"}"#]));
