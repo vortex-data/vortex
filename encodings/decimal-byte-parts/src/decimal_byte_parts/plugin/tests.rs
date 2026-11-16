@@ -9,6 +9,7 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayVTable;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Primitive;
@@ -167,32 +168,52 @@ fn v1_metadata_is_unchanged() -> VortexResult<()> {
 )]
 #[case::v2_missing_child(
     decimal_byte_parts_v2_id(),
-    v2_metadata(vec![PType::U64 as i32]),
+    v2_metadata(PType::I64 as i32, vec![PType::U64 as i32]),
     vec![msp()],
-    "v2 expects the msp child plus one child per lower part"
+    "v2 expects at least 2 children"
 )]
-#[case::v2_extra_child(
-    decimal_byte_parts_v2_id(),
-    v2_metadata(vec![PType::U64 as i32]),
-    vec![msp(), lower_part(), lower_part()],
-    "v2 expects the msp child plus one child per lower part"
-)]
+// The metadata guards below pass no children: they must fail before any child is read, since the
+// in-memory children panic on a dtype mismatch.
 #[case::v2_too_many_lower_parts(
     decimal_byte_parts_v2_id(),
-    v2_metadata(vec![PType::U64 as i32; MAX_LOWER_PARTS + 1]),
-    vec![msp(), lower_part(), lower_part(), lower_part(), lower_part()],
+    v2_metadata(PType::I64 as i32, vec![PType::U64 as i32; MAX_LOWER_PARTS + 1]),
+    vec![],
     "lower parts, got 4"
+)]
+#[case::v2_unknown_msp_ptype(
+    decimal_byte_parts_v2_id(),
+    v2_metadata(i32::MAX, vec![PType::U64 as i32]),
+    vec![],
+    "invalid PType 2147483647 for the MSP"
+)]
+#[case::v2_unsigned_msp(
+    decimal_byte_parts_v2_id(),
+    v2_metadata(PType::U64 as i32, vec![PType::U64 as i32]),
+    vec![],
+    "MSP must have a signed integer dtype"
+)]
+#[case::v2_float_msp(
+    decimal_byte_parts_v2_id(),
+    v2_metadata(PType::F64 as i32, vec![PType::U64 as i32]),
+    vec![],
+    "MSP must have a signed integer dtype"
 )]
 #[case::v2_signed_lower_part(
     decimal_byte_parts_v2_id(),
-    v2_metadata(vec![PType::I64 as i32]),
-    vec![msp(), lower_part()],
+    v2_metadata(PType::I64 as i32, vec![PType::I64 as i32]),
+    vec![],
     "unsigned integer dtype"
 )]
-#[case::v2_unknown_ptype(
+#[case::v2_float_lower_part(
     decimal_byte_parts_v2_id(),
-    v2_metadata(vec![i32::MAX]),
-    vec![msp(), lower_part()],
+    v2_metadata(PType::I64 as i32, vec![PType::U64 as i32, PType::F32 as i32]),
+    vec![],
+    "lower part 1 must have an unsigned integer dtype"
+)]
+#[case::v2_unknown_lower_ptype(
+    decimal_byte_parts_v2_id(),
+    v2_metadata(PType::I64 as i32, vec![i32::MAX]),
+    vec![],
     "invalid PType"
 )]
 fn decoder_rejects_malformed_payloads(
@@ -207,6 +228,55 @@ fn decoder_rejects_malformed_payloads(
             .as_ref()
             .is_err_and(|err| err.to_string().contains(expected_error)),
         "expected {expected_error}, got {result:?}"
+    );
+}
+
+#[test]
+fn v2_ignores_trailing_children() -> VortexResult<()> {
+    let session = session();
+    let mut ctx = session.create_execution_ctx();
+    let expected = DecimalByteParts::try_new_with_lower_parts(
+        msp(),
+        vec![lower_part()],
+        DecimalDType::new(38, 2),
+    )?;
+    let metadata = v2_metadata(PType::I64 as i32, vec![PType::U64 as i32]);
+
+    // A trailing child of any dtype is never read, so it cannot affect the decoded values.
+    let trailing = BoolArray::from_iter([true, false, true]).into_array();
+    let decoded = deserialize_with(
+        decimal_byte_parts_v2_id(),
+        &metadata,
+        vec![msp(), lower_part(), trailing],
+    )?;
+    assert_eq!(
+        decoded
+            .as_opt::<DecimalByteParts>()
+            .vortex_expect("byte parts array")
+            .lower_parts()
+            .len(),
+        1
+    );
+    assert_arrays_eq!(decoded, expected, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::primitive(DType::Primitive(PType::I64, Nullability::NonNullable))]
+#[case::utf8(DType::Utf8(Nullability::Nullable))]
+fn v2_rejects_non_decimal_dtype(#[case] dtype: DType) {
+    let metadata = v2_metadata(PType::I64 as i32, vec![PType::U64 as i32]);
+    let result = deserialize_with_dtype(
+        decimal_byte_parts_v2_id(),
+        &dtype,
+        &metadata,
+        &[msp(), lower_part()],
+    );
+    assert!(
+        result
+            .as_ref()
+            .is_err_and(|err| err.to_string().contains("expected a decimal dtype")),
+        "expected a decimal dtype error, got {result:?}"
     );
 }
 
@@ -270,9 +340,9 @@ fn v1_metadata(lower_part_count: u8) -> Vec<u8> {
     metadata
 }
 
-fn v2_metadata(lower_part_ptypes: Vec<i32>) -> Vec<u8> {
+fn v2_metadata(msp_ptype: i32, lower_part_ptypes: Vec<i32>) -> Vec<u8> {
     DecimalBytePartsV2Metadata {
-        msp_ptype: PType::I64 as i32,
+        msp_ptype,
         lower_part_ptypes,
     }
     .encode_to_vec()
@@ -284,15 +354,25 @@ fn session() -> VortexSession {
     session
 }
 
-/// Decode a hand-built payload of three rows through the plugin.
+/// Decode a hand-built payload of three non-nullable `decimal(38, 2)` rows through the plugin.
 fn deserialize_with(
     serialized_id: ArrayId,
     metadata: &[u8],
     children: Vec<ArrayRef>,
 ) -> VortexResult<ArrayRef> {
     let dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable);
+    deserialize_with_dtype(serialized_id, &dtype, metadata, &children)
+}
+
+/// Decode a hand-built payload of three rows of `dtype` through the plugin.
+fn deserialize_with_dtype(
+    serialized_id: ArrayId,
+    dtype: &DType,
+    metadata: &[u8],
+    children: &[ArrayRef],
+) -> VortexResult<ArrayRef> {
     DecimalBytePartsPlugin.deserialize(
-        ArrayDeserialization::new(serialized_id, &dtype, 3, metadata, &[], &children),
+        ArrayDeserialization::new(serialized_id, dtype, 3, metadata, &[], &children),
         &VortexSession::empty(),
     )
 }

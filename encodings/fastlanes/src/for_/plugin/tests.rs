@@ -10,11 +10,15 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySessionExt;
+use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_session::registry::ReadContext;
 
@@ -103,15 +107,16 @@ fn v2_roundtrip(#[case] range: std::ops::Range<usize>) -> VortexResult<()> {
 }
 
 fn deserialize_v2_parts(
+    dtype: &DType,
+    len: usize,
     metadata: &v2::FoRV2Metadata,
     children: &[ArrayRef],
 ) -> VortexResult<ArrayRef> {
-    let dtype = children[0].dtype().clone();
     FoRPlugin.deserialize(
         ArrayDeserialization::new(
             for_v2_id(),
-            &dtype,
-            children[0].len(),
+            dtype,
+            len,
             &metadata.encode_to_vec(),
             &[],
             &children,
@@ -122,15 +127,55 @@ fn deserialize_v2_parts(
 
 #[test]
 fn v2_rejects_malformed_parts() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let array = chunked()?;
     let encoded = array.encoded().clone();
     let references = blocked(&array)?;
+    let dtype = array.dtype().clone();
+    let len = array.len();
     let metadata = v2::FoRV2Metadata { offset: 0 };
+    let both = [encoded.clone(), references.clone()];
 
-    assert!(deserialize_v2_parts(&metadata, &[encoded.clone(), references.clone()]).is_ok());
-    assert!(deserialize_v2_parts(&metadata, std::slice::from_ref(&encoded)).is_err());
+    let restored = deserialize_v2_parts(&dtype, len, &metadata, &both)?;
+    assert_arrays_eq!(restored, array, &mut ctx);
+
+    // Readers ignore children that follow the ones the contract declares.
+    let with_trailing = [encoded.clone(), references.clone(), encoded.clone()];
+    let restored = deserialize_v2_parts(&dtype, len, &metadata, &with_trailing)?;
+    assert_arrays_eq!(restored, array, &mut ctx);
+
+    // The references child is missing.
+    assert!(deserialize_v2_parts(&dtype, len, &metadata, std::slice::from_ref(&encoded)).is_err());
+
+    // Buffers are not part of the contract.
+    let buffer = BufferHandle::new_host(ByteBuffer::from(vec![0u8; 8]));
     assert!(
-        deserialize_v2_parts(&v2::FoRV2Metadata { offset: 1024 }, &[encoded, references]).is_err()
+        FoRPlugin
+            .deserialize(
+                ArrayDeserialization::new(
+                    for_v2_id(),
+                    &dtype,
+                    len,
+                    &metadata.encode_to_vec(),
+                    std::slice::from_ref(&buffer),
+                    &both,
+                ),
+                &SESSION,
+            )
+            .is_err()
     );
+
+    // A non-integer dtype.
+    let float = DType::Primitive(PType::F32, dtype.nullability());
+    assert!(deserialize_v2_parts(&float, len, &metadata, &both).is_err());
+
+    // The offset must lie in the first chunk.
+    for offset in [1024, u32::MAX] {
+        assert!(deserialize_v2_parts(&dtype, len, &v2::FoRV2Metadata { offset }, &both).is_err());
+    }
+
+    // The number of chunks spanned by `offset + len` must not overflow.
+    let offset_one = v2::FoRV2Metadata { offset: 1 };
+    assert!(deserialize_v2_parts(&dtype, usize::MAX, &offset_one, &both).is_err());
     Ok(())
 }
