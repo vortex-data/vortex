@@ -25,6 +25,7 @@ internals/vtables
 internals/execution
 internals/scan-planning
 internals/scan-execution
+internals/scan-operators
 internals/stats-pruning
 internals/io
 internals/serialization
