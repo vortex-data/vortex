@@ -12,12 +12,7 @@ on:
     branches: [develop]
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
-  workflow_dispatch:
-    inputs:
-      cudf-integration-only:
-        description: "Run only the standalone cuDF integration tests on the new GPU AMI"
-        type: boolean
-        default: false
+  workflow_dispatch: { }
 
 permissions:
   contents: read
@@ -30,7 +25,7 @@ env:
 jobs:
   changes:
     name: "Detect CUDA changes"
-    if: github.event.pull_request.draft != true && inputs.cudf-integration-only != true
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -61,22 +56,17 @@ jobs:
     needs: [changes]
     if: >-
       always() && github.repository == 'vortex-data/vortex' &&
-      (inputs.cudf-integration-only == true || needs.changes.outputs.run-cuda-san == 'true')
+      needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests (cuDF string dictionaries)"
     timeout-minutes: 30
-    # Test the baked environment before switching the shared GPU runner image.
-    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/ami=ami-0a31a8067ee5887c9/tag=cuda-test-cudf-integration
+    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/tag=cuda-test-cudf-integration
     steps:
       - uses: runs-on/action@v2
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - name: Check baked cuDF environment
+      - name: Build and run cuDF integration tests
+        # The GPU image bakes the vortex-cuda Pixi environment into /opt/cudf.
         run: |
           nvidia-smi
-          pixi --version
-          test -f /opt/cudf/pixi.toml
-          test -f /opt/cudf/pixi.lock
-      - name: Build and run cuDF integration tests
-        run: |
           pixi run --no-install --manifest-path /opt/cudf/pixi.toml bash -euo pipefail -c '
             cmake -S vortex-cuda/ffi/tests -B build/cudf-integration -G Ninja \
               -DVORTEX_CUDF_BUILD_TESTS=ON \
