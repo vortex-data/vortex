@@ -6,12 +6,9 @@
 //! Same-scale casts that increase the canonical width defer the copy through a [`WidenArray`].
 //! Scale changes and precision reductions run the conversion kernel to check or rescale valid values.
 
-use num_traits::CheckedMul;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -28,20 +25,19 @@ use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::WidenArray;
 use crate::arrays::decimal::DecimalArrayExt;
-use crate::dtype::BigCast;
+use crate::arrays::primitive::compute::integer_cast;
+use crate::arrays::primitive::compute::integer_cast::IntegerCast;
+use crate::arrays::primitive::compute::integer_cast::IntegerType;
+use crate::arrays::primitive::compute::integer_cast::Remainder;
+use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
-use crate::dtype::IntegerPType;
-use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::dtype::ToI256;
 use crate::dtype::i256;
 use crate::match_each_decimal_value_type;
-use crate::match_each_integer_ptype;
 use crate::scalar::DecimalToFloatCast;
-use crate::scalar::DecimalToIntegerCast;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::CastKernel;
@@ -106,9 +102,7 @@ impl CastKernel for Decimal {
         if let DType::Primitive(ptype, nullability) = dtype
             && ptype.is_int()
         {
-            return match_each_integer_ptype!(*ptype, |T| {
-                cast_to_integer::<T>(array, *nullability, ctx).map(Some)
-            });
+            return cast_to_integer(array, *ptype, *nullability, ctx).map(Some);
         }
         if let DType::Primitive(PType::F64, nullability) = dtype {
             let scale = from_decimal_dtype.scale();
@@ -165,20 +159,28 @@ impl CastKernel for Decimal {
                 ConstantArray::new(Scalar::null(dtype.clone()), array.len()).into_array(),
             ));
         }
-        let target_values_type = to_decimal_dtype.canonical_values_type();
-
-        match_each_decimal_value_type!(array.values_type(), |F| {
-            match_each_decimal_value_type!(target_values_type, |T| {
-                cast_decimal_values::<F, T>(
-                    array,
-                    *from_decimal_dtype,
-                    *to_decimal_dtype,
-                    new_validity,
-                    &valid_values,
-                )
-                .map(Some)
-            })
-        })
+        let cast = IntegerCast::to_decimal(
+            IntegerType::of_decimal(array.values_type()),
+            from_decimal_dtype.scale(),
+            *to_decimal_dtype,
+        );
+        let values = array.buffer_handle().as_host();
+        let casted = cast.cast(values, &valid_values).map_err(|index| {
+            decimal_cast_error(
+                cast.source_type().value_at(values, index),
+                *from_decimal_dtype,
+                *to_decimal_dtype,
+            )
+        })?;
+        Ok(Some(
+            DecimalArray::new_handle(
+                BufferHandle::new_host(casted),
+                to_decimal_dtype.canonical_values_type(),
+                *to_decimal_dtype,
+                new_validity,
+            )
+            .into_array(),
+        ))
     }
 }
 
@@ -207,8 +209,9 @@ fn widen_decimal_values(
     Ok(WidenArray::try_new(values.into_array(), dtype.clone())?.into_array())
 }
 
-fn cast_to_integer<T: IntegerPType + BigCast>(
+fn cast_to_integer(
     array: ArrayView<'_, Decimal>,
+    ptype: PType,
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
@@ -217,20 +220,30 @@ fn cast_to_integer<T: IntegerPType + BigCast>(
     let validity = source_validity.cast_nullability(nullability, array.len(), ctx)?;
     if !array.is_empty() && matches!(mask, Mask::AllFalse(_)) {
         return Ok(ConstantArray::new(
-            Scalar::null(DType::Primitive(T::PTYPE, nullability)),
+            Scalar::null(DType::Primitive(ptype, nullability)),
             array.len(),
         )
         .into_array());
     }
-    let cast = DecimalToIntegerCast::<T>::new(array.decimal_dtype().scale());
-    let buffer = match_each_decimal_value_type!(array.values_type(), |F| {
-        let values = array.buffer::<F>();
-        cast_decimal_buffer(values.as_slice(), &mask, |value: F| {
-            cast.cast(value.to_i256()?)
-        })
-        .map_err(|index| cast.error(DecimalValue::from(values[index]).as_i256()))?
-    });
-    Ok(PrimitiveArray::new(buffer, validity).into_array())
+    // Dividing by the scale factor truncates toward zero, and values must be in range before
+    // truncating, like the scalar cast.
+    let scale = array.decimal_dtype().scale();
+    let cast = IntegerCast::new(
+        IntegerType::of_decimal(array.values_type()),
+        IntegerType::of_ptype(ptype),
+        -<i16 as From<i8>>::from(scale),
+        Remainder::Truncate,
+    );
+    let values = array.buffer_handle().as_host();
+    let casted = cast.cast(values, &mask).map_err(|index| {
+        vortex_err!(
+            "Decimal value {} at scale {} out of range for {}",
+            cast.source_type().value_at(values, index),
+            scale,
+            ptype
+        )
+    })?;
+    Ok(PrimitiveArray::from_byte_buffer(casted, ptype, validity).into_array())
 }
 
 fn cast_to_f64(
@@ -282,196 +295,31 @@ fn cast_to_f64(
     Ok(PrimitiveArray::new(buffer, validity).into_array())
 }
 
-fn cast_decimal_values<F, T>(
-    array: ArrayView<'_, Decimal>,
-    from_decimal_dtype: DecimalDType,
-    to_decimal_dtype: DecimalDType,
-    validity: Validity,
-    valid_values: &Mask,
-) -> VortexResult<ArrayRef>
-where
-    F: NativeDecimalType,
-    T: NativeDecimalType + CheckedMul,
-    DecimalValue: From<F>,
-{
-    let values = array.buffer::<F>();
-    let values = values.as_slice();
-    let cast_result = match DecimalCastPlan::<T>::new(from_decimal_dtype, to_decimal_dtype) {
-        DecimalCastPlan::SameScale { min, max } => {
-            cast_decimal_buffer(values, valid_values, |value| {
-                let value = <T as BigCast>::from(value)?;
-                (value >= min && value <= max).then_some(value)
-            })
-        }
-        cast_plan => cast_decimal_buffer(values, valid_values, |value| cast_plan.cast(value)),
-    };
-    let buffer = cast_result.map_err(|idx| {
-        decimal_cast_error::<F, T>(values[idx], from_decimal_dtype, to_decimal_dtype)
-    })?;
-
-    Ok(DecimalArray::new(buffer, to_decimal_dtype, validity).into_array())
-}
-
-fn cast_decimal_buffer<F, T>(
-    values: &[F],
-    valid_values: &Mask,
-    cast: impl Fn(F) -> Option<T>,
-) -> Result<Buffer<T>, usize>
-where
-    F: NativeDecimalType,
-    T: Copy + Default,
-{
-    let mut buffer = BufferMut::<T>::with_capacity(values.len());
-    match valid_values {
-        Mask::AllTrue(_) => {
-            values.try_map_into(&mut buffer.spare_capacity_mut()[..values.len()], &cast)?;
-        }
-        Mask::AllFalse(_) => return Ok(BufferMut::<T>::zeroed(values.len()).freeze()),
-        Mask::Values(mask) => {
-            values.try_map_masked_into(
-                mask.bit_buffer(),
-                &mut buffer.spare_capacity_mut()[..values.len()],
-                &cast,
-            )?;
-        }
-    }
-    // SAFETY: the selected map kernel initialized every lane before returning Ok.
-    unsafe { buffer.set_len(values.len()) };
-    Ok(buffer.freeze())
-}
-
 #[cold]
-fn decimal_cast_error<F, T>(
-    value: F,
+#[inline(never)]
+fn decimal_cast_error(
+    value: i256,
     from_decimal_dtype: DecimalDType,
     to_decimal_dtype: DecimalDType,
-) -> VortexError
-where
-    F: NativeDecimalType,
-    T: NativeDecimalType,
-    DecimalValue: From<F>,
-{
-    match DecimalValue::from(value)
-        .cast_decimal(from_decimal_dtype, to_decimal_dtype)
-        .and_then(|value| {
-            value.cast::<T>().ok_or_else(|| {
-                vortex_err!(
-                    "decimal value cannot be represented as {} after casting to {}",
-                    T::DECIMAL_TYPE,
-                    to_decimal_dtype
-                )
-            })
-        }) {
+) -> VortexError {
+    match DecimalValue::I256(value).cast_decimal(from_decimal_dtype, to_decimal_dtype) {
         Ok(_) => {
-            // The fast path only returns `None` for values the slow path also rejects, so this
-            // arm should be unreachable. If it is hit, the fast and slow paths have drifted and
-            // we are erroring on a value that is actually representable.
+            // The fast path only rejects values the slow path also rejects, so this arm should
+            // be unreachable. If it is hit, the fast and slow paths have drifted and we are
+            // erroring on a value that is actually representable.
             debug_assert!(
                 false,
                 "decimal fast-path cast rejected value {value} that the slow path accepts \
                  (from {from_decimal_dtype} to {to_decimal_dtype})"
             );
             vortex_err!(
-                "decimal value cannot be represented as {} after casting from {} to {}",
-                T::DECIMAL_TYPE,
+                "decimal value cannot be represented after casting from {} to {}",
                 from_decimal_dtype,
                 to_decimal_dtype
             )
         }
         Err(error) => error,
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum DecimalCastPlan<T> {
-    SameScale { min: T, max: T },
-    ScaleUp { factor: T, min: T, max: T },
-    ScaleUpOverflow,
-    ScaleDown { factor: i256, min: i256, max: i256 },
-    ScaleDownOverflow,
-}
-
-impl<T> DecimalCastPlan<T>
-where
-    T: NativeDecimalType + CheckedMul,
-{
-    fn new(from_decimal_dtype: DecimalDType, to_decimal_dtype: DecimalDType) -> Self {
-        let scale_delta = to_decimal_dtype.scale() as i16 - from_decimal_dtype.scale() as i16;
-        if scale_delta == 0 {
-            let (min, max) = decimal_precision_range::<T>(to_decimal_dtype);
-            return Self::SameScale { min, max };
-        }
-
-        if scale_delta > 0 {
-            let Some(factor) = decimal_scale_factor::<T>(scale_delta as u32) else {
-                return Self::ScaleUpOverflow;
-            };
-            let (min, max) = decimal_precision_range::<T>(to_decimal_dtype);
-            return Self::ScaleUp { factor, min, max };
-        }
-
-        let Some(factor) = decimal_scale_factor::<i256>((-scale_delta) as u32) else {
-            return Self::ScaleDownOverflow;
-        };
-        let (min, max) = decimal_precision_range::<i256>(to_decimal_dtype);
-        Self::ScaleDown { factor, min, max }
-    }
-
-    #[inline]
-    fn cast<F>(&self, value: F) -> Option<T>
-    where
-        F: NativeDecimalType,
-    {
-        match *self {
-            DecimalCastPlan::SameScale { min, max } => {
-                let value = <T as BigCast>::from(value)?;
-                (value >= min && value <= max).then_some(value)
-            }
-            DecimalCastPlan::ScaleUp { factor, min, max } => {
-                let value = <T as BigCast>::from(value)?;
-                let value = value.checked_mul(&factor)?;
-                (value >= min && value <= max).then_some(value)
-            }
-            DecimalCastPlan::ScaleUpOverflow | DecimalCastPlan::ScaleDownOverflow => {
-                (value == F::default()).then_some(T::default())
-            }
-            DecimalCastPlan::ScaleDown { factor, min, max } => {
-                let value = <i256 as BigCast>::from(value)?;
-                if value == i256::ZERO {
-                    return Some(T::default());
-                }
-                if value % factor != i256::ZERO {
-                    return None;
-                }
-
-                let value = value / factor;
-                if value < min || value > max {
-                    return None;
-                }
-                <T as BigCast>::from(value)
-            }
-        }
-    }
-}
-
-fn decimal_precision_range<T: NativeDecimalType>(decimal_dtype: DecimalDType) -> (T, T) {
-    let precision = usize::from(decimal_dtype.precision());
-    (
-        T::MIN_BY_PRECISION[precision],
-        T::MAX_BY_PRECISION[precision],
-    )
-}
-
-fn decimal_scale_factor<T>(exp: u32) -> Option<T>
-where
-    T: NativeDecimalType + CheckedMul,
-{
-    let ten = <T as BigCast>::from(10_i8)?;
-    let mut factor = <T as BigCast>::from(1_i8)?;
-    for _ in 0..exp {
-        factor = factor.checked_mul(&ten)?;
-    }
-    Some(factor)
 }
 
 /// Upcast a DecimalArray to a wider physical representation (e.g., i32 -> i64) while keeping
@@ -508,22 +356,17 @@ pub fn upcast_decimal_values(
     let decimal_dtype = array.decimal_dtype();
     let validity = array.validity()?;
 
-    // Use match_each_decimal_value_type to dispatch based on source and target types
-    match_each_decimal_value_type!(from_values_type, |F| {
-        let from_buffer = array.buffer::<F>();
-        match_each_decimal_value_type!(to_values_type, |T| {
-            let to_buffer = upcast_decimal_buffer::<F, T>(from_buffer);
-            Ok(DecimalArray::new(to_buffer, decimal_dtype, validity))
-        })
-    })
-}
-
-/// Upcast a buffer of decimal values from type F to type T.
-/// Since T is wider than F, this conversion never fails.
-fn upcast_decimal_buffer<F: NativeDecimalType, T: NativeDecimalType>(from: Buffer<F>) -> Buffer<T> {
-    from.iter()
-        .map(|&v| T::from(v).vortex_expect("upcast should never fail"))
-        .collect()
+    let values = integer_cast::resize(
+        array.buffer_handle().as_host(),
+        IntegerType::of_decimal(from_values_type),
+        IntegerType::of_decimal(to_values_type),
+    );
+    Ok(DecimalArray::new_handle(
+        BufferHandle::new_host(values),
+        to_values_type,
+        decimal_dtype,
+        validity,
+    ))
 }
 
 #[cfg(test)]
@@ -1208,5 +1051,100 @@ mod tests {
             PrimitiveArray::from_option_iter([None::<f64>; 3]),
             &mut ctx
         );
+    }
+
+    /// Casts a `storage`-backed `from` decimal array of `values` to `target`, and checks the
+    /// result against casting each value as a scalar, which shares no code with the array cast.
+    #[rstest]
+    // Decimal to integer truncates toward zero, but values must be in range before truncating.
+    #[case::to_i8_truncates(DecimalType::I32, (5, 2), &[12_700, -12_800, 12_699, -12_799, -5, 5], PType::I8.into(), true)]
+    #[case::to_i8_fraction_above_range(DecimalType::I32, (5, 2), &[12_701], PType::I8.into(), false)]
+    #[case::to_i8_fraction_below_range(DecimalType::I32, (5, 2), &[-12_801], PType::I8.into(), false)]
+    #[case::to_i8_above_range(DecimalType::I32, (5, 2), &[12_800], PType::I8.into(), false)]
+    #[case::negative_scale_to_i8(DecimalType::I16, (3, -2), &[1, -1], PType::I8.into(), true)]
+    #[case::negative_scale_above_i8(DecimalType::I16, (3, -2), &[2], PType::I8.into(), false)]
+    #[case::negative_scale_to_u8(DecimalType::I16, (3, -2), &[2], PType::U8.into(), true)]
+    #[case::negative_to_u64(DecimalType::I64, (18, 0), &[-1], PType::U64.into(), false)]
+    #[case::i256_to_i64(DecimalType::I256, (40, 2), &[123_456_789, -5], PType::I64.into(), true)]
+    #[case::i8_storage_to_u64(DecimalType::I8, (2, 1), &[99, 0], PType::U64.into(), true)]
+    // Decimal to decimal rescales exactly and checks the target precision.
+    #[case::scale_down(DecimalType::I64, (10, 4), &[12_300, -500], decimal(10, 2), true)]
+    #[case::scale_down_inexact(DecimalType::I64, (10, 4), &[12_345], decimal(10, 2), false)]
+    #[case::scale_up_widens(DecimalType::I32, (9, 2), &[123_456_789, -1], decimal(18, 4), true)]
+    #[case::narrow(DecimalType::I64, (18, 0), &[999_999_999, -999_999_999], decimal(9, 0), true)]
+    #[case::narrow_above_precision(DecimalType::I64, (18, 0), &[1_000_000_000], decimal(9, 0), false)]
+    #[case::i128_to_i8(DecimalType::I128, (38, 0), &[99, -99], decimal(2, 0), true)]
+    #[case::i128_to_i8_above_precision(DecimalType::I128, (38, 0), &[100], decimal(2, 0), false)]
+    #[case::i8_to_i256(DecimalType::I8, (2, 0), &[99, -99], decimal(76, 10), true)]
+    #[case::scale_down_beyond_i256_zero(DecimalType::I64, (18, 0), &[0], decimal(18, -100), true)]
+    #[case::scale_down_beyond_i256(DecimalType::I64, (18, 0), &[1], decimal(18, -100), false)]
+    fn array_cast_matches_scalar_cast(
+        #[case] storage: DecimalType,
+        #[case] (precision, scale): (u8, i8),
+        #[case] values: &[i64],
+        #[case] target: DType,
+        #[case] casts: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let from = DecimalDType::new(precision, scale);
+        let array = match_each_decimal_value_type!(storage, |T| {
+            DecimalArray::new(
+                values
+                    .iter()
+                    .map(|&v| <T as BigCast>::from(v).unwrap())
+                    .collect::<vortex_buffer::Buffer<T>>(),
+                from,
+                Validity::NonNullable,
+            )
+        });
+        let expected = (0..values.len())
+            .map(|index| array.execute_scalar(index, &mut ctx)?.cast(&target))
+            .collect::<VortexResult<Vec<_>>>();
+        assert_eq!(
+            expected.is_ok(),
+            casts,
+            "the scalar cast should match the case"
+        );
+        let casted = array
+            .into_array()
+            .cast(target)?
+            .execute::<crate::ArrayRef>(&mut ctx);
+        match expected {
+            Ok(expected) => {
+                let casted = casted?;
+                for (index, expected) in expected.iter().enumerate() {
+                    assert_eq!(&casted.execute_scalar(index, &mut ctx)?, expected);
+                }
+            }
+            Err(_) => assert!(casted.is_err(), "the array cast should fail"),
+        }
+        Ok(())
+    }
+
+    fn decimal(precision: u8, scale: i8) -> DType {
+        DType::Decimal(
+            DecimalDType::new(precision, scale),
+            Nullability::NonNullable,
+        )
+    }
+
+    /// Null lanes may hold values that do not fit the target.
+    #[test]
+    fn cast_decimal_to_integer_ignores_null_lanes() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = DecimalArray::new(
+            buffer![100_000i32, 1234, -99_999],
+            DecimalDType::new(6, 2),
+            Validity::from_iter([false, true, false]),
+        );
+        let casted = array
+            .into_array()
+            .cast(DType::Primitive(PType::I8, Nullability::Nullable))?;
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_option_iter([None, Some(12i8), None]),
+            &mut ctx
+        );
+        Ok(())
     }
 }
