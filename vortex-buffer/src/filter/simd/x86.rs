@@ -237,9 +237,13 @@ avx512_compress_kernel!(
     mask_storeu: _mm512_mask_storeu_epi64
 );
 
+// Align each lookup row to its AVX2 load width.
+#[repr(C, align(32))]
+struct LookupTable<T>(T);
+
 /// For each mask byte, `vpermd` lane indices compacting the selected 4-byte lanes to the front
 /// (trailing lanes are don't-care).
-static PERM_LUT_32: [[u32; 8]; 256] = {
+static PERM_LUT_32: LookupTable<[[u32; 8]; 256]> = LookupTable({
     let mut lut = [[0u32; 8]; 256];
     let mut m = 0;
     while m < 256 {
@@ -255,11 +259,11 @@ static PERM_LUT_32: [[u32; 8]; 256] = {
         m += 1;
     }
     lut
-};
+});
 
 /// For each mask nibble, `vpermd` lane indices compacting the selected 8-byte lanes (as pairs
 /// of 4-byte lanes) to the front.
-static PERM_LUT_64: [[u32; 8]; 16] = {
+static PERM_LUT_64: LookupTable<[[u32; 8]; 16]> = LookupTable({
     let mut lut = [[0u32; 8]; 16];
     let mut m = 0;
     while m < 16 {
@@ -276,10 +280,10 @@ static PERM_LUT_64: [[u32; 8]; 16] = {
         m += 1;
     }
     lut
-};
+});
 
 /// Lane-enable vectors for `vpmaskmov` loads/stores of the first `count` 4-byte lanes.
-static LANE_MASK_32: [[i32; 8]; 9] = {
+static LANE_MASK_32: LookupTable<[[i32; 8]; 9]> = LookupTable({
     let mut lut = [[0i32; 8]; 9];
     let mut count = 0;
     while count <= 8 {
@@ -291,10 +295,10 @@ static LANE_MASK_32: [[i32; 8]; 9] = {
         count += 1;
     }
     lut
-};
+});
 
 /// Lane-enable vectors for `vpmaskmov` loads/stores of the first `count` 8-byte lanes.
-static LANE_MASK_64: [[i64; 4]; 5] = {
+static LANE_MASK_64: LookupTable<[[i64; 4]; 5]> = LookupTable({
     let mut lut = [[0i64; 4]; 5];
     let mut count = 0;
     while count <= 4 {
@@ -306,7 +310,7 @@ static LANE_MASK_64: [[i64; 4]; 5] = {
         count += 1;
     }
     lut
-};
+});
 
 /// Generate an AVX2 permutation-LUT kernel for one element width.
 macro_rules! avx2_compress_kernel {
@@ -372,12 +376,12 @@ macro_rules! avx2_compress_kernel {
                         unsafe {
                             $maskload(
                                 src_ptr,
-                                _mm256_loadu_si256($lane_masks[count].as_ptr().cast()),
+                                _mm256_loadu_si256($lane_masks.0[count].as_ptr().cast()),
                             )
                         }
                     };
                     // SAFETY: LUT rows are 32 bytes.
-                    let perm = unsafe { _mm256_loadu_si256($perm_lut[m].as_ptr().cast()) };
+                    let perm = unsafe { _mm256_loadu_si256($perm_lut.0[m].as_ptr().cast()) };
                     let packed = _mm256_permutevar8x32_epi32(chunk, perm);
                     let selected = m.count_ones() as usize;
                     let dst_ptr = unsafe { dst.cast::<$elem>().add(write_pos) };
@@ -392,7 +396,7 @@ macro_rules! avx2_compress_kernel {
                         unsafe {
                             $maskstore(
                                 dst_ptr,
-                                _mm256_loadu_si256($lane_masks[selected].as_ptr().cast()),
+                                _mm256_loadu_si256($lane_masks.0[selected].as_ptr().cast()),
                                 packed,
                             )
                         };
