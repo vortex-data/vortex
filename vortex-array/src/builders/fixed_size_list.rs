@@ -8,6 +8,7 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
@@ -159,8 +160,14 @@ impl FixedSizeListBuilder {
             return self.append_array_as_list(array, ctx);
         }
 
+        let len = n.checked_mul(array.len()).ok_or_else(|| {
+            vortex_err!(
+                "{n} repeated lists of {} elements overflow usize",
+                array.len()
+            )
+        })?;
         // Optimizing collapses a constant tile into one constant run.
-        let repeated = RepeatedArray::try_new(array.clone(), n)?
+        let repeated = RepeatedArray::try_new(array.clone(), len)?
             .into_array()
             .optimize_ctx(&*ctx)?;
         self.elements_builder.append_array(&repeated, ctx)?;
