@@ -37,9 +37,8 @@ use crate::arrays::filter::execute::slice::compact_by_bitmap;
 const CACHED_INDICES_MAX_DENSITY: f64 = 0.5;
 const IN_PLACE_MIN_DENSITY: f64 = 0.5;
 const MIN_SLICES_AVERAGE_RUN_LENGTH: usize = 8;
-// For wide values at this density or above, a branchless copy of every value beats the
-// byte-compress and bitmap walks on Apple M4 and Intel Sapphire Rapids. Benchmarked by
-// `filtered_utf8_append_to_builder` in `benches/chunk_array_builder.rs`.
+// For wide values at this density or above, copying every value without branches is faster than
+// the byte-compress and bitmap walks. See `filtered_utf8_append_to_builder`.
 const BRANCHLESS_MIN_DENSITY: f64 = 0.5;
 const BRANCHLESS_MIN_WIDTH: usize = 16;
 
