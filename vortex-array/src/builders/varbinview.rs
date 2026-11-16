@@ -461,7 +461,20 @@ impl VarBinViewBuilder {
         debug_assert_eq!(self.nulls.len(), self.views_builder.len());
     }
 
-    /// Appends selected views directly, with one output validity entry per selected row.
+    /// Appends the views that `selection` selects, with no byte copy and no intermediate array.
+    ///
+    /// `buffers` are the data buffers the views reference, in the numbering the views use.
+    /// `validity` has one entry per selected row. Null rows get an empty view, so their source
+    /// views are never dereferenced and do not count toward buffer utilization.
+    ///
+    /// When the builder compacts buffers, utilization is measured from the selected valid views
+    /// and each buffer is adopted, sliced, or rewritten accordingly.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `selection` is not `views.len()` long, if `validity` is not
+    /// `selection.true_count()` long, or if a selected valid view references a buffer index
+    /// outside `buffers`.
     pub(crate) fn append_views_filtered(
         &mut self,
         buffers: impl IntoIterator<Item = ByteBuffer>,
@@ -471,67 +484,48 @@ impl VarBinViewBuilder {
     ) {
         assert_eq!(selection.len(), views.len());
         assert_eq!(selection.true_count(), validity.len());
+
         if validity.all_false() {
             self.views_builder
                 .push_n(BinaryView::empty_view(), validity.len());
             self.nulls.append_validity_mask(validity);
             return;
         }
+
         let start = self.views_builder.len();
         append_filtered_slice(views, selection, &mut self.views_builder);
         let selected = &mut self.views_builder[start..];
         for_each_invalid_range(validity, selected.len(), |start, end| {
             selected[start..end].fill(BinaryView::empty_view());
         });
+
         if self.compacts_buffers() {
             let buffers = buffers.into_iter().collect::<Vec<_>>();
             let mut utilizations = unmeasured_utilizations(&buffers);
             for view in &self.views_builder[start..] {
                 measure_view(&mut utilizations, view);
             }
+
             let slots = self.push_buffers_compacted(buffers, &utilizations);
             for row in start..self.views_builder.len() {
                 self.views_builder[row] =
                     self.remap_view_compacted(self.views_builder[row], &slots);
             }
         } else {
-            self.flush_in_progress();
-            let ViewAdjustment::Precomputed(adjustment) =
-                self.completed
-                    .extend_from_compaction(BuffersWithOffsets::AllKept {
-                        buffers: buffers.into_iter().collect(),
-                        offsets: None,
-                    })
-            else {
-                unreachable!("keeping every buffer never requires rewriting views");
-            };
-            match adjustment {
-                PrecomputedViewAdjustment::Shift {
-                    buffer_offset,
-                    offsets: None,
-                } => {
-                    if buffer_offset != 0 {
-                        for view in &mut self.views_builder[start..] {
-                            if !view.is_inlined() {
-                                let reference = view.as_view();
-                                *view = reference
-                                    .with_buffer_and_offset(
-                                        reference.buffer_index + buffer_offset,
-                                        reference.offset,
-                                    )
-                                    .into();
-                            }
-                        }
-                    }
-                }
-                _ => {
-                    for view in &mut self.views_builder[start..] {
-                        *view = adjustment.adjust_view(view);
-                    }
+            let mapping = self.push_buffers(buffers);
+            let is_identity = mapping
+                .iter()
+                .enumerate()
+                .all(|(index, &landed)| landed as usize == index);
+            if !is_identity {
+                for view in &mut self.views_builder[start..] {
+                    *view = remap_view(*view, &mapping);
                 }
             }
         }
+
         self.nulls.append_validity_mask(validity);
+        debug_assert_eq!(self.nulls.len(), self.views_builder.len());
     }
 
     /// The compacting arm of [`append_views_gathered`](Self::append_views_gathered): marks the

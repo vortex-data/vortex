@@ -98,6 +98,12 @@ pub(super) unsafe fn append_filtered<T: Copy>(
     unsafe { append_bitpacked(src, bits.inner().as_ref(), bits.offset(), out) }
 }
 
+/// Writes the values of `src` that the bitmap selects into spare capacity and returns the count.
+///
+/// # Safety
+///
+/// `mask_bytes` from bit `mask_offset` must hold at least `src.len()` bits, and the destination's
+/// spare capacity must have room for every selected value.
 unsafe fn append_bitpacked<T: Copy>(
     src: &[T],
     mask_bytes: &[u8],

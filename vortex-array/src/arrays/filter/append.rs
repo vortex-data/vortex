@@ -23,9 +23,11 @@ pub(super) fn append_filter_to_builder(
     if array.is_empty() {
         return Ok(());
     }
+
     if array.filter_mask().all_true() {
         return array.child().append_to_builder(builder, ctx);
     }
+
     if let Some(values) = array.child().as_opt::<VarBinView>()
         && let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>()
     {
@@ -33,6 +35,7 @@ pub(super) fn append_filter_to_builder(
             .filter_mask()
             .values()
             .vortex_expect("empty and unfiltered masks are handled above");
+
         let validity = values
             .varbinview_validity()
             .filter(array.filter_mask())?
@@ -46,6 +49,7 @@ pub(super) fn append_filter_to_builder(
             selection,
             &validity,
         );
+
         return Ok(());
     }
 
