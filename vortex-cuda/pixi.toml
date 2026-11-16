@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 [workspace]
-name = "vortex-cudf-tests"
+name = "vortex-cuda"
 channels = ["rapidsai", "conda-forge"]
 platforms = [
   { platform = "linux-64", cuda = "13.0" },
