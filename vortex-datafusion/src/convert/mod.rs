@@ -17,8 +17,11 @@ pub(crate) mod schema;
 pub(crate) mod stats;
 
 pub use exprs::DefaultExpressionConverter;
+pub use exprs::ExpressionConstructor;
 pub use exprs::ExpressionConverter;
+pub use exprs::NodeConversion;
 pub use exprs::ProcessedProjection;
+pub use exprs::try_convert_node;
 pub use scalars::scalar_from_df;
 
 /// First-party trait for implementing conversion from DataFusion types to Vortex types.
