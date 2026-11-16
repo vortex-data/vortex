@@ -3,19 +3,16 @@
 
 //! Allocator-backed storage for Vortex buffers.
 
+use std::alloc::AllocError;
+use std::alloc::Allocator;
+use std::alloc::Global;
 use std::alloc::Layout;
+use std::alloc::handle_alloc_error;
 use std::any::Any;
 use std::fmt;
 use std::fmt::Debug;
-use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
 use std::sync::Arc;
-
-use allocator_api2::alloc::AllocError;
-use allocator_api2::alloc::Allocator;
-use allocator_api2::alloc::Global;
-use allocator_api2::alloc::handle_alloc_error;
-use vortex_error::VortexExpect;
 
 use crate::Alignment;
 use crate::BufferMut;
@@ -85,6 +82,18 @@ impl BufferAllocatorRef {
     /// Copy values into a mutable buffer made by this allocator.
     pub fn copy_from<T: Copy>(&self, values: impl AsRef<[T]>) -> BufferMut<T> {
         BufferMut::copy_from_in(values, self.clone())
+    }
+}
+
+impl From<Global> for BufferAllocatorRef {
+    fn from(_: Global) -> Self {
+        Self::statically_allocated()
+    }
+}
+
+impl From<StaticBufferAllocator> for BufferAllocatorRef {
+    fn from(_: StaticBufferAllocator) -> Self {
+        Self::statically_allocated()
     }
 }
 
@@ -255,19 +264,22 @@ impl Allocation {
         Self::allocate_impl(layout, allocator, true)
     }
 
-    pub(crate) fn from_vec<T>(vec: Vec<T>) -> Self {
+    /// Adopt the storage of a `Vec`, which is later freed by the same allocator that made it.
+    pub(crate) fn from_vec<T, A>(vec: Vec<T, A>) -> Self
+    where
+        A: Allocator + Into<BufferAllocatorRef>,
+    {
         assert!(!std::mem::needs_drop::<T>());
 
-        let mut vec = ManuallyDrop::new(vec);
-        let layout = Layout::array::<T>(vec.capacity())
+        let (ptr, _len, capacity, allocator) = vec.into_parts_with_allocator();
+        // `Vec` deallocates with this layout, so the allocator accepts it for this block.
+        let layout = Layout::array::<T>(capacity)
             .unwrap_or_else(|_| unreachable!("a Vec capacity always has a valid layout"));
-        let ptr = NonNull::new(vec.as_mut_ptr().cast())
-            .vortex_expect("a Vec always has a non-null pointer");
 
         Self {
-            ptr,
+            ptr: ptr.cast(),
             layout,
-            allocator: BufferAllocatorRef::statically_allocated(),
+            allocator: allocator.into(),
         }
     }
 
@@ -367,15 +379,15 @@ impl BufferBacking {
 
 #[cfg(test)]
 mod tests {
+    use std::alloc::AllocError;
+    use std::alloc::Allocator;
+    use std::alloc::Global;
     use std::alloc::Layout;
     use std::ptr::NonNull;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
-    use allocator_api2::alloc::AllocError;
-    use allocator_api2::alloc::Allocator;
-    use allocator_api2::alloc::Global;
     use rstest::rstest;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -474,6 +486,34 @@ mod tests {
         assert_eq!(state.allocations.load(Ordering::Relaxed), 1);
         assert_eq!(state.deallocations.load(Ordering::Relaxed), 0);
         assert_eq!(state.grows.load(Ordering::Relaxed), 1);
+
+        drop(buffer);
+        assert_eq!(state.deallocations.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn vec_in_allocator_is_adopted_by_buffer() {
+        let tracking = TrackingAllocator::default();
+        let state = Arc::clone(&tracking.state);
+        let allocator = BufferAllocatorRef::new(tracking);
+
+        let mut vec = Vec::with_capacity_in(4, allocator.clone());
+        vec.extend([1u32, 2, 3, 4]);
+        let ptr = vec.as_ptr();
+
+        let buffer = crate::Buffer::from(vec);
+        assert_eq!(buffer.as_ptr(), ptr);
+        assert_eq!(state.allocations.load(Ordering::Relaxed), 1);
+
+        let Ok(mut buffer) = buffer.try_into_mut() else {
+            panic!("Vec-backed buffer should be uniquely owned")
+        };
+        assert!(buffer.allocation.allocator().ptr_eq(&allocator));
+        buffer.extend(5..=64);
+        assert_eq!(buffer.as_slice(), (1..=64).collect::<Vec<_>>());
+        // Growth goes through the Vec's allocator rather than a fresh allocation.
+        assert_eq!(state.allocations.load(Ordering::Relaxed), 1);
+        assert!(state.grows.load(Ordering::Relaxed) > 0);
 
         drop(buffer);
         assert_eq!(state.deallocations.load(Ordering::Relaxed), 1);

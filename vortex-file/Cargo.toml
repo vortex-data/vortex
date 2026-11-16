@@ -61,7 +61,6 @@ vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
-allocator-api2 = { workspace = true }
 divan = { workspace = true }
 mimalloc = { workspace = true }
 rand = { workspace = true }

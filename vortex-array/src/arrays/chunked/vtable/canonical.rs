@@ -277,6 +277,9 @@ fn swizzle_fixed_size_list_chunks(
 
 #[cfg(test)]
 mod tests {
+    use std::alloc::AllocError;
+    use std::alloc::Allocator;
+    use std::alloc::Global;
     use std::alloc::Layout;
     use std::ptr::NonNull;
     use std::sync::Arc;
@@ -284,9 +287,6 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
-    use allocator_api2::alloc::AllocError;
-    use allocator_api2::alloc::Allocator;
-    use allocator_api2::alloc::Global;
     use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
