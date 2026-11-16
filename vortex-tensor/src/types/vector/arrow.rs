@@ -138,10 +138,8 @@ mod tests {
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
-    use vortex_array::dtype::FieldName;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::dtype::StructFields;
     use vortex_array::dtype::extension::ExtDType;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowImport;
@@ -164,12 +162,6 @@ mod tests {
         )
     }
 
-    fn sample_vector_array() -> ArrayRef {
-        let values = buffer![1.0_f32, 2.0, 3.0, 4.0, 5.0, 6.0].into_array();
-        let fsl = FixedSizeListArray::try_new(values, DIM, Validity::NonNullable, 2).expect("fsl");
-        Vector::try_new_vector_array(fsl.into_array()).expect("vector ext")
-    }
-
     fn arrow_fsl_f32(values: Vec<f32>, dim: i32) -> ArrowArrayRef {
         let values = Float32Array::from(values);
         let field = Field::new("item", DataType::Float32, false);
@@ -186,113 +178,6 @@ mod tests {
         let session = VortexSession::empty();
         session.arrow().register_extension(Vector);
         session
-    }
-
-    #[test]
-    fn to_arrow_field_attaches_extension_metadata() -> VortexResult<()> {
-        let vortex_session = session_with_vector();
-        let session = vortex_session.arrow();
-        let field = session.to_arrow_field("embedding", &vector_dtype(false))?;
-        assert_eq!(
-            field.extension_type_name(),
-            Some(ARROW_VECTOR_EXTENSION_NAME),
-        );
-        let DataType::FixedSizeList(elem, size) = field.data_type() else {
-            panic!("expected FixedSizeList, got {:?}", field.data_type());
-        };
-        assert_eq!(field.name(), "embedding");
-        assert!(!field.is_nullable());
-        assert_eq!(*size, DIM as i32);
-        assert_eq!(elem.data_type(), &DataType::Float32);
-        assert!(!elem.is_nullable());
-        Ok(())
-    }
-
-    #[test]
-    fn from_arrow_field_recovers_vector_dtype() -> VortexResult<()> {
-        let vortex_session = session_with_vector();
-        let session = vortex_session.arrow();
-        let mut arrow_field = Field::new(
-            "embedding",
-            DataType::FixedSizeList(
-                Arc::new(Field::new("item", DataType::Float32, false)),
-                DIM as i32,
-            ),
-            true,
-        );
-        set_arrow_extension_name(&mut arrow_field, ARROW_VECTOR_EXTENSION_NAME);
-        let dtype = session.from_arrow_field(&arrow_field)?;
-        assert_eq!(dtype, vector_dtype(true));
-        Ok(())
-    }
-
-    #[test]
-    fn schema_roundtrip_preserves_top_level_vector() -> VortexResult<()> {
-        let vortex_session = session_with_vector();
-        let session = vortex_session.arrow();
-        let dtype = DType::Struct(
-            StructFields::from_iter([(FieldName::from("embedding"), vector_dtype(false))]),
-            Nullability::NonNullable,
-        );
-        let schema = session.to_arrow_schema(&dtype)?;
-        let roundtripped = session.from_arrow_schema(&schema)?;
-        assert_eq!(roundtripped, dtype);
-        Ok(())
-    }
-
-    #[test]
-    fn schema_roundtrip_preserves_nested_struct_vector() -> VortexResult<()> {
-        let vortex_session = session_with_vector();
-        let session = vortex_session.arrow();
-        let inner = DType::Struct(
-            StructFields::from_iter([(FieldName::from("embedding"), vector_dtype(true))]),
-            Nullability::NonNullable,
-        );
-        let outer = DType::Struct(
-            StructFields::from_iter([(FieldName::from("payload"), inner)]),
-            Nullability::NonNullable,
-        );
-        let schema = session.to_arrow_schema(&outer)?;
-        let roundtripped = session.from_arrow_schema(&schema)?;
-        assert_eq!(roundtripped, outer);
-        Ok(())
-    }
-
-    #[test]
-    fn schema_roundtrip_preserves_list_of_vector() -> VortexResult<()> {
-        let vortex_session = session_with_vector();
-        let session = vortex_session.arrow();
-        let dtype = DType::Struct(
-            StructFields::from_iter([(
-                FieldName::from("embeddings"),
-                DType::List(Arc::new(vector_dtype(false)), Nullability::NonNullable),
-            )]),
-            Nullability::NonNullable,
-        );
-        let schema = session.to_arrow_schema(&dtype)?;
-        let roundtripped = session.from_arrow_schema(&schema)?;
-        assert_eq!(roundtripped, dtype);
-        Ok(())
-    }
-
-    #[test]
-    fn array_roundtrip_through_session() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let session = SESSION.arrow();
-        let original = sample_vector_array();
-        let field = session.to_arrow_field("embedding", original.dtype())?;
-        let arrow = original.clone().execute_arrow(Some(&field), &mut ctx)?;
-
-        assert!(matches!(arrow.data_type(), DataType::FixedSizeList(_, n) if *n == DIM as i32));
-
-        assert_eq!(
-            arrow.as_ref(),
-            arrow_fsl_f32(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], DIM as i32).as_ref()
-        );
-        let imported = session.from_arrow_array(arrow, &field)?;
-        assert_eq!(imported.dtype(), original.dtype());
-        vortex_array::assert_arrays_eq!(imported, original, &mut ctx);
-        Ok(())
     }
 
     #[test]
@@ -355,24 +240,6 @@ mod tests {
             &VortexSession::empty().arrow(),
         )?;
         assert!(matches!(result, ArrowImport::Unsupported(_)));
-        Ok(())
-    }
-
-    #[test]
-    fn execute_arrow_through_session_with_no_target() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let session = SESSION.arrow();
-        let original = sample_vector_array();
-        let arrow = original.clone().execute_arrow(None, &mut ctx)?;
-
-        let field = session.to_arrow_field("v", original.dtype())?;
-        assert_eq!(
-            arrow.as_ref(),
-            arrow_fsl_f32(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], DIM as i32).as_ref()
-        );
-        let imported = session.from_arrow_array(arrow, &field)?;
-        assert_eq!(imported.dtype(), original.dtype());
-        vortex_array::assert_arrays_eq!(imported, original, &mut ctx);
         Ok(())
     }
 }

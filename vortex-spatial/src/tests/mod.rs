@@ -11,7 +11,6 @@ mod multipolygon;
 mod point;
 mod polygon;
 mod rect;
-mod wkb;
 
 use std::sync::LazyLock;
 

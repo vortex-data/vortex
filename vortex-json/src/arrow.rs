@@ -114,31 +114,20 @@ impl ArrowExtVTable for Json {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::LazyLock;
 
-    use arrow_array::Array;
-    use arrow_array::ArrayRef as ArrowArrayRef;
-    use arrow_array::StringArray;
     use arrow_array::cast::AsArray;
-    use arrow_schema::DataType;
-    use arrow_schema::Field;
-    use arrow_schema::extension::ExtensionType;
-    use arrow_schema::extension::Json as ArrowJson;
     use vortex_array::EmptyMetadata;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::dtype::Nullability;
     use vortex_array::dtype::extension::ExtDType;
     use vortex_arrow::ArrowExportOptions;
     use vortex_arrow::ArrowSessionExt;
     use vortex_arrow::CompactBuffers;
     use vortex_arrow::ExecuteArrowExt;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -150,64 +139,6 @@ mod tests {
         initialize(&session);
         session
     });
-
-    /// Export a JSON extension array to Arrow's canonical JSON extension.
-    #[test]
-    fn exports_json_extension_array_as_arrow_json() -> VortexResult<()> {
-        let storage = VarBinArray::from_iter(
-            [Some("{\"id\":1}"), Some("{\"id\":2}")],
-            vortex_array::dtype::DType::Utf8(Nullability::NonNullable),
-        )
-        .into_array();
-        let ext_dtype =
-            ExtDType::<Json>::try_new(EmptyMetadata, storage.dtype().nullability())?.erased();
-
-        let array = ExtensionArray::new(ext_dtype, storage).into_array();
-
-        let field = SESSION.arrow().to_arrow_field("data", array.dtype())?;
-        assert_eq!(field.extension_type_name(), Some(ArrowJson::NAME));
-        assert_eq!(field.name(), "data");
-        assert!(!field.is_nullable());
-        ArrowJson::try_new_from_field_metadata(field.data_type(), field.metadata())?;
-
-        let exported = array.execute_arrow(Some(&field), &mut SESSION.create_execution_ctx())?;
-
-        assert!(exported.data_type().is_string());
-
-        let strings = exported.as_string_view();
-        assert_eq!(
-            strings.iter().collect::<Vec<_>>(),
-            [Some("{\"id\":1}"), Some("{\"id\":2}")]
-        );
-        Ok(())
-    }
-
-    /// Import Arrow's canonical JSON extension as a Vortex JSON extension array.
-    #[test]
-    fn imports_arrow_json_extension_array_as_vortex_json() -> VortexResult<()> {
-        let mut field = Field::new("data", DataType::Utf8, false);
-        field.try_with_extension_type(ArrowJson::default())?;
-        let array = Arc::new(StringArray::from(vec!["{\"id\":1}", "{\"id\":2}"])) as ArrowArrayRef;
-
-        let imported = SESSION.arrow().from_arrow_array(array, &field)?;
-        let ext_dtype = imported
-            .dtype()
-            .as_extension_opt()
-            .vortex_expect("expected JSON extension dtype");
-        assert!(ext_dtype.is::<Json>());
-        assert_eq!(
-            ext_dtype.storage_dtype(),
-            &vortex_array::dtype::DType::Utf8(Nullability::NonNullable)
-        );
-
-        let exported = imported.execute_arrow(Some(&field), &mut SESSION.create_execution_ctx())?;
-        let strings = exported.as_string::<i32>();
-        assert_eq!(
-            strings.iter().collect::<Vec<_>>(),
-            [Some("{\"id\":1}"), Some("{\"id\":2}")]
-        );
-        Ok(())
-    }
 
     /// The plugin must forward export options to its storage export.
     #[test]

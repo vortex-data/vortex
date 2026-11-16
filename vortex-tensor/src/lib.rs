@@ -91,6 +91,9 @@ pub fn initialize(session: &VortexSession) {
 }
 
 #[cfg(test)]
+mod arrow_properties;
+
+#[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
 
