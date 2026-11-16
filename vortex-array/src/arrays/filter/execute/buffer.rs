@@ -1,46 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Buffer-level filter dispatch across cached, SIMD, and scalar strategies.
+//! Buffer-level filtering by a [`MaskValues`].
 //!
-//! Selection is an ordered ladder, not a set of independent choices. The first matching row wins:
-//!
-//! | Priority | Condition                                           | Out-of-place   | In-place      |
-//! | -------- | --------------------------------------------------- | -------------- | ------------- |
-//! | 1        | cached slices: one run, or average run length >= 8  | copy runs      | move runs     |
-//! | 2        | cached indices and density <= 0.50                  | gather indices | move indices  |
-//! | 3        | an eligible architecture kernel                     | SIMD compress  | SIMD compress |
-//! | 4        | density reaches [`byte_compress_density_threshold`] | byte compress  | bitmap walk   |
-//! | 5        | otherwise                                           | bitmap walk    | bitmap walk   |
-//!
-//! In-place dispatch is attempted only for a uniquely owned buffer with density >= 0.50. SIMD
-//! eligibility is summarized in [`simd_compress`]. All-true, all-false, and contiguous masks are
-//! handled before buffer dispatch.
-
-use std::mem::size_of;
+//! The strategies live in [`vortex_buffer::filter`], and [`MaskValues::selection`] chooses the
+//! mask representation that they use. All-true, all-false, and contiguous masks are handled
+//! before buffer filtering.
 
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
+use vortex_buffer::filter;
 use vortex_mask::MaskValues;
 
-use crate::arrays::filter::execute::byte_compress;
-use crate::arrays::filter::execute::byte_compress::append_filtered as append_byte_filtered;
 use crate::arrays::filter::execute::contiguous_values_range;
-use crate::arrays::filter::execute::simd_compress;
-use crate::arrays::filter::execute::simd_compress::SLACK_BYTES;
-use crate::arrays::filter::execute::simd_compress::compress_bits;
-use crate::arrays::filter::execute::slice;
-use crate::arrays::filter::execute::slice::MaskBits;
-use crate::arrays::filter::execute::slice::compact_by_bitmap;
-
-const CACHED_INDICES_MAX_DENSITY: f64 = 0.5;
-const IN_PLACE_MIN_DENSITY: f64 = 0.5;
-const MIN_SLICES_AVERAGE_RUN_LENGTH: usize = 8;
-// For wide values at this density or above, copying every value without branches is faster than
-// the byte-compress and bitmap walks. See `filtered_utf8_append_to_builder`.
-const BRANCHLESS_MIN_DENSITY: f64 = 0.5;
-const BRANCHLESS_MIN_WIDTH: usize = 16;
 
 /// Filter a [`Buffer<T>`] by [`MaskValues`], returning a new buffer.
 ///
@@ -50,165 +23,26 @@ pub(crate) fn filter_buffer<T: Copy>(
     mask: &MaskValues,
     allocator: &BufferAllocatorRef,
 ) -> Buffer<T> {
-    assert_eq!(buffer.len(), mask.len());
-
-    let buffer = if mask.density() >= IN_PLACE_MIN_DENSITY {
-        match buffer.try_into_mut() {
-            Ok(mut buffer_mut) => {
-                let new_len = filter_slice_in_place(buffer_mut.as_mut_slice(), mask);
-                buffer_mut.truncate(new_len);
-                return buffer_mut.freeze();
-            }
-            Err(buffer) => buffer,
-        }
-    } else {
-        buffer
-    };
-
-    filter_slice(buffer.as_slice(), mask, allocator)
+    filter::filter_buffer(buffer, mask.selection(), allocator)
 }
 
-/// Filters into an existing destination using the same strategy ladder as buffer filtering,
-/// except that values of at least [`BRANCHLESS_MIN_WIDTH`] bytes at a density of at least
-/// [`BRANCHLESS_MIN_DENSITY`] use [`slice::compact_branchless`] before byte compress.
-/// Cached mask representations must describe the same selection as its bitmap.
+/// Appends the values of `values` that `mask` keeps to the end of `out`.
+///
+/// A contiguous selection is copied as one slice. Other selections use
+/// [`filter::append_filtered`].
 pub(crate) fn append_filtered_slice<T: Copy>(
     values: &[T],
     mask: &MaskValues,
     out: &mut BufferMut<T>,
 ) {
     assert_eq!(values.len(), mask.len());
-    assert_ne!(size_of::<T>(), 0);
-    let start = out.len();
-    let count = mask.true_count();
-    // The SIMD kernels need a vector of slack, and the branchless copy needs one value of slack.
-    out.reserve(count + (SLACK_BYTES / size_of::<T>()).max(1));
-    let written = if let Some(range) = contiguous_values_range(mask) {
-        out.spare_capacity_mut()[..count].write_copy_of_slice(&values[range]);
-        count
-    } else if let Some(slices) = useful_cached_slices(mask) {
-        let mut written = 0;
-        let output = &mut out.spare_capacity_mut()[..count];
-        for &(start, end) in slices {
-            let values = &values[start..end];
-            output[written..written + values.len()].write_copy_of_slice(values);
-            written += values.len();
-        }
-        written
-    } else if let Some(indices) = useful_cached_indices(mask) {
-        let output = &mut out.spare_capacity_mut()[..count];
-        for (row, &index) in indices.iter().enumerate() {
-            output[row].write(values[index]);
-        }
-        indices.len()
-    } else {
-        // Some public constructors only validate cached counts in debug builds. Unchecked
-        // kernels need the actual bitmap count, rather than a cached representation's count.
-        assert_eq!(mask.bit_buffer().true_count(), count);
-        // SAFETY: the bitmap selects within values, and the destination has room for every
-        // selected value plus the SIMD kernel's full vector of slack, which is at least one value.
-        unsafe {
-            if let Some(written) = compress_bits(
-                values,
-                MaskBits::Mask(mask),
-                mask.density(),
-                out.spare_capacity_mut(),
-            ) {
-                written
-            } else if size_of::<T>() >= BRANCHLESS_MIN_WIDTH
-                && mask.density() >= BRANCHLESS_MIN_DENSITY
-            {
-                slice::compact_branchless(values, MaskBits::Mask(mask), out.spare_capacity_mut())
-            } else if mask.density() >= byte_compress_density_threshold::<T>() {
-                append_byte_filtered(values, mask, out)
-            } else {
-                compact_by_bitmap(values, MaskBits::Mask(mask), out.spare_capacity_mut())
-            }
-        }
-    };
-    assert_eq!(written, count);
-    // SAFETY: every selected value was initialized in spare capacity; no branch changed len.
-    unsafe { out.set_len(start + written) };
-}
 
-fn filter_slice<T: Copy>(
-    values: &[T],
-    mask: &MaskValues,
-    allocator: &BufferAllocatorRef,
-) -> Buffer<T> {
-    if let Some(slices) = useful_cached_slices(mask) {
-        return slice::filter_slice_by_slices(values, slices, mask.true_count(), allocator);
+    if let Some(range) = contiguous_values_range(mask) {
+        out.extend_from_slice(&values[range]);
+        return;
     }
 
-    if let Some(indices) = useful_cached_indices(mask) {
-        return slice::filter_slice_by_indices(values, indices, allocator);
-    }
-
-    if let Some(filtered) = simd_compress::filter_slice_by_bitmap(values, mask, allocator) {
-        return filtered;
-    }
-
-    if mask.density() >= byte_compress_density_threshold::<T>() {
-        byte_compress::filter_buffer(values, mask, allocator)
-    } else {
-        slice::filter_slice_by_bitmap(values, mask, allocator)
-    }
-}
-
-fn filter_slice_in_place<T: Copy>(values: &mut [T], mask: &MaskValues) -> usize {
-    if let Some(slices) = useful_cached_slices(mask) {
-        return slice::filter_slice_mut_by_slices(values, slices);
-    }
-
-    if let Some(indices) = useful_cached_indices(mask) {
-        return slice::filter_slice_mut_by_indices(values, indices);
-    }
-
-    if let Some(new_len) = simd_compress::filter_slice_mut_by_bitmap(values, mask) {
-        return new_len;
-    }
-
-    slice::filter_slice_mut_by_bitmap(values, mask)
-}
-
-pub(super) fn useful_cached_indices(mask: &MaskValues) -> Option<&[usize]> {
-    if mask.density() <= CACHED_INDICES_MAX_DENSITY {
-        mask.cached_indices()
-    } else {
-        None
-    }
-}
-
-pub(super) fn useful_cached_slices(mask: &MaskValues) -> Option<&[(usize, usize)]> {
-    mask.cached_slices().filter(|slices| {
-        slices.len() == 1 || mask.true_count() / slices.len() >= MIN_SLICES_AVERAGE_RUN_LENGTH
-    })
-}
-
-pub(super) fn byte_compress_density_threshold<T>() -> f64 {
-    let width = size_of::<T>();
-
-    // A density at or above the table entry selects byte compress after the higher-priority
-    // strategies have declined the mask. These crossovers are benchmarked in
-    // `benches/filter_fixed_width.rs`.
-    //
-    // | Target  | 1 byte | 2 bytes | 4 bytes | 8 bytes | other |
-    // | ------- | -----: | ------: | ------: | ------: | ----: |
-    // | aarch64 |   0.90 |    0.90 |    0.90 |    0.75 |  0.90 |
-    // | other   |   0.00 |    0.50 |    0.50 |    0.75 | 0.875 |
-    if cfg!(target_arch = "aarch64") {
-        return match width {
-            8 => 0.75,
-            _ => 0.9,
-        };
-    }
-
-    match width {
-        1 => 0.0,
-        2 | 4 => 0.5,
-        8 => 0.75,
-        _ => 0.875,
-    }
+    filter::append_filtered(values, mask.selection(), out);
 }
 
 /// Materialize sparse indices when enough sibling arrays will reuse the same mask.
