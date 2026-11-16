@@ -74,21 +74,52 @@ fn filter_bitpacked<T: Copy>(
     allocator: &BufferAllocatorRef,
 ) -> Buffer<T> {
     let mut out = BufferMut::<T>::with_capacity_in(true_count, allocator.clone());
-    let mut write_pos: usize = 0;
+    // SAFETY: the buffer filter's mask provides true_count output values and out has room.
+    let written = unsafe { append_bitpacked(src, mask_bytes, mask_offset, &mut out) };
+    debug_assert_eq!(written, true_count);
+    // SAFETY: the loop initialized exactly written values.
+    unsafe { out.set_len(written) };
+    out.freeze()
+}
 
+/// Writes selected values into spare capacity without changing the destination length.
+///
+/// # Safety
+///
+/// mask.len() must equal src.len(), and the destination's spare capacity must have room for
+/// every set bit in the bitmap.
+pub(super) unsafe fn append_filtered<T: Copy>(
+    src: &[T],
+    mask: &MaskValues,
+    out: &mut BufferMut<T>,
+) -> usize {
+    let bits = mask.bit_buffer();
+    // SAFETY: the caller guarantees matching source length and room for every selected value.
+    unsafe { append_bitpacked(src, bits.inner().as_ref(), bits.offset(), out) }
+}
+
+/// Writes the values of `src` that the bitmap selects into spare capacity and returns the count.
+///
+/// # Safety
+///
+/// `mask_bytes` from bit `mask_offset` must hold at least `src.len()` bits, and the destination's
+/// spare capacity must have room for every selected value.
+unsafe fn append_bitpacked<T: Copy>(
+    src: &[T],
+    mask_bytes: &[u8],
+    mask_offset: usize,
+    out: &mut BufferMut<T>,
+) -> usize {
+    let mut write_pos = 0;
     if mask_offset == 0 {
-        filter_aligned_into(src, mask_bytes, &mut out, &mut write_pos);
+        filter_aligned_into(src, mask_bytes, out, &mut write_pos);
     } else {
         let head_len = (8 - mask_offset).min(src.len());
         let head_mask = (mask_bytes[0] >> mask_offset) & low_bits_mask(head_len);
-        filter_chunk_into(&src[..head_len], head_mask, &mut out, &mut write_pos);
-        filter_aligned_into(&src[head_len..], &mask_bytes[1..], &mut out, &mut write_pos);
+        filter_chunk_into(&src[..head_len], head_mask, out, &mut write_pos);
+        filter_aligned_into(&src[head_len..], &mask_bytes[1..], out, &mut write_pos);
     }
-
-    debug_assert_eq!(write_pos, true_count);
-    // SAFETY: we wrote exactly true_count elements.
-    unsafe { out.set_len(true_count) };
-    out.freeze()
+    write_pos
 }
 
 /// Aligned fast path: mask bits start at byte boundary.

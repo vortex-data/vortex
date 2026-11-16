@@ -21,15 +21,26 @@ use std::mem::size_of;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::BufferMut;
 use vortex_mask::MaskValues;
 
 use crate::arrays::filter::execute::byte_compress;
+use crate::arrays::filter::execute::byte_compress::append_filtered as append_byte_filtered;
+use crate::arrays::filter::execute::contiguous_values_range;
 use crate::arrays::filter::execute::simd_compress;
+use crate::arrays::filter::execute::simd_compress::SLACK_BYTES;
+use crate::arrays::filter::execute::simd_compress::compress_bits;
 use crate::arrays::filter::execute::slice;
+use crate::arrays::filter::execute::slice::MaskBits;
+use crate::arrays::filter::execute::slice::compact_by_bitmap;
 
 const CACHED_INDICES_MAX_DENSITY: f64 = 0.5;
 const IN_PLACE_MIN_DENSITY: f64 = 0.5;
 const MIN_SLICES_AVERAGE_RUN_LENGTH: usize = 8;
+// For wide values at this density or above, copying every value without branches is faster than
+// the byte-compress and bitmap walks. See `filtered_utf8_append_to_builder`.
+const BRANCHLESS_MIN_DENSITY: f64 = 0.5;
+const BRANCHLESS_MIN_WIDTH: usize = 16;
 
 /// Filter a [`Buffer<T>`] by [`MaskValues`], returning a new buffer.
 ///
@@ -55,6 +66,69 @@ pub(crate) fn filter_buffer<T: Copy>(
     };
 
     filter_slice(buffer.as_slice(), mask, allocator)
+}
+
+/// Filters into an existing destination using the same strategy ladder as buffer filtering,
+/// except that values of at least [`BRANCHLESS_MIN_WIDTH`] bytes at a density of at least
+/// [`BRANCHLESS_MIN_DENSITY`] use [`slice::compact_branchless`] before byte compress.
+/// Cached mask representations must describe the same selection as its bitmap.
+pub(crate) fn append_filtered_slice<T: Copy>(
+    values: &[T],
+    mask: &MaskValues,
+    out: &mut BufferMut<T>,
+) {
+    assert_eq!(values.len(), mask.len());
+    assert_ne!(size_of::<T>(), 0);
+    let start = out.len();
+    let count = mask.true_count();
+    // The SIMD kernels need a vector of slack, and the branchless copy needs one value of slack.
+    out.reserve(count + (SLACK_BYTES / size_of::<T>()).max(1));
+    let written = if let Some(range) = contiguous_values_range(mask) {
+        out.spare_capacity_mut()[..count].write_copy_of_slice(&values[range]);
+        count
+    } else if let Some(slices) = useful_cached_slices(mask) {
+        let mut written = 0;
+        let output = &mut out.spare_capacity_mut()[..count];
+        for &(start, end) in slices {
+            let values = &values[start..end];
+            output[written..written + values.len()].write_copy_of_slice(values);
+            written += values.len();
+        }
+        written
+    } else if let Some(indices) = useful_cached_indices(mask) {
+        let output = &mut out.spare_capacity_mut()[..count];
+        for (row, &index) in indices.iter().enumerate() {
+            output[row].write(values[index]);
+        }
+        indices.len()
+    } else {
+        // Some public constructors only validate cached counts in debug builds. Unchecked
+        // kernels need the actual bitmap count, rather than a cached representation's count.
+        assert_eq!(mask.bit_buffer().true_count(), count);
+        // SAFETY: the bitmap selects within values, and the destination has room for every
+        // selected value plus the SIMD kernel's full vector of slack, which is at least one value.
+        unsafe {
+            if let Some(written) = compress_bits(
+                values,
+                MaskBits::Mask(mask),
+                mask.density(),
+                out.spare_capacity_mut(),
+            ) {
+                written
+            } else if size_of::<T>() >= BRANCHLESS_MIN_WIDTH
+                && mask.density() >= BRANCHLESS_MIN_DENSITY
+            {
+                slice::compact_branchless(values, MaskBits::Mask(mask), out.spare_capacity_mut())
+            } else if mask.density() >= byte_compress_density_threshold::<T>() {
+                append_byte_filtered(values, mask, out)
+            } else {
+                compact_by_bitmap(values, MaskBits::Mask(mask), out.spare_capacity_mut())
+            }
+        }
+    };
+    assert_eq!(written, count);
+    // SAFETY: every selected value was initialized in spare capacity; no branch changed len.
+    unsafe { out.set_len(start + written) };
 }
 
 fn filter_slice<T: Copy>(
@@ -148,7 +222,7 @@ pub(crate) fn prepare_mask_for_reuse(mask: &MaskValues, consumers: usize) {
         return;
     }
 
-    if super::contiguous_values_range(mask).is_some() {
+    if contiguous_values_range(mask).is_some() {
         return;
     }
 
@@ -173,6 +247,39 @@ mod tests {
             Mask::Values(v) => v,
             _ => panic!("expected Mask::Values"),
         }
+    }
+
+    #[test]
+    fn test_append_filtered_slice_preserves_prefix() {
+        let values = buffer![10u32, 20, 30, 40, 50];
+        let mask = Mask::from_iter([true, false, true, false, true]);
+        let mut output = BufferMut::from_iter([99u32]);
+        append_filtered_slice(&values, mask_values(&mask), &mut output);
+        assert_eq!(output.as_slice(), &[99, 10, 30, 50]);
+    }
+
+    #[test]
+    fn test_append_filtered_slice_unaligned_dense_mask() {
+        let values = buffer![0u128, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let bits = BitBuffer::from_iter([
+            false, false, false, true, true, true, true, false, true, true, true, true, true,
+        ]);
+        let mask = Mask::from_buffer(bits.slice(3..13));
+        let mut output = BufferMut::from_iter([99u128]);
+        append_filtered_slice(&values, mask_values(&mask), &mut output);
+        assert_eq!(output.as_slice(), &[99, 0, 1, 2, 3, 5, 6, 7, 8, 9]);
+    }
+
+    #[test]
+    fn test_append_filtered_slice_wide_values_keep_slack() {
+        let values = (0u128..10).map(|value| [value; 5]).collect::<Vec<_>>();
+        let mask = Mask::from_iter([
+            true, true, false, true, true, true, false, true, true, false,
+        ]);
+        let mut output = BufferMut::with_capacity(0);
+        append_filtered_slice(&values, mask_values(&mask), &mut output);
+        let expected = [0u128, 1, 3, 4, 5, 7, 8].map(|value| [value; 5]);
+        assert_eq!(output.as_slice(), &expected);
     }
 
     #[test]

@@ -185,6 +185,10 @@ impl BufferUtilization {
         self.max_offset_end = self.max_offset_end.max(offset + size);
     }
 
+    pub(crate) fn used(&self) -> u32 {
+        self.used
+    }
+
     pub fn overall_utilization(&self) -> f64 {
         match self.len {
             0 => 0.0,
