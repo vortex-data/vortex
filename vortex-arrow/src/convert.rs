@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use arrow_array::AnyDictionaryArray;
 use arrow_array::Array as ArrowArray;
+use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::ArrowPrimitiveType;
 use arrow_array::BooleanArray as ArrowBooleanArray;
 use arrow_array::DictionaryArray;
@@ -557,6 +558,32 @@ pub fn from_arrow_list_view<O: OffsetSizeTrait + NativePType>(
     Ok(unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, nulls) }.into_array())
 }
 
+/// The items of an Arrow fixed-size list.
+///
+/// Arrow leaves the items of a null list undefined, so writers may mark them null even when the
+/// item field of the array is non-nullable. Those nulls are stripped, as `from_arrow_struct` does
+/// for its fields. A null item in a valid list is left in place, so the import rejects it.
+pub(crate) fn fixed_size_list_items(
+    array: &ArrowFixedSizeListArray,
+) -> VortexResult<ArrowArrayRef> {
+    let DataType::FixedSizeList(field, _) = array.data_type() else {
+        vortex_panic!(
+            "Invalid data type for FixedSizeListArray: {}",
+            array.data_type()
+        );
+    };
+    let items = array.values();
+    if field.is_nullable() || items.null_count() == 0 {
+        return Ok(Arc::clone(items));
+    }
+
+    // Arrays imported over FFI are not validated, so check that Arrow masks every null item.
+    if array.to_data().validate_full().is_err() {
+        return Ok(Arc::clone(items));
+    }
+    Ok(make_array(remove_nulls(items.to_data())?))
+}
+
 /// Conversion of an Arrow fixed-size list array into a Vortex `FixedSizeList` array.
 pub fn from_arrow_fixed_size_list(
     array: &ArrowFixedSizeListArray,
@@ -566,8 +593,10 @@ pub fn from_arrow_fixed_size_list(
         vortex_panic!("Invalid data type for ListArray: {}", array.data_type());
     };
 
+    let items = fixed_size_list_items(array)?;
+
     Ok(FixedSizeListArray::try_new(
-        from_arrow_dyn(array.values().as_ref(), field.is_nullable())?,
+        from_arrow_dyn(items.as_ref(), field.is_nullable())?,
         *list_size as u32,
         nulls(array.nulls(), nullable)?,
         array.len(),
