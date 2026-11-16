@@ -326,7 +326,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_splitsFromReadable(
         let file = open_readable_file(env, session, &readable, &name, length, false)?;
 
         let field_mask = scanned_fields(env, &columns, &file)?;
-        let splits = file.splits_for(&field_mask)?;
+        let splits = file.splits(&field_mask)?;
 
         let mut boundaries = Vec::with_capacity(splits.len() + 1);
         boundaries.push(splits.first().map_or(0, |split| split.start));
