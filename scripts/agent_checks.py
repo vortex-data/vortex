@@ -1894,7 +1894,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", type=Path, default=REPO_ROOT, help="repository root")
     parser.add_argument("--now", help="override the current time (ISO 8601), for tests")
@@ -1972,8 +1972,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--record", action="store_true", help="record the review, so the files are not offered again")
     p.add_argument("--format-cmd", help="formatter run on edited .rs files, e.g. `rustfmt --edition 2024`")
     p.set_defaults(func=cmd_run)
+    return parser
 
-    args = parser.parse_args(argv)
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     try:
         return int(args.func(args))
     except CheckError as e:

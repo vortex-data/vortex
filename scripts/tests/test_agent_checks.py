@@ -12,6 +12,8 @@ import datetime as dt
 import importlib.util
 import io
 import json
+import re
+import shlex
 import subprocess
 import sys
 import zipfile
@@ -769,6 +771,37 @@ class TestApplyPatch:
         empty = repo.parent / "empty.patch"
         empty.write_text("")
         assert ac.apply_patch(repo, empty, shard) == ([], [])
+
+
+def workflow_invocations() -> list[tuple[str, list[str]]]:
+    """Every `agent_checks.py` command line in the workflows, with all optional `args+=` flags added.
+
+    Shell variables become `1`, valid for every flag, so this checks flag names and arity, not values.
+    """
+    calls = []
+    for path in sorted((REPO_ROOT / ".github" / "workflows").glob("agent-checks*.yml")):
+        text = path.read_text().replace("\\\n", " ")
+        for block in text.split("      - "):
+            lines = [line.strip() for line in block.splitlines()]
+            arrays = [line for line in lines if re.search(r"\bargs\+?=\(", line)]
+            for line in lines:
+                if "scripts/agent_checks.py" not in line:
+                    continue
+                command = line.split("scripts/agent_checks.py", 1)[1]
+                if '"${args[@]}"' in command:
+                    parts = [re.search(r"\bargs\+?=\((.*)\)", a).group(1) for a in arrays]  # type: ignore[union-attr]
+                    command = command.replace('"${args[@]}"', " ".join(parts))
+                command = re.sub(r'"\$\{?\w+\}?(/[^"]*)?"|\$\{?\w+\}?(/\S*)?', "1", command)
+                calls.append((f"{path.name}: {line[:60]}", shlex.split(command)))
+    return calls
+
+
+@pytest.mark.parametrize(("where", "argv"), workflow_invocations(), ids=lambda v: v if isinstance(v, str) else "")
+def test_workflows_call_the_runner_with_valid_flags(where: str, argv: list[str]):
+    try:
+        ac.build_parser().parse_args(argv)
+    except SystemExit:
+        pytest.fail(f"{where}: agent_checks.py rejects {argv}")
 
 
 def test_repository_checks_parse():

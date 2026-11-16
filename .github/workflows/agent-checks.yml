@@ -197,7 +197,7 @@ jobs:
           # Compare-and-swap per check document, retried on conflict. A failure for one check is
           # reported at the end, after every other check is recorded.
           python3 scripts/agent_checks.py record --store "$STORE" --trusted-author "$TRUSTED_AUTHOR" \
-            --plan plan/plan.json --github plan/github.json updates/*.json
+            --github plan/github.json updates/*.json
 
       # One directory per artifact under archive/, each tagged with its check and shard by meta.json.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
