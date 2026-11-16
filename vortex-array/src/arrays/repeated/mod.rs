@@ -26,5 +26,9 @@ pub use array::RepeatedSlotsView;
 pub use vtable::Repeated;
 pub use vtable::RepeatedArray;
 
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    rules::register_parent_rules(session);
+}
+
 #[cfg(test)]
 mod tests;

@@ -160,6 +160,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     null::initialize(session);
     patched::initialize(session);
     primitive::initialize(session);
+    repeated::initialize(session);
     runend::initialize(session);
     scalar_fn::initialize(session);
     slice::initialize(session);

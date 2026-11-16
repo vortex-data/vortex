@@ -193,7 +193,7 @@ fn slice(#[case] range: Range<usize>, #[case] expected: Vec<i32>) -> VortexResul
 #[case::into_partial_last_copy(6..14)]
 fn slice_stays_repeated(#[case] range: Range<usize>) -> VortexResult<()> {
     let array = repeated(buffer![0i32, 1, 2, 3], 14)?;
-    let sliced = array.slice(range.clone())?;
+    let sliced = array.slice(range.clone())?.optimize_ctx(&SESSION)?;
 
     let repeated = sliced.as_::<Repeated>();
     assert_eq!(repeated.len(), range.len());
@@ -205,7 +205,7 @@ fn slice_stays_repeated(#[case] range: Range<usize>) -> VortexResult<()> {
 #[case::whole_child(2)]
 #[case::prefix_of_child(1)]
 fn reduce_to_child_prefix(#[case] len: usize) -> VortexResult<()> {
-    let reduced = repeated(buffer![1i32, 2], len)?.optimize()?;
+    let reduced = repeated(buffer![1i32, 2], len)?.optimize_ctx(&SESSION)?;
 
     assert!(reduced.is::<Primitive>());
     assert_eq!(reduced.len(), len);
@@ -215,7 +215,7 @@ fn reduce_to_child_prefix(#[case] len: usize) -> VortexResult<()> {
 #[test]
 fn reduce_constant_child() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let reduced = repeated(ConstantArray::new(5i32, 3), 10)?.optimize()?;
+    let reduced = repeated(ConstantArray::new(5i32, 3), 10)?.optimize_ctx(&SESSION)?;
 
     assert!(reduced.is::<Constant>());
     assert_arrays_eq!(reduced, PrimitiveArray::from_iter([5i32; 10]), &mut ctx);
@@ -225,7 +225,7 @@ fn reduce_constant_child() -> VortexResult<()> {
 #[test]
 fn reduce_nested_whole_copies() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let reduced = repeated(repeated(buffer![1i32, 2], 4)?, 11)?.optimize()?;
+    let reduced = repeated(repeated(buffer![1i32, 2], 4)?, 11)?.optimize_ctx(&SESSION)?;
 
     let flattened = reduced.as_::<Repeated>();
     assert_eq!(flattened.len(), 11);
@@ -242,7 +242,7 @@ fn reduce_nested_whole_copies() -> VortexResult<()> {
 #[test]
 fn nested_partial_copies_stay_nested() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let reduced = repeated(repeated(buffer![1i32, 2, 3], 4)?, 8)?.optimize()?;
+    let reduced = repeated(repeated(buffer![1i32, 2, 3], 4)?, 8)?.optimize_ctx(&SESSION)?;
 
     assert!(reduced.as_::<Repeated>().child().is::<Repeated>());
     assert_arrays_eq!(

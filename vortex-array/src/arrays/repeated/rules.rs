@@ -4,6 +4,7 @@
 use std::ops::Range;
 
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -11,13 +12,19 @@ use crate::array::ArrayView;
 use crate::arrays::ChunkedArray;
 use crate::arrays::Repeated;
 use crate::arrays::RepeatedArray;
+use crate::arrays::Slice;
 use crate::arrays::repeated::RepeatedArraySlotsExt;
 use crate::arrays::slice::SliceReduce;
 use crate::arrays::slice::SliceReduceAdaptor;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::optimizer::kernels::ArrayKernelsExt;
 
-pub(super) const PARENT_RULES: ParentRuleSet<Repeated> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&SliceReduceAdaptor(Repeated))]);
+pub(super) fn register_parent_rules(session: &VortexSession) {
+    session.kernels().register_reduce_parent_rule(
+        Slice,
+        Repeated,
+        const { &SliceReduceAdaptor(Repeated) },
+    );
+}
 
 impl SliceReduce for Repeated {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
