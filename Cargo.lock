@@ -4432,7 +4432,7 @@ dependencies = [
 [[package]]
 name = "fastlanes"
 version = "0.8.0"
-source = "git+https://github.com/spiraldb/fastlanes?rev=c1324a0f188fb7fb26822ad29b7dfa57c3356953#c1324a0f188fb7fb26822ad29b7dfa57c3356953"
+source = "git+https://github.com/spiraldb/fastlanes?rev=7f4da7d7785be6293f374e0395ee46f6f6b88d56#7f4da7d7785be6293f374e0395ee46f6f6b88d56"
 dependencies = [
  "const_for",
  "cpufeatures 0.3.1",
