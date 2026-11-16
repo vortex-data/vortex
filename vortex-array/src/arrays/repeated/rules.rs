@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::ChunkedArray;
 use crate::arrays::Repeated;
 use crate::arrays::RepeatedArray;
 use crate::arrays::repeated::RepeatedArraySlotsExt;
@@ -31,12 +32,21 @@ impl SliceReduce for Repeated {
             return Ok(Some(child.slice(range.start - offset..range.end - offset)?));
         }
 
-        // A range of whole copies is a shorter repetition of the child.
-        if range.start.is_multiple_of(child_len) && range.end.is_multiple_of(child_len) {
+        // A range whose length is a whole number of copies repeats the child rotated to start where
+        // the range does.
+        if range.len().is_multiple_of(child_len) {
+            let rotation = range.start - offset;
+            let rotated = if rotation == 0 {
+                child.clone()
+            } else {
+                ChunkedArray::try_new(
+                    [child.slice(rotation..child_len)?, child.slice(0..rotation)?],
+                    child.dtype().clone(),
+                )?
+                .into_array()
+            };
             let count = range.len() / child_len;
-            return Ok(Some(
-                RepeatedArray::try_new(child.clone(), count)?.into_array(),
-            ));
+            return Ok(Some(RepeatedArray::try_new(rotated, count)?.into_array()));
         }
 
         Ok(None)
