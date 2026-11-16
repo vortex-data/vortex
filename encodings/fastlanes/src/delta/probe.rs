@@ -11,10 +11,10 @@
 //! reference, decode the chunk instead.
 
 use fastlanes::BitPacking;
-use fastlanes::FL_ORDER;
-use fastlanes::FastLanes;
+use fastlanes::Delta as FastLanesDelta;
 use num_traits::AsPrimitive;
 use num_traits::WrappingAdd;
+use num_traits::WrappingSub;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -119,42 +119,22 @@ fn lane_value_bits<T>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<T>>
 where
-    T: NativePType + BitPacking + FastLanes + WrappingAdd + AsPrimitive<u64>,
+    T: NativePType + FastLanesDelta + WrappingAdd + WrappingSub + AsPrimitive<u64>,
 {
-    let lanes = T::LANES;
-    // Delta lays a lane's row `k` at `FL_ORDER[k / 8] * 16 + (k % 8) * 128 + lane`; invert that
-    // for the transposed position of the value.
-    let position = untranspose(within);
-    let in_row = position % 128;
-    let lane = in_row % lanes;
-    let row = FL_ORDER[(in_row - lane) / 16] * 8 + position / 128;
-
     let Some(deltas) = LaneDeltas::<T>::new(array.deltas(), chunk) else {
         return Ok(None);
     };
-    let base = base_bits::<T>(array.bases(), chunk * lanes + lane, ctx)?;
-    let mut value = base;
-    for k in 0..=row {
-        let index = FL_ORDER[k / 8] * 16 + (k % 8) * 128 + lane;
-        value = value.wrapping_add(&deltas.get(index));
-    }
-    Ok(Some(value))
+    // Delta works on the transposed chunk, so find where the value sits in it.
+    let position = fastlanes::untranspose(within);
+    let (lane, _) = fastlanes::delta_lane_row::<T>(position);
+    let base = base_bits::<T>(array.bases(), chunk * T::LANES + lane, ctx)?;
+    Ok(Some(deltas.undelta(base, position)))
 }
 
-/// The position in a transposed chunk of the value at logical position `index`: the inverse of
-/// [`fastlanes::transpose`].
-fn untranspose(index: usize) -> usize {
-    let lane = index / 64;
-    // `FL_ORDER` is its own inverse.
-    let order = FL_ORDER[(index / 8) % 8];
-    let row = index % 8;
-    row * 128 + order * 16 + lane
-}
-
-/// The deltas of one chunk, read one at a time.
+/// The deltas of one chunk.
 enum LaneDeltas<'a, T> {
     /// Plain deltas of the chunk.
-    Plain(&'a [T]),
+    Plain(&'a [T; FL_CHUNK_SIZE]),
     /// The packed block of the chunk, its bit width, and its patches as (position in chunk,
     /// value) in ascending position.
     Packed(&'a [T], usize, Vec<(usize, T)>),
@@ -167,7 +147,7 @@ impl<'a, T: NativePType + BitPacking> LaneDeltas<'a, T> {
         if let Some(primitive) = deltas.as_opt::<Primitive>() {
             let values = host_values::<T>(primitive)?;
             let values = values.get(chunk * FL_CHUNK_SIZE..(chunk + 1) * FL_CHUNK_SIZE)?;
-            return Some(Self::Plain(values));
+            return Some(Self::Plain(values.try_into().ok()?));
         }
         let packed = PackedDeltas::try_new(deltas)?;
         let bp = packed.packed();
@@ -214,17 +194,30 @@ impl<'a, T: NativePType + BitPacking> LaneDeltas<'a, T> {
         }
     }
 
-    /// The delta at `index` of the chunk.
-    fn get(&self, index: usize) -> T {
+    /// The value at `position` of the undeltaed chunk, whose lane has base `base`.
+    fn undelta(&self, base: T, position: usize) -> T
+    where
+        T: FastLanesDelta + WrappingAdd + WrappingSub,
+    {
         match self {
-            Self::Plain(values) => values[index],
+            Self::Plain(values) => T::undelta_single(values, base, position),
             Self::Packed(block, width, patches) => {
-                match patches.binary_search_by_key(&index, |&(position, _)| position) {
-                    Ok(patch) => patches[patch].1,
-                    // SAFETY: `new` checked the block holds 1024 values of `width` bits, and
-                    // `index` is within the chunk.
-                    Err(_) => unsafe { BitPacking::unchecked_unpack_single(*width, block, index) },
+                // SAFETY: `new` checked the block holds 1024 values of `width` bits.
+                let mut value =
+                    unsafe { T::unchecked_undelta_pack_single(*width, block, base, position) };
+                // A patch replaces the packed delta at its position, so correct the sum for each
+                // patch in the lane up to the value's row.
+                let (lane, row) = fastlanes::delta_lane_row::<T>(position);
+                for &(patched, delta) in patches {
+                    let (patch_lane, patch_row) = fastlanes::delta_lane_row::<T>(patched);
+                    if patch_lane == lane && patch_row <= row {
+                        // SAFETY: as above, and `patched` is within the chunk.
+                        let packed =
+                            unsafe { BitPacking::unchecked_unpack_single(*width, block, patched) };
+                        value = value.wrapping_add(&delta).wrapping_sub(&packed);
+                    }
                 }
+                value
             }
         }
     }
