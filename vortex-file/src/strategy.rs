@@ -29,6 +29,7 @@ use vortex_layout::layouts::list::writer::ListLayoutStrategy;
 use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::layouts::table::TableStrategy;
+use vortex_layout::layouts::variant;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
 use vortex_session::VortexSession;
@@ -129,6 +130,8 @@ pub struct WriteStrategyBuilder {
     ///
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
     use_list_layout: bool,
+    /// Whether shredded Variant fields are split into columns with a struct layout.
+    use_variant_layout: bool,
 }
 
 impl WriteStrategyBuilder {
@@ -147,6 +150,9 @@ impl WriteStrategyBuilder {
             use_list_layout: session
                 .enabled_component_ids(ComponentKind::Layout)
                 .contains(&List.id()),
+            use_variant_layout: session
+                .enabled_component_ids(ComponentKind::Layout)
+                .contains(&variant::layout_id()),
         }
     }
 
@@ -303,6 +309,10 @@ impl WriteStrategyBuilder {
         let mut table_strategy =
             TableStrategy::new(Arc::new(validity_strategy), Arc::new(constant))
                 .with_field_writers(self.field_writers);
+
+        if self.use_variant_layout {
+            table_strategy = table_strategy.with_variant_layout();
+        }
 
         if self.use_list_layout {
             // We need a closure here to enable recursive application of list layout.
