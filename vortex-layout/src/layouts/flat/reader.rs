@@ -13,6 +13,7 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::variant::decode_for_repeated_extraction;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
@@ -151,6 +152,8 @@ impl LayoutReader for FlatReader {
                 array = array.slice(row_range.clone())?;
             }
 
+            array = decode_for_repeated_extraction(array, &expr, &mut session.create_execution_ctx())?;
+
             let mask_density = mask.density();
             let array_mask = if mask_density < EXPR_EVAL_THRESHOLD {
                 // We have the choice to apply the filter or the expression first, we apply the
@@ -196,6 +199,7 @@ impl LayoutReader for FlatReader {
         let name = Arc::clone(&self.name);
         let array = self.array_future();
         let expr = expr.clone();
+        let session = self.session.clone();
 
         Ok(async move {
             trace!("Flat array evaluation {} - {}", name, expr);
@@ -220,6 +224,8 @@ impl LayoutReader for FlatReader {
             if !mask.all_true() {
                 array = array.filter(mask)?;
             }
+
+            array = decode_for_repeated_extraction(array, &expr, &mut session.create_execution_ctx())?;
 
             // Evaluate the projection expression.
             array = array.apply_bound(&expr)?;
