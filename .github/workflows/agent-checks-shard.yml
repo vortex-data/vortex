@@ -89,6 +89,31 @@ jobs:
             --max-turns ${{ steps.prompt.outputs.max_turns }}
             --allowedTools "${{ steps.prompt.outputs.allowed_tools }}"
 
+      - name: Trial stand-in for the agent
+        # TEMPORARY, with the PR trial: agents cannot authenticate off the default branch, so when the
+        # agent wrote nothing, stand in with one trivial edit and two findings. Everything after
+        # this step then runs for real. Remove before merging.
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && hashFiles('target/agent-checks/results.json') == '' }}
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          plan = json.load(open(os.environ["RUNNER_TEMP"] + "/plan/plan.json"))
+          shard = next(s for s in plan["checks"][os.environ["CHECK"]]["shards"] if s["id"] == os.environ["SHARD"])
+          files = [f["path"] for f in shard["files"]]
+          with open(files[0], "a") as f:
+              f.write("\n// agent-checks trial stand-in edit\n")
+          finding = {"file": files[0], "line": 1, "item": "-", "severity": "low", "detail": "Written by the PR trial, not an agent."}
+          results = {
+              "reviewed": files,
+              "findings": [
+                  {**finding, "category": "trial-fixed", "title": "Trial stand-in (fixed)", "fixed": True},
+                  {**finding, "category": "trial-unfixed", "title": "Trial stand-in (unfixed)", "fixed": False},
+              ],
+              "summary": "PR trial: no agent ran; this is a stand-in.",
+          }
+          json.dump(results, open(os.environ["RESULTS"], "w"))
+          EOF
+
       - name: Package the agent's work
         if: ${{ !cancelled() }}
         env:

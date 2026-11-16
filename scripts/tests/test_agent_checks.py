@@ -785,7 +785,7 @@ def workflow_invocations() -> list[tuple[str, list[str]]]:
             lines = [line.strip() for line in block.splitlines()]
             arrays = [line for line in lines if re.search(r"\bargs\+?=\(", line)]
             for line in lines:
-                if "scripts/agent_checks.py" not in line:
+                if not re.match(r"python3 (-I )?scripts/agent_checks\.py", line):
                     continue
                 command = line.split("scripts/agent_checks.py", 1)[1]
                 if '"${args[@]}"' in command:

@@ -7,6 +7,12 @@ name: Agent Checks
 # store's AWS role; agents never can.
 
 on:
+  # TEMPORARY: dry-run trial on the PR that adds this workflow. Remove before merging.
+  pull_request:
+    paths:
+      - ".github/workflows/agent-checks*.yml"
+      - "scripts/agent_checks.py"
+      - ".agents/checks/**"
   schedule:
     # Weekly, Mondays. This is the only cadence: each run reviews only what changed.
     - cron: "23 4 * * 1"
@@ -32,7 +38,8 @@ on:
 
 concurrency:
   # Overlapping runs would plan the same crates. State writes are compare-and-swap either way.
-  group: agent-checks
+  # TEMPORARY: the PR trial's own group, so it never displaces a scheduled run.
+  group: agent-checks${{ github.event_name == 'pull_request' && '-trial' || '' }}
   cancel-in-progress: false
 
 permissions: { }
@@ -42,11 +49,16 @@ env:
   STORE: ${{ vars.AGENT_CHECKS_STORE_URI }}
   TRUSTED_AUTHOR: ${{ vars.CLAUDE_APP_LOGIN }}
   PR_LABEL: agent-checks
-  DRY_RUN: ${{ inputs.dry_run == true }}
+  DRY_RUN: ${{ inputs.dry_run == true || github.event_name == 'pull_request' }}
 
 jobs:
   plan:
     name: Plan
+    # TEMPORARY: only the same-repository PR that adds this workflow runs the trial.
+    if: >-
+      github.event_name != 'pull_request' || (
+        github.head_ref == 'ji/quirky-curie-docl3a' &&
+        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
@@ -118,12 +130,15 @@ jobs:
           CHECK: ${{ inputs.check }}
           CRATE: ${{ inputs.crate }}
           MAX_SHARDS: ${{ inputs.max_shards }}
+          EVENT: ${{ github.event_name }}
         run: |
           args=(plan --store "$STORE_SPEC" --github github.json --out plan.json)
           [[ -n "$TRUSTED_AUTHOR" ]] && args+=(--trusted-author "$TRUSTED_AUTHOR")
           [[ -n "$CHECK" ]] && args+=(--check "$CHECK")
           [[ -n "$CRATE" ]] && args+=(--crate "$CRATE")
           [[ -n "$MAX_SHARDS" ]] && args+=(--max-shards "$MAX_SHARDS")
+          # TEMPORARY trial: two small crates for each check.
+          [[ "$EVENT" == "pull_request" ]] && args+=(--crate vortex-compute --crate vortex-mask --max-shards 2)
           python3 scripts/agent_checks.py "${args[@]}"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
@@ -151,7 +166,7 @@ jobs:
     with:
       check: ${{ matrix.check }}
       shards: ${{ matrix.shards }}
-      dry_run: ${{ inputs.dry_run == true }}
+      dry_run: ${{ inputs.dry_run == true || github.event_name == 'pull_request' }}
     secrets: inherit
 
   record:
@@ -159,7 +174,7 @@ jobs:
     needs: [plan, review]
     # Record whatever finished, including after partial review failures. Shards that failed hand
     # over no state update and are offered again next run.
-    if: ${{ !cancelled() && needs.plan.result == 'success' && inputs.dry_run != true }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && inputs.dry_run != true && github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
