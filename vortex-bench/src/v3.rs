@@ -287,6 +287,7 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 /// | `Job`                       | `job`          | `None`              | `None`                                              | Static IMDB dataset; no scale factor. |
 /// | `PublicBi { name }`         | `public-bi`    | dataset name (e.g. `cms-provider`) | `None`               | Sub-dataset name lives in `dataset_variant`. |
 /// | `SpatialBench { scale_factor }` | `spatialbench` | `None`         | SF as string | Same canonicalization as TPC-H; no historical v2 records to merge with. |
+/// | `JsonBench { n_rows, shredding }` | `jsonbench` | shredding name (`none`) | millions of rows as string (`"1"`) | New live-only suite. |
 /// | `VortexQueries` | `vortex` | `None` | `None` | Own microbenchmarks |
 pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, Option<String>) {
     match d {
@@ -336,6 +337,11 @@ pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, 
         BenchmarkDataset::GhArchive => ("gharchive".to_string(), None, None),
         BenchmarkDataset::Appian => ("appian".to_string(), None, None),
         BenchmarkDataset::Job => ("job".to_string(), None, None),
+        BenchmarkDataset::JsonBench { n_rows, shredding } => (
+            "jsonbench".to_string(),
+            Some(shredding.name().to_string()),
+            Some((n_rows / 1_000_000).to_string()),
+        ),
         BenchmarkDataset::VortexQueries => ("vortex".to_string(), None, None),
     }
 }

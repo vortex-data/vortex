@@ -3,6 +3,7 @@
 
 pub mod metrics;
 pub mod tracer;
+pub mod variant;
 
 use std::sync::Arc;
 
@@ -55,7 +56,9 @@ pub fn get_session_context() -> SessionContext {
         file_formats.push(Arc::new(factory));
     }
 
-    SessionContext::new_with_state(session_state_builder.build())
+    let session = SessionContext::new_with_state(session_state_builder.build());
+    variant::register_variant_functions(&session);
+    session
 }
 
 pub fn make_object_store(
