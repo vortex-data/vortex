@@ -14,9 +14,9 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
-use crate::arrays::ChunkedArray;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::TiledArray;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::ChildBuilder;
@@ -25,6 +25,7 @@ use crate::builders::ValidityBuilder;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
 
@@ -137,8 +138,8 @@ impl FixedSizeListBuilder {
     /// A fixed-size list array holds its elements back to back, so `n` identical lists are the
     /// array's elements tiled `n` times - there is no layout that lets the rows share one range of
     /// elements the way a list view's can. The tiling costs nothing to build even so: the elements
-    /// go in as a [`ChunkedArray`] of `n` clones of the same array, so the tile's values are stored
-    /// once however many rows reference them, and the child holds the whole run as one chunk.
+    /// go in as a [`TiledArray`] of `array` repeated `n` times, so the tile's values are stored once
+    /// however many rows reference them, and the child holds the whole run as one chunk.
     ///
     /// A caller with a run of appends to make should hand over the same `array` each time rather
     /// than rebuild it, which is the whole reason this takes an array instead of a scalar.
@@ -158,15 +159,11 @@ impl FixedSizeListBuilder {
             return self.append_array_as_list(array, ctx);
         }
 
-        // SAFETY: every chunk is `array` itself, so they share its dtype and none is empty.
-        let tiled = unsafe {
-            ChunkedArray::new_unchecked(
-                std::iter::repeat_n(array.clone(), n),
-                self.element_dtype().clone(),
-            )
-        };
-        self.elements_builder
-            .append_array(&tiled.into_array(), ctx)?;
+        // Optimizing collapses a constant tile into one constant run.
+        let tiled = TiledArray::try_new(array.clone(), n)?
+            .into_array()
+            .optimize_ctx(&*ctx)?;
+        self.elements_builder.append_array(&tiled, ctx)?;
         self.nulls.append_n_non_nulls(n);
 
         Ok(())

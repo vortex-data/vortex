@@ -80,8 +80,8 @@ impl ChildBuilder {
     ///
     /// An appended [`ChunkedArray`] stays one chunk rather than giving up its own. Unpacking it
     /// would spill a chunk per row into this child for a caller expressing a repeated run as
-    /// chunks - a tiled fixed-size list, say - and the child's chunk list is what every later
-    /// append and the final [`finish`](Self::finish) walk. Nesting costs one level, not one per
+    /// chunks, and the child's chunk list is what every later append and the final
+    /// [`finish`](Self::finish) walk. Nesting costs one level, not one per
     /// appended array.
     ///
     /// Nothing is decoded here.
