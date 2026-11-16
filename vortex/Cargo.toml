@@ -117,3 +117,7 @@ test = false
 [[bench]]
 name = "pipeline"
 harness = false
+
+[[bench]]
+name = "filter_chunked"
+harness = false
