@@ -45,10 +45,14 @@ pub(super) fn select_kernel<T, const IN_PLACE: bool>(density: f64) -> Option<Ker
     }
 }
 
-static IDX_LUT_8: [[u8; 8]; 256] = compress_lut::<256, 8>(8, 1);
-static IDX_LUT_16: [[u8; 16]; 256] = compress_lut::<256, 16>(8, 2);
-static IDX_LUT_32: [[u8; 16]; 16] = compress_lut::<16, 16>(4, 4);
-static IDX_LUT_64: [[u8; 16]; 4] = compress_lut::<4, 16>(2, 8);
+// Keep each SIMD lookup load aligned so it cannot straddle a memory page.
+#[repr(C, align(16))]
+struct ShuffleTable<const ROWS: usize, const BYTES: usize>([[u8; BYTES]; ROWS]);
+
+static IDX_LUT_8: ShuffleTable<256, 8> = ShuffleTable(compress_lut::<256, 8>(8, 1));
+static IDX_LUT_16: ShuffleTable<256, 16> = ShuffleTable(compress_lut::<256, 16>(8, 2));
+static IDX_LUT_32: ShuffleTable<16, 16> = ShuffleTable(compress_lut::<16, 16>(4, 4));
+static IDX_LUT_64: ShuffleTable<4, 16> = ShuffleTable(compress_lut::<4, 16>(2, 8));
 
 /// Generate a NEON `tbl` kernel for one element width.
 macro_rules! neon_compress_kernel {
@@ -99,7 +103,7 @@ macro_rules! neon_compress_kernel {
                 // the table width.
                 let chunk = unsafe { $load(src.add((word_start + sub) * $elem_size)) };
                 // SAFETY: every LUT row is one table wide.
-                let idx = unsafe { $load($idx_lut[m].as_ptr()) };
+                let idx = unsafe { $load($idx_lut.0[m].as_ptr()) };
                 // SAFETY: out-of-place output has vector slack. In-place, the store ends within
                 // the source chunk already loaded, and later stores overwrite trailing garbage.
                 unsafe { $store(dst.add(write_pos * $elem_size), $tbl(chunk, idx)) };

@@ -23,8 +23,12 @@ use super::bulk_copy;
 use super::compress_lut;
 use super::compress_tail;
 
-static IDX_LUT_8: [[u8; 16]; 256] = compress_lut::<256, 16>(8, 1);
-static IDX_LUT_16: [[u8; 16]; 256] = compress_lut::<256, 16>(8, 2);
+// Align each shuffle row to its SIMD load width.
+#[repr(C, align(16))]
+struct ShuffleTable([[u8; 16]; 256]);
+
+static IDX_LUT_8: ShuffleTable = ShuffleTable(compress_lut::<256, 16>(8, 1));
+static IDX_LUT_16: ShuffleTable = ShuffleTable(compress_lut::<256, 16>(8, 2));
 
 /// Compact one mask word of `ELEM`-byte elements, `LANES` elements per shuffle.
 ///
@@ -115,7 +119,7 @@ macro_rules! generic_compress_kernel {
                     // SAFETY: forwarded from the caller contract.
                     write_pos = unsafe {
                         compress_word::<_, IN_PLACE, $elem_size, $lanes>(
-                            simd, &$idx_lut, src, dst, word, word_start, word_len, write_pos,
+                            simd, &$idx_lut.0, src, dst, word, word_start, word_len, write_pos,
                         )
                     };
                 });
