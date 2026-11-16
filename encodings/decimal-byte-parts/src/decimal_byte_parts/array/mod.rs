@@ -37,6 +37,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 
+use super::LOWER_PART_DTYPE;
 use super::MAX_LOWER_PARTS;
 use super::assemble::assemble_decimal;
 use super::assemble::assemble_wide_decimal_value;
@@ -50,8 +51,7 @@ pub type DecimalBytePartsArray = Array<DecimalByteParts>;
 /// The most significant part (MSP) stores the most significant decimal bits. It is signed and is
 /// nullable iff the decimal is nullable.
 ///
-/// Every lower part is a non-nullable unsigned integer holding a 64-bit window of the value.
-/// Parts may have narrower integer dtypes when their values fit; their positions stay 64 bits apart.
+/// Every lower part is a non-nullable `u64` holding a 64-bit window of the value.
 ///
 /// e.g. for a decimal i128 \[ 127..64 | 63..0 \] msp = 127..64 and lower_part\[0\] = 63..0
 ///
@@ -82,7 +82,7 @@ impl DecimalBytePartsData {
     ///
     /// Returns an error if the MSP is not a signed integer array of length `len`, if `dtype`
     /// does not match the MSP's nullability, if there are more than `MAX_LOWER_PARTS`
-    /// lower parts, or if any lower part is not a non-nullable unsigned integer array of length `len`.
+    /// lower parts, or if any lower part is not a non-nullable `u64` array of length `len`.
     pub fn validate<'a>(
         msp: &ArrayRef,
         lower_parts: impl ExactSizeIterator<Item = &'a ArrayRef>,
@@ -104,12 +104,9 @@ impl DecimalBytePartsData {
             lower_part_count <= MAX_LOWER_PARTS,
             "at most {MAX_LOWER_PARTS} lower parts are supported, got {lower_part_count}"
         );
+
         for (idx, part) in lower_parts.enumerate() {
-            vortex_ensure!(
-                part.dtype().is_unsigned_int() && !part.dtype().is_nullable(),
-                "lower part {idx} must have a non-nullable unsigned integer dtype, got {}",
-                part.dtype()
-            );
+            vortex_ensure_eq!(part.dtype(), &LOWER_PART_DTYPE, "lower part {idx} dtype");
             vortex_ensure_eq!(part.len(), len, "lower part {idx} length mismatch");
         }
 
@@ -136,9 +133,8 @@ impl DecimalByteParts {
     /// Construct a new [`DecimalBytePartsArray`] from an MSP array, its lower parts, and a
     /// decimal dtype.
     ///
-    /// Lower parts are ordered most significant first and must each be a non-nullable unsigned integer
-    /// array of the same length as the MSP. See [`super::split_decimal`] for producing them from a
-    /// decimal array.
+    /// Lower parts are ordered most significant first. See [`super::split_decimal`] for producing
+    /// them from a decimal array.
     ///
     /// # Errors
     ///
@@ -166,8 +162,8 @@ impl DecimalByteParts {
     /// # Safety
     ///
     /// The MSP must have a signed integer dtype (`i8`, `i16`, `i32`, or `i64`). There must be
-    /// at most `MAX_LOWER_PARTS` lower parts, each a non-nullable unsigned integer array with the same
-    /// length as the MSP. Lower parts are ordered most significant first.
+    /// at most `MAX_LOWER_PARTS` lower parts, each a non-nullable `u64` array with the same length
+    /// as the MSP. Lower parts are ordered most significant first.
     pub(super) unsafe fn new_unchecked(
         msp: ArrayRef,
         lower_parts: Vec<ArrayRef>,
@@ -339,7 +335,6 @@ impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
         let primitive_scalar = scalar.as_primitive();
         let msp = primitive_scalar.as_::<i64>().vortex_expect("non-null");
 
-        // Zero-extend each narrowed lower value to its 64-bit window.
         let lower_parts = array
             .lower_parts()
             .iter()

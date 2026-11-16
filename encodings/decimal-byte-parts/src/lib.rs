@@ -11,8 +11,8 @@ use decimal_byte_parts::compute::is_constant::DecimalBytePartsIsConstantKernel;
 /// parts.
 /// These parts can be individually compressed.
 /// This encoding will compress large signed decimals by removing the leading zeroes (after the sign)
-/// an i128 decimal could be converted into a [i64, u64] with further narrowing applied to either
-/// value.
+/// an i128 decimal could be converted into a [i64, u64] with further narrowing applied to the
+/// i64 MSP.
 pub use decimal_byte_parts::*;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
