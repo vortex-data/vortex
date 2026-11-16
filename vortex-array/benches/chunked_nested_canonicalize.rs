@@ -7,8 +7,8 @@ use std::sync::LazyLock;
 
 use divan::Bencher;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ListArray;
@@ -37,7 +37,7 @@ fn canonicalize(bencher: Bencher, chunk: ArrayRef, nchunks: usize) {
     .into_array();
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
-        .bench_refs(|(array, ctx)| array.clone().execute::<Canonical>(ctx).unwrap());
+        .bench_refs(|(array, ctx)| array.clone().execute::<RecursiveCanonical>(ctx).unwrap());
 }
 
 #[divan::bench(args = CHUNKS, consts = [1, 8])]
