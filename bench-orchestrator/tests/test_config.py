@@ -243,3 +243,34 @@ def test_validate_targets_rejects_v2_on_list_layouts() -> None:
     )
 
     assert errors == ["Benchmark tpch-nested cannot run the v2 scan yet (list layout): duckdb:vortex [file, v2]"]
+
+
+def test_resolve_axis_targets_skips_jsonbench_vortex_on_duckdb() -> None:
+    # The Vortex DuckDB extension cannot export JSONBench's Variant column yet.
+    targets, warnings = resolve_axis_targets(
+        [Engine.DATAFUSION, Engine.DUCKDB],
+        [Format.PARQUET, Format.VORTEX],
+        Benchmark.JSONBENCH,
+    )
+
+    assert targets == [
+        BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.PARQUET),
+        BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.VORTEX),
+        BenchmarkTarget(engine=Engine.DUCKDB, format=Format.PARQUET),
+    ]
+    assert warnings == ["Benchmark jsonbench does not support format vortex on engine duckdb"]
+
+
+def test_validate_targets_rejects_jsonbench_vortex_on_duckdb() -> None:
+    errors = validate_targets(
+        [BenchmarkTarget(engine=Engine.DUCKDB, format=Format.VORTEX)],
+        {},
+        Benchmark.JSONBENCH,
+    )
+
+    assert errors == ["Benchmark jsonbench does not support format vortex on engine duckdb"]
+
+
+def test_jsonbench_runs_on_the_v2_scan() -> None:
+    # The split-wide sharing of decoded Variant storage is part of the V2 scan.
+    assert default_scan_engine(Benchmark.JSONBENCH) is ScanEngine.V2

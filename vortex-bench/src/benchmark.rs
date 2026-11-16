@@ -35,6 +35,12 @@ pub trait Benchmark: Send + Sync {
     /// Get all available queries for this benchmark
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>>;
 
+    /// The queries in `engine`'s SQL dialect, for benchmarks whose SQL is not portable across
+    /// engines. Default: [`Benchmark::queries`].
+    fn queries_for_engine(&self, _engine: Engine) -> anyhow::Result<Vec<(usize, String)>> {
+        self.queries()
+    }
+
     /// SQL an `engine` must run before this benchmark's queries (e.g. loading engine
     /// extensions). Runners replay these after every (re)open. Default: none.
     fn engine_init_sql(&self, _engine: Engine) -> Vec<String> {
