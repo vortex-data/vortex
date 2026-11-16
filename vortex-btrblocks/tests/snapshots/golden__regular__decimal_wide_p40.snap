@@ -3,5 +3,5 @@ source: vortex-btrblocks/tests/golden.rs
 expression: rendered
 ---
 input: decimal(40,2), len=16384, nbytes=524288
-root: vortex.decimal(decimal(40,2), len=16384) nbytes=262144
-  metadata: decimal_dtype: decimal(40,2), values_type: i128
+root: vortex.decimal(decimal(40,2), len=16384) nbytes=524288
+  metadata: decimal_dtype: decimal(40,2), values_type: i256
