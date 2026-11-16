@@ -30,7 +30,8 @@ use crate::LayoutReader;
 use crate::RowSplits;
 use crate::SplitRange;
 use crate::scan::filter::FilterExpr;
-use crate::scan::metrics::ScanCounters;
+use crate::scan::metrics::ScanRecorder;
+use crate::scan::metrics::ScanUsage;
 use crate::scan::test::SCAN_SESSION;
 
 struct DeferredReader {
@@ -157,25 +158,24 @@ fn scan_counters_after_deferred_pruning(
 ) -> VortexResult<()> {
     let (predicate, reader) = dynamic_fixture(pending, None)?;
     let reader = Arc::new(reader);
-    let counters = Arc::new(ScanCounters::default());
+    let usage = Arc::new(ScanUsage::default());
     let ctx = Arc::new(TaskContext {
         filter: Some(Arc::new(FilterExpr::new(predicate))),
         reader: Arc::<DeferredReader>::clone(&reader),
         projection: BoundExpression::new_root(reader.dtype.clone()),
         session: SCAN_SESSION.clone(),
-        counters: Some(Arc::clone(&counters)),
-        metrics: None,
+        recorder: ScanRecorder::new(Some(Arc::clone(&usage)), None),
     });
     let task = split_exec(&ctx, RowMask::new(0, Mask::new_true(1)))?;
-    assert_eq!(counters.snapshot().splits_attempted, 0);
+    assert_eq!(usage.snapshot().splits_attempted, 0);
     if pending {
         assert!(task.now_or_never().is_none());
     } else {
         assert!(block_on(task)?.is_none());
     }
-    assert_eq!(counters.snapshot().splits_attempted, 1);
-    assert_eq!(counters.snapshot().splits_pruned, pruned);
-    assert_eq!(counters.snapshot().splits_empty_after_predicate, 0);
+    assert_eq!(usage.snapshot().splits_attempted, 1);
+    assert_eq!(usage.snapshot().splits_pruned, pruned);
+    assert_eq!(usage.snapshot().splits_empty_after_predicate, 0);
     assert_eq!(reader.pruning_calls.load(Ordering::Relaxed), pruning_calls);
     assert_eq!(
         reader.file_pruning_calls.load(Ordering::Relaxed),

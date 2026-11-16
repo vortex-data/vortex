@@ -9,6 +9,7 @@ use std::sync::atomic::Ordering;
 use futures::StreamExt;
 use rstest::rstest;
 use vortex_array::IntoArray;
+use vortex_array::MaskFuture;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::expr::Expression;
@@ -20,6 +21,7 @@ use vortex_array::expr::gt_eq;
 use vortex_array::expr::lit;
 use vortex_array::expr::lt_eq;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
+use vortex_array::stream::ArrayStreamExt;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -29,9 +31,10 @@ use vortex_layout::layouts::row_idx::row_idx;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
-use vortex_layout::scan::metrics::ScanCounters;
 use vortex_layout::scan::metrics::ScanMetrics;
+use vortex_layout::scan::metrics::ScanUsage;
 use vortex_layout::scan::split_by::SplitBy;
+use vortex_mask::Mask;
 use vortex_metrics::DefaultMetricsRegistry;
 use vortex_metrics::MetricValue;
 use vortex_metrics::MetricsRegistry;
@@ -97,8 +100,8 @@ fn assert_registry(registry: &DefaultMetricsRegistry, expected: [u64; 5]) {
     }
 }
 
-fn assert_execution(counters: &ScanCounters, expected: [u64; 5]) {
-    let counts = counters.snapshot();
+fn assert_usage(usage: &ScanUsage, expected: [u64; 5]) {
+    let counts = usage.snapshot();
     assert_eq!(
         [
             counts.splits_attempted,
@@ -131,29 +134,28 @@ async fn test_scan_rejection_counters(
         ),
     );
     assert!(!file.can_prune(&predicate)?);
+
     let registry = Arc::new(DefaultMetricsRegistry::default());
+    let usage = Arc::new(ScanUsage::default());
     let scan = file
         .scan()?
         .with_split_by(SplitBy::RowCount(2))
         .with_filter(predicate.bind(file.dtype())?)
         .with_some_limit(limit)
         .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
+        .with_usage(Arc::clone(&usage))
         .map(|_| -> VortexResult<()> { panic!("rejected splits must not reach the mapper") })
         .prepare()?;
 
-    let mut previous = None;
     for execution in 1..=2 {
-        let (stream, counters) = scan.execute_stream_with_counters(None)?;
+        let stream = scan.execute_stream(None)?;
         futures::pin_mut!(stream);
         assert!(stream.next().await.is_none());
-        assert_execution(&counters, expected);
+
+        assert_usage(&usage, expected.map(|count| count * execution));
         assert_registry(&registry, expected.map(|count| count * execution));
-        if let Some(previous) = &previous {
-            assert!(!Arc::ptr_eq(previous, &counters));
-            assert_execution(previous, expected);
-        }
-        previous = Some(counters);
     }
+
     Ok(())
 }
 
@@ -177,61 +179,61 @@ async fn test_scan_row_index_rejection_counters(
     #[case] expected_rows: usize,
 ) -> VortexResult<()> {
     let file = scan_file([[0, 1], [10, 11], [90, 91], [100, 101]]).await?;
-    let registry = Arc::new(DefaultMetricsRegistry::default());
-    let (stream, counters) = file
+    let usage = Arc::new(ScanUsage::default());
+    let stream = file
         .scan()?
         .with_split_by(SplitBy::RowCount(2))
         .with_filter(predicate.bind(file.dtype())?)
-        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
-        .into_stream_with_counters()?;
+        .with_usage(Arc::clone(&usage))
+        .into_stream()?;
     futures::pin_mut!(stream);
+
     let mut rows = 0;
     while let Some(array) = stream.next().await {
         rows += array?.len();
     }
+
     assert_eq!(rows, expected_rows);
-    assert_execution(&counters, expected);
-    assert_registry(&registry, expected);
+    assert_usage(&usage, expected);
     Ok(())
 }
 
 #[tokio::test]
 async fn test_scan_whole_file_rejection() -> VortexResult<()> {
     let file = scan_file([[0, 1], [10, 11], [90, 91], [100, 101]]).await?;
-    let registry = Arc::new(DefaultMetricsRegistry::default());
     let predicate = and(eq(col("value"), lit(200i32)), eq(col("value"), lit(300i32)));
     assert!(file.can_prune(&predicate)?);
+
+    let usage = Arc::new(ScanUsage::default());
     let scan = file
         .scan()?
         .with_split_by(SplitBy::RowCount(2))
         .with_filter(predicate.bind(file.dtype())?)
-        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
+        .with_usage(Arc::clone(&usage))
         .prepare()?;
-    let (tasks, first) = scan.execute_with_counters(None)?;
-    assert!(tasks.is_empty());
-    let (tasks, second) = scan.execute_with_counters(None)?;
-    assert!(tasks.is_empty());
-    assert_execution(&first, [0, 0, 0, 1, 1]);
-    assert_execution(&second, [0, 0, 0, 1, 1]);
-    assert_registry(&registry, [0, 0, 0, 2, 2]);
+
+    assert!(scan.execute(None)?.is_empty());
+    assert_usage(&usage, [0, 0, 0, 1, 1]);
+
+    assert!(scan.execute(None)?.is_empty());
+    assert_usage(&usage, [0, 0, 0, 2, 2]);
     Ok(())
 }
 
 #[tokio::test]
 async fn test_scan_lazy_whole_file_rejection() -> VortexResult<()> {
     let file = scan_file([[0, 1], [10, 11], [90, 91], [100, 101]]).await?;
-    let registry = Arc::new(DefaultMetricsRegistry::default());
-    let (stream, counters) = file
+    let usage = Arc::new(ScanUsage::default());
+    let stream = file
         .scan()?
         .with_filter(eq(col("value"), lit(200i32)).bind(file.dtype())?)
-        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
-        .into_stream_with_counters()?;
-    assert!(registry.snapshot().is_empty());
-    assert_execution(&counters, [0, 0, 0, 0, 0]);
+        .with_usage(Arc::clone(&usage))
+        .into_stream()?;
+    assert_usage(&usage, [0, 0, 0, 0, 0]);
+
     futures::pin_mut!(stream);
     assert!(stream.next().await.is_none());
-    assert_registry(&registry, [0, 0, 0, 1, 1]);
-    assert_execution(&counters, [0, 0, 0, 1, 1]);
+    assert_usage(&usage, [0, 0, 0, 1, 1]);
     Ok(())
 }
 
@@ -246,21 +248,22 @@ async fn test_scan_limit_counters(
     #[case] attempted: u64,
 ) -> VortexResult<()> {
     let file = scan_file([[0, 1], [10, 11], [90, 91], [100, 101]]).await?;
-    let registry = Arc::new(DefaultMetricsRegistry::default());
-    let scan = file
+    let usage = Arc::new(ScanUsage::default());
+    let mut stream = file
         .scan()?
         .with_split_by(SplitBy::RowCount(2))
         .with_limit(limit)
-        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
-        .prepare()?;
+        .with_usage(Arc::clone(&usage))
+        .prepare()?
+        .execute_stream(None)?;
+
     let mut actual_rows = 0;
-    let (mut stream, counters) = scan.execute_stream_with_counters(None)?;
     while let Some(array) = stream.next().await {
         actual_rows += array?.len();
     }
+
     assert_eq!(actual_rows, rows);
-    assert_registry(&registry, [attempted, 0, 0, 0, u64::from(attempted != 0)]);
-    assert_execution(&counters, [attempted, 0, 0, 0, u64::from(attempted != 0)]);
+    assert_usage(&usage, [attempted, 0, 0, 0, u64::from(attempted != 0)]);
     Ok(())
 }
 
@@ -274,72 +277,74 @@ async fn test_scan_filtered_limit_counters(
     #[case] attempted: u64,
 ) -> VortexResult<()> {
     let file = scan_file([[0, 1], [10, 11], [90, 91], [100, 101]]).await?;
-    let registry = Arc::new(DefaultMetricsRegistry::default());
+    let usage = Arc::new(ScanUsage::default());
     let scan = file
         .scan()?
         .with_split_by(SplitBy::RowCount(8))
         .with_filter(gt_eq(col("value"), lit(0i32)).bind(file.dtype())?)
         .with_limit(limit)
-        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
+        .with_usage(Arc::clone(&usage))
         .map(|array| Ok(array.len()))
         .prepare()?;
+
     for execution in 1..=2 {
-        let (mut stream, counters) = scan.execute_stream_with_counters(None)?;
+        let mut stream = scan.execute_stream(None)?;
         let mut rows = 0;
         while let Some(count) = stream.next().await {
             rows += count?;
         }
+
         assert_eq!(rows as u64, limit);
-        assert_execution(&counters, [attempted, 0, 0, 0, u64::from(attempted != 0)]);
-        assert_registry(
-            &registry,
-            [
-                attempted * execution,
-                0,
-                0,
-                0,
-                u64::from(attempted != 0) * execution,
-            ],
+        assert_usage(
+            &usage,
+            [attempted, 0, 0, 0, u64::from(attempted != 0)].map(|count| count * execution),
         );
     }
+
     Ok(())
 }
 
 #[tokio::test]
 async fn test_scan_empty_selection_counters() -> VortexResult<()> {
     let file = scan_file([[0, 1], [10, 11], [90, 91], [100, 101]]).await?;
-    let registry = Arc::new(DefaultMetricsRegistry::default());
-    let (tasks, counters) = file
+    let usage = Arc::new(ScanUsage::default());
+    let tasks = file
         .scan()?
         .with_selection(Selection::IncludeByIndex(StrictSortedBuffer::try_new(
             buffer![],
         )?))
         .with_filter(eq(col("value"), lit(200i32)).bind(file.dtype())?)
-        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
-        .build_with_counters()?;
+        .with_usage(Arc::clone(&usage))
+        .build()?;
+
     assert!(tasks.is_empty());
-    assert_execution(&counters, [0, 0, 0, 0, 0]);
-    assert_registry(&registry, [0, 0, 0, 0, 0]);
+    assert_usage(&usage, [0, 0, 0, 0, 0]);
     Ok(())
 }
 
+/// Counts are live: they appear when a task runs, not when the execution stops.
 #[tokio::test]
 async fn test_scan_unpolled_tasks() -> VortexResult<()> {
     let file = scan_file([[0, 1], [10, 11], [90, 91], [100, 101]]).await?;
     let registry = Arc::new(DefaultMetricsRegistry::default());
-    let (mut tasks, counters) = file
+    let usage = Arc::new(ScanUsage::default());
+    let mut tasks = file
         .scan()?
         .with_split_by(SplitBy::RowCount(2))
         .with_filter(eq(col("value"), lit(50i32)).bind(file.dtype())?)
         .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
-        .build_with_counters()?;
+        .with_usage(Arc::clone(&usage))
+        .build()?;
     assert_eq!(tasks.len(), 4);
-    assert_execution(&counters, [0, 0, 0, 0, 1]);
-    assert_registry(&registry, [0, 0, 0, 0, 0]);
+    assert_usage(&usage, [0, 0, 0, 0, 1]);
+    assert_registry(&registry, [0, 0, 0, 0, 1]);
+
     assert!(tasks.remove(0).await?.is_none());
-    assert_execution(&counters, [1, 1, 0, 0, 1]);
-    assert_registry(&registry, [0, 0, 0, 0, 0]);
+    assert_usage(&usage, [1, 1, 0, 0, 1]);
+    assert_registry(&registry, [1, 1, 0, 0, 1]);
+
     drop(tasks);
+    assert_usage(&usage, [1, 1, 0, 0, 1]);
     assert_registry(&registry, [1, 1, 0, 0, 1]);
     Ok(())
 }
@@ -347,7 +352,7 @@ async fn test_scan_unpolled_tasks() -> VortexResult<()> {
 #[tokio::test]
 async fn test_scan_dynamic_file_rejection() -> VortexResult<()> {
     let file = scan_file([[0, 1], [10, 11], [90, 91], [100, 101]]).await?;
-    let registry = Arc::new(DefaultMetricsRegistry::default());
+    let usage = Arc::new(ScanUsage::default());
     let bound = Arc::new(AtomicI32::new(50));
     let value = Arc::clone(&bound);
     let predicate = dynamic(
@@ -361,34 +366,30 @@ async fn test_scan_dynamic_file_rejection() -> VortexResult<()> {
         .scan()?
         .with_split_by(SplitBy::RowCount(2))
         .with_filter(and(predicate.clone(), predicate).bind(file.dtype())?)
-        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
+        .with_usage(Arc::clone(&usage))
         .prepare()?;
-    let (tasks, first) = scan.execute_with_counters(None)?;
+
+    // Four splits observe the file rejection, but it counts once for the execution.
+    let tasks = scan.execute(None)?;
     assert_eq!(tasks.len(), 4);
     bound.store(200, Ordering::Relaxed);
     for task in tasks {
         assert!(task.await?.is_none());
     }
-    assert_registry(&registry, [4, 0, 0, 1, 1]);
-    assert_execution(&first, [4, 0, 0, 1, 1]);
+    assert_usage(&usage, [4, 0, 0, 1, 1]);
 
-    let (tasks, second) = scan.execute_with_counters(None)?;
-    assert!(tasks.is_empty());
-    assert_registry(&registry, [4, 0, 0, 2, 2]);
-    assert_execution(&second, [0, 0, 0, 1, 1]);
+    assert!(scan.execute(None)?.is_empty());
+    assert_usage(&usage, [4, 0, 0, 2, 2]);
+
     bound.store(50, Ordering::Relaxed);
     let mut rows = 0;
-    let (tasks, third) = scan.execute_with_counters(None)?;
-    for task in tasks {
+    for task in scan.execute(None)? {
         if let Some(array) = task.await? {
             rows += array.len();
         }
     }
     assert_eq!(rows, 4);
-    assert_registry(&registry, [8, 2, 0, 2, 3]);
-    assert_execution(&first, [4, 0, 0, 1, 1]);
-    assert_execution(&second, [0, 0, 0, 1, 1]);
-    assert_execution(&third, [4, 2, 0, 0, 1]);
+    assert_usage(&usage, [8, 2, 0, 2, 3]);
     Ok(())
 }
 
@@ -413,28 +414,73 @@ async fn test_scan_registry_size_is_constant() -> VortexResult<()> {
     Ok(())
 }
 
+/// The caller decides the scope: scans that share a usage add up, other scans stay separate.
 #[tokio::test]
-async fn test_scan_execution_counters_are_independent() -> VortexResult<()> {
+async fn test_scan_usage_scope_is_caller_owned() -> VortexResult<()> {
     let file = scan_file([[0, 1], [10, 11], [90, 91], [100, 101]]).await?;
     let registry = Arc::new(DefaultMetricsRegistry::default());
-    let scan = file
-        .scan()?
-        .with_split_by(SplitBy::RowCount(2))
-        .with_filter(eq(col("value"), lit(50i32)).bind(file.dtype())?)
-        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
-        .prepare()?;
-    let (mut tasks, first) = scan.execute_with_counters(None)?;
-    let (second_tasks, second) = scan.execute_with_counters(None)?;
-    assert!(tasks.remove(0).await?.is_none());
-    for task in second_tasks {
-        assert!(task.await?.is_none());
+    let metrics = ScanMetrics::new(registry.as_ref());
+    let query = Arc::new(ScanUsage::default());
+    let other = Arc::new(ScanUsage::default());
+
+    for usage in [&query, &query, &other] {
+        let tasks = file
+            .scan()?
+            .with_split_by(SplitBy::RowCount(2))
+            .with_filter(eq(col("value"), lit(50i32)).bind(file.dtype())?)
+            .with_scan_metrics(metrics.clone())
+            .with_usage(Arc::clone(usage))
+            .build()?;
+        for task in tasks {
+            assert!(task.await?.is_none());
+        }
     }
-    assert_execution(&first, [1, 1, 0, 0, 1]);
-    assert_execution(&second, [4, 4, 0, 0, 1]);
-    assert_registry(&registry, [4, 4, 0, 0, 1]);
-    drop(tasks);
-    assert_registry(&registry, [5, 5, 0, 0, 2]);
-    assert_execution(&first, [1, 1, 0, 0, 1]);
-    assert_execution(&second, [4, 4, 0, 0, 1]);
+
+    assert_usage(&query, [8, 8, 0, 0, 2]);
+    assert_usage(&other, [4, 4, 0, 0, 1]);
+    assert_registry(&registry, [12, 12, 0, 0, 3]);
+    Ok(())
+}
+
+/// A file handle with usage counts every segment read, also reads outside a scan, and its scans
+/// add their split counts to the same usage.
+#[tokio::test]
+async fn test_file_usage_counts_segment_reads() -> VortexResult<()> {
+    let file = scan_file([[0, 1], [10, 11], [90, 91], [100, 101]]).await?;
+    let first = Arc::new(ScanUsage::default());
+    let second = Arc::new(ScanUsage::default());
+
+    for usage in [&first, &second] {
+        let rows = file
+            .clone()
+            .with_usage(Arc::clone(usage))
+            .scan()?
+            .with_split_by(SplitBy::RowCount(2))
+            .into_array_stream()?
+            .read_all()
+            .await?
+            .len();
+        assert_eq!(rows, 8);
+    }
+
+    let scanned = first.snapshot();
+    assert_eq!(scanned, second.snapshot());
+    assert_eq!(scanned.splits_attempted, 4);
+    assert!(scanned.segments_requested > 0);
+    assert!(scanned.bytes_requested >= scanned.segments_requested);
+
+    let reader = file
+        .clone()
+        .with_usage(Arc::clone(&first))
+        .layout_reader()?;
+    let projection = col("value").bind(file.dtype())?;
+    reader
+        .projection_evaluation(&(0..8), &projection, MaskFuture::ready(Mask::new_true(8)))?
+        .await?;
+
+    let after = first.snapshot().since(&scanned);
+    assert_eq!(after.splits_attempted, 0);
+    assert!(after.segments_requested > 0);
+    assert_eq!(second.snapshot(), scanned);
     Ok(())
 }
