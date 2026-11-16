@@ -28,6 +28,12 @@ fn main() {
     divan::main();
 }
 
+/// Executes to [`RecursiveCanonical`] rather than [`Canonical`](vortex_array::Canonical) to
+/// measure the total overhead of the lazy structures we build along the way.
+///
+/// A nested type is easy to canonicalize by swizzling its chunks' children into lazy children of
+/// its own. That looks faster when only the top level has to be canonical, but can be slower once
+/// every child has been made canonical too.
 fn canonicalize(bencher: Bencher, chunk: ArrayRef, nchunks: usize) {
     let array = ChunkedArray::try_new(
         std::iter::repeat_n(chunk.clone(), nchunks),
