@@ -43,7 +43,6 @@ use crate::validity::Validity;
 /// `ArrayRef` stores `Arc<ArrayInner<dyn DynArrayData>>` — a single 16-byte fat pointer.
 /// Metadata is accessed via `self.0.*` (a normal struct field read through the Arc),
 /// while encoding-specific methods go through `self.0.data` (vtable dispatch).
-#[derive(Clone)]
 pub(crate) struct ArrayInner<D: ?Sized> {
     pub(crate) len: usize,
     pub(crate) encoding_id: ArrayId,
@@ -383,10 +382,26 @@ impl<V: VTable> Array<V> {
     pub(crate) fn with_data_mut(self, update: impl FnOnce(&mut V::TypedArrayData)) -> Self {
         // SAFETY: Array<V> guarantees the inner is ArrayData<V>.
         let mut inner = unsafe { self.inner.downcast_inner_unchecked::<V>() };
-        let inner_mut = Arc::make_mut(&mut inner);
-        // The data changes in place, so the array is no longer known to be optimized.
-        *inner_mut.optimized.0.get_mut() = false;
-        update(&mut inner_mut.data.data);
+        match Arc::get_mut(&mut inner) {
+            Some(inner_mut) => {
+                // The data changes in place, so the array is no longer known to be optimized.
+                *inner_mut.optimized.0.get_mut() = false;
+                update(&mut inner_mut.data.data);
+            }
+            None => {
+                let mut data = inner.data.clone();
+                update(&mut data.data);
+                inner = Arc::new(ArrayInner {
+                    len: inner.len,
+                    encoding_id: inner.encoding_id,
+                    dtype: inner.dtype.clone(),
+                    slots: inner.slots.clone(),
+                    stats: inner.stats.clone(),
+                    optimized: OptimizedState::default(),
+                    data,
+                });
+            }
+        }
         Self {
             inner: ArrayRef::from_inner(inner),
             _phantom: PhantomData,
