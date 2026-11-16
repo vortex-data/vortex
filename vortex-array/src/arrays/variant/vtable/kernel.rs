@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::Buffer;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -68,25 +70,33 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
             .shredded()
             .map(|shredded| {
                 typed_shredded_path(shredded, parent.options.path().elements(), ctx)?
-                    .map(|typed| mask_with_validity(typed, &core_validity)?.optimize_ctx(ctx))
+                    .map(|(typed, remaining)| {
+                        let typed = mask_with_validity(typed, &core_validity)?.optimize_ctx(ctx)?;
+                        Ok::<_, VortexError>((typed, remaining))
+                    })
                     .transpose()
             })
             .transpose()?
             .flatten();
 
-        let Some(typed) = typed else {
+        let Some((typed, remaining)) = typed else {
             return make_fallback(ctx).map(Some);
         };
-        // A shredded Variant child still needs VariantGet at the root to produce a
-        // concrete requested dtype.
+        // A shredded Variant child holds the rest of the path, in its own shredded tree or in
+        // its residual value. It also still needs VariantGet at its root to produce a concrete
+        // requested dtype.
         if typed.dtype().is_variant()
-            && parent
-                .options
-                .dtype()
-                .is_some_and(|dtype| !dtype.is_variant())
+            && (!remaining.is_empty()
+                || parent
+                    .options
+                    .dtype()
+                    .is_some_and(|dtype| !dtype.is_variant()))
         {
             return execute_fallback_variant_get(
-                VariantGetOptions::new(VariantPath::root(), parent.options.dtype().cloned()),
+                VariantGetOptions::new(
+                    VariantPath::new(remaining.iter().cloned()),
+                    parent.options.dtype().cloned(),
+                ),
                 typed,
                 ctx,
             )
@@ -128,10 +138,41 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
 
         // Null typed rows are not necessarily missing from the logical variant value;
         // fill those rows from core storage and keep valid typed rows unchanged.
-        // TODO: we are computing the entire fallback array here but only take indices where
-        // typed_mask is false, so we can narrow the core_storage to only the false
-        // indices and compute from there then zip
-        let fallback = make_fallback(ctx)?;
+        if typed_mask.all_false() {
+            return make_fallback(ctx).map(Some);
+        }
+        // Usually the null typed rows are missing from core storage as well, as for a field
+        // that only some objects have. Extract from just those rows first: when none of them
+        // holds a value, the typed child is the whole answer and the rest of core storage is
+        // never read.
+        let null_rows = !&typed_mask;
+        let null_rows_fallback = execute_fallback_variant_get(
+            parent.options.clone(),
+            array.core_storage().filter(null_rows)?,
+            ctx,
+        )?;
+        if null_rows_fallback
+            .validity()?
+            .execute_mask(null_rows_fallback.len(), ctx)?
+            .all_false()
+        {
+            return Ok(Some(typed));
+        }
+
+        // Scatter the extracted rows back to their positions: row `i` reads the extracted row
+        // that it is the n-th null typed row for. Valid typed rows read an arbitrary extracted
+        // row, which the zip discards.
+        let mut extracted = 0u64;
+        let positions = typed_mask
+            .to_bit_buffer()
+            .iter()
+            .map(|valid| {
+                let position = extracted;
+                extracted += u64::from(!valid);
+                position.min(null_rows_fallback.len() as u64 - 1)
+            })
+            .collect::<Buffer<u64>>();
+        let fallback = null_rows_fallback.take(positions.into_array())?;
         typed_mask
             .into_array()
             .zip(typed, fallback)?
@@ -154,13 +195,21 @@ fn mask_with_validity(array: ArrayRef, validity: &Validity) -> VortexResult<Arra
     }
 }
 
-fn typed_shredded_path(
+/// Walks `path` through the shredded tree, returning the array it reaches and the elements of
+/// `path` that are left.
+///
+/// The walk stops early at a shredded Variant child, which holds the rest of the path itself.
+/// Returns `None` if the shredded tree does not represent the path.
+fn typed_shredded_path<'a>(
     shredded: &ArrayRef,
-    path: &[VariantPathElement],
+    path: &'a [VariantPathElement],
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ArrayRef>> {
+) -> VortexResult<Option<(ArrayRef, &'a [VariantPathElement])>> {
     let mut current = shredded.clone();
-    for element in path {
+    for (idx, element) in path.iter().enumerate() {
+        if current.dtype().is_variant() {
+            return Ok(Some((current, &path[idx..])));
+        }
         let VariantPathElement::Field(name) = element else {
             return Ok(None);
         };
@@ -174,7 +223,7 @@ fn typed_shredded_path(
         current = mask_with_validity(field.clone(), &current_struct.validity()?)?;
     }
 
-    Ok(Some(current))
+    Ok(Some((current, &[])))
 }
 
 fn merge_typed_as_variant(

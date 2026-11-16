@@ -31,4 +31,5 @@ pub mod select;
 pub mod stat;
 pub mod strpos;
 pub mod variant_get;
+pub mod variant_pack;
 pub mod zip;

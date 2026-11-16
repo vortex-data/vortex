@@ -22,11 +22,13 @@ use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::Extension;
 use vortex_array::arrays::Filter;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::Struct;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::extension::ExtensionArrayExt;
@@ -36,9 +38,12 @@ use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::arrays::slice::SliceKernel;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::variant_get::VariantGet;
 use vortex_array::scalar_fn::fns::variant_get::VariantPath;
@@ -59,6 +64,7 @@ use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
 use crate::ParquetVariantArraySlotsExt;
 use crate::compute::AllNonDistinctParquetVariant;
+use crate::extract::extract;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -108,6 +114,28 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
             return Ok(None);
         }
 
+        // Residual storage without a value in any row holds no path, as for the rows of a
+        // shredded field that the typed column does not cover. Answer from the validity of the
+        // value alone, without decoding the metadata. This holds for any requested dtype,
+        // Variant included: a missing path is a null of it.
+        if array.typed_value().is_none()
+            && let Some(value) = array.value()
+            && value
+                .validity()?
+                .execute_mask(value.len(), ctx)?
+                .all_false()
+        {
+            return Ok(Some(
+                ConstantArray::new(Scalar::null(parent.dtype().clone()), array.len()).into_array(),
+            ));
+        }
+
+        // A string or an integer under object fields of unshredded storage is read from the
+        // encoded bytes in place. Whatever that does not cover falls through to the kernel.
+        if let Some(extracted) = extract_in_place(&array, &parent, ctx)? {
+            return Ok(Some(extracted));
+        }
+
         let arrow_variant = array.to_arrow(&ArrowExportOptions::default(), ctx)?;
         let arrow_input: ArrowArrayRef = Arc::new(arrow_variant.into_inner());
         let session = ctx.session().clone();
@@ -139,6 +167,45 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
         );
         Ok(Some(output))
     }
+}
+
+/// Extracts with [`extract`], if it covers the extraction that `parent` asks of `array`.
+fn extract_in_place(
+    array: &ArrayView<'_, ParquetVariant>,
+    parent: &ScalarFnArrayView<'_, VariantGet>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let (Some(dtype), Some(value), None) =
+        (parent.options.dtype(), array.value(), array.typed_value())
+    else {
+        return Ok(None);
+    };
+    if !matches!(dtype, DType::Utf8(_) | DType::Primitive(PType::I64, _)) {
+        return Ok(None);
+    }
+    let Some(path) = parent
+        .options
+        .path()
+        .elements()
+        .iter()
+        .map(|element| match element {
+            VariantPathElement::Field(name) => Some(name.as_ref()),
+            VariantPathElement::Index(_) => None,
+        })
+        .collect::<Option<Vec<&str>>>()
+    else {
+        return Ok(None);
+    };
+
+    let len = array.len();
+    let valid = &array.parquet_variant_validity().execute_mask(len, ctx)?
+        & &value.validity()?.execute_mask(len, ctx)?;
+    let metadata = array.metadata().clone().execute::<VarBinViewArray>(ctx)?;
+    let value = value.clone().execute::<VarBinViewArray>(ctx)?;
+    let Some(extracted) = extract(&metadata, &value, &valid, &path, dtype) else {
+        return Ok(None);
+    };
+    extracted.cast(parent.dtype().clone()).map(Some)
 }
 
 /// Performs the [`JsonToVariant`] conversion (and optional shredding) over JSON string storage.
@@ -306,28 +373,37 @@ mod tests {
     use arrow_schema::Field;
     use parquet_variant::Variant as PqVariant;
     use parquet_variant::VariantBuilder;
+    use parquet_variant_compute::ShreddedSchemaBuilder;
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use parquet_variant_compute::VariantArrayBuilder;
     use parquet_variant_compute::json_to_variant;
+    use parquet_variant_compute::shred_variant;
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray as VortexStructArray;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::Variant;
     use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::arrays::variant::VariantArraySlotsExt;
+    use vortex_array::arrays::variant::decode_unshredded_storage;
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar_is_null;
     use vortex_array::dtype::DType as VortexDType;
+    use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::expr::BoundExpression;
+    use vortex_array::expr::get_item;
     use vortex_array::expr::root;
     use vortex_array::expr::variant_get;
+    use vortex_array::expr::variant_pack;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar_fn::fns::variant_get::VariantPath;
     use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
@@ -1101,6 +1177,349 @@ mod tests {
             result,
             PrimitiveArray::from_option_iter([Some(10), Some(30), None]),
             &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    /// Events shredded as `kind` and `commit.collection`, canonicalized. Only some events have a
+    /// `commit`, and `commit.rev` stays in the residual value of `commit`.
+    fn make_nested_shredded_events() -> VortexResult<ArrayRef> {
+        let json: ArrowArrayRef = Arc::new(StringArray::from(vec![
+            r#"{"kind":"commit","commit":{"collection":"post","rev":1}}"#,
+            r#"{"kind":"identity"}"#,
+            r#"{"kind":"commit","commit":{"collection":"like","rev":2}}"#,
+        ]));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("kind", &DataType::Utf8)?
+            .with_path("commit.collection", &DataType::Utf8)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let parquet_array = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let Canonical::Variant(canonical) = parquet_array.execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+        Ok(canonical.into_array())
+    }
+
+    /// The shapes in which a scan hands a Variant column to `variant_get`.
+    #[derive(Clone, Copy, Debug)]
+    enum Input {
+        Canonical,
+        Chunked,
+        Filtered,
+    }
+
+    #[rstest]
+    #[case::canonical(Input::Canonical, &[0, 1, 2])]
+    #[case::chunked(Input::Chunked, &[0, 1, 2])]
+    #[case::filtered(Input::Filtered, &[0, 2])]
+    fn test_variant_get_nested_shredded_path(
+        #[case] input: Input,
+        #[case] rows: &[usize],
+    ) -> VortexResult<()> {
+        let events = make_nested_shredded_events()?;
+        let array = match input {
+            Input::Canonical => events,
+            Input::Chunked => ChunkedArray::try_new(
+                [events.slice(0..2)?, events.slice(2..3)?],
+                events.dtype().clone(),
+            )?
+            .into_array(),
+            Input::Filtered => events.filter(Mask::from_iter([true, false, true]))?,
+        };
+        let mut ctx = SESSION.create_execution_ctx();
+
+        // `commit` is a partially shredded object, which holds the rest of the path.
+        let collection = [Some("post"), None, Some("like")];
+        assert_arrays_eq!(
+            execute_variant_get(
+                array.clone(),
+                "$.commit.collection",
+                Some(VortexDType::Utf8(Nullability::Nullable)),
+            )?,
+            VarBinViewArray::from_iter_nullable_str(rows.iter().map(|&row| collection[row])),
+            &mut ctx
+        );
+
+        // A field that is not shredded comes from the residual value of `commit`.
+        let rev = [Some(1i64), None, Some(2)];
+        assert_arrays_eq!(
+            execute_variant_get(
+                array,
+                "$.commit.rev",
+                Some(VortexDType::Primitive(PType::I64, Nullability::Nullable)),
+            )?,
+            PrimitiveArray::from_option_iter(rows.iter().map(|&row| rev[row])),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// A chunked Variant builds one storage array, so that it compresses and deserializes as a
+    /// single array.
+    #[test]
+    fn test_chunked_storage_executes_to_one_storage_array() -> VortexResult<()> {
+        let first = make_unshredded_json_array(vec![Some(r#"{"a":1}"#), Some(r#"{"a":2}"#)])?;
+        let second = make_unshredded_json_array(vec![Some(r#"{"a":3}"#)])?;
+        let dtype = first.dtype().clone();
+        let chunked = ChunkedArray::try_new([first, second], dtype)?.into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let Canonical::Variant(canonical) = chunked.clone().execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+        assert!(canonical.core_storage().is::<ParquetVariant>());
+
+        let requested = VortexDType::Primitive(PType::I64, Nullability::Nullable);
+        assert_arrays_eq!(
+            execute_variant_get(chunked, "$.a", Some(requested))?,
+            PrimitiveArray::from_option_iter([Some(1i64), Some(2), Some(3)]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Chunks of shredded storage build one storage array beside one shredded child, and keep
+    /// every value.
+    #[test]
+    fn test_chunked_shredded_storage_builds_one_storage_array() -> VortexResult<()> {
+        let json: ArrowArrayRef = Arc::new(StringArray::from(vec![
+            r#"{"kind":"commit","n":1}"#,
+            r#"{"kind":"identity","n":2}"#,
+            r#"{"kind":"commit","n":3}"#,
+        ]));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("kind", &DataType::Utf8)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let storage = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let dtype = storage.dtype().clone();
+        let chunked = ChunkedArray::try_new([storage.slice(0..2)?, storage.slice(2..3)?], dtype)?
+            .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let Canonical::Variant(canonical) = chunked.clone().execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+        assert!(canonical.core_storage().is::<ParquetVariant>());
+        assert!(canonical.shredded().is_some());
+
+        assert_arrays_eq!(
+            execute_variant_get(
+                chunked.clone(),
+                "$.kind",
+                Some(VortexDType::Utf8(Nullability::Nullable))
+            )?,
+            VarBinViewArray::from_iter_nullable_str([
+                Some("commit"),
+                Some("identity"),
+                Some("commit")
+            ]),
+            &mut ctx
+        );
+        let requested = VortexDType::Primitive(PType::I64, Nullability::Nullable);
+        assert_arrays_eq!(
+            execute_variant_get(chunked, "$.n", Some(requested))?,
+            PrimitiveArray::from_option_iter([Some(1i64), Some(2), Some(3)]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// The struct that the Variant layout stores for [`make_nested_shredded_events`]: the core
+    /// storage and the shredded child as fields, and an extraction of `path` as `dtype` from
+    /// the Variant packed back from them, optimized.
+    fn extraction_over_pack(
+        path: &str,
+        dtype: VortexDType,
+        complete: bool,
+    ) -> VortexResult<(ArrayRef, BoundExpression)> {
+        let events = make_nested_shredded_events()?;
+        let events = events.as_::<Variant>();
+        let shredded = events
+            .shredded()
+            .ok_or_else(|| vortex_err!("expected a shredded child"))?
+            .clone();
+        let storage = VortexStructArray::try_new(
+            FieldNames::from(["core", "shredded"]),
+            vec![events.core_storage().clone(), shredded],
+            events.len(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        let packed = variant_pack(
+            get_item("core", root()),
+            get_item("shredded", root()),
+            complete,
+        );
+        let expr = variant_get(packed, parse_path(path)?, Some(dtype))
+            .bind(storage.dtype())?
+            .optimize_recursive()?;
+        Ok((storage, expr))
+    }
+
+    /// An extraction from a packed Variant reads the shredded child alone when it holds the
+    /// path, and the core storage alone when it does not.
+    #[rstest]
+    // A shredded leaf.
+    #[case::shredded("$.kind", &[Some("commit"), Some("identity"), Some("commit")], "shredded")]
+    // A leaf of a shredded object, which is a Variant of its own.
+    #[case::nested("$.commit.collection", &[Some("post"), None, Some("like")], "shredded")]
+    // A field that was not shredded is only in the core storage.
+    #[case::unshredded("$.other", &[None, None, None], "core")]
+    fn test_variant_get_over_complete_pack_reads_one_child(
+        #[case] path: &str,
+        #[case] expected: &[Option<&str>],
+        #[case] child: &str,
+    ) -> VortexResult<()> {
+        let utf8 = VortexDType::Utf8(Nullability::Nullable);
+        let (storage, expr) = extraction_over_pack(path, utf8, true)?;
+
+        let read = expr.to_string();
+        let other = if child == "core" { "shredded" } else { "core" };
+        assert!(read.contains(child), "{read} must read {child}");
+        assert!(!read.contains(other), "{read} must not read {other}");
+        assert_arrays_eq!(
+            storage.apply_bound(&expr)?,
+            VarBinViewArray::from_iter_nullable_str(expected.iter().copied()),
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    /// A shredded child that is not complete can have left a value in the core storage, so
+    /// the extraction keeps both.
+    #[test]
+    fn test_variant_get_over_partial_pack_reads_both_children() -> VortexResult<()> {
+        let utf8 = VortexDType::Utf8(Nullability::Nullable);
+        let (storage, expr) = extraction_over_pack("$.kind", utf8, false)?;
+
+        let read = expr.to_string();
+        assert!(read.contains("core") && read.contains("shredded"), "{read}");
+        assert_arrays_eq!(
+            storage.apply_bound(&expr)?,
+            VarBinViewArray::from_iter_nullable_str([
+                Some("commit"),
+                Some("identity"),
+                Some("commit")
+            ]),
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    /// Decoding the storage once leaves a storage array whose children need no more decoding,
+    /// whether or not the Variant was filtered first, and extracts the same values.
+    #[rstest]
+    #[case::whole(false)]
+    #[case::filtered(true)]
+    fn test_decode_unshredded_storage(#[case] filtered: bool) -> VortexResult<()> {
+        let rows = vec![Some(r#"{"a":1}"#), Some(r#"{"a":2}"#), Some(r#"{"a":3}"#)];
+        let array = make_unshredded_json_array(rows)?;
+        let (array, expected) = if filtered {
+            (
+                array.filter(Mask::from_iter([true, false, true]))?,
+                [Some(1i64), Some(3)].as_slice(),
+            )
+        } else {
+            (array, [Some(1i64), Some(2), Some(3)].as_slice())
+        };
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let decoded = decode_unshredded_storage(array, &mut ctx)?;
+
+        let variant = decoded.as_::<Variant>();
+        let storage = variant
+            .core_storage()
+            .as_opt::<ParquetVariant>()
+            .ok_or_else(|| vortex_err!("expected parquet variant core storage"))?;
+        assert!(storage.metadata().is_canonical());
+        assert!(storage.value().is_some_and(|value| value.is_canonical()));
+        assert_arrays_eq!(
+            execute_variant_get(
+                decoded,
+                "$.a",
+                Some(VortexDType::Primitive(PType::I64, Nullability::Nullable)),
+            )?,
+            PrimitiveArray::from_option_iter(expected.iter().copied()),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// A shredded Variant is left alone: its extractions read the shredded children.
+    #[test]
+    fn test_decode_unshredded_storage_keeps_shredded() -> VortexResult<()> {
+        let events = make_nested_shredded_events()?;
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let decoded = decode_unshredded_storage(events.clone(), &mut ctx)?;
+
+        assert!(decoded.as_::<Variant>().shredded().is_some());
+        assert_arrays_eq!(
+            execute_variant_get(
+                decoded,
+                "$.kind",
+                Some(VortexDType::Utf8(Nullability::Nullable)),
+            )?,
+            execute_variant_get(
+                events,
+                "$.kind",
+                Some(VortexDType::Utf8(Nullability::Nullable)),
+            )?,
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Rows whose value does not fit the shredded type stay in the residual value, and are
+    /// extracted from there into the positions the typed column leaves null.
+    #[rstest]
+    #[case::as_string(DataType::Utf8, VortexDType::Utf8(Nullability::Nullable))]
+    #[case::as_integer(
+        DataType::Int64,
+        VortexDType::Primitive(PType::I64, Nullability::Nullable)
+    )]
+    fn test_variant_get_fills_rows_the_shredded_column_lacks(
+        #[case] shredded_type: DataType,
+        #[case] requested: VortexDType,
+    ) -> VortexResult<()> {
+        let rows = vec![
+            Some(r#"{"a":"x"}"#),
+            Some(r#"{"a":7}"#),
+            Some(r#"{"b":1}"#),
+            Some(r#"{"a":"y"}"#),
+            Some(r#"{"a":8}"#),
+            Some(r#"{"a":true}"#),
+        ];
+        let unshredded = make_unshredded_json_array(rows.clone())?;
+
+        let json: ArrowArrayRef = Arc::new(StringArray::from(rows));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("a", &shredded_type)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let shredded = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let Canonical::Variant(shredded) = shredded.execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+
+        // Shredding must not change what a path extracts to.
+        let expected = execute_variant_get(unshredded, "$.a", Some(requested.clone()))?;
+        assert!(
+            !expected
+                .validity()?
+                .execute_mask(expected.len(), &mut ctx)?
+                .all_false(),
+            "the fixture must extract some values"
+        );
+        assert_arrays_eq!(
+            execute_variant_get(shredded.into_array(), "$.a", Some(requested))?,
+            expected,
+            &mut ctx
         );
         Ok(())
     }
