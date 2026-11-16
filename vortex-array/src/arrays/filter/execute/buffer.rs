@@ -21,11 +21,18 @@ use std::mem::size_of;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::BufferMut;
 use vortex_mask::MaskValues;
 
 use crate::arrays::filter::execute::byte_compress;
+use crate::arrays::filter::execute::byte_compress::append_filtered as append_byte_filtered;
+use crate::arrays::filter::execute::contiguous_values_range;
 use crate::arrays::filter::execute::simd_compress;
+use crate::arrays::filter::execute::simd_compress::SLACK_BYTES;
+use crate::arrays::filter::execute::simd_compress::compress_bits;
 use crate::arrays::filter::execute::slice;
+use crate::arrays::filter::execute::slice::MaskBits;
+use crate::arrays::filter::execute::slice::compact_by_bitmap;
 
 const CACHED_INDICES_MAX_DENSITY: f64 = 0.5;
 const IN_PLACE_MIN_DENSITY: f64 = 0.5;
@@ -55,6 +62,62 @@ pub(crate) fn filter_buffer<T: Copy>(
     };
 
     filter_slice(buffer.as_slice(), mask, allocator)
+}
+
+/// Filters into an existing destination using the same strategy ladder as buffer filtering.
+/// Cached mask representations must describe the same selection as its bitmap.
+pub(crate) fn append_filtered_slice<T: Copy>(
+    values: &[T],
+    mask: &MaskValues,
+    out: &mut BufferMut<T>,
+) {
+    assert_eq!(values.len(), mask.len());
+    assert_ne!(size_of::<T>(), 0);
+    let start = out.len();
+    let count = mask.true_count();
+    out.reserve(count + SLACK_BYTES / size_of::<T>());
+    let written = if let Some(range) = contiguous_values_range(mask) {
+        out.spare_capacity_mut()[..count].write_copy_of_slice(&values[range]);
+        count
+    } else if let Some(slices) = useful_cached_slices(mask) {
+        let mut written = 0;
+        let output = &mut out.spare_capacity_mut()[..count];
+        for &(start, end) in slices {
+            let values = &values[start..end];
+            output[written..written + values.len()].write_copy_of_slice(values);
+            written += values.len();
+        }
+        written
+    } else if let Some(indices) = useful_cached_indices(mask) {
+        let output = &mut out.spare_capacity_mut()[..count];
+        for (row, &index) in indices.iter().enumerate() {
+            output[row].write(values[index]);
+        }
+        indices.len()
+    } else {
+        // Some public constructors only validate cached counts in debug builds. Unchecked
+        // kernels need the actual bitmap count, rather than a cached representation's count.
+        assert_eq!(mask.bit_buffer().true_count(), count);
+        // SAFETY: the bitmap selects within values, and the destination has room for every
+        // selected value plus the SIMD kernel's full vector of slack.
+        unsafe {
+            if let Some(written) = compress_bits(
+                values,
+                MaskBits::Mask(mask),
+                mask.density(),
+                out.spare_capacity_mut(),
+            ) {
+                written
+            } else if mask.density() >= byte_compress_density_threshold::<T>() {
+                append_byte_filtered(values, mask, out)
+            } else {
+                compact_by_bitmap(values, MaskBits::Mask(mask), out.spare_capacity_mut())
+            }
+        }
+    };
+    assert_eq!(written, count);
+    // SAFETY: every selected value was initialized in spare capacity; no branch changed len.
+    unsafe { out.set_len(start + written) };
 }
 
 fn filter_slice<T: Copy>(
@@ -148,7 +211,7 @@ pub(crate) fn prepare_mask_for_reuse(mask: &MaskValues, consumers: usize) {
         return;
     }
 
-    if super::contiguous_values_range(mask).is_some() {
+    if contiguous_values_range(mask).is_some() {
         return;
     }
 
@@ -173,6 +236,27 @@ mod tests {
             Mask::Values(v) => v,
             _ => panic!("expected Mask::Values"),
         }
+    }
+
+    #[test]
+    fn test_append_filtered_slice_preserves_prefix() {
+        let values = buffer![10u32, 20, 30, 40, 50];
+        let mask = Mask::from_iter([true, false, true, false, true]);
+        let mut output = BufferMut::from_iter([99u32]);
+        append_filtered_slice(&values, mask_values(&mask), &mut output);
+        assert_eq!(output.as_slice(), &[99, 10, 30, 50]);
+    }
+
+    #[test]
+    fn test_append_filtered_slice_unaligned_dense_mask() {
+        let values = buffer![0u128, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let bits = BitBuffer::from_iter([
+            false, false, false, true, true, true, true, false, true, true, true, true, true,
+        ]);
+        let mask = Mask::from_buffer(bits.slice(3..13));
+        let mut output = BufferMut::from_iter([99u128]);
+        append_filtered_slice(&values, mask_values(&mask), &mut output);
+        assert_eq!(output.as_slice(), &[99, 0, 1, 2, 3, 5, 6, 7, 8, 9]);
     }
 
     #[test]

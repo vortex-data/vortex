@@ -10,6 +10,7 @@ use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
+use rand::seq::SliceRandom;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -17,6 +18,8 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::assert_arrays_eq;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
@@ -25,7 +28,9 @@ use vortex_array::dtype::DType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::test_harness::mark_optimized;
+use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -34,6 +39,100 @@ static GLOBAL: MiMalloc = MiMalloc;
 fn main() {
     LazyLock::force(&SESSION);
     divan::main();
+}
+
+const FILTERED_UTF8_ARGS: &[(usize, bool)] = &[
+    (64, false),
+    (6_553, false),
+    (32_768, false),
+    (62_259, false),
+    (64, true),
+    (6_553, true),
+    (32_768, true),
+    (62_259, true),
+];
+
+fn bench_filtered_utf8_append(
+    bencher: Bencher,
+    (selected, nullable): (usize, bool),
+    compact: bool,
+    contiguous: bool,
+) {
+    let len = 65_536;
+    let values = if nullable {
+        VarBinViewArray::from_iter_nullable_str(
+            (0..len).map(|row| (row % 11 != 0).then(|| format!("non-inline string value {row}"))),
+        )
+    } else {
+        VarBinViewArray::from_iter_str((0..len).map(|row| format!("non-inline string value {row}")))
+    }
+    .into_array();
+    mark_optimized(&values, &SESSION).unwrap();
+    let mut indices = (0..len).collect::<Vec<_>>();
+    if contiguous {
+        let start = (len - selected) / 2;
+        indices = (start..start + selected).collect();
+    } else {
+        indices.shuffle(&mut StdRng::seed_from_u64(42));
+        indices.truncate(selected);
+    }
+    let bits = BitBuffer::from_indices(len, indices);
+    let allocator = SESSION.create_execution_ctx().allocator().clone();
+    let make_builder = || {
+        if compact {
+            VarBinViewBuilder::with_compaction_in(
+                values.dtype().clone(),
+                selected,
+                1.0,
+                allocator.clone(),
+            )
+        } else {
+            VarBinViewBuilder::with_capacity_in(values.dtype().clone(), selected, allocator.clone())
+        }
+    };
+    let mut ctx = SESSION.create_execution_ctx();
+    let filtered = values.filter(Mask::from_buffer(bits.clone())).unwrap();
+    let expected = filtered
+        .clone()
+        .execute::<Canonical>(&mut ctx)
+        .unwrap()
+        .into_array();
+    let mut checked = make_builder();
+    filtered.append_to_builder(&mut checked, &mut ctx).unwrap();
+    assert_arrays_eq!(checked.finish_into_varbinview(), expected, &mut ctx);
+
+    bencher
+        .with_inputs(|| {
+            (
+                values.filter(Mask::from_buffer(bits.clone())).unwrap(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_values(|(filtered, mut ctx)| {
+            let mut builder = make_builder();
+            filtered.append_to_builder(&mut builder, &mut ctx).unwrap();
+            builder.finish_into_varbinview()
+        });
+}
+
+#[divan::bench(args = FILTERED_UTF8_ARGS)]
+fn filtered_utf8_append_to_builder(bencher: Bencher, case: (usize, bool)) {
+    bench_filtered_utf8_append(bencher, case, false, false);
+}
+
+#[divan::bench(args = FILTERED_UTF8_ARGS)]
+fn filtered_utf8_compacting_append_to_builder(bencher: Bencher, case: (usize, bool)) {
+    bench_filtered_utf8_append(bencher, case, true, false);
+}
+
+#[divan::bench(args = FILTERED_UTF8_ARGS)]
+fn filtered_utf8_contiguous_append_to_builder(bencher: Bencher, case: (usize, bool)) {
+    bench_filtered_utf8_append(bencher, case, false, true);
+}
+
+#[divan::bench(args = FILTERED_UTF8_ARGS)]
+fn filtered_utf8_contiguous_compacting_append_to_builder(bencher: Bencher, case: (usize, bool)) {
+    bench_filtered_utf8_append(bencher, case, true, true);
 }
 
 const BENCH_ARGS: &[(usize, usize)] = &[

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod append;
 mod array;
 pub use array::FilterArraySlotsExt;
 pub use array::FilterData;
@@ -10,6 +11,8 @@ pub use array::FilterSlotsView;
 pub use vtable::FilterArray;
 
 mod execute;
+
+pub(crate) use execute::buffer::append_filtered_slice;
 pub(crate) use execute::buffer::filter_buffer;
 pub(crate) use execute::buffer::prepare_mask_for_reuse;
 pub use execute::chunked::ChunkDecoder;

@@ -7,6 +7,7 @@ pub use array::VarBinViewArraySlotsExt;
 pub use array::VarBinViewData;
 pub use array::VarBinViewDataParts;
 pub use array::VarBinViewSlots;
+pub(crate) use array::for_each_invalid_range;
 pub use vtable::VarBinViewArray;
 
 pub(crate) mod compact;
