@@ -361,10 +361,18 @@ fn has_long_runs<T>(bits: MaskBits<'_>, selected: usize) -> bool {
     // A run that crosses a word boundary counts once in each word, as the run walk copies it. The
     // count stops at the first word that takes it past `max_runs`, because a popcount is not a
     // native instruction on baseline x86-64.
+    //
+    // A sparse bitmap with long runs has few runs, so the count never stops early and visits
+    // every word. Empty and full words skip the popcount, which keeps that scan cheap.
     let max_runs = (selected * size_of::<T>() / MIN_RUN_BYTES).min(selected / MIN_RUN_LEN);
     let mut runs = 0;
     bits::all_mask_words(bits, |word| {
-        runs += (word & !(word << 1)).count_ones() as usize;
+        runs += match word {
+            0 => 0,
+            u64::MAX => 1,
+            _ => (word & !(word << 1)).count_ones() as usize,
+        };
+
         runs <= max_runs
     })
 }
