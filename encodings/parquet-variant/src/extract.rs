@@ -451,7 +451,7 @@ fn utf8(bytes: &[u8]) -> Option<&str> {
 }
 
 /// The bytes of row `idx`, borrowed from `array`.
-fn bytes_at(array: &VarBinViewArray, idx: usize) -> &[u8] {
+pub(crate) fn bytes_at(array: &VarBinViewArray, idx: usize) -> &[u8] {
     let view = &array.views()[idx];
     if view.is_inlined() {
         view.as_inlined().value()
@@ -463,7 +463,7 @@ fn bytes_at(array: &VarBinViewArray, idx: usize) -> &[u8] {
 
 /// How to find the fields of the cached names in the objects of rows that share one metadata.
 #[derive(Clone, Copy)]
-enum Fields<'a> {
+pub(crate) enum Fields<'a> {
     /// The dictionary id of each name. [`ABSENT`] is the id of a name that the dictionary does
     /// not hold, which no object has.
     Ids(&'a [usize]),
@@ -482,6 +482,16 @@ impl Fields<'_> {
             Self::Names(metadata, names) => object.field(metadata, names[name].as_ref()),
         }
     }
+
+    /// The position in `object` of the field with the cached name at index `name`, or
+    /// `Some(None)` if the object has no such field.
+    #[inline]
+    pub(crate) fn position(&self, object: &Object<'_>, name: usize) -> Option<Option<usize>> {
+        match self {
+            Self::Ids(ids) => object.position_with_id(ids[name]),
+            Self::Names(metadata, names) => object.position(metadata, names[name].as_ref()),
+        }
+    }
 }
 
 /// An id that is not in any dictionary: the ids of an object are at most four bytes wide.
@@ -496,7 +506,7 @@ const ABSENT: usize = usize::MAX;
 /// The slots are direct mapped on a hash of the metadata's view. Rows with the same metadata
 /// under a dictionary have the same view. A miss writes the ids of the slot in place, so that it
 /// neither allocates nor moves them.
-struct FieldCache<'a> {
+pub(crate) struct FieldCache<'a> {
     names: &'a [FieldName],
     /// The view of the metadata that each slot holds.
     keys: Vec<Option<u128>>,
@@ -509,7 +519,7 @@ struct FieldCache<'a> {
 impl<'a> FieldCache<'a> {
     const SLOTS: usize = 256;
 
-    fn new(names: &'a [FieldName]) -> Self {
+    pub(crate) fn new(names: &'a [FieldName]) -> Self {
         Self {
             names,
             keys: vec![None; Self::SLOTS],
@@ -520,7 +530,11 @@ impl<'a> FieldCache<'a> {
 
     /// The fields of the names for row `idx` of `metadata`.
     #[inline]
-    fn resolve(&mut self, metadata: &'a VarBinViewArray, idx: usize) -> Option<Fields<'_>> {
+    pub(crate) fn resolve(
+        &mut self,
+        metadata: &'a VarBinViewArray,
+        idx: usize,
+    ) -> Option<Fields<'_>> {
         let key = metadata.views()[idx].as_u128();
         // The top byte of the low half of a multiplicative hash, as the table has 256 slots.
         let mixed = (key ^ (key >> 64)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
@@ -601,13 +615,13 @@ impl<'a> FieldCache<'a> {
 
 /// The first `N` bytes of `bytes`.
 #[inline]
-fn array<const N: usize>(bytes: &[u8]) -> Option<[u8; N]> {
+pub(crate) fn array<const N: usize>(bytes: &[u8]) -> Option<[u8; N]> {
     bytes.get(..N)?.try_into().ok()
 }
 
 /// Reads a little-endian unsigned integer of `width` bytes, at most four.
 #[inline]
-fn read_uint(bytes: &[u8], width: usize) -> Option<usize> {
+pub(crate) fn read_uint(bytes: &[u8], width: usize) -> Option<usize> {
     // The width is one byte far more often than not, and a fixed-width read is a single load
     // where copying a variable number of bytes is a call.
     Some(match width {
@@ -623,22 +637,22 @@ fn read_uint(bytes: &[u8], width: usize) -> Option<usize> {
 }
 
 /// The two low bits of a value's first byte, its basic type.
-const BASIC_TYPE_MASK: u8 = 0b11;
-const PRIMITIVE: u8 = 0;
-const SHORT_STRING: u8 = 1;
-const OBJECT: u8 = 2;
-const ARRAY: u8 = 3;
+pub(crate) const BASIC_TYPE_MASK: u8 = 0b11;
+pub(crate) const PRIMITIVE: u8 = 0;
+pub(crate) const SHORT_STRING: u8 = 1;
+pub(crate) const OBJECT: u8 = 2;
+pub(crate) const ARRAY: u8 = 3;
 
 /// Primitive type ids, the six high bits of a primitive value's first byte.
-const INT8: u8 = 3;
-const INT16: u8 = 4;
-const INT32: u8 = 5;
-const INT64: u8 = 6;
-const LONG_STRING: u8 = 16;
+pub(crate) const INT8: u8 = 3;
+pub(crate) const INT16: u8 = 4;
+pub(crate) const INT32: u8 = 5;
+pub(crate) const INT64: u8 = 6;
+pub(crate) const LONG_STRING: u8 = 16;
 
 /// The dictionary of field names of a Variant value.
 #[derive(Clone, Copy)]
-struct Metadata<'a> {
+pub(crate) struct Metadata<'a> {
     /// The number of names.
     len: usize,
     /// The width in bytes of an offset.
@@ -676,7 +690,7 @@ impl<'a> Metadata<'a> {
 }
 
 /// An object value: its field ids, sorted by field name, and the offsets of the field values.
-struct Object<'a> {
+pub(crate) struct Object<'a> {
     len: usize,
     id_size: usize,
     offset_size: usize,
@@ -687,7 +701,7 @@ struct Object<'a> {
 
 impl<'a> Object<'a> {
     /// Reads the object header of `value`, or returns `Some(None)` if it is not an object.
-    fn new(value: &'a [u8]) -> Option<Option<Self>> {
+    pub(crate) fn new(value: &'a [u8]) -> Option<Option<Self>> {
         let header = *value.first()?;
         if header & BASIC_TYPE_MASK != OBJECT {
             return Some(None);
@@ -711,34 +725,59 @@ impl<'a> Object<'a> {
         }))
     }
 
-    /// The value of the field whose name has dictionary id `id`, or `Some(None)` if the object
-    /// has no such field.
+    /// The number of fields.
+    pub(crate) fn len(&self) -> usize {
+        self.len
+    }
+
+    /// The width in bytes of a field id.
+    pub(crate) fn id_size(&self) -> usize {
+        self.id_size
+    }
+
+    /// The id bytes of the field at `position`, as the object stores them.
+    pub(crate) fn id_bytes(&self, position: usize) -> Option<&'a [u8]> {
+        self.ids
+            .get(position * self.id_size..(position + 1) * self.id_size)
+    }
+
+    /// The value of the field at `position`, followed by whatever the object stores after it.
     #[inline]
-    fn field_with_id(&self, id: usize) -> Option<Option<&'a [u8]>> {
-        let position = if self.id_size == 1 {
-            self.ids.iter().position(|&field| usize::from(field) == id)
-        } else {
-            let mut position = None;
-            for (idx, field) in self.ids.chunks_exact(self.id_size).enumerate() {
-                if read_uint(field, self.id_size)? == id {
-                    position = Some(idx);
-                    break;
-                }
-            }
-            position
-        };
-        let Some(position) = position else {
-            return Some(None);
-        };
+    pub(crate) fn value(&self, position: usize) -> Option<&'a [u8]> {
         let offset = read_uint(
             self.offsets.get(position * self.offset_size..)?,
             self.offset_size,
         )?;
-        Some(Some(self.values.get(offset..)?))
+        self.values.get(offset..)
     }
 
-    /// The value of the field `name`, or `Some(None)` if the object has no such field.
-    fn field(&self, metadata: &Metadata<'_>, name: &str) -> Option<Option<&'a [u8]>> {
+    /// The position of the field whose name has dictionary id `id`, or `Some(None)` if the
+    /// object has no such field.
+    #[inline]
+    fn position_with_id(&self, id: usize) -> Option<Option<usize>> {
+        if self.id_size == 1 {
+            return Some(self.ids.iter().position(|&field| usize::from(field) == id));
+        }
+        for (idx, field) in self.ids.chunks_exact(self.id_size).enumerate() {
+            if read_uint(field, self.id_size)? == id {
+                return Some(Some(idx));
+            }
+        }
+        Some(None)
+    }
+
+    /// The value of the field whose name has dictionary id `id`, or `Some(None)` if the object
+    /// has no such field.
+    #[inline]
+    fn field_with_id(&self, id: usize) -> Option<Option<&'a [u8]>> {
+        match self.position_with_id(id)? {
+            Some(position) => self.value(position).map(Some),
+            None => Some(None),
+        }
+    }
+
+    /// The position of the field `name`, or `Some(None)` if the object has no such field.
+    fn position(&self, metadata: &Metadata<'_>, name: &str) -> Option<Option<usize>> {
         let (mut low, mut high) = (0, self.len);
         while low < high {
             let mid = low + (high - low) / 2;
@@ -746,21 +785,23 @@ impl<'a> Object<'a> {
             match metadata.name(id)?.cmp(name.as_bytes()) {
                 std::cmp::Ordering::Less => low = mid + 1,
                 std::cmp::Ordering::Greater => high = mid,
-                std::cmp::Ordering::Equal => {
-                    let offset = read_uint(
-                        self.offsets.get(mid * self.offset_size..)?,
-                        self.offset_size,
-                    )?;
-                    return Some(Some(self.values.get(offset..)?));
-                }
+                std::cmp::Ordering::Equal => return Some(Some(mid)),
             }
         }
         Some(None)
     }
+
+    /// The value of the field `name`, or `Some(None)` if the object has no such field.
+    fn field(&self, metadata: &Metadata<'_>, name: &str) -> Option<Option<&'a [u8]>> {
+        match self.position(metadata, name)? {
+            Some(position) => self.value(position).map(Some),
+            None => Some(None),
+        }
+    }
 }
 
 /// An array value: the offsets of its elements, which follow one another.
-struct Elements<'a> {
+pub(crate) struct Elements<'a> {
     len: usize,
     offset_size: usize,
     offsets: &'a [u8],
@@ -769,7 +810,7 @@ struct Elements<'a> {
 
 impl<'a> Elements<'a> {
     /// Reads the array header of `value`, or returns `Some(None)` if it is not an array.
-    fn new(value: &'a [u8]) -> Option<Option<Self>> {
+    pub(crate) fn new(value: &'a [u8]) -> Option<Option<Self>> {
         let header = *value.first()?;
         if header & BASIC_TYPE_MASK != ARRAY {
             return Some(None);
@@ -789,8 +830,13 @@ impl<'a> Elements<'a> {
         }))
     }
 
-    /// The value of element `idx`.
-    fn element(&self, idx: usize) -> Option<&'a [u8]> {
+    /// The number of elements.
+    pub(crate) fn len(&self) -> usize {
+        self.len
+    }
+
+    /// The value of element `idx`, followed by the elements after it.
+    pub(crate) fn element(&self, idx: usize) -> Option<&'a [u8]> {
         let offset = read_uint(
             self.offsets.get(idx * self.offset_size..)?,
             self.offset_size,
