@@ -34,11 +34,11 @@ use crate::array::with_empty_buffers;
 use crate::arrays::ChunkedArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::tiled::TiledArraySlotsExt;
-use crate::arrays::tiled::TiledData;
-use crate::arrays::tiled::TiledSlots;
-use crate::arrays::tiled::array::tiled_len;
-use crate::arrays::tiled::rules::PARENT_RULES;
+use crate::arrays::repeated::RepeatedArraySlotsExt;
+use crate::arrays::repeated::RepeatedData;
+use crate::arrays::repeated::RepeatedSlots;
+use crate::arrays::repeated::array::repeated_len;
+use crate::arrays::repeated::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -47,56 +47,56 @@ use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
-/// The encoding of a [`TiledArray`].
+/// The encoding of a [`RepeatedArray`].
 #[derive(Clone, Debug)]
-pub struct Tiled;
+pub struct Repeated;
 
-/// A [`Tiled`]-encoded array, which repeats its child end to end.
-pub type TiledArray = Array<Tiled>;
+/// A [`Repeated`]-encoded array, which repeats its child end to end.
+pub type RepeatedArray = Array<Repeated>;
 
-impl ArrayHash for TiledData {
+impl ArrayHash for RepeatedData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
         self.count.hash(state);
     }
 }
 
-impl ArrayEq for TiledData {
+impl ArrayEq for RepeatedData {
     fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
         self.count == other.count
     }
 }
 
-impl VTable for Tiled {
-    type TypedArrayData = TiledData;
+impl VTable for Repeated {
+    type TypedArrayData = RepeatedData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.tiled");
+        static ID: CachedId = CachedId::new("vortex.repeated");
         *ID
     }
 
     fn validate(
         &self,
-        data: &TiledData,
+        data: &RepeatedData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure_eq!(slots.len(), TiledSlots::COUNT);
-        let child = slots[TiledSlots::CHILD]
+        vortex_ensure_eq!(slots.len(), RepeatedSlots::COUNT);
+        let child = slots[RepeatedSlots::CHILD]
             .as_ref()
-            .ok_or_else(|| vortex_err!("Tiled requires a child"))?;
+            .ok_or_else(|| vortex_err!("Repeated requires a child"))?;
         vortex_ensure_eq!(
             child.dtype(),
             dtype,
-            "Tiled child dtype does not match outer dtype"
+            "Repeated child dtype does not match outer dtype"
         );
         vortex_ensure_eq!(
-            tiled_len(child.len(), data.count)?,
+            repeated_len(child.len(), data.count)?,
             len,
-            "Tiled length does not match child length times count"
+            "Repeated length does not match child length times count"
         );
         Ok(())
     }
@@ -106,7 +106,7 @@ impl VTable for Tiled {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("Tiled buffer index {idx} out of bounds")
+        vortex_panic!("Repeated buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -137,7 +137,7 @@ impl VTable for Tiled {
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Tiled array is not serializable")
+        vortex_bail!("Repeated array is not serializable")
     }
 
     fn append_to_builder(
@@ -160,7 +160,7 @@ impl VTable for Tiled {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        TiledSlots::NAMES[idx].to_string()
+        RepeatedSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -171,11 +171,11 @@ impl VTable for Tiled {
             ));
         }
 
-        let array = require_child!(array, array.child(), TiledSlots::CHILD => AnyCanonical);
+        let array = require_child!(array, array.child(), RepeatedSlots::CHILD => AnyCanonical);
 
-        // Decode the child once, then let `Chunked` append the decoded child once per tile.
-        let tiles = iter::repeat_n(array.child().clone(), array.count);
-        let chunked = ChunkedArray::try_new(tiles, array.dtype().clone())?;
+        // Decode the child once, then let `Chunked` append the decoded child once per copy.
+        let copies = iter::repeat_n(array.child().clone(), array.count);
+        let chunked = ChunkedArray::try_new(copies, array.dtype().clone())?;
         Ok(ExecutionResult::done(chunked.into_array()))
     }
 
@@ -191,13 +191,13 @@ impl VTable for Tiled {
                 ConstantArray::new(constant.scalar().clone(), array.len()).into_array(),
             ));
         }
-        if let Some(inner) = array.child().as_opt::<Tiled>() {
+        if let Some(inner) = array.child().as_opt::<Repeated>() {
             let count = inner
                 .count
                 .checked_mul(array.count)
-                .ok_or_else(|| vortex_err!("Tiled count overflows usize"))?;
+                .ok_or_else(|| vortex_err!("Repeated count overflows usize"))?;
             return Ok(Some(
-                TiledArray::try_new(inner.child().clone(), count)?.into_array(),
+                RepeatedArray::try_new(inner.child().clone(), count)?.into_array(),
             ));
         }
         Ok(None)
@@ -212,23 +212,23 @@ impl VTable for Tiled {
     }
 }
 
-impl OperationsVTable<Tiled> for Tiled {
+impl OperationsVTable<Repeated> for Repeated {
     type ProbeState = ();
 
     fn probe_scalar(
-        state: &mut ProbeState<'_, Tiled>,
+        state: &mut ProbeState<'_, Repeated>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let child = state
-            .slot(TiledSlots::CHILD)?
-            .ok_or_else(|| vortex_err!("Tiled child slot is missing"))?;
+            .slot(RepeatedSlots::CHILD)?
+            .ok_or_else(|| vortex_err!("Repeated child slot is missing"))?;
         let child_index = index % child.len();
         child.execute_scalar(child_index, ctx)
     }
 
     fn scalar_at(
-        array: ArrayView<'_, Tiled>,
+        array: ArrayView<'_, Repeated>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -236,11 +236,11 @@ impl OperationsVTable<Tiled> for Tiled {
     }
 }
 
-impl ValidityVTable<Tiled> for Tiled {
-    fn validity(array: ArrayView<'_, Tiled>) -> VortexResult<Validity> {
+impl ValidityVTable<Repeated> for Repeated {
+    fn validity(array: ArrayView<'_, Repeated>) -> VortexResult<Validity> {
         Ok(match array.child().validity()? {
             Validity::Array(validity) => {
-                Validity::Array(TiledArray::try_new(validity, array.count)?.into_array())
+                Validity::Array(RepeatedArray::try_new(validity, array.count)?.into_array())
             }
             validity => validity,
         })

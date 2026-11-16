@@ -11,8 +11,8 @@
 //! Utility and lazy arrays represent common transformations without immediately materializing
 //! their result. Examples include [`ChunkedArray`] for concatenation, [`ConstantArray`] for repeated
 //! values, [`DictArray`] for dictionary encoding, [`FilterArray`] for masked rows, [`SliceArray`]
-//! for views, [`TiledArray`] for an array repeated end to end, and [`ScalarFnArray`] for deferred
-//! scalar-function execution.
+//! for views, [`RepeatedArray`] for an array repeated end to end, and [`ScalarFnArray`] for
+//! deferred scalar-function execution.
 //!
 //! Some public arrays are primarily internal building blocks. Their constructors and extension
 //! traits document the stable contract; avoid depending on undocumented slot order or metadata
@@ -103,6 +103,10 @@ pub mod primitive;
 pub use primitive::Primitive;
 pub use primitive::PrimitiveArray;
 
+pub mod repeated;
+pub use repeated::Repeated;
+pub use repeated::RepeatedArray;
+
 pub mod runend;
 pub use runend::RunEnd;
 pub use runend::RunEndArray;
@@ -118,10 +122,6 @@ pub use slice::SliceArray;
 pub mod struct_;
 pub use struct_::Struct;
 pub use struct_::StructArray;
-
-pub mod tiled;
-pub use tiled::Tiled;
-pub use tiled::TiledArray;
 
 pub mod union;
 pub use union::Union;
