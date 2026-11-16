@@ -20,6 +20,3 @@ cxx-compiler = "*"
 gtest = ">=1.15,<2"
 cmake = ">=3.30.4,<4"
 ninja = ">=1.12,<2"
-
-[environments]
-cpp = { features = [] }
