@@ -34,9 +34,10 @@ use std::arch::x86_64::_mm512_storeu_epi16;
 use std::arch::x86_64::_mm512_storeu_epi32;
 use std::arch::x86_64::_mm512_storeu_epi64;
 
+use vortex_compute::lane_kernels::low_bits_mask;
+
 use super::super::slice::MaskBits;
 use super::super::slice::for_each_mask_word;
-use super::super::slice::low_bits_mask;
 use super::Kernel;
 use super::bulk_copy;
 use super::generic::compress_generic_8;
