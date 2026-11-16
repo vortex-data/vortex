@@ -8,6 +8,7 @@ use std::mem::MaybeUninit;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::low_bits_mask;
 use vortex_mask::MaskValues;
 
 use super::buffer::byte_compress_density_threshold;
@@ -19,7 +20,6 @@ use super::simd_compress::SLACK_BYTES;
 use super::slice::MaskBits;
 use super::slice::compact_by_bitmap;
 use super::slice::compact_runs_by_bitmap;
-use super::slice::low_bits_mask;
 use crate::dtype::NativePType;
 
 /// Number of values in each chunk of a [`ChunkDecoder`].

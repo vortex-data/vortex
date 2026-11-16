@@ -12,9 +12,10 @@ use core::arch::aarch64::vst1_u8;
 use core::arch::aarch64::vst1q_u8;
 use core::arch::aarch64::vtbl1_u8;
 
+use vortex_compute::lane_kernels::low_bits_mask;
+
 use super::super::slice::MaskBits;
 use super::super::slice::for_each_mask_word;
-use super::super::slice::low_bits_mask;
 use super::Kernel;
 use super::bulk_copy;
 use super::compress_lut;

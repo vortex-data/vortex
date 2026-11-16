@@ -15,10 +15,10 @@ use fearless_simd::dispatch;
 use fearless_simd::prelude::*;
 use fearless_simd::u8x16;
 use fearless_simd_macros::simd;
+use vortex_compute::lane_kernels::low_bits_mask;
 
 use super::super::slice::MaskBits;
 use super::super::slice::for_each_mask_word;
-use super::super::slice::low_bits_mask;
 use super::bulk_copy;
 use super::compress_lut;
 use super::compress_tail;

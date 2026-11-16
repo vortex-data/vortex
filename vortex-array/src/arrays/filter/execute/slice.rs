@@ -11,6 +11,8 @@ use std::mem::MaybeUninit;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels;
+use vortex_compute::lane_kernels::low_bits_mask;
 use vortex_mask::MaskValues;
 
 /// The mask bits that a word walker visits.
@@ -27,7 +29,7 @@ pub(super) enum MaskBits<'a> {
 #[inline]
 pub(super) fn for_each_mask_word(bits: MaskBits<'_>, f: impl FnMut(u64, usize, usize)) {
     match bits {
-        MaskBits::Mask(mask) => for_each_bitmap_word(mask, f),
+        MaskBits::Mask(mask) => lane_kernels::for_each_mask_word(mask.bit_buffer(), f),
         MaskBits::Words { words, len } => for_each_slice_word(words, len, f),
     }
 }
@@ -39,44 +41,6 @@ fn for_each_slice_word(words: &[u64], len: usize, mut f: impl FnMut(u64, usize, 
     for (word_idx, &word) in words.iter().enumerate() {
         let word_start = word_idx * 64;
         f(word, word_start, (len - word_start).min(64));
-    }
-}
-
-#[inline]
-fn for_each_bitmap_word(mask: &MaskValues, mut f: impl FnMut(u64, usize, usize)) {
-    let bits = mask.bit_buffer();
-    let unaligned = bits.unaligned_chunks();
-    let lead = unaligned.lead_padding();
-    let mut base = 0;
-
-    if let Some(prefix) = unaligned.prefix() {
-        let len = (64 - lead).min(mask.len());
-        f(prefix >> lead, base, len);
-        base += len;
-    }
-
-    for &word in unaligned.chunks() {
-        f(word, base, 64);
-        base += 64;
-    }
-
-    if let Some(suffix) = unaligned.suffix() {
-        let len = mask.len() - base;
-        f(suffix, base, len);
-        base += len;
-    }
-
-    debug_assert_eq!(base, mask.len());
-}
-
-/// A `u64` with the low `len` bits set.
-#[inline]
-pub(super) fn low_bits_mask(len: usize) -> u64 {
-    debug_assert!(len <= 64);
-    if len == 64 {
-        u64::MAX
-    } else {
-        (1u64 << len) - 1
     }
 }
 

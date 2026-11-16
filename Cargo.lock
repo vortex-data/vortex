@@ -11707,7 +11707,6 @@ name = "vortex-compressor"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
- "itertools 0.14.0",
  "mimalloc",
  "num-traits",
  "parking_lot",
@@ -11717,6 +11716,7 @@ dependencies = [
  "tracing",
  "vortex-array",
  "vortex-buffer",
+ "vortex-compute",
  "vortex-error",
  "vortex-mask",
  "vortex-session",
@@ -11731,6 +11731,7 @@ dependencies = [
  "mimalloc",
  "num-traits",
  "rand 0.10.4",
+ "rstest",
  "vortex-bench-support",
  "vortex-buffer",
 ]
