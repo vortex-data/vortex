@@ -856,11 +856,6 @@ impl VarBinViewBuilder {
                 ));
 
         match view_adjustment {
-            // The buffers kept their indices and offsets, so every view is already correct.
-            ViewAdjustment::Precomputed(PrecomputedViewAdjustment::Shift {
-                buffer_offset: 0,
-                offsets: None,
-            }) => self.views_builder.extend_from_slice(array.views()),
             ViewAdjustment::Precomputed(adjustment) => self.views_builder.extend_trusted(
                 array
                     .views()

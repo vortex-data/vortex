@@ -40,13 +40,15 @@ fn main() {
     divan::main();
 }
 
-/// Rows selected out of 65_536, whether the builder compacts, and whether the selection is one
-/// contiguous run.
+const FILTERED_UTF8_LEN: usize = 16_384;
+
+/// Rows selected out of [`FILTERED_UTF8_LEN`], whether the builder compacts, and whether the
+/// selection is one contiguous run. The length keeps CodSpeed simulation under 1ms per benchmark.
 const FILTERED_UTF8_ARGS: &[(usize, bool, bool)] = &[
-    (6_553, false, false),
-    (62_259, false, false),
-    (6_553, true, false),
-    (32_768, false, true),
+    (1_638, false, false),
+    (15_565, false, false),
+    (1_638, true, false),
+    (8_192, false, true),
 ];
 
 #[divan::bench(args = FILTERED_UTF8_ARGS)]
@@ -54,7 +56,7 @@ fn filtered_utf8_append_to_builder(
     bencher: Bencher,
     (selected, compact, contiguous): (usize, bool, bool),
 ) {
-    let len = 65_536;
+    let len = FILTERED_UTF8_LEN;
     let values = VarBinViewArray::from_iter_nullable_str(
         (0..len).map(|row| (row % 11 != 0).then(|| format!("non-inline string value {row}"))),
     )
