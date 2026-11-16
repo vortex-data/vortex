@@ -29,8 +29,20 @@ use crate::array::with_empty_buffers;
 use crate::arrays::ChunkedArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::arrays::ExtensionArray;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::StructArray;
+use crate::arrays::VariantArray;
+use crate::arrays::extension::ExtensionArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::repeated::RepeatedArraySlotsExt;
 use crate::arrays::repeated::RepeatedSlots;
+use crate::arrays::struct_::StructArrayExt;
+use crate::arrays::variant::VariantArraySlotsExt;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -107,11 +119,12 @@ impl VTable for Repeated {
         if array.is_empty() {
             return Ok(());
         }
-        let child = array
-            .child()
-            .clone()
-            .execute::<Canonical>(ctx)?
-            .into_array();
+        let child = array.child().clone().execute::<Canonical>(ctx)?;
+        // A nested child appends its children repeated, which a builder keeps as one chunk each.
+        if let Some(repeated) = repeat_nested(child.clone(), array.len())? {
+            return repeated.append_to_builder(builder, ctx);
+        }
+        let child = child.into_array();
         for copy in copies(&child, array.len())? {
             copy.append_to_builder(builder, ctx)?;
         }
@@ -136,6 +149,11 @@ impl VTable for Repeated {
         }
 
         let array = require_child!(array, array.child(), RepeatedSlots::CHILD => AnyCanonical);
+
+        let child = Canonical::from(array.child().as_::<AnyCanonical>());
+        if let Some(repeated) = repeat_nested(child, array.len())? {
+            return Ok(ExecutionResult::done(repeated));
+        }
 
         // Decode the child once, then let `Chunked` append the decoded child once per copy.
         let chunked =
@@ -166,6 +184,76 @@ impl VTable for Repeated {
         }
         Ok(None)
     }
+}
+
+/// Repeats a nested canonical `child` to `len` rows by repeating its children, without copying
+/// any values.
+///
+/// A canonical array is canonical at the top level only, so the result keeps its children as
+/// `Repeated` arrays. Returns `None` for a child whose values are its own buffers, which must be
+/// copied.
+fn repeat_nested(child: Canonical, len: usize) -> VortexResult<Option<ArrayRef>> {
+    let repeat = |array: &ArrayRef| -> VortexResult<ArrayRef> {
+        Ok(RepeatedArray::try_new(array.clone(), len)?.into_array())
+    };
+    Ok(Some(match child {
+        Canonical::Struct(array) => StructArray::try_new(
+            array.names().clone(),
+            array
+                .iter_unmasked_fields()
+                .map(repeat)
+                .collect::<VortexResult<Vec<_>>>()?,
+            len,
+            repeat_validity(array.struct_validity(), len)?,
+        )?
+        .into_array(),
+        Canonical::FixedSizeList(array) => {
+            let list_size = array.list_size();
+            let elements_len = len
+                .checked_mul(list_size as usize)
+                .ok_or_else(|| vortex_err!("{len} lists of {list_size} elements overflow usize"))?;
+            FixedSizeListArray::try_new(
+                RepeatedArray::try_new(array.elements().clone(), elements_len)?.into_array(),
+                list_size,
+                repeat_validity(array.fixed_size_list_validity(), len)?,
+                len,
+            )?
+            .into_array()
+        }
+        Canonical::List(array) => {
+            // SAFETY: every view of the result is a view of `array` over the same elements, so the
+            // offsets and sizes keep their types and stay within the elements.
+            unsafe {
+                ListViewArray::new_unchecked(
+                    array.elements().clone(),
+                    repeat(array.offsets())?,
+                    repeat(array.sizes())?,
+                    repeat_validity(array.listview_validity(), len)?,
+                )
+            }
+            .into_array()
+        }
+        Canonical::Extension(array) => {
+            ExtensionArray::try_new(array.ext_dtype().clone(), repeat(array.storage_array())?)?
+                .into_array()
+        }
+        Canonical::Variant(array) => VariantArray::try_new(
+            repeat(array.core_storage())?,
+            array.shredded().map(repeat).transpose()?,
+        )?
+        .into_array(),
+        _ => return Ok(None),
+    }))
+}
+
+/// Repeats `validity` to `len` rows.
+fn repeat_validity(validity: Validity, len: usize) -> VortexResult<Validity> {
+    Ok(match validity {
+        Validity::Array(validity) => {
+            Validity::Array(RepeatedArray::try_new(validity, len)?.into_array())
+        }
+        validity => validity,
+    })
 }
 
 /// Returns the copies of the non-empty `child` that make up `len` rows: whole copies of `child`,
@@ -203,11 +291,6 @@ impl OperationsVTable<Repeated> for Repeated {
 
 impl ValidityVTable<Repeated> for Repeated {
     fn validity(array: ArrayView<'_, Repeated>) -> VortexResult<Validity> {
-        Ok(match array.child().validity()? {
-            Validity::Array(validity) => {
-                Validity::Array(RepeatedArray::try_new(validity, array.len())?.into_array())
-            }
-            validity => validity,
-        })
+        repeat_validity(array.child().validity()?, array.len())
     }
 }

@@ -8,8 +8,9 @@
 //! `[1, 2, 3, 1, 2, 3, 1]`. Any slice of a `RepeatedArray` is therefore another `RepeatedArray`
 //! over the child rotated to the slice's start, or a slice of the child.
 //!
-//! Execution decodes the child once and appends it per copy, so the child is never decoded per
-//! copy.
+//! Execution decodes the child once. A nested child (struct, list, fixed-size list, extension or
+//! Variant) then executes to the same container over repeated children, so no values are copied;
+//! any other child is appended once per copy.
 //!
 //! `Repeated` has no wire form, so the default [`ArraySession`] does not register it, and an array
 //! that holds a `Repeated` cannot be serialized.

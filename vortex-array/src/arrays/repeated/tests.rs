@@ -10,21 +10,44 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::arrays::BoolArray;
+use crate::arrays::ChunkedArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::arrays::Extension;
+use crate::arrays::ExtensionArray;
+use crate::arrays::FixedSizeList;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::ListView;
+use crate::arrays::ListViewArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::Repeated;
 use crate::arrays::RepeatedArray;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::Variant;
+use crate::arrays::VariantArray;
+use crate::arrays::extension::ExtensionArraySlotsExt;
+use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::repeated::RepeatedArraySlotsExt;
+use crate::arrays::struct_::StructArrayExt;
+use crate::arrays::variant::VariantArraySlotsExt;
 use crate::assert_arrays_eq;
+use crate::builders::VariantBuilder;
 use crate::builders::builder_with_capacity_in;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::extension::datetime::TimeUnit;
+use crate::extension::datetime::Timestamp;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
+use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -250,5 +273,150 @@ fn nested_partial_copies_stay_nested() -> VortexResult<()> {
         PrimitiveArray::from_iter([1i32, 2, 3, 1, 1, 2, 3, 1]),
         &mut ctx
     );
+    Ok(())
+}
+
+/// Three rows of a nullable struct with a nullable field.
+fn struct_child() -> ArrayRef {
+    StructArray::try_from_iter_with_validity(
+        [
+            (
+                "a",
+                PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
+            ),
+            (
+                "b",
+                VarBinViewArray::from_iter_str(["x", "y", "z"]).into_array(),
+            ),
+        ],
+        Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
+    )
+    .expect("valid struct fixture")
+    .into_array()
+}
+
+/// Three nullable lists of two elements.
+fn fixed_size_list_child() -> ArrayRef {
+    FixedSizeListArray::new(
+        buffer![1i32, 2, 3, 4, 5, 6].into_array(),
+        2,
+        Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
+        3,
+    )
+    .into_array()
+}
+
+/// The lists `[1, 2]`, `[3]` and `[4, 5, 6]`.
+fn list_view_child() -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
+    ListViewArray::new(
+        buffer![1i32, 2, 3, 4, 5, 6].into_array(),
+        buffer![0u32, 2, 3].into_array(),
+        buffer![2u32, 1, 3].into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )
+    .into_array()
+}
+
+/// Three timestamps.
+fn extension_child() -> ArrayRef {
+    ExtensionArray::new(
+        Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased(),
+        buffer![1i64, 2, 3].into_array(),
+    )
+    .into_array()
+}
+
+/// Three Variants holding `1`, `2` and `3`, shredded as `i32`.
+fn variant_child() -> ArrayRef {
+    let core = ChunkedArray::try_new(
+        (1..=3).map(|value| {
+            let scalar = Scalar::variant(Scalar::primitive(value, Nullability::NonNullable));
+            ConstantArray::new(scalar, 1).into_array()
+        }),
+        DType::Variant(Nullability::NonNullable),
+    )
+    .expect("valid Variant core fixture");
+    VariantArray::try_new(core.into_array(), Some(buffer![1i32, 2, 3].into_array()))
+        .expect("valid Variant fixture")
+        .into_array()
+}
+
+/// Executing repeats the children of a nested child, rather than copying its rows.
+#[rstest]
+#[case::struct_(struct_child(), |array: &ArrayRef| array.as_::<Struct>().unmasked_field(0).clone())]
+#[case::fixed_size_list(
+    fixed_size_list_child(),
+    |array: &ArrayRef| array.as_::<FixedSizeList>().elements().clone()
+)]
+#[case::list_view(list_view_child(), |array: &ArrayRef| array.as_::<ListView>().offsets().clone())]
+#[case::extension(extension_child(), |array: &ArrayRef| array.as_::<Extension>().storage().clone())]
+#[case::variant(
+    variant_child(),
+    |array: &ArrayRef| array.as_::<Variant>().core_storage().clone()
+)]
+fn executes_nested_children_repeated(
+    #[case] child: ArrayRef,
+    #[case] repeated_child: fn(&ArrayRef) -> ArrayRef,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let len = 2 * child.len() + 1;
+    let executed = repeated(child.clone(), len)?
+        .execute::<Canonical>(&mut ctx)?
+        .into_array();
+
+    assert!(repeated_child(&executed).is::<Repeated>());
+    let copies = ChunkedArray::try_new(
+        [child.clone(), child.clone(), child.slice(0..1)?],
+        child.dtype().clone(),
+    )?;
+    assert_arrays_eq!(executed, copies, &mut ctx);
+    Ok(())
+}
+
+/// A Variant builder keeps the repeated core storage and shredded child as one array each.
+#[test]
+fn appends_variant_as_one_repeated_chunk() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let child = variant_child();
+    let mut builder = VariantBuilder::new(Nullability::NonNullable);
+    repeated(child.clone(), 7)?.append_to_builder(&mut builder, &mut ctx)?;
+    let built = builder.finish_into_variant()?;
+
+    assert!(built.core_storage().is::<Repeated>());
+    assert!(
+        built
+            .shredded()
+            .is_some_and(|shredded| shredded.is::<Repeated>())
+    );
+    let copies = ChunkedArray::try_new(
+        [child.clone(), child.clone(), child.slice(0..1)?],
+        child.dtype().clone(),
+    )?;
+    assert_arrays_eq!(built, copies, &mut ctx);
+    Ok(())
+}
+
+/// A struct builder keeps each repeated field as one chunk.
+#[test]
+fn appends_struct_fields_as_one_repeated_chunk() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let child = struct_child();
+    let mut builder = builder_with_capacity_in(child.dtype(), 7, ctx.allocator());
+    repeated(child.clone(), 7)?.append_to_builder(builder.as_mut(), &mut ctx)?;
+    let built = builder.finish();
+
+    let fields = built.as_::<Struct>();
+    assert!(
+        fields
+            .iter_unmasked_fields()
+            .all(|field| field.is::<Repeated>())
+    );
+    let copies = ChunkedArray::try_new(
+        [child.clone(), child.clone(), child.slice(0..1)?],
+        child.dtype().clone(),
+    )?;
+    assert_arrays_eq!(built, copies, &mut ctx);
     Ok(())
 }
