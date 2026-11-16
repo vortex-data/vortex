@@ -47,6 +47,7 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::variant_get::VariantGet;
 use vortex_array::scalar_fn::fns::variant_get::VariantPath;
 use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
+use vortex_array::scalar_fn::fns::variant_shred::VariantShred;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
@@ -65,6 +66,7 @@ use crate::ParquetVariantArraySlotsExt;
 use crate::compute::AllNonDistinctParquetVariant;
 use crate::extract::covers;
 use crate::extract::extract;
+use crate::shred::shred;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -84,6 +86,7 @@ pub(crate) fn initialize(session: &VortexSession) {
         TakeExecuteAdaptor(ParquetVariant),
     );
     kernels.register_execute_parent_kernel(VariantGet.id(), ParquetVariant, VariantGetKernel);
+    kernels.register_execute_parent_kernel(VariantShred.id(), ParquetVariant, VariantShredKernel);
     kernels.register_execute_parent_kernel(
         JsonToVariant.id(),
         Extension,
@@ -95,6 +98,35 @@ pub(crate) fn initialize(session: &VortexSession) {
         Some(AllNonDistinct.id()),
         &AllNonDistinctParquetVariant,
     );
+}
+
+/// Shreds unshredded storage. Storage that is shredded already is left to
+/// [`VariantShred`] itself, which rejects it.
+#[derive(Default, Debug)]
+struct VariantShredKernel;
+
+impl ExecuteParentKernel<ParquetVariant> for VariantShredKernel {
+    type Parent = ExactScalarFn<VariantShred>;
+
+    fn execute_parent(
+        &self,
+        array: ArrayView<'_, ParquetVariant>,
+        parent: ScalarFnArrayView<'_, VariantShred>,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if child_idx != 0 || array.typed_value().is_some() {
+            return Ok(None);
+        }
+
+        shred(
+            &array,
+            parent.options.schema(),
+            parent.dtype().is_nullable(),
+            ctx,
+        )
+        .map(Some)
+    }
 }
 
 #[derive(Default, Debug)]

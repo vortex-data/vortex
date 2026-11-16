@@ -29,6 +29,7 @@ use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::variant;
+use vortex_layout::layouts::variant::VariantShreddingPolicy;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
 use vortex_session::VortexSession;
@@ -131,6 +132,11 @@ pub struct WriteStrategyBuilder {
     use_list_layout: bool,
     /// Whether shredded Variant fields are split into columns with a struct layout.
     use_variant_layout: bool,
+    /// Chooses how to shred the Variant fields that are not shredded and have no policy of their
+    /// own, if the Variant layout is used.
+    variant_shredding: Option<Arc<dyn VariantShreddingPolicy>>,
+    /// Chooses how to shred the Variant field at each path, if the Variant layout is used.
+    variant_shredding_at: HashMap<FieldPath, Arc<dyn VariantShreddingPolicy>>,
 }
 
 impl WriteStrategyBuilder {
@@ -152,7 +158,32 @@ impl WriteStrategyBuilder {
             use_variant_layout: session
                 .enabled_component_ids(ComponentKind::Layout)
                 .contains(&variant::layout_id()),
+            variant_shredding: None,
+            variant_shredding_at: HashMap::new(),
         }
+    }
+
+    /// Shred the Variant fields that are not shredded as `policy` chooses, so that the Variant
+    /// layout stores what they have in common as columns. A field with a policy of its own, set
+    /// with [`with_variant_shredding_at`](Self::with_variant_shredding_at), uses that instead.
+    ///
+    /// This has no effect unless the session enables the Variant layout, which is unstable.
+    pub fn with_variant_shredding(mut self, policy: Arc<dyn VariantShreddingPolicy>) -> Self {
+        self.variant_shredding = Some(policy);
+        self
+    }
+
+    /// Shred the Variant field at `field` as `policy` chooses, if it is not shredded. The root
+    /// path is a Variant written on its own.
+    ///
+    /// This has no effect unless the session enables the Variant layout, which is unstable.
+    pub fn with_variant_shredding_at(
+        mut self,
+        field: impl Into<FieldPath>,
+        policy: Arc<dyn VariantShreddingPolicy>,
+    ) -> Self {
+        self.variant_shredding_at.insert(field.into(), policy);
+        self
     }
 
     /// Override the row block size used for row repartitioning and zoned statistics.
@@ -306,6 +337,12 @@ impl WriteStrategyBuilder {
 
         if self.use_variant_layout {
             table_strategy = table_strategy.with_variant_layout();
+            if let Some(policy) = self.variant_shredding {
+                table_strategy = table_strategy.with_variant_shredding(policy);
+            }
+            for (field, policy) in self.variant_shredding_at {
+                table_strategy = table_strategy.with_variant_shredding_at(field, policy);
+            }
         }
 
         if self.use_list_layout {

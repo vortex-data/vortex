@@ -3,6 +3,7 @@
 
 //! Writes a shredded Variant stream as a struct layout of the Variant.
 
+use std::fmt::Debug;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -25,6 +26,7 @@ use vortex_array::dtype::FieldNames;
 use vortex_array::scalar_fn::fns::variant_get::VariantGet;
 use vortex_array::scalar_fn::fns::variant_get::VariantGetOptions;
 use vortex_array::scalar_fn::fns::variant_get::VariantPath;
+use vortex_array::scalar_fn::fns::variant_shred::VariantShred;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -42,13 +44,57 @@ use crate::LayoutWriterContext;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
+use crate::sequence::SequenceId;
 use crate::sequence::SequencePointer;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
 
+/// Chooses how to shred a Variant stream that is written unshredded.
+///
+/// The policy decides what to shred, and the encoding of the Variant storage shreds it, through
+/// its kernel for [`VariantShred`]. So a policy only names a schema, and every policy shreds as
+/// fast as the encoding can.
+pub trait VariantShreddingPolicy: Debug + Send + Sync {
+    /// The schema to shred the stream by, chosen from its `first` chunk; see [`VariantShred`].
+    ///
+    /// Every chunk of the stream is shredded by this schema. Returns `None` to write the stream
+    /// unshredded.
+    fn schema(&self, first: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<DType>>;
+}
+
+/// Shreds every Variant stream by one schema.
+#[derive(Clone, Debug)]
+pub struct FixedShredding {
+    schema: DType,
+}
+
+impl FixedShredding {
+    /// Shreds by `schema`; see [`VariantShred`].
+    pub fn new(schema: DType) -> Self {
+        Self { schema }
+    }
+}
+
+impl VariantShreddingPolicy for FixedShredding {
+    fn schema(&self, _first: &ArrayRef, _ctx: &mut ExecutionCtx) -> VortexResult<Option<DType>> {
+        Ok(Some(self.schema.clone()))
+    }
+}
+
+/// Writes every Variant stream unshredded. Use it to turn a default policy off for one field.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NoShredding;
+
+impl VariantShreddingPolicy for NoShredding {
+    fn schema(&self, _first: &ArrayRef, _ctx: &mut ExecutionCtx) -> VortexResult<Option<DType>> {
+        Ok(None)
+    }
+}
+
 /// Writes a shredded Variant stream as the struct of its core storage and its shredded child.
 ///
-/// A stream whose first chunk is not shredded has nothing to split, and is written by the
+/// A stream whose first chunk is not shredded is shredded as the [`VariantShreddingPolicy`]
+/// chooses, if there is one. Otherwise the stream has nothing to split, and is written by the
 /// fallback strategy as it is. Every chunk of a shredded stream must be shredded alike.
 ///
 /// **Note**: this writes an unstable and experimental layout that is expected to change. Using
@@ -59,13 +105,26 @@ pub struct VariantStrategy {
     storage: Arc<dyn LayoutStrategy>,
     /// Writes a Variant stream that is not shredded.
     fallback: Arc<dyn LayoutStrategy>,
+    /// Chooses how to shred a stream that is not shredded.
+    shredding: Option<Arc<dyn VariantShreddingPolicy>>,
 }
 
 impl VariantStrategy {
     /// Creates a Variant writer that writes the struct of a shredded Variant through `storage`,
     /// and a Variant that is not shredded through `fallback`.
     pub fn new(storage: Arc<dyn LayoutStrategy>, fallback: Arc<dyn LayoutStrategy>) -> Self {
-        Self { storage, fallback }
+        Self {
+            storage,
+            fallback,
+            shredding: None,
+        }
+    }
+
+    /// Shreds a stream that is not shredded as `policy` chooses, instead of writing it through
+    /// the fallback.
+    pub fn with_shredding(mut self, policy: Arc<dyn VariantShreddingPolicy>) -> Self {
+        self.shredding = Some(policy);
+        self
     }
 }
 
@@ -92,12 +151,35 @@ impl LayoutStrategy for VariantStrategy {
                 .execute::<VariantArray>(&mut session.create_execution_ctx())?;
             Ok(variant.shredded().map(|shredded| shredded.dtype().clone()))
         };
+        // A stream that arrives shredded keeps its shredding. The policy only shreds one that
+        // does not.
+        let schema = match (&first, &self.shredding) {
+            (Some((_, chunk)), Some(policy)) if shredded_dtype(chunk)?.is_none() => {
+                policy.schema(chunk, &mut session.create_execution_ctx())?
+            }
+            _ => None,
+        };
+        let shred = {
+            let session = session.clone();
+            move |chunk: VortexResult<(SequenceId, ArrayRef)>| {
+                let Some(schema) = &schema else {
+                    return chunk;
+                };
+                let (sequence_id, chunk) = chunk?;
+                let shredded = VariantShred::try_new(chunk, schema.clone())?
+                    .into_array()
+                    .execute::<ArrayRef>(&mut session.create_execution_ctx())?;
+                Ok((sequence_id, shredded))
+            }
+        };
+
+        let first = first.map(|chunk| shred(Ok(chunk))).transpose()?;
         let shredded_dtype = first
             .as_ref()
             .map(|(_, chunk)| shredded_dtype(chunk))
             .transpose()?
             .flatten();
-        let stream = stream::iter(first.map(Ok)).chain(stream);
+        let stream = stream::iter(first.map(Ok)).chain(stream.map(shred));
 
         let Some(shredded_dtype) = shredded_dtype else {
             let stream = SequentialStreamAdapter::new(dtype, stream).sendable();

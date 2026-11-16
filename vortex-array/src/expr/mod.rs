@@ -114,6 +114,7 @@ pub use exprs::var;
 pub use exprs::variant_get;
 pub use exprs::variant_pack;
 pub use exprs::variant_pack_with_validity;
+pub use exprs::variant_shred;
 pub use exprs::zip_expr;
 pub use lambda::*;
 pub use scope::*;
