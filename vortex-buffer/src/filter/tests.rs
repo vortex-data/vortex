@@ -212,3 +212,36 @@ fn filter_buffer_empty() {
     );
     assert!(filtered.is_empty());
 }
+
+/// The set-word walks must visit the words of [`bits::for_each_mask_word`] that have a set bit,
+/// across long empty stretches, block edges, and unaligned bitmaps.
+#[rstest]
+fn set_word_walks_match_full_walk(
+    #[values(0, 5, 61)] offset: usize,
+    #[values(1, 9, 64, 700)] gap_words: usize,
+) {
+    let period = 64 * (gap_words + 1);
+    let bits = make_bits(5000, offset, |i| {
+        i % period < 70 || i % 97 == 0 && i % 3 == 0
+    });
+    let bits = MaskBits::Bitmap(&bits);
+
+    let mut expected = Vec::new();
+    bits::for_each_mask_word(bits, |word, start, len| {
+        if word != 0 {
+            expected.push((word, start, len));
+        }
+    });
+
+    let mut visited = Vec::new();
+    bits::for_each_set_mask_word(bits, |word, start, len| visited.push((word, start, len)));
+    assert_eq!(visited, expected);
+
+    let mut words = Vec::new();
+    assert!(bits::all_set_mask_words(bits, |word| {
+        words.push(word);
+        true
+    }));
+    assert_eq!(words.len(), expected.len());
+    assert!(words.iter().all(|&word| word != 0));
+}

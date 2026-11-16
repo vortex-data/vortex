@@ -7,6 +7,7 @@ use std::mem::MaybeUninit;
 
 use super::bits::MaskBits;
 use super::bits::for_each_mask_word;
+use super::bits::for_each_set_mask_word;
 use super::bits::low_bits_mask;
 
 /// Copy the elements of `src` selected by `bits` to `dst` and return the number copied.
@@ -97,7 +98,15 @@ pub(super) fn compact_runs_by_bitmap<T: Copy>(
 ) -> usize {
     let mut write_pos = 0;
 
-    for_each_mask_word(bits, |mut word, word_start, _| {
+    for_each_set_mask_word(bits, |mut word, word_start, _| {
+        // A full word copies a constant 64 values, which compiles to inline vector stores and
+        // not a call to `memcpy`.
+        if word == u64::MAX {
+            dst[write_pos..][..64].write_copy_of_slice(&src[word_start..][..64]);
+            write_pos += 64;
+            return;
+        }
+
         while word != 0 {
             let run_start = word.trailing_zeros() as usize;
             let run_len = (!(word >> run_start)).trailing_zeros() as usize;

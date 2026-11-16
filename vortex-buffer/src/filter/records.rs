@@ -7,7 +7,7 @@ use super::IN_PLACE_MIN_DENSITY;
 use super::Repr;
 use super::Selection;
 use super::bits::MaskBits;
-use super::bits::for_each_mask_word;
+use super::bits::for_each_set_mask_word;
 use super::filter_buffer;
 use crate::Buffer;
 use crate::BufferAllocatorRef;
@@ -117,7 +117,7 @@ fn for_each_run(selection: Selection<'_>, mut f: impl FnMut(usize, usize)) {
             }
         }
         Repr::Bitmap(bits) => {
-            for_each_mask_word(MaskBits::Bitmap(bits), |mut word, word_start, _| {
+            for_each_set_mask_word(MaskBits::Bitmap(bits), |mut word, word_start, _| {
                 while word != 0 {
                     let run_start = word.trailing_zeros() as usize;
                     let run_len = (!(word >> run_start)).trailing_zeros() as usize;

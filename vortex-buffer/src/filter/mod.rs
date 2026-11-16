@@ -20,6 +20,9 @@
 //! [`append_filtered`] appends to an existing buffer with the out-of-place column. Before row 3,
 //! it copies bitmap selections of values of at least 16 bytes at density >= 0.50 without branches.
 //!
+//! Row 5 counts the runs of the first 256 words that have a set bit, unless the runs of the
+//! whole bitmap are already too many before then.
+//!
 //! [`filter_buffer`] compacts in place only a uniquely owned buffer with density >= 0.50.
 //! [`filter_chunked`] applies the ladder to each chunk that it decodes, at the density of that
 //! chunk. SIMD eligibility is summarized in the `simd` module.
@@ -56,6 +59,11 @@ const MIN_RUN_BYTES: usize = 96;
 /// of wide values reach [`MIN_RUN_BYTES`] with runs of only a few values, and the bitmap walk is
 /// faster for those.
 const MIN_RUN_LEN: usize = 8;
+
+/// The number of words with a set bit from which [`has_long_runs`] decides, when the runs of the
+/// whole bitmap do not rule out long runs first. Both walks give the same result, so a sample
+/// that is not typical of the bitmap costs speed only.
+const RUN_SAMPLE_WORDS: usize = 256;
 
 /// When [`append_filtered`] filters values of at least [`BRANCHLESS_MIN_WIDTH`] bytes by a bitmap
 /// at this density or above, copying every value without branches is faster than the byte
@@ -350,6 +358,9 @@ unsafe fn compact_bits<T: Copy>(
 
 /// Returns whether the runs of the `selected` set bits of `bits` average at least
 /// [`MIN_RUN_LEN`] values and [`MIN_RUN_BYTES`] of `T`.
+///
+/// The answer comes from the first [`RUN_SAMPLE_WORDS`] words that have a set bit, unless the
+/// runs of the whole bitmap are already too many before then.
 // Inlining this check into `compact_bits` makes the bit walk up to 1.3x slower on x86-64.
 #[inline(never)]
 fn has_long_runs<T>(bits: MaskBits<'_>, selected: usize) -> bool {
@@ -359,22 +370,39 @@ fn has_long_runs<T>(bits: MaskBits<'_>, selected: usize) -> bool {
     }
 
     // A run that crosses a word boundary counts once in each word, as the run walk copies it. The
-    // count stops at the first word that takes it past `max_runs`, because a popcount is not a
-    // native instruction on baseline x86-64.
+    // count stops at the first word that takes it past the limit for the whole bitmap, because a
+    // popcount is not a native instruction on baseline x86-64.
     //
-    // A sparse bitmap with long runs has few runs, so the count never stops early and visits
-    // every word. Empty and full words skip the popcount, which keeps that scan cheap.
-    let max_runs = (selected * size_of::<T>() / MIN_RUN_BYTES).min(selected / MIN_RUN_LEN);
+    // A bitmap with long runs has few runs, so that limit is never reached. The count then stops
+    // after a sample of words and compares the runs of the sample with the selected values of the
+    // sample. Empty words are skipped and full words skip the popcounts.
+    let max_runs = max_long_runs::<T>(selected);
     let mut runs = 0;
-    bits::all_mask_words(bits, |word| {
-        runs += match word {
-            0 => 0,
-            u64::MAX => 1,
-            _ => (word & !(word << 1)).count_ones() as usize,
-        };
+    let mut sample_selected = 0;
+    let mut sample_words = 0;
 
-        runs <= max_runs
-    })
+    let visited_all = bits::all_set_mask_words(bits, |word| {
+        let (word_runs, word_selected) = match word {
+            u64::MAX => (1, 64),
+            _ => (
+                (word & !(word << 1)).count_ones() as usize,
+                word.count_ones() as usize,
+            ),
+        };
+        runs += word_runs;
+        sample_selected += word_selected;
+        sample_words += 1;
+
+        runs <= max_runs && sample_words < RUN_SAMPLE_WORDS
+    });
+
+    visited_all || (runs <= max_runs && runs <= max_long_runs::<T>(sample_selected))
+}
+
+/// Returns the most runs that `selected` values of `T` can form while the runs still average at
+/// least [`MIN_RUN_LEN`] values and [`MIN_RUN_BYTES`].
+fn max_long_runs<T>(selected: usize) -> usize {
+    (selected * size_of::<T>() / MIN_RUN_BYTES).min(selected / MIN_RUN_LEN)
 }
 
 /// Returns the density at or above which byte compress is used after the higher-priority
