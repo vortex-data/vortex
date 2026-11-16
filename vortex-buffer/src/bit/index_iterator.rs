@@ -129,7 +129,12 @@ impl Iterator for BitIndexIterator<'_> {
 
         let bit = self.current_chunk.trailing_zeros();
         self.current_chunk &= self.current_chunk - 1;
-        Some((self.chunk_offset + i64::from(bit)) as usize)
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "masked padding and tail bits keep the index within the usize bitmap length"
+        )]
+        let index = (self.chunk_offset + i64::from(bit)) as usize;
+        Some(index)
     }
 }
 
@@ -151,8 +156,12 @@ fn first_nonzero_word(words: &[u64]) -> usize {
     for (index, block) in blocks.iter().enumerate() {
         let bytes = block.as_slice().to_byte_slice();
         let mut first = 64_u8;
-        for byte in 0..64 {
-            first = first.min(if bytes[byte] != 0 { byte as u8 } else { 64 });
+        for byte in 0_u8..64 {
+            first = first.min(if bytes[usize::from(byte)] != 0 {
+                byte
+            } else {
+                64
+            });
         }
         if first < 64 {
             return 1 + index * 8 + usize::from(first) / 8;
