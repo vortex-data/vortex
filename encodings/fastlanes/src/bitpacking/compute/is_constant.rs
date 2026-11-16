@@ -5,7 +5,6 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use itertools::Itertools;
-use lending_iterator::LendingIterator;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -94,7 +93,7 @@ fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
     let mut first_chunk_value = None;
     {
         let mut chunks_iter = bit_unpack_iterator.full_chunks();
-        while let Some(chunk) = chunks_iter.next() {
+        while let Some(chunk) = chunks_iter.next_chunk() {
             if let Some((indices, patches, offset)) = &patches {
                 let chunk_len = chunk.len();
                 apply_patches(
