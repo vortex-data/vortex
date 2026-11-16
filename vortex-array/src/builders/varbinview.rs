@@ -33,7 +33,6 @@ use crate::arrays::varbinview::build_views::BinaryView;
 use crate::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use crate::arrays::varbinview::build_views::extend_views;
 use crate::arrays::varbinview::compact::BufferUtilization;
-use crate::arrays::varbinview::for_each_invalid_range;
 use crate::builders::ArrayBuilder;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
@@ -360,7 +359,9 @@ impl VarBinViewBuilder {
         utilizations: &[BufferUtilization],
     ) -> Vec<CompactedSlot> {
         self.flush_in_progress();
-        buffers
+
+        let mut rewritten_bytes = 0usize;
+        let slots = buffers
             .into_iter()
             .zip(utilizations)
             .map(|(buffer, utilization)| {
@@ -374,10 +375,22 @@ impl VarBinViewBuilder {
                             .push(buffer.slice(start as usize..end as usize)),
                         shift: start,
                     },
-                    CompactionStrategy::Rewrite => CompactedSlot::Rewrite { source: buffer },
+                    CompactionStrategy::Rewrite => {
+                        rewritten_bytes += utilization.used() as usize;
+                        CompactedSlot::Rewrite { source: buffer }
+                    }
                 }
             })
-            .collect()
+            .collect();
+
+        // The measured bytes are an upper bound on what the remap copies. One block of that
+        // size replaces the growth strategy's chain of small blocks and per-value capacity
+        // misses.
+        if rewritten_bytes > 0 && rewritten_bytes <= MAX_BUFFER_LEN {
+            self.init_in_progress(rewritten_bytes);
+        }
+
+        slots
     }
 
     /// [`remap_view`] against [`CompactedSlot`]s: views into kept or sliced buffers are rebased
@@ -398,7 +411,7 @@ impl VarBinViewBuilder {
             CompactedSlot::Rewrite { source } => {
                 let bytes = &source.as_slice()[view_ref.as_range()];
                 let (buffer_idx, offset) = self.append_value_to_buffer(bytes);
-                BinaryView::make_view(bytes, buffer_idx, offset)
+                view_ref.with_buffer_and_offset(buffer_idx, offset).into()
             }
         }
     }
@@ -494,10 +507,10 @@ impl VarBinViewBuilder {
 
         let start = self.views_builder.len();
         append_filtered_slice(views, selection, &mut self.views_builder);
-        let selected = &mut self.views_builder[start..];
-        for_each_invalid_range(validity, selected.len(), |start, end| {
-            selected[start..end].fill(BinaryView::empty_view());
-        });
+        if let AllOr::Some(bits) = validity.bit_buffer() {
+            let selected = &mut self.views_builder[start..];
+            bits.for_each_unset_index(|row| selected[row] = BinaryView::empty_view());
+        }
 
         if self.compacts_buffers() {
             let buffers = buffers.into_iter().collect::<Vec<_>>();
@@ -843,6 +856,11 @@ impl VarBinViewBuilder {
                 ));
 
         match view_adjustment {
+            // The buffers kept their indices and offsets, so every view is already correct.
+            ViewAdjustment::Precomputed(PrecomputedViewAdjustment::Shift {
+                buffer_offset: 0,
+                offsets: None,
+            }) => self.views_builder.extend_from_slice(array.views()),
             ViewAdjustment::Precomputed(adjustment) => self.views_builder.extend_trusted(
                 array
                     .views()

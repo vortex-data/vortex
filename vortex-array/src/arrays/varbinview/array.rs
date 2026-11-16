@@ -126,7 +126,7 @@ pub struct VarBinViewDataParts {
 }
 
 // Walk invalid (null) runs of "mask" as [start, end) ranges
-pub(crate) fn for_each_invalid_range(mask: &Mask, len: usize, mut f: impl FnMut(usize, usize)) {
+fn for_each_invalid_range(mask: &Mask, len: usize, mut f: impl FnMut(usize, usize)) {
     match mask.bit_buffer() {
         AllOr::All => {}
         AllOr::None => f(0, len),

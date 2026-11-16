@@ -144,6 +144,36 @@ pub(super) unsafe fn compact_by_bitmap<T: Copy>(
     write_pos
 }
 
+/// Copy every element of `src` to `dst` and advance the write position only past the selected
+/// ones, and return the number copied.
+///
+/// # Safety
+///
+/// `bits` must select only elements of `src`, and `dst` must hold one more value than the number
+/// of selected elements.
+#[inline]
+pub(super) unsafe fn compact_branchless<T: Copy>(
+    src: &[T],
+    bits: MaskBits<'_>,
+    dst: &mut [MaybeUninit<T>],
+) -> usize {
+    let mut write_pos = 0;
+
+    for_each_mask_word(bits, |word, word_start, word_len| {
+        for offset in 0..word_len {
+            // SAFETY: `word_start + offset` indexes into `src`, and `write_pos` never passes the
+            // number of selected elements, for which `dst` has room plus one.
+            unsafe {
+                dst.get_unchecked_mut(write_pos)
+                    .write(*src.get_unchecked(word_start + offset));
+            }
+            write_pos += ((word >> offset) & 1) as usize;
+        }
+    });
+
+    write_pos
+}
+
 /// Copy the elements of `src` selected by `bits` to `dst` one run of set bits at a time, and
 /// return the number copied.
 ///
