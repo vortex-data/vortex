@@ -139,6 +139,14 @@ impl FusedIterator for BitIndexIterator<'_> {}
 // the first occupied word, without a second search through the winning block.
 #[inline]
 fn first_nonzero_word(words: &[u64]) -> usize {
+    // Avoid a block reduction when the next unread word is already occupied.
+    let Some((&word, words)) = words.split_first() else {
+        return 0;
+    };
+    if word != 0 {
+        return 0;
+    }
+
     let (blocks, tail) = words.as_chunks::<8>();
     for (index, block) in blocks.iter().enumerate() {
         let bytes = block.as_slice().to_byte_slice();
@@ -147,10 +155,10 @@ fn first_nonzero_word(words: &[u64]) -> usize {
             first = first.min(if bytes[byte] != 0 { byte as u8 } else { 64 });
         }
         if first < 64 {
-            return index * 8 + usize::from(first) / 8;
+            return 1 + index * 8 + usize::from(first) / 8;
         }
     }
-    blocks.len() * 8
+    1 + blocks.len() * 8
         + tail
             .iter()
             .position(|&word| word != 0)
