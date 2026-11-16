@@ -27,8 +27,8 @@ phases 2 to 4 use hardcoded lists of types (X35).
 | Claims | [#11115](https://github.com/vortex-data/vortex/issues/11115): `Claim`, `DType::holds`, `ExtVTable::claims` and the claims of the types. Then `ExtensionUse::Storage`, `ResultMapping`, the generic storage rewrite, and the storage paths that replace the hardcoded lists | 1 for the claims, 3 for the storage paths |
 
 Phases 0 and 1 can run in parallel. Phase 1 builds on U4 and U5, which merged on 2026-11-02 and
-2026-10-30. Its storage declaration includes the strict reads, so it lands after the spatial
-validator fix SN1, which merged on 2026-11-04 (see "Order constraints", items 3 and 6). The Arrow
+2026-10-30. Its storage declaration SD (#11184) merged on 2026-11-13 with strict reads, after
+the spatial validator fix SN1, which merged on 2026-11-04 (see "Order constraints", items 3 and 6). The Arrow
 export with metadata is part of phase 7, but it lands in phase 0, before U1. Phase 2 adds
 declarations that nothing reads yet, so it can start at any time. U9 was dropped, and SP4 fixes the
 results of the composite aggregates (#11243). Phase 3 is the critical step: it turns on typing,
@@ -47,7 +47,7 @@ check to `try_new`.
 ## Dependency graph
 
 The graph shows every change of the extension type work, grouped by phase, with its state on
-2026-11-12. Green nodes merged, yellow nodes have an open PR, and white nodes have no PR yet. A
+2026-11-16. Green nodes merged, yellow nodes have an open PR, and white nodes have no PR yet. A
 solid arrow is a hard dependency: the later change must not land first. A dashed arrow is an order
 rule or a soft dependency, and a label such as "item 3" names the rule in "Order constraints". A
 dotted line without an arrow links an open PR that changes the same code, so the two need
@@ -102,7 +102,7 @@ flowchart TD
     SN2 --> SN3
 
     subgraph PH1["Phase 1"]
-        SD["SD storage declaration and strict reads<br/>storage_dtype, validate_metadata, facts in metadata<br/>#11184"]:::open
+        SD["SD storage declaration and strict reads<br/>storage_dtype, validate_metadata, facts in metadata<br/>#11184"]:::merged
         NU["NU new_unchecked, validate_array, conformance harness"]
     end
     U4 -->|"item 3"| SD
@@ -256,10 +256,10 @@ breaks something that works today. Those parts must land together, or in a fixed
    so this order holds, and U1 can start.
 3. Phase 1 builds on U4 and U5. U4 ([#11012](https://github.com/vortex-data/vortex/pull/11012),
    merged as `b9b02f6288`) changed `with_nullability` and the documentation of `validate_dtype`,
-   which the storage declaration replaces. U5
+   which the storage declaration replaced in #11184. U5
    ([#11015](https://github.com/vortex-data/vortex/pull/11015), merged as `5d8429064a`) changed the
-   `Date`, `Time` and `Timestamp` vtables, which get their declarations in phase 1 and their claims
-   in CL2. Both merged, so phase 1 starts from `develop`.
+   `Date`, `Time` and `Timestamp` vtables, which received their declarations in SD and get their claims
+   in CL2. Both merged before SD.
 4. The typing check of phase 3 includes two more changes:
    - The writers' part of phase 4. Once `Min` and `Max` reject types outside the order list, the
      storage fallback of `aggregate_state_dtype` would write a storage-typed state for those
@@ -269,10 +269,10 @@ breaks something that works today. Those parts must land together, or in a fixed
      aggregation when binding fails is not checked. SP4 later switches it to the claims.
 5. A change of `PartialOrd` for `Scalar` (XQ8) lands with the typing check of phase 3, or after it.
    Today `min` and `max` merge partial results with `vortex_expect`, so an earlier change can panic.
-6. The spatial validator fix SN1 (EXT-N2) lands before the storage declaration SD, which makes
-   reads strict (X29). `validate_dtype` runs on every read, so SN1 already makes these spatial
-   reads strict. A check on 2026-11-03 found that no Vortex producer wrote a spatial dtype with a
-   nullable nested level. Only storage that a user builds by hand through the public Rust API can
+6. The spatial validator fix SN1 (EXT-N2) merged before the storage declaration SD (#11184),
+   which merged on 2026-11-13 and makes reads strict (X29). Before SD, `validate_dtype` ran on
+   every read, so SN1 already made these spatial reads strict. A check on 2026-11-03 found that
+   no Vortex producer wrote a spatial dtype with a nullable nested level. Only storage that a user builds by hand through the public Rust API can
    have one. The maintainer accepted that such files stop reading, so no read plugin is needed.
    SN1 ([#11183](https://github.com/vortex-data/vortex/pull/11183)) merged on 2026-11-04 as
    `956c1ea188`, so this order holds.
@@ -339,30 +339,27 @@ implementations that they change into `vortex-aggregates`.
 
 ## Phase 1: storage declaration
 
-- Replace `validate_dtype` with `fn storage_dtype(metadata: &Self::Metadata) -> DType` (X27).
+SD (#11184) merged on 2026-11-13. The final three items below belong to NU.
+
+- `fn storage_dtype(metadata: &Self::Metadata) -> DType` replaced `validate_dtype` (X27).
   `ExtDType::try_new(metadata, nullability)` applies the top-level nullability, and
   `with_nullability` rebuilds the dtype from the declaration.
-- Add `validate_metadata(&Metadata) -> VortexResult<()>` with the default `Ok(())` (X28).
+- `validate_metadata(&Metadata) -> VortexResult<()>` defaults to `Ok(())` (X28).
   `ExtDType::try_new` and the read path call it.
-- Change `deserialize_metadata` to take the stored storage dtype. On read, check that the declared
-  storage equals the stored storage exactly, including nested nullability (X29). This check lands
-  with the declaration in SD. Without it, an old form reads silently wrong, because
-  `Extension::deserialize` decodes the storage child with the declared dtype.
-- Move the facts that live only in the storage into the in-memory metadata: the element type and
-  dimension of `Vector`, the element type of `FixedShapeTensor`, and the dimension of the seven
-  native spatial types. The serialized bytes do not change. `ForeignExtDType` holds the raw bytes
-  and the stored storage dtype.
-- Switch the constructors that take a storage dtype to the facts. The audit of 2026-10-30 found
-  these sites at `d197efd007`: `vortex-tensor/src/types/vector/mod.rs:51-53`,
-  `vortex-array/src/arrays/extension/array.rs:78-88`, `vortex-spatial/src/extension/mod.rs:264-275`
-  (used by `vortex-duckdb/src/convert/expr.rs:185` and `vortex-jni/src/expression.rs:738`),
-  `vortex-spatial/src/scalar_fn/make_line.rs:85-89`, `vortex-spatial/src/scalar_fn/collect.rs:70-91`
-  and `:191-198`, and `vortex-bench/src/vector_dataset/convert.rs:216-218`.
-- Make the generic extension cast change only the top-level nullability (X30). Today it compares
-  with a recursive `eq_ignore_nullability` (`vortex-array/src/dtype/dtype_impl.rs:118-141`,
-  `vortex-array/src/arrays/extension/compute/cast.rs:18-41`).
-- Document the contract on `ExtVTable`: structural and semantic operations, the storage
-  declaration, validation, and the total-domain rule for nested nullability (X26).
+- `deserialize_metadata` decodes `StoredMetadata`, and `metadata_from_storage` rebuilds complete
+  metadata from it and the stored storage dtype. Reads require that the declared storage equals
+  the stored storage exactly, including nested nullability (X29). This check landed with SD.
+  Without it, an old form would read silently wrong, because `Extension::deserialize` decodes the
+  storage child with the declared dtype.
+- The in-memory metadata now holds the facts that lived only in the storage: the element type and
+  dimension of `Vector`, the element type of `FixedShapeTensor`, and the dimension of the native
+  spatial types. The serialized bytes did not change. `ForeignExtDType` holds the raw bytes and
+  the stored storage dtype.
+- Metadata-first constructors take these facts and the top-level nullability. Storage-based
+  constructors use `try_from_storage` to rebuild the metadata and check the declared storage.
+- The generic extension cast changes only the top-level nullability (X30).
+- `ExtVTable` documents the storage declaration, metadata validation, and the total-domain rule
+  for nested nullability (X26).
 - Add `validate_array` to `ExtVTable`, with a default that checks each value through
   `validate_scalar_value`. Phase 6 builds on it.
 - Add `ExtensionArray::new_unchecked`. Until phase 6, it skips the same checks that
