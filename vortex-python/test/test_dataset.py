@@ -52,6 +52,25 @@ def test_head(ds: pd.Dataset) -> None:
     assert ds.head(1).to_pylist() == [{"index": 0, "string": "0", "bool": True, "float": 0.0}]
 
 
+@pytest.mark.parametrize("num_rows", [0, 2_000_000])
+def test_head_matches_to_table(ds: pd.Dataset, num_rows: int) -> None:
+    assert ds.head(num_rows) == ds.to_table().slice(0, num_rows)
+
+
+def test_head_with_fewer_matching_rows_than_requested(ds: pd.Dataset) -> None:
+    expression = pc.field("index") >= 999_995
+    assert ds.head(10, columns=["index"], filter=expression).column("index").to_pylist() == list(
+        range(999_995, 1_000_000)
+    )
+    assert ds.head(10, filter=pc.field("index") < 0).num_rows == 0
+
+
+def test_head_with_filter_matching_more_rows_than_requested(ds: pd.Dataset) -> None:
+    expression = pc.field("bool")
+    expected = ds.to_table(filter=expression).slice(0, 5_000)
+    assert ds.head(5_000, filter=expression) == expected
+
+
 def test_take(ds: pd.Dataset) -> None:
     assert ds.take(pa.array([10, 50, 1_000, 999_999])).to_pylist() == [
         {"index": 10, "string": "10", "bool": True, "float": math.sqrt(10)},
