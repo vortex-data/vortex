@@ -79,6 +79,7 @@ use vortex_session::registry::Id;
 
 use crate::ArrowExportOptions;
 use crate::IntoVortexArray;
+use crate::convert::fixed_size_list_items;
 use crate::convert::from_arrow_dyn;
 use crate::convert::map_from_arrow_parts;
 use crate::convert::nulls;
@@ -961,10 +962,8 @@ impl ArrowSession {
             }
             DataType::FixedSizeList(elem_field, list_size) => {
                 let fsl = array.as_fixed_size_list();
-                let elements = self.from_arrow_array_inner(
-                    ArrowArrayRef::clone(fsl.values()),
-                    elem_field.as_ref(),
-                )?;
+                let elements =
+                    self.from_arrow_array_inner(fixed_size_list_items(fsl)?, elem_field.as_ref())?;
                 let validity = nulls(fsl.nulls(), field.is_nullable())?;
                 Ok(
                     FixedSizeListArray::try_new(elements, *list_size as u32, validity, fsl.len())?
