@@ -202,16 +202,15 @@ impl<'a, T: NativePType + BitPacking> LaneDeltas<'a, T> {
         match self {
             Self::Plain(values) => T::undelta_single(values, base, position),
             Self::Packed(block, width, patches) => {
-                // SAFETY: `new` checked the block holds 1024 values of `width` bits.
-                let mut value =
-                    unsafe { T::unchecked_undelta_pack_single(*width, block, base, position) };
+                let mut value = T::undelta_pack_single(*width, block, base, position);
                 // A patch replaces the packed delta at its position, so correct the sum for each
                 // patch in the lane up to the value's row.
                 let (lane, row) = fastlanes::delta_lane_row::<T>(position);
                 for &(patched, delta) in patches {
                     let (patch_lane, patch_row) = fastlanes::delta_lane_row::<T>(patched);
                     if patch_lane == lane && patch_row <= row {
-                        // SAFETY: as above, and `patched` is within the chunk.
+                        // SAFETY: `new` checked the block holds 1024 values of `width` bits, and
+                        // `patched` is within the chunk.
                         let packed =
                             unsafe { BitPacking::unchecked_unpack_single(*width, block, patched) };
                         value = value.wrapping_add(&delta).wrapping_sub(&packed);
