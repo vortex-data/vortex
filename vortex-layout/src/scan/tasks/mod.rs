@@ -22,15 +22,14 @@ use vortex_session::VortexSession;
 
 use crate::LayoutReaderRef;
 use crate::scan::filter::FilterExpr;
-use crate::scan::metrics::ScanCounters;
-use crate::scan::metrics::ScanMetrics;
+use crate::scan::metrics::ScanRecorder;
 
 /// This future returns the projected rows of one split or `None`.
 pub(crate) type SplitFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 
 /// The caller must exclude empty masks before task construction.
 pub(crate) fn split_exec(ctx: &Arc<TaskContext>, read_mask: RowMask) -> VortexResult<SplitFuture> {
-    if ctx.counters.is_some() {
+    if ctx.recorder.is_some() {
         split_exec_inner::<true>(ctx, read_mask)
     } else {
         split_exec_inner::<false>(ctx, read_mask)
@@ -80,8 +79,7 @@ fn split_projection<const TRACK_COUNTERS: bool>(
     ))
 }
 
-/// With counters enabled, this future counts the split when its task first runs.
-/// It holds the context until it stops, so registry totals include its counts.
+/// With recording enabled, this future counts the split when its task first runs.
 fn attempted<const TRACK_COUNTERS: bool>(
     ctx: &Arc<TaskContext>,
     split: impl Future<Output = VortexResult<Option<ArrayRef>>> + Send + 'static,
@@ -91,7 +89,7 @@ fn attempted<const TRACK_COUNTERS: bool>(
     }
     let ctx = Arc::clone(ctx);
     async move {
-        ctx.count::<TRACK_COUNTERS>(ScanCounters::attempt_split);
+        ctx.count::<TRACK_COUNTERS>(ScanRecorder::attempt_split);
         split.await
     }
     .boxed()
@@ -163,7 +161,7 @@ fn build_filter_mask<const TRACK_COUNTERS: bool>(
             // Filter evaluations return a mask already intersected with the input mask.
             mask = conjunct_mask;
             if mask.all_false() {
-                ctx.count::<TRACK_COUNTERS>(ScanCounters::empty_split_after_predicate);
+                ctx.count::<TRACK_COUNTERS>(ScanRecorder::empty_split_after_predicate);
                 return Ok(mask);
             }
         }
@@ -186,7 +184,7 @@ async fn prune_conjunct<const TRACK_COUNTERS: bool>(
     // Static conjuncts are checked against whole-file statistics once per execution.
     // The reader caches the proof for each dynamic version.
     if dynamic && ctx.reader.can_prune_file(conjunct)? {
-        ctx.count::<TRACK_COUNTERS>(ScanCounters::prune_file);
+        ctx.count::<TRACK_COUNTERS>(ScanRecorder::prune_file);
         return Ok(Mask::new_false(mask.len()));
     }
 
@@ -197,9 +195,9 @@ async fn prune_conjunct<const TRACK_COUNTERS: bool>(
     let mask = mask.bitand(&conjunct_mask);
     if TRACK_COUNTERS && mask.all_false() {
         if ctx.reader.split_pruning_is_statistics(conjunct)? {
-            ctx.count::<TRACK_COUNTERS>(ScanCounters::prune_split);
+            ctx.count::<TRACK_COUNTERS>(ScanRecorder::prune_split);
         } else {
-            ctx.count::<TRACK_COUNTERS>(ScanCounters::empty_split_after_predicate);
+            ctx.count::<TRACK_COUNTERS>(ScanRecorder::empty_split_after_predicate);
         }
     }
     Ok(mask)
@@ -223,27 +221,15 @@ pub(crate) struct TaskContext {
     pub projection: BoundExpression,
     /// The session the projected arrays are optimized with before the scan returns them.
     pub(crate) session: VortexSession,
-    /// Counters shared by the tasks of this execution.
-    pub(super) counters: Option<Arc<ScanCounters>>,
-    /// Registry totals that receive one update after this execution stops.
-    pub(super) metrics: Option<ScanMetrics>,
+    /// Records the events of this execution, or `None` when the scan has no usage sink.
+    pub(super) recorder: Option<ScanRecorder>,
 }
 
 impl TaskContext {
     #[inline]
-    pub(super) fn count<const TRACK_COUNTERS: bool>(&self, update: impl FnOnce(&ScanCounters)) {
-        if TRACK_COUNTERS && let Some(counters) = &self.counters {
-            update(counters);
-        }
-    }
-}
-
-impl Drop for TaskContext {
-    fn drop(&mut self) {
-        if let Some(metrics) = &self.metrics
-            && let Some(counters) = &self.counters
-        {
-            metrics.record(counters.snapshot());
+    pub(super) fn count<const TRACK_COUNTERS: bool>(&self, update: impl FnOnce(&ScanRecorder)) {
+        if TRACK_COUNTERS && let Some(recorder) = &self.recorder {
+            update(recorder);
         }
     }
 }

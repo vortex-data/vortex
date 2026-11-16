@@ -42,8 +42,8 @@ use vortex_session::VortexSession;
 
 use crate::LayoutReaderRef;
 use crate::scan::limit::RowLimit;
-use crate::scan::metrics::ScanCounterSnapshot;
 use crate::scan::metrics::ScanMetrics;
+use crate::scan::metrics::ScanRecorder;
 use crate::scan::scan_builder::ScanBuilder;
 
 /// An implementation of a [`DataSource`] that reads data from a [`LayoutReaderRef`].
@@ -160,31 +160,27 @@ impl DataSource for LayoutReaderDataSource {
             if let Some(Ok(result_mask)) = pruning_result
                 && result_mask.all_false()
             {
-                if let Some(metrics) = &self.metrics
+                if let Some(recorder) = ScanRecorder::new(None, self.metrics.clone())
                     && scan_request.limit != Some(0)
                     && scan_request.selection.row_count_in_range(&row_range) != 0
                 {
-                    let file_pruned = self.reader.can_prune_file(filter)?;
                     // The eager check covers the requested range. Only whole-file statistics
                     // justify a file rejection. Other rejections count as one range attempt.
-                    let snapshot = if file_pruned {
-                        ScanCounterSnapshot {
-                            file_scans_attempted: 1,
-                            file_scans_pruned: 1,
-                            ..Default::default()
-                        }
+                    recorder.attempt_file_scan();
+
+                    if self.reader.can_prune_file(filter)? {
+                        recorder.prune_file();
                     } else {
-                        let statistics = self.reader.split_pruning_is_statistics(filter)?;
-                        ScanCounterSnapshot {
-                            file_scans_attempted: 1,
-                            splits_attempted: 1,
-                            splits_pruned: u64::from(statistics),
-                            splits_empty_after_predicate: u64::from(!statistics),
-                            ..Default::default()
+                        recorder.attempt_split();
+
+                        if self.reader.split_pruning_is_statistics(filter)? {
+                            recorder.prune_split();
+                        } else {
+                            recorder.empty_split_after_predicate();
                         }
-                    };
-                    metrics.record(snapshot);
+                    }
                 }
+
                 return Ok(Box::new(Empty {
                     dtype,
                     row_count: 0,

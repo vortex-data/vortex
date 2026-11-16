@@ -41,8 +41,9 @@ use crate::LayoutReaderRef;
 use crate::scan::filter::FilterExpr;
 use crate::scan::limit::RowLimit;
 use crate::scan::limit::ScanLimit;
-use crate::scan::metrics::ScanCounters;
 use crate::scan::metrics::ScanMetrics;
+use crate::scan::metrics::ScanRecorder;
+use crate::scan::metrics::ScanUsage;
 use crate::scan::splits::Splits;
 use crate::scan::tasks::SplitFuture;
 use crate::scan::tasks::TaskContext;
@@ -68,6 +69,9 @@ pub struct RepeatedScan<A> {
     concurrency: SplitConcurrency,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: MapFn<A>,
+    /// Caller-owned usage that every execution adds to.
+    usage: Option<Arc<ScanUsage>>,
+    /// Registry counters that every execution adds to.
     metrics: Option<ScanMetrics>,
     /// Maximal number of rows to read (after filtering).
     limit: Option<ScanLimit>,
@@ -112,28 +116,11 @@ impl<A: 'static + Send> RepeatedScan<A> {
     /// Scans with row limits must use [`Self::execute_stream`] so the scan can coordinate the
     /// limit across splits.
     pub fn execute(&self, row_range: Option<Range<u64>>) -> VortexResult<ScanTasks<A>> {
-        self.execute_inner(row_range, None)
-    }
-
-    /// Returns split tasks and fresh counters for an execution without a row limit.
-    pub fn execute_with_counters(
-        &self,
-        row_range: Option<Range<u64>>,
-    ) -> VortexResult<(ScanTasks<A>, Arc<ScanCounters>)> {
-        let counters = Arc::new(ScanCounters::default());
-        let tasks = self.execute_inner(row_range, Some(Arc::clone(&counters)))?;
-        Ok((tasks, counters))
-    }
-
-    fn execute_inner(
-        &self,
-        row_range: Option<Range<u64>>,
-        counters: Option<Arc<ScanCounters>>,
-    ) -> VortexResult<ScanTasks<A>> {
         if self.limit.is_some() {
             vortex_bail!("Split futures do not support row limits; use a scan stream or iterator");
         }
-        let ctx = self.task_context(counters);
+
+        let ctx = self.task_context();
         let mut masks = self.split_masks(row_range).peekable();
         if masks.peek().is_some() && can_prune_file(&ctx)? {
             return Ok(Vec::new());
@@ -163,6 +150,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         splits: Splits,
         concurrency: SplitConcurrency,
         map_fn: MapFn<A>,
+        usage: Option<Arc<ScanUsage>>,
         metrics: Option<ScanMetrics>,
         limit: Option<ScanLimit>,
         dtype: DType,
@@ -178,14 +166,15 @@ impl<A: 'static + Send> RepeatedScan<A> {
             splits,
             concurrency,
             map_fn,
+            usage,
             metrics,
             limit,
             dtype,
         }
     }
 
-    fn task_context(&self, counters: Option<Arc<ScanCounters>>) -> Arc<TaskContext> {
-        let counters = counters.or_else(|| self.metrics.is_some().then(Arc::default));
+    /// Each execution gets its own recorder, so file events count once for each execution.
+    fn task_context(&self) -> Arc<TaskContext> {
         Arc::new(TaskContext {
             filter: self
                 .filter
@@ -194,8 +183,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             reader: Arc::clone(&self.layout_reader),
             projection: self.projection.clone(),
             session: self.session.clone(),
-            counters,
-            metrics: self.metrics.clone(),
+            recorder: ScanRecorder::new(self.usage.clone(), self.metrics.clone()),
         })
     }
 
@@ -269,24 +257,6 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<BoxStream<'static, VortexResult<A>>> {
-        self.execute_stream_inner(row_range, None)
-    }
-
-    /// Returns a stream and fresh counters for one execution.
-    pub fn execute_stream_with_counters(
-        &self,
-        row_range: Option<Range<u64>>,
-    ) -> VortexResult<(BoxStream<'static, VortexResult<A>>, Arc<ScanCounters>)> {
-        let counters = Arc::new(ScanCounters::default());
-        let stream = self.execute_stream_inner(row_range, Some(Arc::clone(&counters)))?;
-        Ok((stream, counters))
-    }
-
-    pub(super) fn execute_stream_inner(
-        &self,
-        row_range: Option<Range<u64>>,
-        counters: Option<Arc<ScanCounters>>,
-    ) -> VortexResult<BoxStream<'static, VortexResult<A>>> {
         let concurrency = self.concurrency.splits_in_flight();
         let handle = self.session.handle();
         let ordered = self.ordered;
@@ -294,7 +264,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         if limit.as_ref().is_some_and(RowLimit::is_exhausted) {
             return Ok(stream::empty().boxed());
         }
-        let ctx = self.task_context(counters);
+        let ctx = self.task_context();
         let mut ranges = self.split_ranges(row_range).into_iter();
         let first_mask = ranges
             .by_ref()
@@ -392,11 +362,11 @@ fn selected_mask(selection: &Selection, range: &Range<u64>) -> Option<RowMask> {
 }
 
 fn can_prune_file(ctx: &TaskContext) -> VortexResult<bool> {
-    ctx.count::<true>(ScanCounters::attempt_file_scan);
+    ctx.count::<true>(ScanRecorder::attempt_file_scan);
     if let Some(filter) = &ctx.filter
         && filter.can_prune_file(ctx.reader.as_ref())?
     {
-        ctx.count::<true>(ScanCounters::prune_file);
+        ctx.count::<true>(ScanRecorder::prune_file);
         return Ok(true);
     }
     Ok(false)
