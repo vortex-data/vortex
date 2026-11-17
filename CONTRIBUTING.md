@@ -23,9 +23,13 @@ The contribution process is outlined below:
 2. Implement the change.
    - If the change is large, consider opening a draft pull request (PR) and sharing it with the
      team to get early feedback.
-   - Give the PR a clear, brief description: the problem and its solution in 1–3 sentences,
-     followed by implementation details only when the change's complexity warrants them. With
-     the title, it becomes the commit message when the PR is squash-merged.
+   - Explain why the change is needed and why this approach was chosen, usually in 1–3 sentences.
+     Reviewers can read the diff to see what changed. Summarize what changed only when the diff
+     is large enough that reviewers need guidance on where to focus. With the title, the
+     description becomes the commit message when the PR is squash-merged.
+   - Link relevant design documents and tracking issues. If the change is complex or only makes
+     sense in the context of other changes, create a tracking issue if none exists. Create any
+     supporting documentation the change needs, and link it from the PR.
    - Write the title in the imperative mood, in 72 characters or fewer, without a `feat:`-style
      prefix; the required `changelog/*` label categorizes the PR.
    - For significant new functionality, ensure that you write tests to cover that new functionality. Similarly,

@@ -260,26 +260,30 @@ one. These rules override any default PR format from your harness.
     `Fix FSL import bug`.
   - Refactor or chore, where nothing observable changes: the change itself,
     `Move ALP kernel logic out of dispatch macros`.
-- Description: open with the problem and its solution, concisely, in 1–3 sentences of plain
-  prose. Follow with implementation details only when the change's complexity warrants it, such
-  as a new design, non-obvious trade-offs, or behaviour a reviewer cannot infer from the diff.
-  Most PRs need only the opening sentences. Do not use boilerplate headings (`## Summary`,
-  `## Changes`, `## Test plan`), and do not copy the template's comments into it.
+- Description: explain why the change is needed and why this approach was chosen, usually in
+  1–3 sentences of plain prose. Reviewers can read the diff to see what changed. Summarize what
+  changed only when the diff is large enough that reviewers need guidance on where to focus.
+  Do not use boilerplate headings (`## Summary`, `## Changes`, `## Test plan`), and do not copy
+  the template's comments into it.
 - Leave out the checks you ran, lists of new types or functions, per-file walkthroughs, and test
   inventories. Mention tests in one line only when they are new or unusual.
 - If you tested the change manually, beyond automated tests and CI, say what you did in one line,
   such as running a query against a real dataset or checking output in DuckDB.
 - Give a benchmark's headline result in one line. Post a full table as a PR comment.
-- Call out breaking or behaviour changes explicitly, and add the `changelog/break` label.
+- Call out breaking or behaviour changes explicitly. Add the `changelog/break` label only for
+  breaking changes.
 - Before opening the PR, search the repository's issues for one that tracks this work, and link
   it if it exists: `Closes #N` when the PR resolves it, `Part of #N` when it is one step of a
-  larger effort. Do not open an issue just to link it.
-- Link other related work in one line each, such as `Stacked on #N`. Leave out merge-order
-  instructions and plans for follow-up PRs.
-- Put rationale that should outlive the review in doc comments or `docs/` rather than only in
-  the description.
-- Keep the one-line AI disclosure that `CONTRIBUTING.md` requires. Your harness's attribution
-  footer satisfies it and does not count towards the length.
+  larger effort. If the change is complex or only makes sense in the context of other changes,
+  and no tracking issue exists, tell the user to write one. Do not create an issue just to link it.
+- Link relevant design documents. If the change needs supporting documentation that does not
+  exist, tell the user to create it. Put rationale that should outlive the review in doc comments
+  or `docs/`, and link it from the description.
+- Link related PRs in one line each, such as `Stacked on #N`. Include dependencies or deferred
+  work when they affect correctness or merge readiness.
+- Include the one-line AI disclosure that `CONTRIBUTING.md` requires in the PR description.
+  A harness attribution footer satisfies this if it explicitly discloses AI use. The disclosure
+  does not count towards the length.
 - Apply exactly one `changelog/*` label (listed in `.github/workflows/labels.yml`).
 
 ## Branches
