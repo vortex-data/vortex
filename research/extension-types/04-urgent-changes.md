@@ -263,7 +263,9 @@ Three more PRs touch this work:
 - Two PRs fix EXT-N2 (X26, X29). SN1 makes the spatial validators require non-null nested levels.
   SN2 makes the Arrow importers of known types convert or fail. It builds on DP, which peels
   dictionary fields before the importers run. SN1 (#11183) merged on 2026-11-04 as `956c1ea188`.
-  DP (#11185) merged on 2026-11-04 as `8b01ab55bf`, and SN2 is the open draft #11223.
+  DP (#11185) merged on 2026-11-04 as `8b01ab55bf`. SN2 merged on 2026-11-17 as
+  [#11223](https://github.com/vortex-data/vortex/pull/11223). SN3 tracks the remaining
+  nested visibility work in [the implementation plan](05-implementation.md#phase-0-urgent-fixes).
 
 Three PRs added or proposed mechanisms for extension semantics:
 

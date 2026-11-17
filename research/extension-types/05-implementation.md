@@ -47,7 +47,7 @@ check to `try_new`.
 ## Dependency graph
 
 The graph shows every change of the extension type work, grouped by phase, with its state on
-2026-11-16. Green nodes merged, yellow nodes have an open PR, and white nodes have no PR yet. A
+2026-11-17. Green nodes merged, yellow nodes have an open PR, and white nodes have no PR yet. A
 solid arrow is a hard dependency: the later change must not land first. A dashed arrow is an order
 rule or a soft dependency, and a label such as "item 3" names the rule in "Order constraints". A
 dotted line without an arrow links an open PR that changes the same code, so the two need
@@ -83,14 +83,15 @@ flowchart TD
         U2["U2 matching dtypes for compares<br/>#11016"]:::merged
         DF["DF DataFusion extension literals<br/>#11067"]:::merged
         AX["AX Arrow export with metadata, from phase 7<br/>#11224, follow-ups #11300, #11301, #11351, #11304"]:::merged
-        RT["RT Arrow round trip of the types that Vortex owns<br/>#11360 merged, #11361 open"]:::open
+        RT["RT Arrow round-trip fixes and conformance tests<br/>#11360, #11361"]:::merged
+        FUZZ["Arrow extension transport fuzzing<br/>#11514"]:::merged
         SF["SF dtype error in a lazily parsed struct field"]
         U1["U1 no storage casts"]
         TS["TS Timestamp accepts every i64, DateTimeParts days<br/>#10953"]:::merged
         V10["V10 Date display fallback<br/>#11187"]:::merged
         SN1["SN1 spatial validators reject nullable nested levels<br/>#11183"]:::merged
         DP["DP dictionary peel before the Arrow importers<br/>#11185"]:::merged
-        SN2["SN2 Arrow importers of known types convert or fail<br/>#11223"]:::open
+        SN2["SN2 Arrow importers of known types convert or fail<br/>#11223"]:::merged
         SN3["SN3 Arrow import drops masked nulls below every nested level"]
     end
     PC --> U2
@@ -100,6 +101,8 @@ flowchart TD
     AX --> RT
     DP --> SN2
     SN2 --> SN3
+    RT --> FUZZ
+    SN2 --> FUZZ
 
     subgraph PH1["Phase 1"]
         SD["SD storage declaration and strict reads<br/>storage_dtype, validate_metadata, facts in metadata<br/>#11184"]:::merged
@@ -164,7 +167,7 @@ flowchart TD
         BD3["BD3 typed array view and developer guide"]
         AF["AF Arrow fields instead of Arrow data types<br/>issue #11286"]
         DS["DS DataFusion physical schema for extension dtypes<br/>#11225"]:::merged
-        DS2["DS2 reject columns that mix an extension type and plain storage<br/>#11268"]:::open
+        DS2["DS2 reject columns that mix an extension type and plain storage<br/>#11268"]:::merged
     end
     DS --> DS2
     AX --> AF
@@ -308,31 +311,22 @@ implementations that they change into `vortex-aggregates`.
   with the PR's `develop` base `d8e7467f8b` shows a repeatable 12.9% millisecond split slowdown and
   no slowdown in the other units. No run measured the pushed head `7943b4e983`. Part 4 records
   the two runs per revision, the table, and the checks. All requested scoped checks passed.
-- Land the spatial fix (EXT-N2) in two PRs. SN1 makes the five list-based spatial validators
-  require non-null nested levels. It merged as #11183 on 2026-11-04. SN2 makes every Arrow importer
-  of a known type (spatial, `Vector`, `Uuid` and `Json`) convert children that are marked nullable
-  but hold no nulls, and fail on data outside the domain instead of declining (X29). On 2026-11-03,
-  the maintainer approved a one-pass design: the canonical Arrow import passes the visible rows of
-  each level down to its children, so it drops masked nulls (nulls under a null parent) once. The
-  importer boundary keeps one rebuild, because `ArrowImportVTable` carries no visibility.
-- SN2 builds on DP. Today a dictionary-encoded extension field imports only because its importer
-  declines it first, and the session then retries with the value type. DP peels the dictionary
-  before the importers run, so importers never see dictionaries and can fail. The result stays
-  `Dict(codes, Ext(values))`.
-- #11464, "Make successful Arrow plugin imports final", merged on 2026-11-13. A successful
-  plugin import is final after the dtype and length checks. Map entries import as a plain struct,
-  while the key and value fields still use plugins. SN2 must preserve these rules.
-- #11497, "fix(arrow): import fixed-size lists whose null rows hold null items", merged on
-  2026-11-16. `vortex-arrow/src/convert.rs` and `vortex-arrow/src/session.rs` now drop null items
-  masked by null fixed-size list rows when the item field is non-nullable. A null item in a valid
-  row still fails. This shares the fixed-size list import code with SN2 and part of the masked-null
-  work of SN3. It does not complete either step.
-- SN3 builds on SN2, and the import then drops masked nulls below every nested level. SN2 drops
-  them through structs, lists, large lists, and fixed-size lists. List views, maps, run-end arrays,
-  and dictionaries do not pass their visible rows to their children. So a masked null below one of
-  them in a non-nullable level fails the import. A masked dictionary key can also point outside
-  the values, and `new_null_array` builds such keys. SN3 gives these keys a valid target. The
-  maintainer agreed that the import always drops masked nulls.
+- SN1 made the five list-based spatial validators require non-null nested levels
+  ([#11183](https://github.com/vortex-data/vortex/pull/11183)). SN2 made the importers of known
+  extension types normalize supported layouts and reject malformed data (X29).
+  [#11223](https://github.com/vortex-data/vortex/pull/11223) merged on 2026-11-17. It builds on DP,
+  which peels dictionaries before the importers run so the result stays `Dict(codes, Ext(values))`.
+- Arrow imports pass visible rows through structs, lists, large lists, and fixed-size lists. This
+  lets the importer drop nulls under a null parent and still reject visible nulls at a non-nullable
+  level. The extension importer boundary still needs one rebuild because `ArrowImportVTable`
+  carries no visibility. [#11497](https://github.com/vortex-data/vortex/pull/11497) landed the
+  fixed-size list fix on 2026-11-16. [#11464](https://github.com/vortex-data/vortex/pull/11464)
+  made a successful plugin import final after checking the dtype and length. Map entries import
+  as a plain struct, and their keys and values still use plugins.
+- SN3 covers visibility below list views, maps, run-end arrays, and dictionaries. Those levels
+  still treat every child slot as visible, so a masked null at a non-nullable level can fail
+  import. SN3 also gives masked dictionary keys a valid target when `new_null_array` builds keys
+  outside the values.
 - V10 gives the `Display` of `Date` the fallback that #10953 gives `Timestamp`, in its own PR on
   `develop` (EXT-V10). It merged as #11187 on 2026-11-04.
 - U4 is the interim form of the storage declaration: `with_nullability` stops validating again, and
@@ -487,12 +481,12 @@ SD (#11184) merged on 2026-11-13. The final three items below belong to NU.
   ListView and Utf8 storage (`vortex-datafusion/src/convert/schema.rs`), which probably breaks
   `Vector` columns. A regression test confirmed the failure, and DS fixed it. It merged as #11225
   on 2026-11-05.
-- DS2: the DataFusion physical schema rejects a table column whose files mix an extension type and
-  its plain storage. Today such a table labels the plain rows with the extension type, with no
-  error. `Json` and `Vector` columns have this bug, and AX adds every type without a plugin. The
-  proposed fix copies the `ARROW:extension:*` metadata onto the physical field of a file only when
-  the column in that file has the extension dtype. Otherwise, the schema fails. The final review of
-  AX found this bug.
+- DS2 merged on 2026-11-17 ([#11268](https://github.com/vortex-data/vortex/pull/11268)). The
+  DataFusion scan checks extension identity before copying the table field's metadata, so plain
+  storage cannot be labeled as an extension. The check covers nested fields and caller-supplied
+  schemas. An all-null file can still participate because it has no values to mislabel. The opener
+  still checks the whole schema. [#11270](https://github.com/vortex-data/vortex/issues/11270)
+  tracks whether an unread column should be able to fail a scan.
 - Add converter traits for DuckDB, Python and JNI, modeled on the Arrow registry. Move the
   hard-coded type lists into converters, and add converters where the implicit conversions of today
   stop.
@@ -612,6 +606,12 @@ scope.
 
 ## Test strategy
 
+- **Arrow transport.** [#11360](https://github.com/vortex-data/vortex/pull/11360) fixed
+  round trips. [#11361](https://github.com/vortex-data/vortex/pull/11361) checks import
+  and export against independent Arrow references to catch matching bugs that would pass a
+  round trip. [#11514](https://github.com/vortex-data/vortex/pull/11514) adds scheduled fuzzing
+  across container positions and storage encodings. Both suites leave out `Variant` pending
+  [#11359](https://github.com/vortex-data/vortex/issues/11359).
 - **Path consistency.** Every semantic operation gives the same answer on the whole array, on one
   row, and with constant inputs.
 - **Rule coverage.** The same expression gives the same result through `optimize`, `optimize_ctx`,
