@@ -480,7 +480,7 @@ debug = false
 
 [patch.crates-io]
 # TODO: drop once https://github.com/spiraldb/fastlanes/pull/226 is released.
-fastlanes = { git = "https://github.com/spiraldb/fastlanes", rev = "85beb109b98ab8436f9d02bffc4a95abaaf916d0" }
+fastlanes = { git = "https://github.com/spiraldb/fastlanes", rev = "4edafb07ae5fc07ce3f0a2b6a06bbe4714591f91" }
 geoarrow = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
 geoarrow-array = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
 geoarrow-cast = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
