@@ -19,10 +19,10 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::Primitive;
 use vortex_array::block::Block;
 use vortex_array::block::BlockBuf;
-use vortex_array::block::BlockIn;
 use vortex_array::block::BlockOp;
 use vortex_array::block::BlockPatches;
 use vortex_array::block::BlockSource;
+use vortex_array::block::SourceBlock;
 use vortex_array::block::Written;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PhysicalPType;
@@ -181,14 +181,18 @@ impl<T: PhysicalPType, S: UnpackStrategy<T> + Send> BlockSource for PackedSource
         &'s mut self,
         rows: Range<usize>,
         scratch: &'s mut BlockBuf,
-    ) -> VortexResult<BlockIn<'s>> {
+    ) -> VortexResult<SourceBlock<'s>> {
         let (first, end) = (self.offset + rows.start, self.offset + rows.end);
         let chunk = first / FL_CHUNK_SIZE;
         let chunk_start = chunk * FL_CHUNK_SIZE;
-        let block: &mut [T] = if end <= chunk_start + FL_CHUNK_SIZE {
-            // On the source's own grid every range lies in one chunk: lend part of it.
+        let (block, offset): (&mut [T], usize) = if end <= chunk_start + FL_CHUNK_SIZE {
+            // On the source's own grid every range lies in one chunk: unpack it and point at the
+            // range's part of it.
             let values = self.unpack(chunk, scratch.out::<T::Physical>(FL_CHUNK_SIZE));
-            &mut values[first - chunk_start..end - chunk_start]
+            (
+                &mut values[first - chunk_start..end - chunk_start],
+                first - chunk_start,
+            )
         } else {
             // A range straddling two chunks is assembled from both.
             let mut straddle = self.straddle.take().unwrap_or_else(BlockBuf::new_boxed);
@@ -204,12 +208,18 @@ impl<T: PhysicalPType, S: UnpackStrategy<T> + Send> BlockSource for PackedSource
             }
             self.straddle = Some(straddle);
             // SAFETY: the chunks' parts cover the `rows.len()` values of `out`.
-            unsafe { std::mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(out) }
+            (
+                unsafe { std::mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(out) },
+                0,
+            )
         };
         if let Some(patches) = &mut self.patches {
             patches.apply(rows.start, block);
         }
-        Ok(BlockIn::from_slice(block))
+        Ok(SourceBlock::Scratch {
+            offset,
+            len: rows.len(),
+        })
     }
 
     fn block_offset(&self) -> usize {
@@ -289,7 +299,10 @@ pub(crate) fn for_block_op(
                     .as_primitive()
                     .typed_value::<T>()
                     .vortex_expect("FoR reference is non-null");
-                Some(Box::new(AddReference { reference }) as Box<dyn BlockOp>)
+                // A zero reference changes nothing, which level-wise execution returns without
+                // copying, so it does not fuse.
+                (reference != T::default())
+                    .then(|| Box::new(AddReference { reference }) as Box<dyn BlockOp>)
             }
             FoRReferences::Blocked(references) => match references.as_opt::<Primitive>() {
                 Some(references) => Some(Box::new(AddReferences {
@@ -314,6 +327,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::block::BLOCK_LEN;
     use vortex_array::block::BlockBuf;
+    use vortex_array::block::SourceBlock;
     use vortex_array::block::fused_chain_count;
     use vortex_array::block::in_place_chain_count;
     use vortex_array::scalar::Scalar;
@@ -459,7 +473,7 @@ mod tests {
         let copied = shared.clone().execute::<PrimitiveArray>(&mut ctx)?;
         assert_eq!(in_place_chain_count() - before, 0);
         // The input still holds its own values.
-        assert_eq!(shared.len(), copied.len());
+        assert_arrays_eq!(shared, build()?, &mut ctx);
         assert_arrays_eq!(copied, expected, &mut ctx);
         Ok(())
     }
@@ -548,7 +562,8 @@ block_op 1 in_place u32->u32 scratch0 -> scratch0
 block_op 2 copy u32->u32 scratch0 -> output"
             )
         );
-        assert_eq!(shared.len(), 3000);
+        // The shared leaf still holds its own values.
+        assert_arrays_eq!(shared, build()?, &mut SESSION.create_execution_ctx());
 
         assert_eq!(
             fusion_trace(build()?)?,
@@ -619,9 +634,16 @@ block_op 0 copy u32->u32 scratch0 -> output"
                     .map(move |start| start..(start + BLOCK_LEN).min(rows.end))
             })
         {
-            let block = source.fill(rows.clone(), &mut scratch)?;
-            assert_eq!(block.len(), rows.len());
-            values.extend_from_slice(block.as_slice::<u32>());
+            match source.fill(rows.clone(), &mut scratch)? {
+                SourceBlock::Scratch { offset, len } => {
+                    assert_eq!(len, rows.len());
+                    let filled = scratch.out::<u32>(offset + len);
+                    // SAFETY: the source wrote these values.
+                    values.extend(filled[offset..].iter().map(|v| unsafe { v.assume_init() }));
+                }
+                SourceBlock::Lent(block) => values.extend_from_slice(block.as_slice::<u32>()),
+                _ => unreachable!(),
+            }
         }
         assert_eq!(values, expected.as_slice::<u32>());
         Ok(())

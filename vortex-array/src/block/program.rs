@@ -21,6 +21,7 @@ use super::BlockInOut;
 use super::BlockOp;
 use super::BlockOut;
 use super::BlockSource;
+use super::SourceBlock;
 use super::Written;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -165,8 +166,10 @@ impl<T: NativePType> BlockSource for PrimitiveSource<T> {
         &'s mut self,
         rows: Range<usize>,
         _scratch: &'s mut BlockBuf,
-    ) -> VortexResult<BlockIn<'s>> {
-        Ok(BlockIn::from_slice(&self.values.as_slice()[rows]))
+    ) -> VortexResult<SourceBlock<'s>> {
+        Ok(SourceBlock::Lent(BlockIn::from_slice(
+            &self.values.as_slice()[rows],
+        )))
     }
 }
 
@@ -242,9 +245,11 @@ fn check_written(
     ptype: PType,
 ) -> VortexResult<()> {
     vortex_ensure!(
-        std::ptr::eq(written.ptr, ptr) && written.len == len && written.ptype == ptype,
+        std::ptr::eq(written.ptr, ptr),
         "block op returned a block other than the one it was handed"
     );
+    vortex_ensure_eq!(written.len, len, "block op wrote the wrong number of rows");
+    vortex_ensure_eq!(written.ptype, ptype, "block op wrote the wrong type");
     Ok(())
 }
 
@@ -261,10 +266,13 @@ unsafe fn run_blocks(
     len: usize,
     dst: *mut u8,
 ) -> VortexResult<()> {
-    let mut scratch = [BlockBuf::new_boxed(), BlockBuf::new_boxed()];
+    // The source writes the first scratch block. The second is allocated when an op copies
+    // between scratch blocks.
+    let mut scratch = [Some(BlockBuf::new_boxed()), None];
     let in_place: Vec<bool> = (0..ops.len())
         .map(|i| in_place_op(ops, ptypes, i))
         .collect();
+    let in_width = ptypes[0].byte_width();
     let out_width = ptypes[ops.len()].byte_width();
     let last = ops.len() - 1;
     let offset = source.block_offset() % BLOCK_LEN;
@@ -272,17 +280,36 @@ unsafe fn run_blocks(
     while start < len {
         let rows = block_rows(start, len, offset);
         let n = rows.len();
-        let block = source.fill(rows.clone(), &mut scratch[0])?;
-        vortex_ensure_eq!(
-            block.len(),
-            n,
-            "block source emitted the wrong number of rows"
-        );
-        vortex_ensure_eq!(block.ptype(), ptypes[0]);
-        let mut cur = block.ptr.cast_mut();
-        // Which scratch block holds the current values, if any: a source may lend its own memory,
-        // which ops must not overwrite.
-        let mut cur_scratch = scratch.iter().position(|buf| buf.contains(cur));
+        let source_scratch = scratch[0].as_deref_mut().vortex_expect("allocated above");
+        // Pointers into scratch come from the executor's own mutable borrow of it, so ops may
+        // write through them; a lent block is only ever read.
+        let (mut cur, mut cur_scratch) = match source.fill(rows.clone(), source_scratch)? {
+            SourceBlock::Scratch {
+                offset,
+                len: filled,
+            } => {
+                vortex_ensure_eq!(filled, n, "block source emitted the wrong number of rows");
+                vortex_ensure!(
+                    offset + filled <= BLOCK_LEN,
+                    "block source overran its scratch"
+                );
+                let base = scratch[0]
+                    .as_deref_mut()
+                    .vortex_expect("allocated above")
+                    .as_mut_ptr();
+                // SAFETY: `offset + n <= BLOCK_LEN` values of at most 8 bytes fit in the scratch.
+                (unsafe { base.add(offset * in_width) }, Some(0))
+            }
+            SourceBlock::Lent(block) => {
+                vortex_ensure_eq!(
+                    block.len(),
+                    n,
+                    "block source emitted the wrong number of rows"
+                );
+                vortex_ensure_eq!(block.ptype(), ptypes[0]);
+                (block.ptr.cast_mut(), None)
+            }
+        };
         for (i, op) in ops.iter_mut().enumerate() {
             let out_ptype = ptypes[i + 1];
             let from = scratch_name(cur_scratch);
@@ -315,7 +342,9 @@ unsafe fn run_blocks(
                         let to = scratch_name(cur_scratch);
                         trace_op!(record_block_op(i, "copy", from, to, ptypes[i], out_ptype));
                     }
-                    scratch[target].as_mut_ptr()
+                    scratch[target]
+                        .get_or_insert_with(BlockBuf::new_boxed)
+                        .as_mut_ptr()
                 };
                 let copy = Block::Copy {
                     input: BlockIn {

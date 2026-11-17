@@ -22,10 +22,13 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use num_traits::AsPrimitive;
+use vortex_buffer::Buffer;
 use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_compute::lane_kernels::ReinterpretSink;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
@@ -74,27 +77,8 @@ impl BlockBuf {
         unsafe { std::slice::from_raw_parts_mut(self.0.as_mut_ptr().cast(), len) }
     }
 
-    /// View the first `len` values of `T`, which the caller has written.
-    ///
-    /// # Safety
-    ///
-    /// The first `len` values of `T` must be initialized.
-    pub unsafe fn view<T: NativePType>(&self, len: usize) -> BlockIn<'_> {
-        assert!(len <= BLOCK_LEN, "a block holds at most {BLOCK_LEN} rows");
-        BlockIn {
-            ptr: self.0.as_ptr().cast(),
-            len,
-            ptype: T::PTYPE,
-            _borrow: PhantomData,
-        }
-    }
-
     fn as_mut_ptr(&mut self) -> *mut u8 {
         self.0.as_mut_ptr().cast()
-    }
-
-    fn contains(&self, ptr: *mut u8) -> bool {
-        self.0.as_ptr_range().contains(&ptr.cast_const().cast())
     }
 }
 
@@ -345,19 +329,34 @@ impl<'a> Written<'a> {
     }
 }
 
+/// Where a [`BlockSource`] put the values of a block.
+#[non_exhaustive]
+pub enum SourceBlock<'s> {
+    /// In the `scratch` the executor handed it, as `len` values of the source's type starting at
+    /// value `offset`. The executor may overwrite them in place.
+    Scratch {
+        /// The index of the first value in the scratch.
+        offset: usize,
+        /// The number of values.
+        len: usize,
+    },
+    /// In memory the source owns, which ops never overwrite.
+    Lent(BlockIn<'s>),
+}
+
 /// The bottom of a fused chain: emits an array's own values, block by block, in row order.
 pub trait BlockSource: Send {
     /// Emit exactly the values of `rows`, at most [`BLOCK_LEN`] of them, written into `scratch`
-    /// or borrowed from memory the source owns.
+    /// or lent from memory the source owns.
     ///
     /// The executor asks for consecutive ranges in row order, starting at 0, and stops once they
-    /// cover the array. The returned block stays valid until the next call. A source only writes
-    /// to the `scratch` it is given.
+    /// cover the array. Values written into `scratch` belong to the executor once returned: it
+    /// may overwrite them, so a source must not keep state in `scratch` between calls.
     fn fill<'s>(
         &'s mut self,
         rows: Range<usize>,
         scratch: &'s mut BlockBuf,
-    ) -> VortexResult<BlockIn<'s>>;
+    ) -> VortexResult<SourceBlock<'s>>;
 
     /// The row at which this source would start its second block if it chose its own blocks,
     /// modulo [`BLOCK_LEN`]: a sliced BitPacked array's offset into its first chunk, so its blocks
@@ -384,9 +383,20 @@ pub trait BlockOp: Send {
 
 /// Patches resolved once and applied block by block in row order.
 pub struct BlockPatches<T> {
-    indices: Vec<usize>,
+    /// The patched rows, in increasing order.
+    indices: PatchIndices,
+    /// Subtracted from each index to get its row.
+    offset: usize,
     values: Vec<T>,
     cursor: usize,
+}
+
+/// Patch indices in their stored type.
+enum PatchIndices {
+    U8(Buffer<u8>),
+    U16(Buffer<u16>),
+    U32(Buffer<u32>),
+    U64(Buffer<u64>),
 }
 
 impl<T: NativePType> BlockPatches<T> {
@@ -398,21 +408,31 @@ impl<T: NativePType> BlockPatches<T> {
     ) -> VortexResult<Self> {
         let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
+        vortex_ensure_eq!(
+            indices.len(),
+            values.len(),
+            "patch indices and values differ in length"
+        );
+        vortex_ensure!(values.all_valid(ctx)?, "patch values must be all valid");
         let offset = patches.offset();
-        let indices: Vec<usize> = match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
+        let rows = |index: usize| index - offset;
+        let values = match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
             indices
                 .as_slice::<I>()
                 .iter()
-                .map(|&index| AsPrimitive::<usize>::as_(index) - offset)
+                .zip(values.as_slice::<S>())
+                .map(|(&index, &value)| map(rows(AsPrimitive::<usize>::as_(index)), value))
                 .collect()
         });
-        let values = indices
-            .iter()
-            .zip(values.as_slice::<S>())
-            .map(|(&row, &value)| map(row, value))
-            .collect();
+        let indices = match indices.ptype() {
+            PType::U8 => PatchIndices::U8(indices.into_buffer()),
+            PType::U16 => PatchIndices::U16(indices.into_buffer()),
+            PType::U32 => PatchIndices::U32(indices.into_buffer()),
+            _ => PatchIndices::U64(indices.into_buffer()),
+        };
         Ok(Self {
             indices,
+            offset,
             values,
             cursor: 0,
         })
@@ -423,17 +443,73 @@ impl<T: NativePType> BlockPatches<T> {
     /// Blocks must be applied in row order.
     #[inline]
     pub fn apply(&mut self, start: usize, block: &mut [T]) {
-        let end = start + block.len();
-        while let Some(&row) = self.indices.get(self.cursor) {
-            if row >= end {
-                break;
+        match &self.indices {
+            PatchIndices::U8(indices) => {
+                self.cursor = apply_patches(
+                    indices,
+                    self.offset,
+                    &self.values,
+                    self.cursor,
+                    start,
+                    block,
+                )
             }
-            if row >= start {
-                block[row - start] = self.values[self.cursor];
+            PatchIndices::U16(indices) => {
+                self.cursor = apply_patches(
+                    indices,
+                    self.offset,
+                    &self.values,
+                    self.cursor,
+                    start,
+                    block,
+                )
             }
-            self.cursor += 1;
+            PatchIndices::U32(indices) => {
+                self.cursor = apply_patches(
+                    indices,
+                    self.offset,
+                    &self.values,
+                    self.cursor,
+                    start,
+                    block,
+                )
+            }
+            PatchIndices::U64(indices) => {
+                self.cursor = apply_patches(
+                    indices,
+                    self.offset,
+                    &self.values,
+                    self.cursor,
+                    start,
+                    block,
+                )
+            }
         }
     }
+}
+
+/// Overwrite the rows of `block` (rows `start..`) patched by `indices[cursor..]`, and return the
+/// cursor past them.
+fn apply_patches<I: AsPrimitive<usize>, T: Copy>(
+    indices: &[I],
+    offset: usize,
+    values: &[T],
+    mut cursor: usize,
+    start: usize,
+    block: &mut [T],
+) -> usize {
+    let end = start + block.len();
+    while let Some(&index) = indices.get(cursor) {
+        let row = index.as_() - offset;
+        if row >= end {
+            break;
+        }
+        if row >= start {
+            block[row - start] = values[cursor];
+        }
+        cursor += 1;
+    }
+    cursor
 }
 
 mod fused;
@@ -441,6 +517,7 @@ mod program;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use fused::Fused;
 pub(crate) use fused::fuse_into_parent;
 pub(crate) use program::BlockProgram;
 pub(crate) use program::ProgramInput;

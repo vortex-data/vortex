@@ -11,8 +11,10 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::registry::CachedId;
@@ -150,8 +152,10 @@ impl VTable for Fused {
             program.ops(),
             array.len()
         ));
+        // Level-wise execution materializes validity, so a fused result does too.
+        let validity = state.validity.clone().execute(ctx)?;
         Ok(ExecutionResult::done(
-            program.run(state.validity.clone(), ctx)?.into_array(),
+            program.run(validity, ctx)?.into_array(),
         ))
     }
 }
@@ -176,17 +180,33 @@ pub(crate) fn fuse_into_parent(
     slot_idx: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Result<ArrayRef, ArrayRef>> {
-    let Some(parent_ptype) = fusable_ptype(parent) else {
+    let (Some(parent_ptype), Some(_)) = (fusable_ptype(parent), fusable_ptype(&child)) else {
         return Ok(Err(child));
     };
     if child.is_empty() {
         return Ok(Err(child));
     }
+    vortex_ensure_eq!(
+        child.len(),
+        parent.len(),
+        "a spine child has its parent's length"
+    );
+    // The input first, so a child that cannot start a program costs no op. A fused child keeps
+    // its program until the op exists.
+    let input = if child.is::<Fused>() {
+        None
+    } else {
+        match program_for(&child, ctx)? {
+            Some(program) => Some(program),
+            None => return Ok(Err(child)),
+        }
+    };
     let Some(op) = parent.block_op(slot_idx, child.dtype(), ctx)? else {
         return Ok(Err(child));
     };
-    let Some(mut program) = program_for(&child, ctx)? else {
-        return Ok(Err(child));
+    let mut program = match input {
+        Some(program) => program,
+        None => program_for(&child, ctx)?.vortex_expect("a fused child holds its program"),
     };
     program.push(op, parent_ptype);
 

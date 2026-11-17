@@ -37,6 +37,7 @@ use crate::IntoArray;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::aggregate_fn::session::AggregateKernels;
 use crate::array::ArrayId;
+use crate::block::Fused;
 use crate::block::fuse_into_parent;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
@@ -221,29 +222,26 @@ impl ArrayRef {
                 current_builder.is_some(),
             ));
 
-            let (done_target, done_canonical) = match stack.last() {
-                None => root_done_check::<M>(&current_array),
-                Some(frame) => (
-                    (frame.done)(&current_array),
-                    AnyCanonical::matches(&current_array),
-                ),
+            let (done_target, done_canonical) = if current_array.is::<Fused>() {
+                // A fused array is driven before anything sees it, whatever the target matches.
+                (false, false)
+            } else {
+                match stack.last() {
+                    None => root_done_check::<M>(&current_array),
+                    Some(frame) => (
+                        (frame.done)(&current_array),
+                        AnyCanonical::matches(&current_array),
+                    ),
+                }
             };
             trace_op!(record_execute_until_done_check(done_target, done_canonical));
 
             if done_target || done_canonical {
                 // On the way up, a canonical child of a spine parent starts a block program
                 // instead of being put back, and the parent becomes a fused array.
-                if done_canonical
-                    && ctx.block_fusion
-                    && current_builder.is_none()
-                    && let Some(frame) = stack.last()
-                    && frame.spine
-                    && frame.parent_builder.is_none()
-                {
-                    match fuse_into_parent(current_array, &frame.parent_array, frame.slot_idx, ctx)?
-                    {
+                if done_canonical && ctx.block_fusion && current_builder.is_none() {
+                    match try_fuse(&mut stack, current_array, kernels, ctx)? {
                         Ok(fused) => {
-                            stack.pop();
                             current_array = fused;
                             child_rewritten = false;
                             continue;
@@ -382,15 +380,9 @@ impl ArrayRef {
             // block program from it, or extend the one a fused array holds, and the parent becomes
             // a fused array. This edge had its execute_parent probes in 2a and 2b, so fusing skips
             // no kernel. A fused array no parent extends is executed below, which drives it.
-            if ctx.block_fusion
-                && current_builder.is_none()
-                && let Some(frame) = stack.last()
-                && frame.spine
-                && frame.parent_builder.is_none()
-            {
-                match fuse_into_parent(current_array, &frame.parent_array, frame.slot_idx, ctx)? {
+            if ctx.block_fusion && current_builder.is_none() {
+                match try_fuse(&mut stack, current_array, kernels, ctx)? {
                     Ok(fused) => {
-                        stack.pop();
                         current_array = fused;
                         child_rewritten = false;
                         continue;
@@ -498,6 +490,44 @@ fn block_fusion_default() -> bool {
     static ENABLED: LazyLock<bool> =
         LazyLock::new(|| std::env::var("VORTEX_BLOCK_FUSION").map_or(true, |v| v != "0"));
     *ENABLED
+}
+
+/// On the way up, fuse `child` into the spine parent suspended on the top of the stack, which
+/// becomes a [`Fused`] array, and pop that parent's frame. Returns `child` back if the parent
+/// cannot extend a block program.
+///
+/// A parent with execute-parent kernels of its own, or one the next parent up has a kernel for,
+/// is not fused: replacing it would skip the kernels that probe it with its child executed.
+fn try_fuse(
+    stack: &mut Vec<StackFrame>,
+    child: ArrayRef,
+    kernels: &ParentExecutionKernels,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Result<ArrayRef, ArrayRef>> {
+    let Some(frame) = stack.last() else {
+        return Ok(Err(child));
+    };
+    if !frame.spine || frame.parent_builder.is_some() {
+        return Ok(Err(child));
+    }
+    let parent = &frame.parent_array;
+    if has_execute_parent_kernels(kernels, parent)
+        || stack.iter().rev().nth(1).is_some_and(|grand| {
+            kernels.contains_key(&execute_parent_key(
+                grand.parent_array.encoding_id(),
+                parent.encoding_id(),
+            ))
+        })
+    {
+        return Ok(Err(child));
+    }
+    match fuse_into_parent(child, parent, frame.slot_idx, ctx)? {
+        Ok(fused) => {
+            stack.pop();
+            Ok(Ok(fused))
+        }
+        Err(child) => Ok(Err(child)),
+    }
 }
 
 /// Suspend `array` on the stack while its slot `slot_idx` executes, returning that child.

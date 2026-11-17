@@ -23,9 +23,9 @@ use vortex_session::registry::CachedId;
 use super::BLOCK_LEN;
 use super::Block;
 use super::BlockBuf;
-use super::BlockIn;
 use super::BlockOp;
 use super::BlockSource;
+use super::SourceBlock;
 use super::Written;
 use super::fused_chain_count;
 use super::in_place_chain_count;
@@ -180,14 +180,16 @@ impl BlockSource for CounterSource {
         &'s mut self,
         rows: Range<usize>,
         scratch: &'s mut BlockBuf,
-    ) -> VortexResult<BlockIn<'s>> {
+    ) -> VortexResult<SourceBlock<'s>> {
         self.fills.lock().push(rows.clone());
         let out = scratch.out::<i32>(rows.len());
         for (out, row) in out.iter_mut().zip(rows.clone()) {
             out.write(self.start + i32::try_from(row).unwrap_or(i32::MAX));
         }
-        // SAFETY: the loop wrote every value.
-        Ok(unsafe { scratch.view::<i32>(rows.len()) })
+        Ok(SourceBlock::Scratch {
+            offset: 0,
+            len: rows.len(),
+        })
     }
 
     fn block_offset(&self) -> usize {
@@ -581,7 +583,8 @@ block_op 2 in_place i32->i32 leaf -> leaf"
 block_op 1 in_place i32->i32 scratch0 -> scratch0
 block_op 2 copy i32->i32 scratch0 -> output"
     ));
-    assert_eq!(shared.len(), 3000);
+    // The shared leaf still holds its own values.
+    assert_arrays_eq!(shared, build(), &mut ctx);
     Ok(())
 }
 
@@ -601,5 +604,72 @@ fn disabled_fusion_runs_level_wise() -> VortexResult<()> {
 fn empty_arrays_do_not_fuse() -> VortexResult<()> {
     let (counter, _) = counter(0, 0, 0);
     assert!(!fused(add(add(counter)))?.contains("fuse "));
+    Ok(())
+}
+
+/// Matches any array but the test op: a target `execute_until` reaches as soon as a test op is
+/// fused away.
+struct NotTestOp;
+
+impl crate::matcher::Matcher for NotTestOp {
+    type Match<'a> = &'a ArrayRef;
+
+    fn matches(array: &ArrayRef) -> bool {
+        !array.is::<TestOp>()
+    }
+
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
+        Self::matches(array).then_some(array)
+    }
+}
+
+/// A fused array is driven before the target is checked, so it never leaves `execute_until`,
+/// even for a target that matches it.
+#[test]
+fn fused_arrays_never_leave_execute_until() -> VortexResult<()> {
+    let (counter, _) = counter(3, 2000, 0);
+    let mut ctx = SESSION.create_execution_ctx();
+    let output = add(add(counter)).execute_until::<NotTestOp>(&mut ctx)?;
+    assert!(output.is::<Primitive>(), "{}", output.encoding_id());
+    assert_arrays_eq!(output, PrimitiveArray::from_iter(5..2005i32), &mut ctx);
+    Ok(())
+}
+
+#[derive(Debug)]
+struct DeclineKernel;
+
+impl crate::kernel::ExecuteParentKernel<Primitive> for DeclineKernel {
+    type Parent = TestOp;
+
+    fn execute_parent(
+        &self,
+        _array: ArrayView<'_, Primitive>,
+        _parent: <Self::Parent as crate::matcher::Matcher>::Match<'_>,
+        _child_idx: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(None)
+    }
+}
+
+/// A parent with execute-parent kernels of its own is not fused, so the kernels still probe it
+/// once its child is canonical.
+#[test]
+fn parents_with_kernels_are_not_fused() -> VortexResult<()> {
+    use crate::optimizer::kernels::ArrayKernelsExt;
+
+    let session = VortexSession::empty().with::<ArraySession>();
+    session
+        .kernels()
+        .register_execute_parent_kernel(TestOp.id(), Primitive, DeclineKernel);
+    let (counter, _) = counter(0, 2000, 0);
+    let mut ctx = session.create_execution_ctx();
+    let traced = trace_op(|| add(add(counter)).execute::<PrimitiveArray>(&mut ctx))?;
+    assert!(!traced.trace.to_string().contains("fuse "));
+    assert_arrays_eq!(
+        traced.output,
+        PrimitiveArray::from_iter(2..2002i32),
+        &mut ctx
+    );
     Ok(())
 }
