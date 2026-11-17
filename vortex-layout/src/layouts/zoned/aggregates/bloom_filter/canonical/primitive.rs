@@ -37,23 +37,7 @@ fn accumulate_primitive_float(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     match_each_float_ptype!(array.ptype(), |T| {
-        let slice = array.as_slice::<T>();
-
-        match array.validity()?.execute_mask(slice.len(), ctx)? {
-            Mask::AllTrue(_) => {
-                for value in slice {
-                    partial.insert(value.to_le_bytes());
-                }
-            }
-            Mask::AllFalse(_) => {}
-            Mask::Values(mask_values) => {
-                for &(start, end) in mask_values.slices() {
-                    for value in &slice[start..end] {
-                        partial.insert(value.to_le_bytes());
-                    }
-                }
-            }
-        };
+        insert_primitive_slice(array, partial, ctx, array.as_slice::<T>())?
     });
 
     Ok(())
@@ -65,13 +49,14 @@ fn accumulate_primitive_int(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     match_each_integer_ptype!(array.ptype(), |T| {
-        insert_integer_slice(array, partial, ctx, array.as_slice::<T>())?
+        insert_primitive_slice(array, partial, ctx, array.as_slice::<T>())?
     });
 
     Ok(())
 }
 
-fn insert_integer_slice<T>(
+/// Inserts the little-endian bytes of each valid value in `slice` into `partial`.
+fn insert_primitive_slice<T>(
     array: &PrimitiveArray,
     partial: &mut BloomPartial,
     ctx: &mut ExecutionCtx,
