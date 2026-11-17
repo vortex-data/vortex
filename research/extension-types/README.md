@@ -11,6 +11,7 @@ That causes wrong results, panics, and code paths that disagree with each other.
 | [3. Design](03-design.md) | The proposed model, the alternatives, and the open questions |
 | [4. Urgent changes](04-urgent-changes.md) | Fixes to make now, before the larger design |
 | [5. Implementation](05-implementation.md) | Phases, the dependency graph, order, tests and compatibility |
+| [6. Agent plan](06-agent-plan.md) | Tasks for coding agents, one for each open PR, and how they run |
 
 ## Summary
 
@@ -20,13 +21,12 @@ That causes wrong results, panics, and code paths that disagree with each other.
 - On `develop`, the same cast or comparison can return a correct value, a wrong value, or an error.
   The outcome depends on the encoding of the input, and on whether one row or the whole array is
   read.
-- The proposal: extension types are opaque by default. A typing check rejects every semantic
-  operation that no claim, rule or declaration covers. Rewrite rules turn the allowed ones into
-  storage operations. The kernels of generic operations, statistics and pruning see only storage.
-- Each extension dtype makes claims about its storage, such as `Eq` and `Ord`. Each function
-  declares how it uses extension operands, and a function that runs on storage says how its result
-  gets the extension dtype back. Each type also owns rewrite rules for its own operations, such as
-  casts. Engines convert operands of different dtypes before Vortex sees them.
+- The proposal: extension types are opaque by default. Each function checks the claims of its
+  operand types in its own `return_dtype`, so it rejects every semantic operation that no claim or
+  rule covers when the call is built. The function then runs the allowed calls on storage.
+- Each extension dtype makes claims about its storage, such as `Eq` and `Ord`. Each type also owns
+  rewrite rules for its own operations, such as casts. Engines convert operands of different dtypes
+  before Vortex sees them.
 - A design pass on 2026-10-29 settled this mechanism. Part 3 describes it, and part 5 has the new
   phase plan.
 - A second pass on 2026-10-30 settled nullability. An extension type cannot choose its top-level
@@ -38,6 +38,10 @@ That causes wrong results, panics, and code paths that disagree with each other.
   hardcoded opt-ins for the types in the repository.
   [#11115](https://github.com/vortex-data/vortex/issues/11115) adds the claims and the storage
   paths that use them, and replaces the hardcoded opt-ins (X35).
+- A pass on 2026-11-17 removed the declaration on each function (`ExtensionUse`), the result
+  mappings and the hardcoded opt-ins (X36 to X38). `return_dtype` is the type checker, so each
+  function checks the claims there, and its own code runs the accepted calls on storage. The claims
+  land first, and each function family then switches to them in one PR.
 - A rewrite rule keeps generic structural arrays such as `Constant` and `Dict` above the extension
   wrapper. So code finds them without any knowledge of extension types.
 - [`../decisions.md`](../decisions.md) records which of these points are decided and which are

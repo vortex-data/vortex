@@ -21,6 +21,9 @@ both commits. #11015 fixed EXT-V4, EXT-V5 and EXT-V8 on 2026-10-30. On 2026-11-0
 2026-11-04, #11187 fixed EXT-V10, and #11183 fixed the validator part of EXT-N2.
 `../05-implementation.md` maps each one to its findings.
 
+A pass on 2026-11-17 added EXT-A4 and EXT-A5, from two read-only audits of `develop` at
+`3ebf68d239`. Their line numbers are for that commit.
+
 This catalog covers current code only. Problems in the proposed design appear as design rationale
 in `design-notes.md`.
 
@@ -65,6 +68,8 @@ Terms:
 | EXT-A1 | Ordering-based operations disagree about extension types | S3 | probe |
 | EXT-A2 | Zone maps fall back to storage statistics | S3 | code |
 | EXT-A3 | The storage pushdown returns storage values | S1 | code |
+| EXT-A4 | The bloom filter hashes the storage of every extension type | S3 | code |
+| EXT-A5 | Pruning adds no NaN guard for an extension type stored as floats | S1 | code |
 | EXT-V1 | Arrays are never value-checked, and reads panic on bad values | S2 | probe |
 | EXT-V2 | `Extension::validate` never checks the storage dtype | S2 | probe |
 | EXT-V3 | Zero values come from storage and skip extension validation | S2 | probe |
@@ -216,8 +221,8 @@ Terms:
 - **Impact:** The result is wrong for any type whose storage order or storage equality differs from
   its value order or value equality. Examples in the repository: JSON (key order and whitespace),
   WKB geometry (two encodings of one geometry), vectors and tensors (no natural order).
-- **Fix:** Claims for one dtype (X13), which typing reads (X17). See `design-notes.md`, sections 3
-  and 4.
+- **Fix:** Claims for one dtype (X13), which each function checks in its `return_dtype` (X36). See
+  `design-notes.md`, sections 3 and 4.
 
 ### EXT-Q3: `DateTimeParts` compare kernel trusts its operand types
 
@@ -318,9 +323,41 @@ Terms:
   `storage_pushdown.rs`, only the registrations (`vortex-array/src/aggregate_fn/session.rs:134-136`
   and `:192-194`, `encodings/uuid/src/lib.rs:46`) and the `Uuid` tests name the adapter. The test
   `pushes_down_into_storage` (`storage_pushdown.rs:350`) asserts the storage result.
-- **Fix:** SP4, tracked in [#11243](https://github.com/vortex-data/vortex/issues/11243). U9
-  (#11188) gave each result that is a value of the input the extension dtype back inside the
-  adapter (X12), but the maintainer dropped it on 2026-11-04.
+- **Fix:** TY2, tracked in [#11243](https://github.com/vortex-data/vortex/issues/11243). Each
+  order aggregate checks `Ord` in its own `return_dtype`, runs on storage itself and wraps its
+  results in the input dtype, and the adapter goes away (X37). U9 (#11188) gave each result that is
+  a value of the input the extension dtype back inside the adapter (X12), but the maintainer dropped
+  it on 2026-11-04.
+
+### EXT-A4: The bloom filter hashes the storage of every extension type
+
+- **Locations:**
+  - `vortex-layout/src/layouts/zoned/aggregates/bloom_filter/mod.rs:406-411`:
+    `is_bloom_valid_dtype` accepts an extension dtype whenever its storage dtype is valid.
+  - `bloom_filter/canonical/extension.rs:12-21` and `bloom_filter/partial/scalar.rs:31` hash the
+    storage values.
+  - `bloom_filter/scalar_fn.rs:233-277`: `BloomEqRewrite` rewrites `col == lit` into a bloom
+    filter lookup. It is not turned on yet.
+- **Impact:** A zone map can hold a bloom filter of a `Json` or WKB column. Two storage forms of one
+  `Json` value hash differently, so a lookup through the filter would answer "absent" for a value
+  that is present. No wrong result happens today, because the rewrite is off and compare on those
+  types also uses storage equality.
+- **Fix:** The bloom filter accepts an extension dtype only when it holds `Eq` and its storage is
+  valid for the filter (X38). TY1 rejects `json_a = json_b` when it is bound, so the rewrite never
+  sees such a call.
+- **Tests:** `bloom_filter/canonical/extension.rs:39` and `:69` cover extension columns today.
+
+### EXT-A5: Pruning adds no NaN guard for an extension type stored as floats
+
+- **Location:** `vortex-expr/src/stats/rewrite/builtins.rs:757-759`. `has_nans` returns
+  `dtype.is_float()`, which is false for every extension dtype.
+- **Impact:** `min_max` treats an extension type stored as floats as floats, so its min and max skip
+  `NaN` values (`vortex-array/src/aggregate_fn/fns/min_max/mod.rs:171-207`). Pruning of `x > 5`
+  then reads `max(x) > 5` with no NaN guard, and it can skip a zone that holds `NaN`. Under the
+  total order of Vortex, `NaN > 5` is true. No extension type in the repository is stored as
+  floats at the top level, so only a type outside the repository can reach this today.
+- **Fix:** `has_nans` looks through extension dtypes to their storage, with a test type over `f64`
+  that claims `Ord` (ST1).
 
 ### EXT-V1: Arrays are never value-checked, and reads panic on bad values
 
@@ -341,7 +378,7 @@ Terms:
 - **Fix:** Return an error from these read paths (U3). Make `ExtensionArray::try_new` check values
   with a batch `validate_array`, and add `ExtensionArray::new_unchecked` for kernels
   (`design-notes.md`, section 8). Make the row path of `ext_storage` read the storage without a
-  value check (SP2).
+  value check (LP2, X34).
 
 ### EXT-V2: `Extension::validate` never checks the storage dtype
 

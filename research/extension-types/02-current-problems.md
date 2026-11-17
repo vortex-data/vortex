@@ -106,13 +106,13 @@ both paths. The cast rows stay until U1.
   [#10566](https://github.com/vortex-data/vortex/pull/10566) and
   [#10616](https://github.com/vortex-data/vortex/pull/10616) add separate aggregates, such as
   `vortex.is_sorted[vortex.timestamp]`, that run on storage for `Date`, `Time`, `Timestamp` and
-  `Uuid`. Plain `is_sorted` and `min_max` do not use them. In SP4, their computation becomes the
-  default storage path of the plain aggregates, and the separate IDs go away (X10, X21).
+  `Uuid`. Plain `is_sorted` and `min_max` do not use them. In TY2, the plain aggregates run on
+  storage for types that claim `Ord`, and the separate IDs go away (X10, X37).
   [#10408](https://github.com/vortex-data/vortex/pull/10408) proposed yet another opt-in for
   `between`, but it closed without a merge on 2026-11-03.
 - **Storage pushdown results (EXT-A3).** The separate aggregates return storage values. The min of a
   `Timestamp(ms)` column is a raw `i64`, while plain `min_max` returns a `Timestamp`. Nothing wraps
-  the result later (X12). Issue #11243 tracks this bug until SP4 fixes it.
+  the result later (X12). Issue #11243 tracks this bug until TY2 fixes it.
 - **Zone maps (EXT-A2).** When a statistic rejects an extension dtype, the zone map uses the storage
   dtype. JSON and WKB columns store exact, unbounded bounds, so WKB zone maps hold whole geometry
   blobs. Writers have stored storage-order min and max for every extension type for at least a

@@ -14,33 +14,33 @@ another commit. The design pass of 2026-10-29 replaced the `Derives` flags with 
 and settled the function declarations, the result mappings and the rules of a type (X17 to X21).
 A second pass on 2026-10-30 settled nullability and the storage declaration (X25 to X30, section
 9), the range of `Timestamp` (X31), and the boundary that rewrites respect (X33, X34, section 6.5).
-Phases refer to the plan in `../05-implementation.md`.
+A pass on 2026-11-17 removed the function declarations, the result mappings and the generic storage
+rewrite: each function checks its claims in `return_dtype` and runs on storage itself (X36 to X38,
+section 4). Phases and PR IDs refer to the plan in `../05-implementation.md`.
 
 ## 1. Invariants
 
 The design holds these invariants. Every change in the plan must keep them.
 
-- **I1.** A semantic operation on an operand that contains an extension dtype is rejected by
-  default. A claim of the type, a rule that the type owns, or a `Specific` declaration of the
-  function can allow it (sections 3 and 4).
+- **I1.** A semantic operation on an operand that contains an extension dtype is rejected. A claim
+  of the type, a rule that the type owns, or a function written for that type can allow it
+  (sections 3 and 4).
 - **I2.** A structural operation on an extension value is always allowed and keeps the extension
   dtype.
-- **I3.** Two kinds of rules decide how a generic operation treats extension values. They are the
-  default storage paths of the core and the rules that each extension type owns (section 4). No
-  other code applies storage semantics to an extension value. Every node meets a typing check when
-  code builds it (section 4.1). The rules run on every path that optimizes or executes arrays and
-  bound expressions (section 4.5).
-- **I4.** After the rules run, a generic operation applies storage semantics to an extension value
-  only where a claim covers it (sections 3.4 and 4.3). The kernels of generic semantic
-  operations, statistics and pruning see storage dtypes only, at every depth. Generic structural
-  encodings sit above the extension wrapper, and storage encodings sit below it (section 6). A
-  `Specific` function sees the extension types that it names. `DateTimeParts` stays an exception
-  until it moves under the wrapper, which has low priority (EXT-S2).
+- **I3.** Two things decide how a generic operation treats extension values: the storage path of
+  the function, which a claim allows, and the rules that each extension type owns (section 4). No
+  other code applies storage semantics to an extension value. Every node meets `return_dtype` when
+  code builds it (section 4.1), and code that builds no node checks the claims directly (X38).
+- **I4.** A generic operation applies storage semantics to an extension value only where a claim
+  covers it (sections 3.4 and 4.3). Generic structural encodings sit above the extension wrapper,
+  and storage encodings sit below it (section 6). A function written for named types sees those
+  types. `DateTimeParts` stays an exception until it moves under the wrapper, which has low
+  priority (EXT-S2).
 - **I5.** The only ways to move between an extension dtype and another dtype are `ext_storage`,
-  `ext_storage_deep` and the rules that the extension type owns. A rule that produces extension
+  the storage paths that a claim allows, and the rules that the extension type owns. A rule that produces extension
   values builds the extension array itself (section 5). No `ext_wrap` expression exists (X4). Any
-  function can move through a generic structural encoding, but only these ways and the default
-  storage paths cross the `Extension` wrapper (X33, section 6.5).
+  function can move through a generic structural encoding, but only these ways cross the
+  `Extension` wrapper (X33, section 6.5).
 - **I6.** The row path and the array path apply the same rules, so they return the same result
   (EXT-P1). Issue [#10313](https://github.com/vortex-data/vortex/issues/10313) owns the separate
   question of whether a validity query raises errors from values that it skips (X9).
@@ -50,14 +50,14 @@ The design holds these invariants. Every change in the plan must keep them.
   nullability of an extension dtype is the top-level nullability of its storage, and the type
   cannot choose it (X25).
 - **I9.** An unknown extension type (`ForeignExtDType`) makes no claims and owns no rules, and no
-  `Specific` declaration matches it.
+  function written for named types matches it.
 - **I10.** Each extension type declares its storage from its metadata. Vortex builds the storage
   dtype, and a read checks that the stored storage equals the declaration exactly (X27, X29).
 
 ## 2. Operation classes
 
 Structural operations do not read values. Semantic operations depend on what values mean. A
-`Specific` function implements the semantics of the extension types that it names.
+function written for named types implements their semantics itself.
 
 | Operation | Class | Note |
 | --- | --- | --- |
@@ -70,7 +70,7 @@ Structural operations do not read values. Semantic operations depend on what val
 | `pack`, `merge`, `select`, `get_item` on a struct that holds extension fields | Structural | The extension field stays opaque |
 | `cast` to the same dtype with another nullability | Structural | The only generic extension cast (X30) |
 | `scalar_at`, serialization, compression of storage | Structural | Constant detection for compression compares storage |
-| `ext_storage`, `ext_storage_deep` | Structural | Explicit unwrap of the top level, or of every level |
+| `ext_storage` | Structural | Explicit unwrap of the top level |
 | `=`, `!=` | Semantic | Needs the `Eq` claim or a rule of the type |
 | `<`, `<=`, `>`, `>=`, `between` | Semantic | Needs the `Ord` claim or a rule of the type |
 | `min`, `max`, `min_max`, `bounded_min`, `bounded_max`, `is_sorted`, sort keys | Semantic | Needs the `Ord` claim or a rule of the type |
@@ -80,7 +80,7 @@ Structural operations do not read values. Semantic operations depend on what val
 | `is_nan`, `nan_count`, `like`, `byte_length` | Semantic | Needs a rule of the type, or a later claim |
 | Zero and default values | Semantic | Needs a `zero_value` hook |
 | Export to Arrow, DuckDB, DataFusion, Python, JNI | Semantic | Needs a plugin or converter of the type. Arrow and DataFusion fall back to storage with extension metadata (X24) |
-| `replace_time_zone`, tensor functions, spatial functions | `Specific` | The function owner names the types (section 4.2) |
+| `replace_time_zone`, tensor functions, spatial functions | Named types | The function checks its types in `return_dtype` (section 4.2) |
 
 ## 3. Claims
 
@@ -161,8 +161,9 @@ ways, such as text functions on `Json` (section 4.2).
 - **CL4.** The declared storage dtype holds every claim of the type, and the claims do not depend
   on the top-level nullability. `ExtDType::try_new` checks this when it builds the dtype (X15,
   X27).
-- **CL5.** A claim that allows the `Rewrap` mapping guarantees legal results (X19). `Eq` and `Ord`
-  do, because their results are input values.
+- **CL5.** A storage path may wrap its results with `ExtensionArray::new_unchecked` only when they
+  are input values. `Eq` and `Ord` allow only such results: a boolean, or a stored value such as a
+  minimum (section 5).
 
 The check of CL4 walks the dtype tree once. It stops at nested extension dtypes, which were checked
 when they were built, so its cost is linear in the size of the tree up to those dtypes. The
@@ -173,23 +174,23 @@ other oracle.
 
 ### 3.3 Use by operation
 
-| Operation | Arguments that need the claim | Claim | Result mapping |
+| Operation | Arguments that need the claim | Claim | Result |
 | --- | --- | --- | --- |
-| `=`, `!=` | Both operands | `Eq` | `Keep` |
-| `<`, `<=`, `>`, `>=` | Both operands | `Ord` | `Keep` |
-| `between` | All three operands. `Between::return_dtype` already requires one dtype (`vortex-array/src/scalar_fn/fns/between/mod.rs:282-305`) | `Ord` | `Keep` |
-| `min`, `max` | The one input | `Ord` | `Rewrap` with the input dtype |
-| `min_max` | The one input | `Ord` | `Fields` with two `Rewrap`s |
-| `bounded_min`, `bounded_max` | The one input | `Ord` | `Keep` over `Utf8` and `Binary` storage, where they can truncate, and `Rewrap` otherwise |
-| `is_sorted`, sort keys, the row encoding | The one input, or the key columns | `Ord` | `Keep` |
-| `is_constant`, `all_non_distinct`, distinct, group by | The one input | `Eq` | `Keep` |
-| `list_contains` | The list, when its elements are extension values, and the needle | `Eq` | `Keep` |
+| `=`, `!=` | Both operands | `Eq` | `Bool` |
+| `<`, `<=`, `>`, `>=` | Both operands | `Ord` | `Bool` |
+| `between` | All three operands. `Between::return_dtype` already requires one dtype (`vortex-array/src/scalar_fn/fns/between/mod.rs:302-325` at `3ebf68d239`) | `Ord` | `Bool` |
+| `min`, `max` | The one input | `Ord` | A value of the input dtype |
+| `min_max` | The one input | `Ord` | A struct of two values of the input dtype |
+| `bounded_min`, `bounded_max` | The one input | `Ord` | A value of the input dtype. Truncation applies only to top-level `Utf8` and `Binary`, so an extension value is never truncated |
+| `is_sorted`, sort keys, the row encoding | The one input, or the key columns | `Ord` | `Bool`, or row bytes |
+| `is_constant`, `all_non_distinct`, distinct, group by | The one input | `Eq` | `Bool` |
+| `list_contains` | The list, when its elements are extension values, and the needle | `Eq` | `Bool` |
 | Join keys, hash partitioning | The key columns on both sides | `Eq` | Not a function result |
 
 An aggregate binds to one input dtype (`AggregateFnVTable::return_dtype`,
 `vortex-array/src/aggregate_fn/vtable.rs:170`), so it reads the claims of its one input. A function
-outside this table gets no default storage path. It answers `Structural`, `Specific` or `None`, and
-a rule of the type can cover a `None` call (section 4).
+outside this table gets no storage path. It is structural, it is written for named types, or it
+rejects extension operands, and a rule of the type can still cover a call (section 4).
 
 ### 3.4 Containers
 
@@ -200,9 +201,9 @@ each argument, and no separate check runs at every depth. An order comparison of
 `struct{ts: Timestamp(ms)}` values needs `Ord` on `Timestamp(ms)`. Any comparison of two
 `struct{doc: Json}` values is rejected.
 
-After the check, the storage rewrite removes every extension layer at every depth (section 4.3,
-X6). The kernel then sees only storage dtypes. So the extension branch of the nested comparator
-(`vortex-array/src/scalar_fn/fns/binary/compare/nested.rs:229-233`) goes away in SP3.
+After the check, the storage path compares storage at every depth. The extension branch of the
+nested comparator (`vortex-array/src/scalar_fn/fns/binary/compare/nested.rs:229-233`) already does
+this, and it stays (section 4.3, X6).
 
 ### 3.5 Operations across dtypes
 
@@ -234,224 +235,111 @@ For floats they use `to_bits` and `total_cmp` (`vortex-array/src/dtype/ptype.rs:
 `:329-336` at `c56ee8803b`). Probe R3 shows this for primitive and fixed-size list compares. A type
 stored as floats that claims `Eq` or `Ord` inherits these semantics on purpose.
 
-## 4. Typing and rewrite rules
+## 4. Typing and execution
 
 A call with an extension operand passes two steps. Typing checks the call when code builds the
-node. Rewrite rules then replace an accepted semantic call with operations on storage. Typing never
-rewrites, and the rules never accept a call that typing rejected.
+node. Execution then runs an accepted call on storage. Both steps read the same claims (X36, X37),
+so they cannot disagree. Typing never rewrites, and execution never accepts a call that typing
+rejected.
+
+Until 2026-11-17, this section described a declaration on each function (`ExtensionUse`), result
+mappings (`ResultMapping`) and a generic storage rewrite. The maintainer replaced them with checks
+in each function (X36). The old text is in the history of this file.
 
 ### 4.1 Typing
 
-Every node of a compute graph meets a typing check when code builds it. Today that check is
-`return_dtype`, and it runs in four places:
+Every node of a compute graph meets `return_dtype` when code builds it. It runs in four places:
 
-- `BoundExpression::try_new_vec` (`vortex-array/src/expr/bound_expression.rs:129-148`).
-  `Expression::bind`, `with_children` in the optimizer and the reduce rules of bound expressions
-  all reach it.
-- `ScalarFnArray::try_new_from_slots` (`vortex-array/src/arrays/scalar_fn/array.rs:102-114`).
-  `try_new`, `try_new_with_len`, `ArrayRef::apply_bound` and the reduce rules of arrays all reach
-  it.
+- `BoundExpression::try_new_vec` (`vortex-array/src/expr/bound_expression.rs:127-146` at
+  `3ebf68d239`). It calls `bind_options` first. `Expression::bind`, `with_children` in the
+  optimizer and the reduce rules of bound expressions all reach it.
+- `ScalarFnArray::try_new_from_slots` (`vortex-array/src/arrays/scalar_fn/array.rs:103-117`).
+  `try_new`, `try_new_with_len`, `ArrayRef::apply_bound`, the reduce rules of arrays and
+  deserialization (`plugin.rs:97`) all reach it.
 - `AggregateDTypes::try_new` (`vortex-array/src/aggregate_fn/vtable.rs:55-75`), where an aggregate
-  meets an input dtype. `Accumulator::try_new` reaches it, and DuckDB aggregate pushdown calls
-  `Accumulator::try_new` directly (`vortex-duckdb/src/convert/expr.rs:543-552`).
-  `Accumulator::from_dtypes` takes dtypes that are already resolved, so it accepts only checked
-  dtypes. `return_dtype` and `state_dtype` of `AggregateFnRef` answer dtype questions without an
-  accumulator (`vortex-array/src/aggregate_fn/erased.rs:86-95`), so they apply the same check.
-- `ScalarFn::validate` (`vortex-array/src/arrays/scalar_fn/vtable/mod.rs:79-121`) checks a scalar
-  function array that code builds from parts.
+  meets an input dtype. It fails when `return_dtype` or `partial_dtype` is `None`.
+  `Accumulator::try_new` reaches it, and so does DuckDB aggregate pushdown.
+- `ScalarFn::validate` (`vortex-array/src/arrays/scalar_fn/vtable/mod.rs:77-122`). It runs from
+  `Array::try_from_parts`, which `with_slots` uses. It calls only `return_dtype`, without
+  `bind_options`.
 
-Two changes on `develop` since `5fc5cb8` affect these places. Since #10502, the first two call
-`ScalarFnVTable::bind_options` before `return_dtype` (`bound_expression.rs:139` at `1d09649bbd`),
-and `ScalarFn::validate` calls only `return_dtype`. Also, `Expression::Variable` and `Lambda`
-(#10502) and `list_transform` (#10503) give a function a body that runs on list elements. Typing
-must check that body too, because an element can be an extension value.
+`return_dtype` is the type checker of Vortex (X36). A function that needs equality or order checks
+the claim with `DType::holds` in its own `return_dtype`. The shared helper `require_claim` returns
+an error that names the function, the dtype and the missing claim, so every function reports in the
+same way. No generic check runs around `return_dtype`, and there is no `extension_use` method.
 
-Typing calls `extension_use` once for each call that has an operand with an extension dtype at any
-depth (X17). It acts on the answer:
+Some code builds or runs a node without `return_dtype`:
 
-1. `Structural`: typing accepts the call. The function's own `return_dtype` sees the extension
-   dtypes, and its value operands already need one dtype, ignoring nullability.
-2. `Specific`: typing accepts the call, and the function's own `return_dtype` decides which
-   extension types it takes.
-3. `Storage { claims, result }`: typing accepts the call when each argument holds the claim that
-   the declaration names for it (`DType::holds`, CL1), and the guard of the result mapping passes
-   (section 4.2).
-4. `None`: typing accepts the call only if a rule of an extension type in the operands covers it
-   (X20). Typing asks the types in argument order.
+- `Expression::try_new` (`vortex-array/src/expr/expression.rs:58-74`) checks only the arity.
+  DataFusion and DuckDB build unbound trees this way. The check runs later, when the tree is bound.
+- `Expression::return_dtype` (`expression.rs:162-176`) calls `return_dtype` without
+  `bind_options`.
+- `from_parts_unchecked` and `with_slots_unchecked` (`vortex-array/src/array/mod.rs:412`) trust
+  their caller.
+- `DynamicComparison` calls `Binary.execute` directly (`vortex-array/src/scalar_fn/fns/dynamic.rs:110-113`),
+  so `Binary::return_dtype` never sees its operands. Its own `return_dtype` must check the claim.
+- The row encoder runs on raw columns (`vortex-row/src/encoder.rs:78-90`), so it checks
+  `DType::holds` itself (X38).
+- `vortex-array/src/arrays/scalar_fn/vtable/operations.rs:41` runs one row of an array that was
+  already checked.
 
-When a rule of the type covers a call, the rewrite uses that rule, even when the answer is
-`Storage`. Otherwise typing returns an error that names the function, the extension ID and the
-missing claim or declaration. For a cast, typing tries three cases in order. The first is a
-nullability change of the same dtype. The second is a rule of the source type, and the third is a
-rule of the target type.
+`Expression::Variable` and `Lambda` (#10502) and `list_transform` (#10503) give a function a body
+that runs on list elements. The nodes of the body must meet `return_dtype` with the element dtype,
+because an element can be an extension value.
 
-### 4.2 Function declarations
+### 4.2 Checks by function
 
-```rust
-/// How a function uses operands whose dtypes contain extension dtypes.
-pub enum ExtensionUse {
-    /// The default. The function has no semantics for extension values. A rule of the type covers
-    /// the call, or typing rejects it.
-    None,
-    /// The function moves or selects values and never reads them. It runs on storage, and the
-    /// result gets the dtype that `return_dtype` gives.
-    Structural,
-    /// The function implements the semantics of these extension types itself.
-    Specific,
-    /// The function runs on storage. `claims[i]` is the claim that argument `i` needs, or `None`
-    /// for an argument that is only moved. `result` maps the storage result back.
-    Storage {
-        claims: Vec<Option<Claim>>,
-        result: ResultMapping,
-    },
-}
+| Function | Check in `return_dtype` | Storage path |
+| --- | --- | --- |
+| `=`, `!=` in `Binary` and `DynamicComparison` | `Eq` on the operand dtype | The extension compare kernel and `compare_arrays` compare storage |
+| `<`, `<=`, `>`, `>=` in `Binary` and `DynamicComparison` | `Ord` on the operand dtype | The same |
+| `between` | `Ord` on the operand dtype | Two `Binary` compares (`between/mod.rs:148-157`) |
+| `list_contains` | `Eq` on the element dtype | `Binary` `Eq`, and the haystack set of `vortex-array/src/array/haystack/` |
+| `min`, `max`, `min_max`, `bounded_min`, `bounded_max`, `is_sorted` | `Ord`, and the aggregate supports the storage dtype | The accumulator runs over the storage and wraps value results (section 4.9) |
+| `is_constant`, `all_non_distinct` | `Eq`, and the aggregate supports the storage dtype | The accumulator runs over the storage |
+| `RowEncode`, `RowSize` | `Ord` on each key column | The encoder writes the storage |
+| `zip`, `case_when`, `fill_null`, `is_null`, `get_item`, `pack`, a nullability `cast` | None | Structural: they move values |
+| `replace_time_zone`, the spatial and tensor functions, `json_to_variant`, `GeometryAabb` | Their own types, matched by vtable | Their own code |
+| `sum`, `mean`, `like`, `byte_length`, `is_nan`, `nan_count` | They reject `DType::Extension` today | None |
 
-/// How the storage result of a call becomes its logical result.
-pub enum ResultMapping {
-    /// Wrap the storage result in this extension dtype.
-    Rewrap(ExtDTypeRef),
-    /// Leave the result as it is.
-    Keep,
-    /// One mapping for each field of a struct result.
-    Fields(Vec<ResultMapping>),
-    /// The function maps the result itself.
-    Custom(Arc<dyn CustomMapping>),
-}
+More rules:
 
-/// A result mapping that the function writes by hand.
-pub trait CustomMapping: Send + Sync {
-    /// The logical result dtype for the storage result dtype.
-    fn dtype(&self, storage: &DType) -> VortexResult<DType>;
-    /// Maps a storage result scalar, such as a final result or a partial state.
-    fn scalar(&self, storage: Scalar) -> VortexResult<Scalar>;
-    /// Maps a storage result array, such as the results of grouped aggregation.
-    fn array(&self, storage: ArrayRef) -> VortexResult<ArrayRef>;
-    /// The reverse of `scalar`, for a partial state that comes back to an accumulator.
-    fn unmap_scalar(&self, logical: Scalar) -> VortexResult<Scalar>;
-}
-
-pub trait ScalarFnVTable {
-    /// Declares how this function uses extension operands. Typing calls it once for each call
-    /// that has an extension operand.
-    ///
-    /// The default is `ExtensionUse::None`.
-    fn extension_use(&self, options: &Self::Options, arg_dtypes: &[DType]) -> ExtensionUse {
-        ExtensionUse::None
-    }
-}
-```
-
-`AggregateFnVTable` gets the same method. Its `arg_dtypes` has one entry, because an aggregate has
-one input.
-
-`Storage` carries the mapping, so the compiler forces every function that runs on storage to give
-one (X19). This one method replaces two earlier sketches: a declaration for each argument, and a
-separate method for the result. The function sees all argument dtypes at once, which it needs to
-choose the target of `Rewrap`.
-
-Rules for result mappings:
-
-- **Guard.** When the call is built, typing checks that the storage result dtype equals the storage
-  dtype of the `Rewrap` target, ignoring only the top-level nullability. A nested mismatch fails
-  with an error that names both dtypes, and binding never inserts a cast (X30, C3). `Fields` checks
-  each field in the same way. The result keeps the nullability of the storage result.
-- **Trust.** `Rewrap` trusts the values and wraps them with `ExtensionArray::new_unchecked`. Debug
-  builds run the value check of the type, to catch a wrong declaration in tests. CL5 makes this
-  sound: a claim that allows `Rewrap` guarantees legal results. A future arithmetic claim can
-  overflow, so it needs a checked mapping.
-- **Targets.** `Rewrap` takes the target dtype itself, not an argument index. So a result that is
-  part of an input works too: a hypothetical `list_max(List<Timestamp>)` answers
-  `Rewrap(Timestamp)`. A result that holds extension values inside a list, such as `min` over
-  `List<Timestamp(ms)>`, needs `Custom`.
-- **Partial states.** An aggregate applies the mapping to a partial state when the state leaves the
-  accumulator, and the reverse when it comes back (X21, section 4.9).
-- **Structural results.** A `Structural` call needs no mapping. Its own `return_dtype` sees the
-  extension dtypes and gives the logical dtype, for example the dtype of `if_true` for `zip`.
-
-Examples:
-
-| Function | Answer |
-| --- | --- |
-| `=` on `Timestamp(ms)` operands | `Storage { claims: [Eq, Eq], result: Keep }` |
-| `min` | `Storage { claims: [Ord], result: Rewrap(<input dtype>) }` |
-| `min_max` | `Storage { claims: [Ord], result: Fields([Rewrap(<input dtype>), Rewrap(<input dtype>)]) }` |
-| `list_contains(List<Uuid>, Uuid)` | `Storage { claims: [Eq, Eq], result: Keep }` |
-| Hypothetical `sort_by(values, keys)` | `Storage { claims: [None, Ord], result: Rewrap(<dtype of values>) }`, or `Keep` when `values` has no extension dtype |
-| `zip`, `case_when`, `fill_null` | `Structural` |
-| `replace_time_zone` on `Timestamp` | `Specific` |
-| `replace_time_zone` on any other type | `None` |
-| `byte_length` on `Json` | `None`, until a claim covers text functions |
-
-More rules for declarations:
-
-- Only the function owner declares, in the definition of the function. The core grants no
-  `Specific` declaration by default. There is no list of built-in functions: a third-party function
-  that needs only order answers `Storage` with `Ord`, like `min`.
-- Claims are per argument. Every extension type inside one argument must hold the claim of that
-  argument. A part of an argument that needs another claim becomes a separate argument, for example
-  `sort_by(payload, get_item(row, "ts"))` instead of a sort of the whole row.
-- A declaration can depend on the options. `Binary` answers `Eq` or `Ord` by operator. `cast` is
-  structural only for a nullability change. `stat` depends on its aggregate
-  (`vortex-array/src/scalar_fn/fns/stat.rs:112-114`).
-- A `Specific` answer matches an extension type by its vtable, for example
-  `ext.is::<Timestamp>()`, never by ID string. A `ForeignExtDType` keeps the real ID
-  (`vortex-array/src/dtype/extension/foreign.rs:28-56`). So a match by ID also covers a
+- The operands of a compare need one dtype, ignoring nullability (X3), so the function checks the
+  claim on one dtype. `validate_comparison_dtypes` already checks the dtypes first
+  (`compare/mod.rs:279-285`).
+- `DType::holds` follows the built-in table of X13. So `Binary` and `DynamicComparison` also reject
+  `Union` and `Variant` operands when they are bound. Today those fail later, at execution.
+- A function written for named types matches them by vtable, for example `ext.is::<Timestamp>()`,
+  never by ID string. A `ForeignExtDType` keeps the real ID
+  (`vortex-array/src/dtype/extension/foreign.rs:28-56`), so a match by ID would also cover a
   placeholder, which breaks I9.
-- `replace_time_zone` answers `Specific` for `Timestamp`. Today its `return_dtype` accepts only
-  timestamps (`vortex-array/src/scalar_fn/fns/replace_time_zone.rs:131-148`). The tensor and
-  spatial functions answer for their own types in the same way.
-- `Specific` and `None` differ only in whether the function's own `return_dtype` sees the extension
-  operand. The documentation of the method must make this clear. `None` is the safe default: a
-  function that accepts any dtype, such as a hash of storage bytes, would otherwise apply storage
-  semantics without a word.
-- Typing never infers a declaration from `return_dtype`. `Binary::return_dtype` accepts any
-  extension operand in a comparison today (`vortex-array/src/scalar_fn/fns/binary/mod.rs:162-168`,
-  EXT-Q1).
-- Other functions that read values, such as `byte_length`, `like` or `is_nan` on an extension type,
-  answer `None` until a new claim covers them (X18). They already reject extension operands today,
-  so nothing changes for them.
 - A value that a function keeps in its options counts as an operand. `DynamicComparison` keeps its
-  right operand in its options and calls `Binary` directly
-  (`vortex-array/src/scalar_fn/fns/dynamic.rs:80-111`). Its declaration covers that value. The
-  value is a function that returns a new `ScalarValue` at each execution (`dynamic.rs:181-186`).
-  So the storage rewrite changes the dtype of the value to the storage dtype, and the values stay
-  as they are. After that change, nothing checks a new value against the extension type. So the
-  rewrite keeps one check: each new value goes through `validate_scalar_value`, and an illegal
-  value is an error. Today `Rhs::scalar` panics on such a value (`dynamic.rs:189-193`).
+  right operand in its options, and the operand has the dtype of the left side. So the check on the
+  left dtype covers it. Today `Rhs::scalar` panics on an illegal new value (`dynamic.rs:189-193`).
+  That is a separate fix.
+- `cast` returns its target dtype without a check (`cast/mod.rs:122`). U1 stops the storage
+  reinterpretation, and the cast rules of RU1 and RU2 decide which casts exist. Under X36, the
+  `return_dtype` of `cast` must know whether a rule covers the cast, and it has no session (XQ10).
+- A new function that matches on concrete dtypes rejects `DType::Extension` by itself. Code review
+  and the opaque reference type of CL3 catch a function that accepts any dtype and reads values.
 
 ### 4.3 Nested extension values
 
-An operand counts as an extension operand if its dtype contains an extension dtype at any depth.
-Examples are `list_contains` on `List<ext>`
-(`vortex-array/src/scalar_fn/fns/list_contains/mod.rs:178-194`) and the spatial `collect` on
-`List<Point>` (`vortex-spatial/src/scalar_fn/collect.rs:60-96`). `ext_storage` unwraps only the
-top level, and it rejects an operand whose top-level dtype is not an extension
-(`vortex-array/src/scalar_fn/fns/ext_storage.rs:58-63`).
+`DType::holds` walks a struct, list, fixed-size list or map, and it stops at a nested extension
+dtype, which holds its own claims. So one check on the top-level dtype covers every depth
+(section 3.4). An order comparison of two `struct{ts: Timestamp(ms)}` values passes, and any
+comparison of two `struct{doc: Json}` values is rejected.
 
-So the storage rewrite uses a new structural expression, `ext_storage_deep` (X6). It replaces
-every extension dtype in the operand with its storage dtype, at every depth. It repeats this while a
-storage dtype holds another extension dtype. Typing has already checked section 3.4, so every layer
-that it removes holds the claim.
-
-- For an array, it rebuilds each container around the storage of its children. It copies no
-  values.
-- For a scalar, it changes only the dtype, because an extension scalar already holds its storage
-  value.
-- For a top-level extension whose storage holds no extension dtype, it equals `ext_storage`. The
-  storage rewrite then emits `ext_storage` itself. So the statistics rule S4, the simplification
-  rules of section 4.8 and the pushdown rules of section 6 apply unchanged to the common case.
-  Those rules gain a matching case for `ext_storage_deep`, which appears only for nested extension
-  values.
-
-For example, `list_contains` over `List<Timestamp(ms)>` and a `Timestamp(ms)` needle becomes
-`list_contains` over `List<i64>` and an `i64` needle. Its kernel sees only storage. The spatial
-`collect` answers `Specific` for `Point`, so no layer is removed there.
+The storage paths already handle nested values. The nested comparator compares a nested extension
+value through its storage (`vortex-array/src/scalar_fn/fns/binary/compare/nested.rs:229-233`), and
+that stays legal because typing checked the claim. No `ext_storage_deep` expression is planned
+(X6). A shared Rust helper can remove nested layers later, when a second storage path needs it.
 
 ### 4.4 Rules that the type owns
 
-A type implements its own semantics as rewrite rules (X4). The rules are registered with the type,
-together with its compression scheme and the other parts of the type. A rule matches a call that
-has an operand of the type. It replaces the call with operations on storage, or it declines.
+A type implements its own semantics as rules (X4). The rules are registered with the type, together
+with its compression scheme and the other parts of the type. A rule matches a call that has an
+operand of the type. It replaces the call with operations on storage, or it declines.
 
 - **Cast rules.** A rule converts the type to another dtype, or another dtype into the type. Cast
   rules implement the design of issue [#8570](https://github.com/vortex-data/vortex/issues/8570),
@@ -460,56 +348,56 @@ has an operand of the type. It replaces the call with operations on storage, or 
 - **Call rules.** A rule covers a scalar function or an aggregate with an operand of the type. An
   example is `sum` over a decimal-like type, which needs a wider result dtype.
 
-A rule reaches storage through `ext_storage` or `ext_storage_deep`. When its result holds values of
-an extension type, it builds the extension array or scalar itself (section 5).
+A rule reaches storage through `ext_storage`. When its result holds values of an extension type, it
+builds the extension array or scalar itself (section 5).
 
 The rules live on `ExtVTable`, in a method that returns the rules of the type (X20). `ExtDTypeRef`
-holds the vtable, so the rules travel with the dtype and need no session lookup. Registering the
-type in a session then registers its rules too. A rule of the type wins over the default storage
-path.
+holds the vtable, so the rules travel with the dtype and need no session lookup. A rule of the type
+wins over the storage path of the function. The `return_dtype` of a function must then accept a
+call that a rule of the type covers. How it asks the type is part of RU1 (XQ10).
 
-The existing session registry, `ArrayKernels` (`vortex-array/src/optimizer/kernels.rs`), was the
-alternative. It has two problems for extension types:
+PR [#11091](https://github.com/vortex-data/vortex/pull/11091) deprecated `optimize` without a
+session, and PR [#11092](https://github.com/vortex-data/vortex/pull/11092) moved parent-reduce rules
+into the session registry. So the main reason of X20 is weaker. The rules must still be reachable
+from the dtype, because `return_dtype` has no session (XQ10).
 
-- It is keyed by encoding ids, and every extension array has the id `vortex.ext`. So each rule
-  checks the dtype itself, and the rules of every registered type run on every extension column.
-- Only the session-aware optimizer consults it. A grep counts 83 plain `.optimize()` calls outside
-  tests, and they use static rules only. Two of them are `ArrayRef::cast`
-  (`vortex-array/src/builtins.rs:176`) and `ArrayRef::apply_bound`
-  (`vortex-array/src/expression.rs:41`).
+The session registry `ArrayKernels` (`vortex-array/src/optimizer/kernels.rs`) was the alternative.
+It is keyed by encoding ids, and every extension array has the id `vortex.ext`, so the rules of
+every registered type would run on every extension column. Only the crate of a type adds rules for
+that type, as with the orphan rule of Rust (X20).
 
 Rules written over `ReduceNode` serve both arrays and bound expressions, as `reduce_null` already
 does (`vortex-array/src/scalar_fn/fns/is_not_null.rs:50`). Pruning works on bound expressions
 (`vortex-file/src/pruning.rs:35-49`). So a rule that serves only arrays cannot rewrite a predicate
-onto storage statistics. Since #10790, `ReduceNode::as_constant` returns a borrowed `Scalar`, and a
-rule makes a constant with `ReduceNode::new_constant`. A `ScalarFnArray` cannot wrap a `Literal`
+onto storage statistics. A `ScalarFnArray` cannot wrap a `Literal`
 (`vortex-array/src/arrays/scalar_fn/array.rs:161-167` at `1d09649bbd`), so an array rule that
 returns a literal returns a `ConstantArray` instead.
 
-Only the crate of a type adds rules for that type, as with the orphan rule of Rust (X20). A crate
-that owns neither the function nor the type defines its own function, or its own extension type
-over the same storage. A session registry for such rules would bring back the two problems above,
-and two crates could register conflicting rules for one pair.
+### 4.5 Where the checks and paths run
 
-### 4.5 Where the rules run
-
-- The default storage paths belong to the core. The declaration of each function, such as
-  `Binary`, `Between` or the order aggregates, triggers them. So the static optimizer runs them.
-- The type rules come from the dtype (X20). So the static optimizer finds them as well.
-- The executor applies the same rules before it dispatches a kernel. A lazy array that nobody
-  optimized still gets the rewrite, so the row path and the array path agree (I6).
-- After SP3 to SP5, no generic kernel applies storage semantics. So a semantic call that reaches a
-  generic kernel without a rewrite fails. A missing rule gives an error, never a wrong result.
+- Typing runs in `return_dtype`, in the four places of section 4.1.
+- Execution runs the storage path of the function. The compare kernels, `between`, `list_contains`
+  and the aggregates each unwrap extension operands to storage themselves, and give the result its
+  logical dtype (X37).
+- A kernel of an encoding runs before the storage path. So the `DateTimeParts` compare kernel keeps
+  its fast path for `Timestamp` columns (X32).
+- A session kernel can make an accepted call faster. It never decides whether a call is legal, and
+  no type registers a storage path (X37).
+- Code that reads values without building a node checks `DType::holds` directly (X38). This covers
+  the zone map and file statistics writers and readers, the bloom filter, pruning on statistics,
+  merges of partial states, the row encoder and the pushdown decisions of engines.
 
 ### 4.6 Examples
 
 ```text
-Timestamp(ms) a  <  Timestamp(ms) b       =>  ext_storage(a) < ext_storage(b)
-Timestamp(ms) a  <  lit(Timestamp(ms) 5)  =>  ext_storage(a) < lit(5i64)
+Timestamp(ms) a  <  Timestamp(ms) b       =>  accepted. The compare kernel compares the i64
+                                              storage
+Timestamp(ms) a  <  lit(Timestamp(ms) 5)  =>  accepted. The same, with the literal storage 5i64
 Timestamp(ms) a  <  lit(5i64)             =>  rejected by typing (CL1)
 Timestamp(ms) a  <  Timestamp(ns) b       =>  rejected by typing (X3)
-min(Timestamp(ms) a)                      =>  min(ext_storage(a)), and Rewrap gives the
+min(Timestamp(ms) a)                      =>  accepted. min runs over the storage and gives the
                                               result the dtype Timestamp(ms)
+min(Json a)                               =>  rejected when the aggregate is bound
 cast(Timestamp(ms) a, Timestamp(ns))      =>  Extension(Timestamp(ns),
                                                         checked_mul(ext_storage(a), 1_000_000))
 cast(Timestamp(ns) a, Timestamp(ms))      =>  rejected: a named function with a rounding
@@ -518,92 +406,86 @@ Json a  =  Json b                         =>  rejected by typing
 ```
 
 The cast rule builds its result with `ExtensionArray::new_unchecked`. Legal input gives legal
-output, and `checked_mul` fails on overflow. The result is a wrapper over a pending computation,
-which section 6 allows.
+output, and `checked_mul` fails on overflow.
 
 ### 4.7 Array API and enforcement
 
-Typing runs in `try_new_from_slots` (`vortex-array/src/arrays/scalar_fn/array.rs:102-114`), which
-`try_new` and `try_new_with_len` both call. `ArrayRef::apply_bound` uses `try_new_with_len`
-(`vortex-array/src/expression.rs:19-42`). Typing never changes the node, so a typed constructor
-keeps its return type.
+Typing runs in `try_new_from_slots`, which `try_new` and `try_new_with_len` both call.
+`ArrayRef::apply_bound` uses `try_new_with_len`. Typing never changes the node, so a typed
+constructor keeps its return type.
 
-The types make the typing entry points of section 4.1 the only paths. The design accepts the API
-changes that this needs (X8):
+The design accepts the API changes that make the entry points of section 4.1 the only paths (X8):
 
-- `BoundExpression` keeps its variants private. Today they are public, so any code can build a
-  node with any dtype (`vortex-array/src/expr/bound_expression.rs:42-59`).
-- A constructor for a call that typing can reject becomes fallible. `Cast::new` is the main case.
-  It calls `vortex_expect` on `try_new` (`vortex-array/src/scalar_fn/fns/cast/mod.rs:62-65`), and
-  typing rejects every cast that no rule covers. So `Cast::new` becomes fallible in phase 3. A
-  constructor for a structural call, such as `IsNull::new`
-  (`vortex-array/src/scalar_fn/fns/is_null.rs:35-37`), can stay infallible, because typing never
-  rejects it.
-- Code that runs a function on raw arguments applies typing and the rules first.
-  `DynamicComparison::execute` calls `Binary` directly (section 4.2). The row encoder of sort keys
-  runs on raw columns, and today it rejects extension dtypes at every depth
-  (`vortex-row/src/encoder.rs:112`, `:126-144`). After the storage rewrite, it receives the output
-  of `ext_storage_deep`.
+- `BoundExpression` keeps its variants private. Public variants let any code build a node with any
+  dtype (`vortex-array/src/expr/bound_expression.rs:42-59` at `1d09649bbd`). This is hardening
+  (TY5), and no typing check depends on it.
+- A constructor for a call that typing can reject becomes fallible. `Cast::new` is the main case. It
+  calls `vortex_expect` on `try_new` (`vortex-array/src/scalar_fn/fns/cast/mod.rs:62-65`). It
+  becomes fallible when cast typing checks for a rule (RU2). A constructor for a structural call,
+  such as `IsNull::new`, stays infallible.
+- Code that runs a function on raw arguments checks the claims itself. `DynamicComparison` and the
+  row encoder are the two cases today (section 4.1).
 
 ### 4.8 Simplification
 
-`ext_storage` is infallible today (`vortex-array/src/scalar_fn/fns/ext_storage.rs:87-93`), so these
-rules never remove or add a failure:
+`ext_storage` is infallible (`vortex-array/src/scalar_fn/fns/ext_storage.rs:87-93`), so these rules
+never remove or add a failure:
 
 | Rule | Valid when | Reason |
 | --- | --- | --- |
 | `ext_storage(lit(s))` to `lit(s.to_storage_scalar())` | Always | Both read the storage of one valid scalar, and the dtypes match |
-| `ext_storage_deep(lit(s))` to a literal of the storage dtype | Always | The same as the first rule, at every depth |
-| `ext_storage(Extension(s))` to `s` | Always | The wrapper holds `s` as its storage. The row path then reads storage directly (section 8.3). No such rule exists today (probe R9) |
-| `ext_storage(Constant(extension scalar))` to `Constant(storage scalar)` | Always | The same as the first rule, for a constant array |
+| `ext_storage(Extension(s))` to `s` | Always | The wrapper holds `s` as its storage. The row path then reads storage directly (section 8.3). No such rule exists today (probe R9). It belongs to LP2 (X34) |
+| `ext_storage(Constant(extension scalar))` to `Constant(storage scalar)` | Always | The same as the first rule, for a constant array. #11056 added it |
 
-`Expression::bind` folds nothing (`vortex-array/src/expr/bound_expression.rs:309-323`), but
-simplification turns `cast(lit)` into a literal
+`Expression::bind` folds nothing, but simplification turns `cast(lit)` into a literal
 (`vortex-array/src/scalar_fn/fns/cast/mod.rs:170-181`). When such a fold fails, the cast stays in
 the tree. This behavior needs no change.
 
 ### 4.9 Aggregates
 
-Aggregate binding takes the default storage path for an extension input (X21). When
-`AggregateDTypes::try_new` meets an extension input dtype, it decides in this order:
+Each aggregate that reads values checks its claim in its own `return_dtype` (X21 as changed, X37).
+`AggregateDTypes::try_new` calls it, so binding fails for an input without the claim. It needs no
+extension code of its own.
 
 1. If a rule of the type covers the aggregate, that rule supplies the accumulator. `sum` over a
    decimal-like type takes this path.
-2. If the aggregate answers `Storage` and the input holds the claim, binding runs the body of
-   today's `ExtensionStoragePushdown` (`vortex-array/src/aggregate_fn/storage_pushdown.rs` at
-   `1d09649bbd`) under the plain aggregate ID. It unwraps each batch and runs a nested accumulator
-   over the storage, so the encoding kernels of the storage still apply.
-3. Otherwise binding fails.
+2. If the input holds the claim, and the aggregate supports the storage dtype, the accumulator
+   unwraps each batch and runs over the storage. The encoding kernels of the storage still apply.
+   Plain `is_sorted` then gives a correct result for ordered types (EXT-A1).
+3. Otherwise `return_dtype` answers `None`, and binding fails.
 
-The adapter is no longer a separate aggregate. Its composite IDs, such as
+The adapter `ExtensionStoragePushdown` goes away. Its composite IDs, such as
 `vortex.min_max[vortex.timestamp]`, and `register_storage_ordered`
-(`vortex-array/src/aggregate_fn/session.rs:134-136`, `:192-194`, and
-`encodings/uuid/src/lib.rs:46` at `1d09649bbd`) go away (X10). Zone maps, cached statistics and
-engine pushdown keep asking for the plain IDs, and they now get the claims of the type.
+(`vortex-array/src/aggregate_fn/session.rs:135-139`, `:195-198`, and `encodings/uuid/src/lib.rs:44`
+at `3ebf68d239`) go with it (X10, X37). Zone maps, cached statistics and engine pushdown keep
+asking for the plain IDs.
 
-A partial state stays in storage form in memory, because the inner accumulator holds storage
-values. It gets the logical form when it leaves the accumulator: `finalize`, `finalize_scalar` and
-`to_scalar` apply the result mapping, and `partial_from_scalar` applies the reverse. So a consumer
-sees the same partial dtype as today. For example, a zone map of a `Timestamp` column still stores a
-`Timestamp` state. The cost is constant for each partial, never for each row. Plain `min_max`
-already wraps its result after each batch today
-(`vortex-array/src/aggregate_fn/fns/min_max/extension.rs:28-29` at `1d09649bbd`).
+A partial state stays in storage form in memory, because the accumulator holds storage values. It
+gets the logical form when it leaves the accumulator: `finalize`, `finalize_scalar` and `to_scalar`
+wrap, and `partial_from_scalar` unwraps. So a consumer sees the same partial dtype as today. For
+example, a zone map of a `Timestamp` column still stores a `Timestamp` state. The cost is constant
+for each partial, never for each row. Plain `min_max` already wraps its result after each batch
+today (`vortex-array/src/aggregate_fn/fns/min_max/extension.rs:17-37`).
 
-U9 was meant to come first (part 4), with a fixed mapping for `MinMax` and `IsSorted` in today's
-adapter. The maintainer dropped it on 2026-11-04, so the composite aggregates return storage values
-until SP4 removes them (#11243).
+Merges of partial states compare values with `Scalar::partial_cmp`, which compares storage values
+(`vortex-array/src/scalar/scalar_impl.rs:414-473`). After TY2, only inputs with `Ord` reach these
+merges, so storage order is value order.
+
+U9 was meant to come first, with a fixed mapping in today's adapter. The maintainer dropped it on
+2026-11-04, so the composite aggregates return storage values until TY2 removes them (#11243).
 
 ## 5. Wrapping storage
 
-No `ext_wrap` expression exists (X4). A rule that produces extension values builds the extension
+No `ext_wrap` expression exists (X4). Code that produces extension values builds the extension
 array or scalar itself.
 
-- A rule uses `ExtensionArray::new_unchecked` when legal input gives legal output. Examples are the
-  unit cast of section 4.6 and the result of `min`, which is a stored value.
-- The `Rewrap` mapping also uses `ExtensionArray::new_unchecked` (X19). Debug builds run the value
-  check of the type, to catch a wrong declaration in tests. CL5 makes the trust sound.
-- A rule uses `ExtensionArray::try_new` for storage values that no check has seen.
-- A rule builds an extension scalar with `Scalar::try_new`, which always checks (section 8).
+- A storage path or a rule uses `ExtensionArray::new_unchecked` when legal input gives legal
+  output. Examples are the result of `min`, which is a stored value, and the unit cast of section
+  4.6. Debug builds run the value check of the type, to catch a wrong promise in tests.
+- Code uses `ExtensionArray::try_new` for storage values that no check has seen, for example the
+  result of a future arithmetic function. The claims of X13 do not promise that new values are
+  legal.
+- Code builds an extension scalar with `Scalar::try_new`, which always checks (section 8).
 - Wrapping is a Rust call, not an expression. So no user expression and no serialized plan can
   build a wrapper without a check.
 - A lazy computation that produces extension values is a wrapper over a pending computation, for
@@ -705,18 +587,17 @@ hold any child.
 ### 6.4 Type-specific encodings
 
 Type-specific encodings are a separate question. `DateTimeParts` carries the `Timestamp` dtype
-today (`encodings/datetime-parts/src/canonical.rs:28`, EXT-S2). After the storage rewrite, a
-compare reaches it as `ext_storage(column) < lit(i64)`. To keep its compare kernel, `DateTimeParts`
-becomes an `i64` encoding with the time unit in its metadata. Readers convert the old form on
+today (`encodings/datetime-parts/src/canonical.rs:28`, EXT-S2). A later move makes
+`DateTimeParts` an `i64` encoding with the time unit in its metadata. Readers convert the old form on
 read. An edition gates writes of the new form. `vortex-btrblocks/src/schemes/temporal.rs` chooses
 the encoding from the extension metadata, and compresses the storage child. The same applies to
 any future encoding for one extension type.
 
-Until that move, the compare PR of #11115 (SP3) adds a rule that sends
-`ext_storage(DateTimeParts) < lit` to the existing compare kernel (X32). `TemporalScheme` is in the
-default compressor list (`vortex-btrblocks/src/session.rs:97`), so without the rule, most timestamp
-compares would decode after the storage rewrite. The days part has a separate bug: the split wraps days past `i32::MAX`
-(EXT-S3), which #10953 fixes.
+Until that move, compare dispatches the kernels of an encoding before its storage path, so the
+`DateTimeParts` compare kernel keeps working with no extra rule (X32 as changed on 2026-11-17).
+`TemporalScheme` is in the default compressor list (`vortex-btrblocks/src/session.rs:97`), so TY1
+keeps that order and tests it. The days part had a separate bug: the split wrapped days past
+`i32::MAX` (EXT-S3), which #10953 fixed.
 
 ### 6.5 Rewrites and generic encodings
 
@@ -754,7 +635,7 @@ The general form is one shared mechanism, next to #10748:
   per-function adaptors today (`vortex-array/src/arrays/constant/compute/rules.rs:23-30`). It and
   the fill value of `Sparse` use the hook.
 - **`ext_storage` owns two things:** its constant hook, and the unwrap rule
-  `ext_storage(Extension(s))` to `s` of SP2.
+  `ext_storage(Extension(s))` to `s` (section 4.8).
 
 With #10748, `Extension(Dict(codes, values))` becomes `Dict(codes, Extension(values))`. The
 pushdown then gives `Dict(codes, ext_storage(Extension(values)))`, and the unwrap gives
@@ -771,9 +652,12 @@ pushdown. The lift rule stays as section 6.3 describes it.
   `Min` and `Max` for most columns (`vortex-layout/src/layouts/zoned/writer.rs:228-229` at
   `c56ee8803b`), and `Min` accepts extension dtypes today.
 - **S2.** Types without `Ord` get no min and max. Writers drop the storage fallback of
-  `aggregate_state_dtype` (`vortex-layout/src/layouts/zoned/schema.rs:177-188`) for min and max.
-  After phase 3, `Min` rejects every type outside the order list of X35, and after SP4 every type
-  without `Ord`. Without this change, the fallback would store whole JSON strings and WKB blobs. No
+  `aggregate_state_dtype` (`vortex-layout/src/layouts/zoned/schema.rs:177-188`). After TY2, `Min`
+  rejects every type without `Ord`, so without this change the fallback would store whole JSON
+  strings and WKB blobs in storage form. The fallback also keeps `NanCount` for a type stored as
+  floats, whose accumulator then fails (`zoned/builder.rs:32-47`, `:118`, from reading the code).
+  The legacy reader keeps its own fallback (`legacy_stats_table_dtype`, `schema.rs:113-121`), so
+  old files still read. No
   legal filter can use those values, because a compare on such a type is rejected. The null count
   stays. A type adds its own statistics through its own aggregates, as the spatial bounding boxes of
   [#10837](https://github.com/vortex-data/vortex/pull/10837) do.
@@ -782,19 +666,25 @@ pushdown. The lift rule stays as section 6.3 describes it.
   and column. Vortex has written such values for at least a year (EXT-A2), so old files hold them.
   A type that gains `Ord` later can use its old statistics, because `Ord` means storage order and
   the old values were computed in storage order.
-- **S4.** Pruning reads the logical statistic. After the storage rewrite, a bound predicate
-  references `ext_storage(col)`. A stats rewrite rule maps `stat(ext_storage(x), s)` to
-  `ext_storage(stat(x, s))` for min and max of an `Ord` type, so pruning unwraps the logical
-  statistic to a storage bound. A predicate that pruning sees before the rewrite compares the
-  logical statistic with a literal of the type, which the `Ord` claim covers. Both ways read the
-  same stored value. The stats rewrite rules live in `vortex-expr` since #10734.
-- **S5.** A truncated bound is not a legal value, so `bounded_min` and `bounded_max` answer `Keep`
-  over `Utf8` and `Binary` storage (X19). An `Ord` type over such storage gets bounds in storage
-  form. Today bounded statistics apply only to top-level `Utf8` and `Binary`
-  (`vortex-layout/src/layouts/zoned/writer.rs:217-231`), and no type in the repository claims `Ord`
-  over such storage.
+- **S4.** Pruning reads the logical statistic. A predicate such as `ts > lit(Timestamp(ms) 5)`
+  becomes `max(ts) > lit(Timestamp(ms) 5)`, and the compare kernel of the extension array compares
+  the storage, which the `Ord` claim covers. The stats rewrite rules live in `vortex-expr` since
+  #10734 (`vortex-expr/src/stats/rewrite/builtins.rs`). `stat_expr` asks the `return_dtype` of the
+  aggregate (`builtins.rs:761-789`), so it stops asking for min and max of a type without `Ord`
+  after TY2. The NaN guard looks only at `is_float()` (`builtins.rs:757-759`), so ST1 makes it look
+  through extension dtypes to their storage (EXT-A5).
+- **S5.** A truncated bound is not a legal value. Truncation applies only to top-level `Utf8` and
+  `Binary` (`bounded_min/mod.rs:261-278`, `bounded_max/mod.rs:346-363` at `3ebf68d239`), so an
+  extension value is never truncated, and its bounds are exact stored values. No type in the
+  repository claims `Ord` over `Utf8` or `Binary` storage.
 - **S6.** Engine statistics export (DuckDB `column_statistics.rs`, DataFusion `convert/stats`, JNI
   write summaries) follows the boundary rule (X24). A type without `Ord` exports no min and max.
+  DuckDB reads `Min` and `Max` for any dtype today (`vortex-duckdb/src/column_statistics.rs:84-112`),
+  so it exports byte-ordered WKB bounds from old files until ST1. DataFusion exports min and max
+  only for temporal types, and `constant_distinct_count` keeps a hardcoded temporal list
+  (`vortex-datafusion/src/convert/stats/mod.rs:92-100`) that ST1 replaces with `Eq`.
+- **S7.** The bloom filter accepts an extension column only when its dtype holds `Eq` (EXT-A4, X38).
+  It hashes storage, which `Eq` makes sound.
 
 ## 8. Value validation
 
@@ -1131,16 +1021,17 @@ cases.
   an expression result for extension values.
 - Identity implies semantic equality, because one dtype and one storage value give one value.
   The reverse does not hold. Without `Eq`, two values that are not identical can be equal.
-- Expression comparisons follow the claims. After the storage rewrite, `scalar_cmp` and the nested
-  comparator see storage dtypes at every depth (section 4.3). So the order of extension scalars
+- Expression comparisons follow the claims. `scalar_cmp` and the nested comparator compare
+  extension values through their storage, and typing allows that only where a claim covers it
+  (section 4.3). So the order of extension scalars
   never decides an expression result, and `scalar_cmp` keeps its current operators. For example,
   `=` on `struct{v: Vector}` compares `struct{v: FixedSizeList<f32>}` storage, where the built-in
   order agrees with `==`.
 
 ### 11.5 Order of work
 
-Change `PartialOrd` only together with, or after, the typing check of phase 3, which rejects `min`
-and `max` for extension types outside the order list of X35, and later for types without `Ord`.
+Change `PartialOrd` only together with, or after, TY2, which rejects `min` and `max` for extension
+types without `Ord`.
 Today `min`, `max` and their variants merge partial results with `vortex_expect` on `partial_min`
 or `partial_max`. The sites are `vortex-array/src/aggregate_fn/fns/min/mod.rs:59`,
 `max/mod.rs:59`, `bounded_min/mod.rs:71`, `bounded_max/mod.rs:86` and `min_max/mod.rs:247`,
@@ -1160,9 +1051,11 @@ These results come from reading the code, not from a run.
 
 ## 12. Files to change, by phase
 
-The phases are those of `../05-implementation.md`. After
-[#10769](https://github.com/vortex-data/vortex/pull/10769) merges, the aggregate implementations
-under `vortex-array/src/aggregate_fn/fns/` live in the new `vortex-aggregates` crate.
+The phases and PR IDs are those of `../05-implementation.md`. Paths are for `develop` at
+`3ebf68d239`. Two open PRs move this code:
+[#10762](https://github.com/vortex-data/vortex/pull/10762) moves scalar functions into a new
+`vortex-functions` crate, and [#10769](https://github.com/vortex-data/vortex/pull/10769) moves the
+aggregates under `vortex-array/src/aggregate_fn/fns/` into a new `vortex-aggregates` crate.
 
 | Phase | Files |
 | --- | --- |
@@ -1175,15 +1068,19 @@ under `vortex-array/src/aggregate_fn/fns/` live in the new `vortex-aggregates` c
 | 0, U7 | `vortex-array/src/scalar/scalar_impl.rs`, `vortex-array/src/scalar/scalar_value.rs` |
 | 0, U8 | `vortex-array/src/dtype/extension/erased.rs` |
 | 1 | The declaration: `vortex-array/src/dtype/extension/{vtable,typed,erased,foreign,plugin}.rs`, the metadata of `vortex-tensor/src/types/` and `vortex-spatial/src/extension/`, the constructor sites of section 9.3, `vortex-array/src/dtype/dtype_impl.rs` and `vortex-array/src/arrays/extension/compute/cast.rs` (NU6). Then `vortex-array/src/arrays/extension/array.rs` (`new_unchecked`) and `vortex-array/src/compute/conformance/` |
-| 2 | `vortex-array/src/scalar_fn/vtable.rs`, `vortex-array/src/aggregate_fn/vtable.rs`, a new module for `ExtensionUse` and the hardcoded lists of X35, and the declarations in `vortex-array/src/scalar_fn/fns/{binary,between,zip,fill_null,list_contains}/`, `vortex-array/src/scalar_fn/fns/case_when.rs` and `vortex-array/src/aggregate_fn/fns/` |
-| 2, U9 | `vortex-array/src/aggregate_fn/storage_pushdown.rs` |
-| 3 | `vortex-array/src/expr/bound_expression.rs`, `vortex-array/src/arrays/scalar_fn/array.rs`, `vortex-array/src/arrays/scalar_fn/vtable/mod.rs`, `vortex-array/src/aggregate_fn/{vtable,erased,accumulator}.rs`, `vortex-array/src/scalar_fn/fns/cast/mod.rs`, `vortex-array/src/scalar_fn/fns/dynamic.rs`, `vortex-layout/src/layouts/zoned/schema.rs` (the writers), `vortex-duckdb/src/table_function.rs` (aggregate pushdown) |
-| 4 | `vortex-layout/src/layouts/file_stats.rs`, `vortex-file/src/pruning.rs` (the readers) |
 | 5 | `vortex-array/src/dtype/extension/vtable.rs` (`rules`), `vortex-array/src/optimizer/`, `vortex-array/src/scalar_fn/fns/cast/mod.rs`, `vortex-array/src/extension/datetime/`, `vortex-duckdb/src/convert/expr.rs`, `vortex-datafusion/src/convert/exprs/mod.rs` |
 | 6 | `vortex-array/src/arrays/extension/array.rs`, `vortex-array/src/arrays/extension/vtable/operations.rs`, `vortex-array/src/arrays/extension/compute/`, `vortex-array/src/builders/{extension,fixed_size_list,mod}.rs`, `vortex-array/src/dtype/extension/`, `vortex-array/src/extension/datetime/time.rs`, the Arrow, DuckDB, FFI and Python import paths |
 | 7 | `vortex-arrow/src/{session,dtype,scalar}.rs`, `vortex-arrow/src/executor/`, `vortex-duckdb/src/convert/`, `vortex-duckdb/src/exporter/`, `vortex-duckdb/src/{table_function,column_statistics}.rs`, `vortex-datafusion/src/convert/`, `vortex-python/src/scalar/`, `vortex-jni/src/writer.rs`, `docs/developer-guide/extending/extension-dtypes.md` |
-| Claims, CL1 to CL3 | `vortex-array/src/dtype/` (`Claim` and `DType::holds`), `vortex-array/src/dtype/extension/{vtable,typed,erased}.rs` (`claims` and the check when a dtype is built), the claims of the types in `vortex-array/src/extension/datetime/`, `encodings/uuid/src/vtable.rs`, `vortex-tensor/src/types/`, `vortex-json/src/dtype.rs` and `vortex-spatial/src/extension/`, `vortex-array/src/compute/conformance/`, `vortex-array/src/extension/tests/` |
-| Claims, SP1 to SP7 | The module of `ExtensionUse` (`Storage` and `ResultMapping`), `vortex-array/src/optimizer/`, `vortex-array/src/aggregate_fn/{session,storage_pushdown}.rs`, `vortex-array/src/scalar_fn/fns/ext_storage.rs`, `vortex-array/src/scalar_fn/fns/binary/compare/nested.rs`, `vortex-array/src/arrays/extension/compute/compare.rs`, `vortex-array/src/aggregate_fn/fns/min_max/extension.rs`, `vortex-array/src/scalar/typed_view/extension/mod.rs`, `vortex-row/src/encoder.rs`, `encodings/uuid/src/lib.rs`, `vortex-expr/src/stats/rewrite/` (moved from `vortex-array` by #10734), `vortex-file/src/pruning.rs`, `vortex-duckdb/src/table_function.rs`, `vortex-duckdb/src/convert/` and `vortex-datafusion/src/convert/` |
+| CL1 | `vortex-array/src/dtype/` (a new `claim.rs` with `Claim`, `DType::holds` and `require_claim`), `vortex-array/src/dtype/extension/{vtable,typed,erased,foreign}.rs` (`claims`, the forwarder and the check in `ExtDType::try_new`) |
+| CL2 | `vortex-array/src/extension/datetime/{date,time,timestamp}.rs`, `encodings/uuid/src/vtable.rs`, `vortex-tensor/src/types/{vector,fixed_shape_tensor}/` |
+| CL3 | `vortex-array/src/compute/conformance/`, `vortex-array/src/extension/tests/` |
+| TY1 | `vortex-array/src/scalar_fn/fns/binary/{mod.rs,compare/mod.rs}`, `vortex-array/src/scalar_fn/fns/between/mod.rs`, `vortex-array/src/scalar_fn/fns/dynamic.rs`, `vortex-duckdb/src/convert/{expr,table_filter}.rs`, `vortex-duckdb/src/table_function.rs`, tests in `encodings/datetime-parts/` and `vortex-datafusion/src/convert/exprs/` |
+| TY2 | `vortex-array/src/aggregate_fn/fns/{min,max,min_max,bounded_min,bounded_max,is_sorted,is_constant,all_non_distinct}/`, `vortex-array/src/aggregate_fn/{session,storage_pushdown,mod}.rs`, `encodings/uuid/src/lib.rs`, `vortex-layout/src/layouts/zoned/{schema,builder,writer}.rs`, a test in `vortex-duckdb/` |
+| TY3 | `vortex-array/src/scalar_fn/fns/list_contains/mod.rs` |
+| TY4 | `vortex-row/src/{lib,encoder,encode,size,codec}.rs` |
+| TY5 | `vortex-array/src/expr/bound_expression.rs` and the code that builds its variants |
+| ST1 | `vortex-layout/src/layouts/{file_stats,zoned/zone_map}.rs`, `vortex-file/src/pruning.rs`, `vortex-expr/src/stats/rewrite/builtins.rs`, `vortex-duckdb/src/column_statistics.rs`, `vortex-datafusion/src/convert/stats/mod.rs`, `vortex-datafusion/src/persistent/format.rs` |
+| ST2 | `vortex-layout/src/layouts/zoned/aggregates/bloom_filter/{mod,scalar_fn}.rs` |
 | Low priority, lift rule | `vortex-array/src/arrays/extension/compute/{rules,take}.rs`, `vortex-array/src/arrays/extension/vtable/mod.rs`, `vortex-array/src/arrays/{constant,chunked,dict,masked,interleave}/`, `encodings/sparse/`, `encodings/runend/`, `vortex-edition/`. The shared mechanism of #10748 also touches `vortex-array/src/arrays/widen/` |
 | Low priority, shared pushdown | `vortex-array/src/arrays/{masked,constant}/compute/rules.rs`, `encodings/sparse/src/rules.rs`, `vortex-array/src/scalar_fn/vtable.rs`, `vortex-array/src/scalar_fn/fns/ext_storage.rs` |
 | Low priority, `DateTimeParts` | `encodings/datetime-parts/`, `vortex-btrblocks/src/schemes/temporal.rs`, `vortex-edition/` |
@@ -1205,9 +1102,12 @@ under `vortex-array/src/aggregate_fn/fns/` live in the new `vortex-aggregates` c
 - **Conformance harness for `ExtVTable`.** It checks the metadata round trip through the bytes and
   the stored storage, that the claims ignore the top-level nullability, rules CL1 to CL5, cast round
   trips, and path consistency. CL2 and CL3 need the optional reference order. In debug builds, every
-  `Rewrap` checks the values that it wraps. The harness also compares a `validate_array` override
-  with the default.
+  storage path that wraps results with `new_unchecked` checks the values that it wraps. The harness
+  also compares a `validate_array` override with the default.
 - **Scalar contract.** For generated scalars, `a == b` holds exactly when `partial_cmp(a, b)`
   returns `Some(Equal)`, and equal scalars have equal hashes.
 - **Engines.** DuckDB and DataFusion pushdown tests with extension literals for `Timestamp`, `Date`,
-  `Uuid` and `Json` columns. A `Json` comparison must not be pushed down.
+  `Uuid` and `Json` columns. A `Json` comparison must not be pushed down, and the query must still
+  return the engine's own answer. DuckDB drops a filter from its plan once Vortex accepts it, and a
+  later bind error fails the query (`vortex-duckdb/src/table_function.rs:479-498`,
+  `projection.rs:239-262`). So the pushdown decision must check the claims before it accepts.

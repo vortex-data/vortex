@@ -9,7 +9,9 @@ A design pass later on 2026-10-29 settled the extension type mechanism (claims, 
 declarations and result mappings), and part 5 of the extension notes has a new phase plan.
 On 2026-10-30, a second design pass settled extension nullability and the storage declaration
 (X25 to X34 in [`decisions.md`](decisions.md)). Its new findings are for `develop` at
-`493967ce33`.
+`493967ce33`. On 2026-11-17, a third design pass removed the declaration on each function. Each
+function now checks the claims in its own `return_dtype` (X36 to X38), and part 5 of the extension
+notes has a new phase plan for it.
 
 The Decimal notes, the type roadmap, and the `Widen` plan moved to
 [`ct/decimal-research`](https://github.com/vortex-data/vortex/tree/ct/decimal-research/research/decimal).

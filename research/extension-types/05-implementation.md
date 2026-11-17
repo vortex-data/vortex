@@ -6,63 +6,48 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 # 5. Implementation
 
 This plan follows [`../decisions.md`](../decisions.md). IDs such as X4 and XQ1 refer to that file.
-The design pass of 2026-10-29 settled the mechanism, so no phase waits for an open question. This
-plan replaces the phases of the earlier version. The pass of 2026-10-30 put the storage declaration
-(X25 to X30) at the start of phase 1. The pass of 2026-11-03 moved the claims and the storage paths
-that use them to [#11115](https://github.com/vortex-data/vortex/issues/11115). Until they land,
-phases 2 to 4 use hardcoded lists of types (X35).
+The design pass of 2026-10-29 settled the mechanism. The pass of 2026-10-30 put the storage
+declaration (X25 to X30) at the start of phase 1. The pass of 2026-11-17 removed the declaration on
+each function (`ExtensionUse`), the result mappings and the hardcoded lists of types (X36 to X38).
+Each function now checks the claims that it needs in its own `return_dtype`, and runs on storage
+itself. So the claims land first, and each function family then switches to them in one PR.
+[`06-agent-plan.md`](06-agent-plan.md) turns the open PRs of this plan into tasks for agents.
 
 ## Phases
 
 | Phase | Content | Depends on |
 | --- | --- | --- |
-| 0 | Urgent fixes U1 to U8, the path-consistency test helper, and four fixes outside part 4: the `Timestamp` range (#10953), the `Date` display (EXT-V10), the spatial nested nullability (EXT-N2), and imports that fail on nested nulls (X29) | Nothing |
+| 0 | Urgent fixes U1 to U8, the path-consistency test helper, and fixes outside part 4: the `Timestamp` range (#10953), the `Date` display (EXT-V10), the spatial nested nullability (EXT-N2), imports that fail on nested nulls (X29, SN2 and SN3), and a dtype error in a lazily parsed struct field (SF) | Nothing |
 | 1 | The storage declaration: `storage_dtype`, `validate_metadata`, strict reads, the move of storage facts into the metadata, and `ExtensionArray::new_unchecked` | U4 and U5, both merged, and the spatial validator fix SN1 |
-| 2 | Declarations with hardcoded opt-ins: `ExtensionUse` with `None`, `Structural` and `Specific`, `extension_use` on both vtables, and the hardcoded lists of X35. Then the declarations of the built-in functions, by family. Nothing reads them yet, so behavior does not change. U9 was dropped (#11243) | Nothing |
-| 3 | Typing: the check that rejects every call that answers `None` | 0 (U1, U2), 2 |
-| 4 | Statistics: readers ignore min and max of types outside the order list, and writers drop the storage fallback | 2 for the readers, 3 for the writers |
-| 5 | Type rules and casts: `ExtVTable::rules` over `ReduceNode`, exact unit casts, and the named lossy unit function | 3 |
+| 2 | Claims: `Claim`, `DType::holds`, `ExtVTable::claims`, the check in `ExtDType::try_new`, the claims of the repository types, and the conformance checks (CL1 to CL3) | 1 (SD, merged) |
+| 3 | Typing in each function: compare, `between` and `DynamicComparison` (TY1), the aggregates (TY2), `list_contains` (TY3) and the row encoding (TY4) check their claims in `return_dtype` and run on storage. Then the hardening of `BoundExpression` (TY5) | 2 (CL2) |
+| 4 | Statistics: readers ignore min and max of types without `Ord` (ST1), and the bloom filter needs `Eq` (ST2). The writers' part lands with TY2 | 2 (CL2) |
+| 5 | Type rules and casts: `ExtVTable::rules` over `ReduceNode`, exact unit casts, and the named lossy unit function | XQ10, and U1 |
 | 6 | Value checks: the value check of `try_new` and the strict read mode | 0, 1 |
 | 7 | Boundaries: the Arrow default export and import of Vortex IDs, and converters for DataFusion, DuckDB, Python and JNI | Nothing |
-| Claims | [#11115](https://github.com/vortex-data/vortex/issues/11115): `Claim`, `DType::holds`, `ExtVTable::claims` and the claims of the types. Then `ExtensionUse::Storage`, `ResultMapping`, the generic storage rewrite, and the storage paths that replace the hardcoded lists | 1 for the claims, 3 for the storage paths |
 
-Phases 0 and 1 can run in parallel. Phase 1 builds on U4 and U5, which merged on 2026-11-02 and
-2026-10-30. Its storage declaration SD (#11184) merged on 2026-11-13 with strict reads, after
-the spatial validator fix SN1, which merged on 2026-11-04 (see "Order constraints", items 3 and 6).
-The Arrow export with metadata is part of phase 7, but it lands in phase 0, before U1. Phase 2 adds
-declarations that nothing reads yet, so it can start at any time. U9 was dropped, and SP4 fixes the
-results of the composite aggregates (#11243). Phase 3 is the critical step: it turns on typing,
-and from then on extension types are opaque. Phases 4 and 5 build on it. Phase 6 runs in parallel
-with phases 2 to 5.
+Phases 0 and 1 are mostly done. The open PRs of phase 0 (U1, SF and SN3) and NU of phase 1 are
+independent of the claims, so they can run in parallel with phase 2. Phase 2 is small, and it
+changes no behavior: nothing reads the claims until phase 3. Phase 3 is the critical step. Each of
+its PRs turns on typing for one family, so from then on that family treats extension types as
+opaque unless they claim what it needs. Phase 4 needs only the claims, so it runs in parallel with
+phase 3. Phase 6 runs in parallel with phases 2 to 4. Phase 5 waits for XQ10.
 
-The claims work of #11115 starts after the storage declaration, because `ExtDType::try_new` checks
-the claims against the declared storage. Its storage paths start after phase 3. Each one replaces a
-hardcoded list and its hand-written path with claims. The lists match the claims of X16, so each
-switch allows and rejects the same calls.
-
-The storage paths of #11115 and the rules of phase 5 build their results with
-`ExtensionArray::new_unchecked`. So phase 1 adds that constructor, and phase 6 only adds the value
+Each storage path and each rule of phase 5 builds its results with `ExtensionArray::new_unchecked`
+when legal input gives legal output. So NU adds that constructor, and phase 6 only adds the value
 check to `try_new`.
 
 ## Dependency graph
 
 The graph shows every change of the extension type work, grouped by phase, with its state on
-2026-11-17. Green nodes merged, yellow nodes have an open PR, and white nodes have no PR yet. A
-solid arrow is a hard dependency: the later change must not land first. A dashed arrow is an order
-rule or a soft dependency, and a label such as "item 3" names the rule in "Order constraints". A
-dotted line without an arrow links an open PR that changes the same code, so the two need
-coordination. Each node is one PR, and its ID is the ID of that PR in the PR plan of
-[#11114](https://github.com/vortex-data/vortex/issues/11114), or of
-[#11115](https://github.com/vortex-data/vortex/issues/11115) for the claims (CL) and the storage
-paths (SP). A gray node was dropped.
-
-A red node waits for a new design of the function declaration. FD
-([#11186](https://github.com/vortex-data/vortex/pull/11186)) closed without a merge on 2026-11-04.
-Its review said: "The extension type vtable should declare its properties, not every function that
-uses it." So `extension_use` (X17), the function categories that it returns (X18, X19), and the
-hardcoded lists (X35) are under review, and the red nodes keep their old content until the
-maintainer settles the new form. Every other node is independent of that design. ST1 needs only
-the order list of FD, and the `Ord` claim of CL2 gives the same answer.
+2026-11-17. Green nodes merged, yellow nodes have an open PR, and white nodes have no PR yet. A red
+node waits for a design decision. A gray node was dropped or closed without a merge. A solid arrow
+is a hard dependency: the later change must not land first. A dashed arrow is an order rule or a
+soft dependency, and a label such as "item 4" names the rule in "Order constraints". A dotted line
+without an arrow links an open PR that changes the same code, so the two need coordination. Each
+node is one PR, and its ID is the ID of that PR in the PR plans of
+[#11114](https://github.com/vortex-data/vortex/issues/11114) and
+[#11115](https://github.com/vortex-data/vortex/issues/11115).
 
 ```mermaid
 flowchart TD
@@ -85,7 +70,7 @@ flowchart TD
         AX["AX Arrow export with metadata, from phase 7<br/>#11224, follow-ups #11300, #11301, #11351, #11304"]:::merged
         RT["RT Arrow round-trip fixes and conformance tests<br/>#11360, #11361"]:::merged
         FUZZ["Arrow extension transport fuzzing<br/>#11514"]:::merged
-        SF["SF dtype error in a lazily parsed struct field"]
+        SF["SF dtype error in a lazily parsed struct field<br/>issue #8848"]
         U1["U1 no storage casts"]
         TS["TS Timestamp accepts every i64, DateTimeParts days<br/>#10953"]:::merged
         V10["V10 Date display fallback<br/>#11187"]:::merged
@@ -113,44 +98,47 @@ flowchart TD
     SN1 -.->|"item 6"| SD
     SD --> NU
 
-    subgraph PH2["Phase 2"]
-        FD["FD ExtensionUse without Storage, hardcoded lists<br/>#11186 closed after review"]:::redesign
-        TY1["TY1 compare and between declare Specific"]:::redesign
-        TY2["TY2 aggregates declare Specific"]:::redesign
-        TY3["TY3 structural functions declare Structural"]:::redesign
-        TY4["TY4 list_contains declares Specific"]:::redesign
-        TY5["TY5 type-specific functions declare Specific"]:::redesign
-        U9["U9 dropped, SP4 fixes EXT-A3<br/>#11243"]:::dropped
+    subgraph PH2["Phase 2: claims"]
+        CL1["CL1 Claim, DType::holds, ExtVTable::claims,<br/>require_claim, the Opaque test type"]
+        CL2["CL2 claims of the repository types"]
+        CL3["CL3 claim conformance checks,<br/>DecimalLike and Refined test types"]
+        FD["FD ExtensionUse and hardcoded lists<br/>#11186, replaced by X36"]:::dropped
     end
-    FD --> TY1
-    FD --> TY2
-    FD --> TY3
-    FD --> TY4
-    FD --> TY5
+    SD --> CL1
+    CL1 --> CL2
+    CL1 --> CL3
 
-    subgraph PH3["Phase 3"]
-        TY["TY typing check, with the phase 4 writers and DuckDB pushdown"]:::redesign
+    subgraph PH3["Phase 3: typing in each function"]
+        TY1["TY1 compare, between, DynamicComparison,<br/>DuckDB filter pushdown decision"]
+        TY2["TY2 aggregates check claims, no storage adapter,<br/>zone map writers, fixes #11243"]
+        TY3["TY3 list_contains needs Eq"]
+        TY4["TY4 row encoding accepts Ord extension types"]
+        TY5["TY5 private BoundExpression variants"]
+        U9["U9 dropped, TY2 fixes EXT-A3<br/>#11243"]:::dropped
     end
-    TY1 -->|"item 7"| TY
-    TY2 -->|"item 7"| TY
-    TY3 -->|"item 7"| TY
-    TY4 -->|"item 7"| TY
-    TY5 -->|"item 7"| TY
-    U1 --> TY
-    DF --> TY
-    TY -.->|"items 4 and 5"| PO["Any PartialOrd change for Scalar, XQ8"]
+    CL2 -->|"item 8"| TY1
+    CL2 -->|"item 8"| TY2
+    CL2 -->|"item 8"| TY3
+    CL2 -->|"item 8"| TY4
+    TS -.->|"item 9"| TY1
+    TY1 -.-> CL3
+    TY2 -.-> CL3
+    TY3 -.-> CL3
+    TY2 -.->|"item 5"| PO["Any PartialOrd change for Scalar, XQ8"]
 
-    subgraph PH4["Phase 4"]
-        ST1["ST1 readers ignore min and max outside the order list"]
+    subgraph PH4["Phase 4: statistics"]
+        ST1["ST1 readers ignore min and max without Ord,<br/>NaN guard, engine statistics"]
+        ST2["ST2 bloom filter needs Eq"]
     end
-    FD --> ST1
+    CL2 --> ST1
+    CL2 --> ST2
 
     subgraph PH5["Phase 5"]
-        RU1["RU1 ExtVTable::rules over ReduceNode"]
+        RU1["RU1 ExtVTable::rules over ReduceNode, XQ10"]:::redesign
         RU2["RU2 exact unit casts and the named coarser-unit function"]
         RU3["RU3 converter audit for literals and SQL casts"]
     end
-    TY --> RU1
+    U1 --> RU1
     RU1 --> RU2
     RU2 --> RU3
 
@@ -172,37 +160,6 @@ flowchart TD
     DS --> DS2
     AX --> AF
 
-    subgraph CLAIMS["Claims, #11115"]
-        CL1["CL1 Claim, DType::holds, ExtVTable::claims"]
-        CL2["CL2 claims of the repository types"]
-        CL3["CL3 claim conformance checks and reference types"]
-        SP1["SP1 ExtensionUse::Storage, ResultMapping, Rewrap guard"]:::redesign
-        SP2["SP2 typing of Storage calls and the generic storage rewrite"]:::redesign
-        SP3["SP3 compare and between through the claims, with the DateTimeParts rule X32"]:::redesign
-        SP4["SP4 aggregates through the claims, with DuckDB pushdown"]:::redesign
-        SP5["SP5 list_contains and the row encoding through the claims"]:::redesign
-        SP6["SP6 statistics and pruning through the claims"]
-        SP7["SP7 engine pushdown through the claims"]
-    end
-    SD --> CL1
-    CL1 --> CL2
-    CL1 --> CL3
-    CL1 --> SP1
-    FD --> SP1
-    NU --> SP1
-    SP1 --> SP2
-    TY --> SP2
-    SP2 --> SP3
-    SP2 --> SP4
-    SP2 --> SP5
-    CL2 --> SP3
-    CL2 --> SP4
-    CL2 --> SP5
-    SP4 --> SP6
-    ST1 --> SP6
-    CL2 --> SP7
-    TS -.-> SP3
-
     subgraph LOW["Low priority"]
         LP1["LP1 lift structural encodings above the wrapper<br/>#10748, X5"]
         LP2["LP2 shared pushdown through Masked and Sparse<br/>X34"]
@@ -210,28 +167,26 @@ flowchart TD
         LP4["LP4 registration without silent replacement<br/>EXT-R2"]
     end
     CF["Constant fold of ext_storage<br/>#11056"]:::merged -.-> LP2
-    SP3 -.->|"replaces the X32 rule"| LP3
+    TY1 -.->|"keeps the X32 kernel order"| LP3
 
     subgraph OTHER["Open PRs to coordinate with"]
         AG["vortex-aggregates move<br/>#10769"]:::open
+        FN["Scalar functions move to vortex-functions<br/>#10762"]:::open
         BB["Spatial bounding boxes in file statistics<br/>#10837"]:::open
-        DI["Duration and Interval, closed as stale<br/>#10467, #10468"]:::dropped
         CS["IsCompoundSorted<br/>#10661"]:::open
         PT["Comparisons proven true from statistics<br/>#10686"]:::open
-        OS["optimize only with a session<br/>#10793, split into #11090, #11091, #11092"]:::merged
-        FN["Scalar functions move to vortex-functions<br/>#10762"]:::open
         FZ["fill_null and zip kernels for extension arrays<br/>#11415"]:::open
+        DI["Duration and Interval, closed as stale<br/>#10467, #10468"]:::dropped
+        OS["optimize only with a session<br/>#10793, split into #11090, #11091, #11092"]:::merged
     end
     AG -.- TY2
-    AG -.- SP4
-    BB -.- FD
-    CS -.- TY2
-    PT -.- SP6
-    OS -.- RU1
     FN -.- TY1
     FN -.- TY3
-    FN -.- SP2
-    FZ -.- TY3
+    FN -.- ST1
+    BB -.- TY2
+    CS -.- TY2
+    PT -.- ST1
+    OS -.- RU1
 
     classDef merged fill:#d7f0dc,stroke:#2f7a45,color:#10261a
     classDef open fill:#fbefc7,stroke:#a87c0f,color:#2b2105
@@ -241,8 +196,9 @@ flowchart TD
 
 ## Order constraints
 
-Most PRs can land in any order that the graph allows. In seven places, a change that lands alone
-breaks something that works today. Those parts must land together, or in a fixed order:
+Most PRs can land in any order that the graph allows. In nine places, a change that lands alone
+breaks something that works today. Those parts must land together, or in a fixed order. Items 1, 2,
+3 and 6 hold already.
 
 1. U2 lands together with the DataFusion literal conversion (EXT-B1), the DataFusion dynamic filter
    path ([#10865](https://github.com/vortex-data/vortex/pull/10865),
@@ -261,31 +217,42 @@ breaks something that works today. Those parts must land together, or in a fixed
    merged as `b9b02f6288`) changed `with_nullability` and the documentation of `validate_dtype`,
    which the storage declaration replaced in #11184. U5
    ([#11015](https://github.com/vortex-data/vortex/pull/11015), merged as `5d8429064a`) changed the
-   `Date`, `Time` and `Timestamp` vtables, which received their declarations in SD and get their claims
-   in CL2. Both merged before SD.
-4. The typing check of phase 3 includes two more changes:
-   - The writers' part of phase 4. Once `Min` and `Max` reject types outside the order list, the
-     storage fallback of `aggregate_state_dtype` would write a storage-typed state for those
-     columns. No version wrote that form before.
-   - DuckDB aggregate pushdown reads the hardcoded order list. Today it excludes only `Uuid`, so
-     `max` over a `Json` column would fail in DuckDB. Whether DuckDB falls back to its own
-     aggregation when binding fails is not checked. SP4 later switches it to the claims.
-5. A change of `PartialOrd` for `Scalar` (XQ8) lands with the typing check of phase 3, or after it.
-   Today `min` and `max` merge partial results with `vortex_expect`, so an earlier change can panic.
-6. The spatial validator fix SN1 (EXT-N2) merged before the storage declaration SD (#11184),
-   which merged on 2026-11-13 and makes reads strict (X29). Before SD, `validate_dtype` ran on
-   every read, so SN1 already made these spatial reads strict. A check on 2026-11-03 found that
-   no Vortex producer wrote a spatial dtype with a nullable nested level. Only storage that a user
-   builds by hand through the public Rust API can have one. The maintainer accepted that such files stop reading, so no read plugin is needed.
-   SN1 ([#11183](https://github.com/vortex-data/vortex/pull/11183)) merged on 2026-11-04 as
+   `Date`, `Time` and `Timestamp` vtables, which received their declarations in SD and get their
+   claims in CL2. Both merged before SD.
+4. TY2 includes the writers' part of phase 4. Once `Min` and `Max` reject types without `Ord`, the
+   storage fallback of `aggregate_state_dtype` (`vortex-layout/src/layouts/zoned/schema.rs:177-188`)
+   would write a storage-typed state for those columns. No version wrote that form before. So TY2
+   removes the fallback from the writer. The legacy reader keeps its own fallback, so old files
+   still read. DuckDB aggregate pushdown needs no change in TY2: it already declines when
+   `aggregate.build(dtype)` fails (`vortex-duckdb/src/table_function.rs:582`), and DuckDB then
+   aggregates by itself. TY2 adds a test for this.
+5. A change of `PartialOrd` for `Scalar` (XQ8) lands with TY2, or after it. Today `min` and `max`
+   merge partial results with `vortex_expect`, so an earlier change can panic.
+6. The spatial validator fix SN1 (EXT-N2) merged before the storage declaration SD (#11184), which
+   merged on 2026-11-13 and makes reads strict (X29). A check on 2026-11-03 found that no Vortex
+   producer wrote a spatial dtype with a nullable nested level. The maintainer accepted that such
+   files stop reading, so no read plugin is needed. SN1
+   ([#11183](https://github.com/vortex-data/vortex/pull/11183)) merged on 2026-11-04 as
    `956c1ea188`, so this order holds.
-7. The declarations of phase 2 (TY1 to TY5) land before the typing check of phase 3, or with it.
-   The check rejects every call that answers `None`, so a family without its declaration stops
-   working. For example, a compare of two `Timestamp` columns would fail when it is built.
+7. TY1 includes the DuckDB filter pushdown decision. DuckDB decides pushdown from the shape of an
+   expression only (`vortex-duckdb/src/convert/expr.rs:454-511`). When Vortex accepts a filter,
+   DuckDB drops it from its own plan, and Vortex binds it later (`projection.rs:239-262`). After
+   TY1, a bind error then fails the query, for example `WHERE json_a = json_b`. So TY1 makes DuckDB
+   check the claims before it accepts a filter. DataFusion needs no change: a `return_dtype` error
+   during planning becomes `Unsupported`, and DataFusion keeps the filter
+   (`vortex-datafusion/src/convert/exprs/mod.rs:895-899`). TY1 adds a `Json` test for both engines.
+8. CL2 lands before TY1 to TY4. Without the claims of the repository types, every check rejects the
+   types that work today, for example a compare of two `Timestamp` columns.
+9. TY1 keeps the order in which compare dispatches kernels: the kernels of an encoding run before
+   the storage path. So the `DateTimeParts` compare kernel keeps its fast path for `Timestamp`
+   columns (X32). TY1 adds a test that a compare over `DateTimeParts` does not decode the column.
 
-TY2 and SP4 also need coordination with
-[#10769](https://github.com/vortex-data/vortex/pull/10769), which moves the aggregate
-implementations that they change into `vortex-aggregates`.
+Two open PRs by another maintainer move most of the code of phase 3.
+[#10762](https://github.com/vortex-data/vortex/pull/10762) moves scalar functions into a new
+`vortex-functions` crate (433 files, open for review). [#10769](https://github.com/vortex-data/vortex/pull/10769)
+moves the aggregates into a new `vortex-aggregates` crate, and it moves `register_storage_ordered`
+there too (619 files, draft, stacked on #10762, with conflicts). Whichever lands second must port
+the other's changes. The changes of phase 3 are small in each file, so they port easily.
 
 ## Phase 0: urgent fixes
 
@@ -327,6 +294,9 @@ implementations that they change into `vortex-aggregates`.
   still treat every child slot as visible, so a masked null at a non-nullable level can fail
   import. SN3 also gives masked dictionary keys a valid target when `new_null_array` builds keys
   outside the values.
+- SF returns an error for a dtype that fails to decode in a lazily parsed struct field. Today
+  `StructFields::fields()` calls `vortex_expect` on a fallible decode, so a crafted file panics
+  when its footer is read ([#8848](https://github.com/vortex-data/vortex/issues/8848)).
 - V10 gives the `Display` of `Date` the fallback that #10953 gives `Timestamp`, in its own PR on
   `develop` (EXT-V10). It merged as #11187 on 2026-11-04.
 - U4 is the interim form of the storage declaration: `with_nullability` stops validating again, and
@@ -370,86 +340,105 @@ SD (#11184) merged on 2026-11-13. The final three items below belong to NU.
   through the serialized bytes and the stored storage, and that a `validate_array` override agrees
   with the default. CL3 adds the checks for claims.
 
-## Phase 2: declarations with hardcoded opt-ins
+## Phase 2: claims
 
-- Add `ExtensionUse` with `None`, `Structural` and `Specific` (X17, X35), and `extension_use` on
-  `ScalarFnVTable` and `AggregateFnVTable`, with the default `ExtensionUse::None`. SP1 adds the
-  `Storage` variant later. Nothing reads the declarations yet, so behavior does not change.
-- Add the hardcoded lists of X35 in one place: the types whose storage gives their equality, and
-  the types whose storage gives their order. They match the claims of X16. `Date`, `Time`,
-  `Timestamp` and `Uuid` are on both lists, and `Vector` and `FixedShapeTensor` are on the equality
-  list. `Duration` joins both lists if #10467 merges first. The lists name the types by extension
-  ID, because `Uuid`, `Vector` and `FixedShapeTensor` live in other crates. Claims remove this
-  limit.
-- Declare the built-in functions by family, each in its own PR with tests of its declarations:
-  1. TY1: compare and `between` answer `Specific` when the extension operands are on the list that
-     the operator needs.
-  2. TY2: the aggregates that read values answer `Specific` for the types on the list that they
-     need. For example, `min`, `max`, `min_max` and `is_sorted` need the order list.
-  3. TY3: the structural functions answer `Structural`.
-  4. TY4: `list_contains` answers `Specific` for elements on the equality list. The row encoding
-     rejects extension types today, so it stays as it is until SP5.
-  5. TY5: the type-specific functions answer `Specific` (X18). These are `replace_time_zone`, the
-     spatial and tensor functions, `json_to_variant`, and the `GeometryAabb` aggregate. Without
-     these declarations, the typing check of phase 3 rejects these functions.
-- The hand-written paths of today stay, and they do the work for the types on the lists. For
-  example, the extension compare kernel still compares storage. After phase 3, typing rejects every
-  other call before it reaches them.
-- U9 was dropped on 2026-11-04. SP4 gives the results of today's `ExtensionStoragePushdown` their
-  extension dtype instead, and #11243 tracks the bug until then. Part 4 has the details.
-- Coordinate with [#10769](https://github.com/vortex-data/vortex/pull/10769), which moves the
-  aggregate implementations into a new `vortex-aggregates` crate, and with
-  [#10837](https://github.com/vortex-data/vortex/pull/10837), which changes
-  `aggregate_fn/vtable.rs` and `session.rs`.
+[#11115](https://github.com/vortex-data/vortex/issues/11115) tracks this work. Nothing reads the
+claims until phase 3, so this phase changes no behavior.
 
-## Phase 3: typing
+- CL1: add `#[non_exhaustive] pub enum Claim { Eq, Ord }` with `Claim::implies` (X13, X14), and
+  `DType::holds(Claim)`. Built-in dtypes follow the fixed table of X13. An extension dtype holds
+  the claims of its type and the claims that they imply. Add
+  `fn claims(metadata: &Self::Metadata) -> &'static [Claim]` to `ExtVTable`, with the default
+  `&[]` (XQ9), and an erased forwarder on `ExtDTypeRef`. `ExtDType::try_new` checks that the
+  declared storage dtype holds every claim (X15). Add the shared helper `require_claim`, which
+  returns an error that names the function, the dtype and the missing claim. Add the `Opaque` test
+  type over `i64`, which claims nothing, so the PRs of phase 3 can test rejection.
+- CL2: give each type in the repository its claims (X16). `Date`, `Time`, `Timestamp` and `Uuid`
+  claim `Eq` and `Ord`. `Uuid` orders by its bytes. `Vector` and `FixedShapeTensor` claim `Eq`.
+  `Json`, WKB, the native geometry types and `ForeignExtDType` claim nothing.
+- CL3: add the checks for claims to the conformance harness of NU: the claims ignore the top-level
+  nullability, and `Ord` comes with `Eq`. Add two more reference test types:
+  - A decimal-like type over `i64` that claims `Eq` and `Ord`. A differential test compares its
+    results with the built-in `Decimal`. Write the test after TY1 to TY3, so that the type gets
+    every storage path, and after CD8a
+    ([#10701](https://github.com/vortex-data/vortex/issues/10701)), because the CD PRs still change
+    the behavior of the built-in `Decimal`.
+  - A refinement type that claims both and adds a value check.
 
-- Add the typing check in its four places: `BoundExpression::try_new_vec`,
-  `ScalarFnArray::try_new_from_slots`, `AggregateDTypes::try_new` and `ScalarFn::validate`. It
-  calls `extension_use` once for each call with an extension operand, and it rejects the call if
-  the answer is `None`. Make the variants of `BoundExpression` private. Make `Cast::new` fallible,
-  because typing rejects casts that no rule covers.
-- Land the declarations of phase 2 first, or together with the check ("Order constraints", item
-  7).
-- Cover lambda bodies in the typing check. `Expression::Variable` and `Lambda`
-  ([#10502](https://github.com/vortex-data/vortex/pull/10502)) and `list_transform`
-  ([#10503](https://github.com/vortex-data/vortex/pull/10503)) give a function a body that runs on
-  list elements, and an element can be an extension value.
-- `BoundExpression::try_new_vec` and `ScalarFnArray::try_new_from_slots` call `bind_options` before
-  `return_dtype`, but `ScalarFn::validate` calls only `return_dtype`. Check whether typing in
-  `ScalarFn::validate` must see bound options.
-- Include the writers' part of phase 4 and the DuckDB aggregate pushdown ("Order constraints", item
-  4).
-- Any change of `PartialOrd` for `Scalar` waits for the check, because the check rejects `min` and
-  `max` for types outside the order list (XQ8). An earlier change can make `max` panic on a chunked
-  `Json` column, or in DuckDB aggregate pushdown. This risk comes from reading the code.
+## Phase 3: typing in each function
+
+Each PR switches one family from today's storage behavior to a claim check in its `return_dtype`
+(X36). The storage path of the family stays, and it runs only for calls that typing accepted (X37).
+Each PR tests three things: a type with the claim keeps working on the array path, the row path and
+constant inputs; the `Opaque` type and `Json` are rejected when the call is bound; and the error
+names the function, the dtype and the missing claim.
+
+- TY1: compare, `between` and `DynamicComparison`.
+  - `Binary::return_dtype` calls `require_claim` for a comparison: `Eq` for `=` and `!=`, `Ord` for
+    the order operators. `Between::return_dtype` requires `Ord`. `DynamicComparison::return_dtype`
+    requires the claim of its operator, because it calls `Binary.execute` directly and skips
+    `Binary::return_dtype`.
+  - `Union` and `Variant` hold no claim (X13). So a compare of two `Union` or `Variant` values now
+    fails when it is bound, not at execution.
+  - The extension compare kernel and the lone-extension case of `compare_arrays` stay. They now run
+    only for accepted calls.
+  - DuckDB checks the claims before it accepts a filter ("Order constraints", item 7).
+  - The `DateTimeParts` compare kernel keeps its order before the storage path (item 9).
+  - Fixes EXT-Q2. Coordinate with #10762.
+- TY2: the aggregates.
+  - `min`, `max`, `min_max`, `bounded_min`, `bounded_max` and `is_sorted` require `Ord`.
+    `is_constant` and `all_non_distinct` require `Eq`. Each also requires that it supports the
+    storage dtype of an extension input.
+  - Each runs over the storage itself, through a shared helper, and wraps value results in the input
+    dtype. Plain `min_max` does this today (`min_max/extension.rs`). Partial states follow X21.
+  - Remove `ExtensionStoragePushdown`, its composite IDs, `register_storage_ordered` and the
+    registrations in `aggregate_fn/session.rs` and `encodings/uuid/src/lib.rs` (X10, X37).
+  - Plain `is_sorted` then works for types with `Ord` (EXT-A1), and the results of the order
+    aggregates have the input dtype (EXT-A3, #11243).
+  - Remove the writer fallback of `aggregate_state_dtype` ("Order constraints", item 4).
+  - Coordinate with #10769, which moves these files, and with #10837 and #10661.
+- TY3: `list_contains` requires `Eq` on the element dtype. Its storage path stays.
+- TY4: the row encoding accepts an extension column whose dtype holds `Ord`, and encodes its
+  storage. Today it rejects every extension dtype (`vortex-row/src/encoder.rs:113`, `:127-150`).
+  The encoder runs on raw columns, so it checks `DType::holds` itself (X38). `RowEncode` and
+  `RowSize` check the same claim in `return_dtype`.
+- TY5: make the variants of `BoundExpression` private, so no code builds a node without
+  `return_dtype` (X8). This is hardening, and no other PR depends on it.
+
+`cast` is not part of this phase. Its `return_dtype` must know whether a rule of the type covers a
+cast, which phase 5 decides (XQ10). U1 removes the storage reinterpretation first.
 
 ## Phase 4: statistics
 
-- ST1: readers ignore stored min and max of an extension type outside the order list, in pruning
-  and in the file statistics that reach engines, and log a warning once for each file and column
-  (X22, X35). This needs only the lists of phase 2, so it can land early. SP6 later reads the `Ord`
-  claim instead of the list.
-- Writers drop the storage fallback of `aggregate_state_dtype`, so types outside the order list get
-  no min and max. Types on the list keep their logical `Min` and `Max`, so the format does not
-  change. This lands with the typing check of phase 3, because `Min` and `Max` reject the other
-  types only after it ("Order constraints", item 4).
-- Pruning of the types on the order list works as it does today. SP6 moves it to the claims.
+- ST1: readers ignore stored min and max of an extension type without `Ord` (X22, X38), and log a
+  warning once for each file and column. This covers the zone map reader, file pruning and the file
+  statistics that reach engines. DuckDB column statistics then stop exporting byte-ordered WKB
+  bounds from old files. The DataFusion `constant_distinct_count` replaces its hardcoded temporal
+  list with `Eq`. The pruning NaN guard looks through extension dtypes to their storage (EXT-A5).
+- ST2: the bloom filter accepts an extension column only when its dtype holds `Eq` (EXT-A4).
+- The writers' part lands with TY2 ("Order constraints", item 4). Types with `Ord` keep their
+  logical `Min` and `Max`, so the format does not change.
+- Pruning of types with `Ord` works as it does today. `stat_expr` asks the `return_dtype` of the
+  aggregate (`vortex-expr/src/stats/rewrite/builtins.rs:761-789`), so after TY2 it asks for no min
+  and max of other types.
 - Coordinate with [#10661](https://github.com/vortex-data/vortex/pull/10661) and
   [#10686](https://github.com/vortex-data/vortex/pull/10686). #10661 adds an `IsCompoundSorted`
-  aggregate for a compound sort key, and stores its result in the file statistics. It replaces
-  [#10482](https://github.com/vortex-data/vortex/pull/10482), which closed without a merge on
-  2026-10-30. At `ad63b14b6f`, it runs `is_sorted` on each key field. It compares the keys at the
-  boundaries of batches and of partial results with `Scalar::partial_cmp`, so it meets XQ8 too.
+  aggregate for a compound sort key, and stores its result in the file statistics. It runs
+  `is_sorted` on each key field and compares keys with `Scalar::partial_cmp`, so it meets XQ8 too.
   #10686 proves comparisons true from statistics.
 
 ## Phase 5: type rules and casts
 
-- Add `ExtVTable::rules`, written over `ReduceNode` (X20). The static optimizer, the session-aware
-  optimizer and the executor find the rules through the dtype. A rule of the type wins over the
-  default storage path.
+- Decide XQ10 first. PR [#11091](https://github.com/vortex-data/vortex/pull/11091) deprecated
+  `optimize` without a session, and PR [#11092](https://github.com/vortex-data/vortex/pull/11092)
+  moved parent-reduce rules into the session registry. The rules must still be reachable from the
+  dtype, because the `return_dtype` of `cast` has no session and must know whether a rule covers a
+  cast (X36).
+- Add `ExtVTable::rules`, written over `ReduceNode` (X20). The optimizer and the executor find the
+  rules through the dtype. A rule of the type wins over the storage path of the function.
 - Implement the casts of #8570 as rules that the types own (C1). A cast exists only if a rule covers
-  it, and every cast is exact (C2).
+  it, and every cast is exact (C2). `Cast::new` becomes fallible, because typing rejects casts that
+  no rule covers.
 - Add `Timestamp` unit casts to a finer unit with overflow checks, and the same for `Date` and
   `Time`. A unit cast builds its result with `ExtensionArray::new_unchecked`, because legal input
   gives legal output.
@@ -493,59 +482,6 @@ SD (#11184) merged on 2026-11-13. The final three items below belong to NU.
 - Add a typed array view, a native value accessor, and metadata helpers, and write the developer
   guide page for extension types.
 
-## Claims and storage paths (#11115)
-
-[#11115](https://github.com/vortex-data/vortex/issues/11115) tracks this work. It replaces the
-hardcoded lists of phases 2 to 4 with claims, so that a type outside the repository can opt in too.
-
-- CL1: add `#[non_exhaustive] pub enum Claim { Eq, Ord }` with `Claim::implies` (X13, X14), and
-  `DType::holds(Claim)`. Built-in dtypes follow the fixed table of X13. An extension dtype holds the
-  claims of `ExtVTable::claims` and the claims that they imply. Add `ExtVTable::claims(dtype) ->
-  &'static [Claim]`, with the default `&[]`, and an erased forwarder on `ExtDTypeRef`. Check the
-  claims in `ExtDType::try_new` (X15): the declared storage dtype must hold every claim. This needs
-  the storage declaration of phase 1.
-- CL2: give each type in the repository its claims (X16). `Uuid` gets `Ord`, ordered by its bytes.
-  The claims match the hardcoded lists.
-- CL3: add the checks for claims to the conformance harness: the claims ignore the top-level
-  nullability, and `Ord` comes with `Eq`. Add three reference test types:
-  - An opaque type that claims nothing. Typing must reject every semantic operation on it, so this
-    test needs phase 3.
-  - A decimal-like type over `i64` that claims `Eq` and `Ord`. A differential test compares its
-    results with the built-in `Decimal`. The test needs SP3 to SP5, because a type outside the
-    lists gets no storage path before them. Write it after CD8a
-    ([#10701](https://github.com/vortex-data/vortex/issues/10701)), because the CD PRs still change
-    the behavior of the built-in `Decimal`.
-  - A refinement type that claims both and adds a value check.
-- SP1: add the `Storage` variant of `ExtensionUse` and `ResultMapping` (X17, X19). Add the `Rewrap`
-  guard and the shared wrap and unwrap code for dtypes, scalars and arrays. `Fields` applies it to
-  each field of a struct result. The guard ignores only the top-level nullability, and a nested
-  mismatch is an error that names both dtypes (X30).
-- SP2: typing accepts a `Storage` call when every argument holds its claim, checked with
-  `DType::holds`. Add the generic storage rewrite over `ReduceNode`, in the static optimizer and
-  before kernel dispatch. It rewrites operands to `ext_storage`, or to the new `ext_storage_deep`
-  for nested values, and applies the result mapping. Add the rule `ext_storage(Extension(s))` to
-  `s`, so the row path of `ext_storage` reads storage without a value check. #11056 added the
-  matching rule for a constant, which folds the literal side of the rewrite, for example
-  `lit(5i64)`.
-- SP3 to SP5 switch each family from its hardcoded list to a `Storage` declaration, and remove its
-  hand-written path:
-  1. SP3: compare and `between`. Remove the extension compare kernel, the lone-extension case in
-     `compare_arrays`, and the extension branch of the nested comparator. Add the rule that sends
-     `ext_storage(DateTimeParts) < lit` to the existing `DateTimeParts` compare kernel (X32).
-  2. SP4: the aggregates. Move the body of `ExtensionStoragePushdown` into aggregate binding (X21).
-     Remove the composite IDs, `register_storage_ordered` and `min_max/extension.rs`. DuckDB
-     aggregate pushdown reads the claims. Plain `is_sorted` then runs on storage for an ordered
-     type, so it stops returning `false` for every extension type (EXT-A1).
-  3. SP5: `list_contains` and the row encoding. The row encoding accepts extension types whose
-     claims cover the sort.
-- SP6: readers of statistics read the `Ord` claim instead of the order list. Pruning compares
-  logical statistics through the claims, or unwraps them to storage bounds. The stats rewrite rules
-  live in `vortex-expr` ([#10734](https://github.com/vortex-data/vortex/pull/10734)).
-- SP7: engine pushdown reads the claims, not the storage type.
-
-The hardcoded lists go away when SP3 to SP7 have all landed. #10246 proposed a per-type aggregate
-kernel registry, and it closed without a merge.
-
 ## Low priority and out of scope
 
 - Low priority: the lift rule of X5, the extension case of
@@ -556,12 +492,12 @@ kernel registry, and it closed without a merge.
 - Low priority, next to #10748: the shared pushdown of functions through generic encodings (X34).
   `Masked` and `Sparse` get a pushdown rule for elementwise, infallible and strict functions.
   `ScalarFnVTable` gets a constant-fold hook that `Constant` and the `Sparse` fill value use.
-  `ext_storage` keeps only its constant hook and the unwrap rule of SP2.
+  `ext_storage` keeps only its constant hook and the unwrap rule `ext_storage(Extension(s))` to `s`.
   [#11056](https://github.com/vortex-data/vortex/pull/11056) added the constant case. Without the
   rest, `ext_storage` over `Masked` decodes, and over `Sparse` with extension values it fails
   (probe R6).
-- Low priority: `DateTimeParts` as an `i64` encoding under the wrapper. Until then, the rule of X32
-  keeps its compare kernel after SP3. The new form needs an edition.
+- Low priority: `DateTimeParts` as an `i64` encoding under the wrapper. Until then, compare keeps
+  the kernel order of X32, which TY1 tests. The new form needs an edition.
 - Out of scope: the lossy primitive casts (the known issue in `decisions.md`), and the Rust traits
   of `Scalar` (XQ8).
 
@@ -571,13 +507,15 @@ Every finding of [`agents/findings.md`](agents/findings.md) has a fix in this pl
 
 | Finding | Fixed by |
 | --- | --- |
-| EXT-P1 | U1, and U2 (merged in #11016). SP2 keeps the paths consistent, because its rewrite runs on every path |
+| EXT-P1 | U1, and U2 (merged in #11016). Phase 3 keeps the paths consistent, because `return_dtype` runs on every path |
 | EXT-C1, EXT-C2, EXT-C3 | U1 |
 | EXT-Q1, EXT-Q3 | U2, merged in #11016 |
-| EXT-Q2 | TY1 and the typing check of phase 3, with the hardcoded lists, and then SP3 with the claims |
-| EXT-A1 | SP4 and SP5 |
-| EXT-A2 | Phase 4, and SP6 for the claims |
-| EXT-A3 | SP4, tracked in #11243 (U9 was dropped) |
+| EXT-Q2 | CL2 and TY1, and TY3 for `list_contains` |
+| EXT-A1 | TY2 for `is_sorted`, and TY4 for the row encoding |
+| EXT-A2 | TY2 for the writers, and ST1 for the readers |
+| EXT-A3 | TY2, tracked in #11243 (U9 was dropped) |
+| EXT-A4 | ST2 |
+| EXT-A5 | ST1 |
 | EXT-V1 | U3 for the panics, merged in #11014, and phase 6 for the value check of `try_new` |
 | EXT-V2, EXT-V7 | U6, merged in #11014 |
 | EXT-V3 | U7, merged in #11014 |
@@ -593,12 +531,12 @@ Every finding of [`agents/findings.md`](agents/findings.md) has a fix in this pl
 | EXT-B1 | U2 and #11067 for literals, both merged, and phase 7 for schema and scalar conversion |
 | EXT-B2 | U1 for the storage leak, and phase 7 for the export with metadata |
 | EXT-B3 | U1 for `vx.scalar`, and phase 7 for `as_py` |
-| EXT-B4 | The typing check of phase 3 for aggregate pushdown, SP4 and SP7 for the claims, and phase 7 for the converter hook |
+| EXT-B4 | TY1 for filter pushdown, TY2 for aggregate pushdown, ST1 for column statistics, and phase 7 for the converter hook |
 | EXT-B5 | Phase 7 |
 | EXT-B6 | U1 removes the casts out of extension types that this lead is about. Check it again after U1 |
 | EXT-R1 | U8, merged in #11012 |
 | EXT-R2 | Any time, as its own small PR |
-| EXT-R3 | Phase 3 rejects semantic operations on `ForeignExtDType`, because it is on no list. CL2 gives it no claims |
+| EXT-R3 | Phase 3 rejects semantic operations on `ForeignExtDType`, because CL2 gives it no claims |
 | EXT-R4 | Phase 1 for the contract on `ExtVTable`, and phase 7 for the developer guide |
 
 The lossy primitive casts in `decisions.md` are not an extension finding, and they stay out of
@@ -616,31 +554,35 @@ scope.
   row, and with constant inputs.
 - **Rule coverage.** The same expression gives the same result through `optimize`, `optimize_ctx`,
   execution without optimization, and the row path.
-- **Opaque rejection.** Typing rejects every semantic operation on the opaque reference type.
+- **Opaque rejection.** Each PR of phase 3 checks that its family rejects the `Opaque` test type and
+  `Json` when the call is bound, on every path.
 - **Claims.** A type whose storage does not hold its claim fails when its dtype is built.
 - **Declaration.** A dtype rebuilds from its serialized metadata and stored storage. A stored
   storage dtype with another nested nullability fails on read, with an error that names both.
-- **Result mappings.** A wrong `Rewrap` target fails when the call is built. Debug builds catch a
-  `Rewrap` that produces an illegal value.
+- **Results.** The order aggregates return values of the input dtype, on every path. Debug builds
+  check the values that a storage path wraps with `new_unchecked`.
 - **Differential parity.** The decimal-like reference type matches the built-in `Decimal` for every
   operation that both support, including errors.
 - **Statistics.** A file with storage-order min and max for a `Json` column reads without using them
   and logs one warning.
 - **Engines.** DuckDB and DataFusion pushdown tests use extension literals for temporal, `Uuid` and
-  `Json` columns. A `Json` comparison is not pushed down.
+  `Json` columns. A `Json` comparison is not pushed down, and the query still returns the engine's
+  own answer. A `max` over a `Json` column in DuckDB is not pushed down either.
 
 ## Compatibility
 
-- Phases 0 to 3 and phase 5 change behavior, not the file format. The release notes must list the
-  behavior changes from part 4 and from typing.
+- Phases 0 and 3 and phase 5 change behavior, not the file format. The release notes must list the
+  behavior changes from part 4 and from typing: a call on an extension type without the claim that
+  it needs fails when it is bound. `Union` and `Variant` compares fail when they are bound, not at
+  execution.
 - Phase 1 keeps the serialized metadata. Strict reads reject a stored storage dtype that differs
   from the declaration. No Vortex producer wrote a spatial dtype in another form ("Order
   constraints", item 6).
-- Phase 4 keeps the format. Writers stop writing min and max for types outside the order list, and
-  readers ignore such values in old files.
-- The claims of #11115 allow and reject the same calls as the hardcoded lists for the types in the
-  repository, because the lists match their claims. Plain `is_sorted` gets a correct result for
-  ordered types (SP4), and the row encoding accepts them (SP5).
+- Phase 2 changes no behavior, because nothing reads the claims before phase 3.
+- Phase 4 keeps the format. Writers stop writing min and max for types without `Ord` (TY2), and
+  readers ignore such values in old files (ST1).
+- Plain `is_sorted` gets a correct result for ordered types (TY2), and the row encoding accepts them
+  (TY4). The composite aggregate IDs go away, and only tests used them.
 - Phase 6 adds no value check to file reads, except in the strict mode.
 - Phase 7 changes the Arrow export of types without a plugin from an error to storage with
   metadata.
@@ -660,5 +602,5 @@ place these phases in a larger graph of type work. Three points affect the order
 - Phase 5 and the Decimal work share one integer kernel family, `rescale` and `check_range`.
   `Timestamp` unit casts and decimal rescales both use it.
 
-The decimal-like reference type of CL3 compares the storage paths of #11115 with the built-in
+The decimal-like reference type of CL3 compares the storage paths of phase 3 with the built-in
 `Decimal`.
