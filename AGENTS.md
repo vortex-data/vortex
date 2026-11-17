@@ -193,6 +193,8 @@ These CI checks are the ones most often missed when adding files rather than edi
   per-element loops; back such changes with the benchmarks it names.
 - Only write comments that explain non-obvious logic or important context. Do not comment
   self-explanatory code.
+- Keep `match_each_*!` and other dispatch macro bodies to a call into a generic function, because
+  cargo-mutants cannot mutate code inside macros; see `vortex-array/src/dtype/AGENTS.md`.
 - Use `vortex_ensure_eq!(left, right)` instead of `vortex_ensure!(left == right)` whenever
   possible so equality failures report both values.
 

@@ -8,6 +8,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::chunk_range;
 use vortex_array::arrays::primitive::patch_chunk;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::UnsignedPType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_buffer::BufferMut;
@@ -91,10 +93,6 @@ pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResu
 ///
 /// Takes pre-resolved `PrimitiveArray` inputs to avoid duplication between
 /// the `to_primitive` and `execute` paths.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "complexity is from nested match_each_* macros"
-)]
 fn decompress_chunked_core(
     encoded: PrimitiveArray,
     exponents: Exponents,
@@ -108,41 +106,64 @@ fn decompress_chunked_core(
         .validity()
         .vortex_expect("ALP validity should be derivable");
     let ptype = dtype.as_ptype();
-    let array_len = encoded.len();
-    let offset_within_chunk = patches.offset_within_chunk().unwrap_or(0);
 
     match_each_alp_float_ptype!(ptype, |T| {
-        let patches_values = patches_values.as_slice::<T>();
         let mut alp_buffer = encoded.into_buffer_mut();
         match_each_unsigned_integer_ptype!(patches_chunk_offsets.ptype(), |C| {
-            let patches_chunk_offsets = patches_chunk_offsets.as_slice::<C>();
-
             match_each_unsigned_integer_ptype!(patches_indices.ptype(), |I| {
-                let patches_indices = patches_indices.as_slice::<I>();
-
-                for chunk_idx in 0..patches_chunk_offsets.len() {
-                    let chunk_range = chunk_range(chunk_idx, patches.offset(), array_len);
-                    let chunk_slice = &mut alp_buffer.as_mut_slice()[chunk_range];
-
-                    <T>::decode_slice_inplace(chunk_slice, exponents);
-
-                    let decoded_chunk: &mut [T] = unsafe { transmute(chunk_slice) };
-                    patch_chunk(
-                        decoded_chunk,
-                        patches_indices,
-                        patches_values,
-                        patches.offset(),
-                        patches_chunk_offsets,
-                        chunk_idx,
-                        offset_within_chunk,
-                    );
-                }
-
-                let decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
-                PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity)
+                decode_and_patch_chunks::<T, I, C>(
+                    alp_buffer.as_mut_slice(),
+                    exponents,
+                    patches,
+                    patches_indices.as_slice::<I>(),
+                    patches_values.as_slice::<T>(),
+                    patches_chunk_offsets.as_slice::<C>(),
+                )
             })
-        })
+        });
+
+        // SAFETY: `T::ALPInt` has the same size and alignment as `T`, and every bit pattern is a
+        // valid `T`.
+        let decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
+        PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity)
     })
+}
+
+/// Decodes `values` in place one patch chunk at a time, applying each chunk's patches.
+fn decode_and_patch_chunks<T, I, C>(
+    values: &mut [T::ALPInt],
+    exponents: Exponents,
+    patches: &Patches,
+    patches_indices: &[I],
+    patches_values: &[T],
+    patches_chunk_offsets: &[C],
+) where
+    T: ALPFloat + NativePType,
+    I: UnsignedPType,
+    C: UnsignedPType,
+{
+    let array_len = values.len();
+    let offset_within_chunk = patches.offset_within_chunk().unwrap_or(0);
+
+    for chunk_idx in 0..patches_chunk_offsets.len() {
+        let chunk_range = chunk_range(chunk_idx, patches.offset(), array_len);
+        let chunk_slice = &mut values[chunk_range];
+
+        T::decode_slice_inplace(chunk_slice, exponents);
+
+        // SAFETY: `ALPFloat` is sealed to `f32` and `f64`, whose `ALPInt` (`i32` or `i64`) has the
+        // same size and alignment, and both types accept every bit pattern.
+        let decoded_chunk: &mut [T] = unsafe { transmute(chunk_slice) };
+        patch_chunk(
+            decoded_chunk,
+            patches_indices,
+            patches_values,
+            patches.offset(),
+            patches_chunk_offsets,
+            chunk_idx,
+            offset_within_chunk,
+        );
+    }
 }
 
 /// Core decompression logic for unchunked ALP arrays.
