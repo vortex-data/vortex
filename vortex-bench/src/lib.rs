@@ -36,7 +36,6 @@ use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
-use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::utils::aliases::hash_map::HashMap;
 
@@ -118,16 +117,15 @@ static UNSTABLE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[EditionMember::layout(&"vortex.list")],
 };
 
-const BENCH_UNSTABLE_FAMILY: EditionFamily = EditionFamily {
+const BENCH_UNSTABLE_ENCODINGS_FAMILY: EditionFamily = EditionFamily {
     name: "bench-unstable",
     origin: "vortex-bench",
-    doc: "Unstable array encodings that the vortex-unstable benchmark format may write.",
+    doc: "Unstable array encodings that every benchmark writes.",
 };
 
-/// The unstable array encodings that [`Format::VortexUnstable`] files may contain.
+/// The unstable array encodings every benchmark may write.
 ///
-/// It holds only `fastlanes.delta`. The other unstable encodings are left out until they are
-/// ready to benchmark.
+/// It holds only `fastlanes.delta`; the other unstable encodings are not ready to benchmark.
 const UNSTABLE_ENCODINGS_BENCH: EditionId = EditionId::new("bench-unstable", 2026, 10, 0);
 
 static UNSTABLE_ENCODINGS_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
@@ -139,8 +137,23 @@ static UNSTABLE_ENCODINGS_BENCH_DECLARATION: EditionDeclaration = EditionDeclara
     added: &[EditionMember::array(&"fastlanes.delta")],
 };
 
-/// Builds a benchmark session with the bench edition families registered.
-fn bench_session() -> VortexSession {
+/// Lets the compressor of `session` also choose the unstable `fastlanes.delta` encoding.
+///
+/// Every benchmark session calls this, so benchmarks measure Vortex files written with it.
+pub fn enable_unstable_encodings(session: &VortexSession) {
+    session
+        .editions()
+        .declare_family(&BENCH_UNSTABLE_ENCODINGS_FAMILY)
+        .vortex_expect("bench unstable encodings family is valid");
+    session
+        .register_edition(&UNSTABLE_ENCODINGS_BENCH_DECLARATION)
+        .vortex_expect("bench unstable encodings declaration is valid");
+    session
+        .enable_edition(UNSTABLE_ENCODINGS_BENCH)
+        .vortex_expect("bench unstable encodings edition is registered");
+}
+
+pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
     session
@@ -150,39 +163,17 @@ fn bench_session() -> VortexSession {
     session
         .register_edition(&UNSTABLE_BENCH_DECLARATION)
         .vortex_expect("bench edition declaration is valid");
-    session
-}
-
-pub static SESSION: LazyLock<VortexSession> = LazyLock::new(bench_session);
-
-/// The session that writes [`Format::VortexUnstable`] files.
-///
-/// It enables the unstable `fastlanes.delta` encoding on top of the default editions, so the
-/// compressor may choose it. Reading the files needs no editions, so [`SESSION`] reads them.
-pub static UNSTABLE_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = bench_session();
-    session
-        .editions()
-        .declare_family(&BENCH_UNSTABLE_FAMILY)
-        .vortex_expect("bench unstable family is valid");
-    session
-        .register_edition(&UNSTABLE_ENCODINGS_BENCH_DECLARATION)
-        .vortex_expect("bench unstable declaration is valid");
-    session
-        .enable_edition(UNSTABLE_ENCODINGS_BENCH)
-        .vortex_expect("bench unstable edition is registered");
+    enable_unstable_encodings(&session);
     session
 });
 
-/// Enables [`UNSTABLE_BENCH`] on the benchmark sessions, so they write lists with the list layout.
+/// Enables [`UNSTABLE_BENCH`] on [`SESSION`], so it writes lists with the list layout.
 ///
 /// The V2 scan cannot read the list layout yet, so only suites that read through V1 call this.
 fn enable_unstable_bench_edition() {
-    for session in [&*SESSION, &*UNSTABLE_SESSION] {
-        session
-            .enable_edition(UNSTABLE_BENCH)
-            .vortex_expect("bench edition is registered");
-    }
+    SESSION
+        .enable_edition(UNSTABLE_BENCH)
+        .vortex_expect("bench edition is registered");
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -252,10 +243,6 @@ pub enum Format {
     #[clap(name = "vortex-compact")]
     #[serde(rename = "vortex-compact")]
     VortexCompact,
-    /// Vortex files whose compressor may also choose the unstable `fastlanes.delta` encoding.
-    #[clap(name = "vortex-unstable")]
-    #[serde(rename = "vortex-unstable")]
-    VortexUnstable,
     #[clap(name = "vortex-spatial-native")]
     #[serde(rename = "vortex-spatial-native")]
     VortexSpatialNative,
@@ -281,7 +268,6 @@ pub const ALLOWED_FORMATS: &[Format] = &[
     Format::ArrowIpc,
     Format::Parquet,
     Format::OnDiskVortex,
-    Format::VortexUnstable,
     Format::Lance,
     Format::LitData,
 ];
@@ -308,7 +294,6 @@ impl Format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
-            Format::VortexUnstable => "vortex-unstable",
             Format::VortexSpatialNative => "vortex-spatial-native",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
@@ -323,7 +308,6 @@ impl Format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
-            Format::VortexUnstable => "vortex",
             Format::VortexSpatialNative => "vortex",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
@@ -360,53 +344,19 @@ pub enum CompactionStrategy {
     Compact,
     #[default]
     Default,
-    /// The default strategy, written by [`UNSTABLE_SESSION`] so the compressor may also choose
-    /// the unstable `fastlanes.delta` encoding.
-    Unstable,
 }
 
 impl CompactionStrategy {
-    /// The session whose enabled editions decide which encodings this strategy may write.
-    pub fn session(&self) -> &'static VortexSession {
-        match self {
-            CompactionStrategy::Compact | CompactionStrategy::Default => &SESSION,
-            CompactionStrategy::Unstable => &UNSTABLE_SESSION,
-        }
-    }
-
-    /// The Vortex format this strategy writes.
-    pub fn format(&self) -> Format {
-        match self {
-            CompactionStrategy::Compact => Format::VortexCompact,
-            CompactionStrategy::Default => Format::OnDiskVortex,
-            CompactionStrategy::Unstable => Format::VortexUnstable,
-        }
-    }
-
-    /// The strategy that writes `format`, or `None` if `format` is not a Vortex file format
-    /// written from Parquet.
-    pub fn for_format(format: Format) -> Option<Self> {
-        match format {
-            Format::VortexCompact => Some(CompactionStrategy::Compact),
-            Format::OnDiskVortex => Some(CompactionStrategy::Default),
-            Format::VortexUnstable => Some(CompactionStrategy::Unstable),
-            _ => None,
-        }
-    }
-
-    /// Write options for this strategy.
-    pub fn write_options(&self) -> VortexWriteOptions {
-        let session = self.session();
-        let options = session.write_options();
+    pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
         match self {
             CompactionStrategy::Compact => options.with_strategy(
-                WriteStrategyBuilder::from_session(session)
+                WriteStrategyBuilder::from_session(&SESSION)
                     .with_btrblocks_builder(
-                        BtrBlocksCompressorBuilder::from_session(session).with_compact(),
+                        BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
                     )
                     .build(),
             ),
-            CompactionStrategy::Default | CompactionStrategy::Unstable => options,
+            CompactionStrategy::Default => options,
         }
     }
 }
@@ -434,7 +384,6 @@ where
             Format::Parquet => base_path.join(Format::Parquet.name()),
             Format::OnDiskVortex => base_path.join(Format::OnDiskVortex.name()),
             Format::VortexCompact => base_path.join(Format::VortexCompact.name()),
-            Format::VortexUnstable => base_path.join(Format::VortexUnstable.name()),
             Format::OnDiskDuckDB => base_path
                 .join(Format::OnDiskDuckDB.name())
                 .join("duckdb.db"),
@@ -706,27 +655,23 @@ where
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
+    use vortex::VortexSessionDefault;
     use vortex::editions::ComponentKind;
     use vortex::editions::EditionSessionExt;
     use vortex::session::VortexSession;
     use vortex::session::registry::Id;
 
     use super::SESSION;
-    use super::UNSTABLE_SESSION;
 
-    /// The unstable session adds exactly `fastlanes.delta` to the default session's components.
-    #[rstest]
-    #[case::arrays(ComponentKind::Array, vec![Id::from("fastlanes.delta")])]
-    #[case::layouts(ComponentKind::Layout, vec![])]
-    #[case::aggregates(ComponentKind::Aggregate, vec![])]
-    fn unstable_session_adds_only_delta(#[case] kind: ComponentKind, #[case] expected: Vec<Id>) {
-        let ids = |session: &VortexSession| session.enabled_component_ids(kind);
-        let default = ids(&SESSION);
-        let added: Vec<Id> = ids(&UNSTABLE_SESSION)
+    /// The benchmark session adds exactly `fastlanes.delta` to the default session's arrays.
+    #[test]
+    fn bench_session_adds_only_delta() {
+        let ids = |session: &VortexSession| session.enabled_component_ids(ComponentKind::Array);
+        let default = ids(&VortexSession::default());
+        let added: Vec<Id> = ids(&SESSION)
             .into_iter()
             .filter(|id| !default.contains(id))
             .collect();
-        assert_eq!(added, expected);
+        assert_eq!(added, vec![Id::from("fastlanes.delta")]);
     }
 }

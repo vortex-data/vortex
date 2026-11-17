@@ -227,10 +227,7 @@ fn get_compressor(format: Format, mode: BenchMode) -> anyhow::Result<Box<dyn Com
 
     Ok(match format {
         Format::ArrowIpc => Box::new(ArrowIpcCompressor),
-        Format::OnDiskVortex | Format::VortexUnstable => Box::new(
-            VortexCompressor::for_format(format)
-                .ok_or_else(|| anyhow::anyhow!("{format} is not a Vortex format"))?,
-        ),
+        Format::OnDiskVortex => Box::new(VortexCompressor),
         Format::Parquet => Box::new(ParquetCompressor::new()),
         #[cfg(feature = "lance")]
         Format::Lance => Box::new(LanceCompressor),

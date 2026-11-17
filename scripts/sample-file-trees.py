@@ -44,7 +44,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
-FORMAT_DIRS = ("vortex-file-compressed", "vortex-compact", "vortex-unstable")
+FORMAT_DIRS = ("vortex-file-compressed", "vortex-compact")
 
 # Trailing partition index: `lineitem_0001`, `hits_17`, `part-3`.
 PARTITION_SUFFIX = re.compile(r"[_-]\d+$")

@@ -19,7 +19,6 @@ use crate::Format;
 use crate::IdempotentPath;
 use crate::SESSION;
 use crate::conversions::parquet_to_vortex_chunks;
-use crate::conversions::write_parquet_as_vortex;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
 use crate::idempotent_async;
@@ -68,7 +67,6 @@ impl BenchDataset for TaxiData {
             }
             Format::OnDiskVortex => taxi_data_vortex().await,
             Format::VortexCompact => taxi_data_vortex_compact().await,
-            Format::VortexUnstable => taxi_data_vortex_unstable().await,
             Format::Parquet => taxi_data_parquet().await,
             other => anyhow::bail!("Random access bench not implemented for {other}"),
         }
@@ -117,7 +115,7 @@ pub async fn taxi_data_vortex_compact() -> Result<PathBuf> {
         let mut output_file = TokioFile::create(output_fname).await?;
 
         // This is the only difference to `taxi_data_vortex`.
-        let write_options = CompactionStrategy::Compact.write_options();
+        let write_options = CompactionStrategy::Compact.apply_options(SESSION.write_options());
 
         let data = parquet_to_vortex_chunks(taxi_data_parquet().await?).await?;
 
@@ -128,14 +126,5 @@ pub async fn taxi_data_vortex_compact() -> Result<PathBuf> {
         output_file.flush().await?;
         Ok(buf)
     })
-    .await
-}
-
-pub async fn taxi_data_vortex_unstable() -> Result<PathBuf> {
-    write_parquet_as_vortex(
-        taxi_data_parquet().await?,
-        "taxi/taxi-unstable.vortex",
-        CompactionStrategy::Unstable,
-    )
     .await
 }

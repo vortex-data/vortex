@@ -37,6 +37,7 @@ use tracing::info;
 use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::error::VortexExpect;
+use vortex::file::WriteOptionsSessionExt;
 use vortex::utils::parallelism::get_available_parallelism;
 use vortex_arrow::ArrowSessionExt;
 
@@ -260,7 +261,6 @@ fn generate_table_file(
         Format::Parquet | Format::OnDiskDuckDB => Format::Parquet,
         Format::OnDiskVortex => Format::OnDiskVortex,
         Format::VortexCompact => Format::VortexCompact,
-        Format::VortexUnstable => Format::VortexUnstable,
         f => {
             anyhow::bail!("{f} format is not supported by tpchgen");
         }
@@ -288,10 +288,19 @@ fn generate_table_file(
             let iter = create_batch_iterator(generator, &options, part, num_parts)?;
             let schema = iter.schema();
 
-            let compaction = CompactionStrategy::for_format(write_format)
-                .ok_or_else(|| anyhow!("{write_format} is not a Vortex format"))?;
-            let mut writer: Box<dyn FileWriter + Send> =
-                Box::new(VortexWriter::new(path, schema, compaction)?);
+            let mut writer: Box<dyn FileWriter + Send> = match write_format {
+                Format::OnDiskVortex => Box::new(VortexWriter::new(
+                    path,
+                    schema,
+                    CompactionStrategy::Default,
+                )?),
+                Format::VortexCompact => Box::new(VortexWriter::new(
+                    path,
+                    schema,
+                    CompactionStrategy::Compact,
+                )?),
+                _ => unreachable!(),
+            };
 
             for batch in iter {
                 writer.write_batch(&batch?).await?;
@@ -534,7 +543,7 @@ impl VortexWriter {
 
             let mut file = TokioFile::create(&file_path).await?;
             compaction_strategy
-                .write_options()
+                .apply_options(SESSION.write_options())
                 .write(&mut file, stream)
                 .await
                 .map_err(|e| anyhow!("Vortex write failed: {}", e))?;

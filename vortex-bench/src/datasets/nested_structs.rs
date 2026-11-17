@@ -54,7 +54,6 @@ impl BenchDataset for NestedStructsData {
             }
             Format::OnDiskVortex => nested_structs_vortex().await,
             Format::VortexCompact => nested_structs_vortex_compact().await,
-            Format::VortexUnstable => nested_structs_vortex_unstable().await,
             Format::Parquet => nested_structs_parquet().await,
             other => anyhow::bail!("Random access bench not implemented for {other}"),
         }
@@ -161,11 +160,4 @@ pub async fn nested_structs_vortex_compact() -> Result<PathBuf> {
     let parquet_path = nested_structs_parquet().await?;
     let path = data_path(DATASET, Format::VortexCompact);
     write_parquet_as_vortex(parquet_path, &path, CompactionStrategy::Compact).await
-}
-
-/// Get the path to the nested structs unstable vortex file, converting from parquet if needed.
-pub async fn nested_structs_vortex_unstable() -> Result<PathBuf> {
-    let parquet_path = nested_structs_parquet().await?;
-    let path = data_path(DATASET, Format::VortexUnstable);
-    write_parquet_as_vortex(parquet_path, &path, CompactionStrategy::Unstable).await
 }

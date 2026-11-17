@@ -25,45 +25,36 @@ PRESETS = {
 
 # Reusable target coverage
 
-DEFAULT_TARGETS = df(Format.PARQUET, Format.VORTEX, Format.VORTEX_UNSTABLE) | duck(
-    Format.PARQUET,
-    Format.VORTEX,
-    Format.VORTEX_UNSTABLE,
-)
-STANDARD_TARGETS = df(Format.PARQUET, Format.VORTEX, Format.VORTEX_COMPACT, Format.VORTEX_UNSTABLE) | duck(
+DEFAULT_TARGETS = df(Format.PARQUET, Format.VORTEX) | duck(Format.PARQUET, Format.VORTEX)
+STANDARD_TARGETS = df(Format.PARQUET, Format.VORTEX, Format.VORTEX_COMPACT) | duck(
     Format.PARQUET,
     Format.VORTEX,
     Format.VORTEX_COMPACT,
-    Format.VORTEX_UNSTABLE,
 )
 FULL_LOCAL_TARGETS = df(
     Format.PARQUET,
     Format.VORTEX,
     Format.VORTEX_COMPACT,
-    Format.VORTEX_UNSTABLE,
     Format.LANCE,
 ) | duck(
     Format.PARQUET,
     Format.VORTEX,
     Format.VORTEX_COMPACT,
-    Format.VORTEX_UNSTABLE,
     Format.DUCKDB,
 )
 FULL_PR_TARGETS = df(
     Format.PARQUET,
     Format.VORTEX,
     Format.VORTEX_COMPACT,
-    Format.VORTEX_UNSTABLE,
 ) | duck(
     Format.PARQUET,
     Format.VORTEX,
     Format.VORTEX_COMPACT,
-    Format.VORTEX_UNSTABLE,
     Format.DUCKDB,
 )
 DEFAULT_WITH_DUCKDB_TARGETS = DEFAULT_TARGETS | duck(Format.DUCKDB)
 STANDARD_WITH_DUCKDB_TARGETS = STANDARD_TARGETS | duck(Format.DUCKDB)
-DATAFUSION_VORTEX_TARGETS = df(Format.VORTEX, Format.VORTEX_UNSTABLE)
+DATAFUSION_VORTEX_TARGETS = df(Format.VORTEX)
 COMPACT_TARGETS = df(Format.PARQUET, Format.VORTEX_COMPACT) | duck(
     Format.PARQUET,
     Format.VORTEX_COMPACT,
@@ -74,28 +65,16 @@ STANDARD = Coverage(STANDARD_TARGETS)
 FULL_LOCAL = Coverage(FULL_LOCAL_TARGETS)
 FULL_PR = Coverage(
     FULL_PR_TARGETS,
-    data_formats=(
-        Format.PARQUET,
-        Format.VORTEX,
-        Format.VORTEX_COMPACT,
-        Format.VORTEX_UNSTABLE,
-        Format.DUCKDB,
-    ),
+    data_formats=(Format.PARQUET, Format.VORTEX, Format.VORTEX_COMPACT, Format.DUCKDB),
 )
 DEFAULT_WITH_DUCKDB_PR_FULL = Coverage(
     DEFAULT_WITH_DUCKDB_TARGETS,
-    data_formats=(
-        Format.PARQUET,
-        Format.VORTEX,
-        Format.VORTEX_COMPACT,
-        Format.VORTEX_UNSTABLE,
-        Format.DUCKDB,
-    ),
+    data_formats=(Format.PARQUET, Format.VORTEX, Format.VORTEX_COMPACT, Format.DUCKDB),
 )
 STANDARD_WITH_DUCKDB = Coverage(STANDARD_WITH_DUCKDB_TARGETS)
 DATAFUSION_VORTEX = Coverage(DATAFUSION_VORTEX_TARGETS)
 COMPACT = Coverage(COMPACT_TARGETS)
-JOB_DUCKDB = Coverage(duck(Format.PARQUET, Format.VORTEX, Format.VORTEX_UNSTABLE, Format.DUCKDB))
+JOB_DUCKDB = Coverage(duck(Format.PARQUET, Format.VORTEX, Format.DUCKDB))
 
 # Concrete benchmark cases
 
@@ -104,10 +83,8 @@ JOB_DUCKDB = Coverage(duck(Format.PARQUET, Format.VORTEX, Format.VORTEX_UNSTABLE
 TPCDS_SF100_TARGETS = (
     (Engine.DATAFUSION, Format.PARQUET, "DataFusion", "Parquet"),
     (Engine.DATAFUSION, Format.VORTEX, "DataFusion", "Vortex"),
-    (Engine.DATAFUSION, Format.VORTEX_UNSTABLE, "DataFusion", "Vortex Unstable"),
     (Engine.DUCKDB, Format.PARQUET, "DuckDB", "Parquet"),
     (Engine.DUCKDB, Format.VORTEX, "DuckDB", "Vortex"),
-    (Engine.DUCKDB, Format.VORTEX_UNSTABLE, "DuckDB", "Vortex Unstable"),
 )
 TPCDS_SF100_CASES = tuple(
     BenchmarkCase(

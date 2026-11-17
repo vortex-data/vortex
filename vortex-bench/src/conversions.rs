@@ -317,42 +317,46 @@ fn write_options_for(
         _ => Vec::new(),
     };
     if binary_fields.is_empty() {
-        return compaction.write_options();
+        return compaction.apply_options(SESSION.write_options());
     }
 
-    let session = compaction.session();
-    let mut builder = WriteStrategyBuilder::from_session(session);
+    let mut builder = WriteStrategyBuilder::from_session(&SESSION);
     if matches!(compaction, CompactionStrategy::Compact) {
         builder = builder.with_btrblocks_builder(
-            BtrBlocksCompressorBuilder::from_session(session).with_compact(),
+            BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
         );
     }
     for name in binary_fields {
-        builder = builder.with_field_writer(FieldPath::from_name(name), no_dict_layout(session));
+        builder = builder.with_field_writer(FieldPath::from_name(name), no_dict_layout());
     }
-    session.write_options().with_strategy(builder.build())
+    SESSION.write_options().with_strategy(builder.build())
 }
 
 /// A chunked + compressed layout that skips dictionary encoding for opaque `Binary` blobs.
-fn no_dict_layout(session: &VortexSession) -> Arc<dyn LayoutStrategy> {
+fn no_dict_layout() -> Arc<dyn LayoutStrategy> {
     Arc::new(CompressingStrategy::new(
         ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-        BtrBlocksCompressorBuilder::from_session(session).build(),
+        BtrBlocksCompressorBuilder::from_session(&SESSION).build(),
     ))
 }
 
 /// Convert all Parquet files in a directory to Vortex format.
 ///
 /// This function reads Parquet files from `{input_path}/parquet/` and writes Vortex files to
-/// `{input_path}/{format}/`, where `{format}` is the name of [`CompactionStrategy::format`].
+/// `{input_path}/vortex-file-compressed/` (for Default compaction) or
+/// `{input_path}/vortex-compact/` (for Compact compaction).
 ///
 /// The conversion is idempotent: existing Vortex files will not be regenerated.
 pub async fn convert_parquet_directory_to_vortex(
     input_path: &Path,
     compaction: CompactionStrategy,
 ) -> anyhow::Result<()> {
-    let format = compaction.format();
-    let vortex_dir = input_path.join(format.name());
+    let (format, dir_name) = match compaction {
+        CompactionStrategy::Compact => (Format::VortexCompact, Format::VortexCompact.name()),
+        CompactionStrategy::Default => (Format::OnDiskVortex, Format::OnDiskVortex.name()),
+    };
+
+    let vortex_dir = input_path.join(dir_name);
     let parquet_path = input_path.join(Format::Parquet.name());
     create_dir_all(&vortex_dir).await?;
 
@@ -412,8 +416,8 @@ pub async fn write_parquet_as_vortex(
     idempotent_async(vortex_path, |output_fname| async move {
         let mut output_file = File::create(&output_fname).await?;
         let data = parquet_to_vortex_chunks(parquet_path).await?;
-        compaction
-            .write_options()
+        let write_options = compaction.apply_options(SESSION.write_options());
+        write_options
             .write(&mut output_file, data.into_array().to_array_stream())
             .await?;
         output_file.flush().await?;

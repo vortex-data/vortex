@@ -254,18 +254,9 @@ factors are configurable per suite (e.g. `--opt scale-factor=10.0` for TPC-H SF=
 
 ### Unstable Encodings
 
-The `vortex-unstable` format writes Vortex files whose compressor may also choose the unstable
-`fastlanes.delta` encoding. Comparing it against `vortex` shows what that encoding changes. CI
-runs it next to every `vortex` SQL target in every preset, and in the compression and random access
-benchmarks.
-
-```bash
-uv run --project bench-orchestrator vx-bench prepare-data tpch \
-  --formats-json '["vortex","vortex-unstable"]'
-
-uv run --project bench-orchestrator vx-bench run tpch \
-  --targets-json '[{"engine":"datafusion","format":"vortex"},{"engine":"datafusion","format":"vortex-unstable"}]'
-```
+Benchmark sessions let the compressor also choose the unstable `fastlanes.delta` encoding, so every
+benchmark measures Vortex files written with it. `vortex_bench::enable_unstable_encodings` enables
+it on a session.
 
 ### Running SQL Benchmarks
 

@@ -54,7 +54,6 @@ def main() -> None:
         "vortex-compact",
         "vortex-file-compressed",
         "vortex-spatial-native",
-        "vortex-unstable",
     }
 
     records = []
