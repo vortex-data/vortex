@@ -37,6 +37,7 @@ use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_fastlanes::BitPacked;
+use vortex_fastlanes::BitPackedArrayExt;
 use vortex_fastlanes::Delta;
 use vortex_fastlanes::DeltaArray;
 use vortex_fastlanes::DeltaArraySlotsExt;
@@ -148,6 +149,53 @@ fn probe_once(bencher: Bencher) {
 #[divan::bench]
 fn probe_repeated(bencher: Bencher) {
     let array = delta_bitpacked::<u32>(PROBE_LEN).into_array();
+    bencher
+        .counter(ItemsCount::new(probe_rows().count()))
+        .with_inputs(|| (array.repeated_probe(), SESSION.create_execution_ctx()))
+        .bench_refs(|(probe, ctx)| {
+            for index in probe_rows() {
+                divan::black_box(probe.execute_scalar(index, ctx).unwrap());
+            }
+        });
+}
+
+/// A u32 Delta array of [`PROBE_LEN`] rows over deltas bit-packed one bit narrower than they
+/// need, so the deltas of 8 and above, about half of them, are patches.
+fn delta_patched_u32() -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = PrimitiveArray::new(values::<u32>(PROBE_LEN), Validity::NonNullable);
+    let delta = Delta::try_from_primitive_array(&array, &mut ctx).unwrap();
+    let packed = BitPacked::encode(delta.deltas(), BIT_WIDTH - 1, &mut ctx).unwrap();
+    assert!(packed.patches().is_some());
+    Delta::try_new(
+        delta.bases().clone(),
+        packed.into_array(),
+        Validity::NonNullable,
+        0,
+        PROBE_LEN,
+    )
+    .unwrap()
+    .into_array()
+}
+
+/// [`probe_once`] over patched deltas.
+#[divan::bench]
+fn probe_once_patched(bencher: Bencher) {
+    let array = delta_patched_u32();
+    bencher
+        .counter(ItemsCount::new(probe_rows().count()))
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_refs(|(array, ctx)| {
+            for index in probe_rows() {
+                divan::black_box(array.probe().execute_scalar(index, ctx).unwrap());
+            }
+        });
+}
+
+/// [`probe_repeated`] over patched deltas.
+#[divan::bench]
+fn probe_repeated_patched(bencher: Bencher) {
+    let array = delta_patched_u32();
     bencher
         .counter(ItemsCount::new(probe_rows().count()))
         .with_inputs(|| (array.repeated_probe(), SESSION.create_execution_ctx()))
