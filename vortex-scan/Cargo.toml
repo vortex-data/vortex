@@ -22,12 +22,10 @@ futures = { workspace = true }
 itertools = { workspace = true }
 once_cell = { workspace = true }
 parking_lot = { workspace = true }
-paste = { workspace = true }
 roaring = { workspace = true }
 rustc-hash = { workspace = true }
 sketches-ddsketch = { workspace = true }
 smallvec = { workspace = true }
-termtree = { workspace = true }
 tracing = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
@@ -36,7 +34,6 @@ vortex-expr = { workspace = true }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
-vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
