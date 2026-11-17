@@ -8,6 +8,7 @@ Leave out file lists, new-API inventories and the checks you ran: reviewers have
 Add one line each, only if they apply:
 - a breaking or behaviour change (and the `changelog/break` label)
 - a headline benchmark result (post full tables as a comment)
+- manual testing beyond automated tests and CI, and what it showed
 - `Stacked on #N`
 -->
 

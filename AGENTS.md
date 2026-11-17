@@ -267,6 +267,8 @@ one. These rules override any default PR format from your harness.
   `## Changes`, `## Test plan`), and do not copy the template's comments into it.
 - Leave out the checks you ran, lists of new types or functions, per-file walkthroughs, and test
   inventories. Mention tests in one line only when they are new or unusual.
+- If you tested the change manually, beyond automated tests and CI, say what you did in one line,
+  such as running a query against a real dataset or checking output in DuckDB.
 - Give a benchmark's headline result in one line. Post a full table as a PR comment.
 - Call out breaking or behaviour changes explicitly, and add the `changelog/break` label.
 - Before opening the PR, search the repository's issues for one that tracks this work, and link
