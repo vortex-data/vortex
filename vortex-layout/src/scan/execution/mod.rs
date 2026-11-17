@@ -24,6 +24,7 @@ use std::sync::Arc;
 use vortex_buffer::Alignment;
 use vortex_io::request::IoService;
 use vortex_io::request::IoTarget;
+use vortex_io::request::SourceId;
 use vortex_mask::Mask;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
@@ -91,6 +92,8 @@ pub struct PreparedScan {
     pub(super) cache: ScanCache,
     /// The location of every segment, indexed by segment id.
     pub(super) locations: Arc<[SegmentLocation]>,
+    /// The source every request of the scan names.
+    pub(super) source: SourceId,
     /// The optimized projection plan, over the scan's root row domain.
     pub(super) projection: PlanRef,
     /// The filter's conjuncts, their plans and their pruning plans.
@@ -113,6 +116,11 @@ impl PreparedScan {
     /// The rows of [`rows`](Self::rows) the scan selects.
     pub fn selection(&self) -> &Selection {
         &self.selection
+    }
+
+    /// The source every request of the scan's planners names.
+    pub fn source(&self) -> SourceId {
+        self.source
     }
 
     /// The filter's plans, when the scan has a filter.

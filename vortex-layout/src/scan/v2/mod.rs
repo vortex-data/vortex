@@ -36,6 +36,9 @@ use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_expr::analysis::referenced_field_paths;
+use vortex_io::request::IoService;
+use vortex_io::request::SourceId;
+use vortex_io::request::SourcesIoService;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
@@ -177,7 +180,26 @@ impl ScanBuilder {
     /// Lowers the file's layout and plans the filter and the projection, from the file's cache
     /// where an earlier scan planned them already. Touches no segment. Lowering and optimizing a
     /// wide file is real CPU, so a driver runs this where it runs compute.
-    pub fn prepare(self) -> VortexResult<PreparedScan> {
+    ///
+    /// Every request the scan's planners publish names `source`: the id its plan's
+    /// [`SourcesIoService`] minted for the file.
+    pub fn prepare(self, source: SourceId) -> VortexResult<PreparedScan> {
+        self.prepare_inner(source)
+    }
+
+    /// Prepares the scan as the only source of a new [`SourcesIoService`], for a driver that
+    /// reads one file. Returns the scan and the service its driver takes sessions from.
+    pub fn prepare_single_source(self) -> VortexResult<(Arc<PreparedScan>, Arc<dyn IoService>)> {
+        let sources = SourcesIoService::new();
+        let scan = sources.register_with(|source| {
+            let scan = Arc::new(self.prepare(source)?);
+            let io = scan.io();
+            Ok((scan, io))
+        })?;
+        Ok((scan, Arc::new(sources)))
+    }
+
+    fn prepare_inner(self, source: SourceId) -> VortexResult<PreparedScan> {
         let file = self.file;
         let cache = file.cache.unwrap_or_default();
         let root = match cache.root() {
@@ -248,6 +270,7 @@ impl ScanBuilder {
             ranges,
             cache,
             locations: file.locations,
+            source,
             projection,
             filter,
             row_offset: self.row_offset,

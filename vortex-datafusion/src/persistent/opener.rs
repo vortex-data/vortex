@@ -541,11 +541,10 @@ impl FileOpener for VortexOpener {
                 });
                 let handle = vxf.session().handle();
                 // Lowering and planning a wide file is real CPU: it runs where compute runs.
-                let scan = handle
-                    .spawn_cpu(move || builder.prepare())
+                let (scan, io) = handle
+                    .spawn_cpu(move || builder.prepare_single_source())
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to plan Vortex scan: {e}"))?;
-                let scan = Arc::new(scan);
 
                 // The planners, composed: with a filter, its pruning plans first over the whole
                 // partition, continuing into the chunks of the rows they keep; without a
@@ -567,7 +566,7 @@ impl FileOpener for VortexOpener {
                 };
 
                 let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
-                Ok(driver.run(scan, root, map_batch))
+                Ok(driver.run(scan, io, root, map_batch))
             } else {
                 // Share V1 layout readers across partitions of the file.
                 let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {

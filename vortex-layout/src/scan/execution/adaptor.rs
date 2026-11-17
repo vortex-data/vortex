@@ -17,11 +17,13 @@ use vortex_io::request;
 use vortex_io::request::IoBatch;
 use vortex_io::request::IoIntent;
 use vortex_io::request::IoResult;
+use vortex_io::request::SourceId;
 use vortex_scan::planning::planner::State;
 
 use crate::plan::physical::pipeline::ReadId;
 use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::pipeline::Turn;
+use crate::scan::execution::PreparedScan;
 use crate::scan::execution::SegmentLocation;
 use crate::segments::SegmentId;
 
@@ -57,6 +59,8 @@ pub(super) struct ScanAdaptor {
     /// Orders the pieces handed out.
     next_piece: u64,
     locations: Arc<[SegmentLocation]>,
+    /// The file's source, which every request names.
+    source: SourceId,
     /// Published and undelivered requests, with the scan read and segment each one answers.
     outstanding: FxHashMap<u32, (ReadId, SegmentId)>,
     /// A delivery the scan could not take, reported by the next compute.
@@ -67,8 +71,11 @@ pub(super) struct ScanAdaptor {
 
 impl ScanAdaptor {
     /// Wraps a scan, numbering requests uniquely within this adaptor's lifetime.
-    pub(super) fn new(scan: Scan, locations: Arc<[SegmentLocation]>) -> Self {
+    pub(super) fn new(scan: Scan, prepared: &PreparedScan) -> Self {
+        let locations = Arc::clone(&prepared.locations);
+        let source = prepared.source;
         Self {
+            source,
             scan,
             pending: None,
             done: false,
@@ -148,6 +155,7 @@ impl ScanAdaptor {
             .ok_or_else(|| vortex_err!("ScanAdaptor ran out of request ids"))?;
         self.outstanding.insert(id, (read, segment_id));
         Ok(request::IoRequest {
+            source: self.source,
             intent: IoIntent::Fetch,
             request: request::IoRequestId(id),
             target: location.target(),

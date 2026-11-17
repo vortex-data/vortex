@@ -56,11 +56,12 @@ impl ScanDriver {
         }
     }
 
-    /// Runs `root`, the first planner composed over `scan`, and everything it emits, and
-    /// streams their batches mapped by `map`.
+    /// Runs `root`, the first planner composed over `scan`, and everything it emits, reading
+    /// through `io`, and streams their batches mapped by `map`.
     pub(crate) fn run(
         self,
         scan: Arc<PreparedScan>,
+        io: Arc<dyn IoService>,
         root: Box<dyn Planner>,
         map: impl Fn(ArrayRef) -> VortexResult<RecordBatch> + Send + Sync + 'static,
     ) -> BoxStream<'static, VortexResult<RecordBatch>> {
@@ -71,7 +72,6 @@ impl ScanDriver {
             file_ordinal: 0,
             rows: scan.rows().clone(),
         };
-        let io = scan.io();
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map));
         let batches = run_stream(self.handle, root, scope, Arc::clone(&io), map, inline)

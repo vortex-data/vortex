@@ -251,6 +251,8 @@ mod tests {
     use vortex_io::request::IoRequestId;
     use vortex_io::request::IoSource;
     use vortex_io::request::IoTarget;
+    use vortex_io::request::ReadAtIoService;
+    use vortex_io::request::SourcesIoService;
 
     use super::SegmentIoSource;
     use super::segment_ranges;
@@ -273,6 +275,9 @@ mod tests {
 
     fn request(intent: IoIntent, id: u32) -> IoRequest {
         IoRequest {
+            source: SourcesIoService::new().register(Arc::new(ReadAtIoService::new(Arc::new(
+                ByteBuffer::empty(),
+            )))),
             intent,
             request: IoRequestId(id),
             target: IoTarget::range(0, 4),

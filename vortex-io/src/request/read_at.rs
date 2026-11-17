@@ -111,7 +111,9 @@ impl IoSource for ReadAtSession {
                         .boxed()
                 }
                 IoTarget::Open(open) => {
-                    vortex_bail!("ReadAtIoService: {open:?} is addressed to a source, not a service")
+                    vortex_bail!(
+                        "ReadAtIoService: {open:?} is addressed to a source, not a service"
+                    )
                 }
             };
             reads.push(

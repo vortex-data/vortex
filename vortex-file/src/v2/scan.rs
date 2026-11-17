@@ -31,6 +31,7 @@ use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_io::request::IoService;
 use vortex_io::request::IoSource;
 use vortex_io::runtime::Handle;
 use vortex_layout::scan::v2::ChunkPlanner;
@@ -110,8 +111,8 @@ impl ScanDriver {
         stream::once(async move {
             handle
                 .spawn_cpu(move || {
-                    let scan = Arc::new(builder.prepare()?);
-                    VortexResult::Ok(self.execute(scan, map_fn))
+                    let (scan, io) = builder.prepare_single_source()?;
+                    VortexResult::Ok(self.execute(scan, io, map_fn))
                 })
                 .await
         })
@@ -122,6 +123,7 @@ impl ScanDriver {
     fn execute<A: Send + 'static>(
         self,
         scan: Arc<PreparedScan>,
+        io: Arc<dyn IoService>,
         map_fn: MapFn<A>,
     ) -> BoxStream<'static, VortexResult<A>> {
         let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
@@ -130,7 +132,6 @@ impl ScanDriver {
             file_ordinal: 0,
             rows: scan.rows().clone(),
         };
-        let io = scan.io();
         let root = compose(&scan);
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map_fn));
@@ -170,7 +171,11 @@ impl ScanDriver {
 
 /// The planners of a scan, composed: with a filter, its pruning plans first over the whole scan,
 /// continuing into the chunks of the rows they keep; without, the chunks directly.
-fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
+///
+/// The planner a multi-file plan spawns for each of its files. Every request it publishes names
+/// the scan's [source](PreparedScan::source), so a driver reading many files serves them all
+/// from one [`SourcesIoService`](vortex_io::request::SourcesIoService).
+pub fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
     let rows = scan.rows().clone();
     let chunks = {
         let scan = Arc::clone(scan);

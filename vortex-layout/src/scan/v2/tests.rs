@@ -43,6 +43,9 @@ use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_io::request::ReadAtIoService;
+use vortex_io::request::SourceId;
+use vortex_io::request::SourcesIoService;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_scan::planning::driver::Batch;
@@ -255,6 +258,17 @@ fn compose(scan: &Arc<PreparedScan>, rows: Range<u64>) -> Box<dyn Planner> {
     }
 }
 
+/// A source id for scans these tests read through their own [`PreparedScan::io`], which serves
+/// segments whatever source a request names.
+fn test_source() -> SourceId {
+    static SOURCE: LazyLock<SourceId> = LazyLock::new(|| {
+        SourcesIoService::new().register(Arc::new(ReadAtIoService::new(Arc::new(
+            vortex_buffer::ByteBuffer::empty(),
+        ))))
+    });
+    *SOURCE
+}
+
 /// Runs `rows` of a prepared scan on one planning run, every spawned chunk admitted to it, and
 /// returns its batches in row order, each with the rows it stands for.
 async fn run_batches(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Vec<Batch>> {
@@ -295,7 +309,7 @@ async fn run_rows(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Ve
 
 /// Prepares and runs a whole scan, returning its arrays.
 async fn run_scan(builder: ScanBuilder) -> VortexResult<Vec<ArrayRef>> {
-    let scan = Arc::new(builder.prepare()?);
+    let scan = Arc::new(builder.prepare(test_source())?);
     let rows = scan.rows().clone();
     run_rows(&scan, rows).await
 }
@@ -596,7 +610,7 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
     let mut file = scan_file(&segments, &layout)?;
     // Without retained segments, so a chunk reads every codes chunk it overlaps.
     file.cache = Some(ScanCache::with_retained_bytes(0));
-    let scan = Arc::new(ScanBuilder::new(session.clone(), file).prepare()?);
+    let scan = Arc::new(ScanBuilder::new(session.clone(), file).prepare(test_source())?);
     let chunks = row_chunks(scan.rows().clone(), scan.chunk_rows);
     assert_eq!(
         chunks.len(),
@@ -649,7 +663,7 @@ async fn chunks_sharing_a_segment_read_it_once(
     let projection = get_item("ints", root()).bind(layout.dtype())?;
     let mut scan = ScanBuilder::new(session, file)
         .with_projection(projection)
-        .prepare()?;
+        .prepare(test_source())?;
     let chunk_rows = CHUNK_ROWS / 2;
     scan.chunk_rows = chunk_rows;
     let scan = Arc::new(scan);
@@ -725,7 +739,7 @@ async fn work_chunks_ignore_layout_boundaries(
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, strategy.get().as_ref()).await?;
-    let scan = Arc::new(builder(&session, &segments, &layout)?.prepare()?);
+    let scan = Arc::new(builder(&session, &segments, &layout)?.prepare(test_source())?);
     assert_eq!(
         row_chunks(scan.rows().clone(), scan.chunk_rows),
         vec![0..(CHUNKS * CHUNK_ROWS) as u64]
@@ -808,7 +822,7 @@ async fn selected_split_scope_is_bounded_before_projection() -> VortexResult<()>
     let scan = Arc::new(
         builder(&session, &segments, &layout)?
             .with_row_indices(StrictSortedBuffer::try_new(Buffer::from(vec![7, 2001]))?)
-            .prepare()?,
+            .prepare(test_source())?,
     );
     let mut chunks = ChunkPlanner::new(
         Arc::clone(&scan),
@@ -897,7 +911,7 @@ async fn pruned_rows_get_no_chunk(
             .with_some_filter(Some(
                 gt(get_item("ints", root()), lit(above)).bind(layout.dtype())?,
             ))
-            .prepare()?,
+            .prepare(test_source())?,
     );
     let batches = run_batches(&scan, scan.rows().clone()).await?;
     assert_eq!(
@@ -974,7 +988,7 @@ async fn dynamic_scan(
     };
     let scan = ScanBuilder::new(session, file)
         .with_some_filter(Some(filter.bind(layout.dtype())?))
-        .prepare()?;
+        .prepare(test_source())?;
     Ok((Arc::new(scan), counted))
 }
 
@@ -1028,7 +1042,7 @@ async fn strings_scan(
             .with_projection(projection)
             .with_some_filter(filter.map(|f| f.bind(layout.dtype())).transpose()?)
             .with_skip_unselective_dynamic(skip_unselective_dynamic)
-            .prepare()?,
+            .prepare(test_source())?,
     );
     let before = counted.requests();
     let rows = run_rows(&scan, scan.rows().clone())

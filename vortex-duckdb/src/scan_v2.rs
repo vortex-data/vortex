@@ -84,8 +84,7 @@ impl FileScan {
         splits: &[u64],
         dynamic: bool,
     ) -> VortexResult<Self> {
-        let scan = Arc::new(builder.prepare()?);
-        let io = scan.io();
+        let (scan, io) = builder.prepare_single_source()?;
         let rows = scan.rows().clone();
         let mut root = Run::new();
         root.admit(

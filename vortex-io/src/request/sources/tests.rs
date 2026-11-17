@@ -67,7 +67,10 @@ fn routes_each_request_to_its_source() -> VortexResult<()> {
     got.sort_by_key(|(id, _)| id.0);
     assert_eq!(
         got,
-        vec![(IoRequestId(0), vec![1, 1]), (IoRequestId(1), vec![2, 2, 2])]
+        vec![
+            (IoRequestId(0), vec![1, 1]),
+            (IoRequestId(1), vec![2, 2, 2])
+        ]
     );
     assert!(session.poll()?.is_none());
     assert!(session.wait().is_err(), "nothing is in flight");
@@ -167,7 +170,10 @@ fn a_failed_open_fails_the_request() -> VortexResult<()> {
     }
     let sources = SourcesIoService::new();
     let session = sources.session();
-    session.submit(IoOwnerId(0), vec![open(&sources, 0, Missing("gone".into()))])?;
+    session.submit(
+        IoOwnerId(0),
+        vec![open(&sources, 0, Missing("gone".into()))],
+    )?;
     let error = session.wait()?.result.err().map(|err| err.to_string());
     assert!(error.is_some_and(|err| err.contains("gone") && err.contains("no such file")));
     assert!(sources.is_empty());
@@ -192,16 +198,17 @@ fn released_owners_get_no_completions() -> VortexResult<()> {
 fn register_with_hands_the_id_to_the_builder() -> VortexResult<()> {
     let sources = SourcesIoService::new();
     let id = sources.register_with(|id| {
-        Ok((id, Arc::new(ReadAtIoService::new(bytes(3))) as Arc<dyn IoService>))
+        Ok((
+            id,
+            Arc::new(ReadAtIoService::new(bytes(3))) as Arc<dyn IoService>,
+        ))
     })?;
     let session = sources.session();
     session.submit(IoOwnerId(0), vec![fetch(id, 0, IoTarget::Size)])?;
     assert!(matches!(session.wait()?.result?, IoResult::Size(16)));
     assert!(
         sources
-            .register_with(|_| -> VortexResult<((), Arc<dyn IoService>)> {
-                Err(vortex_err!("no"))
-            })
+            .register_with(|_| -> VortexResult<((), Arc<dyn IoService>)> { Err(vortex_err!("no")) })
             .is_err()
     );
     assert_eq!(sources.len(), 1);

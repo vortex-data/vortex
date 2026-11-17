@@ -21,9 +21,11 @@ use crate::planning::tests::scripted::ScriptedPlanner;
 use crate::planning::tests::scripted::array_of;
 use crate::planning::tests::scripted::ctx;
 use crate::planning::tests::scripted::scope;
+use crate::planning::tests::scripted::source_id;
 
 fn request(id: u32, offset: u64) -> IoRequest {
     IoRequest {
+        source: source_id(),
         intent: IoIntent::Fetch,
         request: IoRequestId(id),
         target: IoTarget::range(offset, 4),
