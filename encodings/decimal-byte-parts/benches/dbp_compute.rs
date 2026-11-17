@@ -5,9 +5,9 @@
 //!
 //! Every case has no lower parts. Most cases store the values in an MSP narrower than the
 //! canonical width of the dtype, and `msp_i64_p18_canonical` is the control whose MSP has the
-//! canonical width. Sum and min-max read the decoded decimal, and the filter filters the MSP and
-//! then decodes the result, so their cost follows the width that decoding produces. Comparisons
-//! against a constant run on the MSP.
+//! canonical width. Decode and filter end at a decimal array at the canonical width of its dtype,
+//! copying only when decoding returns a narrower array. This keeps their results comparable when
+//! the decoder changes its output width. Aggregates and comparisons run on the MSP where supported.
 
 use std::fmt;
 use std::sync::LazyLock;
@@ -20,7 +20,6 @@ use rand::distr::uniform::SampleRange;
 use rand::distr::uniform::SampleUniform;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -31,11 +30,13 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::decimal::copy_to_canonical_width;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::match_each_decimal_value_type;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
@@ -249,13 +250,32 @@ fn bench_case<O>(
         .bench_values(|(array, mut ctx)| operation(array, &mut ctx));
 }
 
+/// Decodes to the same physical width even when the decoder returns narrow decimal storage.
+fn decode_at_canonical_width(array: ArrayRef, ctx: &mut ExecutionCtx) -> DecimalArray {
+    let decoded = array
+        .execute::<DecimalArray>(ctx)
+        .vortex_expect("decode DecimalByteParts");
+    let decimal_dtype = decoded.decimal_dtype();
+    let canonical_type = decimal_dtype.canonical_values_type();
+    if decoded.values_type() == canonical_type {
+        return decoded;
+    }
+
+    let validity = decoded.validity().vortex_expect("decimal validity");
+    let mask = validity
+        .execute_mask(decoded.len(), ctx)
+        .vortex_expect("execute decimal validity");
+    let values = match_each_decimal_value_type!(decoded.values_type(), |T| {
+        copy_to_canonical_width(decoded.buffer::<T>().as_ref(), &mask, decimal_dtype)
+            .vortex_expect("copy decoded values to the canonical width")
+    });
+    DecimalArray::try_new_handle(values, canonical_type, decimal_dtype, validity)
+        .vortex_expect("canonical-width decimal array")
+}
+
 #[divan::bench(args = CASES)]
 fn decode(bencher: Bencher, case: Case) {
-    bench_case(bencher, case, |array, ctx| {
-        array
-            .execute::<DecimalArray>(ctx)
-            .vortex_expect("decode DecimalByteParts")
-    });
+    bench_case(bencher, case, decode_at_canonical_width);
 }
 
 /// Compares a new array of `case` with `Gte` against a constant of `value` in each iteration.
@@ -299,11 +319,8 @@ fn filter(bencher: Bencher, case: Case) {
             )
         })
         .bench_values(|(array, mask, mut ctx)| {
-            array
-                .filter(mask)
-                .vortex_expect("filter DecimalByteParts")
-                .execute::<Canonical>(&mut ctx)
-                .vortex_expect("execute the filter")
+            let filtered = array.filter(mask).vortex_expect("filter DecimalByteParts");
+            decode_at_canonical_width(filtered, &mut ctx)
         });
 }
 

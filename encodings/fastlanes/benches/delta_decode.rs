@@ -30,10 +30,14 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::search_sorted::SearchSorted;
+use vortex_array::search_sorted::SearchSortedPrimitiveArray;
+use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_fastlanes::BitPacked;
+use vortex_fastlanes::BitPackedArrayExt;
 use vortex_fastlanes::Delta;
 use vortex_fastlanes::DeltaArray;
 use vortex_fastlanes::DeltaArraySlotsExt;
@@ -155,6 +159,53 @@ fn probe_repeated(bencher: Bencher) {
         });
 }
 
+/// A u32 Delta array of [`PROBE_LEN`] rows over deltas bit-packed one bit narrower than they
+/// need, so the deltas of 8 and above, about half of them, are patches.
+fn delta_patched_u32() -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = PrimitiveArray::new(values::<u32>(PROBE_LEN), Validity::NonNullable);
+    let delta = Delta::try_from_primitive_array(&array, &mut ctx).unwrap();
+    let packed = BitPacked::encode(delta.deltas(), BIT_WIDTH - 1, &mut ctx).unwrap();
+    assert!(packed.patches().is_some());
+    Delta::try_new(
+        delta.bases().clone(),
+        packed.into_array(),
+        Validity::NonNullable,
+        0,
+        PROBE_LEN,
+    )
+    .unwrap()
+    .into_array()
+}
+
+/// [`probe_once`] over patched deltas.
+#[divan::bench]
+fn probe_once_patched(bencher: Bencher) {
+    let array = delta_patched_u32();
+    bencher
+        .counter(ItemsCount::new(probe_rows().count()))
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_refs(|(array, ctx)| {
+            for index in probe_rows() {
+                divan::black_box(array.probe().execute_scalar(index, ctx).unwrap());
+            }
+        });
+}
+
+/// [`probe_repeated`] over patched deltas.
+#[divan::bench]
+fn probe_repeated_patched(bencher: Bencher) {
+    let array = delta_patched_u32();
+    bencher
+        .counter(ItemsCount::new(probe_rows().count()))
+        .with_inputs(|| (array.repeated_probe(), SESSION.create_execution_ctx()))
+        .bench_refs(|(probe, ctx)| {
+            for index in probe_rows() {
+                divan::black_box(probe.execute_scalar(index, ctx).unwrap());
+            }
+        });
+}
+
 /// A u32 Delta array of `SIMULATION_BYTES` over bit-packed deltas.
 fn delta_bitpacked_u32() -> ArrayRef {
     delta_bitpacked::<u32>(SIMULATION_BYTES / size_of::<u32>()).into_array()
@@ -204,5 +255,30 @@ fn take(bencher: Bencher, count: usize) {
                 .unwrap()
                 .execute::<PrimitiveArray>(ctx)
                 .unwrap()
+        });
+}
+
+/// Binary-searches a sorted Delta array of `SIMULATION_BYTES` for scattered needles, one search
+/// at a time, as a `Patches` lookup does over Delta-encoded patch indices. Each search crosses
+/// several chunks before it narrows to one.
+#[divan::bench(args = [16])]
+fn search_sorted(bencher: Bencher, count: usize) {
+    let len = SIMULATION_BYTES / size_of::<u32>();
+    let array = delta_bitpacked_u32();
+    let max = values::<u32>(len)[len - 1];
+    let needles: Vec<u32> = (0..count)
+        .map(|i| u32::try_from(i * 7919 % usize::try_from(max).unwrap()).unwrap())
+        .collect();
+    bencher
+        .counter(ItemsCount::new(count))
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_refs(|(array, ctx)| {
+            for needle in &needles {
+                divan::black_box(
+                    SearchSortedPrimitiveArray::<u32>::new(array, ctx)
+                        .search_sorted(needle, SearchSortedSide::Left)
+                        .unwrap(),
+                );
+            }
         });
 }

@@ -24,6 +24,7 @@
 //!   contribute their fixed null encoding, and variable-width children collapse to a single
 //!   null sentinel byte.
 
+use num_traits::ToPrimitive;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
@@ -470,33 +471,26 @@ fn add_size_decimal(arr: &DecimalArray, sizes: &mut [u32]) {
 }
 
 fn list_ranges(arr: &ListViewArray, ctx: &mut ExecutionCtx) -> VortexResult<Vec<(usize, usize)>> {
-    use num_traits::ToPrimitive;
-
     let offsets = arr.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let sizes = arr.sizes().clone().execute::<PrimitiveArray>(ctx)?;
     let offsets = match_each_integer_ptype!(offsets.ptype(), |O| {
-        offsets
-            .as_slice::<O>()
-            .iter()
-            .map(|value| {
-                value
-                    .to_usize()
-                    .vortex_expect("validated list offset must fit usize")
-            })
-            .collect::<Vec<_>>()
+        values_to_usize(
+            offsets.as_slice::<O>(),
+            "validated list offset must fit usize",
+        )
     });
     let sizes = match_each_integer_ptype!(sizes.ptype(), |S| {
-        sizes
-            .as_slice::<S>()
-            .iter()
-            .map(|value| {
-                value
-                    .to_usize()
-                    .vortex_expect("validated list size must fit usize")
-            })
-            .collect::<Vec<_>>()
+        values_to_usize(sizes.as_slice::<S>(), "validated list size must fit usize")
     });
     Ok(offsets.into_iter().zip(sizes).collect())
+}
+
+/// Converts each value to `usize`, panicking with `msg` if one does not fit.
+fn values_to_usize<T: ToPrimitive>(values: &[T], msg: &'static str) -> Vec<usize> {
+    values
+        .iter()
+        .map(|value| value.to_usize().vortex_expect(msg))
+        .collect::<Vec<_>>()
 }
 
 fn add_size_list(
@@ -1447,19 +1441,32 @@ pub(crate) trait RowEncode: Copy {
     fn encode_to(self, out: &mut [u8], descending: bool);
 }
 
+/// Writes big-endian `bytes` into `out`, inverting each byte for descending order.
+#[inline]
+fn write_row_bytes<const N: usize>(bytes: [u8; N], out: &mut [u8], descending: bool) {
+    if descending {
+        for (i, b) in bytes.iter().enumerate() {
+            out[i] = b ^ 0xFF;
+        }
+    } else {
+        out.copy_from_slice(&bytes);
+    }
+}
+
+/// Writes big-endian two's-complement `bytes` into `out` with the sign bit flipped, so
+/// negatives sort before non-negatives, inverting each byte for descending order.
+#[inline]
+fn write_signed_row_bytes<const N: usize>(mut bytes: [u8; N], out: &mut [u8], descending: bool) {
+    bytes[0] ^= 0x80;
+    write_row_bytes(bytes, out, descending);
+}
+
 macro_rules! impl_row_encode_unsigned {
     ($t:ty) => {
         impl RowEncode for $t {
             #[inline]
             fn encode_to(self, out: &mut [u8], descending: bool) {
-                let bytes = self.to_be_bytes();
-                if descending {
-                    for (i, b) in bytes.iter().enumerate() {
-                        out[i] = b ^ 0xFF;
-                    }
-                } else {
-                    out.copy_from_slice(&bytes);
-                }
+                write_row_bytes(self.to_be_bytes(), out, descending);
             }
         }
     };
@@ -1470,16 +1477,7 @@ macro_rules! impl_row_encode_signed {
         impl RowEncode for $t {
             #[inline]
             fn encode_to(self, out: &mut [u8], descending: bool) {
-                let mut bytes = self.to_be_bytes();
-                // Flip sign bit so negatives < non-negatives lexicographically.
-                bytes[0] ^= 0x80;
-                if descending {
-                    for (i, b) in bytes.iter().enumerate() {
-                        out[i] = b ^ 0xFF;
-                    }
-                } else {
-                    out.copy_from_slice(&bytes);
-                }
+                write_signed_row_bytes(self.to_be_bytes(), out, descending);
             }
         }
     };

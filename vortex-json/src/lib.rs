@@ -47,3 +47,6 @@ pub fn initialize(session: &VortexSession) {
         .enable_edition(editions::JSON_2026_08)
         .vortex_expect("JSON edition is registered");
 }
+
+#[cfg(test)]
+mod arrow_properties;
