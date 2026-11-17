@@ -49,8 +49,9 @@
 //! matches every chunk of a chunked column (`l_comment/data[0]`, ...) and the single unit of
 //! an unchunked one (`l_comment/data`).
 //!
-//! Every line must be blank, a `#` comment, or one of these directives at the start of the
-//! line, so a misspelled directive is an error rather than a check that silently never runs.
+//! Every line must be blank, a `#` comment, `severity:` (see below), or one of these
+//! directives at the start of the line, so a misspelled directive is an error rather than a
+//! check that silently never runs.
 //!
 //! ```text
 //! files: tpch/data/lineitem\.vortex
@@ -62,6 +63,24 @@
 //! # Dates must never be stored as uncompressed primitives.
 //! units: l_shipdate/data*
 //! not: vortex.primitive
+//! ```
+//!
+//! # Severity
+//!
+//! A failing section is an error by default, which fails the run. `severity: warn` reports it
+//! as `WARN` without failing the run: before the first `units:` line it sets the default for
+//! the whole check file, and inside a section it applies to that section only. Use warnings for
+//! lint-style rules that may legitimately fail on some data, such as "no chunk is stored
+//! uncompressed". Callers can also run every check in warn-only mode with
+//! [`SectionOutcome::downgrade_to_warning`], as PR benchmark runs do.
+//!
+//! ```text
+//! units: l_comment/data*
+//! check: root: vortex.fsst
+//!
+//! units: l_*/data[*]
+//! severity: warn
+//! not: root: vortex.primitive(
 //! ```
 //!
 //! # Entry points
@@ -82,6 +101,7 @@ pub use check::Directive;
 pub use check::Failure;
 pub use check::Glob;
 pub use check::SectionOutcome;
+pub use check::Severity;
 pub use check::format_report;
 pub use check::parse_check_file;
 pub use check::read_check_file;

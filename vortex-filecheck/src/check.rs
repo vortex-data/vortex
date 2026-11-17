@@ -66,6 +66,26 @@ impl Glob {
     }
 }
 
+/// How a failing section is reported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Severity {
+    /// Report the failure but do not fail the run.
+    Warn,
+    /// Fail the run.
+    #[default]
+    Error,
+}
+
+impl Severity {
+    fn parse(value: &str, lineno: usize) -> anyhow::Result<Self> {
+        match value {
+            "warn" => Ok(Self::Warn),
+            "error" => Ok(Self::Error),
+            _ => bail!("line {lineno}: `severity:` must be `warn` or `error`, found `{value}`"),
+        }
+    }
+}
+
 /// A parsed check file.
 #[derive(Debug)]
 pub struct CheckFile {
@@ -111,6 +131,8 @@ pub struct CheckSection {
     pub line: Option<usize>,
     /// The filecheck directives of the section, in order.
     pub directives: Vec<Directive>,
+    /// How the section is reported if it fails.
+    pub severity: Severity,
 }
 
 impl CheckSection {
@@ -145,6 +167,8 @@ pub struct SectionOutcome {
     pub checked: usize,
     /// The checks that failed.
     pub failures: Vec<Failure>,
+    /// How the section is reported if it fails.
+    pub severity: Severity,
 }
 
 impl SectionOutcome {
@@ -153,6 +177,31 @@ impl SectionOutcome {
     /// A `units:` section that matched no unit fails, so a typo in a glob cannot pass silently.
     pub fn passed(&self) -> bool {
         self.checked > 0 && self.failures.is_empty()
+    }
+
+    /// Whether the section failed with [`Severity::Error`], so the run fails.
+    pub fn is_error(&self) -> bool {
+        !self.passed() && self.severity == Severity::Error
+    }
+
+    /// Whether the section failed with [`Severity::Warn`].
+    pub fn is_warning(&self) -> bool {
+        !self.passed() && self.severity == Severity::Warn
+    }
+
+    /// Report a failure of this section as a warning, as when checks run in warn-only mode.
+    pub fn downgrade_to_warning(&mut self) {
+        self.severity = Severity::Warn;
+    }
+
+    fn status(&self) -> &'static str {
+        if self.passed() {
+            "PASS"
+        } else if self.is_warning() {
+            "WARN"
+        } else {
+            "FAIL"
+        }
     }
 }
 
@@ -170,23 +219,29 @@ pub fn read_check_file(path: &Path) -> anyhow::Result<CheckFile> {
 /// Parse a check file.
 ///
 /// Every line must be blank, a `#` comment, a `files: <regex>` line, a `units: <glob>` line,
-/// or a filecheck directive, each at the start of the line.
+/// a `severity: warn|error` line, or a filecheck directive, each at the start of the line.
 ///
 /// # Errors
 ///
 /// Returns an error, naming the line, for any other line, a directive with an empty pattern,
-/// a malformed regex or glob, a `files:` line after the first `units:` line, a `units:`
-/// section without directives, or a check file without any directive.
+/// a malformed regex or glob, a `files:` line after the first `units:` line, a second
+/// `severity:` line for the same section or file, a `units:` section without directives, or a
+/// check file without any directive.
 pub fn parse_check_file(text: &str) -> anyhow::Result<CheckFile> {
     let files_rx = Regex::new(r"^\s*files:(.*)$")?;
     let units_rx = Regex::new(r"^\s*units:(.*)$")?;
+    let severity_rx = Regex::new(r"^\s*severity:(.*)$")?;
     let directive_rx = Regex::new(DIRECTIVE_RX)?;
     let mut files = Vec::new();
     let mut sections = vec![CheckSection {
         selector: None,
         line: None,
         directives: Vec::new(),
+        severity: Severity::default(),
     }];
+    // The file's default severity, set before the first `units:` line, and each section's own.
+    let mut default_severity = None;
+    let mut section_severities = vec![None];
     for (idx, line) in text.lines().enumerate() {
         let lineno = idx + 1;
         let trimmed = line.trim();
@@ -208,7 +263,21 @@ pub fn parse_check_file(text: &str) -> anyhow::Result<CheckFile> {
                 selector: Some(Glob::new(glob)?),
                 line: Some(lineno),
                 directives: Vec::new(),
+                severity: Severity::default(),
             });
+            section_severities.push(None);
+        } else if let Some(caps) = severity_rx.captures(line) {
+            let severity = Severity::parse(non_empty(&caps[1], lineno, "severity:")?, lineno)?;
+            let slot = if sections.len() == 1 {
+                &mut default_severity
+            } else {
+                section_severities
+                    .last_mut()
+                    .context("every section has a severity slot")?
+            };
+            if slot.replace(severity).is_some() {
+                bail!("line {lineno}: `severity:` is already set for this section");
+            }
         } else if let Some(caps) = directive_rx.captures(line) {
             non_empty(&caps[2], lineno, &format!("{}:", &caps[1]))?;
             // Fail on a malformed pattern now, with its line, rather than when checking.
@@ -224,17 +293,18 @@ pub fn parse_check_file(text: &str) -> anyhow::Result<CheckFile> {
         } else {
             bail!(
                 "line {lineno}: expected `check:`, `nextln:`, `sameln:`, `not:`, `unordered:`, \
-                 `regex:`, `files:`, `units:` or a `#` comment, found `{trimmed}`"
+                 `regex:`, `files:`, `units:`, `severity:` or a `#` comment, found `{trimmed}`"
             );
         }
     }
 
-    for section in &sections {
+    for (section, severity) in sections.iter_mut().zip(section_severities) {
         if let Some(line) = section.line
             && section.directives.is_empty()
         {
             bail!("line {line}: `units:` section has no directives");
         }
+        section.severity = severity.or(default_severity).unwrap_or_default();
     }
     if sections.iter().all(|section| section.directives.is_empty()) {
         bail!("the check file has no directives");
@@ -311,6 +381,7 @@ pub fn run_checks(
             label: section.label(),
             checked: targets.len(),
             failures,
+            severity: section.severity,
         });
     }
     Ok(outcomes)
@@ -373,8 +444,9 @@ fn describe_failure(
     }
 }
 
-/// Describe check outcomes: one `PASS` or `FAIL` line per section, then for up to five failing
-/// units the failing directive and the match trace around it, or the full trace if `explain`.
+/// Describe check outcomes: one `PASS`, `WARN` or `FAIL` line per section, then for up to five
+/// failing units the failing directive and the match trace around it, or the full trace if
+/// `explain`, and finally a count of passed, warned and failed sections.
 pub fn format_report(outcomes: &[SectionOutcome], explain: bool) -> String {
     let mut out = String::new();
     // Writing to a `String` cannot fail.
@@ -384,17 +456,22 @@ pub fn format_report(outcomes: &[SectionOutcome], explain: bool) -> String {
 
 fn write_report(out: &mut String, outcomes: &[SectionOutcome], explain: bool) -> std::fmt::Result {
     for outcome in outcomes {
+        let status = outcome.status();
         if outcome.passed() {
-            writeln!(out, "PASS {}: {} checked", outcome.label, outcome.checked)?;
+            writeln!(
+                out,
+                "{status} {}: {} checked",
+                outcome.label, outcome.checked
+            )?;
             continue;
         }
         if outcome.checked == 0 {
-            writeln!(out, "FAIL {}: matched no units", outcome.label)?;
+            writeln!(out, "{status} {}: matched no units", outcome.label)?;
             continue;
         }
         writeln!(
             out,
-            "FAIL {}: {}/{} failed",
+            "{status} {}: {}/{} failed",
             outcome.label,
             outcome.failures.len(),
             outcome.checked
@@ -434,5 +511,16 @@ fn write_report(out: &mut String, outcomes: &[SectionOutcome], explain: bool) ->
             )?;
         }
     }
+    let warned = outcomes
+        .iter()
+        .filter(|outcome| outcome.is_warning())
+        .count();
+    let failed = outcomes.iter().filter(|outcome| outcome.is_error()).count();
+    writeln!(
+        out,
+        "{} sections: {} passed, {warned} warned, {failed} failed",
+        outcomes.len(),
+        outcomes.len() - warned - failed,
+    )?;
     Ok(())
 }

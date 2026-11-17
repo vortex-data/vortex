@@ -32,6 +32,11 @@ impl FileOutcome {
     pub fn passed(&self) -> bool {
         self.sections.iter().all(SectionOutcome::passed)
     }
+
+    /// Whether a section failed with [`crate::Severity::Error`], so the run fails.
+    pub fn has_errors(&self) -> bool {
+        self.sections.iter().any(SectionOutcome::is_error)
+    }
 }
 
 /// Check every Vortex file under `root` whose path relative to `root` matches one of the
@@ -112,7 +117,13 @@ fn relative_path(root: &Path, path: &Path) -> String {
 pub fn format_tree_report(outcomes: &[FileOutcome], explain: bool) -> String {
     let mut out = String::new();
     for outcome in outcomes {
-        let status = if outcome.passed() { "PASS" } else { "FAIL" };
+        let status = if outcome.passed() {
+            "PASS"
+        } else if outcome.has_errors() {
+            "FAIL"
+        } else {
+            "WARN"
+        };
         // Writing to a `String` cannot fail.
         writeln!(out, "{status} {}", outcome.path.display()).unwrap_or_default();
         for line in format_report(&outcome.sections, explain).lines() {

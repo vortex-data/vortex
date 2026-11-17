@@ -65,4 +65,5 @@ cargo run -p vortex-tui --bin vx -- filecheck slt/tpch/data/nation.vortex \
 cargo nextest run -p vortex-sqllogictest -E 'test(/slt::filecheck::/)'
 ```
 
-Check files are written by hand; `--complete` does not rewrite them.
+A failing section fails its trial, unless it is marked `severity: warn`, which reports it
+on stderr without failing. Check files are written by hand; `--complete` does not rewrite them.
