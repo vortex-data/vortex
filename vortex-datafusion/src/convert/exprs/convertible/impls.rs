@@ -20,7 +20,9 @@ use datafusion_functions::string::octet_length::OctetLengthFunc;
 use datafusion_functions::string::starts_with::StartsWithFunc;
 use datafusion_functions::unicode::strpos::StrposFunc;
 use datafusion_functions_nested::array_sum::ArraySum;
+use datafusion_functions_nested::array_transform::ArrayTransform;
 use datafusion_functions_nested::length::ArrayLength;
+use datafusion_physical_expr::HigherOrderFunctionExpr;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::ScalarFunctionExpr;
@@ -30,7 +32,9 @@ use vortex::aggregate_fn::NumericalAggregateOpts;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::dtype::StructFields;
 use vortex::expr::Expression;
+use vortex::expr::Lambda;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::get_item;
@@ -39,15 +43,20 @@ use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_length;
 use vortex::expr::list_sum_opts;
+use vortex::expr::list_transform;
 use vortex::expr::lit;
 use vortex::expr::lower;
 use vortex::expr::nested_case_when;
 use vortex::expr::not;
 use vortex::expr::root;
 use vortex::expr::strpos;
+use vortex::expr::traversal::NodeExt;
+use vortex::expr::traversal::Transformed;
+use vortex::expr::var;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::literal::Literal;
@@ -56,6 +65,7 @@ use vortex::scalar_fn::fns::operators::Operator;
 use crate::convert::exprs::convertible::may;
 use crate::convert::exprs::is_infallible;
 
+use super::Scoped;
 use super::Constructible;
 use super::Convertible;
 use super::ConvertibleCtx;
@@ -71,7 +81,7 @@ type Ctx<'a> = ConvertibleCtx<'a>;
 pub fn default_convert<'a>(
     expr: &'a PER,
     ctx: &Ctx<'_>,
-) -> MayConvert<(Vec<&'a PhysicalExprRef>, Box<dyn Constructible + 'a>)> {
+) -> MayConvert<(Vec<Scoped<'a>>, Box<dyn Constructible + 'a>)> {
     ConvertBinary::recognize_boxed(expr, ctx)?;
     ConvertColumn::recognize_boxed(expr, ctx)?;
     ConvertLambdaVariable::recognize_boxed(expr, ctx)?;
@@ -91,6 +101,7 @@ pub fn default_convert<'a>(
     ConvertStartsWith::recognize_boxed(expr, ctx)?;
     ConvertEndsWith::recognize_boxed(expr, ctx)?;
     ConvertArraySum::recognize_boxed(expr, ctx)?;
+    ConvertArrayTransform::recognize_boxed(expr, ctx)?;
     ConvertCase::recognize_boxed(expr, ctx)?;
     Ok(Unsupported)
 }
@@ -101,7 +112,7 @@ pub fn default_convert<'a>(
 pub fn default_convert_recursive<'a>(
     expr: &'a PER,
     ctx: &Ctx<'_>,
-    mut recur: impl FnMut(&'a PER) -> MustConvert<Expression>,
+    mut recur: impl FnMut(Scoped<'a>) -> MustConvert<Expression>,
 ) -> MayConvert<Expression> {
     may(ConvertBinary::convert_recursive(expr, ctx, &mut recur))?;
     may(ConvertColumn::convert_recursive(expr, ctx, &mut recur))?;
@@ -122,6 +133,7 @@ pub fn default_convert_recursive<'a>(
     may(ConvertStartsWith::convert_recursive(expr, ctx, &mut recur))?;
     may(ConvertEndsWith::convert_recursive(expr, ctx, &mut recur))?;
     may(ConvertArraySum::convert_recursive(expr, ctx, &mut recur))?;
+    may(ConvertArrayTransform::convert_recursive(expr, ctx, &mut recur))?;
     may(ConvertCase::convert_recursive(expr, ctx, &mut recur))?;
     Ok(Unsupported)
 }
@@ -136,7 +148,7 @@ pub struct ConvertBinary {
 impl<'a> Convertible<'a> for ConvertBinary {
     type DF = df_expr::BinaryExpr;
 
-    fn convert(expr: &'a Self::DF, ctx: &Ctx) -> MustConvert<(Vec<&'a PER>, Self)> {
+    fn convert(expr: &'a Self::DF, ctx: &Ctx) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         let operator = try_operator_from_df(expr.op())?;
         let left_type = expr.left().data_type(ctx.schema).map_err(Err)?;
         let right_type = expr.right().data_type(ctx.schema).map_err(Err)?;
@@ -154,7 +166,7 @@ impl<'a> Convertible<'a> for ConvertBinary {
         }
 
         if !operator.is_comparison() {
-            let children = vec![expr.left(), expr.right()];
+            let children = vec![Scoped::Same(expr.left()), Scoped::Same(expr.right())];
             let convertible = ConvertBinary {
                 operator,
                 left: None,
@@ -167,9 +179,9 @@ impl<'a> Convertible<'a> for ConvertBinary {
         let right_lit = recognize_literal(expr.right(), expr.left(), &ctx.schema).map_err(Err)?;
         let (children, left, right) = match (left_lit, right_lit) {
             (Some(left), Some(right)) => (Vec::new(), Some(left), Some(right)),
-            (Some(left), None) => (vec![expr.right()], Some(left), None),
-            (None, Some(right)) => (vec![expr.left()], None, Some(right)),
-            (None, None) => (vec![expr.left(), expr.right()], None, None),
+            (Some(left), None) => (vec![Scoped::Same(expr.right())], Some(left), None),
+            (None, Some(right)) => (vec![Scoped::Same(expr.left())], None, Some(right)),
+            (None, None) => (vec![Scoped::Same(expr.left()), Scoped::Same(expr.right())], None, None),
         };
 
         let convertible = ConvertBinary {
@@ -265,7 +277,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertColumn<'a> {
     type DF = df_expr::Column;
     type Children = [Expression; 0];
 
-    fn convert_fixed(expr: &'a df_expr::Column, ctx: &Ctx) -> MustConvert<(Vec<&'a PER>, Self)> {
+    fn convert_fixed(expr: &'a df_expr::Column, ctx: &Ctx) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         if ctx.scope.is_some() {
             return Err(Ok(Unsupported));
         }
@@ -289,7 +301,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertLambdaVariable<'a> {
     type DF = df_expr::LambdaVariable;
     type Children = [Expression; 0];
 
-    fn convert_fixed(expr: &'a Self::DF, ctx: &Ctx) -> MustConvert<(Vec<&'a PER>, Self)> {
+    fn convert_fixed(expr: &'a Self::DF, ctx: &Ctx) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         let Some(params) = ctx.scope else {
             return Err(Ok(Unsupported));
         };
@@ -315,7 +327,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertLiteral {
     type DF = df_expr::Literal;
     type Children = [Expression; 0];
 
-    fn convert_fixed(expr: &'a Self::DF, ctx: &Ctx) -> MustConvert<(Vec<&'a PER>, Self)> {
+    fn convert_fixed(expr: &'a Self::DF, ctx: &Ctx) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         let field = expr.return_field(ctx.schema).map_err(Err)?;
         let scalar = ctx.import_literal(expr, &field)?;
         Ok((Vec::new(), Self { scalar }))
@@ -345,12 +357,12 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertCast {
     type DF = df_expr::CastExpr;
     type Children = [Expression; 1];
 
-    fn convert_fixed(expr: &'a df_expr::CastExpr, ctx: &Ctx) -> MustConvert<(Vec<&'a PER>, Self)> {
+    fn convert_fixed(expr: &'a df_expr::CastExpr, ctx: &Ctx) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         let pushdown = classify_cast(expr, ctx.schema)?;
         let dtype = ctx
             .arrow_dtype(expr.target_field())?
             .with_nullability(Nullability::from(expr.nullable(ctx.schema).map_err(Err)?));
-        Ok((vec![expr.expr()], Self { pushdown, dtype }))
+        Ok((vec![Scoped::Same(expr.expr())], Self { pushdown, dtype }))
     }
 
     fn construct_fixed(self, [child]: [Expression; 1], ctx: &Ctx) -> MustConvert<Expression> {
@@ -436,13 +448,13 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertNot {
     type DF = df_expr::NotExpr;
     type Children = [Expression; 1];
 
-    fn convert_fixed(expr: &'a Self::DF, ctx: &Ctx) -> MustConvert<(Vec<&'a PER>, Self)> {
+    fn convert_fixed(expr: &'a Self::DF, ctx: &Ctx) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         if expr.arg().data_type(ctx.schema).map_err(Err)? != DataType::Boolean {
             return Err(Err(exec_datafusion_err!(
                 "NOT requires a Boolean operand: {expr}"
             )));
         }
-        Ok((vec![expr.arg()], Self))
+        Ok((vec![Scoped::Same(expr.arg())], Self))
     }
 
     fn construct_fixed(self, [arg]: [Expression; 1], _ctx: &Ctx) -> MustConvert<Expression> {
@@ -457,8 +469,8 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertIsNull {
     type DF = df_expr::IsNullExpr;
     type Children = [Expression; 1];
 
-    fn convert_fixed(expr: &'a Self::DF, _ctx: &Ctx) -> MustConvert<(Vec<&'a PER>, Self)> {
-        Ok((vec![expr.arg()], Self))
+    fn convert_fixed(expr: &'a Self::DF, _ctx: &Ctx) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
+        Ok((vec![Scoped::Same(expr.arg())], Self))
     }
 
     fn construct_fixed(self, [arg]: [Expression; 1], _ctx: &Ctx) -> MustConvert<Expression> {
@@ -473,8 +485,8 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertIsNotNull {
     type DF = df_expr::IsNotNullExpr;
     type Children = [Expression; 1];
 
-    fn convert_fixed(expr: &'a Self::DF, _ctx: &Ctx) -> MustConvert<(Vec<&'a PER>, Self)> {
-        Ok((vec![expr.arg()], Self))
+    fn convert_fixed(expr: &'a Self::DF, _ctx: &Ctx) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
+        Ok((vec![Scoped::Same(expr.arg())], Self))
     }
 
     fn construct_fixed(self, [arg]: [Expression; 1], _ctx: &Ctx) -> MustConvert<Expression> {
@@ -491,12 +503,12 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertLike {
     type DF = df_expr::LikeExpr;
     type Children = [Expression; 2];
 
-    fn convert_fixed(expr: &'a Self::DF, _ctx: &Ctx) -> MustConvert<(Vec<&'a PER>, Self)> {
+    fn convert_fixed(expr: &'a Self::DF, _ctx: &Ctx) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         let options = LikeOptions {
             negated: expr.negated(),
             case_insensitive: expr.case_insensitive(),
         };
-        Ok((vec![expr.expr(), expr.pattern()], Self { options }))
+        Ok((vec![Scoped::Same(expr.expr()), Scoped::Same(expr.pattern())], Self { options }))
     }
 
     fn construct_fixed(
@@ -521,7 +533,7 @@ pub struct ConvertInList {
 impl<'a> Convertible<'a> for ConvertInList {
     type DF = df_expr::InListExpr;
 
-    fn convert(expr: &'a Self::DF, ctx: &Ctx) -> MustConvert<(Vec<&'a PER>, Self)> {
+    fn convert(expr: &'a Self::DF, ctx: &Ctx) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         if expr.is_empty()
             || !expr.list().iter().all(|expr| expr.is::<df_expr::Literal>())
             || !supported_data_types(&expr.expr().data_type(ctx.schema).map_err(Err)?)
@@ -550,11 +562,11 @@ impl<'a> Convertible<'a> for ConvertInList {
             })
             .collect::<MustConvert<Vec<_>>>();
 
-        let mut children = vec![expr.expr()];
+        let mut children = vec![Scoped::Same(expr.expr())];
         let elements = match literals {
             Ok(literals) => Some(literals),
             Err(Ok(Unsupported)) => {
-                children.extend(expr.list());
+                children.extend(expr.list().iter().map(Scoped::Same));
                 None
             }
             Err(Err(err)) => return Err(Err(err)),
@@ -612,7 +624,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertGetField<'a> {
     type DF = ScalarFunctionExpr;
     type Children = [Expression; 1];
 
-    fn convert_fixed(expr: &'a ScalarFunctionExpr, ctx: &Ctx) -> MustConvert<(Vec<&'a PER>, Self)> {
+    fn convert_fixed(expr: &'a ScalarFunctionExpr, ctx: &Ctx) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         if !expr.fun().inner().is::<GetFieldFunc>() {
             return Err(Ok(Unsupported));
         }
@@ -646,7 +658,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertGetField<'a> {
             source_type = field.data_type().clone();
             names.push(name);
         }
-        Ok((vec![source], Self { names }))
+        Ok((vec![Scoped::Same(source)], Self { names }))
     }
 
     fn construct_fixed(self, [mut source]: [Expression; 1], _ctx: &Ctx) -> MustConvert<Expression> {
@@ -667,7 +679,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertOctetLength {
     type DF = ScalarFunctionExpr;
     type Children = [Expression; 1];
 
-    fn convert_fixed(expr: &'a ScalarFunctionExpr, ctx: &Ctx) -> MustConvert<(Vec<&'a PER>, Self)> {
+    fn convert_fixed(expr: &'a ScalarFunctionExpr, ctx: &Ctx) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         if !expr.fun().inner().is::<OctetLengthFunc>() {
             return Err(Ok(Unsupported));
         }
@@ -686,7 +698,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertOctetLength {
         }
         let dtype =
             ctx.arrow_dtype(&Field::new("", expr.return_type().clone(), expr.nullable()))?;
-        Ok((vec![input], Self { dtype }))
+        Ok((vec![Scoped::Same(input)], Self { dtype }))
     }
 
     fn construct_fixed(self, [input]: [Expression; 1], _ctx: &Ctx) -> MustConvert<Expression> {
@@ -704,7 +716,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertArrayLength {
     type DF = ScalarFunctionExpr;
     type Children = [Expression; 1];
 
-    fn convert_fixed(expr: &'a ScalarFunctionExpr, ctx: &Ctx) -> MustConvert<(Vec<&'a PER>, Self)> {
+    fn convert_fixed(expr: &'a ScalarFunctionExpr, ctx: &Ctx) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         if !expr.fun().inner().is::<ArrayLength>() {
             return Err(Ok(Unsupported));
         }
@@ -718,7 +730,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertArrayLength {
         }
         let dtype =
             ctx.arrow_dtype(&Field::new("", expr.return_type().clone(), expr.nullable()))?;
-        Ok((vec![input], Self { dtype }))
+        Ok((vec![Scoped::Same(input)], Self { dtype }))
     }
 
     fn construct_fixed(self, [input]: [Expression; 1], _ctx: &Ctx) -> MustConvert<Expression> {
@@ -737,7 +749,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertLower {
     fn convert_fixed(
         expr: &'a ScalarFunctionExpr,
         _ctx: &Ctx,
-    ) -> MustConvert<(Vec<&'a PER>, Self)> {
+    ) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         if !expr.fun().inner().is::<LowerFunc>() {
             return Err(Ok(Unsupported));
         }
@@ -746,7 +758,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertLower {
                 "lower requires exactly one argument"
             )));
         };
-        Ok((vec![input], Self))
+        Ok((vec![Scoped::Same(input)], Self))
     }
 
     fn construct_fixed(self, [input]: [Expression; 1], ctx: &Ctx) -> MustConvert<Expression> {
@@ -767,7 +779,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertStrpos {
     fn convert_fixed(
         expr: &'a ScalarFunctionExpr,
         _ctx: &Ctx,
-    ) -> MustConvert<(Vec<&'a PER>, Self)> {
+    ) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         if !expr.fun().inner().is::<StrposFunc>() {
             return Err(Ok(Unsupported));
         }
@@ -781,7 +793,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertStrpos {
             DataType::Int64 => false,
             _ => return Err(Ok(Unsupported)),
         };
-        Ok((vec![input, search], Self { narrow }))
+        Ok((vec![Scoped::Same(input), Scoped::Same(search)], Self { narrow }))
     }
 
     fn construct_fixed(
@@ -814,7 +826,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertContains {
     fn convert_fixed(
         expr: &'a ScalarFunctionExpr,
         _ctx: &Ctx,
-    ) -> MustConvert<(Vec<&'a PER>, Self)> {
+    ) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         if !expr.fun().inner().is::<ContainsFunc>() {
             return Err(Ok(Unsupported));
         }
@@ -833,7 +845,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertContains {
         };
         let needle = escape_like(needle);
         let pattern = format!("%{needle}%");
-        Ok((vec![input], Self { pattern }))
+        Ok((vec![Scoped::Same(input)], Self { pattern }))
     }
 
     fn construct_fixed(self, [input]: [Expression; 1], ctx: &Ctx) -> MustConvert<Expression> {
@@ -855,7 +867,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertStartsWith {
     fn convert_fixed(
         expr: &'a ScalarFunctionExpr,
         _ctx: &Ctx,
-    ) -> MustConvert<(Vec<&'a PER>, Self)> {
+    ) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         if !expr.fun().inner().is::<StartsWithFunc>() {
             return Err(Ok(Unsupported));
         }
@@ -874,7 +886,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertStartsWith {
         };
         let needle = escape_like(needle);
         let pattern = format!("{needle}%");
-        Ok((vec![input], Self { pattern }))
+        Ok((vec![Scoped::Same(input)], Self { pattern }))
     }
 
     fn construct_fixed(self, [input]: [Expression; 1], ctx: &Ctx) -> MustConvert<Expression> {
@@ -896,7 +908,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertEndsWith {
     fn convert_fixed(
         expr: &'a ScalarFunctionExpr,
         _ctx: &Ctx,
-    ) -> MustConvert<(Vec<&'a PER>, Self)> {
+    ) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         if !expr.fun().inner().is::<EndsWithFunc>() {
             return Err(Ok(Unsupported));
         }
@@ -915,7 +927,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertEndsWith {
         };
         let needle = escape_like(needle);
         let pattern = format!("%{needle}");
-        Ok((vec![input], Self { pattern }))
+        Ok((vec![Scoped::Same(input)], Self { pattern }))
     }
 
     fn construct_fixed(self, [input]: [Expression; 1], ctx: &Ctx) -> MustConvert<Expression> {
@@ -935,7 +947,7 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertArraySum {
     fn convert_fixed(
         expr: &'a ScalarFunctionExpr,
         _ctx: &Ctx,
-    ) -> MustConvert<(Vec<&'a PER>, Self)> {
+    ) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         if !expr.fun().inner().is::<ArraySum>() {
             return Err(Ok(Unsupported));
         }
@@ -945,11 +957,80 @@ impl<'a> ConvertibleFixedArity<'a> for ConvertArraySum {
             )
             .into()));
         };
-        Ok((vec![input], Self))
+        Ok((vec![Scoped::Same(input)], Self))
     }
 
     fn construct_fixed(self, [input]: [Expression; 1], _ctx: &Ctx) -> MustConvert<Expression> {
         Ok(list_sum_opts(input, NumericalAggregateOpts::include_nans()))
+    }
+}
+
+/// Convert an array transform, selecting its lambda body in a separate parameter scope.
+pub struct ConvertArrayTransform<'a> {
+    param: &'a str,
+    element_dtype: DType,
+}
+
+impl<'a> ConvertibleFixedArity<'a> for ConvertArrayTransform<'a> {
+    type DF = HigherOrderFunctionExpr;
+    type Children = [Expression; 2];
+
+    fn convert_fixed(
+        expr: &'a Self::DF,
+        ctx: &Ctx,
+    ) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
+        let function_impl: &dyn std::any::Any = expr.fun().inner().as_ref();
+        if !function_impl.is::<ArrayTransform>() {
+            return Err(Ok(Unsupported));
+        }
+        let [list, lambda] = expr.args() else {
+            return Err(Err(exec_datafusion_err!(
+                "array_transform requires a list and a lambda"
+            )));
+        };
+        let Some(lambda) = lambda.downcast_ref::<df_expr::LambdaExpr>() else {
+            return Err(Ok(Unsupported));
+        };
+        let [param] = lambda.params() else {
+            return Err(Ok(Unsupported));
+        };
+        let field = list.return_field(ctx.schema).map_err(Err)?;
+        let DType::List(element, _) = ctx.arrow_dtype(&field)? else {
+            return Err(Ok(Unsupported));
+        };
+        let element_dtype = element.as_ref().clone();
+        let scope = StructFields::from_iter([(param.as_str(), element_dtype.clone())]);
+        Ok((
+            vec![Scoped::Same(list), Scoped::With(lambda.body(), scope)],
+            Self { param, element_dtype },
+        ))
+    }
+
+    fn construct_fixed(
+        self,
+        [list, body]: [Expression; 2],
+        ctx: &Ctx,
+    ) -> MustConvert<Expression> {
+        let DType::List(element, _) = ctx.node_dtype(&list)? else {
+            return Err(Ok(Unsupported));
+        };
+        // The caller may substitute the list, but the body was converted in the selected scope.
+        if !element.eq_ignore_nullability(&self.element_dtype) {
+            return Err(Ok(Unsupported));
+        }
+        // Within a lambda, `$.x` names its parameter; the native lambda reads it as `@x`.
+        let body = body.transform_down(|node| {
+            if let Some(name) = node.as_opt::<GetItem>()
+                && node.child(0).is_root()
+            {
+                return Ok(Transformed::yes(var(name.clone())));
+            }
+            Ok(Transformed::no(node))
+        })
+        .map(Transformed::into_inner)
+        .map_err(|_| Ok(Unsupported))?;
+        let lambda = Lambda::new([self.param], body).map_err(|_| Ok(Unsupported))?;
+        Ok(list_transform(list, lambda))
     }
 }
 
@@ -962,7 +1043,7 @@ pub struct ConvertCase {
 impl<'a> Convertible<'a> for ConvertCase {
     type DF = df_expr::CaseExpr;
 
-    fn convert(expr: &'a Self::DF, ctx: &Ctx) -> MustConvert<(Vec<&'a PER>, Self)> {
+    fn convert(expr: &'a Self::DF, ctx: &Ctx) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         if expr.expr().is_some() {
             return Err(Ok(Unsupported));
         }
@@ -972,9 +1053,9 @@ impl<'a> Convertible<'a> for ConvertCase {
             if condition.data_type(ctx.schema).map_err(Err)? != DataType::Boolean {
                 return Err(Err(exec_datafusion_err!("CASE WHEN must be Boolean").into()));
             }
-            children.extend([condition, value]);
+            children.extend([Scoped::Same(condition), Scoped::Same(value)]);
         }
-        children.extend(expr.else_expr());
+        children.extend(expr.else_expr().into_iter().map(Scoped::Same));
         let n_children = children.len();
         Ok((
             children,

@@ -26,6 +26,7 @@ mod impls;
 
 pub use impls::ConvertArrayLength;
 pub use impls::ConvertArraySum;
+pub use impls::ConvertArrayTransform;
 pub use impls::ConvertBinary;
 pub use impls::ConvertCase;
 pub use impls::ConvertCast;
@@ -77,6 +78,15 @@ pub(super) fn may<T>(x: MustConvert<T>) -> MayConvert<T> {
         Err(Ok(Unsupported)) => Ok(Unsupported),
         Err(Err(err)) => Err(Err(err)),
     }
+}
+
+/// A selected expression child and the scope in which it should be converted.
+#[derive(Debug)]
+pub enum Scoped<'a> {
+    /// Convert in the parent's scope.
+    Same(&'a PhysicalExprRef),
+    /// Convert with these lambda parameters as the native root, replacing the enclosing scope.
+    With(&'a PhysicalExprRef, StructFields),
 }
 
 /// Shared inputs for matching and constructing a native expression.
@@ -222,7 +232,7 @@ pub trait Convertible<'a>: Sized + 'a {
     fn recognize(
         expr: &'a PhysicalExprRef,
         ctx: &ConvertibleCtx<'_>,
-    ) -> MayConvert<(Vec<&'a PhysicalExprRef>, Self)> {
+    ) -> MayConvert<(Vec<Scoped<'a>>, Self)> {
         let Some(expr) = expr.downcast_ref::<Self::DF>() else {
             return Ok(Unsupported);
         };
@@ -233,7 +243,7 @@ pub trait Convertible<'a>: Sized + 'a {
     fn recognize_boxed(
         expr: &'a PhysicalExprRef,
         ctx: &ConvertibleCtx<'_>,
-    ) -> MayConvert<(Vec<&'a PhysicalExprRef>, Box<dyn Constructible + 'a>)> {
+    ) -> MayConvert<(Vec<Scoped<'a>>, Box<dyn Constructible + 'a>)> {
         may(must(Self::recognize(expr, ctx)).map(|(children, convertible)| {
             (children, Box::new(convertible) as Box<dyn Constructible + 'a>)
         }))
@@ -241,11 +251,13 @@ pub trait Convertible<'a>: Sized + 'a {
 
     /// Try this converter, using the caller's recursion to convert its selected inputs.
     ///
+    /// The callback receives each child and is responsible for handling its scope.
+    ///
     /// Returns `Err(Ok(Unsupported))` for an unsupported node, child, or constructed expression.
     fn convert_recursive(
         expr: &'a PhysicalExprRef,
         ctx: &ConvertibleCtx<'_>,
-        recur: impl FnMut(&'a PhysicalExprRef) -> MustConvert<Expression>,
+        recur: impl FnMut(Scoped<'a>) -> MustConvert<Expression>,
     ) -> MustConvert<Expression> {
         let (children, convertible) = must(Self::recognize(expr, ctx))?;
         let children = children
@@ -259,7 +271,7 @@ pub trait Convertible<'a>: Sized + 'a {
     fn convert(
         expr: &'a Self::DF,
         ctx: &ConvertibleCtx<'_>,
-    ) -> MustConvert<(Vec<&'a PhysicalExprRef>, Self)>;
+    ) -> MustConvert<(Vec<Scoped<'a>>, Self)>;
 
     /// Given Vortex expressions for our children, construct a Vortex expression for ourselves.
     fn construct(
@@ -300,7 +312,7 @@ pub trait ConvertibleFixedArity<'a>: Sized {
     fn convert_fixed(
         expr: &'a Self::DF,
         ctx: &ConvertibleCtx<'_>,
-    ) -> MustConvert<(Vec<&'a PhysicalExprRef>, Self)>;
+    ) -> MustConvert<(Vec<Scoped<'a>>, Self)>;
 
     /// Construct from the fixed-size array, using the supplied context.
     fn construct_fixed(
@@ -316,7 +328,7 @@ impl<'a, T: ConvertibleFixedArity<'a> + 'a> Convertible<'a> for T {
     fn convert(
         expr: &'a <Self as Convertible<'a>>::DF,
         ctx: &ConvertibleCtx<'_>,
-    ) -> MustConvert<(Vec<&'a PhysicalExprRef>, Self)> {
+    ) -> MustConvert<(Vec<Scoped<'a>>, Self)> {
         <T as ConvertibleFixedArity<'a>>::convert_fixed(expr, ctx)
     }
 

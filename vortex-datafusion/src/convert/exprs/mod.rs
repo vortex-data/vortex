@@ -14,31 +14,22 @@ use arrow_schema::Schema;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::exec_datafusion_err;
-use datafusion_functions_nested::array_transform::ArrayTransform;
 use datafusion_physical_expr::DynamicFilterTracking;
-use datafusion_physical_expr::HigherOrderFunctionExpr;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::collect_columns;
-use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
 use vortex::VortexSessionDefault;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
-use vortex::dtype::StructFields;
 use vortex::expr::Expression;
-use vortex::expr::Lambda;
 use vortex::expr::get_item;
-use vortex::expr::list_transform;
 use vortex::expr::pack;
 use vortex::expr::root;
-use vortex::expr::traversal::NodeExt;
-use vortex::expr::traversal::Transformed;
-use vortex::expr::var;
-use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
+use self::convertible::Scoped;
 use self::convertible::ConvertibleCtx;
 use self::convertible::MustConvert;
 use self::convertible::Unsupported;
@@ -296,63 +287,16 @@ fn convert_tree(
     expr: &Arc<dyn PhysicalExpr>,
     ctx: &ConvertibleCtx<'_>,
 ) -> MustConvert<Expression> {
-    if let Some(function) = expr.downcast_ref::<HigherOrderFunctionExpr>() {
-        let function_impl: &dyn std::any::Any = function.fun().inner().as_ref();
-        if function_impl.downcast_ref::<ArrayTransform>().is_some() {
-            return convert_array_transform(function, ctx);
-        }
-        return Err(Ok(Unsupported));
-    }
-    must(default_convert_recursive(expr, ctx, |child| {
-        convert_tree(child, ctx)
+    must(default_convert_recursive(expr, ctx, |child| match child {
+        Scoped::Same(expr) => convert_tree(expr, ctx),
+        Scoped::With(expr, scope) => convert_tree(
+            expr,
+            &ConvertibleCtx {
+                scope: Some(&scope),
+                ..*ctx
+            },
+        ),
     }))
-}
-
-/// Convert the body in the lambda's scope, where only its parameter is readable.
-fn convert_array_transform(
-    function: &HigherOrderFunctionExpr,
-    ctx: &ConvertibleCtx<'_>,
-) -> MustConvert<Expression> {
-    let [list, lambda] = function.args() else {
-        return Err(Err(exec_datafusion_err!(
-            "array_transform requires a list and a lambda"
-        )));
-    };
-    let Some(lambda) = lambda.downcast_ref::<df_expr::LambdaExpr>() else {
-        return Err(Ok(Unsupported));
-    };
-    let [param] = lambda.params() else {
-        return Err(Ok(Unsupported));
-    };
-    let list = convert_tree(list, ctx)?;
-    let DType::List(element, _) = ctx.node_dtype(&list)? else {
-        return Err(Ok(Unsupported));
-    };
-    let params = StructFields::from_iter([(param.as_str(), element.as_ref().clone())]);
-    let lambda_ctx = ConvertibleCtx {
-        scope: Some(&params),
-        ..*ctx
-    };
-    // DataFusion types the body against the outer schema: a lambda variable carries its field.
-    let body = convert_tree(lambda.body(), &lambda_ctx)?;
-    let lambda =
-        Lambda::new([param.as_str()], read_params(body)?).map_err(|_| Ok(Unsupported))?;
-    Ok(list_transform(list, lambda))
-}
-
-/// Turns a body converted in a lambda's scope, where `$.x` is the parameter `x`, into a lambda's
-/// body, which reads it as `@x`.
-fn read_params(body: Expression) -> MustConvert<Expression> {
-    body.transform_down(|node| {
-        if let Some(name) = node.as_opt::<GetItem>()
-            && node.child(0).is_root()
-        {
-            return Ok(Transformed::yes(var(name.clone())));
-        }
-        Ok(Transformed::no(node))
-    })
-    .map(Transformed::into_inner)
-    .map_err(|_| Ok(Unsupported))
 }
 
 #[cfg(test)]

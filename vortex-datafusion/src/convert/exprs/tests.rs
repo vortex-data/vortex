@@ -56,7 +56,9 @@ use datafusion_functions::string::octet_length::OctetLengthFunc;
 use datafusion_functions::string::starts_with::StartsWithFunc;
 use datafusion_functions::unicode::strpos::StrposFunc;
 use datafusion_functions_nested::array_sum::ArraySum;
+use datafusion_functions_nested::array_transform::ArrayTransform;
 use datafusion_functions_nested::length::ArrayLength;
+use datafusion_physical_expr::HigherOrderFunctionExpr;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::ScalarFunctionExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
@@ -96,6 +98,8 @@ use super::convertible::supported_data_types;
 use super::convertible::try_operator_from_df;
 use super::*;
 use crate::common_tests::TestSessionContext;
+use crate::convert::Scoped;
+use crate::convert::ConvertArrayTransform;
 use crate::convert::ConvertCase;
 use crate::convert::ConvertColumn;
 use crate::convert::ConvertIsNull;
@@ -2837,7 +2841,7 @@ fn conversion_result<T>(result: MustConvert<T>) -> DFResult<Option<T>> {
 fn try_convert_with<'a>(
     expr: &'a Arc<dyn PhysicalExpr>,
     ctx: &Ctx<'_>,
-    mut recur: impl FnMut(&'a Arc<dyn PhysicalExpr>) -> DFResult<Option<Expression>>,
+    mut recur: impl FnMut(Scoped<'a>) -> DFResult<Option<Expression>>,
 ) -> DFResult<Option<Expression>> {
     conversion_result(must(default_convert_recursive(expr, ctx, |child| {
         recur(child).map_err(Err)?.ok_or(Ok(Unsupported))
@@ -2850,8 +2854,16 @@ fn convert_with_custom_coalesce(
     visited: &mut Vec<String>,
 ) -> DFResult<Option<Expression>> {
     visited.push(expr.to_string());
-    if let Some(converted) = try_convert_with(expr, ctx, |child| {
-        convert_with_custom_coalesce(child, ctx, visited)
+    if let Some(converted) = try_convert_with(expr, ctx, |child| match child {
+        Scoped::Same(expr) => convert_with_custom_coalesce(expr, ctx, visited),
+        Scoped::With(expr, scope) => convert_with_custom_coalesce(
+            expr,
+            &Ctx {
+                scope: Some(&scope),
+                ..*ctx
+            },
+            visited,
+        ),
     })? {
         return Ok(Some(converted));
     }
@@ -2948,6 +2960,9 @@ fn test_one_step_selects_function_inputs(
     let converter = DefaultExpressionConverter::new(session.clone());
     let mut selected = Vec::new();
     let converted = try_convert_with(&expr, &Ctx::new(&schema, &session), |child| {
+        let Scoped::Same(child) = child else {
+            panic!("Expected an input in the current scope");
+        };
         selected.push(child);
         Ok(Some(get_item("a", root())))
     })?;
@@ -2970,6 +2985,9 @@ fn test_one_step_imports_in_list_literals_before_traversal() -> anyhow::Result<(
     let converter = DefaultExpressionConverter::new(session.clone());
     let mut selected = Vec::new();
     let converted = try_convert_with(&expr, &Ctx::new(&schema, &session), |child| {
+        let Scoped::Same(child) = child else {
+            panic!("Expected an input in the current scope");
+        };
         selected.push(child);
         Ok(Some(convert(Arc::clone(child), &schema)?))
     })?;
@@ -3043,6 +3061,9 @@ fn test_one_step_case_child_order(#[values(false, true)] with_else: bool) -> any
     let mut children = children.into_iter();
     let mut selected = Vec::new();
     let converted = try_convert_with(&expr, &Ctx::new(&schema, &session), |child| {
+        let Scoped::Same(child) = child else {
+            panic!("Expected an input in the current scope");
+        };
         selected.push(child);
         Ok(children.next())
     })?;
@@ -3112,9 +3133,10 @@ fn convert_with_subset(
     ctx: &Ctx<'_>,
 ) -> DFResult<Option<Expression>> {
     let mut recur = |child| {
-        convert_with_subset(child, ctx)
-            .map_err(Err)?
-            .ok_or(Ok(Unsupported))
+        let Scoped::Same(expr) = child else {
+            return Err(Ok(Unsupported));
+        };
+        convert_with_subset(expr, ctx).map_err(Err)?.ok_or(Ok(Unsupported))
     };
     if let Some(converted) =
         conversion_result(ConvertNot::convert_recursive(expr, ctx, &mut recur))?
@@ -3174,4 +3196,117 @@ fn test_boxed_converter_preserves_conversion_errors() {
         default_convert(&expr, &Ctx::new(&schema, &session)),
         Err(Err(_))
     ));
+}
+
+#[rstest]
+fn test_array_transform_selects_child_scopes(#[values(false, true)] boxed: bool) -> anyhow::Result<()> {
+    let batch = int_lists()?;
+    let schema = batch.schema();
+    let session = VortexSession::default();
+    let ctx = Ctx::new(&schema, &session);
+    let expr = array_transform_expr(
+        Arc::new(df_expr::Column::new("xs", 0)),
+        "x",
+        1,
+        plus_one_body,
+        &schema,
+    )?;
+    let mut visited = Vec::new();
+    let mut recur = |child| match child {
+        Scoped::Same(expr) => {
+            visited.push((expr, ctx.scope.cloned()));
+            convert_tree(expr, &ctx)
+        }
+        Scoped::With(expr, scope) => {
+            visited.push((expr, Some(scope.clone())));
+            convert_tree(expr, &Ctx { scope: Some(&scope), ..ctx })
+        }
+    };
+    let result = if boxed {
+        let (children, constructible) = default_convert(&expr, &ctx)
+            .expect_err("Expected array transform converter")?;
+        assert!(matches!(children.as_slice(), [Scoped::Same(_), Scoped::With(_, _)]));
+        let children = children
+            .into_iter()
+            .map(&mut recur)
+            .collect::<MustConvert<Vec<_>>>();
+        children.and_then(|children| constructible.construct(children, &ctx))
+    } else {
+        ConvertArrayTransform::convert_recursive(&expr, &ctx, &mut recur)
+    };
+    let converted = conversion_result(result)?;
+    assert_eq!(converted, DefaultExpressionConverter::default().try_convert(&expr, &schema)?);
+    assert_eq!(visited.len(), 2);
+    let function = expr.downcast_ref::<HigherOrderFunctionExpr>().unwrap();
+    assert!(Arc::ptr_eq(visited[0].0, &function.args()[0]));
+    assert!(visited[0].1.is_none());
+    let lambda = function.args()[1].downcast_ref::<df_expr::LambdaExpr>().unwrap();
+    assert!(Arc::ptr_eq(visited[1].0, lambda.body()));
+    assert_eq!(
+        visited[1].1.as_ref().unwrap().field("x"),
+        Some(DType::Primitive(PType::I64, Nullability::Nullable)),
+    );
+    assert!(ctx.scope.is_none());
+    Ok(())
+}
+
+#[test]
+fn test_array_transform_custom_conversion_in_lambda_body() -> anyhow::Result<()> {
+    let batch = int_lists()?;
+    let schema = batch.schema();
+    let session = VortexSession::default();
+    let expr = array_transform_expr(
+        Arc::new(df_expr::Column::new("xs", 0)),
+        "x",
+        1,
+        |x| {
+            Ok(Arc::new(ScalarFunctionExpr::try_new(
+                Arc::new(ScalarUDF::from(CoalesceFunc::new())),
+                vec![x],
+                &schema,
+                Arc::new(ConfigOptions::new()),
+            )?))
+        },
+        &schema,
+    )?;
+    assert!(DefaultExpressionConverter::default().try_convert(&expr, &schema)?.is_none());
+    let converted = convert_with_custom_coalesce(
+        &expr,
+        &Ctx::new(&schema, &session),
+        &mut Vec::new(),
+    )?.ok_or_else(|| exec_datafusion_err!("Expected custom lambda conversion"))?;
+    let input = session.arrow().from_arrow_record_batch(batch, &schema)?;
+    assert_arrays_eq!(
+        input.clone().apply(&converted)?,
+        input.apply(&get_item("xs", root()))?,
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
+}
+
+#[test]
+fn test_array_transform_rejects_changed_list_element_type() -> anyhow::Result<()> {
+    let batch = int_lists()?;
+    let schema = batch.schema();
+    let session = VortexSession::default();
+    let ctx = Ctx::new(&schema, &session);
+    let expr = array_transform_expr(
+        Arc::new(df_expr::Column::new("xs", 0)),
+        "x",
+        1,
+        plus_one_body,
+        &schema,
+    )?;
+    let (_, convertible) = ConvertArrayTransform::recognize(&expr, &ctx)
+        .expect_err("Expected array transform converter")?;
+    let replacement = Scalar::list(
+        Arc::new(DType::Utf8(Nullability::NonNullable)),
+        vec![Scalar::from("changed")],
+        Nullability::NonNullable,
+    );
+    assert!(matches!(
+        convertible.construct(vec![lit(replacement), get_item("x", root())], &ctx),
+        Err(Ok(Unsupported)),
+    ));
+    Ok(())
 }
