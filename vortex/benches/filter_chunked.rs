@@ -82,13 +82,13 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 });
 
 const LEN: usize = 65_536;
-const CASES: &[(usize, usize, bool)] = &[
-    (16, 64, false),
-    (16, 6_553, false),
-    (16, 32_768, false),
+// Exercise each child's sparse filtering, dense filtering, and contiguous selection paths.
+const CASES: &[(usize, usize, bool)] = &[(16, 64, false), (16, 32_768, false), (16, 64, true)];
+
+// Chunk routing is independent of the child encoding, so cover it with primitive children.
+const ROUTING_CASES: &[(usize, usize, bool)] = &[
     (16, 62_259, false),
     (16, 32_768, true),
-    (16, 64, true),
     (1_024, 16, false),
     (1_024, 32_768, false),
 ];
@@ -153,6 +153,11 @@ fn bench_filter(
 
 #[divan::bench(args = CASES)]
 fn primitive_values(bencher: Bencher, case: (usize, usize, bool)) {
+    bench_filter(bencher, case, |len| primitive(len).into_array());
+}
+
+#[divan::bench(args = ROUTING_CASES)]
+fn chunk_routing(bencher: Bencher, case: (usize, usize, bool)) {
     bench_filter(bencher, case, |len| primitive(len).into_array());
 }
 
