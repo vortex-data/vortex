@@ -71,10 +71,7 @@ impl<'a> OnPairDecodePlan<'a> {
             .execute::<PrimitiveArray>(ctx)?;
 
         let total_size = match_each_integer_ptype!(lengths.ptype(), |P| {
-            lengths
-                .as_slice::<P>()
-                .iter()
-                .try_fold(0usize, |acc, &l| acc.checked_add(l.to_usize()?))
+            sum_lengths(lengths.as_slice::<P>())
         })
         .ok_or_else(|| vortex_err!("OnPair uncompressed lengths are negative or overflow"))?;
 
@@ -144,6 +141,13 @@ impl<'a> OnPairDecodePlan<'a> {
         );
         Ok(written)
     }
+}
+
+/// Sums `lengths` as `usize`, returning `None` if any length is negative or the sum overflows.
+fn sum_lengths<P: ToPrimitive + Copy>(lengths: &[P]) -> Option<usize> {
+    lengths
+        .iter()
+        .try_fold(0usize, |acc, &l| acc.checked_add(l.to_usize()?))
 }
 
 pub(crate) fn onpair_decode_bytes(
