@@ -10,7 +10,7 @@
 //! | `row_count`     | u64    | rows in the file                                                |
 //! | `footer_offset` | u64    | first byte of the file's footer region                          |
 //! | `footer_len`    | u64    | length of the footer region, through the end of the file        |
-//! | `footer_hash`   | u64    | [`footer_hash`](crate::footer::footer_hash) of the region       |
+//! | `footer_hash`   | u64    | [`footer_hash`] of the region                                   |
 //! | `footer`        | binary | the region itself, or empty when the manifest does not inline it |
 //!
 //! The footer holds the file's dtype, layout, segment map, and column statistics, so a planner
