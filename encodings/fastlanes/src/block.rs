@@ -122,10 +122,13 @@ where
         (offset + bp.len()).div_ceil(FL_CHUNK_SIZE) * elems_per_chunk * size_of::<T>(),
         "packed buffer does not hold every chunk"
     );
-    let patches = bp
-        .patches()
-        .map(|patches| BlockPatches::try_new(&patches, ctx, |_, value: T| patch(value)))
-        .transpose()?;
+    let patches = match bp.patches() {
+        Some(patches) => match BlockPatches::try_new(&patches, ctx, |_, value: T| patch(value))? {
+            Some(patches) => Some(patches),
+            None => return Ok(None),
+        },
+        None => None,
+    };
     Ok(Some(Box::new(PackedSource::<T, S> {
         strategy,
         packed,
@@ -216,10 +219,8 @@ impl<T: PhysicalPType, S: UnpackStrategy<T> + Send> BlockSource for PackedSource
         if let Some(patches) = &mut self.patches {
             patches.apply(rows.start, block);
         }
-        Ok(SourceBlock::Scratch {
-            offset,
-            len: rows.len(),
-        })
+        // SAFETY: the chunk or the straddle holds the `rows.len()` values from `offset`.
+        Ok(unsafe { SourceBlock::scratch(offset, rows.len()) })
     }
 
     fn block_offset(&self) -> usize {
@@ -635,7 +636,7 @@ block_op 0 copy u32->u32 scratch0 -> output"
             })
         {
             match source.fill(rows.clone(), &mut scratch)? {
-                SourceBlock::Scratch { offset, len } => {
+                SourceBlock::Scratch { offset, len, .. } => {
                     assert_eq!(len, rows.len());
                     let filled = scratch.out::<u32>(offset + len);
                     // SAFETY: the source wrote these values.

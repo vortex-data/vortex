@@ -27,7 +27,6 @@ use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_compute::lane_kernels::ReinterpretSink;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
 use crate::ExecutionCtx;
@@ -334,6 +333,10 @@ impl<'a> Written<'a> {
 pub enum SourceBlock<'s> {
     /// In the `scratch` the executor handed it, as `len` values of the source's type starting at
     /// value `offset`. The executor may overwrite them in place.
+    ///
+    /// Built with the unsafe [`SourceBlock::scratch`], since the executor reads those values as
+    /// initialized.
+    #[non_exhaustive]
     Scratch {
         /// The index of the first value in the scratch.
         offset: usize,
@@ -342,6 +345,18 @@ pub enum SourceBlock<'s> {
     },
     /// In memory the source owns, which ops never overwrite.
     Lent(BlockIn<'s>),
+}
+
+impl SourceBlock<'_> {
+    /// Values the source wrote into its scratch: `len` values from value `offset`.
+    ///
+    /// # Safety
+    ///
+    /// The source wrote values `offset..offset + len` of the scratch it was handed, in its own
+    /// type, during this call to [`BlockSource::fill`].
+    pub unsafe fn scratch(offset: usize, len: usize) -> Self {
+        Self::Scratch { offset, len }
+    }
 }
 
 /// The bottom of a fused chain: emits an array's own values, block by block, in row order.
@@ -424,11 +439,14 @@ enum PatchIndices {
 
 impl<T: NativePType> BlockPatches<T> {
     /// Execute `patches` and map each patch value with `map(row, value)`.
+    ///
+    /// `None` if a patch value is null: level-wise execution patches validity too, which blocks
+    /// of values cannot, so the array should not fuse.
     pub fn try_new<S: NativePType>(
         patches: &Patches,
         ctx: &mut ExecutionCtx,
         map: impl Fn(usize, S) -> T,
-    ) -> VortexResult<Self> {
+    ) -> VortexResult<Option<Self>> {
         let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
         vortex_ensure_eq!(
@@ -436,7 +454,9 @@ impl<T: NativePType> BlockPatches<T> {
             values.len(),
             "patch indices and values differ in length"
         );
-        vortex_ensure!(values.all_valid(ctx)?, "patch values must be all valid");
+        if !values.all_valid(ctx)? {
+            return Ok(None);
+        }
         let offset = patches.offset();
         let rows = |index: usize| index - offset;
         let values = match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
@@ -453,12 +473,12 @@ impl<T: NativePType> BlockPatches<T> {
             PType::U32 => PatchIndices::U32(indices.into_buffer()),
             _ => PatchIndices::U64(indices.into_buffer()),
         };
-        Ok(Self {
+        Ok(Some(Self {
             indices,
             offset,
             values,
             cursor: 0,
-        })
+        }))
     }
 
     /// Overwrite the patched rows of `block`, which holds the rows from `start`.
