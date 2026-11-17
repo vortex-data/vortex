@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Encodings of TPC-H nation (25 rows) as written by `data-gen`. Print the dump these
+# directives match with `vx filecheck slt/tpch/data/nation.vortex`.
+
+files: tpch/data/nation\.vortex
+
+# The key is 0..25, so it is stored as a sequence.
+units: n_nationkey/data*
+check: root: vortex.sequence(i64
+
+# Names and comments are FSST-compressed.
+units: n_name/data*
+check: root: vortex.fsst(utf8
+
+units: n_comment/data*
+check: root: vortex.fsst(utf8
+
+# The region key has five distinct values, so it gets a dictionary layout.
+units: n_regionkey/data*
+check: layouts=vortex.struct/vortex.zoned/vortex.dict/vortex.flat
+
+# Every column has a zone map, whose null count is constant.
+units: */zones
+check: root: vortex.struct(
+check: vortex.null_count(): vortex.constant
