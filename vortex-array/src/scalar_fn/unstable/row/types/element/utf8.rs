@@ -272,6 +272,7 @@ unsafe impl InputElement for Utf8Column {
     }
 
     fn decode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column> {
+        Self::validate(array.dtype())?;
         decode_utf8(array, ctx)
     }
 
@@ -556,6 +557,14 @@ mod tests {
             }
         }
         Ok(())
+    }
+
+    #[test]
+    fn input_rejects_binary_dtype() {
+        let array = VarBinViewArray::from_iter_bin([b"valid UTF-8"]);
+        let mut ctx = SESSION.create_execution_ctx();
+
+        assert!(Utf8Column::decode(array.into_array(), &mut ctx).is_err());
     }
 
     #[test]
