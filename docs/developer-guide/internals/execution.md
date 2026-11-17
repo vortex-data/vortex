@@ -160,6 +160,10 @@ pub enum ExecutionStep {
     /// parent once that child matches the predicate.
     ExecuteSlot(usize, DonePredicate),
 
+    /// Like ExecuteSlot, for the last child the parent waits for: once it is
+    /// canonical, the parent only transforms its values row by row.
+    ExecuteSpine(usize, DonePredicate),
+
     /// Detach a child, append it into the current activation's builder, and
     /// keep the parent as current_array for the next iteration.
     AppendChild(usize),
@@ -171,6 +175,8 @@ pub enum ExecutionStep {
 
 - `ExecuteSlot(i, pred)` detaches slot `i`, pushes the parent onto `stack`, and makes that
   child the new `current_array` until `pred` says it is done.
+- `ExecuteSpine(i, pred)` behaves like `ExecuteSlot`, and marks the frame as fusable (see
+  [Block Fusion](#block-fusion)).
 - `AppendChild(i)` detaches slot `i`, appends that child into `current_builder`, and keeps
   the returned parent as `current_array` for the next iteration.
 - `Done` finishes the current activation. If `current_builder` is active, the builder is
@@ -251,6 +257,24 @@ observe inconsistent state and could discard accumulated builder data.
 
 Both Step 2a and Step 2b route through `execute_parent_for_child`, which looks up
 `(parent.encoding_id(), child.encoding_id())` in the session kernel snapshot.
+
+## Block Fusion
+
+Level-wise execution writes a full-length buffer at every level of an encoding tree, such as
+ALP over FoR over BitPacked. When the loop reaches a leaf whose parents on the stack all asked
+for their child with `ExecuteSpine`, it fuses the chain instead: the leaf emits blocks of at most
+1024 rows (`VTable::block_source`), each parent transforms a block (`VTable::block_op`), and only
+the outermost parent writes a full-length buffer. The intermediates stay in L1.
+
+Fusion is tried after the leaf's `execute_parent` probes, so no parent kernel is skipped, and
+when a canonical child has two or more spine parents waiting above it. If the leaf cannot emit
+blocks or the chain is too short to pay off, execution continues level-wise.
+
+An encoding opts in by requesting its spine with `require_spine!` once every other child it needs
+is executed, and by implementing `block_op` for that slot to produce exactly what `execute`
+produces. Fusion covers primitive arrays and does not stream validity, which is taken from the
+outermost parent. Disable it with `ExecutionCtx::with_block_fusion(false)` or
+`VORTEX_BLOCK_FUSION=0`.
 
 ## Incremental Execution
 

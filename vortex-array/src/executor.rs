@@ -238,6 +238,7 @@ impl ArrayRef {
                     && ctx.block_fusion
                     && current_builder.is_none()
                     && stack.len() >= MIN_FUSED_OPS_OVER_CANONICAL
+                    && stack.last().is_some_and(|frame| frame.spine)
                     && let Some(fused) = plan_fusion(&current_array, &stack, true, ctx)?
                 {
                     (current_array, current_builder) =
@@ -378,7 +379,7 @@ impl ArrayRef {
             // kernel: it replaces executing this leaf and then each waiting parent level-wise.
             if ctx.block_fusion
                 && current_builder.is_none()
-                && !stack.is_empty()
+                && stack.last().is_some_and(|frame| frame.spine)
                 && let Some(fused) = plan_fusion(&current_array, &stack, false, ctx)?
             {
                 (current_array, current_builder) =
@@ -399,19 +400,27 @@ impl ArrayRef {
             let (array, step) = result.into_parts();
             match step {
                 ExecutionStep::ExecuteSlot(i, done) => {
-                    let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
-
-                    trace_op!(record_execute_slot(i, &parent, &child));
-                    stack.push(StackFrame {
-                        parent_array: parent,
-                        parent_builder: current_builder.take(),
-                        slot_idx: i,
+                    (current_array, current_builder) = push_frame(
+                        &mut stack,
+                        &mut optimizer,
+                        array,
+                        current_builder.take(),
+                        i,
                         done,
-                        original_dtype: child.dtype().clone(),
-                        original_len: child.len(),
-                    });
-                    current_array = optimizer.optimize_array(&child)?;
-                    current_builder = None;
+                        false,
+                    )?;
+                    child_rewritten = false;
+                }
+                ExecutionStep::ExecuteSpine(i, done) => {
+                    (current_array, current_builder) = push_frame(
+                        &mut stack,
+                        &mut optimizer,
+                        array,
+                        current_builder.take(),
+                        i,
+                        done,
+                        true,
+                    )?;
                     child_rewritten = false;
                 }
                 ExecutionStep::AppendChild(i) => {
@@ -486,6 +495,33 @@ fn block_fusion_default() -> bool {
     *ENABLED
 }
 
+/// Suspend `array` on the stack while its slot `slot_idx` executes, returning that child.
+#[allow(clippy::too_many_arguments)]
+fn push_frame(
+    stack: &mut Vec<StackFrame>,
+    optimizer: &mut Optimizer<'_>,
+    array: ArrayRef,
+    parent_builder: Option<Box<dyn ArrayBuilder>>,
+    slot_idx: usize,
+    done: DonePredicate,
+    spine: bool,
+) -> VortexResult<(ArrayRef, Option<Box<dyn ArrayBuilder>>)> {
+    // SAFETY: the slot is put back, or the parent driven to completion, before the parent
+    // leaves the executor.
+    let (parent, child) = unsafe { array.take_slot_unchecked(slot_idx) }?;
+    trace_op!(record_execute_slot(slot_idx, &parent, &child));
+    stack.push(StackFrame {
+        parent_array: parent,
+        parent_builder,
+        slot_idx,
+        done,
+        spine,
+        original_dtype: child.dtype().clone(),
+        original_len: child.len(),
+    });
+    Ok((optimizer.optimize_array(&child)?, None))
+}
+
 /// A chain the executor can fuse: the source at its bottom and, from the bottom up, the ops that
 /// transform its blocks.
 struct FusionPlan {
@@ -518,7 +554,7 @@ fn plan_fusion(
     let mut ops = Vec::new();
     let mut ptypes = vec![leaf_ptype];
     for frame in stack.iter().rev() {
-        if frame.parent_builder.is_some() {
+        if !frame.spine || frame.parent_builder.is_some() {
             break;
         }
         let Some(ptype) = fusable_ptype(&frame.parent_array) else {
@@ -626,6 +662,9 @@ struct StackFrame {
     parent_builder: Option<Box<dyn ArrayBuilder>>,
     slot_idx: usize,
     done: DonePredicate,
+    /// Whether the parent asked for this slot with [`ExecutionStep::ExecuteSpine`], so the
+    /// executor may fuse it with the parent's block op.
+    spine: bool,
     original_dtype: DType,
     original_len: usize,
 }
@@ -845,7 +884,7 @@ impl Executable for ArrayRef {
                 trace_op!(record_execute_done(&array));
                 Ok(array)
             }
-            ExecutionStep::ExecuteSlot(i, _) => {
+            ExecutionStep::ExecuteSlot(i, _) | ExecutionStep::ExecuteSpine(i, _) => {
                 let child = array.slots()[i].clone().vortex_expect("valid slot index");
                 let executed_child = child.execute::<ArrayRef>(ctx)?;
                 // SAFETY: execution of a child slot produces a logically equivalent array in a
@@ -1078,6 +1117,19 @@ pub enum ExecutionStep {
     /// Use [`ExecutionResult::execute_slot`] instead of constructing this variant directly.
     ExecuteSlot(usize, DonePredicate),
 
+    /// Like [`ExecuteSlot`](Self::ExecuteSlot), and a promise that the slot is this encoding's
+    /// spine: the last slot it waits for, after which its `execute` only transforms the slot's
+    /// values row by row, as its [`block_op`](crate::vtable::VTable::block_op) does. Every other
+    /// slot it needs must already be executed.
+    ///
+    /// The executor may then fuse the slot's execution with this encoding's transform and with
+    /// any spine parents waiting above it, block by block, instead of materializing each level.
+    /// See [`crate::block`].
+    ///
+    /// Use [`ExecutionResult::execute_spine`] or [`require_spine!`](crate::require_spine)
+    /// instead of constructing this variant directly.
+    ExecuteSpine(usize, DonePredicate),
+
     /// Detach the slot at the given index, append that child into the current activation's
     /// canonical builder, and keep the returned parent as `current_array`.
     ///
@@ -1100,6 +1152,9 @@ impl fmt::Debug for ExecutionStep {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ExecutionStep::ExecuteSlot(idx, _) => f.debug_tuple("ExecuteSlot").field(idx).finish(),
+            ExecutionStep::ExecuteSpine(idx, _) => {
+                f.debug_tuple("ExecuteSpine").field(idx).finish()
+            }
             ExecutionStep::AppendChild(idx) => f.debug_tuple("AppendChild").field(idx).finish(),
             ExecutionStep::Done => write!(f, "Done"),
         }
@@ -1147,6 +1202,16 @@ impl ExecutionResult {
         Self {
             array,
             step: ExecutionStep::ExecuteSlot(slot_idx, M::matches),
+        }
+    }
+
+    /// Request execution of the spine slot at `slot_idx` until it matches the given [`Matcher`].
+    ///
+    /// See [`ExecutionStep::ExecuteSpine`] for what this promises.
+    pub fn execute_spine<M: Matcher>(array: impl IntoArray, slot_idx: usize) -> Self {
+        Self {
+            array: array.into_array(),
+            step: ExecutionStep::ExecuteSpine(slot_idx, M::matches),
         }
     }
 
@@ -1211,6 +1276,26 @@ macro_rules! require_child {
     ($parent:expr, $child:expr, $idx:expr => $M:ty) => {{
         if !$child.is::<$M>() {
             return Ok($crate::ExecutionResult::execute_slot::<$M>(
+                $parent.clone(),
+                $idx,
+            ));
+        }
+        $parent
+    }};
+}
+
+/// Like [`require_child!`], but requests the child as this encoding's spine with
+/// [`ExecutionResult::execute_spine`]. Use it for the last child `execute` waits for, once every
+/// other child it needs is executed.
+///
+/// ```ignore
+/// let array = require_spine!(array, array.encoded(), 0 => Primitive);
+/// ```
+#[macro_export]
+macro_rules! require_spine {
+    ($parent:expr, $child:expr, $idx:expr => $M:ty) => {{
+        if !$child.is::<$M>() {
+            return Ok($crate::ExecutionResult::execute_spine::<$M>(
                 $parent.clone(),
                 $idx,
             ));

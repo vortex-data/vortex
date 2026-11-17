@@ -22,8 +22,8 @@ use vortex_array::block::BlockOp;
 use vortex_array::block::BlockSource;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
-use vortex_array::require_child;
 use vortex_array::require_opt_child;
+use vortex_array::require_spine;
 use vortex_array::scalar::Scalar;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
@@ -146,7 +146,7 @@ impl VTable for FoR {
         let array = if fused {
             array
         } else {
-            require_child!(array, array.encoded(), FoRSlots::ENCODED => Primitive)
+            require_spine!(array, array.encoded(), FoRSlots::ENCODED => Primitive)
         };
         Ok(ExecutionResult::done(decompress(array, ctx)?.into_array()))
     }

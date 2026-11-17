@@ -3,17 +3,19 @@
 
 //! Block-fused execution of primitive encoding chains.
 //!
-//! The iterative executor descends an encoding tree with `ExecuteSlot` frames, so when it reaches
-//! a leaf, the frames on its stack are the chain of parents that wait for that leaf to be
-//! canonical. Instead of executing the leaf to a full-length buffer, popping, running the parent's
-//! kernel into another full-length buffer and so on, the executor can fuse the leaf with the
-//! parents above it: the leaf emits blocks of at most [`BLOCK_LEN`] rows ([`BlockSource`]), each
+//! The iterative executor descends an encoding tree with `ExecuteSlot` frames. An encoding that
+//! asks for its last child with [`ExecuteSpine`](crate::ExecutionStep::ExecuteSpine) promises that
+//! once that child is canonical it only transforms the child's values row by row. When the
+//! executor reaches a leaf, the spine frames on top of its stack are therefore a chain of parents
+//! that each transform their child. Instead of executing the leaf to a full-length buffer,
+//! popping, running the parent's kernel into another full-length buffer and so on, the executor
+//! fuses the chain: the leaf emits blocks of at most [`BLOCK_LEN`] rows ([`BlockSource`]), each
 //! parent transforms a block ([`BlockOp`]), and only the outermost parent writes full-length
 //! output. Every intermediate stays in L1.
 //!
-//! Encodings opt in through [`VTable::block_source`](crate::vtable::VTable::block_source) and
-//! [`VTable::block_op`](crate::vtable::VTable::block_op). Their `execute` implementations do not
-//! change: the executor finds the chain from its own stack.
+//! An encoding opts in by requesting its spine with [`require_spine!`](crate::require_spine) and
+//! implementing [`VTable::block_op`](crate::vtable::VTable::block_op) for that slot, and a leaf by
+//! implementing [`VTable::block_source`](crate::vtable::VTable::block_source).
 
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;

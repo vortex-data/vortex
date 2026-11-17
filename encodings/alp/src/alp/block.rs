@@ -31,8 +31,9 @@ pub(crate) fn alp_block_op(
     let exponents = array.exponents();
     let patches = array.patches();
     match_each_alp_float_ptype!(array.dtype().as_ptype(), |F| {
-        // ALP's execute asks for its patches after its encoded child, so they may still be
-        // encoded here: resolving them executes them, as ALP's decode does.
+        // ALP's execute asks for its patches before its encoded spine, so a fused chain only
+        // reaches ALP with them executed; a leaf ALP over a canonical child may still hold
+        // encoded patches, which resolving executes.
         let patches = patches
             .map(|patches| BlockPatches::try_new(&patches, ctx, |_, value: F| value))
             .transpose()?;
