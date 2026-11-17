@@ -3,12 +3,13 @@
 
 //! Execution for decimal [`Interleave`] values.
 //!
-//! Sources can use different stored widths for the same logical dtype. Decimal execution
-//! normalizes them to the logical canonical width before gathering rows.
+//! All decoded sources share the canonical width of the result. Constants keep one payload
+//! at that width for the gather.
 
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
@@ -16,14 +17,11 @@ use super::super::InterleaveSlots;
 use super::fixed_width::Source;
 use super::fixed_width::gather;
 use crate::AnyColumnar;
-use crate::ArrayRef;
 use crate::array::Array;
 use crate::arrays::Constant;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Primitive;
-use crate::arrays::decimal::DecimalArrayExt;
-use crate::arrays::decimal::copy_to_canonical_width;
 use crate::dtype::DecimalDType;
 use crate::dtype::NativeDecimalType;
 use crate::executor::ExecutionCtx;
@@ -46,7 +44,7 @@ pub(super) fn execute(
     let validity = array.as_ref().validity()?;
     let dtype = DecimalDType::try_from(array.dtype())?;
     let output = match_each_decimal_value_type!(dtype.canonical_values_type(), |T| {
-        let values = gather_values::<T>(&array, dtype, ctx)?;
+        let values = gather_values::<T>(&array, ctx.allocator())?;
         // SAFETY: Values and validity select the same rows from inputs with the same decimal dtype.
         unsafe { DecimalArray::new_unchecked(values, dtype, validity) }
     });
@@ -56,50 +54,27 @@ pub(super) fn execute(
 
 fn gather_values<T: NativeDecimalType>(
     array: &Array<Interleave>,
-    dtype: DecimalDType,
-    ctx: &mut ExecutionCtx,
+    allocator: &BufferAllocatorRef,
 ) -> VortexResult<Buffer<T>> {
     let sources = (0..array.num_values())
-        .map(|i| prepare_source::<T>(array.value(i), dtype, ctx))
-        .collect::<VortexResult<Vec<_>>>()?;
+        .map(|i| {
+            let value = array.value(i);
+            if let Some(constant) = value.as_opt::<Constant>() {
+                let payload = match constant.scalar().as_decimal().decimal_value() {
+                    Some(value) => value.cast::<T>().vortex_expect(
+                        "a decimal scalar fits the canonical width of its precision",
+                    ),
+                    None => T::default(),
+                };
 
-    gather(array, &sources, ctx.allocator())
-}
+                Source::constant(payload, value.len(), allocator)
+            } else {
+                Source::decoded(value.as_::<Decimal>().buffer::<T>())
+            }
+        })
+        .collect::<Vec<_>>();
 
-/// Normalizes one decimal source while retaining a single payload for a constant.
-fn prepare_source<T: NativeDecimalType>(
-    value: &ArrayRef,
-    dtype: DecimalDType,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Source<T>> {
-    if let Some(constant) = value.as_opt::<Constant>() {
-        let payload = match constant.scalar().as_decimal().decimal_value() {
-            Some(value) => value.cast::<T>().ok_or_else(|| {
-                vortex_err!("interleave decimal constant must fit {dtype}, got {value}")
-            })?,
-            None => T::default(),
-        };
-
-        return Ok(Source::constant(payload, value.len(), ctx.allocator()));
-    }
-
-    let decimal = value.as_::<Decimal>();
-    let data = if decimal.values_type() == T::DECIMAL_TYPE {
-        decimal.buffer::<T>()
-    } else {
-        // TODO(connor): Remove this branch once every `DecimalArray` stores its values at the
-        // canonical width of its dtype (#10701). Then all sources share the canonical width `T`,
-        // because they share the dtype up to nullability. Until then, a source can store its values
-        // at another width. The copy widens such values, or checks their precision and narrows them
-        // with zeros in the null slots.
-        let mask = decimal.validity()?.execute_mask(value.len(), ctx)?;
-        let copy = match_each_decimal_value_type!(decimal.values_type(), |S| {
-            copy_to_canonical_width(decimal.buffer::<S>().as_slice(), &mask, dtype)?
-        });
-        Buffer::<T>::from_byte_buffer(copy.unwrap_host())
-    };
-
-    Ok(Source::decoded(data))
+    gather(array, &sources, allocator)
 }
 
 #[cfg(test)]

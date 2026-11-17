@@ -4,12 +4,10 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use itertools::Itertools;
 use smallvec::smallvec;
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -34,7 +32,6 @@ use crate::arrays::decimal::check_precision;
 use crate::arrays::decimal::precision_bounds;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::buffer::BufferHandle;
-use crate::dtype::BigCast;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
@@ -179,20 +176,6 @@ impl DecimalData {
     /// Build the slots vector for this array.
     fn make_slots(validity: &Validity, len: usize) -> ArraySlots {
         smallvec![validity_to_child(validity, len)]
-    }
-
-    pub(super) fn try_new_handle(
-        values: BufferHandle,
-        values_type: DecimalType,
-        decimal_dtype: DecimalDType,
-    ) -> VortexResult<Self> {
-        Self::validate_width(values_type, decimal_dtype)?;
-        Self::validate(&values, values_type)?;
-
-        Ok(Self {
-            decimal_dtype,
-            values,
-        })
     }
 
     pub(super) fn validate_width(
@@ -512,52 +495,60 @@ impl Array<Decimal> {
         ArrayParts::new(Decimal, dtype, len, data, slots)
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "patching depends on both patch and value physical types"
-    )]
+    /// Replaces the values and validity at the patch indices.
     pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        let offset = patches.offset();
-        let dtype = self.dtype().clone();
-        let len = self.len();
+        vortex_ensure!(
+            self.dtype().eq_ignore_nullability(patches.values().dtype()),
+            "Decimal patch values have dtype {}, expected {}",
+            patches.values().dtype(),
+            self.dtype(),
+        );
         let patch_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<DecimalArray>(ctx)?;
+        let decimal_dtype = self.decimal_dtype();
 
-        let patch_validity = patch_values.validity()?;
-        let patched_validity = self.validity()?.patch(
+        let validity = self.validity()?.patch(
             self.len(),
-            offset,
+            patches.offset(),
             &patch_indices.clone().into_array(),
-            &patch_validity,
+            &patch_values.validity()?,
             ctx,
         )?;
-        assert_eq!(self.decimal_dtype(), patch_values.decimal_dtype());
-
-        let data = self.into_data();
-        // Patch indices are non-negative; reinterpret to unsigned so this dispatches over 4 widths
-        // instead of 8 (the decimal value-type dimensions are unaffected).
-        let patch_indices_unsigned =
-            patch_indices.reinterpret_cast(patch_indices.ptype().to_unsigned());
-        let data = match_each_unsigned_integer_ptype!(patch_indices_unsigned.ptype(), |I| {
-            let patch_indices = patch_indices_unsigned.as_slice::<I>();
-            match_each_decimal_value_type!(patch_values.values_type(), |PatchDVT| {
-                let patch_values = patch_values.buffer::<PatchDVT>();
-                match_each_decimal_value_type!(data.values_type(), |ValuesDVT| {
-                    let buffer = data.buffer::<ValuesDVT>().into_mut();
-                    patch_typed(
-                        buffer,
-                        data.decimal_dtype(),
-                        patch_indices,
-                        offset,
-                        patch_values,
-                    )
-                })
+        // Patch indices are non-negative, so signed and unsigned indices can share a kernel.
+        let indices = patch_indices.reinterpret_cast(patch_indices.ptype().to_unsigned());
+        match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
+            match_each_decimal_value_type!(decimal_dtype.canonical_values_type(), |T| {
+                self.patch_typed(
+                    indices.as_slice::<I>(),
+                    patches.offset(),
+                    &patch_values.buffer::<T>(),
+                    validity,
+                )
             })
-        });
-        let slots = DecimalData::make_slots(&patched_validity, len);
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data, slots))
         })
+    }
+
+    fn patch_typed<I: IntegerPType, T: NativeDecimalType>(
+        self,
+        indices: &[I],
+        offset: usize,
+        patch_values: &[T],
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        let decimal_dtype = self.decimal_dtype();
+        let bytes = self.into_data().values.unwrap_host();
+        let mut values = Buffer::<T>::from_byte_buffer(bytes).into_mut();
+        for (index, value) in itertools::zip_eq(indices, patch_values) {
+            values[index.as_() - offset] = *value;
+        }
+
+        // Each row gets its value and validity from the same decimal input.
+        Self::try_new_handle_from_trusted_values(
+            BufferHandle::new_host(values.freeze().into_byte_buffer()),
+            T::DECIMAL_TYPE,
+            decimal_dtype,
+            validity,
+        )
     }
 }
 
@@ -573,35 +564,4 @@ fn collect_decimal_values<T: NativeDecimalType>(
 
         BufferHandle::new_host(values.into_byte_buffer())
     })
-}
-
-fn patch_typed<I, ValuesDVT, PatchDVT>(
-    mut buffer: BufferMut<ValuesDVT>,
-    decimal_dtype: DecimalDType,
-    patch_indices: &[I],
-    patch_indices_offset: usize,
-    patch_values: Buffer<PatchDVT>,
-) -> DecimalData
-where
-    I: IntegerPType,
-    PatchDVT: NativeDecimalType,
-    ValuesDVT: NativeDecimalType,
-{
-    if !ValuesDVT::DECIMAL_TYPE.is_compatible_decimal_value_type(decimal_dtype) {
-        vortex_panic!(
-            "patch_typed: {:?} cannot represent every value in {}.",
-            ValuesDVT::DECIMAL_TYPE,
-            decimal_dtype
-        )
-    }
-
-    for (idx, value) in patch_indices.iter().zip_eq(patch_values) {
-        buffer[idx.as_() - patch_indices_offset] = <ValuesDVT as BigCast>::from(value).vortex_expect(
-            "values of a given DecimalDType are representable in all compatible NativeDecimalType",
-        );
-    }
-
-    let values = BufferHandle::new_host(buffer.freeze().into_byte_buffer());
-    DecimalData::try_new_handle(values, ValuesDVT::DECIMAL_TYPE, decimal_dtype)
-        .vortex_expect("patching preserves the canonical width and layout of the input buffer")
 }

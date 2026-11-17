@@ -17,6 +17,7 @@ use vortex_mask::Mask;
 pub use crate::aggregate_fn::fns::min_max::valid_range;
 use crate::arrays::DecimalArray;
 use crate::arrays::decimal::DecimalArrayExt;
+use crate::arrays::decimal::DecimalData;
 use crate::buffer::BufferHandle;
 use crate::dtype::BigCast;
 use crate::dtype::DecimalDType;
@@ -25,7 +26,7 @@ use crate::match_each_decimal_value_type;
 
 /// Return the array's unscaled values widened to `W`, which must be at least as wide as the
 /// array's storage type.
-pub(crate) fn widened_buffer<W: NativeDecimalType>(array: &DecimalArray) -> Buffer<W> {
+pub(crate) fn widened_buffer<W: NativeDecimalType>(array: &DecimalData) -> Buffer<W> {
     if array.values_type() == W::DECIMAL_TYPE {
         return array.buffer::<W>();
     }

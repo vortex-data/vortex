@@ -48,7 +48,6 @@ use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
-use vortex::dtype::DecimalType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::encodings::fsst::FSST;
@@ -432,11 +431,8 @@ async fn export_dictionary_codes(
     Ok(parts)
 }
 
-/// Exports decimals with value buffers cast to Arrow's Decimal32/64/128/256 layout.
-///
-/// Decimal values are already decoded; this only adapts the physical buffer width. Storage-to-Arrow
-/// narrowing is rejected instead of checked on-device to avoid a device-to-host synchronization
-/// point.
+/// Exports decimal values in the Arrow layout for their precision. Arrow's smallest decimal
+/// uses `i32`, so only `i8` and `i16` buffers need widening.
 async fn export_decimal(
     decimal: DecimalArray,
     ctx: &mut CudaExecutionCtx,
@@ -451,32 +447,13 @@ async fn export_decimal(
 
     let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
     let target_type = cuda_decimal_value_type(decimal_dtype);
-    let values = export_decimal_values(values, values_type, target_type, len, ctx).await?;
+    let values = if values_type == target_type {
+        ctx.ensure_on_device(values).await?
+    } else {
+        widen_decimal_values(values, values_type, target_type, len, ctx).await?
+    };
 
     export_fixed_size(values, len, 0, validity_buffer, null_count, ctx)
-}
-
-/// Ensure the values buffer is on-device and has the Arrow-required decimal width.
-///
-/// Storage wider than the precision-implied Arrow width is rejected. Callers that hit this
-/// should narrow the storage via a decimal cast before exporting.
-async fn export_decimal_values(
-    values: BufferHandle,
-    values_type: DecimalType,
-    target_type: DecimalType,
-    len: usize,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<BufferHandle> {
-    if values_type.byte_width() > target_type.byte_width() {
-        vortex_bail!(
-            "cannot export decimal values from {values_type} storage to Arrow {target_type}: narrowing would require a device-to-host overflow check",
-        );
-    }
-    if values_type == target_type {
-        return ctx.ensure_on_device(values).await;
-    }
-
-    widen_decimal_values(values, values_type, target_type, len, ctx).await
 }
 
 /// Export Vortex binary views as an Arrow Device array with `Utf8View`/`BinaryView` layout.

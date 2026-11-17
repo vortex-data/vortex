@@ -131,15 +131,10 @@ impl CastKernel for Decimal {
             return widen_decimal_values(array, dtype, new_validity).map(Some);
         }
 
-        // Reuse the values buffer untouched when no rescale is required, the target precision
-        // only widens (so every value still fits), and the current physical type is already wide
-        // enough to hold the target precision. This keeps the common precision-widening cast
-        // (and pure nullability changes) zero-copy instead of allocating and re-scanning.
+        // The cast above handles a wider canonical type. Increasing precision within the same
+        // width or changing nullability alone leaves the values buffer unchanged.
         if from_decimal_dtype.scale() == to_decimal_dtype.scale()
             && to_decimal_dtype.precision() >= from_decimal_dtype.precision()
-            && array
-                .values_type()
-                .is_compatible_decimal_value_type(*to_decimal_dtype)
         {
             // SAFETY: the source values are bit-identical and remain in range for the wider
             // precision, and new_validity has the same length, only its nullability tag changes.
