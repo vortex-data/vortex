@@ -11,6 +11,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
@@ -108,14 +109,27 @@ impl BlockProgram {
         validity: Validity,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<PrimitiveArray> {
-        // The last op writes the output, so a program of a combine alone copies its blocks there.
-        if self.ops.is_empty() {
-            let ptype = self.ptypes[0];
-            self.push(identity(ptype), ptype);
-        }
         #[cfg(any(test, feature = "_test-harness"))]
         super::FUSED_CHAINS.with(|count| count.set(count.get() + 1));
         let (len, out_ptype) = (self.len, *self.ptypes.last().vortex_expect("input type"));
+        if self.ops.is_empty() {
+            // A combine alone writes its blocks straight into the output.
+            let ProgramInput::Zip(mut zip) = self.input else {
+                vortex_bail!("a block program of {} needs an op", self.input.name());
+            };
+            trace_op!(record_block_op(
+                0, "combine", "inputs", "output", out_ptype, out_ptype
+            ));
+            return match_each_native_ptype!(out_ptype, |T| {
+                let mut output = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
+                let dst = output.spare_capacity_mut().as_mut_ptr().cast::<u8>();
+                // SAFETY: `dst` has room for `len` values of `T`, the combine's output type.
+                unsafe { zip.run_into(len, dst)? };
+                // SAFETY: `run_into` wrote every one of the `len` values.
+                unsafe { output.set_len(len) };
+                Ok(PrimitiveArray::new(output.freeze(), validity))
+            });
+        }
         let mut source: Box<dyn BlockSource> = match self.input {
             ProgramInput::Source(source) => source,
             ProgramInput::Zip(zip) => Box::new(zip),
@@ -162,21 +176,6 @@ impl BlockProgram {
     }
 }
 
-/// Copies each value: the op of a program with nothing but a combine.
-fn identity(ptype: PType) -> Box<dyn BlockOp> {
-    match_each_native_ptype!(ptype, |T| {
-        Box::new(Identity::<T>(PhantomData)) as Box<dyn BlockOp>
-    })
-}
-
-struct Identity<T>(PhantomData<fn() -> T>);
-
-impl<T: NativePType> BlockOp for Identity<T> {
-    fn process<'a>(&mut self, _start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
-        Ok(block.map(|value: T| value))
-    }
-}
-
 /// Feeds the same rows of each input to a [`BlockCombine`].
 pub(crate) struct ZipSource {
     /// Each input's source, scratch and type.
@@ -202,12 +201,32 @@ impl ZipSource {
     }
 }
 
-impl BlockSource for ZipSource {
-    fn fill<'s>(
-        &'s mut self,
-        rows: Range<usize>,
-        scratch: &'s mut BlockBuf,
-    ) -> VortexResult<SourceBlock<'s>> {
+impl ZipSource {
+    /// Combine every block of the inputs into `dst`, on the grid of the first misaligned input.
+    ///
+    /// # Safety
+    ///
+    /// `dst` must have room for `len` values of the combine's output type.
+    pub(crate) unsafe fn run_into(&mut self, len: usize, dst: *mut u8) -> VortexResult<()> {
+        let offset = self.block_offset() % BLOCK_LEN;
+        let width = self.out_ptype.byte_width();
+        let mut start = 0;
+        while start < len {
+            let rows = block_rows(start, len, offset);
+            let n = rows.len();
+            // SAFETY: `start + n <= len`, so the block fits in `dst`.
+            unsafe { self.combine_into(rows, dst.add(start * width))? };
+            start += n;
+        }
+        Ok(())
+    }
+
+    /// Combine the inputs' values of `rows`, at most [`BLOCK_LEN`] of them, into `out`.
+    ///
+    /// # Safety
+    ///
+    /// `out` must have room for `rows.len()` values of the combine's output type.
+    unsafe fn combine_into(&mut self, rows: Range<usize>, out: *mut u8) -> VortexResult<()> {
         let n = rows.len();
         // Each input's block as a raw pointer: a block lent by a source stays valid until that
         // source is filled again, which is not before the combine has read it.
@@ -245,7 +264,6 @@ impl BlockSource for ZipSource {
                 _borrow: PhantomData,
             })
             .collect();
-        let out = scratch.as_mut_ptr();
         let written = self.combine.process(
             rows.start,
             &blocks,
@@ -256,8 +274,21 @@ impl BlockSource for ZipSource {
                 _borrow: PhantomData,
             },
         )?;
-        check_written(&written, out, n, self.out_ptype)?;
-        // `check_written` proved the combine wrote the `n` values from the start of `scratch`.
+        check_written(&written, out, n, self.out_ptype)
+    }
+}
+
+impl BlockSource for ZipSource {
+    fn fill<'s>(
+        &'s mut self,
+        rows: Range<usize>,
+        scratch: &'s mut BlockBuf,
+    ) -> VortexResult<SourceBlock<'s>> {
+        let n = rows.len();
+        vortex_ensure!(n <= BLOCK_LEN, "a block holds at most {BLOCK_LEN} rows");
+        // SAFETY: the scratch has room for `BLOCK_LEN` values of any primitive type.
+        unsafe { self.combine_into(rows, scratch.as_mut_ptr())? };
+        // `combine_into` checked the combine wrote the `n` values from the start of `scratch`.
         Ok(SourceBlock::Scratch { offset: 0, len: n })
     }
 

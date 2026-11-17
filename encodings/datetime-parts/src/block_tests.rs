@@ -126,7 +126,7 @@ fn combined(dtype: &DType, len: usize) -> String {
     format!(
         "fuse start input=zip array=vortex.datetimeparts({dtype}, len={len})
 drive input=zip ops=0 len={len}
-block_op 0 copy i64->i64 scratch0 -> output"
+block_op 0 combine i64->i64 inputs -> output"
     )
 }
 
