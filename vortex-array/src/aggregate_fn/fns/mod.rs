@@ -11,6 +11,7 @@ pub mod bounded_min;
 pub mod count;
 pub mod first;
 mod fixed_size_bytes;
+pub mod is_compound_sorted;
 pub mod is_constant;
 pub mod is_sorted;
 pub mod last;

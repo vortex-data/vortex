@@ -23,7 +23,11 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::is_compound_sorted::IsCompoundSorted;
+use vortex_array::aggregate_fn::fns::is_compound_sorted::IsCompoundSortedOptions;
+use vortex_array::aggregate_fn::fns::is_compound_sorted::SortDirection;
 use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
+use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
@@ -42,6 +46,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
@@ -2556,6 +2561,62 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
         Precision::exact(ScalarValue::from(0u64))
     );
     assert_eq!(summary.row_count(), 5);
+
+    Ok(())
+}
+
+/// Assert that `IsCompoundSorted` is written in the root entry of the file stats.
+#[tokio::test]
+async fn file_footer_contains_is_compound_sorted() -> VortexResult<()> {
+    let session = VortexSession::empty()
+        .with::<EditionSession>()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+
+    crate::register_default_encodings(&session);
+    session.aggregate_fns().register(IsCompoundSorted);
+    for declaration in EDITION_DECLARATIONS {
+        session.register_edition(declaration)?;
+    }
+    session.enable_edition(CORE_2026_08_3)?;
+    session.enable_edition(UNSTABLE)?;
+
+    let array = StructArray::new(
+        FieldNames::from(["numbers"]),
+        [buffer![1u32, 2, 3, 4, 5].into_array()],
+        5,
+        Validity::AllValid,
+    )
+    .into_array();
+
+    let aggregate =
+        IsCompoundSorted.bind(IsCompoundSortedOptions::new([("numbers", SortDirection::Asc)]));
+
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = session
+        .write_options()
+        .with_file_statistics(vec![aggregate.clone()])
+        .include_nested_statistics()
+        .writer(&mut buf, array.dtype().clone());
+
+    for start in (0..array.len()).step_by(2) {
+        let end = (start + 2).min(array.len());
+        writer.push(array.slice(start..end)?).await?;
+    }
+
+    let summary = writer.finish().await?;
+    let statistics = summary
+        .footer()
+        .statistics()
+        .vortex_expect("statistics were written");
+    let (root_stats, _) = statistics
+        .get_by_path(&FieldPath::root())
+        .vortex_expect("root statistics were written");
+
+    assert_eq!(
+        root_stats.get(&aggregate),
+        Precision::exact(Scalar::bool(true, Nullability::NonNullable)),
+    );
 
     Ok(())
 }
