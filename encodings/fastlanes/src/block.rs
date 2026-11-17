@@ -9,6 +9,7 @@
 //! other child adds its references to each block ([`AddReference`], [`AddReferences`]).
 
 use std::mem::MaybeUninit;
+use std::ops::Range;
 
 use fastlanes::FoR as FastLanesFoR;
 use num_traits::AsPrimitive;
@@ -16,17 +17,19 @@ use num_traits::WrappingAdd;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::Primitive;
+use vortex_array::block::Block;
 use vortex_array::block::BlockBuf;
 use vortex_array::block::BlockIn;
 use vortex_array::block::BlockOp;
-use vortex_array::block::BlockOut;
 use vortex_array::block::BlockPatches;
 use vortex_array::block::BlockSource;
+use vortex_array::block::Written;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
+use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -189,15 +192,9 @@ struct AddReference<T> {
 }
 
 impl<T: NativePType + WrappingAdd> BlockOp for AddReference<T> {
-    fn process(
-        &mut self,
-        _start: usize,
-        input: BlockIn<'_>,
-        mut out: BlockOut<'_>,
-    ) -> VortexResult<()> {
+    fn process<'a>(&mut self, _start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
         let reference = self.reference;
-        out.map_from(input, |value: T| value.wrapping_add(&reference));
-        Ok(())
+        Ok(block.map(|value: T| value.wrapping_add(&reference)))
     }
 }
 
@@ -207,27 +204,41 @@ struct AddReferences<T> {
     offset: usize,
 }
 
-impl<T: NativePType + WrappingAdd> BlockOp for AddReferences<T> {
-    fn process(
-        &mut self,
-        start: usize,
-        input: BlockIn<'_>,
-        mut out: BlockOut<'_>,
-    ) -> VortexResult<()> {
-        let input = input.as_slice::<T>();
-        let out = out.as_uninit::<T>();
-        // A block may straddle a FoR chunk boundary, so split it there.
+impl<T: NativePType + WrappingAdd> AddReferences<T> {
+    /// Call `f(rows, reference)` for each run of the block's rows `start..start + len` that falls
+    /// in one FoR chunk, with `rows` counted from the block's start.
+    fn for_each_chunk(&self, start: usize, len: usize, mut f: impl FnMut(Range<usize>, T)) {
         let mut row = 0;
-        while row < input.len() {
+        while row < len {
             let position = self.offset + start + row;
-            let run = (FL_CHUNK_SIZE - position % FL_CHUNK_SIZE).min(input.len() - row);
-            let reference = self.references[position / FL_CHUNK_SIZE];
-            input[row..row + run].map_into(&mut out[row..row + run], |value| {
-                value.wrapping_add(&reference)
-            });
+            let run = (FL_CHUNK_SIZE - position % FL_CHUNK_SIZE).min(len - row);
+            f(row..row + run, self.references[position / FL_CHUNK_SIZE]);
             row += run;
         }
-        Ok(())
+    }
+}
+
+impl<T: NativePType + WrappingAdd> BlockOp for AddReferences<T> {
+    fn process<'a>(&mut self, start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
+        // A block may straddle a FoR chunk boundary, so add each chunk's reference to its rows.
+        match block {
+            Block::Copy { input, mut out } => {
+                let (input, values) = (input.as_slice::<T>(), out.as_uninit::<T>());
+                self.for_each_chunk(start, input.len(), |rows, reference| {
+                    input[rows.clone()].map_into(&mut values[rows], |v| v.wrapping_add(&reference));
+                });
+                // SAFETY: the chunk runs cover the block, and each run's values were written.
+                Ok(unsafe { Written::assume_init(out) })
+            }
+            Block::InPlace(mut block) => {
+                let values = block.as_mut_slice::<T>();
+                self.for_each_chunk(start, values.len(), |rows, reference| {
+                    values[rows].map_into_in_place(|v| v.wrapping_add(&reference));
+                });
+                // SAFETY: the chunk runs cover the block, and each run's values were overwritten.
+                Ok(unsafe { block.assume_written() })
+            }
+        }
     }
 }
 
@@ -270,6 +281,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::block::fused_chain_count;
+    use vortex_array::block::in_place_chain_count;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -382,5 +394,34 @@ mod tests {
         assert_fuses_like_execute(&two, 1)?;
         let three = FoR::try_new(two, Scalar::from(3u32))?.into_array();
         assert_fuses_like_execute(&three, 1)
+    }
+
+    /// A canonical leaf the executor holds the only reference to is decoded in its own buffer.
+    /// One that is shared is read and decoded into a new buffer.
+    #[test]
+    fn canonical_leaf_decodes_in_place_when_owned() -> VortexResult<()> {
+        let build = || -> VortexResult<ArrayRef> {
+            let leaf = PrimitiveArray::from_iter((0..3000u32).map(|i| i * 3)).into_array();
+            let one = FoR::try_new(leaf, Scalar::from(1u32))?.into_array();
+            Ok(FoR::try_new(one, Scalar::from(2u32))?.into_array())
+        };
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = build()?.execute::<PrimitiveArray>(
+            &mut SESSION.create_execution_ctx().with_block_fusion(false),
+        )?;
+
+        let before = in_place_chain_count();
+        let owned = build()?.execute::<PrimitiveArray>(&mut ctx)?;
+        assert_eq!(in_place_chain_count() - before, 1);
+        assert_arrays_eq!(owned, expected, &mut ctx);
+
+        let shared = build()?;
+        let before = in_place_chain_count();
+        let copied = shared.clone().execute::<PrimitiveArray>(&mut ctx)?;
+        assert_eq!(in_place_chain_count() - before, 0);
+        // The input still holds its own values.
+        assert_eq!(shared.len(), copied.len());
+        assert_arrays_eq!(copied, expected, &mut ctx);
+        Ok(())
     }
 }

@@ -37,8 +37,9 @@ use crate::IntoArray;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::aggregate_fn::session::AggregateKernels;
 use crate::array::ArrayId;
+use crate::arrays::Primitive;
 use crate::block::BlockOp;
-use crate::block::BlockSource;
+use crate::block::FusionInput;
 use crate::block::fusable_ptype;
 use crate::block::run_fused;
 use crate::builders::ArrayBuilder;
@@ -202,6 +203,9 @@ impl ArrayRef {
         // root here, with the nodes below it that were never optimized, and a child when execution
         // focuses it.
         let mut current_array = optimizer.optimize_array(&self)?;
+        // Hold no other reference to the input, so the arrays the loop takes apart stay uniquely
+        // owned: slots are taken without copying the parent, and buffers can be decoded in place.
+        drop(self);
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
         // Whether `current_array` was rewritten since its parent was suspended, so its
@@ -522,12 +526,12 @@ fn push_frame(
     Ok((optimizer.optimize_array(&child)?, None))
 }
 
-/// A chain the executor can fuse: the source at its bottom and, from the bottom up, the ops that
+/// A chain the executor can fuse: the input at its bottom and, from the bottom up, the ops that
 /// transform its blocks.
 struct FusionPlan {
-    source: Box<dyn BlockSource>,
+    input: FusionInput,
     ops: Vec<Box<dyn BlockOp>>,
-    /// The source's type, then each op's output type.
+    /// The input's type, then each op's output type.
     ptypes: Vec<PType>,
     /// How many of the ops belong to parents suspended on the top of the stack. The others belong
     /// to the leaf itself.
@@ -537,8 +541,9 @@ struct FusionPlan {
 /// Walk up the stack from `leaf` while the suspended parents transform blocks of their child, and
 /// return the chain if fusing it saves at least one full-length intermediate.
 ///
-/// The bottom of the chain is the leaf's own block source or, if the leaf has none, the source of
-/// a child it transforms, with the leaf's op over it.
+/// The bottom of the chain is the leaf itself when it is canonical, else its own block source or,
+/// if it has none, a child it transforms, with the leaf's op over it. The bottom is found before
+/// any op is built, so a leaf that cannot fuse costs no op construction.
 fn plan_fusion(
     leaf: &ArrayRef,
     stack: &[StackFrame],
@@ -551,15 +556,35 @@ fn plan_fusion(
     if leaf.is_empty() {
         return Ok(None);
     }
+    // The frames that could fuse, without building their ops yet.
+    let candidates = stack
+        .iter()
+        .rev()
+        .take_while(|frame| {
+            frame.spine
+                && frame.parent_builder.is_none()
+                && fusable_ptype(&frame.parent_array).is_some()
+        })
+        .count();
+    if candidates == 0 || (leaf_is_canonical && candidates < MIN_FUSED_OPS_OVER_CANONICAL) {
+        return Ok(None);
+    }
+
     let mut ops = Vec::new();
     let mut ptypes = vec![leaf_ptype];
-    for frame in stack.iter().rev() {
-        if !frame.spine || frame.parent_builder.is_some() {
-            break;
-        }
-        let Some(ptype) = fusable_ptype(&frame.parent_array) else {
-            break;
-        };
+    let input = if leaf_is_canonical {
+        FusionInput::Canonical(leaf.clone().downcast::<Primitive>())
+    } else if let Some(source) = leaf.block_source(ctx)? {
+        // Fusing an encoded leaf saves its own buffer even below a single parent.
+        FusionInput::Source(source)
+    } else if let Some(input) = child_input(leaf, &mut ops, &mut ptypes, ctx)? {
+        input
+    } else {
+        return Ok(None);
+    };
+
+    let leaf_ops = ops.len();
+    for frame in stack.iter().rev().take(candidates) {
         let Some(op) = frame
             .parent_array
             .block_op(frame.slot_idx, &frame.original_dtype, ctx)?
@@ -567,42 +592,34 @@ fn plan_fusion(
             break;
         };
         ops.push(op);
-        ptypes.push(ptype);
+        ptypes.push(fusable_ptype(&frame.parent_array).vortex_expect("checked above"));
     }
-    let frames = ops.len();
-    if frames == 0 {
+    let frames = ops.len() - leaf_ops;
+    let min_ops = if matches!(input, FusionInput::Canonical(_)) {
+        MIN_FUSED_OPS_OVER_CANONICAL
+    } else {
+        1
+    };
+    if frames == 0 || ops.len() < min_ops {
         return Ok(None);
     }
-
-    let source = if leaf_is_canonical {
-        if frames < MIN_FUSED_OPS_OVER_CANONICAL {
-            return Ok(None);
-        }
-        leaf.block_source(ctx)?
-    } else if let Some(source) = leaf.block_source(ctx)? {
-        // Fusing an encoded leaf saves its own buffer even below a single parent.
-        Some(source)
-    } else {
-        child_source(leaf, &mut ops, &mut ptypes, ctx)?
-            .filter(|_| ops.len() >= MIN_FUSED_OPS_OVER_CANONICAL)
-    };
-    Ok(source.map(|source| FusionPlan {
-        source,
+    Ok(Some(FusionPlan {
+        input,
         ops,
         ptypes,
         frames,
     }))
 }
 
-/// The source of a primitive child of `leaf` that `leaf` transforms block by block, with `leaf`'s
-/// op prepended to `ops`. The child may be canonical, or an encoding with a block source that
+/// The input of a primitive child of `leaf` that `leaf` transforms block by block, with `leaf`'s
+/// op pushed onto `ops`. The child may be canonical, or an encoding with a block source that
 /// `leaf`'s own execute would run a fused kernel over, such as FoR over BitPacked.
-fn child_source(
+fn child_input(
     leaf: &ArrayRef,
     ops: &mut Vec<Box<dyn BlockOp>>,
     ptypes: &mut Vec<PType>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<Box<dyn BlockSource>>> {
+) -> VortexResult<Option<FusionInput>> {
     for (slot_idx, child) in leaf.slots().iter().enumerate() {
         let Some(child) = child else { continue };
         let Some(child_ptype) = fusable_ptype(child) else {
@@ -614,12 +631,16 @@ fn child_source(
         let Some(op) = leaf.block_op(slot_idx, child.dtype(), ctx)? else {
             continue;
         };
-        let Some(source) = child.block_source(ctx)? else {
-            continue;
+        let input = match child.clone().try_downcast::<Primitive>() {
+            Ok(primitive) => FusionInput::Canonical(primitive),
+            Err(child) => match child.block_source(ctx)? {
+                Some(source) => FusionInput::Source(source),
+                None => continue,
+            },
         };
-        ops.insert(0, op);
+        ops.push(op);
         ptypes.insert(0, child_ptype);
-        return Ok(Some(source));
+        return Ok(Some(input));
     }
     Ok(None)
 }
@@ -645,6 +666,7 @@ fn run_fusion(
         builder = frame.parent_builder;
     }
     let top = child;
+    let len = top.len();
     trace_op!(record_execute_encoding(&top));
     tracing::debug!(
         target: "vortex_array::block",
@@ -655,17 +677,13 @@ fn run_fusion(
         "fused chain"
     );
     let validity = top.validity()?;
-    let result = run_fused(
-        plan.source.as_mut(),
-        &mut plan.ops,
-        &plan.ptypes,
-        top.len(),
-        validity,
-        ctx,
-    )?
-    .into_array();
-    vortex_ensure_eq!(result.dtype(), top.dtype(), "fused chain changed the dtype");
-    result.statistics().inherit_from(top.statistics());
+    let (dtype, stats) = (top.dtype().clone(), top.statistics().to_owned());
+    // Release the chain's arrays so a canonical input can be decoded in its own buffer.
+    drop(top);
+    let result =
+        run_fused(plan.input, &mut plan.ops, &plan.ptypes, len, validity, ctx)?.into_array();
+    vortex_ensure_eq!(result.dtype(), &dtype, "fused chain changed the dtype");
+    result.statistics().set_iter(stats.into_iter());
     Ok((result, builder))
 }
 
