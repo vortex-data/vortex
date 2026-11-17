@@ -5,6 +5,7 @@ mod dtype;
 mod expr;
 mod scalar;
 mod table_filter;
+mod time_zone;
 mod vector;
 
 pub use dtype::FromLogicalType;
