@@ -13,7 +13,7 @@ use bytes::Bytes;
 use futures::StreamExt;
 use futures::pin_mut;
 use vortex::array::IntoArray;
-use vortex::arrow::ArrowScanExt;
+use vortex::arrow::run_record_batches;
 use vortex::dtype::FieldNames;
 use vortex::expr::root;
 use vortex::expr::select;
@@ -97,7 +97,7 @@ async fn vortex_decompress_read(data: Bytes) -> Result<()> {
             .optimize_recursive()?;
         scan = scan.with_projection(projection);
     }
-    let stream = ScanDriver::new(SESSION.handle(), 4, true).run_record_batches(scan, None);
+    let stream = run_record_batches(ScanDriver::new(SESSION.handle(), 4, true), scan, None);
     pin_mut!(stream);
 
     while let Some(batch) = stream.next().await {

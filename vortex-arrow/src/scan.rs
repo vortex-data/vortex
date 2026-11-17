@@ -21,39 +21,28 @@ use vortex_scan::prepare::ScanBuilder;
 use crate::ArrowSessionExt;
 use crate::ExecuteArrowExt;
 
-/// Arrow record-batch output for a scan driver.
-pub trait ArrowScanExt {
-    /// Runs the scan, executing each batch to an Arrow [`RecordBatch`].
-    ///
-    /// When `schema` is `None`, the session derives it from the scan's output dtype. Conversion
-    /// and decompression run on the worker producing each batch, in parallel across chunks.
-    fn run_record_batches(
-        self,
-        builder: impl Into<ScanBuilder>,
-        schema: Option<SchemaRef>,
-    ) -> BoxStream<'static, VortexResult<RecordBatch>>;
-}
-
-impl ArrowScanExt for ScanDriver {
-    fn run_record_batches(
-        self,
-        builder: impl Into<ScanBuilder>,
-        schema: Option<SchemaRef>,
-    ) -> BoxStream<'static, VortexResult<RecordBatch>> {
-        let builder = builder.into();
-        let session = builder.session().clone();
-        let schema = match schema {
-            Some(schema) => schema,
-            None => match session.arrow().to_arrow_schema(builder.dtype()) {
-                Ok(schema) => Arc::new(schema),
-                Err(error) => return stream::once(future::ready(Err(error))).boxed(),
-            },
-        };
-        let field = Field::new_struct("", schema.fields().clone(), false);
-        self.run_mapped(builder, move |batch| {
-            let mut ctx = session.create_execution_ctx();
-            let arrow = batch.execute_arrow(Some(&field), &mut ctx)?;
-            Ok(RecordBatch::from(arrow.as_struct().clone()))
-        })
-    }
+/// Runs the scan, executing each batch to an Arrow [`RecordBatch`].
+///
+/// When `schema` is `None`, the session derives it from the scan's output dtype. Conversion
+/// and decompression run on the worker producing each batch, in parallel across chunks.
+pub fn run_record_batches(
+    driver: ScanDriver,
+    builder: impl Into<ScanBuilder>,
+    schema: Option<SchemaRef>,
+) -> BoxStream<'static, VortexResult<RecordBatch>> {
+    let builder = builder.into();
+    let session = builder.session().clone();
+    let schema = match schema {
+        Some(schema) => schema,
+        None => match session.arrow().to_arrow_schema(builder.dtype()) {
+            Ok(schema) => Arc::new(schema),
+            Err(error) => return stream::once(future::ready(Err(error))).boxed(),
+        },
+    };
+    let field = Field::new_struct("", schema.fields().clone(), false);
+    driver.run_mapped(builder, move |batch| {
+        let mut ctx = session.create_execution_ctx();
+        let arrow = batch.execute_arrow(Some(&field), &mut ctx)?;
+        Ok(RecordBatch::from(arrow.as_struct().clone()))
+    })
 }

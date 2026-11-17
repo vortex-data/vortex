@@ -59,20 +59,6 @@ pub struct LegacyStatsData {
 /// A plan that pairs data with a legacy stats zone table.
 pub type LegacyStatsPlan = Plan<LegacyStats>;
 
-/// Native legacy statistics plan construction and child access.
-pub trait LegacyStatsPlanExt {
-    /// Pairs data with a legacy statistics table.
-    fn new(data: PlanRef, zones: PlanRef, zone_len: u64, stats: Arc<[Stat]>) -> Self;
-    /// The number of rows summarized by each zone.
-    fn zone_len(&self) -> u64;
-    /// The statistics stored by the table.
-    fn stats(&self) -> &Arc<[Stat]>;
-    /// The data child.
-    fn data_plan(&self) -> VortexResult<PlanRef>;
-    /// The legacy statistics child.
-    fn zones_plan(&self) -> VortexResult<PlanRef>;
-}
-
 impl LegacyStats {
     pub(crate) fn from_slots(
         dtype: DType,
@@ -90,35 +76,22 @@ impl LegacyStats {
         }
         .into_typed()
     }
-}
 
-impl LegacyStatsPlanExt for LegacyStatsPlan {
     /// Creates a legacy stats plan over `data` summarised by `zones` of `zone_len` rows each,
     /// whose fields hold `stats`.
-    fn new(data: PlanRef, zones: PlanRef, zone_len: u64, stats: Arc<[Stat]>) -> Self {
+    pub fn new_plan(
+        data: PlanRef,
+        zones: PlanRef,
+        zone_len: u64,
+        stats: Arc<[Stat]>,
+    ) -> LegacyStatsPlan {
         let dtype = data.dtype().clone();
         let row_count = data.row_count();
-        LegacyStats::from_slots(dtype, row_count, [data, zones].into(), zone_len, stats)
+        Self::from_slots(dtype, row_count, [data, zones].into(), zone_len, stats)
     }
 
-    /// Returns the number of rows each zone summarises.
-    fn zone_len(&self) -> u64 {
-        self.data().zone_len
-    }
-
-    /// Returns the stats the zone table stores.
-    fn stats(&self) -> &Arc<[Stat]> {
-        &self.data().stats
-    }
-
-    /// Returns the plan producing the summarised data.
-    fn data_plan(&self) -> VortexResult<PlanRef> {
-        self.slot_required(DATA)
-    }
-
-    /// Returns the plan producing the legacy zone table.
-    fn zones_plan(&self) -> VortexResult<PlanRef> {
-        self.slot_required(ZONES)
+    pub(super) fn data_plan(plan: &LegacyStatsPlan) -> VortexResult<PlanRef> {
+        plan.slot_required(DATA)
     }
 }
 
@@ -179,7 +152,7 @@ impl PlanVTable for LegacyStats {
         mask: &Mask,
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
-        compiler.compile(&plan.data_plan()?, rows, mask)
+        compiler.compile(&LegacyStats::data_plan(plan)?, rows, mask)
     }
 }
 
@@ -198,18 +171,18 @@ impl PlanReduceRule<LegacyStats> for LegacyStatsRule {
         plan: &Plan<LegacyStats>,
         _session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
-        let data = plan.data_plan()?;
-        if plan.zone_len() == 0 || data.is::<Zoned>() {
+        let data = LegacyStats::data_plan(plan)?;
+        if plan.data().zone_len == 0 || data.is::<Zoned>() {
             return Ok(Some(data));
         }
-        let zones = plan.zones_plan()?;
+        let zones = plan.slot_required(ZONES)?;
         let (aggregate_fns, conversion) =
-            legacy_stats_to_aggregates(plan.dtype(), zones.dtype(), plan.stats());
+            legacy_stats_to_aggregates(plan.dtype(), zones.dtype(), &plan.data().stats);
         if aggregate_fns.is_empty() {
             return Ok(Some(data));
         }
         let zones = EvalPlan::try_new(conversion.bind(zones.dtype())?, zones)?.into_plan();
-        let zoned = ZonedPlan::new(data, zones, plan.zone_len(), aggregate_fns);
+        let zoned = ZonedPlan::new(data, zones, plan.data().zone_len, aggregate_fns);
         Ok(Some(zoned.into_plan()))
     }
 }

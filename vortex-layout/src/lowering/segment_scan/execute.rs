@@ -21,7 +21,6 @@ use vortex_scan::execution::operator::Step;
 use vortex_session::VortexSession;
 
 use super::SegmentScanPlan;
-use super::SegmentScanPlanExt;
 use crate::segments::SegmentId;
 
 /// Decodes the whole of a scan's segment.
@@ -30,14 +29,14 @@ fn decode(
     segment: BufferHandle,
     session: &VortexSession,
 ) -> VortexResult<ArrayRef> {
-    let serialized = match plan.array_tree() {
+    let serialized = match &plan.data().array_tree {
         Some(tree) => SerializedArray::from_flatbuffer_and_segment(tree.clone(), segment)?,
         None => SerializedArray::try_from(segment)?,
     };
     serialized.decode(
         plan.dtype(),
         usize::try_from(plan.row_count())?,
-        plan.array_ctx(),
+        &plan.data().array_ctx,
         session,
     )
 }
@@ -76,7 +75,7 @@ impl ScanSource {
         filter: Option<Mask>,
     ) -> Self {
         Self {
-            unread: Some(plan.segment_id()),
+            unread: Some(plan.data().segment_id),
             plan,
             slice,
             filter,

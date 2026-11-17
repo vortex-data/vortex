@@ -38,33 +38,15 @@ pub struct SegmentScanData {
 /// A plan that reads one serialized array segment.
 pub type SegmentScanPlan = Plan<SegmentScan>;
 
-/// Native segment plan construction and metadata access.
-pub trait SegmentScanPlanExt {
-    /// Creates a plan reading a serialized native array segment.
-    fn new(
-        dtype: DType,
-        row_count: u64,
-        segment_id: SegmentId,
-        array_ctx: ReadContext,
-        array_tree: Option<ByteBuffer>,
-    ) -> Self;
-    /// The segment read by the plan.
-    fn segment_id(&self) -> SegmentId;
-    /// The array decoding context.
-    fn array_ctx(&self) -> &ReadContext;
-    /// An out-of-line array tree, when present.
-    fn array_tree(&self) -> Option<&ByteBuffer>;
-}
-
-impl SegmentScanPlanExt for SegmentScanPlan {
+impl SegmentScan {
     /// Creates a segment scan over `segment_id`.
-    fn new(
+    pub fn new_plan(
         dtype: DType,
         row_count: u64,
         segment_id: SegmentId,
         array_ctx: ReadContext,
         array_tree: Option<ByteBuffer>,
-    ) -> Self {
+    ) -> SegmentScanPlan {
         PlanParts {
             vtable: SegmentScan,
             dtype,
@@ -77,21 +59,6 @@ impl SegmentScanPlanExt for SegmentScanPlan {
             },
         }
         .into_typed()
-    }
-
-    /// Returns the segment this plan reads.
-    fn segment_id(&self) -> SegmentId {
-        self.data().segment_id
-    }
-
-    /// Returns the read context for the serialized array.
-    fn array_ctx(&self) -> &ReadContext {
-        &self.data().array_ctx
-    }
-
-    /// Returns the serialized array encoding tree, when it is stored out of line.
-    fn array_tree(&self) -> Option<&ByteBuffer> {
-        self.data().array_tree.as_ref()
     }
 }
 
@@ -138,7 +105,7 @@ impl PlanVTable for SegmentScan {
         } else {
             Some(usize::try_from(rows.start)?..usize::try_from(rows.end)?)
         };
-        compiler.register_segment(plan.segment_id());
+        compiler.register_segment(plan.data().segment_id);
         Ok(Some(Chain::new(ScanSource::new(
             plan.clone(),
             slice,

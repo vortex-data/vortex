@@ -16,7 +16,7 @@
 //! no explicit registration is required. It can look up the extension types of its Vortex session
 //! by their Vortex IDs (see [`ArrowSession`]).
 //!
-//! [`ArrowScanExt`] adapts scan drivers to Arrow record-batch streams, performing conversion on
+//! [`run_record_batches`] adapts scan drivers to Arrow record-batch streams, performing conversion on
 //! the workers producing the scan batches.
 
 pub mod convert;
@@ -51,5 +51,5 @@ pub use null_buffer::to_arrow_null_buffer;
 pub use null_buffer::to_null_buffer;
 pub use options::*;
 pub use scalar::ToArrowDatum;
-pub use scan::ArrowScanExt;
+pub use scan::run_record_batches;
 pub use session::*;

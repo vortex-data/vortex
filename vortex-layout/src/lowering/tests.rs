@@ -388,7 +388,7 @@ fn legacy_max_zones_dtype(dtype: &DType) -> DType {
 
 /// Legacy stats over a 5-row i32 column in 3-row zones, holding each zone's max.
 fn legacy_max_plan(dtype: &DType) -> VortexResult<PlanRef> {
-    Ok(LegacyStatsPlan::new(
+    Ok(LegacyStats::new_plan(
         make_plan(flat(5, dtype.clone(), 0))?,
         make_plan(flat(2, legacy_max_zones_dtype(dtype), 1))?,
         3,
@@ -485,10 +485,11 @@ fn zoned_over_legacy_stats_read_as_data_keeps_only_the_data() -> VortexResult<()
     let (max, zones_dtype) = max_zones_dtype(&dtype)?;
     let zones = make_plan(flat(2, zones_dtype, 2))?;
     let legacy = legacy_max_plan(&dtype)?;
-    let data = legacy
-        .as_opt::<LegacyStats>()
-        .ok_or_else(|| vortex_err!("legacy plan is not legacy stats"))?
-        .data_plan()?;
+    let data = LegacyStats::data_plan(
+        legacy
+            .as_opt::<LegacyStats>()
+            .ok_or_else(|| vortex_err!("legacy plan is not legacy stats"))?,
+    )?;
     let plan = ZonedPlan::new(legacy, zones, 3, vec![max].into()).into_plan();
 
     assert!(PlanRef::ptr_eq(&optimize(plan, &SESSION)?, &data));
@@ -504,7 +505,7 @@ fn legacy_stats_over_zoned_are_dropped() -> VortexResult<()> {
     let data = make_plan(flat(5, dtype.clone(), 0))?;
     let zones = make_plan(flat(2, zones_dtype, 2))?;
     let zoned = ZonedPlan::new(data.clone(), zones.clone(), 3, vec![max].into()).into_plan();
-    let legacy = LegacyStatsPlan::new(
+    let legacy = LegacyStats::new_plan(
         zoned,
         make_plan(flat(2, legacy_max_zones_dtype(&dtype), 1))?,
         3,
@@ -531,7 +532,7 @@ fn legacy_stats_over_zoned_are_dropped() -> VortexResult<()> {
 fn legacy_stats_with_zero_zone_length_keep_only_data() -> VortexResult<()> {
     let dtype = primitive(PType::I32, Nullability::NonNullable);
     let data = make_plan(flat(5, dtype.clone(), 0))?;
-    let legacy = LegacyStatsPlan::new(
+    let legacy = LegacyStats::new_plan(
         data.clone(),
         make_plan(flat(2, legacy_max_zones_dtype(&dtype), 1))?,
         0,

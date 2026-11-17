@@ -14,9 +14,9 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
-use vortex_arrow::ArrowScanExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
+use vortex_arrow::run_record_batches;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -80,12 +80,10 @@ async fn record_batches_match_arrays() -> VortexResult<()> {
         })
         .collect::<VortexResult<Vec<_>>>()?;
 
-    let derived: Vec<RecordBatch> = driver()
-        .run_record_batches(scan(), None)
+    let derived: Vec<RecordBatch> = run_record_batches(driver(), scan(), None)
         .try_collect()
         .await?;
-    let given: Vec<RecordBatch> = driver()
-        .run_record_batches(scan(), Some(schema))
+    let given: Vec<RecordBatch> = run_record_batches(driver(), scan(), Some(schema))
         .try_collect()
         .await?;
 

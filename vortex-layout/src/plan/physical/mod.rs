@@ -8,8 +8,6 @@ pub use vortex_scan::plan::*;
 pub use crate::lowering::LegacyStats;
 pub use crate::lowering::LegacyStatsData;
 pub use crate::lowering::LegacyStatsPlan;
-pub use crate::lowering::LegacyStatsPlanExt;
 pub use crate::lowering::SegmentScan;
 pub use crate::lowering::SegmentScanData;
 pub use crate::lowering::SegmentScanPlan;
-pub use crate::lowering::SegmentScanPlanExt;
