@@ -76,7 +76,7 @@ impl RowFn for SpatialConvexHull {
     type Options = EmptyOptions;
 
     const ARG_NAMES: &'static [&'static str] = &["multipoint"];
-    const INFALLIBLE: bool = true;
+    const INFALLIBLE: bool = false;
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("vortex.st.convex_hull");
