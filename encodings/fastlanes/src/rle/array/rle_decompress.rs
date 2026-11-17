@@ -193,7 +193,7 @@ fn decode_chunk_checked<V, I>(
 ) -> VortexResult<()>
 where
     V: RLE,
-    I: Copy + Into<usize>,
+    I: Copy + Into<usize> + 'static,
 {
     let max_index: usize = chunk_indices
         .iter()

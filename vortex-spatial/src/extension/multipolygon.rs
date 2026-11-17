@@ -18,7 +18,6 @@ use arrow_schema::extension::ExtensionType;
 use geo_traits::to_geo::ToGeoGeometry;
 use geo_types::Geometry;
 use geoarrow::array::GeoArrowArrayAccessor;
-use geoarrow::array::IntoArrow;
 use geoarrow::array::MultiPolygonArray;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::MultiPolygonType;
@@ -248,11 +247,9 @@ impl ArrowExtVTable for MultiPolygon {
         let arrow_storage =
             storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
-        let multipolygons =
-            MultiPolygonArray::try_from((arrow_storage.as_ref(), multipolygon_meta))
-                .map_err(|e| vortex_err!("failed to construct MultiPolygonArray: {e}"))?;
-
-        Ok(ArrowExport::Exported(Arc::new(multipolygons.into_arrow())))
+        // The validated target already shapes the storage. GeoArrow constructors can panic on
+        // valid Arrow lists that retain unused child values after filtering.
+        Ok(ArrowExport::Exported(arrow_storage))
     }
 
     fn from_arrow_field(
