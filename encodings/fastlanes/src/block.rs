@@ -296,20 +296,32 @@ pub(crate) fn for_block_op(
 
 #[cfg(test)]
 mod tests {
+    use std::f64::consts::PI;
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_alp::ALP;
+    use vortex_alp::ALPArrayExt;
+    use vortex_alp::ALPArraySlotsExt;
+    use vortex_alp::alp_encode;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::block::fused_chain_count;
+    use vortex_array::builtins::ArrayBuiltins;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
+    use vortex_zigzag::ZigZag;
+    use vortex_zigzag::ZigZagArraySlotsExt;
+    use vortex_zigzag::zigzag_encode;
 
     use crate::FoR;
     use crate::bitpack_compress::bitpack_encode;
@@ -317,6 +329,7 @@ mod tests {
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
         crate::initialize(&session);
+        vortex_alp::initialize(&session);
         session
     });
 
@@ -417,5 +430,80 @@ mod tests {
         assert_fuses_like_execute(&two, 1)?;
         let three = FoR::try_new(two, Scalar::from(3u32))?.into_array();
         assert_fuses_like_execute(&three, 1)
+    }
+
+    /// ALP over FoR over BitPacked: the common float tree, with ALP patches and nulls.
+    #[test]
+    fn alp_for_bitpacked() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_option_iter((0..5000).map(|i| {
+            let value = if i % 301 == 0 {
+                PI * f64::from(i)
+            } else {
+                f64::from(i) * 0.25 - 100.0
+            };
+            (i % 13 != 0).then_some(value)
+        }));
+        let alp = alp_encode(values.as_view(), None, &mut ctx)?;
+        assert!(alp.patches().is_some());
+        let encoded = alp.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let min = *encoded.as_slice::<i64>().iter().min().unwrap_or(&0);
+        let shifted = PrimitiveArray::new(
+            encoded
+                .as_slice::<i64>()
+                .iter()
+                .map(|&v| v - min)
+                .collect::<vortex_buffer::Buffer<i64>>(),
+            encoded.validity()?,
+        );
+        let bp = bitpack_encode(&shifted, 16, None, &mut ctx)?.into_array();
+        let for_ = FoR::try_new(bp, Scalar::from(min))?.into_array();
+        let array = ALP::try_new(for_, alp.exponents(), alp.patches())?.into_array();
+        assert_fuses_like_execute(&array, 1)?;
+        assert_fuses_like_execute(&array.slice(301..4500)?, 1)
+    }
+
+    /// A cast that cannot fail fuses with its input, also below FoR. A narrowing cast must check
+    /// its values, so it does not.
+    #[rstest]
+    #[case::widen(PType::U64, Nullability::NonNullable, 1)]
+    #[case::to_nullable_float(PType::F64, Nullability::Nullable, 1)]
+    #[case::narrow(PType::U16, Nullability::NonNullable, 0)]
+    fn casts(
+        #[case] ptype: PType,
+        #[case] nullability: Nullability,
+        #[case] chains: usize,
+    ) -> VortexResult<()> {
+        let array = for_stack(5000, 1, false)?.cast(DType::Primitive(ptype, nullability))?;
+        assert_fuses_like_execute(&array, chains)?;
+        assert_fuses_like_execute(&array.slice(517..4013)?, chains)
+    }
+
+    #[test]
+    fn cast_between_for_levels() -> VortexResult<()> {
+        let widened =
+            for_stack(5000, 1, true)?.cast(DType::Primitive(PType::U64, Nullability::Nullable))?;
+        let array = FoR::try_new(widened, Scalar::from(5u64))?.into_array();
+        assert_fuses_like_execute(&array, 1)
+    }
+
+    /// ZigZag over BitPacked, and over FoR over BitPacked, fuses the decode with the unpack.
+    #[test]
+    fn zigzag_over_bitpacked() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_option_iter(
+            (-2500i32..2500).map(|i| (i % 7 != 0).then_some(i * 3)),
+        );
+        let zigzag = zigzag_encode(values.as_view())?;
+        let encoded = zigzag
+            .encoded()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        let bp = bitpack_encode(&encoded, 14, None, &mut ctx)?.into_array();
+        let array = ZigZag::try_new(bp.clone())?.into_array();
+        assert_fuses_like_execute(&array, 1)?;
+        assert_fuses_like_execute(&array.slice(517..4013)?, 1)?;
+        let for_bp = FoR::try_new(bp, Scalar::from(0u32))?.into_array();
+        assert_fuses_like_execute(&ZigZag::try_new(for_bp)?.into_array(), 1)
     }
 }

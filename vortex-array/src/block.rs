@@ -382,3 +382,102 @@ unsafe fn run_blocks(
     }
     Ok(())
 }
+
+/// Converts each value with `as`, for casts that lose nothing.
+struct Convert<S, T>(PhantomData<fn(S) -> T>);
+
+impl<S, T> BlockOp for Convert<S, T>
+where
+    S: NativePType + AsPrimitive<T>,
+    T: NativePType,
+{
+    fn process(
+        &mut self,
+        _start: usize,
+        input: BlockIn<'_>,
+        mut out: BlockOut<'_>,
+    ) -> VortexResult<()> {
+        out.map_from(input, |value: S| value.as_());
+        Ok(())
+    }
+}
+
+macro_rules! match_each_convertible_ptype {
+    ($ptype:expr, | $T:ident | $body:expr) => {
+        match $ptype {
+            PType::U8 => {
+                type $T = u8;
+                $body
+            }
+            PType::U16 => {
+                type $T = u16;
+                $body
+            }
+            PType::U32 => {
+                type $T = u32;
+                $body
+            }
+            PType::U64 => {
+                type $T = u64;
+                $body
+            }
+            PType::I8 => {
+                type $T = i8;
+                $body
+            }
+            PType::I16 => {
+                type $T = i16;
+                $body
+            }
+            PType::I32 => {
+                type $T = i32;
+                $body
+            }
+            PType::I64 => {
+                type $T = i64;
+                $body
+            }
+            PType::F32 => {
+                type $T = f32;
+                $body
+            }
+            PType::F64 => {
+                type $T = f64;
+                $body
+            }
+            PType::F16 => None,
+        }
+    };
+}
+
+/// Whether a cast from `from` to `to` cannot fail and has a block op: a lossless primitive
+/// conversion that does not drop nullability.
+pub(crate) fn casts_by_block(from: &DType, to: &DType) -> bool {
+    let (
+        DType::Primitive(from_ptype, from_nullability),
+        DType::Primitive(to_ptype, to_nullability),
+    ) = (from, to)
+    else {
+        return false;
+    };
+    (to_nullability.is_nullable() || !from_nullability.is_nullable())
+        && *from_ptype != PType::F16
+        && *to_ptype != PType::F16
+        && from_ptype.casts_losslessly_to(*to_ptype)
+}
+
+/// The op of a cast from `from` to `to` that cannot fail: a lossless primitive conversion that
+/// does not drop nullability. Other casts must check their values, so they do not fuse.
+pub(crate) fn cast_block_op(from: &DType, to: &DType) -> Option<Box<dyn BlockOp>> {
+    if !casts_by_block(from, to) {
+        return None;
+    }
+    let (DType::Primitive(from_ptype, _), DType::Primitive(to_ptype, _)) = (from, to) else {
+        return None;
+    };
+    match_each_convertible_ptype!(from_ptype, |S| {
+        match_each_convertible_ptype!(to_ptype, |T| {
+            Some(Box::new(Convert::<S, T>(PhantomData)) as Box<dyn BlockOp>)
+        })
+    })
+}

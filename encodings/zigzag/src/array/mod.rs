@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hasher;
+use std::marker::PhantomData;
 
 use vortex_array::Array;
 use vortex_array::ArrayEq;
@@ -19,10 +20,16 @@ use vortex_array::IntoArray;
 use vortex_array::ProbeState;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
+use vortex_array::arrays::Primitive;
+use vortex_array::block::BlockIn;
+use vortex_array::block::BlockOp;
+use vortex_array::block::BlockOut;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_array::require_spine;
 use vortex_array::scalar::Scalar;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::OperationsVTable;
@@ -95,10 +102,48 @@ impl VTable for ZigZag {
         ZigZagSlots::NAMES[idx].to_string()
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_spine!(array, array.encoded(), ZigZagSlots::ENCODED => Primitive);
         Ok(ExecutionResult::done(
-            zigzag_decode(array.encoded().clone().execute(ctx)?).into_array(),
+            zigzag_decode(array.encoded().clone().downcast::<Primitive>()).into_array(),
         ))
+    }
+
+    fn block_op(
+        array: ArrayView<'_, Self>,
+        slot_idx: usize,
+        _child_dtype: &DType,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        if slot_idx != ZigZagSlots::ENCODED {
+            return Ok(None);
+        }
+        Ok(Some(match array.dtype().as_ptype() {
+            PType::I8 => Box::new(Decode::<i8>(PhantomData)) as Box<dyn BlockOp>,
+            PType::I16 => Box::new(Decode::<i16>(PhantomData)),
+            PType::I32 => Box::new(Decode::<i32>(PhantomData)),
+            PType::I64 => Box::new(Decode::<i64>(PhantomData)),
+            _ => return Ok(None),
+        }))
+    }
+}
+
+/// ZigZag's op over its encoded child: decodes each block of unsigned integers.
+struct Decode<T>(PhantomData<fn() -> T>);
+
+impl<T> BlockOp for Decode<T>
+where
+    T: ExternalZigZag + NativePType,
+    T::UInt: NativePType,
+{
+    fn process(
+        &mut self,
+        _start: usize,
+        input: BlockIn<'_>,
+        mut out: BlockOut<'_>,
+    ) -> VortexResult<()> {
+        out.map_from(input, T::decode);
+        Ok(())
     }
 }
 
