@@ -19,12 +19,27 @@ SCALE_FACTOR="0.1"
 BENCH_DATA_DIR="${WORKSPACE_DIR}/vortex-bench/data/tpch/${SCALE_FACTOR}"
 
 echo "Generating TPC-H data (SF=${SCALE_FACTOR})..."
+# data-gen keeps Vortex files that already exist, so remove them to write fresh
+# ones with the current compressor.
+rm -rf "${BENCH_DATA_DIR}/vortex-file-compressed"
 (
   cd "${WORKSPACE_DIR}"
   cargo run --profile "${VORTEX_SLT_PROFILE:-release}" -p vortex-bench --bin data-gen -- \
     tpch --opt "scale-factor=${SCALE_FACTOR}" --formats parquet,vortex
 )
 
+# data-gen writes every table as numbered parts (`lineitem_0001.parquet`), while
+# the tests read one file per table (`lineitem.parquet`). At this scale factor
+# each table is a single part, so drop the part suffix. If the names don't line
+# up, the test runner treats the data as absent and silently ignores the suite.
+if compgen -G "${BENCH_DATA_DIR}/*/*_0002.*" > /dev/null; then
+  echo "Error: data-gen split a TPC-H table into several parts, but the tests expect one file per table." >&2
+  exit 1
+fi
+
 rm -rf "${DATA_DIR}"
 mkdir -p "${DATA_DIR}"
-cp "${BENCH_DATA_DIR}"/parquet/*.parquet "${BENCH_DATA_DIR}"/vortex-file-compressed/*.vortex "${DATA_DIR}/"
+for part in "${BENCH_DATA_DIR}"/parquet/*_0001.parquet "${BENCH_DATA_DIR}"/vortex-file-compressed/*_0001.vortex; do
+  table_file="$(basename "${part}")"
+  cp "${part}" "${DATA_DIR}/${table_file/_0001./.}"
+done
