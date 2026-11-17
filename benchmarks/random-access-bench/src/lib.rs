@@ -345,7 +345,7 @@ async fn open_accessor(
             let path = dataset.path(format).await?;
             Ok(Box::new(ArrowIpcRandomAccessor::open(path, name)?))
         }
-        Format::OnDiskVortex | Format::VortexCompact => {
+        Format::OnDiskVortex | Format::VortexCompact | Format::VortexUnstable => {
             let path = dataset_path(dataset, format).await?;
             Ok(match remote {
                 Some(remote) => Box::new(

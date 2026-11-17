@@ -256,7 +256,8 @@ factors are configurable per suite (e.g. `--opt scale-factor=10.0` for TPC-H SF=
 
 The `vortex-unstable` format writes Vortex files whose compressor may also choose the unstable
 `fastlanes.delta` encoding. Comparing it against `vortex` shows what that encoding changes. CI
-runs it on the NVMe targets of the `pr-full` and `develop` presets.
+runs it next to every `vortex` SQL target in every preset, and in the compression and random access
+benchmarks.
 
 ```bash
 uv run --project bench-orchestrator vx-bench prepare-data tpch \

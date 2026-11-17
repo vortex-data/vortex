@@ -19,7 +19,7 @@ BINARY = "target/release_debug/random-access-bench"
 PARTS_DIR = Path("parts")
 
 DATASETS = ["taxi", "feature-vectors", "nested-lists", "nested-structs"]
-FORMATS = ["arrow-ipc", "parquet", "lance", "litdata", "vortex"]
+FORMATS = ["arrow-ipc", "parquet", "lance", "litdata", "vortex", "vortex-unstable"]
 # Formats only benchmarked from local disk. A remote run would silently read them from local disk.
 LOCAL_ONLY_FORMATS = {"arrow-ipc", "litdata"}
 PATTERNS = ["correlated", "uniform"]

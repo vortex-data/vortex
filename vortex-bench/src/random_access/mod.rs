@@ -37,11 +37,13 @@ pub const ARROW_ROW_OFFSETS_METADATA_KEY: &str = "vortex.row_offsets";
 /// Generate the data path for a random-access benchmark dataset file.
 ///
 /// Returns a path like `random_access/{dataset}/{dataset}.{ext}`
-/// (or `{dataset}-compact.{ext}` for [`Format::VortexCompact`]).
+/// (or `{dataset}-compact.{ext}` for [`Format::VortexCompact`] and `{dataset}-unstable.{ext}` for
+/// [`Format::VortexUnstable`]).
 pub fn data_path(dataset: &str, format: Format) -> String {
     let ext = format.ext();
     match format {
         Format::VortexCompact => format!("random_access/{dataset}/{dataset}-compact.{ext}"),
+        Format::VortexUnstable => format!("random_access/{dataset}/{dataset}-unstable.{ext}"),
         _ => format!("random_access/{dataset}/{dataset}.{ext}"),
     }
 }

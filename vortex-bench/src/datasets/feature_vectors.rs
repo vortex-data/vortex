@@ -54,6 +54,7 @@ impl BenchDataset for FeatureVectorsData {
             }
             Format::OnDiskVortex => feature_vectors_vortex().await,
             Format::VortexCompact => feature_vectors_vortex_compact().await,
+            Format::VortexUnstable => feature_vectors_vortex_unstable().await,
             Format::Parquet => feature_vectors_parquet().await,
             other => anyhow::bail!("Random access bench not implemented for {other}"),
         }
@@ -136,4 +137,11 @@ pub async fn feature_vectors_vortex_compact() -> Result<PathBuf> {
     let parquet_path = feature_vectors_parquet().await?;
     let path = data_path(DATASET, Format::VortexCompact);
     write_parquet_as_vortex(parquet_path, &path, CompactionStrategy::Compact).await
+}
+
+/// Get the path to the feature vectors unstable vortex file, converting from parquet if needed.
+pub async fn feature_vectors_vortex_unstable() -> Result<PathBuf> {
+    let parquet_path = feature_vectors_parquet().await?;
+    let path = data_path(DATASET, Format::VortexUnstable);
+    write_parquet_as_vortex(parquet_path, &path, CompactionStrategy::Unstable).await
 }

@@ -66,7 +66,14 @@ EXPECTED_IDS = {
         *(
             f"tpcds-{storage}-100-{target}"
             for storage in ("nvme", "s3")
-            for target in ("datafusion-parquet", "datafusion-vortex", "duckdb-parquet", "duckdb-vortex")
+            for target in (
+                "datafusion-parquet",
+                "datafusion-vortex",
+                "datafusion-vortex-unstable",
+                "duckdb-parquet",
+                "duckdb-vortex",
+                "duckdb-vortex-unstable",
+            )
         ),
         "tpch-nested-nvme",
         "tpch-nested-s3",
@@ -99,10 +106,10 @@ def test_tpcds_sf100_runs_one_target_per_job() -> None:
         entry for entry in _entries("nightly") if str(entry["id"]).startswith("tpcds-") and "-100-" in str(entry["id"])
     ]
 
-    assert len(nightly) == 8
+    assert len(nightly) == 12
     assert all(len(_targets(entry)) == 1 for entry in nightly)
     s3_keys = [entry["remote_key"] for entry in nightly if "remote_key" in entry]
-    assert len(s3_keys) == len(set(s3_keys)) == 4
+    assert len(s3_keys) == len(set(s3_keys)) == 6
 
 
 def test_pr_target_selection() -> None:
@@ -114,14 +121,20 @@ def test_pr_target_selection() -> None:
     assert _targets(pr["tpch-nvme"]) == {
         ("datafusion", "parquet"),
         ("datafusion", "vortex"),
+        ("datafusion", "vortex-unstable"),
         ("duckdb", "parquet"),
         ("duckdb", "vortex"),
+        ("duckdb", "vortex-unstable"),
     }
     assert ("datafusion", "lance") in _targets(develop["tpch-nvme"])
     for preset in (pr_full, develop):
         assert {engine for engine, _format in _targets(preset["statpopgen"])} == {"datafusion", "duckdb"}
     assert all(("datafusion", "lance") not in _targets(entry) for entry in pr_full.values())
     assert "vortex-compact" in cast("list[str]", pr_full["clickbench-nvme"]["data_formats"])
+    for preset in (pr, pr_full, develop):
+        for entry in preset.values():
+            formats = {file_format for _engine, file_format in _targets(entry)}
+            assert "vortex" not in formats or "vortex-unstable" in formats, entry["id"]
     for entry in pr_compact.values():
         targets = _targets(entry)
         assert {file_format for _engine, file_format in targets} == {"parquet", "vortex-compact"}
