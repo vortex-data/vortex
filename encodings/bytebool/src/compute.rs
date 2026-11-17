@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
+
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -12,6 +14,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::IntegerPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::BooleanKernel;
@@ -114,22 +117,7 @@ impl TakeExecute for ByteBool {
         let mut taken = BufferMut::<u8>::with_capacity_in(len, ctx.allocator().clone());
         let out = &mut taken.spare_capacity_mut()[..len];
         match_each_integer_ptype!(indices.ptype(), |I| {
-            let indices = indices.as_slice::<I>();
-            // A negative index wraps to a huge `usize` and fails the lookup like any other
-            // out-of-bounds index. Null indices are exempt from the bounds check.
-            let value_at = |index: I| values.get(AsPrimitive::<usize>::as_(index)).copied();
-            let gathered = match &indices_mask {
-                Mask::AllTrue(_) => indices.try_map_into(out, value_at),
-                Mask::AllFalse(_) => unreachable!("all-null indices return early"),
-                Mask::Values(mask) => indices.try_map_masked_into(mask.bit_buffer(), out, value_at),
-            };
-            if let Err(position) = gathered {
-                let index: usize = indices[position].as_();
-                vortex_panic!(
-                    "take index {index} out of bounds for length {}",
-                    values.len()
-                );
-            }
+            take_bytes_into(values, indices.as_slice::<I>(), &indices_mask, out)
         });
 
         // SAFETY: every branch wrote all `len` lanes before returning `Ok`.
@@ -181,6 +169,32 @@ impl BooleanKernel for ByteBool {
             ctx,
         )
         .map(Some)
+    }
+}
+
+/// Writes `values[indices[i]]` into `out[i]` for each valid index; panics if one is out of bounds.
+///
+/// `indices_mask` must not be [`Mask::AllFalse`]; all-null indices are handled by the caller.
+fn take_bytes_into<I: IntegerPType>(
+    values: &[u8],
+    indices: &[I],
+    indices_mask: &Mask,
+    out: &mut [MaybeUninit<u8>],
+) {
+    // A negative index wraps to a huge `usize` and fails the lookup like any other
+    // out-of-bounds index. Null indices are exempt from the bounds check.
+    let value_at = |index: I| values.get(AsPrimitive::<usize>::as_(index)).copied();
+    let gathered = match indices_mask {
+        Mask::AllTrue(_) => indices.try_map_into(out, value_at),
+        Mask::AllFalse(_) => unreachable!("all-null indices return early"),
+        Mask::Values(mask) => indices.try_map_masked_into(mask.bit_buffer(), out, value_at),
+    };
+    if let Err(position) = gathered {
+        let index: usize = indices[position].as_();
+        vortex_panic!(
+            "take index {index} out of bounds for length {}",
+            values.len()
+        );
     }
 }
 
