@@ -271,16 +271,30 @@ mod tests {
         .unwrap()
     }
 
+    fn make_blocked<T: NativePType + Into<Scalar>>(
+        encoded: Vec<T>,
+        refs: Vec<T>,
+        offset: u16,
+    ) -> FoRArray {
+        FoR::try_new_chunked(
+            PrimitiveArray::new(Buffer::from(encoded), NonNullable).into_array(),
+            PrimitiveArray::new(Buffer::from(refs), NonNullable).into_array(),
+            offset,
+        )
+        .unwrap()
+    }
+
     #[rstest]
-    #[case::u32((0..2050u32).map(|i| i * 100).collect())]
+    #[case::u32(make_blocked((0..2050u32).map(|i| i % 50).collect(), vec![1000u32, 5000, 9000], 0))]
+    #[case::u64(make_blocked((0..2050u64).map(|i| i % 50).collect(), vec![1000u64, 5000, 9000], 0))]
+    #[case::i32(make_blocked((0..2050i32).map(|i| i % 50).collect(), vec![-1000i32, 5000, 9000], 0))]
+    #[case::i64(make_blocked((0..2050i64).map(|i| i % 50).collect(), vec![-1000i64, 5000, 9000], 0))]
+    #[case::u32_offset(make_blocked((0..2050u32).map(|i| i % 50).collect(), vec![1000u32, 5000, 9000], 500))]
     #[crate::test]
-    async fn test_cuda_blocked_for_decompression(#[case] input_data: Vec<u32>) -> VortexResult<()> {
+    async fn test_cuda_blocked_for_decompression_dtypes(#[case] for_array: FoRArray) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
-
-        let primitive = PrimitiveArray::new(Buffer::from(input_data), NonNullable);
-        let for_array = FoR::encode_chunked(primitive, &mut ctx)?;
 
         assert!(
             matches!(for_array.references(), FoRReferences::Blocked(_)),
