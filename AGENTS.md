@@ -288,6 +288,22 @@ one. These rules override any default PR format from your harness.
   does not count towards the length.
 - Apply exactly one `changelog/*` label (listed in `.github/workflows/labels.yml`).
 
+### Benchmarked Changes
+
+When a change comes with a benchmark that shows its effect, land the benchmark first, so that
+CodSpeed measures the change against a baseline:
+
+1. Open a PR into `develop` that adds only the benchmark: the benchmark file, its `[[bench]]`
+   entry, and its entry in `scripts/codspeed_bench_counts.json`, which holds the number of
+   benchmarks it runs under `cfg(codspeed)`. It must build and run on `develop` without the change.
+2. Open the change as a second PR based on the benchmark branch, with `Stacked on #N`. CodSpeed
+   compares it against the benchmark branch.
+3. Merge the benchmark PR first. Merge the change only once its base is `develop` again; GitHub
+   retargets it when the merged benchmark branch is deleted. Merging it while its base is still the
+   benchmark branch folds it into the benchmark PR.
+
+A benchmark added in the same PR as the change has no baseline, so CodSpeed reports it only as new.
+
 ## Branches
 
 When creating a branch on the user's behalf, prefix its name with the user's established branch
@@ -323,18 +339,3 @@ Use `git commit --signoff` to add this line.
 - Check that every commit on the branch is signed off before pushing;
   `git rebase --signoff <base>` adds missing sign-offs to commits on a branch you created.
 - Agent attribution belongs in a `Co-Authored-By:` trailer, never in `Signed-off-by:`.
-
-## Performance Pull Requests
-
-When a change comes with a benchmark that shows its performance impact, split it into two stacked
-pull requests, so that CodSpeed measures the change against a baseline:
-
-1. A benchmark pull request into `develop` that adds only the benchmark and its `[[bench]]`
-   entry. It must build and run on `develop` without the change.
-2. An implementation pull request with the change, based on the benchmark branch. Once the
-   benchmark pull request merges, retarget it to `develop`; GitHub does this automatically when
-   the merged branch is deleted.
-
-Link each pull request from the other's description, and put the before and after numbers in the
-implementation pull request. A benchmark added in the same pull request as the change has no
-baseline, so CodSpeed reports it only as new.
