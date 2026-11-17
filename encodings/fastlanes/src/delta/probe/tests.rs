@@ -191,7 +191,12 @@ fn every_row_matches_decode(
     let delta = Delta::try_from_primitive_array(&input, &mut ctx)?;
     let source = with_layout(delta, layout, &mut ctx)?;
     // Every layout here reads single lanes rather than falling back to decoding the chunk.
-    assert!(super::lane_value(source.as_::<Delta>(), 1, 517, &mut ctx)?.is_some());
+    assert!(super::lane_value(source.as_::<Delta>(), None, 1, 517, &mut ctx)?.is_some());
+    let resolved = super::ResolvedLanes::resolve(source.as_::<Delta>());
+    assert!(resolved.is_some());
+    assert!(
+        super::lane_value(source.as_::<Delta>(), resolved.as_ref(), 1, 517, &mut ctx)?.is_some()
+    );
     let mut actual = builder_with_capacity_in(source.dtype(), source.len(), ctx.allocator());
     let mut retained = None;
     let mut probe = probe_for(&source, &mut retained, repeated);
