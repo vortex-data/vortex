@@ -359,10 +359,12 @@ impl ToJson for CompressionTimingMeasurement {
         let (name, engine) = match self.format {
             Format::ArrowIpc => (format!("arrow-ipc {}", self.name), Engine::Vortex),
             Format::OnDiskVortex => (self.name.to_string(), Engine::Vortex),
+            Format::VortexUnstable => (format!("vortex-unstable {}", self.name), Engine::Vortex),
             Format::Parquet => (format!("parquet_rs-zstd {}", self.name), Engine::Vortex),
             Format::Lance => (format!("lance {}", self.name), Engine::Vortex),
             _ => vortex_panic!(
-                "CompressionTimingMeasurement only supports arrow-ipc, vortex, lance, and parquet formats"
+                "CompressionTimingMeasurement only supports arrow-ipc, vortex, vortex-unstable, lance, \
+                 and parquet formats"
             ),
         };
 
@@ -534,20 +536,32 @@ pub struct MemoryMeasurementJson {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
-    #[test]
-    fn compression_timing_json_supports_arrow_ipc() {
+    #[rstest]
+    #[case::arrow_ipc(Format::ArrowIpc, "arrow-ipc compress time/demo", "arrow-ipc")]
+    #[case::vortex_unstable(
+        Format::VortexUnstable,
+        "vortex-unstable compress time/demo",
+        "vortex-unstable"
+    )]
+    fn compression_timing_json_supports_format(
+        #[case] format: Format,
+        #[case] name: &str,
+        #[case] json_format: &str,
+    ) {
         let measurement = CompressionTimingMeasurement {
             name: "compress time/demo".to_string(),
-            format: Format::ArrowIpc,
+            format,
             time: Duration::from_nanos(42),
         };
 
         let json = measurement.to_json();
 
-        assert_eq!(json["name"], "arrow-ipc compress time/demo");
-        assert_eq!(json["target"]["format"], "arrow-ipc");
+        assert_eq!(json["name"], name);
+        assert_eq!(json["target"]["format"], json_format);
         assert_eq!(json["value"], 42.0);
         assert_eq!(json["unit"], "ns");
         assert_eq!(json["time"], 42);
