@@ -12013,6 +12013,7 @@ dependencies = [
  "tracing-subscriber",
  "vortex",
  "vortex-array",
+ "vortex-arrow",
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-cuda",
@@ -12020,10 +12021,14 @@ dependencies = [
  "vortex-file",
  "vortex-fsst",
  "vortex-io",
+ "vortex-json",
  "vortex-mask",
  "vortex-row",
  "vortex-session",
+ "vortex-spatial",
+ "vortex-tensor",
  "vortex-utils",
+ "vortex-uuid",
 ]
 
 [[package]]
