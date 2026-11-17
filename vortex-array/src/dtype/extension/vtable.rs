@@ -6,7 +6,12 @@ use std::fmt::Display;
 use std::hash::Hash;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
 
+use crate::ArrayRef;
+use crate::Columnar;
+use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::dtype::Claims;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDType;
@@ -101,6 +106,23 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
         Ok(())
     }
 
+    /// Checks that each non-null storage value belongs to the extension type.
+    ///
+    /// The default applies [`Self::validate_scalar_value`] to each non-null value. An override
+    /// **must** accept the same storage arrays as the default.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the storage dtype differs from the declaration, reading the storage
+    /// fails, or a non-null value is outside the extension type's domain.
+    fn validate_array(
+        ext_dtype: &ExtDType<Self>,
+        storage: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        validate_each_value(ext_dtype, storage, ctx)
+    }
+
     // Methods related to the extension scalar values.
 
     /// Checks that the storage value belongs to the extension type.
@@ -131,4 +153,40 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
         ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>>;
+}
+
+/// The default array validator, also used as the reference for conformance checks.
+pub(crate) fn validate_each_value<V: ExtVTable>(
+    ext_dtype: &ExtDType<V>,
+    storage: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    vortex_ensure_eq!(
+        ext_dtype.storage_dtype(),
+        storage.dtype(),
+        "{} storage must match its declaration",
+        ext_dtype.id()
+    );
+
+    let canonical = match storage.clone().execute::<Columnar>(ctx)? {
+        Columnar::Constant(constant) if constant.is_empty() => return Ok(()),
+        Columnar::Constant(constant) => {
+            return match constant.scalar().value() {
+                Some(value) => ext_dtype.validate_scalar_value(value),
+                None => Ok(()),
+            };
+        }
+        Columnar::Canonical(canonical) => canonical,
+    };
+
+    let storage = canonical.into_array();
+    let mut probe = storage.repeated_probe();
+    for index in 0..storage.len() {
+        let scalar = probe.execute_scalar(index, ctx)?;
+        if let Some(value) = scalar.value() {
+            ext_dtype.validate_scalar_value(value)?;
+        }
+    }
+
+    Ok(())
 }
