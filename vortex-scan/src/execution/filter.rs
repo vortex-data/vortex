@@ -383,11 +383,7 @@ impl Planner for FilterPlanner {
             )?
             .with_row_offset(self.scan.row_offset)
             .with_value_cache(self.scan.values.clone());
-            self.active = Some((
-                index,
-                version,
-                ScanAdaptor::new(scan, &self.scan),
-            ));
+            self.active = Some((index, version, ScanAdaptor::new(scan, &self.scan)));
             return Ok(PlannerOutput::Continue);
         }
         let selected = self.selected.take().vortex_expect("selected rows exist");
