@@ -106,6 +106,10 @@ name = "aggregate_max"
 harness = false
 
 [[bench]]
+name = "aggregate_approx_distinct"
+harness = false
+
+[[bench]]
 name = "aggregate_sum"
 harness = false
 
