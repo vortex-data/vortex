@@ -18,12 +18,14 @@ use vortex_array::array_slots;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
+use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::Variant;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
+use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::builtins::ArrayBuiltins;
@@ -337,6 +339,15 @@ pub(crate) fn parquet_typed_value_from_logical_shredded(
     shredded: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
+    // A shredded list read from a file can be chunked, lazy or a list view, which hides its
+    // elements.
+    let shredded = if shredded.dtype().is_list() && !shredded.is::<List>() {
+        let list_view = shredded.execute::<ListViewArray>(ctx)?;
+        list_from_list_view(list_view, ctx)?.into_array()
+    } else {
+        shredded
+    };
+
     if let Some(list_array) = shredded.as_opt::<List>() {
         let elements = parquet_shredded_field_from_logical(list_array.elements().clone(), ctx)?;
         return Ok(ListArray::try_new(
@@ -386,6 +397,14 @@ fn parquet_shredded_field_from_logical(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let len = logical_field.len();
+
+    // A partially shredded field read from a file can be lazy, such as the pack of the columns
+    // that store it, which hides that it is a Variant.
+    let logical_field = if logical_field.dtype().is_variant() && !logical_field.is::<Variant>() {
+        logical_field.execute::<VariantArray>(ctx)?.into_array()
+    } else {
+        logical_field
+    };
 
     // Partially shredded fields canonicalize to a nested Variant whose core storage holds the
     // residual `value` and whose own shredded tree holds the typed children.
