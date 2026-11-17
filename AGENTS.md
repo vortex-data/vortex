@@ -260,17 +260,19 @@ one. These rules override any default PR format from your harness.
     `Fix FSL import bug`.
   - Refactor or chore, where nothing observable changes: the change itself,
     `Move ALP kernel logic out of dispatch macros`.
-- Description: plain prose with no headings (no `## Summary`, `## Changes` or `## Test plan`),
-  usually 1–3 sentences and at most about 150 words. Say what changed and why, plus anything a
-  reviewer cannot get from the diff. Do not copy the template's comments into it.
+- Description: start with 1–3 sentences of plain prose saying what changed and why. Add a longer
+  explanation after them only when the change's complexity warrants it, such as a new design,
+  non-obvious trade-offs, or behaviour a reviewer cannot infer from the diff. Most PRs need only
+  the opening sentences. Do not use boilerplate headings (`## Summary`, `## Changes`,
+  `## Test plan`), and do not copy the template's comments into it.
 - Leave out the checks you ran, lists of new types or functions, per-file walkthroughs, and test
   inventories. Mention tests in one line only when they are new or unusual.
 - Give a benchmark's headline result in one line. Post a full table as a PR comment.
 - Call out breaking or behaviour changes explicitly, and add the `changelog/break` label.
 - Link related work in one line each: `Closes #N`, `Part of #N`, `Stacked on #N`. Leave out
   merge-order instructions and plans for follow-up PRs.
-- Put longer material elsewhere: rationale that outlives the review goes in doc comments or
-  `docs/`; material that only helps the review goes in a PR comment.
+- Put rationale that should outlive the review in doc comments or `docs/` rather than only in
+  the description.
 - Keep the one-line AI disclosure that `CONTRIBUTING.md` requires. Your harness's attribution
   footer satisfies it and does not count towards the length.
 - Apply exactly one `changelog/*` label (listed in `.github/workflows/labels.yml`).

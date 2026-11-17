@@ -23,8 +23,9 @@ The contribution process is outlined below:
 2. Implement the change.
    - If the change is large, consider opening a draft pull request (PR) and sharing it with the
      team to get early feedback.
-   - Give the PR a clear, brief description: plain prose, usually 1–3 sentences. With the title,
-     it becomes the commit message when the PR is squash-merged.
+   - Give the PR a clear, brief description: 1–3 sentences of plain prose, followed by a longer
+     explanation only when the change's complexity warrants it. With the title, it becomes the
+     commit message when the PR is squash-merged.
    - Write the title in the imperative mood, in 72 characters or fewer, without a `feat:`-style
      prefix; the required `changelog/*` label categorizes the PR.
    - For significant new functionality, ensure that you write tests to cover that new functionality. Similarly,
