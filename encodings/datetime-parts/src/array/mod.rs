@@ -134,10 +134,12 @@ impl VTable for DateTimeParts {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.days(), DateTimePartsSlots::DAYS => Primitive);
+        // Days last: the executor combines the parts block by block once the time parts are
+        // ready, without materializing an encoded days child.
         let array =
             require_child!(array, array.seconds(), DateTimePartsSlots::SECONDS => AnyCanonical);
         let array = require_child!(array, array.subseconds(), DateTimePartsSlots::SUBSECONDS => AnyCanonical);
+        let array = require_child!(array, array.days(), DateTimePartsSlots::DAYS => Primitive);
 
         let dtype = array.dtype().clone();
         let parts = array.into_parts();

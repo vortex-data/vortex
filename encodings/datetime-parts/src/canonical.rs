@@ -144,13 +144,16 @@ pub(crate) fn block_combine(
     }
     let mut slots = vec![DateTimePartsSlots::DAYS];
     let mut part = |array: &ArrayRef, slot: usize| -> Option<BlockPart> {
+        // Level-wise decoding reads each part as `i32`, so a part of any other type does not
+        // combine.
+        if array.dtype() != &DType::Primitive(PType::I32, Nullability::NonNullable) {
+            return None;
+        }
         if let Some(constant) = array.as_constant() {
             return Some(BlockPart::Constant(constant.as_primitive().as_::<i64>()?));
         }
-        (array.dtype() == &DType::Primitive(PType::I32, Nullability::NonNullable)).then(|| {
-            slots.push(slot);
-            BlockPart::Values
-        })
+        slots.push(slot);
+        Some(BlockPart::Values)
     };
     let seconds = part(seconds, DateTimePartsSlots::SECONDS)?;
     let subseconds = part(subseconds, DateTimePartsSlots::SUBSECONDS)?;

@@ -212,7 +212,10 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     ///
     /// The executor calls this on an array before executing it. The combine must produce exactly
     /// the values `execute` produces. The executor only uses it when every child in the
-    /// returned slots is primitive, of this array's length, and canonical or a block source.
+    /// returned slots is primitive, of this array's length, and canonical or a block source, and
+    /// at least one is a block source; otherwise the array executes, and the executor asks again
+    /// once `execute` has executed a child. An `execute` that needs several children should ask
+    /// for the one most worth combining, typically the block source, last.
     /// Only called on arrays whose dtype is primitive, or an extension type stored as one.
     fn block_combine(
         array: ArrayView<'_, Self>,

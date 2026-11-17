@@ -34,9 +34,13 @@ pub(crate) fn alp_block_op(
         // ALP's execute asks for its patches before its encoded spine, so a fused chain only
         // reaches ALP with them executed; a leaf ALP over a canonical child may still hold
         // encoded patches, which resolving executes.
-        let patches = patches
-            .map(|patches| BlockPatches::try_new(&patches, ctx, |_, value: F| value))
-            .transpose()?;
+        let patches = match patches {
+            Some(patches) => match BlockPatches::try_new(&patches, ctx, |_, value: F| value)? {
+                Some(patches) => Some(patches),
+                None => return Ok(None),
+            },
+            None => None,
+        };
         Ok(Some(
             Box::new(Decode::<F> { exponents, patches }) as Box<dyn BlockOp>
         ))
@@ -64,8 +68,10 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use std::f64::consts::PI;
+    use std::ops::Range;
     use std::sync::LazyLock;
 
     use rstest::rstest;
@@ -75,6 +81,8 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::block::fused_chain_count;
+    use vortex_array::dtype::NativePType;
+    use vortex_array::match_each_integer_ptype;
     use vortex_array::scalar::Scalar;
     use vortex_array::test_harness::trace::trace_op;
     use vortex_buffer::Buffer;
@@ -97,9 +105,10 @@ mod tests {
 
     const LEN: usize = 5000;
 
-    /// ALP over FoR over BitPacked, the layout the compressor writes for decimal floats. Every
-    /// 97th value, when `patched`, is not representable, so ALP patches it.
-    fn alp_for_bp(patched: bool, nullable: bool) -> VortexResult<ArrayRef> {
+    /// ALP over FoR over BitPacked, the layout the compressor writes for decimal floats, of
+    /// `f64` or of `f32` when `single`. Every 97th value, when `patched`, is not representable,
+    /// so ALP patches it.
+    fn alp_for_bp(patched: bool, nullable: bool, single: bool) -> VortexResult<ArrayRef> {
         let mut ctx = SESSION.create_execution_ctx();
         let values = (0..LEN).map(|i| {
             if patched && i % 97 == 0 {
@@ -108,41 +117,36 @@ mod tests {
                 100.0 + (i % 1000) as f64 * 0.25
             }
         });
-        let values = if nullable {
-            PrimitiveArray::from_option_iter(
+        let values = match (single, nullable) {
+            (true, true) => PrimitiveArray::from_option_iter(
+                values
+                    .enumerate()
+                    .map(|(i, v)| (i % 13 != 0).then_some(v as f32)),
+            ),
+            (true, false) => PrimitiveArray::from_iter(values.map(|v| v as f32)),
+            (false, true) => PrimitiveArray::from_option_iter(
                 values.enumerate().map(|(i, v)| (i % 13 != 0).then_some(v)),
-            )
-        } else {
-            PrimitiveArray::from_iter(values)
+            ),
+            (false, false) => PrimitiveArray::from_iter(values),
         };
         let alp = alp_encode(values.as_view(), None, &mut ctx)?;
         assert_eq!(alp.patches().is_some(), patched);
 
         let encoded = alp.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?;
-        let min = encoded
-            .as_slice::<i64>()
-            .iter()
-            .copied()
-            .min()
-            .unwrap_or_default();
-        let shifted = PrimitiveArray::new(
-            encoded
-                .as_slice::<i64>()
-                .iter()
-                .map(|&e| e - min)
-                .collect::<Buffer<i64>>(),
-            encoded.validity()?,
-        );
-        let bit_width = 64
-            - shifted
-                .as_slice::<i64>()
-                .iter()
-                .max()
-                .copied()
-                .unwrap_or(0)
-                .leading_zeros();
+        let (shifted, bit_width, min) = match_each_integer_ptype!(encoded.ptype(), |T| {
+            let values = encoded.as_slice::<T>();
+            let min = values.iter().copied().min().unwrap_or_default();
+            let max = values.iter().copied().max().unwrap_or_default();
+            let shifted = values.iter().map(|&e| e - min).collect::<Buffer<T>>();
+            let bit_width = T::PTYPE.bit_width() as u32 - (max - min).leading_zeros();
+            (
+                PrimitiveArray::new(shifted, encoded.validity()?),
+                bit_width,
+                Scalar::from(min),
+            )
+        });
         let bp = bitpack_encode(&shifted, u8::try_from(bit_width)?, None, &mut ctx)?;
-        let for_bp = FoR::try_new(bp.into_array(), Scalar::from(min))?.into_array();
+        let for_bp = FoR::try_new(bp.into_array(), min)?.into_array();
         Ok(ALP::try_new(for_bp, alp.exponents(), alp.patches())?.into_array())
     }
 
@@ -173,28 +177,43 @@ mod tests {
     /// a block program, ALP extends it with its decode, and the root drives it: each block is
     /// unpacked with its reference added, then decoded and patched into the output.
     #[rstest]
-    #[case::plain(false, false)]
-    #[case::patched(true, false)]
-    #[case::nullable_patched(true, true)]
+    #[case::plain(false, false, false, None)]
+    #[case::patched(true, false, false, None)]
+    #[case::nullable_patched(true, true, false, None)]
+    #[case::single_patched(true, true, true, None)]
+    #[case::sliced_mid_chunk(true, true, false, Some(517..4013))]
+    #[case::sliced_to_a_patch(true, false, false, Some(1023..11 * 97 + 1))]
+    #[case::sliced_single(true, false, true, Some(1000..1100))]
     fn alp_over_for_bp_decodes_per_block(
         #[case] patched: bool,
         #[case] nullable: bool,
+        #[case] single: bool,
+        #[case] rows: Option<Range<usize>>,
     ) -> VortexResult<()> {
-        let array = alp_for_bp(patched, nullable)?;
+        let mut array = alp_for_bp(patched, nullable, single)?;
+        if let Some(rows) = rows {
+            array = array.slice(rows)?;
+        }
+        let len = array.len();
         let alp = array.dtype().to_string();
-        let for_bp = array.as_::<ALP>().encoded().dtype().to_string();
+        let (int, float) = if single {
+            ("i32", "f32")
+        } else {
+            ("i64", "f64")
+        };
+        let for_bp = format!("{int}{}", if nullable { "?" } else { "" });
         let before = fused_chain_count();
         let trace = fused(array)?;
         assert_eq!(fused_chain_count() - before, 1);
         assert_eq!(
             trace,
             format!(
-                "ExecuteSpine slot=0 parent=vortex.alp({alp}, len={LEN}) \
-                 child=fastlanes.for.v2({for_bp}, len={LEN})
-fuse start input=source array=fastlanes.for.v2({for_bp}, len={LEN})
-fuse extend parent=vortex.alp({alp}, len={LEN}) ops=1
-drive input=source ops=1 len={LEN}
-block_op 0 copy i64->f64 scratch0 -> output"
+                "ExecuteSpine slot=0 parent=vortex.alp({alp}, len={len}) \
+                 child=fastlanes.for.v2({for_bp}, len={len})
+fuse start input=source array=fastlanes.for.v2({for_bp}, len={len})
+fuse extend parent=vortex.alp({alp}, len={len}) ops=1
+drive input=source ops=1 len={len}
+block_op 0 copy {int}->{float} scratch0 -> output"
             )
         );
         Ok(())

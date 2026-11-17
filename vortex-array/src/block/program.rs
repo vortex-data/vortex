@@ -6,6 +6,7 @@
 use std::marker::PhantomData;
 use std::ops::Range;
 
+use smallvec::SmallVec;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -210,7 +211,7 @@ impl BlockSource for ZipSource {
         let n = rows.len();
         // Each input's block as a raw pointer: a block lent by a source stays valid until that
         // source is filled again, which is not before the combine has read it.
-        let mut filled = Vec::with_capacity(self.inputs.len());
+        let mut filled = SmallVec::<[_; 4]>::with_capacity(self.inputs.len());
         for (source, buf, ptype) in &mut self.inputs {
             let ptr = match source.fill(rows.clone(), buf)? {
                 SourceBlock::Scratch { offset, len } => {
@@ -235,7 +236,7 @@ impl BlockSource for ZipSource {
             };
             filled.push((ptr, *ptype));
         }
-        let blocks: Vec<BlockIn<'_>> = filled
+        let blocks: SmallVec<[BlockIn<'_>; 4]> = filled
             .into_iter()
             .map(|(ptr, ptype)| BlockIn {
                 ptr,
@@ -256,6 +257,7 @@ impl BlockSource for ZipSource {
             },
         )?;
         check_written(&written, out, n, self.out_ptype)?;
+        // `check_written` proved the combine wrote the `n` values from the start of `scratch`.
         Ok(SourceBlock::Scratch { offset: 0, len: n })
     }
 

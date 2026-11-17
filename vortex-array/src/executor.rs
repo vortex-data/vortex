@@ -553,8 +553,14 @@ fn try_combine(
     kernels: &ParentExecutionKernels,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Result<ArrayRef, ArrayRef>> {
-    if fusable_ptype(&array).is_none()
-        || has_execute_parent_kernels(kernels, &array)
+    // The cheap refusals first: most arrays have no combine.
+    if fusable_ptype(&array).is_none() || array.is::<Fused>() {
+        return Ok(Err(array));
+    }
+    let Some(spec) = array.block_combine(ctx)? else {
+        return Ok(Err(array));
+    };
+    if has_execute_parent_kernels(kernels, &array)
         || stack.last().is_some_and(|frame| {
             frame.parent_builder.is_some()
                 || kernels.contains_key(&execute_parent_key(
@@ -567,6 +573,7 @@ fn try_combine(
     }
     combine_children(
         array,
+        spec,
         |child| !has_execute_parent_kernels(kernels, child),
         ctx,
     )

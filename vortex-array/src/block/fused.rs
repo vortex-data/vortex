@@ -19,6 +19,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::registry::CachedId;
 
+use super::BlockCombineSpec;
 use super::BlockProgram;
 use super::BlockSource;
 use super::ProgramInput;
@@ -165,7 +166,7 @@ impl VTable for Fused {
         let validity = state.validity.clone().execute(ctx)?;
         let values = program.run(validity, ctx)?.into_array();
         Ok(ExecutionResult::done(match array.dtype() {
-            DType::Extension(ext) => ExtensionArray::new(ext.clone(), values).into_array(),
+            DType::Extension(ext) => ExtensionArray::try_new(ext.clone(), values)?.into_array(),
             _ => values,
         }))
     }
@@ -234,11 +235,13 @@ pub(crate) fn fuse_into_parent(
     Ok(Ok(fused))
 }
 
-/// Combine the children of `array`, which has not executed, into a [`Fused`] array standing for
-/// `array`, if `array` combines blocks of its children and each of them is canonical or a block
-/// source that `uses_source` allows. Returns `array` back otherwise.
+/// Combine the children of `array`, which has not executed and whose combine is `spec`, into a
+/// [`Fused`] array standing for `array`, if each child the combine reads is canonical or a block
+/// source that `uses_source` allows, and at least one is a source: combining only canonical
+/// children saves no buffer. Returns `array` back otherwise.
 pub(crate) fn combine_children(
     array: ArrayRef,
+    spec: BlockCombineSpec,
     uses_source: impl Fn(&ArrayRef) -> bool,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Result<ArrayRef, ArrayRef>> {
@@ -248,29 +251,31 @@ pub(crate) fn combine_children(
     if array.is_empty() {
         return Ok(Err(array));
     }
-    let Some(spec) = array.block_combine(ctx)? else {
-        return Ok(Err(array));
-    };
-    let mut inputs = Vec::with_capacity(spec.slots.len());
-    for slot in spec.slots {
+    // Every child is checked before any source is built, since building one can execute patches.
+    let mut children = Vec::with_capacity(spec.slots.len());
+    for &slot in &spec.slots {
         let Some(child) = array.slots().get(slot).and_then(Option::as_ref) else {
             return Ok(Err(array));
         };
         let Some(child_ptype) = fusable_ptype(child) else {
             return Ok(Err(array));
         };
-        vortex_ensure_eq!(
-            child.len(),
-            array.len(),
-            "a combined child has its parent's length"
-        );
+        let canonical = child.is::<Primitive>();
+        if child.len() != array.len() || !(canonical || uses_source(child)) {
+            return Ok(Err(array));
+        }
+        children.push((child, child_ptype, canonical));
+    }
+    if children.iter().all(|&(_, _, canonical)| canonical) {
+        return Ok(Err(array));
+    }
+    let mut inputs = Vec::with_capacity(children.len());
+    for (child, child_ptype, _) in children {
         let source = if let Some(primitive) = child.as_opt::<Primitive>() {
             match_each_native_ptype!(child_ptype, |T| {
                 Box::new(PrimitiveSource::new(primitive.to_buffer::<T>())) as Box<dyn BlockSource>
             })
-        } else if uses_source(child)
-            && let Some(source) = child.block_source(ctx)?
-        {
+        } else if let Some(source) = child.block_source(ctx)? {
             source
         } else {
             // The child is not ready: the array executes, and is combined again once it is.
