@@ -23,6 +23,7 @@ members = [
     "vortex-layout",
     "vortex-scan",
     "vortex-file",
+    "vortex-table",
     "vortex-ipc",
     "vortex",
     "vortex-bench",
