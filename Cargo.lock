@@ -12034,6 +12034,22 @@ dependencies = [
 [[package]]
 name = "vortex-index"
 version = "0.1.0"
+dependencies = [
+ "futures",
+ "prost 0.14.6",
+ "roaring",
+ "rstest",
+ "tokio",
+ "vortex",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-file",
+ "vortex-io",
+ "vortex-layout",
+ "vortex-scan",
+ "vortex-session",
+]
 
 [[package]]
 name = "vortex-io"

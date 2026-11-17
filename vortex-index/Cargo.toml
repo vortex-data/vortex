@@ -15,3 +15,22 @@ version = { workspace = true }
 
 [lints]
 workspace = true
+
+[dependencies]
+futures = { workspace = true, features = ["alloc", "async-await"] }
+prost = { workspace = true }
+roaring = { workspace = true }
+vortex-array = { workspace = true }
+vortex-error = { workspace = true }
+vortex-file = { workspace = true }
+vortex-io = { workspace = true }
+vortex-layout = { workspace = true }
+vortex-scan = { workspace = true }
+vortex-session = { workspace = true }
+
+[dev-dependencies]
+vortex-buffer = { workspace = true }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+vortex = { workspace = true, features = ["files", "tokio"] }
+vortex-io = { workspace = true, features = ["tokio"] }

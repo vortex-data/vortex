@@ -5,16 +5,21 @@
 //! show how indexes can be built on Vortex's scanning API, and its API may change or be removed
 //! without notice. It is not published, and no other crate in the workspace depends on it.
 //!
-//! The indexes it will hold are ordinary Vortex files: an index is written with the Vortex
-//! writer and read back through scan v2, and a search is a sequence of scans over the index file
-//! followed by scans of only the data rows it selects. Run as planners under a plan driver, the
-//! index reads and the data reads they lead to are scheduled and coalesced like any other scan.
-//!
-//! Planned contents, each added separately:
-//!
-//! - the shared machinery: index rows read through scan v2, searches expressed as steps of
-//!   reads, and standalone index files bound to the data files they cover;
-//! - index kinds: a trigram index for `LIKE`, an inverted index for full-text search and BM25,
-//!   and an IVF index for vector search;
-//! - a planner that turns an index search into a plan over the data files it selects, and an
-//!   example that runs one.
+//! An index is an ordinary Vortex file. It is written with the Vortex writer from the
+//! batches of an index kind, which implements the `vortex.indexed` layout's
+//! [`IndexVTable`](vortex_layout::layouts::indexed::IndexVTable), and read back through scan v2.
+//! A lookup takes a filter over the indexed column and answers with the rows of each covered data
+//! file that may match, ready to pass to that file's scan. The crate plans scans and never runs
+//! them: the caller's driver does. See [`standalone`].
+
+pub mod standalone;
+
+#[cfg(test)]
+mod tests;
+
+pub use standalone::CoveredFile;
+pub use standalone::FileMatch;
+pub use standalone::FileRows;
+pub use standalone::IndexFile;
+pub use standalone::IndexFileBuilder;
+pub use standalone::Lookup;
