@@ -267,12 +267,9 @@ impl ToDuckDBScalar for ExtScalar<'_> {
         Ok(match temporal {
             TemporalMetadata::Timestamp(unit, tz) => {
                 if tz.is_some() {
-                    // TIMESTAMP_TZ stores time in UTC microseconds, tz is
-                    // a display sign
-                    return Ok(Value::new_timestamp_tz(timestamp_tz_micros(
-                        *unit,
-                        value()?,
-                    )?));
+                    // TIMESTAMP_TZ stores time in UTC microseconds and
+                    // TIMESTAMP_TZ_NS in UTC nanoseconds, tz is a display sign
+                    return timestamp_tz_value(*unit, value()?);
                 }
                 match unit {
                     TimeUnit::Nanoseconds => Value::new_timestamp_ns(value()?),
@@ -310,15 +307,21 @@ fn ext_logical_type(scalar: &ExtScalar<'_>) -> VortexResult<LogicalType> {
     LogicalType::try_from(&DType::Extension(scalar.ext_dtype().clone()))
 }
 
-fn timestamp_tz_micros(unit: TimeUnit, raw: i64) -> VortexResult<i64> {
+/// Converts a zoned timestamp to a `TIMESTAMP_TZ_NS` value if it is in nanoseconds, and otherwise
+/// to a `TIMESTAMP_TZ` value, rescaling seconds and milliseconds to microseconds.
+fn timestamp_tz_value(unit: TimeUnit, raw: i64) -> VortexResult<Value> {
     let overflow = || vortex_err!("timestamp_tz overflow rescaling {raw}{unit} to micros");
-    match unit {
-        TimeUnit::Seconds => raw.checked_mul(1_000_000).ok_or_else(overflow),
-        TimeUnit::Milliseconds => raw.checked_mul(1_000).ok_or_else(overflow),
-        TimeUnit::Microseconds => Ok(raw),
-        TimeUnit::Nanoseconds => Ok(raw / 1_000),
+    Ok(match unit {
+        TimeUnit::Seconds => {
+            Value::new_timestamp_tz(raw.checked_mul(1_000_000).ok_or_else(overflow)?)
+        }
+        TimeUnit::Milliseconds => {
+            Value::new_timestamp_tz(raw.checked_mul(1_000).ok_or_else(overflow)?)
+        }
+        TimeUnit::Microseconds => Value::new_timestamp_tz(raw),
+        TimeUnit::Nanoseconds => Value::new_timestamp_tz_ns(raw),
         TimeUnit::Days => vortex_bail!("timestamp_tz cannot have a day time unit"),
-    }
+    })
 }
 
 impl TryFrom<Value> for Scalar {
@@ -455,6 +458,16 @@ impl<'a> TryFrom<&'a ValueRef> for Scalar {
                 Scalar::try_new(
                     DType::Primitive(I64, Nullable),
                     Some(ScalarValue::from(micros)),
+                )?,
+            )),
+            ExtractedValue::TimestampTzNs(nanos) => Ok(Scalar::extension::<Timestamp>(
+                TimestampOptions {
+                    unit: TimeUnit::Nanoseconds,
+                    tz: Some("UTC".into()),
+                },
+                Scalar::try_new(
+                    DType::Primitive(I64, Nullable),
+                    Some(ScalarValue::from(nanos)),
                 )?,
             )),
             ExtractedValue::Decimal(precision, scale, value) => Ok(Scalar::decimal(
@@ -773,12 +786,6 @@ mod tests {
         1_704_088_800_000_000,
         1_704_088_800_000_000
     )]
-    #[case::nanos_utc(
-        TimeUnit::Nanoseconds,
-        "UTC",
-        1_704_088_800_123_456_789,
-        1_704_088_800_123_456
-    )]
     fn try_from_timestamp_tz_scalar(
         #[case] unit: TimeUnit,
         #[case] tz: &str,
@@ -794,6 +801,28 @@ mod tests {
             panic!("expected timestamp_tz");
         };
         assert_eq!(micros, expected_micros);
+    }
+
+    #[test]
+    fn try_from_timestamp_tz_ns_scalar() -> VortexResult<()> {
+        let raw = 1_704_088_800_123_456_789;
+        let scalar = timestamp_tz_scalar(TimeUnit::Nanoseconds, "UTC", raw);
+
+        let value = Value::try_from(scalar.clone())?;
+        assert_eq!(
+            value.logical_type().as_type_id(),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ_NS
+        );
+        let ExtractedValue::TimestampTzNs(nanos) = value.extract() else {
+            panic!("expected timestamp_tz_ns");
+        };
+        assert_eq!(nanos, raw);
+
+        let restored = Scalar::try_from(value)?;
+        assert_eq!(restored.dtype(), &scalar.dtype().as_nullable());
+        assert_eq!(restored, scalar);
+
+        Ok(())
     }
 
     #[test]
