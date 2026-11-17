@@ -13,6 +13,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use crate::dtype::Claim;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::extension::ExtDType;
@@ -45,6 +46,11 @@ impl ExtDTypeRef {
     /// Returns the storage dtype of the extension type.
     pub fn storage_dtype(&self) -> &DType {
         self.0.storage_dtype()
+    }
+
+    /// Returns the claims listed by [`ExtVTable::claims`] for this dtype's metadata.
+    pub fn claims(&self) -> &'static [Claim] {
+        self.0.claims()
     }
 
     /// Returns the nullability of the storage dtype.
