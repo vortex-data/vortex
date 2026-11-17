@@ -410,10 +410,7 @@ impl Sequence {
 
     fn stats(multiplier: PValue, length: usize) -> StatsSet {
         let is_sorted = Self::is_sorted(multiplier, length, IsSortedOptions::default());
-        let strict = IsSortedOptions {
-            strict: true,
-            ..Default::default()
-        };
+        let strict = IsSortedOptions::default().with_strict(true);
         let is_strict_sorted = Self::is_sorted(multiplier, length, strict);
 
         // SAFETY: we don't have duplicate stats.

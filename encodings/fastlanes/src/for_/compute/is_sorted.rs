@@ -61,15 +61,17 @@ impl DynAggregateKernel for FoRIsSortedKernel {
 mod test {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
     use vortex_array::aggregate_fn::fns::is_sorted::SortDirection;
-    use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
     use vortex_array::aggregate_fn::fns::is_sorted::is_sorted_with_options;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::FoRData;
@@ -81,94 +83,32 @@ mod test {
         session
     });
 
-    #[test]
-    fn test_sorted() {
+    #[rstest]
+    #[case::asc_crosses_zero(buffer![-1i8, 0, i8::MAX], SortDirection::Asc, true)]
+    #[case::asc_full_range(buffer![i8::MIN, 0, i8::MAX], SortDirection::Asc, true)]
+    #[case::asc_four_values(buffer![i8::MIN, 0, 30, 127], SortDirection::Asc, true)]
+    #[case::asc_negative_from_min(buffer![i8::MIN, -3, -1], SortDirection::Asc, true)]
+    #[case::asc_negative(buffer![-10i8, -3, -1], SortDirection::Asc, true)]
+    #[case::asc_unsorted(buffer![-10i8, -11, -1], SortDirection::Asc, false)]
+    #[case::asc_unsorted_through_min(buffer![-10i8, i8::MIN, -1], SortDirection::Asc, false)]
+    #[case::desc_full_range(buffer![i8::MAX, 0, -1, i8::MIN], SortDirection::Desc, true)]
+    #[case::desc_negative(buffer![-1i8, -3, -10], SortDirection::Desc, true)]
+    #[case::desc_ascending_input(buffer![i8::MIN, 0, i8::MAX], SortDirection::Desc, false)]
+    fn test_sorted(
+        #[case] values: Buffer<i8>,
+        #[case] direction: SortDirection,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
+        let array = FoRData::encode(PrimitiveArray::new(values, Validity::NonNullable), &mut ctx)?;
+        let options = IsSortedOptions::default().with_direction(direction);
 
-        let a = PrimitiveArray::new(buffer![-1, 0, i8::MAX], Validity::NonNullable);
-        let b = FoRData::encode(a, &mut ctx).unwrap();
-        assert!(
-            is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
+        assert_eq!(
+            is_sorted_with_options(&array.clone().into_array(), options, &mut ctx)?,
+            expected,
             "{}",
-            b.encoded().display_values(&ctx)
+            array.encoded().display_values(&ctx)
         );
-
-        let a = PrimitiveArray::new(buffer![i8::MIN, 0, i8::MAX], Validity::NonNullable);
-        let b = FoRData::encode(a, &mut ctx).unwrap();
-        assert!(
-            is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
-            "{}",
-            b.encoded().display_values(&ctx)
-        );
-
-        let a = PrimitiveArray::new(buffer![i8::MIN, 0, 30, 127], Validity::NonNullable);
-        let b = FoRData::encode(a, &mut ctx).unwrap();
-        assert!(
-            is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
-            "{}",
-            b.encoded().display_values(&ctx)
-        );
-
-        let a = PrimitiveArray::new(buffer![i8::MIN, -3, -1], Validity::NonNullable);
-        let b = FoRData::encode(a, &mut ctx).unwrap();
-        assert!(
-            is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
-            "{}",
-            b.encoded().display_values(&ctx)
-        );
-
-        let a = PrimitiveArray::new(buffer![-10, -3, -1], Validity::NonNullable);
-        let b = FoRData::encode(a, &mut ctx).unwrap();
-        assert!(
-            is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
-            "{}",
-            b.encoded().display_values(&ctx)
-        );
-
-        let a = PrimitiveArray::new(buffer![-10, -11, -1], Validity::NonNullable);
-        let b = FoRData::encode(a, &mut ctx).unwrap();
-        assert!(
-            !is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
-            "{}",
-            b.encoded().display_values(&ctx)
-        );
-
-        let a = PrimitiveArray::new(buffer![-10, i8::MIN, -1], Validity::NonNullable);
-        let b = FoRData::encode(a, &mut ctx).unwrap();
-        assert!(
-            !is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
-            "{}",
-            b.encoded().display_values(&ctx)
-        );
-
-        // Tests for desc sort
-        let desc = IsSortedOptions {
-            strict: false,
-            direction: SortDirection::Desc,
-        };
-
-        let a = PrimitiveArray::new(buffer![i8::MAX, 0, -1, i8::MIN], Validity::NonNullable);
-        let b = FoRData::encode(a, &mut ctx).unwrap();
-        assert!(
-            is_sorted_with_options(&b.clone().into_array(), desc, &mut ctx).unwrap(),
-            "{}",
-            b.encoded().display_values(&ctx)
-        );
-
-        let a = PrimitiveArray::new(buffer![-1, -3, -10], Validity::NonNullable);
-        let b = FoRData::encode(a, &mut ctx).unwrap();
-        assert!(
-            is_sorted_with_options(&b.clone().into_array(), desc, &mut ctx).unwrap(),
-            "{}",
-            b.encoded().display_values(&ctx)
-        );
-
-        let a = PrimitiveArray::new(buffer![i8::MIN, 0, i8::MAX], Validity::NonNullable);
-        let b = FoRData::encode(a, &mut ctx).unwrap();
-        assert!(
-            !is_sorted_with_options(&b.clone().into_array(), desc, &mut ctx).unwrap(),
-            "{}",
-            b.encoded().display_values(&ctx)
-        );
+        Ok(())
     }
 }

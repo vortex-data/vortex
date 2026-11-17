@@ -14,6 +14,7 @@ use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::first::First;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
+use vortex_array::aggregate_fn::fns::is_sorted::NullOrder;
 use vortex_array::aggregate_fn::fns::is_sorted::SortDirection;
 use vortex_array::aggregate_fn::fns::max::Max;
 use vortex_array::aggregate_fn::fns::min::Min;
@@ -83,26 +84,26 @@ fn check(array: &ArrayRef, aggregate: AggregateFnRef, served: bool) -> VortexRes
 
 fn aggregates() -> Vec<AggregateFnRef> {
     let options = NumericalAggregateOpts::default();
+    let sorted_options = IsSortedOptions::default();
     vec![
         MinMax.bind(options),
         Min.bind(options),
         Max.bind(options),
-        IsSorted.bind(IsSortedOptions {
-            strict: false,
-            direction: SortDirection::Asc,
-        }),
-        IsSorted.bind(IsSortedOptions {
-            strict: true,
-            direction: SortDirection::Asc,
-        }),
-        IsSorted.bind(IsSortedOptions {
-            strict: false,
-            direction: SortDirection::Desc,
-        }),
-        IsSorted.bind(IsSortedOptions {
-            strict: true,
-            direction: SortDirection::Desc,
-        }),
+        IsSorted.bind(sorted_options),
+        IsSorted.bind(sorted_options.with_strict(true)),
+        IsSorted.bind(sorted_options.with_direction(SortDirection::Desc)),
+        IsSorted.bind(
+            sorted_options
+                .with_strict(true)
+                .with_direction(SortDirection::Desc),
+        ),
+        IsSorted.bind(sorted_options.with_null_order(NullOrder::Last)),
+        IsSorted.bind(
+            sorted_options
+                .with_strict(true)
+                .with_direction(SortDirection::Desc)
+                .with_null_order(NullOrder::Last),
+        ),
         Sum.bind(options),
     ]
 }
@@ -113,6 +114,7 @@ fn aggregates() -> Vec<AggregateFnRef> {
 #[case::descending(vec![8, 6, 4, 2, 0, -1, -3, -5, -7, -9], Validity::NonNullable)]
 #[case::unsorted(vec![8, -7, -5, -3, -1, 0, 2, 4, 6, -9], Validity::NonNullable)]
 #[case::partially_valid(vec![-9, -7, -5, -3, -1, 0, 2, 4, 6, 8], Validity::from_iter([false, true, true, true, true, true, true, true, true, true]))]
+#[case::trailing_null(vec![-9, -7, -5, -3, -1, 0, 2, 4, 6, 8], Validity::from_iter([true, true, true, true, true, true, true, true, true, false]))]
 #[case::all_null(vec![0; 10], Validity::AllInvalid)]
 #[case::empty(vec![], Validity::NonNullable)]
 fn test_aggregates(

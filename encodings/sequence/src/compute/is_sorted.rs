@@ -111,7 +111,9 @@ mod tests {
         #[values(false, true)] strict: bool,
         #[values(SortDirection::Asc, SortDirection::Desc)] direction: SortDirection,
     ) -> VortexResult<()> {
-        let options = IsSortedOptions { strict, direction };
+        let options = IsSortedOptions::default()
+            .with_strict(strict)
+            .with_direction(direction);
         assert_kernel_agrees_with_decoded(10i64, multiplier, length, options)
     }
 
@@ -121,7 +123,9 @@ mod tests {
         #[values(false, true)] strict: bool,
         #[values(SortDirection::Asc, SortDirection::Desc)] direction: SortDirection,
     ) -> VortexResult<()> {
-        let options = IsSortedOptions { strict, direction };
+        let options = IsSortedOptions::default()
+            .with_strict(strict)
+            .with_direction(direction);
         assert_kernel_agrees_with_decoded(10u64, multiplier, 2, options)
     }
 
