@@ -83,8 +83,13 @@ def test_to_polars_with_projection_and_filter(vxf: vx.VortexFile) -> None:
 def test_polars_time_literals(tmp_path):
     frame = pl.DataFrame({"id": [0, 1, 2, 3], "x": [time(11), time(12), None, time(13)]})
     expr = pl.col("x") >= time(12)
+    array = vx.array(frame.to_arrow())
+    pushed, residual = decompose_predicate(expr, array)
+    assert pushed is not None
+    assert residual is None
+
     path = tmp_path / "time_literals.vortex"
-    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    vx.io.write(array, str(path))
     expected_frame = frame.lazy().filter(expr).collect()
     actual = vx.open(str(path)).to_polars().filter(expr).collect()
     assert_frame_equal(actual, expected_frame)
@@ -169,8 +174,13 @@ def test_is_not_null_predicate_pushdown(tmp_path):
 def test_polars_date_literals(tmp_path):
     frame = pl.DataFrame({"id": [0, 1, 2, 3], "x": [date(2024, 1, 1), date(2024, 1, 2), None, date(2024, 1, 3)]})
     expr = pl.col("x") >= date(2024, 1, 2)
+    array = vx.array(frame.to_arrow())
+    pushed, residual = decompose_predicate(expr, array)
+    assert pushed is not None
+    assert residual is None
+
     path = tmp_path / "date_literals.vortex"
-    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    vx.io.write(array, str(path))
     expected_frame = frame.lazy().filter(expr).collect()
     actual = vx.open(str(path)).to_polars().filter(expr).collect()
     assert_frame_equal(actual, expected_frame)
@@ -258,9 +268,14 @@ def test_datetime_predicate_pushdown(tmp_path):
             ),
         }
     )
-    path = tmp_path / "datetimes.vortex"
-    vx.io.write(vx.array(table), str(path))
+    array = vx.array(table)
     predicate = pl.col("value") >= datetime(2026, 9, 17, tzinfo=UTC)
+    pushed, residual = decompose_predicate(predicate, array)
+    assert pushed is not None
+    assert residual is None
+
+    path = tmp_path / "datetimes.vortex"
+    vx.io.write(array, str(path))
     expected = pl.DataFrame(table).lazy().filter(predicate).collect()
     result = vx.open(str(path)).to_polars().filter(predicate).collect()
     assert_frame_equal(result, expected)

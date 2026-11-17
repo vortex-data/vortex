@@ -194,7 +194,7 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
             value = scalar["Int64"]
             dtype = "Int64"
         elif "Time" in scalar:
-            return ve.literal(_dtype.time("ns"), scalar["Time"])
+            return _temporal_literal(scalar["Time"], pa.time64("ns"))
         elif "Decimal" in scalar:
             # Polars <1.35 omits the precision: [value, scale].
             if len(scalar["Decimal"]) == 2:
@@ -204,7 +204,7 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
                 value, precision, scale = scalar["Decimal"]
             return ve.literal(_dtype.decimal(precision=precision, scale=scale), value)
         elif "Date" in scalar:
-            return ve.literal(_dtype.date("days"), scalar["Date"])
+            return _temporal_literal(scalar["Date"], pa.date32())
         elif "Binary" in scalar:
             return ve.literal(_dtype.binary(), bytes(scalar["Binary"]))
         elif "Datetime" in scalar:
@@ -359,5 +359,9 @@ def _datetime_literal(data: list[Any]) -> ve.Expr:
         raise NotImplementedError(f"Unsupported Polars date time unit: {unit}")
     if isinstance(tz, dict):
         tz = tz["inner"]
-    dtype = _dtype.timestamp(units[unit], tz=tz, nullable=value is None)
-    return ve.literal(dtype, value)
+    return _temporal_literal(value, pa.timestamp(units[unit], tz=tz))
+
+
+def _temporal_literal(value: int | None, arrow_type: pa.DataType) -> ve.Expr:
+    array = Array.from_arrow(pa.array([value], type=arrow_type))
+    return ve.literal(array.dtype, array.scalar_at(0))
