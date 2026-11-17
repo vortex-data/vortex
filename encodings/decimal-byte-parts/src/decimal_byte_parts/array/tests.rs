@@ -285,6 +285,7 @@ fn test_unused_buffer_of_values_is_ignored_for_null_rows() -> VortexResult<()> {
             buffer![0i128, 0, 11],
             DecimalDType::new(38, 2),
             Validity::from_iter([false, false, true]),
+            &mut ctx,
         ),
         &mut ctx
     );

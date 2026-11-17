@@ -162,6 +162,7 @@ fn canonical_reference(
         canonical_type,
         decimal_dtype,
         validity,
+        &mut SESSION.create_execution_ctx(),
     )
 }
 
@@ -355,6 +356,7 @@ fn invalid_validity_children_fail(
         buffer![1_234_567i32, 0, -9_999_999],
         DecimalDType::new(7, 3),
         Validity::from_iter([true, false, true]),
+        &mut SESSION.create_execution_ctx(),
     ),
     DecimalType::I32
 )]

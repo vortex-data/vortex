@@ -172,6 +172,7 @@ fn serialize_and_decode(array: &ArrayRef, session: &VortexSession) -> VortexResu
     &DecimalArray::new(
         buffer![i256::from_parts(1 << 127, 0); 3],
         DecimalDType::new(76, 0), Validity::AllInvalid,
+        &mut SESSION.create_execution_ctx(),
     ),
     &mut SESSION.create_execution_ctx(),
 ))]
@@ -596,7 +597,7 @@ fn wider_legacy_msp_zeroes_null_slots(
         .execute::<PrimitiveArray>(&mut ctx)?;
     assert_eq!(msp.as_slice::<i16>(), expected_slots.as_slice());
 
-    let expected = DecimalArray::new(expected_slots, decimal_dtype, validity);
+    let expected = DecimalArray::new(expected_slots, decimal_dtype, validity, &mut ctx);
     assert_arrays_eq!(decoded, expected, &mut ctx);
 
     Ok(())

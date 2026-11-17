@@ -117,7 +117,12 @@ mod arrays {
     }
 
     fn bench_split(bencher: Bencher, values_type: DecimalType, len: usize, validity: Validity) {
-        let decimal = decimal_array(values_type, len, validity);
+        let decimal = decimal_array(
+            values_type,
+            len,
+            validity,
+            &mut SESSION.create_execution_ctx(),
+        );
         mark_optimized(decimal.as_array(), &SESSION).vortex_expect("mark the decimal as optimized");
         let lower_part_count = full_width_lower_part_count(values_type);
 

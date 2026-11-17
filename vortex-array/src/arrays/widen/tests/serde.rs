@@ -128,6 +128,7 @@ fn decimal_widen_writes_narrow_bytes() -> VortexResult<()> {
 ), 38)]
 #[case::all_null(DecimalArray::new(
     buffer![i32::MIN, i32::MAX], DecimalDType::new(9, 2), Validity::AllInvalid,
+    &mut SESSION.create_execution_ctx(),
 ), 38)]
 #[case::empty(DecimalArray::from_iter(Vec::<i32>::new(), DecimalDType::new(9, 2)), 38)]
 #[case::i128_child(DecimalArray::from_iter(
@@ -227,6 +228,7 @@ fn serialization_does_not_execute_validity() -> VortexResult<()> {
         buffer![1i32, 2],
         DecimalDType::new(9, 2),
         Validity::Array(validity),
+        &mut SESSION.create_execution_ctx(),
     );
     let widen = widen_over(
         child,

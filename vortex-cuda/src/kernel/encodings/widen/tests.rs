@@ -49,6 +49,7 @@ async fn upload(child: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Arr
                 parts.values_type,
                 parts.decimal_dtype,
                 parts.validity,
+                ctx.execution_ctx(),
             )?
             .into_array())
         }
@@ -164,14 +165,15 @@ async fn test_decimal_pairs<T: NativeDecimalType + Bounded>(
         values[3] = T::max_value();
     }
 
+    let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?.with_dispatch_mode(mode);
     let child = DecimalArray::new(
         Buffer::from_iter(values),
         DecimalDType::new(child_precision, 1),
         validity(nullable, 5),
+        ctx.execution_ctx(),
     )
     .into_array();
     let dtype = DType::Decimal(DecimalDType::new(precision, 1), child.dtype().nullability());
-    let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?.with_dispatch_mode(mode);
     let device_child = upload(child.clone(), &mut ctx).await?;
 
     check_widen(child, device_child, dtype, &mut ctx).await

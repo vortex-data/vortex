@@ -46,7 +46,9 @@ pub(super) fn execute(
     let validity = array.as_ref().validity()?;
     let dtype = DecimalDType::try_from(array.dtype())?;
     let output = match_each_decimal_value_type!(dtype.canonical_values_type(), |T| {
-        DecimalArray::new(gather_values::<T>(&array, dtype, ctx)?, dtype, validity)
+        let values = gather_values::<T>(&array, dtype, ctx)?;
+        // SAFETY: Values and validity select the same rows from inputs with the same decimal dtype.
+        unsafe { DecimalArray::new_unchecked(values, dtype, validity) }
     });
 
     Ok(ExecutionResult::done(output))
@@ -168,6 +170,7 @@ mod tests {
     #[case::i128(38)]
     #[case::i256(76)]
     fn test_decimal_interleave(#[case] precision: u8) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DecimalDType::new(precision, 2);
         match_each_decimal_value_type!(dtype.canonical_values_type(), |T| {
             let min = T::MIN_BY_PRECISION[usize::from(precision)];
@@ -177,16 +180,14 @@ mod tests {
                 Buffer::copy_from([min, T::MIN, max]),
                 dtype,
                 Validity::from_iter([true, false, true]),
+                &mut ctx,
             );
-            let non_nullable = DecimalArray::new(
-                Buffer::copy_from([max, min, zero]),
-                dtype,
-                Validity::NonNullable,
-            );
+            let non_nullable = DecimalArray::from_iter([max, min, zero], dtype);
             let expected = DecimalArray::new(
                 Buffer::copy_from([zero, min, zero, max, max, min]),
                 dtype,
                 Validity::from_iter([true, true, false, true, true, true]),
+                &mut ctx,
             );
 
             assert_interleaved(
@@ -223,11 +224,12 @@ mod tests {
             let seven = <T as BigCast>::from(7i8).vortex_expect("7 fits every decimal type");
             let minus_seven =
                 <T as BigCast>::from(-7i8).vortex_expect("-7 fits every decimal type");
-            let column = DecimalArray::new(buffer![seven], dtype, Validity::NonNullable);
+            let column = DecimalArray::from_iter([seven], dtype);
             let expected = DecimalArray::new(
                 buffer![minus_seven, seven, minus_seven, minus_seven],
                 dtype,
                 validity,
+                &mut SESSION.create_execution_ctx(),
             );
 
             assert_interleaved(
@@ -240,6 +242,7 @@ mod tests {
 
     #[test]
     fn test_decimal_interleave_widen_and_canonical() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DecimalDType::new(9, 0);
         let child = DecimalArray::from_iter([1i8, -2], DecimalDType::new(2, 0));
         let narrow = WidenArray::try_new(
@@ -250,11 +253,13 @@ mod tests {
             buffer![3i32, i32::MIN, i32::MAX],
             dtype,
             Validity::from_iter([true, false, false]),
+            &mut ctx,
         );
         let expected = DecimalArray::new(
             buffer![3i32, -2, 0, 1, 0],
             dtype,
             Validity::from_iter([true, true, false, true, false]),
+            &mut ctx,
         );
 
         assert_interleaved(
@@ -267,7 +272,7 @@ mod tests {
     #[test]
     fn test_decimal_interleave_empty() -> VortexResult<()> {
         let dtype = DecimalDType::new(9, 0);
-        let empty = DecimalArray::new(Buffer::<i32>::empty(), dtype, Validity::NonNullable);
+        let empty = DecimalArray::from_iter::<i32, _>([], dtype);
         let expected = empty.clone();
 
         assert_interleaved(

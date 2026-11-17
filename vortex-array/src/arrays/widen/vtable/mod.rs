@@ -151,10 +151,11 @@ fn copy_decimal_values(
         copy_to_canonical_width(values.buffer::<T>().as_slice(), &mask, decimal_dtype)?
     });
 
-    Ok(DecimalArray::new_handle(
+    // The copy checks precision while converting each valid value.
+    DecimalArray::try_new_handle_from_trusted_values(
         buffer_handle,
         decimal_dtype.canonical_values_type(),
         decimal_dtype,
         validity,
-    ))
+    )
 }

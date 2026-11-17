@@ -529,12 +529,14 @@ impl DecimalExportCase {
                 spread_values::<i64>(-MAX_P18, MAX_P18),
                 decimal_dtype,
                 Validity::NonNullable,
+                &mut SESSION.create_execution_ctx(),
             )
             .into_array(),
             Self::CanonicalI128P38 => DecimalArray::new(
                 spread_values::<i128>(-MAX_P18, MAX_P18),
                 decimal_dtype,
                 Validity::NonNullable,
+                &mut SESSION.create_execution_ctx(),
             )
             .into_array(),
             Self::MspI32P18 => decimal_byte_parts(

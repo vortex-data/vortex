@@ -144,7 +144,13 @@ impl WidenArray {
         }
 
         if values_type == decimal_dtype.canonical_values_type() {
-            let array = DecimalArray::try_new_handle(values, values_type, decimal_dtype, validity)?;
+            // A canonical wire node can reuse its buffer without reading the values.
+            let array = DecimalArray::try_new_handle_from_trusted_values(
+                values,
+                values_type,
+                decimal_dtype,
+                validity,
+            )?;
 
             return Ok(array.into_array());
         }
@@ -327,7 +333,12 @@ fn build_canonical_decimal<F: NativeDecimalType>(
         copy_to_canonical_width(values.as_slice(), mask, decimal_dtype)?
     };
 
-    DecimalArray::try_new_handle(buffer, values_type, decimal_dtype, validity.clone())
+    DecimalArray::try_new_handle_from_trusted_values(
+        buffer,
+        values_type,
+        decimal_dtype,
+        validity.clone(),
+    )
 }
 
 /// Represents a cached bound using the child dtype.

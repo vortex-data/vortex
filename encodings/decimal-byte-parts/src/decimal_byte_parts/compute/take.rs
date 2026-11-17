@@ -92,6 +92,7 @@ mod tests {
             Buffer::from(vec![1i128 << 70, 2, 3]),
             DecimalDType::new(38, 2),
             Validity::NonNullable,
+            &mut SESSION.create_execution_ctx(),
         );
         let indices = buffer![0u64, 2].into_array();
         let taken = DecimalByteParts::encode(&decimal, &mut SESSION.create_execution_ctx())?
@@ -114,11 +115,13 @@ mod tests {
         Buffer::from(vec![1i128 << 70, 2, 3]),
         DecimalDType::new(38, 2),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     ))]
     #[case::three_lower_parts(DecimalArray::new(
         Buffer::from(vec![i256::from_parts(1 << 70, 1), i256::from_parts(2, 0), i256::from_parts(3, 0)]),
         DecimalDType::new(76, 2),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     ))]
     fn take_with_nullable_indices(#[case] decimal: DecimalArray) -> VortexResult<()> {
         let session = VortexSession::empty();

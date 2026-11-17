@@ -473,7 +473,9 @@ pub fn runend_decode_decimal(
                 ctx.allocator(),
             )
         });
-        DecimalArray::new(decoded, values.decimal_dtype(), validity).into_array()
+        // SAFETY: Decoding repeats each value and its validity for the same run length.
+        unsafe { DecimalArray::new_unchecked(decoded, values.decimal_dtype(), validity) }
+            .into_array()
     }))
 }
 
