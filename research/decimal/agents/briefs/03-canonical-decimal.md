@@ -1733,7 +1733,8 @@ pub fn try_new_handle(
 - The `ctx` follows `VarBinViewArray::try_new`
   (`vortex-array/src/arrays/varbinview/array.rs:230-237`), which executes its validity for its view
   check.
-- A device buffer skips the value check, as VarBin and ListView skip their host-only checks
+- Run the value check only if the values buffer and every buffer in the validity are on the
+  host. VarBin and ListView also skip their host-only checks
   (`vortex-array/src/arrays/varbin/array.rs:271-280`,
   `vortex-array/src/arrays/listview/array.rs:265-266`).
 - `check_precision` serves `try_new`, the imports of CD3 and the integer cast
@@ -1852,7 +1853,7 @@ Files (checked at `b70206818f`):
 | `vortex-array/src/scalar_fn/fns/binary/compare/nested.rs:167-176` | No common width |
 | `vortex-array/src/scalar_fn/fns/binary/numeric/decimal.rs:431-462` | No widening of a mismatched pair at `:445-449` |
 | `vortex-array/src/aggregate_fn/fns/all_non_distinct/decimal.rs:12-45` | Only the same-width path |
-| `vortex-array/src/arrays/decimal/utils.rs:19-89` | Remove `widened_buffer` and `converted_buffer` |
+| `vortex-array/src/arrays/decimal/utils.rs:19-89` | Keep `converted_buffer` for DecimalByteParts splitting and `widened_buffer` for `Widen` execution. |
 | `vortex-array/src/array/haystack/mod.rs:118-126`, `:216`, `vortex-row/src/codec.rs:958` | `buffer::<T>()` in place of `converted_buffer` |
 | `vortex-array/src/builders/decimal.rs:160-179`, `:298-307` | `append_decimal_array` copies the same width. `DecimalBuffer::extend` stops converting |
 | `vortex-cuda/src/arrow/canonical.rs:461-473` | The export target comes from the precision (`vortex-cuda/src/arrow/mod.rs:841-849`) and is never narrower than the canonical width, so the rejection goes |
@@ -1868,8 +1869,8 @@ canonical type.
 Steps:
 
 1. Remove the branches in the kernels, one commit for each file group.
-2. Remove `widened_buffer`, `converted_buffer` and `is_compatible_decimal_value_type`, with their
-   callers updated.
+2. Remove `is_compatible_decimal_value_type` after migrating its callers. Keep the conversions
+   that change the represented integer width in DecimalByteParts and `Widen`.
 3. Delete the tests of the removed behavior.
 
 Tests: The deleted tests are in the table. The conformance suites (`test_array_consistency`,

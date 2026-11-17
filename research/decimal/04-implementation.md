@@ -12,16 +12,15 @@ This plan tracks [canonical decimals](https://github.com/vortex-data/vortex/issu
 
 ## Progress on 2026-11-17
 
-On [`develop` at `5e2e8b646f`](https://github.com/vortex-data/vortex/tree/5e2e8b646f221911b1a0bb0aac9c4c7a38d54f3d),
+On [`develop` at `411b033ef6`](https://github.com/vortex-data/vortex/tree/411b033ef6d903d48dcecc676a0606132e860064),
 precision determines the canonical width used by Arrow and DuckDB imports. Decimal `Widen` can
 keep a narrower child in memory, and the host reader converts legacy `vortex.decimal` nodes.
-`DecimalArray` still accepts other widths. DecimalByteParts can still produce one when it decodes.
+`DecimalArray` still accepts other widths.
 
-Two PRs address the remaining DecimalByteParts work. [#11459] changes the compressor and CPU
-decoder. A narrow most significant part (MSP) becomes an integer `Widen`, so it can be kept narrow
-without scanning for a decimal precision. The writer stores the integer child in the existing wire
-form. [#11460] builds on it and widens the MSP directly to the canonical decimal width on the GPU.
-Both must land before CD8a can require that width in every decimal array.
+DecimalByteParts now decodes to the canonical width on the CPU and GPU. [#11459] also changed the
+compressor to keep a narrow most significant part (MSP) as an integer `Widen`. The writer stores
+its integer child in the existing wire form. [#11460] widens the MSP on the GPU. CUDA support for
+lower parts is separate.
 
 🟢 **Done** means the change merged into `develop`. 🔵 **Open** means its implementation PR is open.
 🟡 **In progress** means some pieces merged and others are open. ⚪ **Not started** means no
@@ -52,11 +51,11 @@ implementation PR was found. 🟠 **Parked** marks an experiment that closed wit
 | CD6 | 🟢 Done | Read legacy `vortex.decimal` nodes through `WidenArray::from_stored_decimal`. [#10995] | FX1, CD3, CD3b, CD4, release 0.91.0 | Medium |
 | LT3 | 🟢 Done | Push `min`, `max`, `min_max`, `is_sorted`, and eligible sums into the MSP when there are no lower parts. [#11302] | WD3, CD1 | Medium |
 | CUDA `Widen` | 🟢 Done | Execute integer and decimal `Widen` on the device. [#11303] | WD1, CD4 | Unestimated |
-| CD5 | 🟡 In progress | Test split, compressor baselines, `u64` lower parts, and canonical-width benchmark endpoints merged. CPU and GPU decoding are open. [#11456], [#11457], [#11458], [#11510], [#11459], [#11460] | WD1, LT3, CD1, CD3, CD3b, CUDA `Widen`, release 0.91.0 | Large |
-| CD7 | 🔵 Open | [#11459] removes `narrowed_decimal`. The scheme narrows the integer MSP, including next to lower parts, and ignores null payloads when choosing parts. | Shares the CPU implementation with CD5 | Medium |
-| CD8a | ⚪ Not started | Require canonical-width storage for every `DecimalArray`. | CD3, CD5 (CPU and GPU), CD6, CD7 | Large |
-| CD8b | ⚪ Not started | Check each valid value against its precision in `DecimalArray::try_new` with an `ExecutionCtx`. | CD8a | Large |
-| CD8c | ⚪ Not started | Remove mixed-width decimal code. | CD8a | Medium |
+| CD5 | 🟢 Done | CPU decoding and the GPU MSP-only decoder produce canonical widths. Lower parts are non-nullable `u64`. [#11456], [#11457], [#11458], [#11510], [#11459], [#11460] | WD1, LT3, CD1, CD3, CD3b, CUDA `Widen`, release 0.91.0 | Large |
+| CD7 | 🟢 Done | [#11459] removes `narrowed_decimal`. The scheme narrows the integer MSP, including next to lower parts, and ignores null payloads when choosing parts. | Shares the CPU implementation with CD5 | Medium |
+| CD8a | 🔵 Open | Require canonical-width storage for every `DecimalArray`. [#11571] | CD3, CD5 (CPU and GPU), CD6, CD7, [#11574] | Large |
+| CD8b | 🔵 Open | Check valid host values against their precision at construction. [#11572] | CD8a | Large |
+| CD8c | 🔵 Open | Remove mixed-width decimal code. [#11573] | CD8a | Medium |
 | WR1 | ⚪ Not started | Read and write `vortex.widen` for integers and decimals. | WD1, CD3, CD4, CD8a | Medium |
 | WR2 | ⚪ Not started | Admit `vortex.widen` and DecimalByteParts v2 to a preview edition. DecimalByteParts v2 is in `unstable` today. | WR1, CD5, CD7 | Small |
 | WR3 | ⚪ Not started | Design and implement the integer `Narrow` compressor scheme. DecimalByteParts owns decimal narrowing (D33). | WR1, WR2, WD1, WD5 | Large |
@@ -160,23 +159,21 @@ flowchart TD
     classDef planned fill:#f6f8fa,stroke:#768390,color:#24292f
     classDef parked fill:#ffedce,stroke:#97651c,color:#362709
     class FX1,FX3,WD1,WD2,WD3,WD4,CD1,CD2,REL,CD3,CD3b,CD3c,CD4p,CD4,CD4b,CD6,LT3,CUDA,BASE done
-    class CPU,GPU openPR
-    class WD5,CD8a,CD8b,CD8c,WR1,WR2,WR3,LT1 planned
+    class CPU,GPU done
+    class CD8a,CD8b,CD8c openPR
+    class WD5,WR1,WR2,WR3,LT1 planned
     class WD6 parked
 ```
 
 ## Order of work
 
-1. [#11459] targets `develop`. It fixes the MSP's logical type from the precision, capped at
-   `i64`, and decodes directly to a canonical decimal on the CPU. Wider legacy MSPs need a
-   checked copy on the host. The same PR retries eligible overflowing MSP sums in `i128`.
-   The merged [#11510] makes `decode` and `filter` end at the same physical width on both sides
-   of the comparison.
-2. [#11460] targets [#11459]. It gives the CUDA decoder the same output width for arrays with
-   only an MSP. CUDA support for DBP arrays with lower parts is separate.
-3. Once both decoders produce the canonical width, CD8a can enforce it. CD8b and CD8c touch the
-   same builder and tests. WR1 also calls the constructors that CD8b changes, so land CD8b first
-   or rebase those callers.
+1. [#11459] and [#11460] merged. The CPU decoder and the GPU decoder for MSP-only arrays now
+   have the same canonical output width.
+2. [#11574] makes direct mutation of encoding data unsafe, so safe code cannot replace a decimal
+   payload after validation. CD8a enforces the canonical width, CD8b checks host precision, and
+   CD8c removes same-dtype width conversions. The drafts are stacked in that order because
+   they touch the same builders, kernels, and tests.
+3. WR1 can use the checked constructors once CD8b lands. It introduces the dedicated wire ID.
 4. WR2 admits the wire forms to preview. WR3 also needs WD5 and a decision about which integers
    the compressor narrows and at which cascade level. LT1 tracks promotion to `core`.
 
@@ -255,7 +252,7 @@ flowchart TD
 | [#10756] | 🟢 Closed | [#10760] and [#10852] return read errors for corrupt ALP-RD, RLE, and RunEnd metadata. |
 | [#10908] | 🟢 Closed | [#11138] dispatches `zip` on either value branch. |
 | [#11284] | 🟡 Closed, partially implemented | [#11303] implements CUDA `Widen`. The ordinary `vortex.decimal` reader still rejects noncanonical buffers in device memory. [Reader on develop]. |
-| [#11520] | 🔵 Open issue | Null payloads can prevent compression of nullable decimals. [#11457] pins this case and [#11459] changes part selection. The reporter plans to rerun the reproducer after [#11459] merges. |
+| [#11520] | 🔵 Open issue | Null payloads can prevent compression of nullable decimals. [#11457] pins this case and [#11459] changes part selection. The reporter’s reproduction still needs confirmation on a build containing [#11459]. |
 
 [#10747] updated the versioning documentation.
 
@@ -322,5 +319,9 @@ flowchart TD
 [#11460]: https://github.com/vortex-data/vortex/pull/11460
 [#11510]: https://github.com/vortex-data/vortex/pull/11510
 [#11520]: https://github.com/vortex-data/vortex/issues/11520
+[#11571]: https://github.com/vortex-data/vortex/pull/11571
+[#11572]: https://github.com/vortex-data/vortex/pull/11572
+[#11573]: https://github.com/vortex-data/vortex/pull/11573
+[#11574]: https://github.com/vortex-data/vortex/pull/11574
 [release 0.91.0]: https://github.com/vortex-data/vortex/releases/tag/0.91.0
-[Reader on develop]: https://github.com/vortex-data/vortex/blob/5e2e8b646f221911b1a0bb0aac9c4c7a38d54f3d/vortex-array/src/arrays/decimal/vtable/plugin/mod.rs#L10-L17
+[Reader on develop]: https://github.com/vortex-data/vortex/blob/411b033ef6d903d48dcecc676a0606132e860064/vortex-array/src/arrays/decimal/vtable/plugin/mod.rs#L10-L17
