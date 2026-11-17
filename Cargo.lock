@@ -11360,8 +11360,11 @@ dependencies = [
  "arrow-cast 59.3.2",
  "arrow-data 59.3.2",
  "arrow-schema 59.3.2",
+ "arrow-select 59.3.2",
  "base64 0.23.1",
  "codspeed-divan-compat",
+ "half",
+ "hegeltest",
  "itertools 0.14.0",
  "mimalloc",
  "num-traits",
@@ -12010,6 +12013,7 @@ dependencies = [
  "tracing-subscriber",
  "vortex",
  "vortex-array",
+ "vortex-arrow",
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-cuda",
@@ -12017,11 +12021,19 @@ dependencies = [
  "vortex-file",
  "vortex-fsst",
  "vortex-io",
+ "vortex-json",
  "vortex-mask",
  "vortex-row",
  "vortex-session",
+ "vortex-spatial",
+ "vortex-tensor",
  "vortex-utils",
+ "vortex-uuid",
 ]
+
+[[package]]
+name = "vortex-index"
+version = "0.1.0"
 
 [[package]]
 name = "vortex-io"
@@ -12106,7 +12118,9 @@ version = "0.1.0"
 dependencies = [
  "arrow-array 59.3.2",
  "arrow-schema 59.3.2",
+ "hegeltest",
  "prost 0.14.6",
+ "serde_json",
  "vortex-array",
  "vortex-arrow",
  "vortex-edition",
@@ -12406,6 +12420,7 @@ name = "vortex-spatial"
 version = "0.1.0"
 dependencies = [
  "arrow-array 59.3.2",
+ "arrow-buffer 59.3.2",
  "arrow-schema 59.3.2",
  "codspeed-divan-compat",
  "geo",
@@ -12413,6 +12428,7 @@ dependencies = [
  "geo-types",
  "geoarrow",
  "geoarrow-cast",
+ "hegeltest",
  "mimalloc",
  "prost 0.14.6",
  "rstest",
@@ -12455,13 +12471,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-table"
+version = "0.1.0"
+
+[[package]]
 name = "vortex-tensor"
 version = "0.1.0"
 dependencies = [
  "arrow-array 59.3.2",
+ "arrow-buffer 59.3.2",
  "arrow-schema 59.3.2",
+ "base64 0.23.1",
  "codspeed-divan-compat",
  "half",
+ "hegeltest",
  "itertools 0.14.0",
  "mimalloc",
  "num-traits",
@@ -12537,6 +12560,8 @@ dependencies = [
  "arrow-array 59.3.2",
  "arrow-buffer 59.3.2",
  "arrow-schema 59.3.2",
+ "base64 0.23.1",
+ "hegeltest",
  "rstest",
  "uuid",
  "vortex-array",

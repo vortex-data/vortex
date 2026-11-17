@@ -1,9 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Fuzz drivers for Vortex arrays, compression, storage, and Arrow transport.
+//!
+//! Each target owns its input generation and checks, while this crate shares session and runtime
+//! initialization across generated cases. Binaries in `fuzz_targets` connect the drivers to their
+//! platform-specific fuzzing engines.
+
 #![expect(clippy::use_debug)]
 
+#[cfg(feature = "native")]
+use std::sync::LazyLock;
+
+use vortex_session::VortexSession;
+
+/// Session for the Arrow round-trip target, including every covered extension plugin.
+///
+/// Separate registration keeps these plugins from changing other fuzz drivers' sessions.
+#[cfg(feature = "native")]
+pub(crate) static ARROW_ROUND_TRIP_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty();
+    vortex_uuid::initialize(&session);
+    vortex_json::initialize(&session);
+    vortex_tensor::initialize(&session);
+    vortex_spatial::initialize(&session);
+    session
+});
+
 mod array;
+/// Exact Arrow transport of owned logical types.
+#[cfg(feature = "native")]
+pub mod arrow_roundtrip;
 pub mod compress;
 pub mod error;
 pub mod fsst_like;
@@ -45,7 +72,7 @@ const FUZZ_EDITIONS: [vortex::editions::EditionId; 3] = [
     vortex::editions::UNSTABLE,
 ];
 
-fn enable_fuzz_editions(session: &vortex_session::VortexSession) {
+fn enable_fuzz_editions(session: &VortexSession) {
     use vortex::editions::EditionSessionExt;
     use vortex_error::VortexExpect;
 

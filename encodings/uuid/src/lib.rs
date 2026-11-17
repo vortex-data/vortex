@@ -46,6 +46,9 @@ pub fn initialize(session: &VortexSession) {
 }
 
 #[cfg(test)]
+mod arrow_properties;
+
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;

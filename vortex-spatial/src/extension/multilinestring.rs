@@ -11,7 +11,6 @@
 use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::extension::ExtensionType;
 use geo_traits::to_geo::ToGeoGeometry;
@@ -22,7 +21,6 @@ use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::MultiLineStringType;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::dtype::DType;
@@ -254,65 +252,33 @@ impl ArrowExtVTable for MultiLineString {
 
     fn from_arrow_field(
         field: &Field,
-        session: &ArrowSession,
+        _session: &ArrowSession,
     ) -> VortexResult<Option<ExtDType<Self>>> {
-        let (dimension, metadata) =
-            if let Ok(multilinestring_meta) = field.try_extension_type::<MultiLineStringType>() {
-                vortex_ensure!(
-                    multilinestring_meta.coord_type() == CoordType::Separated,
-                    "geoarrow.multilinestring with interleaved coordinates is not supported; \
+        let multilinestring_meta = field.try_extension_type::<MultiLineStringType>()?;
+        vortex_ensure!(
+            multilinestring_meta.coord_type() == CoordType::Separated,
+            "geoarrow.multilinestring with interleaved coordinates is not supported; \
              re-encode with separated (struct) coordinates"
-                );
-                (
-                    multilinestring_meta.dimension().into(),
-                    spatial_metadata_from_arrow(multilinestring_meta.metadata()),
-                )
-            } else {
-                // Literal: peel the two `List` layers to the coordinate struct and read its dimension
-                // from the field names (the canonical check rejects nullable coordinates).
-                if field.extension_type_name() != Some(MultiLineStringType::NAME) {
-                    return Ok(None);
-                }
-                let Ok(DType::List(line, _)) =
-                    session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
-                else {
-                    return Ok(None);
-                };
-                let DType::List(coords, _) = line.as_ref() else {
-                    return Ok(None);
-                };
-                let DType::Struct(fields, _) = coords.as_ref() else {
-                    return Ok(None);
-                };
-                let Ok(dimension) = Dimension::from_field_names(fields.names()) else {
-                    return Ok(None);
-                };
-                (dimension, SpatialMetadata::default())
-            };
+        );
 
+        let metadata = spatial_metadata_from_arrow(multilinestring_meta.metadata())
+            .with_dimension(multilinestring_meta.dimension().into());
         Ok(Some(ExtDType::try_with_vtable(
             MultiLineString,
-            metadata.with_dimension(dimension),
+            metadata,
             field.is_nullable().into(),
         )?))
     }
 
     fn from_arrow_array(
         array: ArrowArrayRef,
-        field: &Field,
+        _field: &Field,
         ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        if field.try_extension_type::<MultiLineStringType>().is_err()
-            || !matches!(array.data_type(), DataType::List(_))
-        {
-            return Ok(ArrowImport::Unsupported(array));
-        }
-
-        let storage = session.from_arrow_array(array, field.is_nullable())?;
-        Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array(),
-        ))
+        session
+            .from_arrow_storage(array, &ext_dtype.clone().erased())
+            .map(ArrowImport::Imported)
     }
 }
 
