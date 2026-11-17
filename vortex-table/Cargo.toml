@@ -30,6 +30,6 @@ vortex-utils = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
-vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex = { workspace = true, default-features = false, features = ["files"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-io = { workspace = true, features = ["tokio"] }
