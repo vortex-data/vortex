@@ -18,7 +18,6 @@ use arrow_schema::extension::ExtensionType;
 use geo_traits::to_geo::ToGeoGeometry;
 use geo_types::Geometry;
 use geoarrow::array::GeoArrowArrayAccessor;
-use geoarrow::array::IntoArrow;
 use geoarrow::array::MultiPointArray;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::MultiPointType;
@@ -237,11 +236,9 @@ impl ArrowExtVTable for MultiPoint {
         let arrow_storage =
             storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
-        // Round-trip through GeoArrow's multipoint array; `into_arrow` is concrete, so wrap in `Arc`.
-        let multipoints = MultiPointArray::try_from((arrow_storage.as_ref(), multipoint_meta))
-            .map_err(|e| vortex_err!("failed to construct MultiPointArray: {e}"))?;
-
-        Ok(ArrowExport::Exported(Arc::new(multipoints.into_arrow())))
+        // The validated target already shapes the storage. GeoArrow constructors can panic on
+        // valid Arrow lists that retain unused child values after filtering.
+        Ok(ArrowExport::Exported(arrow_storage))
     }
 
     fn from_arrow_field(

@@ -203,11 +203,13 @@ pub struct VortexDataSourceBuilder {
 impl VortexDataSourceBuilder {
     /// Sets the Arrow schema exposed to DataFusion.
     ///
-    /// If not specified, the builder derives an Arrow schema from the Vortex
-    /// dtype.
+    /// Defaults to the schema inferred by [`ArrowSession::to_arrow_schema`].
     ///
-    /// Note that this schema is not validated against the Vortex DType so any errors will be
-    /// deferred until read time.
+    /// [`Self::build`] checks extension identities and supported Arrow layouts before applying the
+    /// initial projection. A schema cannot label a plain column as an extension or erase an existing
+    /// extension's identity.
+    ///
+    /// [`ArrowSession::to_arrow_schema`]: vortex_arrow::ArrowSession::to_arrow_schema
     pub fn with_arrow_schema(mut self, arrow_schema: SchemaRef) -> Self {
         self.arrow_schema = Some(arrow_schema);
         self
@@ -264,7 +266,14 @@ impl VortexDataSourceBuilder {
 
         // Resolve the Arrow schema
         let mut arrow_schema = match self.arrow_schema {
-            Some(schema) => schema,
+            Some(schema) => {
+                // Validate before projection can hide an incompatible column. Keep the supplied
+                // schema because each scan derives its own physical schema after projection.
+                calculate_physical_schema(self.data_source.dtype(), &schema, &self.session.arrow())
+                    .map_err(VortexError::external)?;
+
+                schema
+            }
             None => Arc::new(
                 self.session
                     .arrow()

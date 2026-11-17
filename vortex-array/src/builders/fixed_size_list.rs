@@ -8,15 +8,16 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
-use crate::arrays::ChunkedArray;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::RepeatedArray;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::ChildBuilder;
@@ -25,6 +26,7 @@ use crate::builders::ValidityBuilder;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
 
@@ -137,7 +139,7 @@ impl FixedSizeListBuilder {
     /// A fixed-size list array holds its elements back to back, so `n` identical lists are the
     /// array's elements tiled `n` times - there is no layout that lets the rows share one range of
     /// elements the way a list view's can. The tiling costs nothing to build even so: the elements
-    /// go in as a [`ChunkedArray`] of `n` clones of the same array, so the tile's values are stored
+    /// go in as a [`RepeatedArray`] of `array` repeated `n` times, so the tile's values are stored
     /// once however many rows reference them, and the child holds the whole run as one chunk.
     ///
     /// A caller with a run of appends to make should hand over the same `array` each time rather
@@ -158,15 +160,17 @@ impl FixedSizeListBuilder {
             return self.append_array_as_list(array, ctx);
         }
 
-        // SAFETY: every chunk is `array` itself, so they share its dtype and none is empty.
-        let tiled = unsafe {
-            ChunkedArray::new_unchecked(
-                std::iter::repeat_n(array.clone(), n),
-                self.element_dtype().clone(),
+        let len = n.checked_mul(array.len()).ok_or_else(|| {
+            vortex_err!(
+                "{n} repeated lists of {} elements overflow usize",
+                array.len()
             )
-        };
-        self.elements_builder
-            .append_array(&tiled.into_array(), ctx)?;
+        })?;
+        // Optimizing collapses a constant tile into one constant run.
+        let repeated = RepeatedArray::try_new(array.clone(), len)?
+            .into_array()
+            .optimize_ctx(&*ctx)?;
+        self.elements_builder.append_array(&repeated, ctx)?;
         self.nulls.append_n_non_nulls(n);
 
         Ok(())

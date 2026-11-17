@@ -333,17 +333,24 @@ impl FileOpener for VortexOpener {
                 return Ok(stream::empty().boxed());
             }
 
-            // This is the expected arrow types of the actual columns in the file, which might have different types
-            // from the unified logical schema or miss. Every partition opening this file computes
-            // the same schema, so it is shared across them.
+            // Reconcile against the whole file before adapting expressions. Cache by file because
+            // every partition needs the same schema, including extension identity checks.
             let this_file_schema = match file_schemas.get(&file.object_meta.location) {
                 Some(schema) => Arc::clone(schema.value()),
                 None => {
-                    let schema = Arc::new(calculate_physical_schema(
-                        vxf.dtype(),
-                        &unified_file_schema,
-                        &session.arrow(),
-                    )?);
+                    let schema = Arc::new(
+                        calculate_physical_schema(
+                            vxf.dtype(),
+                            &unified_file_schema,
+                            &session.arrow(),
+                        )
+                        .map_err(|e| {
+                            exec_datafusion_err!(
+                                "Failed to compute the physical schema of {}: {e}",
+                                file.path()
+                            )
+                        })?,
+                    );
                     file_schemas.insert(file.object_meta.location.clone(), Arc::clone(&schema));
                     schema
                 }
