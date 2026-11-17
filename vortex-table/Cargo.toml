@@ -15,3 +15,23 @@ version = { workspace = true }
 
 [lints]
 workspace = true
+
+[dependencies]
+futures = { workspace = true, features = ["std"] }
+parking_lot = { workspace = true }
+twox-hash = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-file = { workspace = true }
+vortex-io = { workspace = true }
+vortex-layout = { workspace = true }
+vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+vortex = { workspace = true, default-features = false, features = ["files"] }
+vortex-io = { workspace = true, features = ["tokio"] }
