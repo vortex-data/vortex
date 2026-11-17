@@ -99,7 +99,7 @@ version = "0.1.0"
 
 [workspace.dependencies]
 allocator-api2 = "0.2.21"
-alp = "0.0.4"
+alp = "0.0.6"
 anyhow = "1.0.100"
 arbitrary = "1.3.2"
 arc-swap = "1.9"
@@ -159,7 +159,7 @@ datafusion-sqllogictest = { version = "55.0.0" }
 divan = { package = "codspeed-divan-compat", version = "6.0.0" }
 enum-iterator = "2.0.0"
 env_logger = "0.11"
-fastlanes = { version = "0.8.0", features = ["runtime"] }
+fastlanes = { version = "0.8.1", features = ["runtime"] }
 fearless_simd = "1.0.0"
 fearless_simd_macros = "0.1.0"
 flatbuffers = "25.2.10"

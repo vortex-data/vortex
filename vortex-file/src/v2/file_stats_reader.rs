@@ -81,6 +81,29 @@ impl LayoutReader for FileStatsLayoutReader {
         self.child.row_count()
     }
 
+    fn can_prune_file(&self, expr: &BoundExpression) -> VortexResult<bool> {
+        is_falsified_cached(
+            &self.prune_cache,
+            &self.child,
+            &self.file_stats,
+            &self.session,
+            expr,
+        )
+    }
+
+    fn split_pruning_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &BoundExpression,
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
+        self.child.split_pruning_evaluation(row_range, expr, mask)
+    }
+
+    fn split_pruning_is_statistics(&self, expr: &BoundExpression) -> VortexResult<bool> {
+        self.child.split_pruning_is_statistics(expr)
+    }
+
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
@@ -103,15 +126,7 @@ impl LayoutReader for FileStatsLayoutReader {
         let expr = expr.clone();
         let row_range = row_range.clone();
         Ok(MaskFuture::new(mask.len(), async move {
-            let pruned = {
-                let mut entry = cache
-                    .entry(ExactBoundExpr(expr.clone()))
-                    .or_insert_with(|| CachedProof::new(&expr));
-                entry.evaluate(|| {
-                    is_falsified_by_file_stats(&expr, child.row_count(), &file_stats, &session)
-                })?
-            };
-            if pruned {
+            if is_falsified_cached(&cache, &child, &file_stats, &session, &expr)? {
                 Ok(Mask::new_false(mask.len()))
             } else {
                 child.pruning_evaluation(&row_range, &expr, mask)?.await
@@ -168,6 +183,20 @@ impl LayoutReader for FileStatsLayoutReader {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+}
+
+/// Returns whether file statistics falsify `expr`, with a cache for each dynamic producer version.
+fn is_falsified_cached(
+    cache: &DashMap<ExactBoundExpr, CachedProof>,
+    child: &LayoutReaderRef,
+    file_stats: &FileStatistics,
+    session: &VortexSession,
+    expr: &BoundExpression,
+) -> VortexResult<bool> {
+    let mut entry = cache
+        .entry(ExactBoundExpr(expr.clone()))
+        .or_insert_with(|| CachedProof::new(expr));
+    entry.evaluate(|| is_falsified_by_file_stats(expr, child.row_count(), file_stats, session))
 }
 
 struct CachedProof {

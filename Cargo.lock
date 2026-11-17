@@ -66,11 +66,10 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "alp"
-version = "0.0.4"
+version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b23203d5e87df8d8393c8021b53f9193b697ba13fc4ef653911dc1235e87bfd7"
+checksum = "2916af7a226350979de64665dc17a8b3f04568c00a1eb5485278aa1bcaa62591"
 dependencies = [
- "fastlanes 0.6.1",
  "itertools 0.15.0",
  "num-traits",
 ]
@@ -4390,21 +4389,9 @@ checksum = "c6e8948ce679d00a02a94739ea185595dca7118ed04feb991127e443bd3d761f"
 
 [[package]]
 name = "fastlanes"
-version = "0.6.1"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a516528425408429de7661e7101f7e7ad54f7d3fab859a3a6de239f508d17e2"
-dependencies = [
- "const_for",
- "num-traits",
- "pastey",
- "seq-macro",
-]
-
-[[package]]
-name = "fastlanes"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b17a9745105c3ee766915d6e26989b7594e97f3c0cbcf7b28b116d4f2b4739"
+checksum = "27b6ffac7ffa7b170248358e13c114d5ace91bfe4135a3f6e590c1548d0e60b5"
 dependencies = [
  "const_for",
  "cpufeatures 0.3.1",
@@ -11230,7 +11217,7 @@ dependencies = [
  "arrow-array 59.3.2",
  "arrow-schema 59.3.2",
  "codspeed-divan-compat",
- "fastlanes 0.8.0",
+ "fastlanes",
  "mimalloc",
  "parquet 59.3.2",
  "rand 0.10.4",
@@ -11278,6 +11265,8 @@ version = "0.1.0"
 dependencies = [
  "alp",
  "codspeed-divan-compat",
+ "fearless_simd",
+ "fearless_simd_macros",
  "itertools 0.14.0",
  "mimalloc",
  "num-traits",
@@ -11371,8 +11360,11 @@ dependencies = [
  "arrow-cast 59.3.2",
  "arrow-data 59.3.2",
  "arrow-schema 59.3.2",
+ "arrow-select 59.3.2",
  "base64 0.23.1",
  "codspeed-divan-compat",
+ "half",
+ "hegeltest",
  "itertools 0.14.0",
  "mimalloc",
  "num-traits",
@@ -11644,7 +11636,7 @@ dependencies = [
  "async-trait",
  "bindgen",
  "codspeed-criterion-compat-walltime",
- "fastlanes 0.8.0",
+ "fastlanes",
  "futures",
  "itertools 0.14.0",
  "memmap2",
@@ -11887,7 +11879,7 @@ name = "vortex-fastlanes"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
- "fastlanes 0.8.0",
+ "fastlanes",
  "fearless_simd",
  "hegeltest",
  "itertools 0.14.0",
@@ -12021,6 +12013,7 @@ dependencies = [
  "tracing-subscriber",
  "vortex",
  "vortex-array",
+ "vortex-arrow",
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-cuda",
@@ -12028,10 +12021,14 @@ dependencies = [
  "vortex-file",
  "vortex-fsst",
  "vortex-io",
+ "vortex-json",
  "vortex-mask",
  "vortex-row",
  "vortex-session",
+ "vortex-spatial",
+ "vortex-tensor",
  "vortex-utils",
+ "vortex-uuid",
 ]
 
 [[package]]
@@ -12121,7 +12118,9 @@ version = "0.1.0"
 dependencies = [
  "arrow-array 59.3.2",
  "arrow-schema 59.3.2",
+ "hegeltest",
  "prost 0.14.6",
+ "serde_json",
  "vortex-array",
  "vortex-arrow",
  "vortex-edition",
@@ -12421,6 +12420,7 @@ name = "vortex-spatial"
 version = "0.1.0"
 dependencies = [
  "arrow-array 59.3.2",
+ "arrow-buffer 59.3.2",
  "arrow-schema 59.3.2",
  "codspeed-divan-compat",
  "geo",
@@ -12428,6 +12428,7 @@ dependencies = [
  "geo-types",
  "geoarrow",
  "geoarrow-cast",
+ "hegeltest",
  "mimalloc",
  "prost 0.14.6",
  "rstest",
@@ -12474,9 +12475,12 @@ name = "vortex-tensor"
 version = "0.1.0"
 dependencies = [
  "arrow-array 59.3.2",
+ "arrow-buffer 59.3.2",
  "arrow-schema 59.3.2",
+ "base64 0.23.1",
  "codspeed-divan-compat",
  "half",
+ "hegeltest",
  "itertools 0.14.0",
  "mimalloc",
  "num-traits",
@@ -12552,6 +12556,8 @@ dependencies = [
  "arrow-array 59.3.2",
  "arrow-buffer 59.3.2",
  "arrow-schema 59.3.2",
+ "base64 0.23.1",
+ "hegeltest",
  "rstest",
  "uuid",
  "vortex-array",

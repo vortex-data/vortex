@@ -6,7 +6,8 @@
     "take_union": 4
   },
   "vortex-alp": {
-    "alp_compress": 36
+    "alp_compress": 36,
+    "alp_rd_take_chunked": 4
   },
   "vortex-array": {
     "aggregate_grouped": 18,
