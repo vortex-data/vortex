@@ -4,7 +4,10 @@
 # Encodings of TPC-H nation (25 rows) as written by `data-gen`. Print the dump these
 # directives match with `vx filecheck slt/tpch/data/nation.vortex`.
 
+# The SLT fixture, relative to `slt/`, and the benchmark data at every scale factor,
+# relative to `vortex-bench/data/`.
 files: tpch/data/nation\.vortex
+files: tpch/[^/]+/vortex-file-compressed/nation_\d{4}\.vortex
 
 # The key is 0..25, so it is stored as a sequence.
 units: n_nationkey/data*

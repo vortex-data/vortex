@@ -4,7 +4,10 @@
 # Encodings of TPC-H orders as written by `data-gen`. Print the dump these directives match
 # with `vx filecheck slt/tpch/data/orders.vortex`.
 
+# The SLT fixture, relative to `slt/`, and the benchmark data at every scale factor,
+# relative to `vortex-bench/data/`.
 files: tpch/data/orders\.vortex
+files: tpch/[^/]+/vortex-file-compressed/orders_\d{4}\.vortex
 
 # The three low-cardinality string columns get dictionary layouts, in schema order.
 check: unit: o_orderstatus/data/values
