@@ -34,8 +34,9 @@ opaque unless they claim what it needs. Phase 4 needs only the claims, so it run
 phase 3. Phase 6 runs in parallel with phases 2 to 4. Phase 5 waits for XQ10.
 
 Each storage path and each rule of phase 5 builds its results with `ExtensionArray::new_unchecked`
-when legal input gives legal output. So NU adds that constructor, and phase 6 only adds the value
-check to `try_new`.
+when legal input gives legal output. That constructor already exists, with a contract that covers
+only the storage dtype. NU adds `validate_array` and the conformance harness, and phase 6 adds the
+value check to `try_new` and makes `new_unchecked` promise legal values.
 
 ## Dependency graph
 
@@ -91,7 +92,7 @@ flowchart TD
 
     subgraph PH1["Phase 1"]
         SD["SD storage declaration and strict reads<br/>storage_dtype, validate_metadata, facts in metadata<br/>#11184"]:::merged
-        NU["NU new_unchecked, validate_array, conformance harness"]
+        NU["NU validate_array, conformance harness"]
     end
     U4 -->|"item 3"| SD
     U5 --> SD
@@ -311,7 +312,8 @@ the other's changes. The changes of phase 3 are small in each file, so they port
 
 ## Phase 1: storage declaration
 
-SD (#11184) merged on 2026-11-13. The final three items below belong to NU.
+SD (#11184) merged on 2026-11-13. The final three items below belong to NU. The second one
+records the state of `new_unchecked`.
 
 - `fn storage_dtype(metadata: &Self::Metadata) -> DType` replaced `validate_dtype` (X27).
   `ExtDType::try_new(metadata, nullability)` applies the top-level nullability, and
@@ -334,8 +336,9 @@ SD (#11184) merged on 2026-11-13. The final three items below belong to NU.
   for nested nullability (X26).
 - Add `validate_array` to `ExtVTable`, with a default that checks each value through
   `validate_scalar_value`. Phase 6 builds on it.
-- Add `ExtensionArray::new_unchecked`. Until phase 6, it skips the same checks that
-  `ExtensionArray::new` skips today. A debug build checks the promise with `validate_array`.
+- `ExtensionArray::new_unchecked` already exists, and `try_new` and the builder call it. Its
+  contract covers only the storage dtype. Phase 6 makes it promise legal values and adds the debug
+  check, because a debug check now would reject constructions that `develop` accepts.
 - Add a conformance harness for `ExtVTable` implementations. It checks the metadata round trip
   through the serialized bytes and the stored storage, and that a `validate_array` override agrees
   with the default. CL3 adds the checks for claims.
@@ -449,7 +452,7 @@ cast, which phase 5 decides (XQ10). U1 removes the storage reinterpretation firs
 ## Phase 6: value checks
 
 - Make `ExtensionArray::try_new` check values with `validate_array`. Move kernels, builders and
-  rules that keep legal values onto `new_unchecked`, which phase 1 adds
+  rules that keep legal values onto `new_unchecked`, which then promises legal values
   ([`agents/design-notes.md`](agents/design-notes.md), section 8).
 - Imports from Arrow, DuckDB, FFI and Python call `try_new`. File reads run only the structural
   `validate` (X23). Add the optional strict read mode.

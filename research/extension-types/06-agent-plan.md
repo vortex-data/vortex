@@ -474,47 +474,43 @@ EXT-B2 in [`agents/findings.md`](agents/findings.md). The line numbers there are
   `ext_storage`, or report it if the fix changes behavior that users see.
 - [ ] **Step 5: Commit** "Stop casts from reinterpreting extension storage".
 
-### Task NU: new_unchecked, validate_array and the conformance harness
+### Task NU: validate_array and the conformance harness
 
-Branch `ct/ext-new-unchecked` from `origin/develop`. Check `vortex-array`.
+Branch `ct/ext-validate-array` from `origin/develop`. Check `vortex-array`.
 
-Read "Phase 1" of [`05-implementation.md`](05-implementation.md) (its last three items) and section
-8 of [`agents/design-notes.md`](agents/design-notes.md).
+`ExtensionArray::new_unchecked` already exists on `develop`
+(`vortex-array/src/arrays/extension/array.rs:103`), with a contract that covers only the storage
+dtype. `try_new` and `ExtensionBuilder::finish_into_extension` call it. A debug value check in it
+would turn constructions that `develop` accepts into debug panics, so VC1 owns the constructor
+contract and the debug check. NU changes no behavior (decided on 2026-11-17).
 
 **Files:**
-- Modify: `vortex-array/src/dtype/extension/vtable.rs` (`validate_array`),
-  `vortex-array/src/arrays/extension/array.rs` (`new_unchecked`)
+- Modify: `vortex-array/src/dtype/extension/vtable.rs` (`validate_array`), and the erased forwarder
+  next to `validate_scalar_value` in `vortex-array/src/dtype/extension/typed.rs`
 - Create: an `ExtVTable` conformance module under `vortex-array/src/compute/conformance/`
 
 **Interfaces:**
 - Produces:
 
   ```rust
-  // ExtVTable, with a default that checks each non-null value with validate_scalar_value:
+  // ExtVTable, with a default that checks each non-null value with validate_scalar_value.
+  // Add an ExecutionCtx parameter if reading the values of a lazy storage array needs one.
   fn validate_array(metadata: &Self::Metadata, storage: &ArrayRef) -> VortexResult<()>;
-  // ExtensionArray
-  pub unsafe fn new_unchecked(dtype: ExtDTypeRef, storage: ArrayRef) -> Self;
   // conformance, for later tasks (CL3 adds the claim checks):
   pub fn test_ext_vtable_conformance<V: ExtVTable>(metadata: V::Metadata, storage: ArrayRef);
   ```
 
-  `new_unchecked` is `unsafe` with a `# Safety` section, like the other `new_unchecked`
-  constructors of `vortex-array`. Match the naming of the existing conformance functions, such as
-  `test_cast_conformance`. If the
-  existing signatures of `ExtVTable` make a different shape clearly better, choose it and say so
-  in the report.
+  Match the naming of the existing conformance functions, such as `test_cast_conformance`.
 
 - [ ] **Step 1: Write the tests:** `validate_array_default_checks_each_value` (a `Time` array with a
-  value over one day fails, and nulls are skipped), `new_unchecked_checks_in_debug` (a debug build
-  panics on an illegal value), and the conformance harness run over every extension type in
-  `vortex-array`.
+  value over one day fails, and nulls are skipped), and the conformance harness run over every
+  extension type in `vortex-array`.
 - [ ] **Step 2: Run them and see them fail.**
-- [ ] **Step 3: Implement.** `new_unchecked` skips the same checks that `ExtensionArray::new` skips
-  today, and a debug build checks the promise with `validate_array`. The harness checks the
-  metadata round trip through the serialized bytes and the stored storage, and that a
-  `validate_array` override agrees with the default.
+- [ ] **Step 3: Implement.** The harness checks the metadata round trip through the serialized bytes
+  and the stored storage, and that a `validate_array` override agrees with the default. Do not
+  change `new_unchecked`, `try_new` or the builder.
 - [ ] **Step 4: Run the checks.** Expected: all pass.
-- [ ] **Step 5: Commit** "Add ExtensionArray::new_unchecked and validate_array".
+- [ ] **Step 5: Commit** "Add ExtVTable::validate_array and an extension conformance harness".
 
 ### Task SF: dtype errors in lazily parsed struct fields
 
@@ -573,7 +569,11 @@ These tasks start after wave B is in review. Each is specified enough to run.
   built-in `Decimal` waits for TY1 to TY3 and for CD8a
   ([#10701](https://github.com/vortex-data/vortex/issues/10701)).
 - **VC1, then VC2:** "Phase 6" of [`05-implementation.md`](05-implementation.md) and section 8 of
-  the design notes. VC1 needs NU.
+  the design notes. VC1 needs NU. VC1 also owns the contract of `ExtensionArray::new_unchecked`: it
+  promises legal values, a debug build checks them with `validate_array`, and `try_new` and the
+  builder stop reaching it with values that no check has seen. The callers that build illegal
+  values on purpose today, such as `append_zeros` and the `NonZero` read-error test
+  (`vortex-array/src/arrays/extension/tests.rs:131`), need a decision in VC1.
 - **LP4:** registration stops replacing and duplicating silently (EXT-R2).
 
 ## Wave D
