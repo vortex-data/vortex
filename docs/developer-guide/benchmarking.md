@@ -254,12 +254,9 @@ factors are configurable per suite (e.g. `--opt scale-factor=10.0` for TPC-H SF=
 
 ### Unstable Encodings
 
-The `vortex-unstable` format writes Vortex files whose compressor may also choose the array
-encodings of the `unstable` edition, such as `fastlanes.bitpacked.v2`, `fastlanes.for.v2`,
-`fastlanes.delta`, and `vortex.decimal_byte_parts.v2`. Comparing it against `vortex` shows what
-those encodings change. The unstable layouts and aggregates are not enabled, so every scan can
-read the files. Files that contain `vortex.patched` need `VORTEX_EXPERIMENTAL_PATCHED_ARRAY=1`
-set while both writing and reading:
+The `vortex-unstable` format writes Vortex files whose compressor may also choose the unstable
+`fastlanes.delta` encoding. Comparing it against `vortex` shows what that encoding changes. CI
+runs it on the NVMe targets of the `pr-full` and `develop` presets.
 
 ```bash
 uv run --project bench-orchestrator vx-bench prepare-data tpch \

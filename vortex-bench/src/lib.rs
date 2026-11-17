@@ -77,15 +77,12 @@ pub use datasets::BenchmarkDataset;
 pub use output::BenchmarkOutput;
 pub use output::create_output_writer;
 use vortex::VortexSessionDefault;
-use vortex::editions::ComponentKind;
 use vortex::editions::Edition;
 use vortex::editions::EditionDeclaration;
 use vortex::editions::EditionFamily;
 use vortex::editions::EditionId;
-use vortex::editions::EditionInclusion;
 use vortex::editions::EditionMember;
 use vortex::editions::EditionSessionExt;
-use vortex::editions::unstable;
 pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
@@ -121,27 +118,25 @@ static UNSTABLE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[EditionMember::layout(&"vortex.list")],
 };
 
-const BENCH_UNSTABLE_ARRAYS_FAMILY: EditionFamily = EditionFamily {
-    name: "bench-unstable-arrays",
+const BENCH_UNSTABLE_FAMILY: EditionFamily = EditionFamily {
+    name: "bench-unstable",
     origin: "vortex-bench",
-    doc: "Every array encoding in the unstable edition, without its layouts or aggregates.",
+    doc: "Unstable array encodings that the vortex-unstable benchmark format may write.",
 };
 
-/// The array encodings of the unstable edition, without its layouts or aggregates.
+/// The unstable array encodings that [`Format::VortexUnstable`] files may contain.
 ///
-/// Members are copied from [`unstable::DECLARATION`] when the session is built, so new unstable
-/// encodings are benchmarked without changes here. The unstable layouts and aggregates are left
-/// out because not every scan can read them; [`UNSTABLE_BENCH`] adds the list layout for the
-/// suites that read through V1.
-const UNSTABLE_ARRAYS_BENCH: EditionId = EditionId::new("bench-unstable-arrays", 2026, 10, 0);
+/// It holds only `fastlanes.delta`. The other unstable encodings are left out until they are
+/// ready to benchmark.
+const UNSTABLE_ENCODINGS_BENCH: EditionId = EditionId::new("bench-unstable", 2026, 10, 0);
 
-static UNSTABLE_ARRAYS_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
+static UNSTABLE_ENCODINGS_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
-        id: UNSTABLE_ARRAYS_BENCH,
+        id: UNSTABLE_ENCODINGS_BENCH,
         immutable: false,
         min_library_version: None,
     },
-    added: &[],
+    added: &[EditionMember::array(&"fastlanes.delta")],
 };
 
 /// Builds a benchmark session with the bench edition families registered.
@@ -162,34 +157,20 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(bench_session);
 
 /// The session that writes [`Format::VortexUnstable`] files.
 ///
-/// It enables the array encodings of the unstable edition on top of the default editions, so the
-/// compressor may choose them. Reading those files needs no editions, so [`SESSION`] reads them.
+/// It enables [`UNSTABLE_ENCODINGS_BENCH`] on top of the default editions, so the compressor may
+/// choose those encodings. Reading the files needs no editions, so [`SESSION`] reads them.
 pub static UNSTABLE_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = bench_session();
     session
         .editions()
-        .declare_family(&BENCH_UNSTABLE_ARRAYS_FAMILY)
-        .vortex_expect("bench unstable arrays family is valid");
+        .declare_family(&BENCH_UNSTABLE_FAMILY)
+        .vortex_expect("bench unstable family is valid");
     session
-        .register_edition(&UNSTABLE_ARRAYS_BENCH_DECLARATION)
-        .vortex_expect("bench unstable arrays declaration is valid");
-    for member in unstable::DECLARATION
-        .added
-        .iter()
-        .filter(|member| member.kind == ComponentKind::Array)
-    {
-        session
-            .editions()
-            .declare_inclusion(EditionInclusion::new(
-                ComponentKind::Array,
-                member.component,
-                UNSTABLE_ARRAYS_BENCH,
-            ))
-            .vortex_expect("unstable array encoding inclusion is valid");
-    }
+        .register_edition(&UNSTABLE_ENCODINGS_BENCH_DECLARATION)
+        .vortex_expect("bench unstable declaration is valid");
     session
-        .enable_edition(UNSTABLE_ARRAYS_BENCH)
-        .vortex_expect("bench unstable arrays edition is registered");
+        .enable_edition(UNSTABLE_ENCODINGS_BENCH)
+        .vortex_expect("bench unstable edition is registered");
     session
 });
 
@@ -271,8 +252,7 @@ pub enum Format {
     #[clap(name = "vortex-compact")]
     #[serde(rename = "vortex-compact")]
     VortexCompact,
-    /// Vortex files whose compressor may also choose the array encodings of the unstable
-    /// edition.
+    /// Vortex files whose compressor may also choose the unstable `fastlanes.delta` encoding.
     #[clap(name = "vortex-unstable")]
     #[serde(rename = "vortex-unstable")]
     VortexUnstable,
@@ -380,7 +360,7 @@ pub enum CompactionStrategy {
     #[default]
     Default,
     /// The default strategy, written by [`UNSTABLE_SESSION`] so the compressor may also choose
-    /// the array encodings of the unstable edition.
+    /// the unstable `fastlanes.delta` encoding.
     Unstable,
 }
 
@@ -728,23 +708,24 @@ mod tests {
     use rstest::rstest;
     use vortex::editions::ComponentKind;
     use vortex::editions::EditionSessionExt;
-    use vortex::editions::unstable;
     use vortex::session::VortexSession;
+    use vortex::session::registry::Id;
 
     use super::SESSION;
     use super::UNSTABLE_SESSION;
 
-    /// Only the unstable session may write the unstable array encodings, and neither session
-    /// enables the unstable layouts or aggregates.
+    /// The unstable session adds exactly `fastlanes.delta` to the default session's components.
     #[rstest]
-    #[case::default(&SESSION, false)]
-    #[case::unstable(&UNSTABLE_SESSION, true)]
-    fn unstable_members_enabled(#[case] session: &VortexSession, #[case] arrays_enabled: bool) {
-        for member in unstable::DECLARATION.added {
-            let id = member.component.component_id();
-            let enabled = session.enabled_component_ids(member.kind).contains(&id);
-            let expected = arrays_enabled && member.kind == ComponentKind::Array;
-            assert_eq!(enabled, expected, "{:?} {id}", member.kind);
-        }
+    #[case::arrays(ComponentKind::Array, vec![Id::from("fastlanes.delta")])]
+    #[case::layouts(ComponentKind::Layout, vec![])]
+    #[case::aggregates(ComponentKind::Aggregate, vec![])]
+    fn unstable_session_adds_only_delta(#[case] kind: ComponentKind, #[case] expected: Vec<Id>) {
+        let ids = |session: &VortexSession| session.enabled_component_ids(kind);
+        let default = ids(&SESSION);
+        let added: Vec<Id> = ids(&UNSTABLE_SESSION)
+            .into_iter()
+            .filter(|id| !default.contains(id))
+            .collect();
+        assert_eq!(added, expected);
     }
 }

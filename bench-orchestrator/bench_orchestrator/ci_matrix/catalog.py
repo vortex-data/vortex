@@ -35,21 +35,25 @@ FULL_LOCAL_TARGETS = df(
     Format.PARQUET,
     Format.VORTEX,
     Format.VORTEX_COMPACT,
+    Format.VORTEX_UNSTABLE,
     Format.LANCE,
 ) | duck(
     Format.PARQUET,
     Format.VORTEX,
     Format.VORTEX_COMPACT,
+    Format.VORTEX_UNSTABLE,
     Format.DUCKDB,
 )
 FULL_PR_TARGETS = df(
     Format.PARQUET,
     Format.VORTEX,
     Format.VORTEX_COMPACT,
+    Format.VORTEX_UNSTABLE,
 ) | duck(
     Format.PARQUET,
     Format.VORTEX,
     Format.VORTEX_COMPACT,
+    Format.VORTEX_UNSTABLE,
     Format.DUCKDB,
 )
 DEFAULT_WITH_DUCKDB_TARGETS = DEFAULT_TARGETS | duck(Format.DUCKDB)
@@ -65,7 +69,13 @@ STANDARD = Coverage(STANDARD_TARGETS)
 FULL_LOCAL = Coverage(FULL_LOCAL_TARGETS)
 FULL_PR = Coverage(
     FULL_PR_TARGETS,
-    data_formats=(Format.PARQUET, Format.VORTEX, Format.VORTEX_COMPACT, Format.DUCKDB),
+    data_formats=(
+        Format.PARQUET,
+        Format.VORTEX,
+        Format.VORTEX_COMPACT,
+        Format.VORTEX_UNSTABLE,
+        Format.DUCKDB,
+    ),
 )
 DEFAULT_WITH_DUCKDB_PR_FULL = Coverage(
     DEFAULT_WITH_DUCKDB_TARGETS,

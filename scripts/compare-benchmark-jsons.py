@@ -1047,11 +1047,12 @@ ENGINE_ORDER = {
 FILE_FORMAT_ORDER = {
     "vortex-file-compressed": 0,
     "vortex-compact": 1,
-    "parquet": 2,
-    "lance": 3,
-    "duckdb": 4,
-    "arrow": 5,
-    "litdata": 6,
+    "vortex-unstable": 2,
+    "parquet": 3,
+    "lance": 4,
+    "duckdb": 5,
+    "arrow": 6,
+    "litdata": 7,
 }
 
 UNIT_ORDER = {
