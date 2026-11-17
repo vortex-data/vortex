@@ -183,6 +183,9 @@ struct ReadDriver<R> {
     num_active: usize,
     batches_done: bool,
     concurrency: usize,
+    // The slots neither active nor claimed by a pending read, reported to `batches` before each
+    // poll so it hands over only reads that can start.
+    free_slots: Arc<AtomicUsize>,
     metrics: RequestMetrics,
 }
 
@@ -191,6 +194,7 @@ impl<R: VortexReadAt> ReadDriver<R> {
         reader: R,
         batches: BoxStream<'static, Vec<IoRequest>>,
         concurrency: usize,
+        free_slots: Arc<AtomicUsize>,
         metrics: RequestMetrics,
     ) -> Self {
         Self {
@@ -201,6 +205,7 @@ impl<R: VortexReadAt> ReadDriver<R> {
             num_active: 0,
             batches_done: false,
             concurrency,
+            free_slots,
             metrics,
         }
     }
@@ -241,7 +246,14 @@ impl<R: VortexReadAt> Stream for ReadDriver<R> {
         let this = self.as_mut().get_mut();
 
         // Observe every batch already available so submission can fill all free slots at once.
+        // This poll follows every read completion, so a stream holding requests back for want of
+        // a slot sees each slot as it frees.
         if !this.batches_done {
+            this.free_slots.store(
+                this.concurrency
+                    .saturating_sub(this.num_active + this.pending.len()),
+                Ordering::Relaxed,
+            );
             loop {
                 match this.batches.poll_next_unpin(cx) {
                     Poll::Ready(Some(batch)) => this.pending.extend(batch),
@@ -311,6 +323,7 @@ impl FileSegmentSource {
             // Increase max_size to keep the effective payload window consistent.
             let extra = (max_alignment.as_usize() as u64).saturating_sub(1);
             config.max_size = config.max_size.saturating_add(extra);
+            config.idle_max_size = config.idle_max_size.saturating_add(extra);
             config
         });
         let concurrency = reader.concurrency();
@@ -321,6 +334,7 @@ impl FileSegmentSource {
             );
         }
 
+        let free_slots = Arc::new(AtomicUsize::new(concurrency));
         let stream = IoRequestStream::new(
             StreamExt::boxed(recv),
             coalesce_config,
@@ -328,9 +342,11 @@ impl FileSegmentSource {
             concurrency,
             metrics.clone(),
         )
+        .with_free_slots(Arc::clone(&free_slots))
         .boxed();
 
-        let drive_fut = ReadDriver::new(reader, stream, concurrency, metrics).collect::<()>();
+        let drive_fut =
+            ReadDriver::new(reader, stream, concurrency, free_slots, metrics).collect::<()>();
 
         // Spawn the driver so the runtime makes I/O progress independently of any reader. Readers
         // join it (below) only to surface a panic raised while driving reads.
