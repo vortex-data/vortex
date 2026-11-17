@@ -38,6 +38,8 @@ use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::aggregate_fn::session::AggregateKernels;
 use crate::array::ArrayId;
 use crate::block::Fused;
+use crate::block::combine_children;
+use crate::block::fusable_ptype;
 use crate::block::fuse_into_parent;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
@@ -389,6 +391,16 @@ impl ArrayRef {
                     }
                     Err(child) => current_array = child,
                 }
+                // An array that combines blocks of its children fuses with them where it stands,
+                // even with no parent above to extend it: that saves each child's buffer.
+                match try_combine(&stack, current_array, kernels, ctx)? {
+                    Ok(fused) => {
+                        current_array = fused;
+                        child_rewritten = false;
+                        continue;
+                    }
+                    Err(array) => current_array = array,
+                }
             }
 
             let expected_len = current_array.len();
@@ -528,6 +540,36 @@ fn try_fuse(
         }
         Err(child) => Ok(Err(child)),
     }
+}
+
+/// Combine `array`'s children into a [`Fused`] array standing for `array`, if it combines blocks
+/// of its children and they are ready. Returns `array` back otherwise.
+///
+/// As in [`try_fuse`], an array with execute-parent kernels, or one the parent waiting for it has
+/// a kernel for, is not combined, and neither is a child whose own kernels would be skipped.
+fn try_combine(
+    stack: &[StackFrame],
+    array: ArrayRef,
+    kernels: &ParentExecutionKernels,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Result<ArrayRef, ArrayRef>> {
+    if fusable_ptype(&array).is_none()
+        || has_execute_parent_kernels(kernels, &array)
+        || stack.last().is_some_and(|frame| {
+            frame.parent_builder.is_some()
+                || kernels.contains_key(&execute_parent_key(
+                    frame.parent_array.encoding_id(),
+                    array.encoding_id(),
+                ))
+        })
+    {
+        return Ok(Err(array));
+    }
+    combine_children(
+        array,
+        |child| !has_execute_parent_kernels(kernels, child),
+        ctx,
+    )
 }
 
 /// Suspend `array` on the stack while its slot `slot_idx` executes, returning that child.

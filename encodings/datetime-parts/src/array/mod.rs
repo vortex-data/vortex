@@ -21,6 +21,7 @@ use vortex_array::IntoArray;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::TemporalArray;
+use vortex_array::block::BlockCombineSpec;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
@@ -37,6 +38,7 @@ use vortex_error::vortex_panic;
 use vortex_session::registry::CachedId;
 
 use crate::TemporalParts;
+use crate::canonical::block_combine;
 use crate::canonical::decode_to_temporal;
 use crate::split_temporal;
 
@@ -142,6 +144,18 @@ impl VTable for DateTimeParts {
 
         Ok(ExecutionResult::done(
             decode_to_temporal(parts, &dtype, ctx)?.into_array(),
+        ))
+    }
+
+    fn block_combine(
+        array: ArrayView<'_, Self>,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<BlockCombineSpec>> {
+        Ok(block_combine(
+            array.dtype(),
+            array.days(),
+            array.seconds(),
+            array.subseconds(),
         ))
     }
 }

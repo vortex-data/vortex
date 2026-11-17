@@ -22,6 +22,7 @@ use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
+use vortex_array::block::BlockOp;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -30,8 +31,8 @@ use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
-use vortex_array::require_child;
 use vortex_array::require_patches;
+use vortex_array::require_spine;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -46,6 +47,7 @@ use vortex_session::registry::CachedId;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
+use crate::alp::block::alp_block_op;
 use crate::alp::decompress::execute_decompress;
 
 mod plugin;
@@ -116,17 +118,27 @@ impl VTable for ALP {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.encoded(), ALPSlots::ENCODED => Primitive);
         require_patches!(
             array,
             ALPSlots::PATCH_INDICES,
             ALPSlots::PATCH_VALUES,
             ALPSlots::PATCH_CHUNK_OFFSETS
         );
+        // The encoded values are the spine: requested last, once the patches are executed.
+        let array = require_spine!(array, array.encoded(), ALPSlots::ENCODED => Primitive);
 
         Ok(ExecutionResult::done(
             execute_decompress(array, ctx)?.into_array(),
         ))
+    }
+
+    fn block_op(
+        array: ArrayView<'_, Self>,
+        slot_idx: usize,
+        _child_dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        alp_block_op(array, slot_idx, ctx)
     }
 }
 

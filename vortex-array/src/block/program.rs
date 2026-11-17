@@ -16,6 +16,7 @@ use vortex_error::vortex_ensure_eq;
 use super::BLOCK_LEN;
 use super::Block;
 use super::BlockBuf;
+use super::BlockCombine;
 use super::BlockIn;
 use super::BlockInOut;
 use super::BlockOp;
@@ -33,10 +34,15 @@ use crate::match_each_native_ptype;
 use crate::trace_op;
 use crate::validity::Validity;
 
-/// The primitive type of an array the executor can fuse, or `None` if it is not primitive.
+/// The primitive type of an array the executor can fuse: its own, or its storage type for an
+/// extension type stored as a primitive. `None` for any other array.
 pub(crate) fn fusable_ptype(array: &ArrayRef) -> Option<PType> {
     match array.dtype() {
         DType::Primitive(ptype, _) => Some(*ptype),
+        DType::Extension(ext) => match ext.storage_dtype() {
+            DType::Primitive(ptype, _) => Some(*ptype),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -48,6 +54,8 @@ pub(crate) enum ProgramInput {
     /// A canonical primitive array, which the program decodes in place when it holds the only
     /// reference to its buffer and every op keeps the width.
     Canonical(PrimitiveArray),
+    /// A parent combining blocks of several children.
+    Zip(ZipSource),
 }
 
 impl ProgramInput {
@@ -55,6 +63,7 @@ impl ProgramInput {
         match self {
             ProgramInput::Source(_) => "source",
             ProgramInput::Canonical(_) => "canonical",
+            ProgramInput::Zip(_) => "zip",
         }
     }
 }
@@ -98,15 +107,17 @@ impl BlockProgram {
         validity: Validity,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<PrimitiveArray> {
-        vortex_ensure!(
-            !self.ops.is_empty(),
-            "a block program needs at least one op"
-        );
+        // The last op writes the output, so a program of a combine alone copies its blocks there.
+        if self.ops.is_empty() {
+            let ptype = self.ptypes[0];
+            self.push(identity(ptype), ptype);
+        }
         #[cfg(any(test, feature = "_test-harness"))]
         super::FUSED_CHAINS.with(|count| count.set(count.get() + 1));
         let (len, out_ptype) = (self.len, *self.ptypes.last().vortex_expect("input type"));
         let mut source: Box<dyn BlockSource> = match self.input {
             ProgramInput::Source(source) => source,
+            ProgramInput::Zip(zip) => Box::new(zip),
             ProgramInput::Canonical(array) => {
                 let in_place = (0..self.ops.len()).all(|i| in_place_op(&self.ops, &self.ptypes, i));
                 match_each_native_ptype!(array.ptype(), |S| {
@@ -147,6 +158,113 @@ impl BlockProgram {
             unsafe { output.set_len(len) };
             Ok(PrimitiveArray::new(output.freeze(), validity))
         })
+    }
+}
+
+/// Copies each value: the op of a program with nothing but a combine.
+fn identity(ptype: PType) -> Box<dyn BlockOp> {
+    match_each_native_ptype!(ptype, |T| {
+        Box::new(Identity::<T>(PhantomData)) as Box<dyn BlockOp>
+    })
+}
+
+struct Identity<T>(PhantomData<fn() -> T>);
+
+impl<T: NativePType> BlockOp for Identity<T> {
+    fn process<'a>(&mut self, _start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
+        Ok(block.map(|value: T| value))
+    }
+}
+
+/// Feeds the same rows of each input to a [`BlockCombine`].
+pub(crate) struct ZipSource {
+    /// Each input's source, scratch and type.
+    inputs: Vec<(Box<dyn BlockSource>, Box<BlockBuf>, PType)>,
+    combine: Box<dyn BlockCombine>,
+    out_ptype: PType,
+}
+
+impl ZipSource {
+    pub(crate) fn new(
+        inputs: Vec<(Box<dyn BlockSource>, PType)>,
+        combine: Box<dyn BlockCombine>,
+        out_ptype: PType,
+    ) -> Self {
+        Self {
+            inputs: inputs
+                .into_iter()
+                .map(|(source, ptype)| (source, BlockBuf::new_boxed(), ptype))
+                .collect(),
+            combine,
+            out_ptype,
+        }
+    }
+}
+
+impl BlockSource for ZipSource {
+    fn fill<'s>(
+        &'s mut self,
+        rows: Range<usize>,
+        scratch: &'s mut BlockBuf,
+    ) -> VortexResult<SourceBlock<'s>> {
+        let n = rows.len();
+        // Each input's block as a raw pointer: a block lent by a source stays valid until that
+        // source is filled again, which is not before the combine has read it.
+        let mut filled = Vec::with_capacity(self.inputs.len());
+        for (source, buf, ptype) in &mut self.inputs {
+            let ptr = match source.fill(rows.clone(), buf)? {
+                SourceBlock::Scratch { offset, len } => {
+                    vortex_ensure_eq!(len, n, "block source emitted the wrong number of rows");
+                    vortex_ensure!(
+                        offset + len <= BLOCK_LEN,
+                        "block source overran its scratch"
+                    );
+                    // SAFETY: `offset + len <= BLOCK_LEN` values fit in the scratch, and the
+                    // pointer is taken after the fill, from the zip's own borrow of it.
+                    unsafe { buf.as_mut_ptr().add(offset * ptype.byte_width()) }.cast_const()
+                }
+                SourceBlock::Lent(block) => {
+                    vortex_ensure_eq!(
+                        block.len(),
+                        n,
+                        "block source emitted the wrong number of rows"
+                    );
+                    vortex_ensure_eq!(block.ptype(), *ptype);
+                    block.ptr
+                }
+            };
+            filled.push((ptr, *ptype));
+        }
+        let blocks: Vec<BlockIn<'_>> = filled
+            .into_iter()
+            .map(|(ptr, ptype)| BlockIn {
+                ptr,
+                len: n,
+                ptype,
+                _borrow: PhantomData,
+            })
+            .collect();
+        let out = scratch.as_mut_ptr();
+        let written = self.combine.process(
+            rows.start,
+            &blocks,
+            BlockOut {
+                ptr: out,
+                len: n,
+                ptype: self.out_ptype,
+                _borrow: PhantomData,
+            },
+        )?;
+        check_written(&written, out, n, self.out_ptype)?;
+        Ok(SourceBlock::Scratch { offset: 0, len: n })
+    }
+
+    fn block_offset(&self) -> usize {
+        self.inputs
+            .iter()
+            .map(|(source, ..)| source.block_offset())
+            .find(|offset| offset % BLOCK_LEN != 0)
+            .unwrap_or(0)
     }
 }
 

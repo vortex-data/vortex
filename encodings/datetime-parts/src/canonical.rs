@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 
 use num_traits::AsPrimitive;
@@ -11,8 +12,14 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::block::BlockCombine;
+use vortex_array::block::BlockCombineSpec;
+use vortex_array::block::BlockIn;
+use vortex_array::block::BlockOut;
+use vortex_array::block::Written;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::extension::datetime::TimeUnit;
@@ -28,6 +35,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::array::DateTimePartsParts;
+use crate::array::DateTimePartsSlots;
 use crate::timestamp::SECONDS_PER_DAY;
 
 /// Decode a [`DateTimePartsParts`] back into a [`TemporalArray`].
@@ -107,6 +115,108 @@ pub fn decode_to_temporal(
         options.unit,
         options.tz.clone(),
     ))
+}
+
+/// The combine of a [`DateTimeParts`](crate::DateTimeParts) array over its non-constant children,
+/// or `None` if it decodes some other way: a constant part is folded in, as
+/// [`decode_to_temporal`] does, and a non-constant seconds or subseconds part must be `i32`.
+pub(crate) fn block_combine(
+    dtype: &DType,
+    days: &ArrayRef,
+    seconds: &ArrayRef,
+    subseconds: &ArrayRef,
+) -> Option<BlockCombineSpec> {
+    let DType::Extension(ext) = dtype else {
+        return None;
+    };
+    let divisor = match ext.metadata_opt::<Timestamp>()?.unit {
+        TimeUnit::Nanoseconds => 1_000_000_000,
+        TimeUnit::Microseconds => 1_000_000,
+        TimeUnit::Milliseconds => 1_000,
+        TimeUnit::Seconds => 1,
+        TimeUnit::Days => return None,
+    };
+    let DType::Primitive(days_ptype, _) = days.dtype() else {
+        return None;
+    };
+    if !days_ptype.is_int() {
+        return None;
+    }
+    let mut slots = vec![DateTimePartsSlots::DAYS];
+    let mut part = |array: &ArrayRef, slot: usize| -> Option<BlockPart> {
+        if let Some(constant) = array.as_constant() {
+            return Some(BlockPart::Constant(constant.as_primitive().as_::<i64>()?));
+        }
+        (array.dtype() == &DType::Primitive(PType::I32, Nullability::NonNullable)).then(|| {
+            slots.push(slot);
+            BlockPart::Values
+        })
+    };
+    let seconds = part(seconds, DateTimePartsSlots::SECONDS)?;
+    let subseconds = part(subseconds, DateTimePartsSlots::SUBSECONDS)?;
+    let combine = match_each_integer_ptype!(days_ptype, |D| {
+        Box::new(CombineParts::<D> {
+            seconds,
+            subseconds,
+            divisor,
+            _days: PhantomData,
+        }) as Box<dyn BlockCombine>
+    });
+    Some(BlockCombineSpec { slots, combine })
+}
+
+/// A seconds or subseconds part as a combine reads it.
+#[derive(Clone, Copy)]
+enum BlockPart {
+    Constant(i64),
+    /// The next `i32` input.
+    Values,
+}
+
+/// Combines blocks of days with seconds and subseconds, as [`decode_to_temporal`] does.
+struct CombineParts<D> {
+    seconds: BlockPart,
+    subseconds: BlockPart,
+    divisor: i64,
+    _days: PhantomData<fn(D)>,
+}
+
+impl<D: NativePType + AsPrimitive<i64>> BlockCombine for CombineParts<D> {
+    fn process<'a>(
+        &mut self,
+        _start: usize,
+        inputs: &[BlockIn<'_>],
+        mut out: BlockOut<'a>,
+    ) -> VortexResult<Written<'a>> {
+        let len = out.len();
+        let days = inputs[0].as_slice::<D>();
+        let mut next = inputs[1..].iter();
+        let mut values = |part: BlockPart| match part {
+            BlockPart::Values => next.next().map(|block| block.as_slice::<i32>()),
+            BlockPart::Constant(_) => None,
+        };
+        let (seconds, subseconds) = (values(self.seconds), values(self.subseconds));
+        let values = out.as_uninit::<i64>();
+        match (self.seconds, seconds, self.subseconds, subseconds) {
+            (BlockPart::Constant(s), _, BlockPart::Constant(u), _) => combine_parts(
+                days,
+                Repeat::new(s, len),
+                Repeat::new(u, len),
+                self.divisor,
+                values,
+            ),
+            (BlockPart::Constant(s), _, _, Some(u)) => {
+                combine_parts(days, Repeat::new(s, len), u, self.divisor, values)
+            }
+            (_, Some(s), BlockPart::Constant(u), _) => {
+                combine_parts(days, s, Repeat::new(u, len), self.divisor, values)
+            }
+            (_, Some(s), _, Some(u)) => combine_parts(days, s, u, self.divisor, values),
+            _ => vortex_panic!("a combine has an input for each non-constant part"),
+        }
+        // SAFETY: `combine_parts` writes every value of `out`.
+        Ok(unsafe { Written::assume_init(out) })
+    }
 }
 
 /// A non-nullable integer component of every timestamp.

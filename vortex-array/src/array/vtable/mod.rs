@@ -37,6 +37,7 @@ use crate::IntoArray;
 pub use crate::array::plugin::*;
 use crate::arrays::ConstantArray;
 use crate::arrays::constant::Constant;
+use crate::block::BlockCombineSpec;
 use crate::block::BlockOp;
 use crate::block::BlockSource;
 use crate::buffer::BufferHandle;
@@ -203,6 +204,21 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockOp>>> {
         _ = (array, slot_idx, child_dtype, ctx);
+        Ok(None)
+    }
+
+    /// Combine blocks of several children into blocks of this array's values, for the executor
+    /// to fuse with those children without materializing them. See [`crate::block`].
+    ///
+    /// The executor calls this on an array before executing it. The combine must produce exactly
+    /// the values `execute` produces. The executor only uses it when every child in the
+    /// returned slots is primitive, of this array's length, and canonical or a block source.
+    /// Only called on arrays whose dtype is primitive, or an extension type stored as one.
+    fn block_combine(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<BlockCombineSpec>> {
+        _ = (array, ctx);
         Ok(None)
     }
 }

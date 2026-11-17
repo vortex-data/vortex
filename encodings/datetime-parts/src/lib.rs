@@ -5,6 +5,8 @@ pub use array::*;
 pub use compress::*;
 
 mod array;
+#[cfg(test)]
+mod block_tests;
 mod canonical;
 mod compress;
 mod compute;

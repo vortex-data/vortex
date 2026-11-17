@@ -20,8 +20,11 @@ use vortex_error::vortex_panic;
 use vortex_session::registry::CachedId;
 
 use super::BlockProgram;
+use super::BlockSource;
 use super::ProgramInput;
+use super::ZipSource;
 use super::fusable_ptype;
+use super::program::PrimitiveSource;
 use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -38,9 +41,11 @@ use crate::array::VTable;
 use crate::array::vtable::NotSupported;
 use crate::array::vtable::ValidityVTable;
 use crate::array::vtable::with_empty_buffers;
+use crate::arrays::ExtensionArray;
 use crate::arrays::Primitive;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
+use crate::match_each_native_ptype;
 use crate::matcher::Matcher;
 use crate::trace_op;
 use crate::validity::Validity;
@@ -114,8 +119,12 @@ impl VTable for Fused {
     ) -> VortexResult<()> {
         vortex_ensure!(slots.is_empty(), "a fused array has no slots");
         vortex_ensure!(
-            matches!(dtype, DType::Primitive(..)),
-            "a fused array is primitive, not {dtype}"
+            match dtype {
+                DType::Primitive(..) => true,
+                DType::Extension(ext) => matches!(ext.storage_dtype(), DType::Primitive(..)),
+                _ => false,
+            },
+            "a fused array is primitive, or an extension stored as one, not {dtype}"
         );
         Ok(())
     }
@@ -154,9 +163,11 @@ impl VTable for Fused {
         ));
         // Level-wise execution materializes validity, so a fused result does too.
         let validity = state.validity.clone().execute(ctx)?;
-        Ok(ExecutionResult::done(
-            program.run(validity, ctx)?.into_array(),
-        ))
+        let values = program.run(validity, ctx)?.into_array();
+        Ok(ExecutionResult::done(match array.dtype() {
+            DType::Extension(ext) => ExtensionArray::new(ext.clone(), values).into_array(),
+            _ => values,
+        }))
     }
 }
 
@@ -219,10 +230,76 @@ pub(crate) fn fuse_into_parent(
     // Release the parent and child, so a canonical input is again uniquely owned.
     drop(whole);
 
-    let fused = Array::<Fused>::try_from_parts(ArrayParts::new(
+    let fused = fused_array(parent, program, validity, stats)?;
+    Ok(Ok(fused))
+}
+
+/// Combine the children of `array`, which has not executed, into a [`Fused`] array standing for
+/// `array`, if `array` combines blocks of its children and each of them is canonical or a block
+/// source that `uses_source` allows. Returns `array` back otherwise.
+pub(crate) fn combine_children(
+    array: ArrayRef,
+    uses_source: impl Fn(&ArrayRef) -> bool,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Result<ArrayRef, ArrayRef>> {
+    let Some(ptype) = fusable_ptype(&array) else {
+        return Ok(Err(array));
+    };
+    if array.is_empty() {
+        return Ok(Err(array));
+    }
+    let Some(spec) = array.block_combine(ctx)? else {
+        return Ok(Err(array));
+    };
+    let mut inputs = Vec::with_capacity(spec.slots.len());
+    for slot in spec.slots {
+        let Some(child) = array.slots().get(slot).and_then(Option::as_ref) else {
+            return Ok(Err(array));
+        };
+        let Some(child_ptype) = fusable_ptype(child) else {
+            return Ok(Err(array));
+        };
+        vortex_ensure_eq!(
+            child.len(),
+            array.len(),
+            "a combined child has its parent's length"
+        );
+        let source = if let Some(primitive) = child.as_opt::<Primitive>() {
+            match_each_native_ptype!(child_ptype, |T| {
+                Box::new(PrimitiveSource::new(primitive.to_buffer::<T>())) as Box<dyn BlockSource>
+            })
+        } else if uses_source(child)
+            && let Some(source) = child.block_source(ctx)?
+        {
+            source
+        } else {
+            // The child is not ready: the array executes, and is combined again once it is.
+            return Ok(Err(array));
+        };
+        inputs.push((source, child_ptype));
+    }
+    trace_op!(record_fuse_start("zip", &array));
+    let program = BlockProgram::new(
+        ProgramInput::Zip(ZipSource::new(inputs, spec.combine, ptype)),
+        ptype,
+        array.len(),
+    );
+    let validity = array.validity()?;
+    let stats = array.statistics().to_owned();
+    Ok(Ok(fused_array(&array, program, validity, stats)?))
+}
+
+/// A [`Fused`] array standing for `array`, whose values `program` produces.
+fn fused_array(
+    array: &ArrayRef,
+    program: BlockProgram,
+    validity: Validity,
+    stats: crate::stats::StatsSet,
+) -> VortexResult<ArrayRef> {
+    Ok(Array::<Fused>::try_from_parts(ArrayParts::new(
         Fused,
-        parent.dtype().clone(),
-        parent.len(),
+        array.dtype().clone(),
+        array.len(),
         FusedData {
             state: Arc::new(FusedState {
                 program: Mutex::new(Some(program)),
@@ -232,8 +309,7 @@ pub(crate) fn fuse_into_parent(
         Default::default(),
     ))?
     .with_stats_set(stats)
-    .into_array();
-    Ok(Ok(fused))
+    .into_array())
 }
 
 /// The program producing `child`'s values, if `child` can be the input of one.

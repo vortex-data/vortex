@@ -381,6 +381,29 @@ pub trait BlockOp: Send {
     }
 }
 
+/// A parent's combination of blocks of several of its children into one block of its own.
+pub trait BlockCombine: Send {
+    /// Write the parent's values for rows `start..start + out.len()`.
+    ///
+    /// `inputs` holds the same rows of each child in [`BlockCombineSpec::slots`], in that order
+    /// and in each child's primitive type, and `out` receives the parent's, in its primitive type.
+    fn process<'a>(
+        &mut self,
+        start: usize,
+        inputs: &[BlockIn<'_>],
+        out: BlockOut<'a>,
+    ) -> VortexResult<Written<'a>>;
+}
+
+/// What [`VTable::block_combine`](crate::vtable::VTable::block_combine) returns: the slots whose
+/// children the combine reads, and the combine.
+pub struct BlockCombineSpec {
+    /// The slots whose children are the combine's inputs, in input order.
+    pub slots: Vec<usize>,
+    /// The combine.
+    pub combine: Box<dyn BlockCombine>,
+}
+
 /// Patches resolved once and applied block by block in row order.
 pub struct BlockPatches<T> {
     /// The patched rows, in increasing order.
@@ -518,7 +541,9 @@ mod program;
 mod tests;
 
 pub(crate) use fused::Fused;
+pub(crate) use fused::combine_children;
 pub(crate) use fused::fuse_into_parent;
 pub(crate) use program::BlockProgram;
 pub(crate) use program::ProgramInput;
+pub(crate) use program::ZipSource;
 pub(crate) use program::fusable_ptype;
