@@ -216,7 +216,7 @@ impl VTable for BitPacked {
         array: ArrayView<'_, Self>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockSource>>> {
-        packed_source(array, None, ctx)
+        packed_source(array, ctx)
     }
 }
 

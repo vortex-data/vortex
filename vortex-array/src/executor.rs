@@ -537,8 +537,8 @@ struct FusionPlan {
 /// Walk up the stack from `leaf` while the suspended parents transform blocks of their child, and
 /// return the chain if fusing it saves at least one full-length intermediate.
 ///
-/// The bottom of the chain is the leaf's own block source or, if the leaf has none and a child
-/// that is already canonical, that child, with the leaf's op over it.
+/// The bottom of the chain is the leaf's own block source or, if the leaf has none, the source of
+/// a child it transforms, with the leaf's op over it.
 fn plan_fusion(
     leaf: &ArrayRef,
     stack: &[StackFrame],
@@ -583,7 +583,7 @@ fn plan_fusion(
         // Fusing an encoded leaf saves its own buffer even below a single parent.
         Some(source)
     } else {
-        canonical_child_source(leaf, &mut ops, &mut ptypes, ctx)?
+        child_source(leaf, &mut ops, &mut ptypes, ctx)?
             .filter(|_| ops.len() >= MIN_FUSED_OPS_OVER_CANONICAL)
     };
     Ok(source.map(|source| FusionPlan {
@@ -594,9 +594,10 @@ fn plan_fusion(
     }))
 }
 
-/// The source of a canonical primitive child of `leaf` that `leaf` transforms block by block,
-/// with `leaf`'s op prepended to `ops`.
-fn canonical_child_source(
+/// The source of a primitive child of `leaf` that `leaf` transforms block by block, with `leaf`'s
+/// op prepended to `ops`. The child may be canonical, or an encoding with a block source that
+/// `leaf`'s own execute would run a fused kernel over, such as FoR over BitPacked.
+fn child_source(
     leaf: &ArrayRef,
     ops: &mut Vec<Box<dyn BlockOp>>,
     ptypes: &mut Vec<PType>,
@@ -607,7 +608,7 @@ fn canonical_child_source(
         let Some(child_ptype) = fusable_ptype(child) else {
             continue;
         };
-        if child.len() != leaf.len() || !AnyCanonical::matches(child) {
+        if child.len() != leaf.len() {
             continue;
         }
         let Some(op) = leaf.block_op(slot_idx, child.dtype(), ctx)? else {
