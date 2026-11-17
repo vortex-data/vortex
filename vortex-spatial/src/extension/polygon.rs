@@ -18,7 +18,6 @@ use geo::HasDimensions;
 use geo_traits::to_geo::ToGeoGeometry;
 use geo_types::Geometry;
 use geoarrow::array::GeoArrowArrayAccessor;
-use geoarrow::array::IntoArrow;
 use geoarrow::array::PolygonArray;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::PolygonType;
@@ -309,11 +308,9 @@ impl ArrowExtVTable for Polygon {
         let arrow_storage =
             storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
-        // Round-trip through GeoArrow's polygon array; `into_arrow` is concrete, so wrap in `Arc`.
-        let polygons = PolygonArray::try_from((arrow_storage.as_ref(), polygon_meta))
-            .map_err(|e| vortex_err!("failed to construct PolygonArray: {e}"))?;
-
-        Ok(ArrowExport::Exported(Arc::new(polygons.into_arrow())))
+        // The validated target already shapes the storage. GeoArrow constructors can panic on
+        // valid Arrow lists that retain unused child values after filtering.
+        Ok(ArrowExport::Exported(arrow_storage))
     }
 
     fn from_arrow_field(
