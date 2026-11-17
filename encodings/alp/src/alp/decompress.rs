@@ -3,6 +3,10 @@
 
 use std::mem::transmute;
 
+use fearless_simd::Level;
+use fearless_simd::Simd;
+use fearless_simd::dispatch;
+use fearless_simd_macros::simd;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::chunk_range;
@@ -144,12 +148,13 @@ fn decode_and_patch_chunks<T, I, C>(
 {
     let array_len = values.len();
     let offset_within_chunk = patches.offset_within_chunk().unwrap_or(0);
+    let level = Level::new();
 
     for chunk_idx in 0..patches_chunk_offsets.len() {
         let chunk_range = chunk_range(chunk_idx, patches.offset(), array_len);
         let chunk_slice = &mut values[chunk_range];
 
-        T::decode_slice_inplace(chunk_slice, exponents);
+        decode_inplace::<T>(level, chunk_slice, exponents);
 
         // SAFETY: `ALPFloat` is sealed to `f32` and `f64`, whose `ALPInt` (`i32` or `i64`) has the
         // same size and alignment, and both types accept every bit pattern.
@@ -182,7 +187,7 @@ fn decompress_unchunked_core(
 
     let decoded = match_each_alp_float_ptype!(ptype, |T| {
         let mut alp_buffer = encoded.into_buffer_mut();
-        <T>::decode_slice_inplace(alp_buffer.as_mut_slice(), exponents);
+        decode_inplace::<T>(Level::new(), alp_buffer.as_mut_slice(), exponents);
         let decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
         PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity)
     });
@@ -192,4 +197,21 @@ fn decompress_unchunked_core(
     } else {
         Ok(decoded)
     }
+}
+
+/// Decodes `encoded` in place, compiled for the SIMD `level`.
+#[inline]
+fn decode_inplace<T: ALPFloat>(level: Level, encoded: &mut [T::ALPInt], exponents: Exponents) {
+    dispatch!(level, simd => decode_inplace_simd::<_, T>(simd, encoded, exponents))
+}
+
+/// The `alp` decode loop is inlined into this body, so each level gets its own instantiation that
+/// LLVM vectorizes with that level's target features rather than the compilation baseline.
+#[simd]
+fn decode_inplace_simd<S: Simd, T: ALPFloat>(
+    _: S,
+    encoded: &mut [T::ALPInt],
+    exponents: Exponents,
+) {
+    T::decode_slice_inplace(encoded, exponents);
 }
