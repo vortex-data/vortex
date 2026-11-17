@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Encodings of TPC-H orders as written by `data-gen`. Print the dump these directives match
+# with `vx filecheck slt/tpch/data/orders.vortex`.
+
+files: tpch/data/orders\.vortex
+
+# The three low-cardinality string columns get dictionary layouts, in schema order.
+check: unit: o_orderstatus/data/values
+check: unit: o_orderpriority/data/values
+check: unit: o_clerk/data/values
+
+# No chunk of any column stores its values uncompressed.
+units: o_*/data[*]
+not: root: vortex.primitive(
+not: root: vortex.varbinview(
+
+# The order key is sorted with gaps: frame-of-reference, then bit-packed.
+units: o_orderkey/data*
+check: root: fastlanes.for
+nextln: encoded: fastlanes.bitpacked
+
+# Every order has the same ship priority, so the column is a constant.
+units: o_shippriority/data*
+check: root: vortex.constant(
+
+# Order dates are frame-of-reference then bit-packed, under the date extension type.
+units: o_orderdate/data*
+check: root: vortex.ext(vortex.date[days]
+nextln: storage: fastlanes.for
+nextln: encoded: fastlanes.bitpacked
+
+# Prices are split into byte parts, and the most significant part is bit-packed.
+units: o_totalprice/data*
+check: root: vortex.decimal_byte_parts.v2(
+nextln: msp: fastlanes.bitpacked
+
+# Free text is compressed with a string compressor in every chunk.
+units: o_comment/data*
+regex: TEXT=vortex\.(fsst|onpair)
+check: root: $TEXT(utf8
+
+# Dictionary codes are bit-packed.
+units: o_*/data/codes*
+check: root: fastlanes.bitpacked
