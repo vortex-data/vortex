@@ -64,10 +64,27 @@ pub(super) fn constant_result<T: NativePType>(
     let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
     let offset = patches.offset();
     match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-        for (&index, &patch) in indices.as_slice::<I>().iter().zip(values.as_slice::<T>()) {
-            let index: usize = index.as_();
-            bits.set_to(index - offset, predicate(patch));
-        }
+        set_patch_bits(
+            &mut bits,
+            indices.as_slice::<I>(),
+            values.as_slice::<T>(),
+            offset,
+            predicate,
+        )
     });
     Ok(BoolArray::new(bits.freeze(), validity).into_array())
+}
+
+/// Set the bit of each patch, at its index less `patch_offset`, to `predicate` of its value.
+pub(super) fn set_patch_bits<T: Copy, I: AsPrimitive<usize>>(
+    bits: &mut BitBufferMut,
+    indices: &[I],
+    values: &[T],
+    patch_offset: usize,
+    predicate: &dyn Fn(T) -> bool,
+) {
+    for (&index, &patch) in indices.iter().zip(values) {
+        let index: usize = index.as_();
+        bits.set_to(index - patch_offset, predicate(patch));
+    }
 }

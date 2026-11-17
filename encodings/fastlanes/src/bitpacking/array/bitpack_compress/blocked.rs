@@ -272,16 +272,22 @@ where
 fn block_offsets_from_widths(widths: &[u8]) -> ArrayRef {
     let end: u64 = widths.iter().map(|&width| 128 * u64::from(width)).sum();
     let ptype = PType::min_unsigned_ptype_for_value(end);
-    match_each_unsigned_integer_ptype!(ptype, |T| {
-        let mut offsets = BufferMut::<T>::with_capacity(widths.len() + 1);
-        let mut offset = 0u64;
+    match_each_unsigned_integer_ptype!(ptype, |T| { block_offsets_typed::<T>(widths).into_array() })
+}
+
+/// Byte boundaries of blocks packed at `widths`, as `T`.
+fn block_offsets_typed<T: NativePType>(widths: &[u8]) -> BufferMut<T>
+where
+    u64: AsPrimitive<T>,
+{
+    let mut offsets = BufferMut::<T>::with_capacity(widths.len() + 1);
+    let mut offset = 0u64;
+    offsets.push(offset.as_());
+    for &width in widths {
+        offset += 128 * u64::from(width);
         offsets.push(offset.as_());
-        for &width in widths {
-            offset += 128 * u64::from(width);
-            offsets.push(offset.as_());
-        }
-        offsets.into_array()
-    })
+    }
+    offsets
 }
 
 /// The width minimizing each 1024-value block's packed size plus the cost of its exceptions, and
