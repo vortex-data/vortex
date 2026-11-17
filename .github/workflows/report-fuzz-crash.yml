@@ -136,14 +136,19 @@ jobs:
             `logs/fuzz_output.log`. The file can be very large, so read only the first
             200 lines.
 
+            The repository is checked out at the fuzzed commit. Read the code at the
+            crash location before you explain the cause.
+
             Write a short root cause analysis to `claude_analysis.txt`. Tell what the
             crash is, with its error type and location, and why it probably occurs.
+            Say whether the library or the fuzz harness under `fuzz/` looks at fault.
             If a fix direction is clear, include it. The text goes into a section of a
             GitHub issue template, so write only plain prose, without headers or other
             Markdown.
           claude_args: |
             --model claude-opus-5-5
-            --max-turns 5
+            --effort medium
+            --max-turns 20
             --allowedTools "Read,Write,Grep,Glob,Bash(cat:*),Bash(jq:*),Bash(head:*),Bash(xxd:*)"
 
       - name: Create or comment on issue

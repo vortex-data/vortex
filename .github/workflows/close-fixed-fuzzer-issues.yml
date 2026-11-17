@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [file_io, array_ops, compress_roundtrip]
+        target: [file_io, array_ops, compress_roundtrip, row_encode, fsst_like]
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/region=us-east-1/runner=arm64-medium/extras=s3-cache/tag=fuzzer-cleanup-{1}', github.run_id, matrix.target)
