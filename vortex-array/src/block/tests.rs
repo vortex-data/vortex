@@ -186,10 +186,8 @@ impl BlockSource for CounterSource {
         for (out, row) in out.iter_mut().zip(rows.clone()) {
             out.write(self.start + i32::try_from(row).unwrap_or(i32::MAX));
         }
-        Ok(SourceBlock::Scratch {
-            offset: 0,
-            len: rows.len(),
-        })
+        // SAFETY: the loop wrote every value of `out`.
+        Ok(unsafe { SourceBlock::scratch(0, rows.len()) })
     }
 
     fn block_offset(&self) -> usize {
