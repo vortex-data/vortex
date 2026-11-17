@@ -5,5 +5,5 @@ expression: rendered
 input: u64?, len=16384, nbytes=133120
 root: vortex.pco(u64?, len=16384) nbytes=17456
   metadata: ptype: u64, nrows: 16384, slice: 0..16384
-  validity: vortex.bool(bool, len=16384) nbytes=2048
+  validity_child: vortex.bool(bool, len=16384) nbytes=2048
     metadata: offset: 0

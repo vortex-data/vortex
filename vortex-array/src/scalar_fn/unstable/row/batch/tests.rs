@@ -921,6 +921,24 @@ fn test_bool_output_handles_masked_constant() -> VortexResult<()> {
 }
 
 #[test]
+fn test_partially_valid_bool_output_is_canonical() -> VortexResult<()> {
+    let validity = Validity::from_iter([true, false, true, true]);
+    let lhs = PrimitiveArray::new(vec![1_i64, 3, 3, 0], validity.clone()).into_array();
+    let rhs = ConstantArray::new(2_i64, 4).into_array();
+    let args = VecExecutionArgs::new(vec![lhs, rhs], 4);
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let actual = execute_rows(&PackedGreaterThan::<false>, &EmptyOptions, &args, &mut ctx)?;
+    let expected =
+        BoolArray::new([false, true, true, false].into_iter().collect(), validity).into_array();
+
+    assert!(actual.is_canonical(), "{actual}");
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+
+    Ok(())
+}
+
+#[test]
 fn test_bool_output_rejects_wrong_row_count() {
     let short = PrimitiveArray::from_iter(0_i64..64).into_array();
     let long = PrimitiveArray::from_iter(0_i64..65).into_array();

@@ -155,7 +155,10 @@ impl VTable for Zstd {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let validity = child_to_validity(slots[ZstdSlots::VALIDITY].as_ref(), dtype.nullability());
+        let validity = child_to_validity(
+            slots[ZstdSlots::VALIDITY_CHILD].as_ref(),
+            dtype.nullability(),
+        );
         data.validate(dtype, len, &validity)
     }
 
@@ -222,7 +225,7 @@ impl VTable for Zstd {
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let unsliced_validity = child_to_validity(
-            array.as_ref().slots()[ZstdSlots::VALIDITY].as_ref(),
+            array.as_ref().slots()[ZstdSlots::VALIDITY_CHILD].as_ref(),
             array.dtype().nullability(),
         );
         array
@@ -256,7 +259,7 @@ impl VTable for Zstd {
 
 fn unsliced_validity(array: ArrayView<'_, Zstd>) -> Validity {
     child_to_validity(
-        array.slots()[ZstdSlots::VALIDITY].as_ref(),
+        array.slots()[ZstdSlots::VALIDITY_CHILD].as_ref(),
         array.dtype().nullability(),
     )
 }
@@ -419,7 +422,7 @@ impl Zstd {
     /// Decompress a [`ZstdArray`] into its canonical Vortex representation.
     pub fn decompress(array: &ZstdArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let unsliced_validity = child_to_validity(
-            array.as_ref().slots()[ZstdSlots::VALIDITY].as_ref(),
+            array.as_ref().slots()[ZstdSlots::VALIDITY_CHILD].as_ref(),
             array.dtype().nullability(),
         );
         array
@@ -432,7 +435,7 @@ impl Zstd {
 pub struct ZstdSlots {
     /// The validity bitmap indicating which elements are non-null.
     #[slot(0)]
-    pub validity: Option<ArrayRef>,
+    pub validity_child: Option<ArrayRef>,
 }
 
 #[derive(Clone, Debug)]
@@ -1514,7 +1517,7 @@ impl ZstdData {
 impl ValidityVTable<Zstd> for Zstd {
     fn validity(array: ArrayView<'_, Zstd>) -> VortexResult<Validity> {
         let unsliced_validity = child_to_validity(
-            array.slots()[ZstdSlots::VALIDITY].as_ref(),
+            array.slots()[ZstdSlots::VALIDITY_CHILD].as_ref(),
             array.dtype().nullability(),
         );
         unsliced_validity.slice(array.slice_start()..array.slice_stop())
@@ -1530,7 +1533,7 @@ impl OperationsVTable<Zstd> for Zstd {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let unsliced_validity = child_to_validity(
-            array.slots()[ZstdSlots::VALIDITY].as_ref(),
+            array.slots()[ZstdSlots::VALIDITY_CHILD].as_ref(),
             array.dtype().nullability(),
         );
         let sliced = array.data().with_slice(index, index + 1);

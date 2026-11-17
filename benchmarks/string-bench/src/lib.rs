@@ -359,7 +359,8 @@ pub struct HfColumn {
 
 /// The datasets the OnPair paper (Gargiulo & Venturini, "OnPair: Short Strings
 /// Compression for Fast Random Access", arXiv:2508.02280) evaluates on, from
-/// public parquet mirrors, plus a slice of FineWeb as long-document web text.
+/// public parquet mirrors, plus a slice of FineWeb as long-document web text and
+/// a slice of TinyStories as short-story text.
 ///
 /// The paper's fifth dataset, OpenWebText URLs, has no parquet mirror; the
 /// ClickBench `URL` column covers that shape.
@@ -400,6 +401,14 @@ pub const HF_COLUMNS: &[HfColumn] = &[
         url: "hf://datasets/HuggingFaceFW/fineweb@v1.4.0/sample/10BT/001_00000.parquet",
         column: "text",
         max_rows: Some(10_000),
+    },
+    // TinyStories story text: the first 33,121 stories (about 28 MiB), the
+    // size of one file that the NeMo Curator text IO benchmark writes.
+    HfColumn {
+        name: "tinystories/text",
+        url: "hf://datasets/roneneldan/TinyStories@37346026e81060382814d5a773f3c34799e118e7/default/train/0000.parquet",
+        column: "text",
+        max_rows: Some(33_121),
     },
 ];
 

@@ -18,4 +18,6 @@ Summarize what changed and why, calling out the important parts when the PR span
 ## API Changes
 
 Uncomment this section if there are user-facing changes, such as a broken public API or a change in the behavior of an engine integration. A breaking change also needs the `changelog/break` label.
+
+A change to an edition's membership or freeze belongs in its own PR with the `changelog/edition` label.
 -->

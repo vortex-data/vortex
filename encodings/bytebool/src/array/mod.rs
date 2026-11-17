@@ -73,8 +73,10 @@ impl VTable for ByteBool {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let validity =
-            child_to_validity(slots[ByteBoolSlots::VALIDITY].as_ref(), dtype.nullability());
+        let validity = child_to_validity(
+            slots[ByteBoolSlots::VALIDITY_CHILD].as_ref(),
+            dtype.nullability(),
+        );
         ByteBoolData::validate(data.buffer(), &validity, dtype, len)
     }
 
@@ -130,7 +132,7 @@ impl VTable for ByteBool {
 pub struct ByteBoolSlots {
     /// The validity bitmap indicating which elements are non-null.
     #[slot(0)]
-    pub validity: Option<ArrayRef>,
+    pub validity_child: Option<ArrayRef>,
 }
 
 #[derive(Clone, Debug)]
@@ -144,11 +146,11 @@ impl Display for ByteBoolData {
     }
 }
 
-pub trait ByteBoolArrayExt: TypedArrayRef<ByteBool> + ByteBoolArraySlotsExt {
+pub trait ByteBoolArrayExt: TypedArrayRef<ByteBool> {
     /// Returns the [`Validity`] derived from the validity slot.
     fn bytebool_validity(&self) -> Validity {
         child_to_validity(
-            self.slots()[ByteBoolSlots::VALIDITY].as_ref(),
+            self.slots()[ByteBoolSlots::VALIDITY_CHILD].as_ref(),
             self.dtype().nullability(),
         )
     }

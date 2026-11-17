@@ -13,6 +13,7 @@ pub use matcher::FixedShapeTensorMatcherMetadata;
 
 mod metadata;
 pub use metadata::FixedShapeTensorMetadata;
+pub use metadata::FixedShapeTensorStoredMetadata;
 
 mod proto;
 mod vtable;

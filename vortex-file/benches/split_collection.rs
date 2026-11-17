@@ -18,6 +18,8 @@ use std::sync::LazyLock;
 
 use divan::Bencher;
 use mimalloc::MiMalloc;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ChunkedArray;
@@ -27,10 +29,10 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::CompressionSession;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_error::VortexResult;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::VortexFile;
 use vortex_file::WriteOptionsSessionExt;
@@ -88,6 +90,12 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
+/// Leaves chunks uncompressed. Split collection walks only the layout tree, so compressing the
+/// chunk data would add setup time without changing what is measured.
+fn uncompressed(chunk: &ArrayRef, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    Ok(chunk.clone())
+}
+
 fn make_file(columns: usize, chunks: usize) -> VortexFile {
     let field_names = (0..columns).map(|c| format!("col_{c}")).collect::<Vec<_>>();
     let struct_chunks = (0..chunks).map(|chunk| {
@@ -104,9 +112,7 @@ fn make_file(columns: usize, chunks: usize) -> VortexFile {
     let array = ChunkedArray::from_iter(struct_chunks).into_array();
 
     let strategy = vortex_file::WriteStrategyBuilder::from_session(&SESSION)
-        .with_btrblocks_builder(
-            BtrBlocksCompressorBuilder::from_session(&SESSION).disable_editions(),
-        )
+        .with_compressor(uncompressed)
         .with_row_block_size(ROWS_PER_CHUNK)
         .with_data_block_target_bytes(None)
         .build();
@@ -164,10 +170,8 @@ fn make_misaligned_file(columns: usize, chunks: usize) -> VortexFile {
     .unwrap()
     .into_array();
 
-    let mut strategy = vortex_file::WriteStrategyBuilder::from_session(&SESSION)
-        .with_btrblocks_builder(
-            BtrBlocksCompressorBuilder::from_session(&SESSION).disable_editions(),
-        );
+    let mut strategy =
+        vortex_file::WriteStrategyBuilder::from_session(&SESSION).with_compressor(uncompressed);
     for (c, (name, _)) in fields.iter().enumerate() {
         let field_strategy = RepartitionStrategy::new(
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),

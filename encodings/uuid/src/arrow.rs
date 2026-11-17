@@ -26,8 +26,6 @@ use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::validity::Validity;
@@ -100,16 +98,10 @@ impl ArrowExtVTable for Uuid {
             return Ok(None);
         }
 
-        let storage_dtype = DType::FixedSizeList(
-            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
-            UUID_BYTE_LEN as u32,
-            field.is_nullable().into(),
-        );
-
         Ok(Some(ExtDType::try_with_vtable(
             Uuid,
             UuidMetadata::default(),
-            storage_dtype,
+            field.is_nullable().into(),
         )?))
     }
 
@@ -209,8 +201,10 @@ mod tests {
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
     use vortex_array::dtype::StructFields;
     use vortex_array::iter::ArrayIterator;
     use vortex_arrow::ArrowArrayStreamAdapter;
@@ -261,13 +255,8 @@ mod tests {
     }
 
     fn uuid_dtype(nullable: bool) -> DType {
-        let storage = DType::FixedSizeList(
-            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
-            16,
-            nullable.into(),
-        );
         DType::Extension(
-            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage)
+            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), nullable.into())
                 .expect("uuid ext dtype")
                 .erased(),
         )
@@ -807,12 +796,8 @@ mod tests {
 
     /// Builds three UUIDs with valid version bits, with a null middle row when nullable.
     fn versioned_uuid_array(version: Option<Version>, nullable: bool) -> VortexResult<ArrayRef> {
-        let dtype = ExtDType::try_with_vtable(
-            Uuid,
-            UuidMetadata { version },
-            uuid_dtype(nullable).as_extension().storage_dtype().clone(),
-        )?
-        .erased();
+        let dtype =
+            ExtDType::try_with_vtable(Uuid, UuidMetadata { version }, nullable.into())?.erased();
 
         let bytes = match version {
             Some(Version::Max) => [u8::MAX; 16],

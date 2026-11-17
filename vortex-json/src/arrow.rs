@@ -13,7 +13,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
-use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_arrow::ArrowExport;
 use vortex_arrow::ArrowExportOptions;
@@ -92,7 +91,7 @@ impl ArrowExtVTable for Json {
 
         Ok(Some(ExtDType::<Json>::try_new(
             EmptyMetadata,
-            DType::Utf8(field.is_nullable().into()),
+            field.is_nullable().into(),
         )?))
     }
 
@@ -160,7 +159,8 @@ mod tests {
             vortex_array::dtype::DType::Utf8(Nullability::NonNullable),
         )
         .into_array();
-        let ext_dtype = ExtDType::<Json>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
+        let ext_dtype =
+            ExtDType::<Json>::try_new(EmptyMetadata, storage.dtype().nullability())?.erased();
 
         let array = ExtensionArray::new(ext_dtype, storage).into_array();
 
@@ -220,7 +220,8 @@ mod tests {
         let storage = views
             .into_array()
             .take(PrimitiveArray::from_iter([0u32, 48]).into_array())?;
-        let ext_dtype = ExtDType::<Json>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
+        let ext_dtype =
+            ExtDType::<Json>::try_new(EmptyMetadata, storage.dtype().nullability())?.erased();
         let array = ExtensionArray::new(ext_dtype, storage).into_array();
         let field = SESSION.arrow().to_arrow_field("data", array.dtype())?;
 

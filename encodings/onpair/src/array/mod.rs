@@ -24,6 +24,7 @@ use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
+use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
@@ -128,7 +129,7 @@ pub struct OnPairSlots {
     pub uncompressed_lengths: ArrayRef,
     /// Optional validity child for the outer string column.
     #[slot(4)]
-    pub validity: Option<ArrayRef>,
+    pub validity_child: Option<ArrayRef>,
 }
 
 /// Immutable storage for a materialised OnPair dictionary.
@@ -396,7 +397,7 @@ impl OnPair {
             codes,
             codes_offsets,
             uncompressed_lengths,
-            validity: validity_to_child(&validity, len),
+            validity_child: validity_to_child(&validity, len),
         }
         .into_slots();
         unsafe { Array::from_parts_unchecked(ArrayParts::new(OnPair, dtype, len, data, slots)) }
@@ -534,7 +535,7 @@ impl VTable for OnPair {
                 OnPairSlots::DICT_OFFSETS => Primitive
             )
         };
-        require_validity!(array, OnPairSlots::VALIDITY);
+        require_validity!(array, OnPairSlots::VALIDITY_CHILD);
         canonicalize_onpair(array.as_view(), ctx).map(ExecutionResult::done)
     }
 
@@ -578,7 +579,7 @@ impl VTable for OnPair {
 /// Decodes the code stream straight into `builder`'s byte storage.
 ///
 /// The offsets are the running sum of the uncompressed lengths the array already stores, so the
-/// only work beyond the bulk `try_decode_into` is one prefix sum over them.
+/// only work beyond the bulk `decompress_into` is one prefix sum over them.
 fn append_to_varbin<O: OffsetBuilderPType>(
     array: ArrayView<'_, OnPair>,
     builder: &mut VarBinBuilder<O>,
@@ -613,22 +614,22 @@ where
 impl ValidityVTable<OnPair> for OnPair {
     fn validity(array: ArrayView<'_, OnPair>) -> VortexResult<Validity> {
         Ok(child_to_validity(
-            array.slots()[OnPairSlots::VALIDITY].as_ref(),
+            array.slots()[OnPairSlots::VALIDITY_CHILD].as_ref(),
             array.dtype().nullability(),
         ))
     }
 }
 
 /// Convenience methods on top of the macro-generated [`OnPairArraySlotsExt`].
-pub trait OnPairArrayExt: OnPairArraySlotsExt {
+pub trait OnPairArrayExt: TypedArrayRef<OnPair> {
     /// The array's [`Validity`], derived from the optional validity child and
     /// the outer dtype's nullability.
     fn array_validity(&self) -> Validity {
         child_to_validity(
-            self.slots()[OnPairSlots::VALIDITY].as_ref(),
+            self.slots()[OnPairSlots::VALIDITY_CHILD].as_ref(),
             self.dtype().nullability(),
         )
     }
 }
 
-impl<T: OnPairArraySlotsExt> OnPairArrayExt for T {}
+impl<T: TypedArrayRef<OnPair>> OnPairArrayExt for T {}

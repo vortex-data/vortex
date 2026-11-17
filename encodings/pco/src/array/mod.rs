@@ -140,7 +140,7 @@ impl VTable for Pco {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         let validity = child_to_validity(
-            PcoSlotsView::from_slots(slots).validity,
+            PcoSlotsView::from_slots(slots).validity_child,
             dtype.nullability(),
         );
         data.validate(dtype, len, &validity)
@@ -275,7 +275,7 @@ impl Pco {
     pub unsafe fn new_unchecked(dtype: DType, data: PcoData, validity: Validity) -> PcoArray {
         let len = data.len();
         let slots = PcoSlots {
-            validity: validity_to_child(&validity, data.unsliced_n_rows()),
+            validity_child: validity_to_child(&validity, data.unsliced_n_rows()),
         }
         .into_slots();
         unsafe { Array::from_parts_unchecked(ArrayParts::new(Pco, dtype, len, data, slots)) }
@@ -299,15 +299,15 @@ impl Pco {
 pub struct PcoSlots {
     /// The validity bitmap indicating which elements are non-null.
     #[slot(0)]
-    pub validity: Option<ArrayRef>,
+    pub validity_child: Option<ArrayRef>,
 }
 
 /// Additional typed accessors for Pco arrays.
-pub trait PcoArrayExt: PcoArraySlotsExt {
+pub trait PcoArrayExt: TypedArrayRef<Pco> {
     /// Reconstruct the unsliced [`Validity`] from the validity slot.
     fn unsliced_validity(&self) -> Validity {
         child_to_validity(
-            self.slots()[PcoSlots::VALIDITY].as_ref(),
+            self.slots()[PcoSlots::VALIDITY_CHILD].as_ref(),
             self.dtype().nullability(),
         )
     }

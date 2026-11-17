@@ -44,7 +44,7 @@ use crate::validity::Validity;
 pub struct VarBinViewSlots {
     /// The validity bitmap indicating which elements are non-null.
     #[slot(0)]
-    pub validity: Option<ArrayRef>,
+    pub validity_child: Option<ArrayRef>,
 }
 
 /// A variable-length binary view array that stores strings and binary data efficiently.
@@ -142,18 +142,6 @@ fn for_each_invalid_range(mask: &Mask, len: usize, mut f: impl FnMut(usize, usiz
                 f(prev, len);
             }
         }
-    }
-}
-
-/// Calls `f` for each valid index of `mask`, and stops at the first error.
-fn try_for_each_valid(
-    mask: &Mask,
-    mut f: impl FnMut(usize) -> VortexResult<()>,
-) -> VortexResult<()> {
-    match mask.bit_buffer() {
-        AllOr::All => (0..mask.len()).try_for_each(f),
-        AllOr::None => Ok(()),
-        AllOr::Some(buffer) => buffer.set_indices().try_for_each(&mut f),
     }
 }
 
@@ -445,9 +433,12 @@ impl VarBinViewData {
         let buffers_utf8 = Self::buffers_utf8(mask, buffers, check_utf8);
         let buffers_utf8 = buffers_utf8.as_deref();
 
-        try_for_each_valid(mask, |idx| {
-            Self::validate_view(idx, &views[idx], buffers, buffers_utf8)
-        })
+        let validate = |idx: usize| Self::validate_view(idx, &views[idx], buffers, buffers_utf8);
+        match mask.bit_buffer() {
+            AllOr::All => (0..mask.len()).try_for_each(validate),
+            AllOr::None => Ok(()),
+            AllOr::Some(bits) => bits.try_for_each_set_index(validate),
+        }
     }
 
     /// The approximate cost of a per-view UTF-8 check, in bytes of a whole-buffer check.
@@ -730,7 +721,7 @@ pub trait VarBinViewArrayExt: TypedArrayRef<VarBinView> {
 
     fn varbinview_validity(&self) -> Validity {
         child_to_validity(
-            self.slots()[VarBinViewSlots::VALIDITY].as_ref(),
+            self.slots()[VarBinViewSlots::VALIDITY_CHILD].as_ref(),
             self.dtype_parts().1,
         )
     }

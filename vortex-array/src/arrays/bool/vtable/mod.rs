@@ -128,7 +128,7 @@ impl VTable for Bool {
             data.bits.len() * 8
         );
 
-        let validity = child_to_validity(slots[BoolSlots::VALIDITY].as_ref(), *nullability);
+        let validity = child_to_validity(slots[BoolSlots::VALIDITY_CHILD].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure_eq!(
                 validity_len,
@@ -152,7 +152,7 @@ impl VTable for Bool {
         let Some(builder) = builder.as_any_mut().downcast_mut::<BoolBuilder>() else {
             vortex_bail!("append_to_builder for Bool requires a BoolBuilder");
         };
-        builder.append_bool_array(&array.into_owned(), ctx)
+        builder.append_bool_array(array, ctx)
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

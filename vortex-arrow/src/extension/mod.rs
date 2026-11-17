@@ -49,7 +49,8 @@ pub enum ArrowMetadataPolicy {
     /// If the exported field does not reconstruct the original dtype, the adapter adds a Vortex
     /// metadata payload before the session checks the completed field. The Arrow extension's own
     /// metadata stays unchanged. On import, the payload restores metadata over the plugin's inferred
-    /// storage.
+    /// Vortex storage. The restored metadata must declare that same storage dtype, including nested
+    /// nullability. A mismatch returns an error.
     ///
     /// An absent payload uses the native interpretation. A required empty payload is still
     /// written, because a codec can distinguish it from absence.

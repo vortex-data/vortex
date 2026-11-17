@@ -141,6 +141,7 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        let array = self.compress_leaf_validity(array, exec_ctx)?;
         match array {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
             Canonical::Bool(bool_array) => self
@@ -162,7 +163,7 @@ impl CascadingCompressor {
                     struct_array.names().clone(),
                     fields,
                     struct_array.len(),
-                    struct_array.validity()?,
+                    self.compress_validity(struct_array.validity()?, exec_ctx)?,
                 )?
                 .into_array())
             }
@@ -219,7 +220,7 @@ impl CascadingCompressor {
                 Ok(FixedSizeListArray::try_new(
                     compressed_elems,
                     fsl_array.list_size(),
-                    fsl_array.validity()?,
+                    self.compress_validity(fsl_array.validity()?, exec_ctx)?,
                     fsl_array.len(),
                 )?
                 .into_array())
@@ -265,8 +266,19 @@ impl CascadingCompressor {
                 }
             }
             Canonical::Variant(variant_array) => {
-                let core_storage =
-                    self.compress_physical_slots(variant_array.core_storage(), exec_ctx)?;
+                // Storage under a lazy array, such as a slice, would be written with it.
+                // Executing it yields the storage encoding, which executes to a Variant over
+                // itself, and builds chunks of storage into one.
+                let executed = variant_array
+                    .core_storage()
+                    .clone()
+                    .execute::<VariantArray>(exec_ctx)?;
+                let core_storage = if executed.shredded().is_none() {
+                    executed.core_storage().clone()
+                } else {
+                    variant_array.core_storage().clone()
+                };
+                let core_storage = self.compress_physical_slots(&core_storage, exec_ctx)?;
                 let shredded = variant_array
                     .shredded()
                     .map(|arr| {

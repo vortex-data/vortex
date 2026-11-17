@@ -49,7 +49,7 @@ pub struct ListSlots {
     pub offsets: ArrayRef,
     /// The validity bitmap indicating which list elements are non-null.
     #[slot(2)]
-    pub validity: Option<ArrayRef>,
+    pub validity_child: Option<ArrayRef>,
 }
 
 /// A list array that stores variable-length lists of elements, similar to `Vec<Vec<T>>`.
@@ -134,7 +134,7 @@ impl ListData {
         ListSlots {
             elements: elements.clone(),
             offsets: offsets.clone(),
-            validity: validity_to_child(validity, len),
+            validity_child: validity_to_child(validity, len),
         }
         .into_slots()
     }
@@ -284,7 +284,7 @@ impl ListData {
     // the offset type and manual subtraction.
 }
 
-pub trait ListArrayExt: ListArraySlotsExt {
+pub trait ListArrayExt: TypedArrayRef<List> {
     fn nullability(&self) -> crate::dtype::Nullability {
         match self.dtype() {
             DType::List(_, nullability) => *nullability,
@@ -294,7 +294,7 @@ pub trait ListArrayExt: ListArraySlotsExt {
 
     fn list_validity(&self) -> Validity {
         child_to_validity(
-            self.slots()[ListSlots::VALIDITY].as_ref(),
+            self.slots()[ListSlots::VALIDITY_CHILD].as_ref(),
             self.nullability(),
         )
     }

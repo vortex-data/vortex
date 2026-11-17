@@ -225,7 +225,7 @@ fn uncompressed_size_is_not_reported_as_byte_size() -> VortexResult<()> {
 #[test]
 fn test_extension_statistics_do_not_export_storage_values() -> VortexResult<()> {
     let dtype = DType::Extension(
-        ExtDType::<Json>::try_new(EmptyMetadata, DType::Utf8(Nullability::NonNullable))?.erased(),
+        ExtDType::<Json>::try_new(EmptyMetadata, Nullability::NonNullable)?.erased(),
     );
     let value = ScalarValue::from(r#"{"x":1}"#);
     let mut stats = StatsSet::of(Stat::Min, VortexPrecision::exact(value.clone()));

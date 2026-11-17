@@ -476,7 +476,7 @@ impl BitPackedData {
     }
 }
 
-pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
+pub trait BitPackedArrayExt: TypedArrayRef<crate::BitPacked> {
     #[inline]
     fn packed(&self) -> &BufferHandle {
         BitPackedData::packed(self)

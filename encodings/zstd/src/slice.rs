@@ -16,7 +16,7 @@ use crate::ZstdSlots;
 impl SliceReduce for Zstd {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let unsliced_validity = child_to_validity(
-            array.slots()[ZstdSlots::VALIDITY].as_ref(),
+            array.slots()[ZstdSlots::VALIDITY_CHILD].as_ref(),
             array.dtype().nullability(),
         );
         Ok(Some(

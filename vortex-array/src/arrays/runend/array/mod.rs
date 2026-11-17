@@ -12,6 +12,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::ops::Range;
 
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
@@ -36,6 +37,7 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::TypedArrayRef;
 use crate::array_slots;
+use crate::arrays::Bool;
 use crate::arrays::DecimalArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::Primitive;
@@ -46,8 +48,10 @@ use crate::arrays::runend::compress::runend_decode_decimal;
 use crate::arrays::runend::compress::runend_decode_primitive;
 use crate::arrays::runend::compress::runend_decode_varbinview;
 use crate::arrays::runend::compress::runend_encode;
+use crate::arrays::runend::compress::runend_encode_bool;
 use crate::arrays::runend::decompress_bool::runend_decode_bools;
 use crate::arrays::runend::ops::find_physical_index;
+use crate::arrays::runend::ops::find_physical_range;
 use crate::arrays::runend::ops::find_slice_end_index;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -180,7 +184,7 @@ pub struct RunEndDataParts {
     pub offset: usize,
 }
 
-pub trait RunEndArrayExt: RunEndArraySlotsExt {
+pub trait RunEndArrayExt: TypedArrayRef<RunEnd> {
     fn offset(&self) -> usize {
         self.offset
     }
@@ -195,6 +199,17 @@ pub trait RunEndArrayExt: RunEndArraySlotsExt {
 
     fn find_slice_end_index(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         find_slice_end_index(self.ends(), index + self.offset(), ctx)
+    }
+
+    /// The physical range of runs covering the logical `range`, found with one probe of the
+    /// ends.
+    fn find_physical_range(
+        &self,
+        range: Range<usize>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Range<usize>> {
+        let offset = self.offset();
+        find_physical_range(self.ends(), range.start + offset..range.end + offset, ctx)
     }
 }
 
@@ -255,9 +270,17 @@ impl RunEnd {
     }
 
     /// Run the array through run-end encoding.
+    ///
+    /// Accepts primitive arrays, and boolean arrays without nulls.
     pub fn encode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<RunEndArray> {
-        if let Some(parray) = array.as_opt::<Primitive>() {
-            let (ends, values) = runend_encode(parray, ctx);
+        let encoded = if let Some(parray) = array.as_opt::<Primitive>() {
+            Some(runend_encode(parray, ctx))
+        } else if let Some(barray) = array.as_opt::<Bool>() {
+            Some(runend_encode_bool(barray, ctx)?)
+        } else {
+            None
+        };
+        if let Some((ends, values)) = encoded {
             let ends = ends.into_array();
             let len = array.len();
             let dtype = values.dtype().clone();
@@ -265,7 +288,7 @@ impl RunEnd {
             let data = unsafe { RunEndData::new_unchecked(0) };
             Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data, slots))
         } else {
-            vortex_bail!("REE can only encode primitive arrays")
+            vortex_bail!("REE can only encode primitive and boolean arrays")
         }
     }
 }

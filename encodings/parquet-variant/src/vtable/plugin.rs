@@ -136,7 +136,7 @@ impl ArrayPlugin for ParquetVariant {
         };
 
         let slots = ParquetVariantSlots {
-            validity: validity_to_child(&validity, len),
+            validity_child: validity_to_child(&validity, len),
             metadata: variant_metadata,
             value,
             typed_value,

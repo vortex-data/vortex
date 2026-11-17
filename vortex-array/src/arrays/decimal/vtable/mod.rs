@@ -111,8 +111,10 @@ impl VTable for Decimal {
             len,
             "DecimalArray length does not match outer length",
         );
-        let validity =
-            crate::array::child_to_validity(slots[DecimalSlots::VALIDITY].as_ref(), *nullability);
+        let validity = crate::array::child_to_validity(
+            slots[DecimalSlots::VALIDITY_CHILD].as_ref(),
+            *nullability,
+        );
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure_eq!(
                 validity_len,
@@ -140,7 +142,7 @@ impl VTable for Decimal {
         let Some(builder) = builder.as_any_mut().downcast_mut::<DecimalBuilder>() else {
             vortex_bail!("append_to_builder for Decimal requires a DecimalBuilder");
         };
-        builder.append_decimal_array(&array.into_owned(), ctx)
+        builder.append_decimal_array(array, ctx)
     }
 }
 

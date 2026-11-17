@@ -243,7 +243,7 @@ fn dict_plan_orders_codes_before_values() -> VortexResult<()> {
 }
 
 #[test]
-fn list_plan_validity_slot_is_present_when_nullable() -> VortexResult<()> {
+fn list_plan_validity_child_is_present_when_nullable() -> VortexResult<()> {
     let element_dtype = primitive(PType::I32, Nullability::NonNullable);
     let offsets_dtype = primitive(PType::U32, Nullability::NonNullable);
     let non_nullable = ListLayout::new(
@@ -278,7 +278,7 @@ fn list_plan_validity_slot_is_present_when_nullable() -> VortexResult<()> {
 }
 
 #[test]
-fn struct_plan_validity_slot_is_present_when_nullable() -> VortexResult<()> {
+fn struct_plan_validity_child_is_present_when_nullable() -> VortexResult<()> {
     let field_dtype = primitive(PType::I32, Nullability::NonNullable);
     let fields = StructFields::from_iter([("a", field_dtype.clone()), ("b", field_dtype.clone())]);
     let non_nullable = StructLayout::new(
@@ -321,7 +321,7 @@ fn struct_plan_validity_slot_is_present_when_nullable() -> VortexResult<()> {
 }
 
 #[test]
-fn pack_validity_slot_must_match_nullability() -> VortexResult<()> {
+fn pack_validity_child_must_match_nullability() -> VortexResult<()> {
     let field_dtype = primitive(PType::I32, Nullability::NonNullable);
     let fields = StructFields::from_iter([("a", field_dtype.clone())]);
     let plan = make_plan(

@@ -13,10 +13,15 @@ use vortex_array::arrays::ListView;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::MapArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::bool::BoolSlots;
+use vortex_array::arrays::decimal::DecimalSlots;
 use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::primitive::PrimitiveSlots;
+use vortex_array::arrays::varbinview::VarBinViewSlots;
+use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -33,6 +38,67 @@ pub(super) mod root_list_children {
 }
 
 impl CascadingCompressor {
+    /// Compresses a validity bitmap with the enabled boolean schemes, returning `None` when the
+    /// result's buffers are no smaller than the bitmap's. The comparison is of buffer bytes, so it
+    /// does not count the metadata a compressed bitmap adds when serialized.
+    fn compress_bitmap(
+        &self,
+        bitmap: &ArrayRef,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let compressed = self.compress(bitmap, exec_ctx)?;
+        Ok((compressed.nbytes() < bitmap.nbytes()).then_some(compressed))
+    }
+
+    /// Compresses an array-backed validity mask using the enabled boolean schemes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if compression of the validity array fails.
+    pub(super) fn compress_validity(
+        &self,
+        validity: Validity,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Validity> {
+        match validity {
+            Validity::Array(bitmap) => Ok(Validity::Array(
+                self.compress_bitmap(&bitmap, exec_ctx)?.unwrap_or(bitmap),
+            )),
+            validity => Ok(validity),
+        }
+    }
+
+    /// Compresses the validity bitmap of a bool, primitive, decimal or string leaf in place,
+    /// leaving the leaf unchanged when the bitmap does not get smaller.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if compression of the validity array fails.
+    pub(super) fn compress_leaf_validity(
+        &self,
+        canonical: Canonical,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Canonical> {
+        let (slot, array): (usize, &ArrayRef) = match &canonical {
+            Canonical::Bool(array) => (BoolSlots::VALIDITY_CHILD, array.as_ref()),
+            Canonical::Primitive(array) => (PrimitiveSlots::VALIDITY_CHILD, array.as_ref()),
+            Canonical::Decimal(array) => (DecimalSlots::VALIDITY_CHILD, array.as_ref()),
+            Canonical::VarBinView(array) => (VarBinViewSlots::VALIDITY_CHILD, array.as_ref()),
+            _ => return Ok(canonical),
+        };
+        let Some(validity) = &array.slots()[slot] else {
+            return Ok(canonical);
+        };
+        let Some(compressed) = self.compress_bitmap(validity, exec_ctx)? else {
+            return Ok(canonical);
+        };
+        let mut slots: ArraySlots = array.slots().iter().cloned().collect();
+        slots[slot] = Some(compressed);
+        // SAFETY: the validity slot is replaced with an equivalent non-nullable boolean array
+        // of the same length. The leaf's values, dtype, and other slots are unchanged.
+        unsafe { array.clone().with_slots(slots) }?.execute::<Canonical>(exec_ctx)
+    }
+
     /// Compresses a [`ListArray`] by narrowing offsets and recursively compressing elements.
     pub(super) fn compress_list_array(
         &self,
@@ -61,7 +127,7 @@ impl CascadingCompressor {
         Ok(ListArray::try_new(
             compressed_elems,
             compressed_offsets,
-            list_array.validity()?,
+            self.compress_validity(list_array.validity()?, exec_ctx)?,
             exec_ctx,
         )?
         .into_array())
@@ -107,7 +173,7 @@ impl CascadingCompressor {
             compressed_elems,
             compressed_offsets,
             compressed_sizes,
-            list_view.validity()?,
+            self.compress_validity(list_view.validity()?, exec_ctx)?,
             exec_ctx,
         )?
         .into_array())

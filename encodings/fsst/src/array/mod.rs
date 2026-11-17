@@ -880,7 +880,7 @@ impl FSSTData {
     }
 }
 
-pub trait FSSTArrayExt: FSSTArraySlotsExt {
+pub trait FSSTArrayExt: TypedArrayRef<FSST> {
     fn uncompressed_lengths_dtype(&self) -> &DType {
         self.uncompressed_lengths().dtype()
     }

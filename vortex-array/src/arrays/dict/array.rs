@@ -135,7 +135,7 @@ impl DictData {
     }
 }
 
-pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
+pub trait DictArrayExt: TypedArrayRef<Dict> {
     #[inline]
     fn has_all_values_referenced(&self) -> bool {
         self.all_values_referenced
