@@ -33,6 +33,7 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_array::expr::cast;
@@ -52,6 +53,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_expr::stats::all_nan;
 use vortex_expr::stats::all_non_nan;
 use vortex_expr::stats::all_non_null;
@@ -215,6 +217,7 @@ fn row_count_prunes_short_trailing_zone() {
             PrimitiveArray::new(buffer![0u64, 0, 2], Validity::AllValid).into_array(),
         )])
         .unwrap(),
+        Arc::new([Stat::NullCount]),
         4,
         10,
     )
@@ -255,6 +258,7 @@ fn row_count_rejects_zones_overrunning_the_layout(
     let zone_map = stat_table(
         PType::U64.into(),
         StructArray::from_fields(&[("null_count", null_counts)]).unwrap(),
+        Arc::new([Stat::NullCount]),
         zone_len,
         row_count,
     )
@@ -282,6 +286,7 @@ fn row_count_substitution_handles_empty_zone_map() {
             PrimitiveArray::new::<u64>(buffer![], Validity::AllValid).into_array(),
         )])
         .unwrap(),
+        Arc::new([Stat::NullCount]),
         4,
         0,
     )
@@ -303,6 +308,7 @@ fn is_null_falsification_uses_null_count() {
             PrimitiveArray::new(buffer![0u64, 4, 2], Validity::AllValid).into_array(),
         )])
         .unwrap(),
+        Arc::new([Stat::NullCount]),
         4,
         10,
     )
@@ -328,6 +334,7 @@ fn all_null_stat_fn_lowers_to_null_count_and_row_count() {
             PrimitiveArray::new(buffer![0u64, 4, 2], Validity::AllValid).into_array(),
         )])
         .unwrap(),
+        Arc::new([Stat::NullCount]),
         4,
         10,
     )
@@ -350,6 +357,7 @@ fn all_non_null_stat_fn_lowers_to_null_count() {
             PrimitiveArray::new(buffer![0u64, 4, 2], Validity::AllValid).into_array(),
         )])
         .unwrap(),
+        Arc::new([Stat::NullCount]),
         4,
         10,
     )
@@ -551,6 +559,7 @@ fn float_cast_min_max_stat_fn_uses_source_nan_count() {
             ),
         ])
         .unwrap(),
+        Arc::new([Stat::Max, Stat::Min, Stat::NaNCount]),
         4,
         8,
     )
@@ -636,6 +645,7 @@ fn row_count_prunes_all_null_uniform_zones() {
             PrimitiveArray::new(buffer![0u64, 4, 0], Validity::AllValid).into_array(),
         )])
         .unwrap(),
+        Arc::new([Stat::NullCount]),
         4,
         12,
     )
@@ -756,17 +766,66 @@ fn lowered_dynamic_predicate_tracks_rhs_updates() -> VortexResult<()> {
 
     Ok(())
 }
+
+// These raw-stat fixtures exercise the evaluator's compatibility fallback. Validate their
+// schema before using the unchecked constructor, as the native fixture did before extraction.
 fn stat_table(
     column_dtype: DType,
     array: StructArray,
+    stats: Arc<[Stat]>,
     zone_len: u64,
     row_count: u64,
 ) -> VortexResult<ZoneMap> {
-    Ok(ZoneMap {
-        column_dtype,
-        array,
-        aggregate_fns: Arc::new([]),
-        zone_len,
-        row_count,
-    })
+    assert!(stats.is_sorted(), "Stats must be sorted");
+    let expected_dtype = DType::Struct(
+        StructFields::from_iter(
+            stats
+                .iter()
+                .filter_map(|stat| {
+                    stat.dtype(&column_dtype)
+                        .or_else(|| {
+                            if let DType::Extension(ext) = &column_dtype {
+                                stat.dtype(ext.storage_dtype())
+                            } else {
+                                None
+                            }
+                        })
+                        .map(|dtype| (stat, dtype.as_nullable()))
+                })
+                .flat_map(|(stat, dtype)| match stat {
+                    Stat::Max => vec![
+                        (stat.name(), dtype),
+                        ("max_is_truncated", DType::Bool(Nullability::NonNullable)),
+                    ],
+                    Stat::Min => vec![
+                        (stat.name(), dtype),
+                        ("min_is_truncated", DType::Bool(Nullability::NonNullable)),
+                    ],
+                    _ => vec![(stat.name(), dtype)],
+                }),
+        ),
+        Nullability::NonNullable,
+    );
+    if &expected_dtype != array.dtype() {
+        vortex_bail!("Array dtype does not match expected zone map dtype: {expected_dtype}");
+    }
+    // SAFETY: The table matches the expected raw-stat schema for this column and stats list.
+    Ok(unsafe { ZoneMap::new_unchecked(column_dtype, array, Arc::new([]), zone_len, row_count) })
+}
+
+#[test]
+fn raw_stat_fixture_rejects_wrong_schema() -> VortexResult<()> {
+    let array = StructArray::from_fields(&[(
+        "null_count",
+        PrimitiveArray::new(buffer![0u32], Validity::AllValid).into_array(),
+    )])?;
+    let error = stat_table(PType::U64.into(), array, Arc::new([Stat::NullCount]), 4, 4)
+        .err()
+        .expect("null counts must be nullable u64");
+    assert!(
+        error
+            .to_string()
+            .contains("Array dtype does not match expected zone map dtype")
+    );
+    Ok(())
 }

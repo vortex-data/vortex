@@ -25,7 +25,11 @@ use vortex_scan::plan::Zoned;
 use vortex_scan::plan::ZonedPlan;
 use vortex_scan::plan::is_zone_pruning;
 use vortex_scan::plan::optimizer::PlanParentReduceRule;
+use vortex_scan::plan::optimizer::PlanParentReduceRuleAdapter;
+use vortex_scan::plan::optimizer::PlanParentRuleSet;
 use vortex_scan::plan::optimizer::PlanReduceRule;
+use vortex_scan::plan::optimizer::PlanReduceRuleAdapter;
+use vortex_scan::plan::optimizer::PlanRuleSet;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -57,14 +61,6 @@ pub type LegacyStatsPlan = Plan<LegacyStats>;
 
 /// Native legacy statistics plan construction and child access.
 pub trait LegacyStatsPlanExt {
-    /// Creates a legacy statistics plan with lazy data and statistics slots.
-    fn from_slots(
-        dtype: DType,
-        row_count: u64,
-        slots: PlanSlots,
-        zone_len: u64,
-        stats: Arc<[Stat]>,
-    ) -> Self;
     /// Pairs data with a legacy statistics table.
     fn new(data: PlanRef, zones: PlanRef, zone_len: u64, stats: Arc<[Stat]>) -> Self;
     /// The number of rows summarized by each zone.
@@ -77,14 +73,14 @@ pub trait LegacyStatsPlanExt {
     fn zones_plan(&self) -> VortexResult<PlanRef>;
 }
 
-impl LegacyStatsPlanExt for LegacyStatsPlan {
-    fn from_slots(
+impl LegacyStats {
+    pub(crate) fn from_slots(
         dtype: DType,
         row_count: u64,
         slots: PlanSlots,
         zone_len: u64,
         stats: Arc<[Stat]>,
-    ) -> Self {
+    ) -> LegacyStatsPlan {
         PlanParts {
             vtable: LegacyStats,
             dtype,
@@ -94,13 +90,15 @@ impl LegacyStatsPlanExt for LegacyStatsPlan {
         }
         .into_typed()
     }
+}
 
+impl LegacyStatsPlanExt for LegacyStatsPlan {
     /// Creates a legacy stats plan over `data` summarised by `zones` of `zone_len` rows each,
     /// whose fields hold `stats`.
     fn new(data: PlanRef, zones: PlanRef, zone_len: u64, stats: Arc<[Stat]>) -> Self {
         let dtype = data.dtype().clone();
         let row_count = data.row_count();
-        Self::from_slots(dtype, row_count, [data, zones].into(), zone_len, stats)
+        LegacyStats::from_slots(dtype, row_count, [data, zones].into(), zone_len, stats)
     }
 
     /// Returns the number of rows each zone summarises.
@@ -159,7 +157,9 @@ impl PlanVTable for LegacyStats {
     }
 
     fn reduce(plan: &Plan<Self>, session: &VortexSession) -> VortexResult<Option<PlanRef>> {
-        LegacyStatsRule.reduce(plan, session)
+        static RULES: PlanRuleSet =
+            PlanRuleSet::new(&[&PlanReduceRuleAdapter::new(LegacyStatsRule)]);
+        RULES.evaluate(&plan.clone().into_plan(), session)
     }
 
     fn reduce_parent(
@@ -168,10 +168,9 @@ impl PlanVTable for LegacyStats {
         slot: usize,
         session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
-        let Some(parent) = parent.as_opt::<Eval>() else {
-            return Ok(None);
-        };
-        ExpressionLegacyStatsRule.reduce_parent(plan, parent, slot, session)
+        static RULES: PlanParentRuleSet =
+            PlanParentRuleSet::new(&[&PlanParentReduceRuleAdapter::new(ExpressionLegacyStatsRule)]);
+        RULES.evaluate(&plan.clone().into_plan(), parent, slot, session)
     }
 
     fn compile(

@@ -11,19 +11,23 @@ use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
 use parking_lot::Mutex;
+use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::EmptyMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::serde::SerializeOptions;
+use vortex_array::serde::SerializedArray;
 use vortex_buffer::Alignment;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
+use vortex_session::registry::ReadContext;
 
 use crate::execution::SegmentLocation;
 use crate::execution::operator::Cx;
@@ -59,17 +63,22 @@ pub struct TestSource;
 #[derive(Clone, Debug)]
 pub struct TestSourceData {
     segment: SegmentId,
-    array: Option<ArrayRef>,
+    array_ctx: Option<ReadContext>,
 }
 
-fn source(dtype: DType, row_count: u64, segment: SegmentId, array: Option<ArrayRef>) -> PlanRef {
+fn source(
+    dtype: DType,
+    row_count: u64,
+    segment: SegmentId,
+    array_ctx: Option<ReadContext>,
+) -> PlanRef {
     FilterPlan::new(
         PlanParts {
             vtable: TestSource,
             dtype,
             row_count,
             slots: PlanSlots::default(),
-            data: TestSourceData { segment, array },
+            data: TestSourceData { segment, array_ctx },
         }
         .into_plan(),
     )
@@ -110,7 +119,9 @@ impl PlanVTable for TestSource {
         compiler.register_segment(plan.data().segment);
         Ok(Some(Chain::new(TestRead {
             segment: Some(plan.data().segment),
-            array: plan.data().array.clone(),
+            dtype: plan.dtype().clone(),
+            row_count: usize::try_from(plan.row_count())?,
+            array_ctx: plan.data().array_ctx.clone(),
             rows: usize::try_from(rows.start)?..usize::try_from(rows.end)?,
             mask: mask.clone(),
             done: false,
@@ -120,7 +131,9 @@ impl PlanVTable for TestSource {
 
 struct TestRead {
     segment: Option<SegmentId>,
-    array: Option<ArrayRef>,
+    dtype: DType,
+    row_count: usize,
+    array_ctx: Option<ReadContext>,
     rows: Range<usize>,
     mask: Mask,
     done: bool,
@@ -145,15 +158,22 @@ impl Operator for TestRead {
         if self.done {
             return Ok(Step::End);
         }
-        cx.take_segment()
+        let (_, bytes) = cx
+            .take_segment()
             .ok_or_else(|| vortex_err!("test source ran without its read completion"))?;
         self.done = true;
-        let array = self
-            .array
+        let array_ctx = self
+            .array_ctx
             .as_ref()
             .ok_or_else(|| vortex_err!("shape-only source was executed"))?;
+        let array = SerializedArray::try_from(bytes)?.decode(
+            &self.dtype,
+            self.row_count,
+            array_ctx,
+            cx.session(),
+        )?;
         let array = if self.rows == (0..array.len()) {
-            array.clone()
+            array
         } else {
             array.slice(self.rows.clone())?
         };
@@ -166,7 +186,7 @@ impl Operator for TestRead {
     }
 }
 
-/// An in-memory source whose byte requests gate access to arrays held by the test plans.
+/// In-memory serialized arrays, decoded from the bytes delivered to each test source.
 #[derive(Default)]
 pub struct Store {
     segments: Mutex<Vec<BufferHandle>>,
@@ -176,15 +196,27 @@ pub struct Store {
 impl Store {
     pub fn flat(&self, array: &ArrayRef) -> VortexResult<PlanRef> {
         let array = array.optimize_ctx(&SESSION)?;
+        let ctx = ArrayContext::empty();
+        let buffers = array.serialize(
+            &ctx,
+            &SESSION,
+            &SerializeOptions {
+                offset: 0,
+                include_padding: true,
+            },
+        )?;
+        let mut bytes = ByteBufferMut::empty_aligned(Alignment::new(64));
+        for buffer in buffers {
+            bytes.extend_from_slice(buffer.as_ref());
+        }
         let mut segments = self.segments.lock();
         let id = SegmentId::try_from(segments.len())?;
-        // A nonempty completion exercises retention and read sharing without a format decoder.
-        segments.push(BufferHandle::new_host(ByteBuffer::from(vec![0u8; 4])));
+        segments.push(BufferHandle::new_host(bytes.freeze()));
         Ok(source(
             array.dtype().clone(),
             array.len() as u64,
             id,
-            Some(array),
+            Some(ReadContext::new(ctx.to_ids())),
         ))
     }
 
@@ -212,11 +244,20 @@ impl Store {
     }
 
     pub fn input(self: &Arc<Self>, plan: PlanRef) -> ScanInput {
-        let locations = (0..self.len())
-            .map(|offset| SegmentLocation {
-                offset: offset as u64 * 4,
-                length: 4,
-                alignment: Alignment::none(),
+        let mut offset = 0;
+        let locations = self
+            .segments
+            .lock()
+            .iter()
+            .map(|segment| {
+                let length = u32::try_from(segment.len()).expect("test segment fits u32");
+                let location = SegmentLocation {
+                    offset,
+                    length,
+                    alignment: Alignment::new(64),
+                };
+                offset += u64::from(length);
+                location
             })
             .collect();
         ScanInput {
@@ -257,4 +298,53 @@ pub fn struct_plan(row_count: u64, dtype: DType, mut children: Vec<PlanRef>) -> 
 
 pub fn dict(values: PlanRef, codes: PlanRef) -> PlanRef {
     TakePlan::new(codes, values).into_plan()
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::assert_arrays_eq;
+    use vortex_buffer::ByteBuffer;
+    use vortex_buffer::buffer;
+
+    use super::*;
+    use crate::execution::pipeline::Scan;
+    use crate::execution::pipeline::Split;
+    use crate::execution::pipeline::Turn;
+
+    fn read(plan: PlanRef, bytes: BufferHandle) -> VortexResult<ArrayRef> {
+        let rows = 0..plan.row_count();
+        let mask = Mask::new_true(usize::try_from(plan.row_count())?);
+        let mut scan = Scan::try_new(SESSION.clone(), plan, vec![Split { rows, mask }])?;
+        loop {
+            match scan.step()? {
+                Turn::Read(request) => scan.deliver(request.id, bytes.clone())?,
+                Turn::Output(_, array) => return Ok(array),
+                Turn::Waiting | Turn::Done => panic!("test source did not emit its payload"),
+            }
+        }
+    }
+
+    #[test]
+    fn source_decodes_the_delivered_payload() -> VortexResult<()> {
+        let store = Store::default();
+        let first = buffer![1i32, 2, 3].into_array();
+        let second = buffer![4i32, 5, 6].into_array();
+        let plan = store.flat(&first)?;
+        store.flat(&second)?;
+        // Deliver another segment's valid bytes. A plan-captured array would return `first`.
+        let actual = read(plan, store.read(1.into()))?;
+        assert_arrays_eq!(actual, second, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[test]
+    fn source_rejects_corrupt_payload() -> VortexResult<()> {
+        let store = Store::default();
+        let plan = store.flat(&buffer![1i32, 2, 3].into_array())?;
+        let bytes = BufferHandle::new_host(ByteBuffer::from(vec![0u8; 4]));
+        assert!(read(plan, bytes).is_err());
+        Ok(())
+    }
 }

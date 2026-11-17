@@ -55,7 +55,7 @@ fn builder() -> ScanBuilder {
 
 fn driver() -> ScanDriver {
     let session = VortexSession::empty().with_tokio();
-    ScanDriver::new(session.handle(), 1, true)
+    ScanDriver::new(session.handle(), 2, true)
 }
 
 #[tokio::test]

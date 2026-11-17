@@ -66,8 +66,7 @@ use crate::layouts::zoned::schema::aggregate_specs_from_fns;
 use crate::layouts::zoned::schema::aggregate_stats_table_dtype;
 use crate::layouts::zoned::schema::legacy_stats_table_dtype;
 use crate::layouts::zoned::schema::try_aggregate_fns_from_specs;
-use crate::plan::physical::LegacyStatsPlan;
-use crate::plan::physical::LegacyStatsPlanExt;
+use crate::lowering::LegacyStats as LegacyStatsPlanEncoding;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::ZonedPlan;
 use crate::segments::SegmentSource;
@@ -279,7 +278,7 @@ fn zoned_plan<V: VTable<LayoutData = ZonedData>>(layout: &Layout<V>) -> VortexRe
     let zone_len = u64::try_from(metadata.zone_len())?;
     // A legacy table is converted to the aggregate schema when the plan is optimized.
     Ok(match metadata.legacy_stats() {
-        Some(stats) => LegacyStatsPlan::from_slots(
+        Some(stats) => LegacyStatsPlanEncoding::from_slots(
             layout.dtype().clone(),
             layout.row_count(),
             slots,

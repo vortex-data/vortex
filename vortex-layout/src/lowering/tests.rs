@@ -541,3 +541,51 @@ fn legacy_stats_with_zero_zone_length_keep_only_data() -> VortexResult<()> {
     assert!(PlanRef::ptr_eq(&optimize(legacy, &SESSION)?, &data));
     Ok(())
 }
+
+#[cfg(debug_assertions)]
+#[test]
+fn legacy_stats_rewrites_validate_output_shape() -> VortexResult<()> {
+    let dtype = primitive(PType::I32, Nullability::NonNullable);
+    let data = make_plan(flat(5, dtype.clone(), 0))?;
+    for (declared_dtype, declared_rows, expected_error) in [
+        (dtype.clone(), 6, "changed row count"),
+        (
+            primitive(PType::U64, Nullability::NonNullable),
+            5,
+            "changed dtype",
+        ),
+    ] {
+        let legacy = LegacyStats::from_slots(
+            declared_dtype,
+            declared_rows,
+            [data.clone(), data.clone()].into(),
+            0,
+            Arc::new([]),
+        );
+        let error = LegacyStats::reduce(&legacy, &SESSION).unwrap_err();
+        assert!(error.to_string().contains(expected_error), "{error}");
+    }
+    Ok(())
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn legacy_stats_parent_rewrites_validate_output_shape() -> VortexResult<()> {
+    let dtype = primitive(PType::I32, Nullability::NonNullable);
+    let data = make_plan(flat(5, dtype.clone(), 0))?;
+    let legacy = LegacyStats::from_slots(
+        dtype.clone(),
+        6,
+        [data.clone(), data].into(),
+        0,
+        Arc::new([]),
+    );
+    let falsifier = gt(root(), lit(5_i32))
+        .bind(&dtype)?
+        .falsify(&SESSION)?
+        .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
+    let parent = EvalPlan::try_new(falsifier, legacy.clone().into_plan())?.into_plan();
+    let error = LegacyStats::reduce_parent(&legacy, &parent, 0, &SESSION).unwrap_err();
+    assert!(error.to_string().contains("changed row count"), "{error}");
+    Ok(())
+}

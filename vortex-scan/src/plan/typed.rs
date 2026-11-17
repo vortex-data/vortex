@@ -57,7 +57,7 @@ impl PlanRef {
     }
 
     /// Whether this node reads payload data.
-    pub fn is_data_source(&self) -> bool {
+    pub(crate) fn is_data_source(&self) -> bool {
         self.dyn_plan().dyn_is_data_source(self)
     }
 
