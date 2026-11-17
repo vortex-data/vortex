@@ -20,7 +20,7 @@ use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
-use vortex::layout::lowering::ScanBuilder;
+use vortex::layout::scan::v2::ScanBuilder;
 use vortex::scan::execution::driver::ScanDriver;
 use vortex_bench::Format;
 use vortex_bench::SESSION;

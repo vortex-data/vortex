@@ -36,7 +36,7 @@ use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::io::session::RuntimeSessionExt;
-use vortex::layout::lowering::ScanBuilder;
+use vortex::layout::scan::v2::ScanBuilder;
 use vortex::scan::execution::driver::ScanDriver;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 

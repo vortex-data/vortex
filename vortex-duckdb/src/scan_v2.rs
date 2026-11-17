@@ -29,7 +29,7 @@ use vortex::io::request::IoRequestId;
 use vortex::io::request::IoResult;
 use vortex::io::request::IoService;
 use vortex::io::runtime::BlockingRuntime as _;
-use vortex::layout::lowering::ScanBuilder;
+use vortex::layout::scan::v2::ScanBuilder;
 use vortex::mask::Mask;
 use vortex::scan::planning::driver::Progress;
 use vortex::scan::planning::driver::Run;

@@ -4,7 +4,6 @@
 //! Lowering native layouts into scan plans.
 
 mod legacy_stats;
-pub mod scan;
 mod segment_scan;
 
 use std::sync::Arc;
@@ -13,8 +12,6 @@ pub use legacy_stats::LegacyStats;
 pub use legacy_stats::LegacyStatsData;
 pub use legacy_stats::LegacyStatsPlan;
 pub use legacy_stats::LegacyStatsPlanExt;
-pub use scan::ScanBuilder;
-pub use scan::ScanFile;
 pub use segment_scan::SegmentScan;
 pub use segment_scan::SegmentScanData;
 pub use segment_scan::SegmentScanPlan;

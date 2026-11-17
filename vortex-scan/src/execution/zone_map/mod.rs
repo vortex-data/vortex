@@ -295,21 +295,8 @@ impl ZoneMap {
     }
 
     fn stat_field_expr(&self, stat: Stat) -> Option<Expression> {
-        if let Some(aggregate_fn) = stat.aggregate_fn()
-            && let Some(expr) = self.aggregate_field_expr(&aggregate_fn)
-        {
-            return Some(expr);
-        }
-
-        self.legacy_stat_field_expr(stat)
-    }
-
-    fn legacy_stat_field_expr(&self, stat: Stat) -> Option<Expression> {
-        if self.array.unmasked_field_by_name_opt(stat.name()).is_some() {
-            return Some(get_item(stat.name(), root()));
-        }
-
-        None
+        stat.aggregate_fn()
+            .and_then(|aggregate_fn| self.aggregate_field_expr(&aggregate_fn))
     }
 }
 

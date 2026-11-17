@@ -31,9 +31,9 @@ use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReaderRef;
-use vortex::layout::lowering::ScanBuilder as V2ScanBuilder;
-use vortex::layout::lowering::ScanFile;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
+use vortex::layout::scan::v2::ScanFile;
 use vortex::mask::Mask;
 use vortex::session::SessionExt as _;
 

@@ -22,7 +22,7 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_io::session::RuntimeSession;
-use vortex_layout::lowering::ScanBuilder;
+use vortex_layout::scan::v2::ScanBuilder;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
 
