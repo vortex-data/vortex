@@ -193,14 +193,16 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// [`ExecutionStep::ExecuteSpine`](crate::ExecutionStep::ExecuteSpine), on an array whose
     /// slot it took out to execute, so the implementation must not read that slot. It also calls
     /// it for a slot that is already canonical, to fuse a leaf with its spine parents. The op must
-    /// produce exactly the values `execute` produces once that slot is canonical. Only called on arrays of a primitive dtype whose child
+    /// produce exactly the values `execute` produces once that slot is canonical. `child_dtype` is
+    /// the dtype of the child in `slot_idx`. Only called on arrays of a primitive dtype whose child
     /// in `slot_idx` has a primitive dtype too.
     fn block_op(
         array: ArrayView<'_, Self>,
         slot_idx: usize,
+        child_dtype: &DType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockOp>>> {
-        _ = (array, slot_idx, ctx);
+        _ = (array, slot_idx, child_dtype, ctx);
         Ok(None)
     }
 }

@@ -161,6 +161,7 @@ impl VTable for FoR {
     fn block_op(
         array: ArrayView<'_, Self>,
         slot_idx: usize,
+        _child_dtype: &DType,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockOp>>> {
         for_block_op(array, slot_idx)

@@ -207,6 +207,7 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
         &self,
         this: &ArrayRef,
         slot_idx: usize,
+        child_dtype: &DType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockOp>>>;
 
@@ -486,11 +487,12 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         &self,
         this: &ArrayRef,
         slot_idx: usize,
+        child_dtype: &DType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockOp>>> {
         // SAFETY: this adapter belongs to the ArrayData<V> stored in `this`.
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        V::block_op(view, slot_idx, ctx)
+        V::block_op(view, slot_idx, child_dtype, ctx)
     }
 
     fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

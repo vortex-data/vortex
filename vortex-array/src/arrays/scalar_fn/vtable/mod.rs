@@ -31,7 +31,11 @@ use crate::array::with_empty_buffers;
 use crate::arrays::scalar_fn::array::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::array::ScalarFnData;
 use crate::arrays::scalar_fn::rules::RULES;
+use crate::block::BlockOp;
+use crate::block::cast_block_op;
+use crate::block::casts_by_block;
 use crate::buffer::BufferHandle;
+use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
@@ -43,6 +47,7 @@ use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnExecutionStep;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::VecExecutionArgs;
+use crate::scalar_fn::fns::cast::Cast;
 use crate::validity::Validity;
 
 /// A [`ScalarFn`]-encoded Vortex array.
@@ -151,6 +156,15 @@ impl VTable for ScalarFn {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        // A cast that cannot fail transforms its input row by row, so it asks for the input as
+        // its spine, letting the executor fuse the conversion with the input's decode.
+        if array.scalar_fn().is::<Cast>()
+            && let Some(input) = array.slots()[0].as_ref()
+            && !AnyColumnar::matches(input)
+            && casts_by_block(input.dtype(), array.dtype())
+        {
+            return Ok(ExecutionResult::execute_spine::<AnyColumnar>(array, 0));
+        }
         let args = VecExecutionArgs::new(array.children(), array.len());
         match array.scalar_fn().execute_step(&args, ctx)?.into_step() {
             ScalarFnExecutionStep::Done(result) => Ok(ExecutionResult::done(result)),
@@ -162,6 +176,18 @@ impl VTable for ScalarFn {
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array)
+    }
+
+    fn block_op(
+        array: ArrayView<'_, Self>,
+        slot_idx: usize,
+        child_dtype: &DType,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        if slot_idx != 0 || !array.scalar_fn().is::<Cast>() {
+            return Ok(None);
+        }
+        Ok(cast_block_op(child_dtype, array.dtype()))
     }
 }
 

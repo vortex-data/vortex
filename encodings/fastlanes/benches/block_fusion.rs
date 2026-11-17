@@ -23,11 +23,18 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_buffer::Buffer;
 use vortex_fastlanes::FoR;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_session::VortexSession;
+use vortex_zigzag::ZigZag;
+use vortex_zigzag::ZigZagArraySlotsExt;
+use vortex_zigzag::zigzag_encode;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -40,6 +47,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
     vortex_fastlanes::initialize(&session);
     vortex_alp::initialize(&session);
+    vortex_zigzag::initialize(&session);
     session
 });
 
@@ -179,4 +187,47 @@ fn alp_for_bp_fused<const N: usize>(bencher: Bencher) {
 #[divan::bench(consts = LENS)]
 fn alp_for_bp_levelwise<const N: usize>(bencher: Bencher) {
     bench_execute(bencher, &alp_for_bp(N), false);
+}
+
+/// A widening cast over FoR over BitPacked, the cast a scan adds to a narrow integer column.
+fn cast_for_bp(len: usize) -> ArrayRef {
+    for_stack(len, 1)
+        .cast(DType::Primitive(PType::U64, Nullability::Nullable))
+        .unwrap()
+}
+
+#[divan::bench(consts = LENS)]
+fn cast_for_bp_fused<const N: usize>(bencher: Bencher) {
+    bench_execute(bencher, &cast_for_bp(N), true);
+}
+
+#[divan::bench(consts = LENS)]
+fn cast_for_bp_levelwise<const N: usize>(bencher: Bencher) {
+    bench_execute(bencher, &cast_for_bp(N), false);
+}
+
+/// ZigZag over BitPacked, signed integers around zero.
+fn zigzag_bp(len: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter((0..len as i64).map(|i| ((i * 7) % 2000 - 1000) as i32));
+    let encoded = zigzag_encode(values.as_view())
+        .unwrap()
+        .encoded()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
+    let bp = bitpack_encode(&encoded, 11, None, &mut ctx)
+        .unwrap()
+        .into_array();
+    ZigZag::try_new(bp).unwrap().into_array()
+}
+
+#[divan::bench(consts = LENS)]
+fn zigzag_bp_fused<const N: usize>(bencher: Bencher) {
+    bench_execute(bencher, &zigzag_bp(N), true);
+}
+
+#[divan::bench(consts = LENS)]
+fn zigzag_bp_levelwise<const N: usize>(bencher: Bencher) {
+    bench_execute(bencher, &zigzag_bp(N), false);
 }

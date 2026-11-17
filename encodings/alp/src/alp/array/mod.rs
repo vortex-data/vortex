@@ -135,6 +135,7 @@ impl VTable for ALP {
     fn block_op(
         array: ArrayView<'_, Self>,
         slot_idx: usize,
+        _child_dtype: &DType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockOp>>> {
         alp_block_op(array, slot_idx, ctx)

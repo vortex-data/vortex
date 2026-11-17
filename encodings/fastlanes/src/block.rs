@@ -310,11 +310,18 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::block::fused_chain_count;
+    use vortex_array::builtins::ArrayBuiltins;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
+    use vortex_zigzag::ZigZag;
+    use vortex_zigzag::ZigZagArraySlotsExt;
+    use vortex_zigzag::zigzag_encode;
 
     use crate::FoR;
     use crate::bitpack_compress::bitpack_encode;
@@ -454,5 +461,49 @@ mod tests {
         let array = ALP::try_new(for_, alp.exponents(), alp.patches())?.into_array();
         assert_fuses_like_execute(&array, 1)?;
         assert_fuses_like_execute(&array.slice(301..4500)?, 1)
+    }
+
+    /// A cast that cannot fail fuses with its input, also below FoR. A narrowing cast must check
+    /// its values, so it does not.
+    #[rstest]
+    #[case::widen(PType::U64, Nullability::NonNullable, 1)]
+    #[case::to_nullable_float(PType::F64, Nullability::Nullable, 1)]
+    #[case::narrow(PType::U16, Nullability::NonNullable, 0)]
+    fn casts(
+        #[case] ptype: PType,
+        #[case] nullability: Nullability,
+        #[case] chains: usize,
+    ) -> VortexResult<()> {
+        let array = for_stack(5000, 1, false)?.cast(DType::Primitive(ptype, nullability))?;
+        assert_fuses_like_execute(&array, chains)?;
+        assert_fuses_like_execute(&array.slice(517..4013)?, chains)
+    }
+
+    #[test]
+    fn cast_between_for_levels() -> VortexResult<()> {
+        let widened =
+            for_stack(5000, 1, true)?.cast(DType::Primitive(PType::U64, Nullability::Nullable))?;
+        let array = FoR::try_new(widened, Scalar::from(5u64))?.into_array();
+        assert_fuses_like_execute(&array, 1)
+    }
+
+    /// ZigZag over BitPacked, and over FoR over BitPacked, fuses the decode with the unpack.
+    #[test]
+    fn zigzag_over_bitpacked() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_option_iter(
+            (-2500i32..2500).map(|i| (i % 7 != 0).then_some(i * 3)),
+        );
+        let zigzag = zigzag_encode(values.as_view())?;
+        let encoded = zigzag
+            .encoded()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        let bp = bitpack_encode(&encoded, 14, None, &mut ctx)?.into_array();
+        let array = ZigZag::try_new(bp.clone())?.into_array();
+        assert_fuses_like_execute(&array, 1)?;
+        assert_fuses_like_execute(&array.slice(517..4013)?, 1)?;
+        let for_bp = FoR::try_new(bp, Scalar::from(0u32))?.into_array();
+        assert_fuses_like_execute(&ZigZag::try_new(for_bp)?.into_array(), 1)
     }
 }

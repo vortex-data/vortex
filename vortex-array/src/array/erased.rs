@@ -692,9 +692,10 @@ impl ArrayRef {
     pub(crate) fn block_op(
         &self,
         slot_idx: usize,
+        child_dtype: &DType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockOp>>> {
-        self.0.data.block_op(self, slot_idx, ctx)
+        self.0.data.block_op(self, slot_idx, child_dtype, ctx)
     }
 
     pub(crate) fn execute_encoding(self, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

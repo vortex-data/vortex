@@ -560,7 +560,10 @@ fn plan_fusion(
         let Some(ptype) = fusable_ptype(&frame.parent_array) else {
             break;
         };
-        let Some(op) = frame.parent_array.block_op(frame.slot_idx, ctx)? else {
+        let Some(op) = frame
+            .parent_array
+            .block_op(frame.slot_idx, &frame.original_dtype, ctx)?
+        else {
             break;
         };
         ops.push(op);
@@ -607,7 +610,7 @@ fn canonical_child_source(
         if child.len() != leaf.len() || !AnyCanonical::matches(child) {
             continue;
         }
-        let Some(op) = leaf.block_op(slot_idx, ctx)? else {
+        let Some(op) = leaf.block_op(slot_idx, child.dtype(), ctx)? else {
             continue;
         };
         let Some(source) = child.block_source(ctx)? else {
