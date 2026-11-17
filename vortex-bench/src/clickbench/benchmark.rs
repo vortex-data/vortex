@@ -179,6 +179,14 @@ impl Benchmark for ClickBenchSortedBenchmark {
     fn table_specs(&self) -> Vec<TableSpec> {
         vec![TableSpec::new("hits", Some(HITS_SCHEMA.clone()))]
     }
+
+    fn file_sort_order(&self, table_name: &str) -> &'static [&'static str] {
+        // Each shard holds a contiguous range of the table sorted by `EventTime`.
+        match table_name {
+            "hits" => &["EventTime"],
+            _ => &[],
+        }
+    }
 }
 
 /// The data directory for the first `files` files, e.g. `clickbench_partitioned_10`. The full
