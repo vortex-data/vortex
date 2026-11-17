@@ -297,7 +297,12 @@ the other's changes. The changes of phase 3 are small in each file, so they port
   outside the values.
 - SF returns an error for a dtype that fails to decode in a lazily parsed struct field. Today
   `StructFields::fields()` calls `vortex_expect` on a fallible decode, so a crafted file panics
-  when its footer is read ([#8848](https://github.com/vortex-data/vortex/issues/8848)).
+  when its footer is read ([#8848](https://github.com/vortex-data/vortex/issues/8848)). The fix
+  decodes the whole file schema once when a file opens, in the `vortex-file` footer deserializer
+  and before the optional statistics (decided on 2026-11-17). Other users of
+  `DType::from_flatbuffer` (IPC, Python, and CUDA) stay lazy, and a dtype or footer that the
+  caller supplies skips the check. Lazy field dtypes exist for wide schemas (#1826), so the PR
+  states the measured open time of a wide file.
 - V10 gives the `Display` of `Date` the fallback that #10953 gives `Timestamp`, in its own PR on
   `develop` (EXT-V10). It merged as #11187 on 2026-11-04.
 - U4 is the interim form of the storage declaration: `with_nullability` stops validating again, and

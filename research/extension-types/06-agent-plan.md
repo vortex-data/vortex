@@ -65,6 +65,9 @@ hints. If a file moved, find the code by name.
   If cargo fails with exactly `sccache: error: Operation not permitted`, run the same command again
   with `RUSTC_WRAPPER=` set to empty. Run `cargo test --doc -p <crate>` only if you changed doc
   comments with code. Do not run workspace-wide checks: CI runs them.
+- The `Opaque` test type of CL1 is `#[cfg(test)]` in `vortex-array`, so only `vortex-array` tests
+  can use it. In another crate, use `vortex_json::Json` when the crate can depend on it, or a small
+  test type over `i64` with no claims in that crate's tests.
 
 ## Agent protocol
 

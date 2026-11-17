@@ -41,10 +41,18 @@ must be errors. The table in EXT-P1 lists the first cases.
   (`vortex-array/src/scalar/typed_view/extension/mod.rs:87-96`). `Scalar::cast` sends extension
   sources there (`vortex-array/src/scalar/cast.rs:86`). Without this change, constants and the row
   path still cast `Timestamp(ms)` to `i64` after the array path stops.
-- Return the storage error instead of "no `CastKernel`" (EXT-C3).
+- Return the storage error instead of "no `CastKernel`" (EXT-C3). Since #11091 made casts lazy,
+  the error already reaches the caller, so U1 only replaces the unreachable branch with `?`.
 - Change the Arrow exporters that call `array.cast(target)` (EXT-B2). An exporter that exports
   storage on purpose calls `ext_storage`. Every other exporter returns an error. Phase 7 later adds
-  the default export of a type without a plugin, as storage with extension metadata (X24).
+  the default export of a type without a plugin, as storage with extension metadata (X24). The
+  native Arrow exporter for timestamps, dates, and times checks the metadata and then calls
+  `ext_storage`, so these types still export after U1.
+- A cast from an untyped `Null` array to a nullable extension dtype stays allowed, because it
+  reads no values and builds typed nulls, as `NULL::timestamp` does in SQL. The result is an
+  extension array over all-null storage of the declared storage dtype. A cast from `Null` to a
+  non-nullable extension dtype returns an error, as it does for built-in dtypes (decided on
+  2026-11-17).
 
 Visible changes: `cast(Timestamp, i64)` returns an error, and `ext_storage` replaces it. Python
 `vx.scalar(5, dtype=timestamp)` returns an error. The dedicated temporal constructors keep working.

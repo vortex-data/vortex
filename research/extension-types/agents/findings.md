@@ -181,6 +181,10 @@ Terms:
 - **Mechanism:** When the target is the same extension dtype, the kernel casts the storage. If that
   cast fails, the kernel logs `tracing::warn!` and returns `Ok(None)`. The caller then reports "no
   CastKernel", and the real error is lost.
+- **Status (2026-11-17):** [#11091](https://github.com/vortex-data/vortex/pull/11091) made
+  `ArrayBuiltins::cast` build a lazy cast. Building the storage cast now succeeds, and a storage
+  error reaches the caller when the child cast executes. So the warning branch cannot run, and the
+  visible part of EXT-C3 is already fixed. U1 replaces the branch with `?` and keeps a test.
 - **Fix:** Return the error.
 
 ### EXT-Q1: Compare skips the type check when one side is an extension
