@@ -276,9 +276,9 @@ buffer and values up to 1.27 (unscaled 127). The values need precision 3, and pr
 precision 4 both use `i16`. No legal array keeps the `i8` buffer, so the result is a plain
 `Decimal(4, 2)` array at `i16`.
 
-Old narrow `vortex.decimal` nodes are rare, so the speed of this conversion matters little. The
-host converts them, also on CUDA read paths, where the buffer is first copied to the host (decided,
-D37).
+The legacy conversion needs host values to choose the child precision. A noncanonical
+`vortex.decimal` buffer already in device memory fails to read (D40).
+[Issue #11284](https://github.com/vortex-data/vortex/issues/11284) records this limit.
 
 ## DecimalByteParts
 
@@ -317,15 +317,13 @@ null slots, so narrowing could stop above the canonical width. The compat fixtur
 `msp_i64_p4_s2_wide` has this shape. The reader finds such an MSP from the dtypes and
 narrows it with the copy of D21, which scans the values. Only these legacy nodes pay a scan.
 
-Operations run on the parts wherever they can (decided, D16). Today compare, between, filter,
-take, slice, mask, the nullability cast, and `is_constant` do this. With no lower parts, sum, min,
-and max run the integer aggregate on the MSP and relabel the result as a decimal (decided, D16).
-These kernels land before the new decoding (LT3). Sum converts the integer sum to the decimal
-result dtype, which is null outside the result precision. When the checked integer sum overflows,
-sum uses the decimal sum on the decoded array instead. A possible later refinement predicts the
-overflow from the dtypes and the batch length, with the bound of `is_exact_sum` in
-`vortex-array/src/arrays/widen/compute/aggregate.rs`, instead of the fallback at run time. Every
-other operation decodes DBP first.
+Operations run on the parts wherever they can (decided, D16). Compare, between, filter, take,
+slice, mask, the nullability cast, and `is_constant` do this. With no lower parts, `min`, `max`,
+`min_max`, `is_sorted`, and eligible `Stat::Sum` requests run on the MSP. For sums,
+[#11459](https://github.com/vortex-data/vortex/pull/11459) retries an overflowing integer sum
+in `i128` over the stored MSP when the decimal sum state is wider than `i64`. It checks the
+total against the state precision. A sum that uses an `i64` state preserves the overflow result,
+and sum variants that accumulate into a running total still use the decoded path.
 
 Decoding produces the canonical array of the DBP dtype (decided, D16). A narrower MSP costs one
 widening copy, and an MSP at the canonical width costs none. Decoding never returns a decimal
@@ -334,24 +332,20 @@ widening copy, and an MSP at the canonical width costs none. Decoding never retu
 `min_max` and returned a decimal `Widen` over its buffer. In CodSpeed that made `decode` 4.7 to
 8.4 times as slow as on `develop` (#10905), and the redesign of 2026-11-05 replaced it.
 
-CUDA has no `Widen` kernel, and its executor has no CPU fallback for device buffers, so a `Widen`
-MSP on the device fails today. [#11284](https://github.com/vortex-data/vortex/issues/11284) adds a
-device `Widen` kernel that sign-extends on the device, for integer and decimal `Widen`s (decided,
-D16). The new decoding depends on it, because every narrow DBP read on the GPU then has a `Widen`
-MSP, and it adds no stopgap of its own. The GPU still rejects a legacy MSP that is wider than its
-logical dtype. #11284 also covers reading legacy `vortex.decimal` nodes on the GPU, which CD6
-leaves as an error (D40).
+[#11303](https://github.com/vortex-data/vortex/pull/11303) added CUDA execution for integer and
+decimal `Widen`. For DBP arrays with no lower parts,
+[#11460](https://github.com/vortex-data/vortex/pull/11460) widens the stored MSP directly to the
+canonical decimal width, including when that width exceeds `i64`. CUDA still rejects DBP arrays
+with lower parts, and a legacy MSP wider than its logical dtype still needs a checked host copy.
 
 The compressor has one DBP scheme (decided, D17):
 
-- Today the scheme calls `narrowed_decimal`, which narrows the decimal array to the smallest
-  integer type that holds the values, and the split then copies its buffer into the MSP. The
-  canonical fix makes that narrow array illegal. Instead, the scheme takes the canonical array.
-  It uses the value range to choose the number of lower parts, because v1 has none. It also
-  stores a narrower MSP as an integer `Widen`, also next to lower parts (decided, D16). The
-  compressor executes every child to its canonical form before it compresses it, so the scheme
-  narrows the MSP, compresses the narrow child, and then wraps the result in the `Widen`. The
-  v1 parts get the same widths as today, so v1 file contents do not change.
+- [#11459](https://github.com/vortex-data/vortex/pull/11459) removed `narrowed_decimal` so the
+  compressor can work from canonical decimal arrays. Only valid values inform the lower-part count
+  and the MSP storage width. A narrower MSP becomes an integer `Widen`, including next to lower
+  parts (decided, D16). The compressor executes each child to its canonical form before
+  compressing it, so the scheme narrows the MSP, compresses the narrow child, and wraps the result
+  in `Widen`. The v1 wire form stays the same. Ignoring null payloads can give a file a narrower MSP.
 - The scheme is not temporary. Writers whose edition does not permit `vortex.widen` need it. These
   include default writers until `vortex.widen` enters `core`, and writers that select an older
   edition.
@@ -361,8 +355,8 @@ The compressor has one DBP scheme (decided, D17):
   `Narrow` scheme would only add a worse path. Floats work the same way: ALP turns them into
   integers, and the integer schemes do the rest.
 - For precision 39 to 76 with values that need more than 64 bits, the compressor uses the
-  lower-parts form when an edition permits it. Otherwise, it writes a plain `i256` array. Today it
-  writes a plain `i128` array, which D3 forbids.
+  lower-parts form when an edition permits it. Otherwise, the byte-parts scheme leaves those
+  values at their canonical `i256` width.
 
 The `core` family holds the formats of the default writer
 (`docs/specs/versioning/using-editions.md`). So default writers write these wide columns as plain
