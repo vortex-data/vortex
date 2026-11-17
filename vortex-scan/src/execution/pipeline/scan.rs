@@ -784,14 +784,14 @@ impl Scan {
     }
 
     /// Ports in use.
-    #[cfg(any(test, feature = "_test-harness"))]
-    pub fn live_ports(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn live_ports(&self) -> usize {
         self.core.arena.live()
     }
 
     /// Reads in flight that a pipeline waits for.
-    #[cfg(any(test, feature = "_test-harness"))]
-    pub fn awaited_reads(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn awaited_reads(&self) -> usize {
         self.core
             .reads
             .values()

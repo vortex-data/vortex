@@ -44,11 +44,11 @@ pub use self::chunk::ChunkPlanner;
 pub(crate) use self::chunk::FILTERED_ROWS_PER_CHUNK;
 pub(crate) use self::chunk::MAX_ROWS_PER_CHUNK;
 pub(crate) use self::chunk::ROW_BLOCK_SIZE;
-#[cfg(any(test, feature = "_test-harness"))]
-pub use self::chunk::row_chunks;
+#[cfg(test)]
+pub(crate) use self::chunk::row_chunks;
 pub(crate) use self::chunk::rows_per_chunk;
-#[cfg(any(test, feature = "_test-harness"))]
-pub use self::chunk::scan_chunks;
+#[cfg(test)]
+pub(crate) use self::chunk::scan_chunks;
 use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;
 use self::projection::ProjectionPlanner;
@@ -118,18 +118,6 @@ pub struct PreparedScan {
 }
 
 impl PreparedScan {
-    /// Overrides chunk size for source-adapter integration tests.
-    #[doc(hidden)]
-    #[cfg(feature = "_test-harness")]
-    pub fn set_chunk_rows(&mut self, rows: usize) {
-        self.chunk_rows = rows;
-    }
-
-    /// The number of rows scheduled in each chunk.
-    pub fn chunk_rows(&self) -> usize {
-        self.chunk_rows
-    }
-
     /// The rows of the file's row domain the scan covers.
     pub fn rows(&self) -> &Range<u64> {
         &self.rows
@@ -173,22 +161,5 @@ pub(crate) struct SelectedRows {
     mask: Mask,
 }
 
-/// Helpers for integration tests of source adapters.
-#[doc(hidden)]
-#[cfg(feature = "_test-harness")]
-pub mod testing {
-    pub const MAX_ROWS_PER_CHUNK: usize = super::MAX_ROWS_PER_CHUNK;
-    pub const ROW_BLOCK_SIZE: usize = super::ROW_BLOCK_SIZE;
-
-    pub fn rows_per_chunk(rows: u64, locations: &[super::SegmentLocation]) -> usize {
-        super::rows_per_chunk(rows, locations)
-    }
-
-    pub fn filtered_rows_per_chunk(
-        dtype: &vortex_array::dtype::DType,
-        projection: &vortex_array::expr::BoundExpression,
-        filter: &vortex_array::expr::BoundExpression,
-    ) -> vortex_error::VortexResult<usize> {
-        crate::prepare::filtered_rows_per_chunk(dtype, projection, filter)
-    }
-}
+#[cfg(test)]
+mod tests;

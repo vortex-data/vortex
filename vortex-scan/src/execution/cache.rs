@@ -103,7 +103,7 @@ impl ScanCache {
     }
 
     /// The plans of `filter` an earlier scan kept.
-    pub fn filter_plans(&self, filter: &BoundExpression) -> Option<Arc<FilterPlans>> {
+    pub(crate) fn filter_plans(&self, filter: &BoundExpression) -> Option<Arc<FilterPlans>> {
         self.0.filters.lock().get(&ExprKey(filter.clone())).cloned()
     }
 

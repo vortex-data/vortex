@@ -56,6 +56,4 @@ pub(crate) fn slots_from_layout_slots(
 }
 
 #[cfg(test)]
-mod pipeline_tests;
-#[cfg(test)]
 mod tests;

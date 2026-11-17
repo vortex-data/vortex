@@ -14,9 +14,6 @@ version = { workspace = true }
 [package.metadata.docs.rs]
 all-features = true
 
-[features]
-_test-harness = ["vortex-array/_test-harness"]
-
 [dependencies]
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }

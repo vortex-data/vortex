@@ -391,3 +391,6 @@ pub fn aggregate_state_dtype(column_dtype: &DType, aggregate_fn: &AggregateFnRef
         }
     })
 }
+
+#[cfg(test)]
+mod tests;

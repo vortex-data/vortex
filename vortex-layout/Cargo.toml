@@ -56,7 +56,6 @@ vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]
-vortex-scan = { workspace = true, features = ["_test-harness"] }
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
 divan = { workspace = true }

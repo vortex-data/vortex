@@ -70,3 +70,6 @@ pub use typed::PlanParts;
 pub use typed::PlanRef;
 pub use vtable::PlanId;
 pub use vtable::PlanVTable;
+
+#[cfg(test)]
+mod tests;

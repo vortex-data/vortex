@@ -7,7 +7,6 @@
 use std::ops::Range;
 
 use rstest::rstest;
-use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -21,98 +20,34 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::assert_arrays_eq;
-use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
-use vortex_array::optimizer::ArrayOptimizer;
-use vortex_array::serde::SerializeOptions;
 use vortex_array::validity::Validity;
-use vortex_buffer::Alignment;
-use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
-use vortex_scan::execution::pipeline::*;
-use vortex_scan::plan::ConcatPlan;
-use vortex_scan::plan::EvalPlan;
-use vortex_scan::plan::Filter;
-use vortex_scan::plan::LazyPlanRef;
-use vortex_scan::plan::PackPlan;
-use vortex_scan::plan::PlanRef;
-use vortex_scan::plan::Take;
-use vortex_scan::plan::optimize;
-use vortex_scan::selection::selected;
-use vortex_session::registry::ReadContext;
 
-use crate::LayoutRef;
-use crate::OwnedLayoutChildren;
-use crate::layouts::chunked::ChunkedLayout;
-use crate::layouts::dict::DictLayout;
-use crate::layouts::flat::FlatLayout;
-use crate::layouts::struct_::StructLayout;
-use crate::lowering::SegmentScan;
-use crate::segments::SegmentId;
+use crate::execution::pipeline::*;
+use crate::plan::ConcatPlan;
+use crate::plan::EvalPlan;
+use crate::plan::Filter;
+use crate::plan::LazyPlanRef;
+use crate::plan::PackPlan;
+use crate::plan::PlanRef;
+use crate::plan::Take;
+use crate::plan::optimize;
+use crate::selection::selected;
 use crate::test::SESSION;
+use crate::test::Store;
+use crate::test::TestSource;
+use crate::test::dict;
+use crate::test::struct_plan;
 
 const ROWS: u64 = 20;
-
-/// In-memory segments, standing in for the IO service.
-#[derive(Default)]
-struct Store {
-    segments: Vec<BufferHandle>,
-}
-
-impl Store {
-    fn flat(&mut self, array: &ArrayRef) -> VortexResult<LayoutRef> {
-        let ctx = ArrayContext::empty();
-        let array = array.optimize_ctx(&SESSION)?;
-        let buffers = array.serialize(
-            &ctx,
-            &SESSION,
-            &SerializeOptions {
-                offset: 0,
-                include_padding: true,
-            },
-        )?;
-        let mut bytes = ByteBufferMut::empty_aligned(Alignment::new(64));
-        for buffer in buffers {
-            bytes.extend_from_slice(buffer.as_ref());
-        }
-        let segment_id = SegmentId::from(u32::try_from(self.segments.len())?);
-        self.segments.push(BufferHandle::new_host(bytes.freeze()));
-        Ok(FlatLayout::new(
-            array.len() as u64,
-            array.dtype().clone(),
-            segment_id,
-            ReadContext::new(ctx.to_ids()),
-        )
-        .into_layout())
-    }
-
-    fn chunked(&mut self, array: &ArrayRef, sizes: &[usize]) -> VortexResult<LayoutRef> {
-        let mut chunks = Vec::with_capacity(sizes.len());
-        let mut start = 0;
-        for size in sizes {
-            chunks.push(self.flat(&array.slice(start..start + size)?)?);
-            start += size;
-        }
-        assert_eq!(start, array.len(), "chunk sizes must cover the array");
-        Ok(ChunkedLayout::new(
-            array.len() as u64,
-            array.dtype().clone(),
-            OwnedLayoutChildren::layout_children(chunks),
-        )
-        .into_layout())
-    }
-
-    fn read(&self, segment_id: SegmentId) -> BufferHandle {
-        self.segments[*segment_id as usize].clone()
-    }
-}
 
 /// A struct whose columns are chunked at different row boundaries.
 ///
@@ -123,7 +58,7 @@ impl Store {
 /// d  i32?       chunks [0,1) [1,3) [3,6) [6,20)
 /// e  struct     x: chunks [0,5) [5,20), y: flat
 /// ```
-fn fixture(store: &mut Store) -> VortexResult<(PlanRef, ArrayRef)> {
+fn fixture(store: &Store) -> VortexResult<(PlanRef, ArrayRef)> {
     let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
     let b = PrimitiveArray::from_iter((0..ROWS as i64).map(|v| v * 10)).into_array();
     let c = VarBinViewArray::from_iter_str((0..ROWS).map(|v| format!("row-{v}"))).into_array();
@@ -141,13 +76,12 @@ fn fixture(store: &mut Store) -> VortexResult<(PlanRef, ArrayRef)> {
     ])?
     .into_array();
 
-    let e_layout = StructLayout::new(
+    let e_layout = struct_plan(
         ROWS,
         e.dtype().clone(),
         vec![store.chunked(&x, &[5, 15])?, store.flat(&y)?],
-    )
-    .into_layout();
-    let layout = StructLayout::new(
+    );
+    let layout = struct_plan(
         ROWS,
         expected.dtype().clone(),
         vec![
@@ -157,9 +91,8 @@ fn fixture(store: &mut Store) -> VortexResult<(PlanRef, ArrayRef)> {
             store.chunked(&d, &[1, 2, 3, 14])?,
             e_layout,
         ],
-    )
-    .into_layout();
-    Ok((layout.new_plan()?, expected))
+    );
+    Ok((layout.clone(), expected))
 }
 
 /// Which outstanding read the scripted IO service completes next.
@@ -385,8 +318,8 @@ fn views_of_one_plan(
     #[case] sel: Sel,
     #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
 ) -> VortexResult<()> {
-    let mut store = Store::default();
-    let (plan, expected) = fixture(&mut store)?;
+    let store = Store::default();
+    let (plan, expected) = fixture(&store)?;
     let mask = sel.mask((rows.end - rows.start) as usize);
 
     let run = run(&store, &plan, rows.clone(), mask.clone(), delivery(order))?;
@@ -401,8 +334,8 @@ fn splits_of_one_scan_read_the_segments_they_overlap(
     #[values(1, 3)] active: usize,
     #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
 ) -> VortexResult<()> {
-    let mut store = Store::default();
-    let (plan, expected) = fixture(&mut store)?;
+    let store = Store::default();
+    let (plan, expected) = fixture(&store)?;
     let splits: Vec<Split> = cuts
         .windows(2)
         .map(|w| Split {
@@ -415,7 +348,7 @@ fn splits_of_one_scan_read_the_segments_they_overlap(
     assert_eq!(run.leftover, 0, "a finished scan holds no port");
     let mut read = segments_read(&run.events);
     read.dedup();
-    assert_eq!(read, (0..store.segments.len() as u32).collect::<Vec<_>>());
+    assert_eq!(read, (0..store.len() as u32).collect::<Vec<_>>());
     for (index, split) in splits.iter().enumerate() {
         assert_view(
             &expected,
@@ -429,8 +362,8 @@ fn splits_of_one_scan_read_the_segments_they_overlap(
 
 #[test]
 fn every_read_is_issued_before_any_is_delivered() -> VortexResult<()> {
-    let mut store = Store::default();
-    let (plan, _) = fixture(&mut store)?;
+    let store = Store::default();
+    let (plan, _) = fixture(&store)?;
 
     let run = run(
         &store,
@@ -442,15 +375,15 @@ fn every_read_is_issued_before_any_is_delivered() -> VortexResult<()> {
     let Some(Event::Io(first)) = run.events.first() else {
         return Err(vortex_err!("first event must be a read batch"));
     };
-    assert_eq!(first.len(), store.segments.len());
-    assert_eq!(reads(&run.events), store.segments.len());
+    assert_eq!(first.len(), store.len());
+    assert_eq!(reads(&run.events), store.len());
     Ok(())
 }
 
 #[test]
 fn unselected_chunks_are_never_read() -> VortexResult<()> {
-    let mut store = Store::default();
-    let (plan, expected) = fixture(&mut store)?;
+    let store = Store::default();
+    let (plan, expected) = fixture(&store)?;
     // Rows 7..12 only: a reads one chunk, b both, c one, d one, e.x one, e.y one.
     let mask = Mask::from_indices(ROWS as usize, 7..12);
 
@@ -467,8 +400,8 @@ fn unselected_chunks_are_never_read() -> VortexResult<()> {
 
 #[test]
 fn nothing_selected_issues_no_io_and_emits_nothing() -> VortexResult<()> {
-    let mut store = Store::default();
-    let (plan, _) = fixture(&mut store)?;
+    let store = Store::default();
+    let (plan, _) = fixture(&store)?;
     let mask = Mask::new_false(ROWS as usize);
 
     let run = run(&store, &plan, 0..ROWS, mask, delivery(Delivery::Fifo))?;
@@ -478,17 +411,16 @@ fn nothing_selected_issues_no_io_and_emits_nothing() -> VortexResult<()> {
 }
 
 /// `{a, b}` with `a` chunked `[0,7) [7,12) [12,20)` and `b` flat.
-fn two_columns(store: &mut Store) -> VortexResult<(PlanRef, ArrayRef)> {
+fn two_columns(store: &Store) -> VortexResult<(PlanRef, ArrayRef)> {
     let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
     let b = PrimitiveArray::from_iter((0..ROWS as i64).map(|v| v * 10)).into_array();
     let expected = StructArray::from_fields(&[("a", a.clone()), ("b", b.clone())])?.into_array();
-    let layout = StructLayout::new(
+    let layout = struct_plan(
         ROWS,
         expected.dtype().clone(),
         vec![store.chunked(&a, &[7, 5, 8])?, store.flat(&b)?],
-    )
-    .into_layout();
-    Ok((layout.new_plan()?, expected))
+    );
+    Ok((layout.clone(), expected))
 }
 
 /// Fields chunked differently are split at their front batch boundaries, in row order,
@@ -500,8 +432,8 @@ fn two_columns(store: &mut Store) -> VortexResult<(PlanRef, ArrayRef)> {
 #[case::a_chunk_last(&[3, 0, 2, 1])]
 #[case::in_order(&[3, 0, 1, 2])]
 fn pack_splits_misaligned_fields(#[case] order: &[u32]) -> VortexResult<()> {
-    let mut store = Store::default();
-    let (plan, expected) = two_columns(&mut store)?;
+    let store = Store::default();
+    let (plan, expected) = two_columns(&store)?;
     let mask = Mask::new_true(ROWS as usize);
 
     let run = run(&store, &plan, 0..ROWS, mask.clone(), scripted(order))?;
@@ -513,7 +445,7 @@ fn pack_splits_misaligned_fields(#[case] order: &[u32]) -> VortexResult<()> {
 /// fields chunked differently from it.
 #[test]
 fn nullable_pack_reads_validity_from_its_first_slot() -> VortexResult<()> {
-    let mut store = Store::default();
+    let store = Store::default();
     let validity = BoolArray::from_iter((0..ROWS).map(|v| v % 3 != 0)).into_array();
     let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
     let b = PrimitiveArray::from_iter((0..ROWS as i64).map(|v| v * 10)).into_array();
@@ -524,7 +456,7 @@ fn nullable_pack_reads_validity_from_its_first_slot() -> VortexResult<()> {
         Validity::Array(validity.clone()),
     )?
     .into_array();
-    let layout = StructLayout::new(
+    let layout = struct_plan(
         ROWS,
         expected.dtype().clone(),
         vec![
@@ -532,9 +464,8 @@ fn nullable_pack_reads_validity_from_its_first_slot() -> VortexResult<()> {
             store.chunked(&a, &[7, 5, 8])?,
             store.flat(&b)?,
         ],
-    )
-    .into_layout();
-    let plan = layout.new_plan()?;
+    );
+    let plan = layout.clone();
     let rows = 2..18;
     let mask = Mask::from_iter((0..16).map(|v| v % 4 != 1));
 
@@ -551,17 +482,16 @@ fn nullable_pack_reads_validity_from_its_first_slot() -> VortexResult<()> {
 /// Pack emits as soon as every inlet has a batch, without waiting for an inlet to fill.
 #[test]
 fn pack_emits_when_every_field_has_data() -> VortexResult<()> {
-    let mut store = Store::default();
+    let store = Store::default();
     let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
     let b = PrimitiveArray::from_iter((0..ROWS as i64).map(|v| v * 10)).into_array();
     let expected = StructArray::from_fields(&[("a", a.clone()), ("b", b.clone())])?.into_array();
-    let layout = StructLayout::new(
+    let layout = struct_plan(
         ROWS,
         expected.dtype().clone(),
         vec![store.chunked(&a, &[1; ROWS as usize])?, store.flat(&b)?],
-    )
-    .into_layout();
-    let plan = layout.new_plan()?;
+    );
+    let plan = layout.clone();
     let mask = Mask::new_true(ROWS as usize);
 
     let order = std::iter::once(ROWS as u32)
@@ -585,20 +515,19 @@ fn pack_emits_when_every_field_has_data() -> VortexResult<()> {
 /// Fields chunked alike stream one struct per chunk.
 #[test]
 fn aligned_fields_stream_one_struct_per_chunk() -> VortexResult<()> {
-    let mut store = Store::default();
+    let store = Store::default();
     let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
     let b = PrimitiveArray::from_iter((0..ROWS as i64).map(|v| v * 10)).into_array();
     let expected = StructArray::from_fields(&[("a", a.clone()), ("b", b.clone())])?.into_array();
-    let layout = StructLayout::new(
+    let layout = struct_plan(
         ROWS,
         expected.dtype().clone(),
         vec![
             store.chunked(&a, &[7, 5, 8])?,
             store.chunked(&b, &[7, 5, 8])?,
         ],
-    )
-    .into_layout();
-    let plan = layout.new_plan()?;
+    );
+    let plan = layout.clone();
     let mask = Mask::new_true(ROWS as usize);
 
     let run = run(
@@ -619,14 +548,14 @@ fn aligned_fields_stream_one_struct_per_chunk() -> VortexResult<()> {
 #[case::sparse(Sel::Rows(&[1, 4]))]
 #[case::nothing(Sel::None)]
 fn scan_keeps_the_selection_with_or_without_a_filter(#[case] sel: Sel) -> VortexResult<()> {
-    let mut store = Store::default();
+    let store = Store::default();
     let values = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
-    let filtered = store.flat(&values)?.new_plan()?;
+    let filtered = store.flat(&values)?.clone();
     let scan = filtered
         .as_opt::<Filter>()
-        .ok_or_else(|| vortex_err!("A flat layout lowers to a filter"))?
+        .ok_or_else(|| vortex_err!("the test source has a filter wrapper"))?
         .child_plan()?;
-    assert!(scan.is::<SegmentScan>());
+    assert!(scan.is::<TestSource>());
 
     let rows = 3..9;
     let mask = sel.mask(6);
@@ -657,13 +586,13 @@ fn take_waits_for_whole_values_and_keeps_them(
     #[case] predicate: bool,
     #[values(3, 1536)] values_len: usize,
 ) -> VortexResult<()> {
-    let mut store = Store::default();
+    let store = Store::default();
     let values =
         VarBinViewArray::from_iter_str((0..values_len).map(|row| ["a", "b", "c"][row % 3]))
             .into_array();
     let codes = PrimitiveArray::from_iter((0..ROWS).map(|v| (v % 3) as u8)).into_array();
-    let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
-    let mut plan = layout.new_plan()?;
+    let layout = dict(store.flat(&values)?, store.flat(&codes)?);
+    let mut plan = layout.clone();
     let expected = if predicate {
         BoolArray::from_iter((0..ROWS).map(|row| row % 3 != 0)).into_array()
     } else {
@@ -734,7 +663,7 @@ fn take_waits_for_whole_values_and_keeps_them(
 #[case::utf8(DType::Utf8(true.into()))]
 #[case::binary(DType::Binary(true.into()))]
 fn sparse_string_take_preserves_encoded_values(#[case] dtype: DType) -> VortexResult<()> {
-    let mut store = Store::default();
+    let store = Store::default();
     let values = VarBinArray::from_iter(
         (0..1536).map(|row| (row != 1).then_some(b"value".as_slice())),
         dtype.clone(),
@@ -742,8 +671,8 @@ fn sparse_string_take_preserves_encoded_values(#[case] dtype: DType) -> VortexRe
     .into_array();
     let codes =
         PrimitiveArray::from_option_iter([Some(1535u32), Some(1), None, Some(0)]).into_array();
-    let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
-    let plan = layout.new_plan()?;
+    let layout = dict(store.flat(&values)?, store.flat(&codes)?);
+    let plan = layout.clone();
     let mask = Mask::new_true(4);
     let result = run(&store, &plan, 0..4, mask.clone(), delivery(Delivery::Lifo))?;
 
@@ -770,8 +699,8 @@ fn sparse_string_take_preserves_encoded_values(#[case] dtype: DType) -> VortexRe
 
 #[test]
 fn eval_applies_expression_to_selected_rows() -> VortexResult<()> {
-    let mut store = Store::default();
-    let (plan, _) = two_columns(&mut store)?;
+    let store = Store::default();
+    let (plan, _) = two_columns(&store)?;
     let expression = gt(get_item("a", root()), lit(4_i32)).bind(plan.dtype())?;
     let expected = BoolArray::from_iter((0..ROWS).map(|row| row > 4)).into_array();
     let plan = EvalPlan::try_new(expression, plan)?.into_plan();
@@ -794,9 +723,9 @@ fn eval_applies_expression_to_selected_rows() -> VortexResult<()> {
 /// A column read by two fields of one struct is read by each field, and both get it.
 #[test]
 fn a_segment_two_readers_need_is_read_by_each() -> VortexResult<()> {
-    let mut store = Store::default();
+    let store = Store::default();
     let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
-    let column = store.chunked(&a, &[7, 13])?.new_plan()?;
+    let column = store.chunked(&a, &[7, 13])?.clone();
     let expected = StructArray::from_fields(&[("x", a.clone()), ("y", a)])?.into_array();
     let fields = expected
         .dtype()
@@ -833,8 +762,8 @@ fn bound_selection_matches_projection(
     #[case] rows: Range<u64>,
     #[case] indices: Vec<usize>,
 ) -> VortexResult<()> {
-    let mut store = Store::default();
-    let (plan, expected) = fixture(&mut store)?;
+    let store = Store::default();
+    let (plan, expected) = fixture(&store)?;
     let mask = Mask::from_indices((rows.end - rows.start) as usize, indices);
     let plan = selected(plan, rows.clone(), mask.clone());
     let result = run(
@@ -849,10 +778,10 @@ fn bound_selection_matches_projection(
 
 #[test]
 fn bound_selection_never_initializes_skipped_chunks() -> VortexResult<()> {
-    let mut store = Store::default();
+    let store = Store::default();
     let array = PrimitiveArray::from_iter(0..20i32).into_array();
-    let first = store.flat(&array.slice(0..5)?)?.new_plan()?;
-    let last = store.flat(&array.slice(15..20)?)?.new_plan()?;
+    let first = store.flat(&array.slice(0..5)?)?.clone();
+    let last = store.flat(&array.slice(15..20)?)?.clone();
     let children = (0..4)
         .map(|index| {
             let (first, last) = (first.clone(), last.clone());
@@ -889,16 +818,15 @@ fn bound_selection_never_initializes_skipped_chunks() -> VortexResult<()> {
 
 #[test]
 fn bound_selection_keeps_whole_dictionary_values() -> VortexResult<()> {
-    let mut store = Store::default();
+    let store = Store::default();
     let values = PrimitiveArray::from_iter(100..120i32).into_array();
     let codes = PrimitiveArray::from_iter((0..20u32).rev()).into_array();
-    let layout = DictLayout::new(
+    let layout = dict(
         store.chunked(&values, &[5, 5, 5, 5])?,
         store.chunked(&codes, &[5, 5, 5, 5])?,
-    )
-    .into_layout();
+    );
     let mask = Mask::from_indices(20, [1, 18]);
-    let plan = selected(layout.new_plan()?, 0..20, mask);
+    let plan = selected(layout.clone(), 0..20, mask);
     let result = run(
         &store,
         &plan,

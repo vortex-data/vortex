@@ -63,3 +63,6 @@ pub const DEFAULT_CAPACITY: usize = 8;
 
 #[cfg(test)]
 mod scheduling_tests;
+
+#[cfg(test)]
+mod tests;

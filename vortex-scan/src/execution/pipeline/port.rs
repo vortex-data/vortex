@@ -164,7 +164,7 @@ impl<T> Default for Slab<T> {
 }
 
 impl<T> Slab<T> {
-    #[cfg(any(test, feature = "_test-harness"))]
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.len
     }
@@ -299,7 +299,7 @@ impl Arena {
     }
 
     /// Ports in use.
-    #[cfg(any(test, feature = "_test-harness"))]
+    #[cfg(test)]
     pub(crate) fn live(&self) -> usize {
         self.queues.len() - self.free.len()
     }

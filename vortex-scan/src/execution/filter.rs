@@ -113,14 +113,14 @@ impl FilterPlans {
     }
 
     /// Whether the conjunct is a dynamic conjunct that is currently switched off.
-    #[cfg(any(test, feature = "_test-harness"))]
-    pub fn is_switched_off(&self, conjunct_idx: usize) -> bool {
+    #[cfg(test)]
+    pub(crate) fn is_switched_off(&self, conjunct_idx: usize) -> bool {
         self.expression.is_switched_off(conjunct_idx)
     }
 
     /// The pruning plans of every conjunct that has one.
-    #[cfg(any(test, feature = "_test-harness"))]
-    pub fn pruning(&self) -> impl Iterator<Item = &PlanRef> {
+    #[cfg(test)]
+    pub(crate) fn pruning(&self) -> impl Iterator<Item = &PlanRef> {
         self.pruning.iter().flatten()
     }
 
@@ -131,7 +131,7 @@ impl FilterPlans {
     /// join's key bounds also proves its current predicate over the zones again. Without those
     /// plans, TPC-DS at SF1, whose join probes are mostly scans of one chunk, ran 3% faster, and
     /// SF10 was unchanged.
-    pub fn pruning_over(&self, rows: u64) -> impl Iterator<Item = &PlanRef> {
+    pub(crate) fn pruning_over(&self, rows: u64) -> impl Iterator<Item = &PlanRef> {
         let small = rows <= FILTERED_ROWS_PER_CHUNK as u64;
         self.pruning
             .iter()
