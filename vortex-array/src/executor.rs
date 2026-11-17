@@ -513,7 +513,7 @@ fn push_frame(
     // SAFETY: the slot is put back, or the parent driven to completion, before the parent
     // leaves the executor.
     let (parent, child) = unsafe { array.take_slot_unchecked(slot_idx) }?;
-    trace_op!(record_execute_slot(slot_idx, &parent, &child));
+    trace_op!(record_execute_slot(slot_idx, &parent, &child, spine));
     stack.push(StackFrame {
         parent_array: parent,
         parent_builder,
@@ -668,6 +668,15 @@ fn run_fusion(
     let top = child;
     let len = top.len();
     trace_op!(record_execute_encoding(&top));
+    trace_op!(record_block_fusion(
+        &top,
+        match plan.input {
+            FusionInput::Source(_) => "source",
+            FusionInput::Canonical(_) => "canonical",
+        },
+        plan.frames,
+        plan.ops.len(),
+    ));
     tracing::debug!(
         target: "vortex_array::block",
         encoding = %top.encoding_id(),

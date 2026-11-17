@@ -283,6 +283,7 @@ mod tests {
     use vortex_array::block::fused_chain_count;
     use vortex_array::block::in_place_chain_count;
     use vortex_array::scalar::Scalar;
+    use vortex_array::test_harness::trace::trace_op;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -422,6 +423,111 @@ mod tests {
         // The input still holds its own values.
         assert_eq!(shared.len(), copied.len());
         assert_arrays_eq!(copied, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// The fusion steps in the trace of executing `array`: the spine requests, each fused chain,
+    /// and how each of its ops ran over the first block.
+    fn fusion_trace(array: ArrayRef) -> VortexResult<String> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let traced = trace_op(|| array.execute::<PrimitiveArray>(&mut ctx))?;
+        Ok(traced
+            .trace
+            .to_string()
+            .lines()
+            .map(str::trim)
+            .filter(|line| {
+                line.starts_with("ExecuteSpine")
+                    || line.starts_with("fuse ")
+                    || line.starts_with("block_op")
+            })
+            .collect::<Vec<_>>()
+            .join("\n"))
+    }
+
+    /// FoR over BitPacked alone runs FoR's own fused kernel. Above it, each FoR asks for its
+    /// child as its spine, and the chain fuses as soon as the leaf can emit blocks: FoR over
+    /// BitPacked unpacks into scratch, ops that keep the width add their reference in place, and
+    /// the last op writes the output. With two FoRs waiting, the leaf is FoR(FoR(BitPacked)),
+    /// whose own op runs over its child's source.
+    #[rstest]
+    #[case::fused_for_bp_alone(1, "")]
+    #[case::two_levels(
+        2,
+        "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
+fuse top=fastlanes.for.v2(u32, len=3000) input=source frames=1 ops=1
+block_op 0 copy u32->u32 scratch0 -> output"
+    )]
+    #[case::four_levels(
+        4,
+        "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
+ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
+fuse top=fastlanes.for.v2(u32, len=3000) input=source frames=2 ops=3
+block_op 0 in_place u32->u32 scratch0 -> scratch0
+block_op 1 in_place u32->u32 scratch0 -> scratch0
+block_op 2 copy u32->u32 scratch0 -> output"
+    )]
+    fn for_stack_schedule(#[case] depth: usize, #[case] expected: &str) -> VortexResult<()> {
+        assert_eq!(fusion_trace(for_stack(3000, depth, false)?)?, expected);
+        Ok(())
+    }
+
+    /// Three FoRs over a canonical leaf. A leaf another owner shares is copied into scratch by
+    /// the first op; one the executor owns is decoded block by block in its own buffer.
+    #[test]
+    fn canonical_leaf_schedule() -> VortexResult<()> {
+        let build = || -> VortexResult<ArrayRef> {
+            let mut array = PrimitiveArray::from_iter(0..3000u32).into_array();
+            for reference in 1..=3u32 {
+                array = FoR::try_new(array, Scalar::from(reference))?.into_array();
+            }
+            Ok(array)
+        };
+        let frames = "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
+ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
+fuse top=fastlanes.for.v2(u32, len=3000) input=canonical frames=2 ops=3";
+
+        let shared = build()?;
+        assert_eq!(
+            fusion_trace(shared.clone())?,
+            format!(
+                "{frames}
+block_op 0 copy u32->u32 source -> scratch0
+block_op 1 in_place u32->u32 scratch0 -> scratch0
+block_op 2 copy u32->u32 scratch0 -> output"
+            )
+        );
+        assert_eq!(shared.len(), 3000);
+
+        assert_eq!(
+            fusion_trace(build()?)?,
+            format!(
+                "{frames}
+block_op 0 in_place u32->u32 leaf -> leaf
+block_op 1 in_place u32->u32 leaf -> leaf
+block_op 2 in_place u32->u32 leaf -> leaf"
+            )
+        );
+        Ok(())
+    }
+
+    /// FoR with per-chunk references that do not line up with its BitPacked child cannot run the
+    /// fused unpack, so the child is the source and FoR's op adds each chunk's reference.
+    #[test]
+    fn misaligned_blocked_references_schedule() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_iter((0..4096u32).map(|i| i % 300));
+        let bp = bitpack_encode(&values, 9, None, &mut ctx)?
+            .into_array()
+            .slice(100..3172)?;
+        let references = PrimitiveArray::new(buffer![10u32, 20, 30], Validity::NonNullable);
+        let array = FoR::try_new_chunked(bp, references.into_array(), 0)?.into_array();
+        assert_eq!(
+            fusion_trace(array)?,
+            "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3072) child=fastlanes.bitpacked.v2(u32, len=3072)
+fuse top=fastlanes.for.v2(u32, len=3072) input=source frames=1 ops=1
+block_op 0 copy u32->u32 scratch0 -> output"
+        );
         Ok(())
     }
 }

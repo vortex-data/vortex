@@ -40,6 +40,7 @@ use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
+use crate::trace_op;
 use crate::validity::Validity;
 
 #[cfg(any(test, feature = "_test-harness"))]
@@ -552,11 +553,30 @@ unsafe fn run_blocks_in_place(
                 out_ptype: ptypes[i + 1],
                 _borrow: PhantomData,
             });
+            if start == 0 {
+                trace_op!(record_block_op(
+                    i,
+                    "in_place",
+                    "leaf",
+                    "leaf",
+                    ptypes[i],
+                    ptypes[i + 1]
+                ));
+            }
             check_written(&op.process(start, block)?, ptr, n, ptypes[i + 1])?;
         }
         start += n;
     }
     Ok(())
+}
+
+/// How a trace names the memory a block lives in.
+fn scratch_name(scratch: Option<usize>) -> &'static str {
+    match scratch {
+        None => "source",
+        Some(0) => "scratch0",
+        Some(_) => "scratch1",
+    }
 }
 
 /// Check an op wrote the block it was handed.
@@ -607,7 +627,13 @@ unsafe fn run_blocks(
         let mut cur_scratch = scratch.iter().position(|buf| buf.contains(cur));
         for (i, op) in ops.iter_mut().enumerate() {
             let out_ptype = ptypes[i + 1];
+            let from = scratch_name(cur_scratch);
             let block = if i != last && in_place[i] && cur_scratch.is_some() {
+                if start == 0 {
+                    trace_op!(record_block_op(
+                        i, "in_place", from, from, ptypes[i], out_ptype
+                    ));
+                }
                 Block::InPlace(BlockInOut {
                     ptr: cur,
                     len: n,
@@ -617,11 +643,20 @@ unsafe fn run_blocks(
                 })
             } else {
                 let out = if i == last {
+                    if start == 0 {
+                        trace_op!(record_block_op(
+                            i, "copy", from, "output", ptypes[i], out_ptype
+                        ));
+                    }
                     // SAFETY: `start + n <= len`, so the block fits in `dst`.
                     unsafe { dst.add(start * out_width) }
                 } else {
                     let target = usize::from(cur_scratch == Some(0));
                     cur_scratch = Some(target);
+                    if start == 0 {
+                        let to = scratch_name(cur_scratch);
+                        trace_op!(record_block_op(i, "copy", from, to, ptypes[i], out_ptype));
+                    }
                     scratch[target].as_mut_ptr()
                 };
                 let copy = Block::Copy {

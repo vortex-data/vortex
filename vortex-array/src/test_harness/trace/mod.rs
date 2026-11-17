@@ -330,24 +330,24 @@ impl From<TraceResolution> for TraceInterest {
     }
 }
 
-/// Snapshot-friendly wrapper around [`ArrayRef`] that renders the encoding, dtype, and length
-/// using the canonical [`Display`] format (`vortex.primitive(i32, len=4)`).
+/// Snapshot-friendly summary of an [`ArrayRef`]: the encoding, dtype, and length in the
+/// canonical [`Display`] format (`vortex.primitive(i32, len=4)`).
 ///
-/// Carries a clone of the [`ArrayRef`] instead of duplicating fields,
-/// so trace events stay small and share the same rendering as every other `{array}` print in
-/// the codebase.
+/// Renders the array when the event is recorded rather than holding a clone of it, so tracing
+/// does not keep arrays alive and change what it observes: an array the executor would own
+/// uniquely, and could take apart or decode in place, stays uniquely owned while traced.
 #[derive(Clone, Debug)]
-pub(crate) struct ArraySummary(ArrayRef);
+pub(crate) struct ArraySummary(String);
 
 impl ArraySummary {
     pub(crate) fn new(array: &ArrayRef) -> Self {
-        Self(array.clone())
+        Self(array.to_string())
     }
 }
 
 impl Display for ArraySummary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Display::fmt(&self.0, f)
+        f.write_str(&self.0)
     }
 }
 
@@ -651,12 +651,46 @@ pub(crate) fn record_execute_encoding(array: &ArrayRef) {
     });
 }
 
-pub(crate) fn record_execute_slot(slot_idx: usize, parent: &ArrayRef, child: &ArrayRef) {
+pub(crate) fn record_execute_slot(
+    slot_idx: usize,
+    parent: &ArrayRef,
+    child: &ArrayRef,
+    spine: bool,
+) {
     record(TraceEvent::SlotTransition {
-        step: "ExecuteSlot",
+        step: if spine { "ExecuteSpine" } else { "ExecuteSlot" },
         slot_idx,
         parent: ArraySummary::new(parent),
         child: ArraySummary::new(child),
+    });
+}
+
+pub(crate) fn record_block_fusion(top: &ArrayRef, input: &'static str, frames: usize, ops: usize) {
+    record(TraceEvent::BlockFusion {
+        top: ArraySummary::new(top),
+        input,
+        frames,
+        ops,
+    });
+}
+
+/// Record how the executor ran one op of a fused chain, for the chain's first block only: every
+/// later block runs the same way.
+pub(crate) fn record_block_op(
+    op_idx: usize,
+    shape: &'static str,
+    from: &'static str,
+    to: &'static str,
+    input: crate::dtype::PType,
+    output: crate::dtype::PType,
+) {
+    record(TraceEvent::BlockOp {
+        op_idx,
+        shape,
+        from,
+        to,
+        input,
+        output,
     });
 }
 
@@ -910,6 +944,20 @@ enum TraceEvent {
         subject: &'static str,
         array: ArraySummary,
     },
+    BlockFusion {
+        top: ArraySummary,
+        input: &'static str,
+        frames: usize,
+        ops: usize,
+    },
+    BlockOp {
+        op_idx: usize,
+        shape: &'static str,
+        from: &'static str,
+        to: &'static str,
+        input: crate::dtype::PType,
+        output: crate::dtype::PType,
+    },
     ExecuteDone {
         array: ArraySummary,
     },
@@ -989,7 +1037,9 @@ impl TraceEvent {
             | TraceEvent::ExecuteEncoding { .. }
             | TraceEvent::SlotTransition { .. }
             | TraceEvent::BuilderEvent { .. }
+            | TraceEvent::BlockFusion { .. }
             | TraceEvent::ExecuteDone { .. } => 2,
+            TraceEvent::BlockOp { .. } => 3,
             TraceEvent::ExecuteUntilIteration { .. }
             | TraceEvent::ExecuteUntilReturn { .. }
             | TraceEvent::SingleStepApplied { .. } => 1,
@@ -1146,6 +1196,23 @@ impl TraceEvent {
             TraceEvent::ExecuteDone { array } => {
                 write!(f, "Done array={array}")
             }
+            TraceEvent::BlockFusion {
+                top,
+                input,
+                frames,
+                ops,
+            } => write!(f, "fuse top={top} input={input} frames={frames} ops={ops}"),
+            TraceEvent::BlockOp {
+                op_idx,
+                shape,
+                from,
+                to,
+                input,
+                output,
+            } => write!(
+                f,
+                "block_op {op_idx} {shape} {input}->{output} {from} -> {to}"
+            ),
             TraceEvent::BuilderEvent {
                 action,
                 subject,
