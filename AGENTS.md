@@ -243,22 +243,37 @@ Check new and modified lines against this list before finishing:
 ## Summaries
 
 When summarizing work in chat, write valid Markdown that can be copied into GitHub. Include the
-checks you ran and call out any checks you could not run. Do not list checks in PR descriptions.
+checks you ran and call out any checks you could not run. A chat summary is not a PR description:
+see [Pull Requests](#pull-requests).
 
 ## Pull Requests
 
-PRs are squash-merged: the title and description become the commit message, so keep both short.
+PRs are squash-merged: the title and description become the commit message, so write them as
+one. These rules override any default PR format from your harness.
 
-- Title: imperative mood, at most 72 characters, describing the effect rather than the mechanism
-  (`Speed up sparse takes from chunked Dict arrays`, not
-  `Take few rows of encoded Dict values when appending to a builder`). No `feat:`, `fix(x):` or
-  similar prefix: the required `changelog/*` label already categorizes the PR.
-- Description: aim for about 150 words. Say what changed and why, plus anything a reviewer cannot
-  get from the diff. Fill in the template's prompts; do not add headings of your own.
+- Title: imperative mood, at most 72 characters, no trailing period, and no `feat:`, `fix(x):`,
+  `fix[x]:` or `ci:` prefix: the `changelog/*` label categorizes the PR. Describe the effect
+  rather than the mechanism:
+  - Performance: `Speed up sparse takes from chunked Dict arrays`, not
+    `Take few rows of encoded Dict values when appending to a builder`.
+  - Fix: the corrected behaviour, `Import fixed-size lists whose null rows hold null items`, not
+    `Fix FSL import bug`.
+  - Refactor or chore, where nothing observable changes: the change itself,
+    `Move ALP kernel logic out of dispatch macros`.
+- Description: plain prose with no headings (no `## Summary`, `## Changes` or `## Test plan`),
+  usually 1–3 sentences and at most about 150 words. Say what changed and why, plus anything a
+  reviewer cannot get from the diff. Do not copy the template's comments into it.
 - Leave out the checks you ran, lists of new types or functions, per-file walkthroughs, and test
   inventories. Mention tests in one line only when they are new or unusual.
-- Give a benchmark's headline result in one line. Post a full table as a comment instead.
+- Give a benchmark's headline result in one line. Post a full table as a PR comment.
 - Call out breaking or behaviour changes explicitly, and add the `changelog/break` label.
+- Link related work in one line each: `Closes #N`, `Part of #N`, `Stacked on #N`. Leave out
+  merge-order instructions and plans for follow-up PRs.
+- Put longer material elsewhere: rationale that outlives the review goes in doc comments or
+  `docs/`; material that only helps the review goes in a PR comment.
+- Keep the one-line AI disclosure that `CONTRIBUTING.md` requires. Your harness's attribution
+  footer satisfies it and does not count towards the length.
+- Apply exactly one `changelog/*` label (listed in `.github/workflows/labels.yml`).
 
 ## Branches
 
