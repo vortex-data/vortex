@@ -75,7 +75,7 @@ async fn in_memory_source_uses_preparation_filter_projection_and_driver() -> Vor
     Ok(())
 }
 
-/// Per-batch work, such as executing to Arrow, must run on the driver's tasks: on the thread
+/// Per-batch output mapping must run on the driver's tasks: on the thread
 /// polling the stream it is serialised, which is what slowed the decompress benchmark down.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn batches_are_mapped_off_the_polling_thread() -> VortexResult<()> {
@@ -83,13 +83,13 @@ async fn batches_are_mapped_off_the_polling_thread() -> VortexResult<()> {
     let mapped_on = Arc::new(Mutex::new(Vec::new()));
     let map_fn = {
         let mapped_on = Arc::clone(&mapped_on);
-        Arc::new(move |batch: ArrayRef| {
+        move |batch: ArrayRef| {
             mapped_on.lock().push(thread::current().id());
             Ok(batch)
-        })
+        }
     };
 
-    let batches: Vec<ArrayRef> = driver().drive(builder(), map_fn).try_collect().await?;
+    let batches: Vec<ArrayRef> = driver().run_mapped(builder(), map_fn).try_collect().await?;
 
     let mapped_on = mapped_on.lock();
     assert!(!batches.is_empty());

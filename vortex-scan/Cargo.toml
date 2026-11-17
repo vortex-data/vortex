@@ -15,8 +15,6 @@ version = { workspace = true }
 all-features = true
 
 [dependencies]
-arrow-array = { workspace = true }
-arrow-schema = { workspace = true }
 async-lock = { workspace = true }
 async-trait = { workspace = true }
 bit-vec = { workspace = true }
@@ -32,7 +30,6 @@ smallvec = { workspace = true }
 termtree = { workspace = true }
 tracing = { workspace = true }
 vortex-array = { workspace = true }
-vortex-arrow = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }

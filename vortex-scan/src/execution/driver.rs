@@ -8,17 +8,13 @@
 //! filter and the chunks of the rows they keep after, and runs them on planning runs it owns:
 //! the root run stepped on `spawn_cpu` tasks as the stream is polled, each spawned chunk on a
 //! task of its own, up to the concurrency, or on the root run at a concurrency of one. Every
-//! read is a `spawn_io` task of the file's segment source. Batches the caller wants as Arrow are
-//! converted on the task that produced them, beside the scan's other chunks.
+//! read is served by the source's IO session. Per-batch output mapping runs on the task that
+//! produced the batch, beside the scan's other chunks.
 
 use std::future;
 use std::sync::Arc;
 use std::task::Poll;
 
-use arrow_array::RecordBatch;
-use arrow_array::cast::AsArray;
-use arrow_schema::Field;
-use arrow_schema::SchemaRef;
 use futures::SinkExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
@@ -26,9 +22,6 @@ use futures::channel::mpsc;
 use futures::stream;
 use futures::stream::BoxStream;
 use vortex_array::ArrayRef;
-use vortex_array::VortexSessionExecute;
-use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::request::IoSource;
@@ -71,38 +64,20 @@ impl ScanDriver {
         self,
         builder: impl Into<ScanBuilder>,
     ) -> BoxStream<'static, VortexResult<ArrayRef>> {
-        self.drive(builder.into(), Arc::new(Ok))
+        self.run_mapped(builder, Ok)
     }
 
-    /// Like [`ScanDriver::run`], yielding each batch executed to an Arrow [`RecordBatch`] of
-    /// `schema`, or of the schema the session derives from the scan's dtype when `None`.
+    /// Prepares and runs a scan, applying `map_fn` to each batch on the worker producing it.
     ///
-    /// Execution to Arrow is where a scan's batches are decompressed, so the driver runs it on
-    /// the task that produced each batch, in parallel across chunks, rather than leaving it to
-    /// the single task polling the stream.
-    pub fn run_record_batches(
+    /// Output adapters can perform per-batch work here so it runs alongside the scan's other
+    /// chunks instead of on the single task polling the output stream. Mapping errors are
+    /// yielded through that stream.
+    pub fn run_mapped<A: Send + 'static>(
         self,
         builder: impl Into<ScanBuilder>,
-        schema: Option<SchemaRef>,
-    ) -> BoxStream<'static, VortexResult<RecordBatch>> {
-        let builder = builder.into();
-        let session = builder.session().clone();
-        let schema = match schema {
-            Some(schema) => schema,
-            None => match session.arrow().to_arrow_schema(builder.dtype()) {
-                Ok(schema) => Arc::new(schema),
-                Err(error) => return stream::once(future::ready(Err(error))).boxed(),
-            },
-        };
-        let field = Field::new_struct("", schema.fields().clone(), false);
-        self.drive(
-            builder,
-            Arc::new(move |batch| {
-                let mut ctx = session.create_execution_ctx();
-                let arrow = batch.execute_arrow(Some(&field), &mut ctx)?;
-                Ok(RecordBatch::from(arrow.as_struct().clone()))
-            }),
-        )
+        map_fn: impl Fn(ArrayRef) -> VortexResult<A> + Send + Sync + 'static,
+    ) -> BoxStream<'static, VortexResult<A>> {
+        self.drive(builder.into(), Arc::new(map_fn))
     }
 
     /// Runs the scan, applying `map_fn` to each batch on the task that produced it.

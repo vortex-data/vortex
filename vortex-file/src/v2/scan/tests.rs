@@ -14,6 +14,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
+use vortex_arrow::ArrowScanExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
 use vortex_buffer::ByteBufferMut;

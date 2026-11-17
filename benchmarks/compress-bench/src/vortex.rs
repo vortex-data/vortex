@@ -13,6 +13,7 @@ use bytes::Bytes;
 use futures::StreamExt;
 use futures::pin_mut;
 use vortex::array::IntoArray;
+use vortex::arrow::ArrowScanExt;
 use vortex::dtype::FieldNames;
 use vortex::expr::root;
 use vortex::expr::select;

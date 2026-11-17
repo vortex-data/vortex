@@ -11363,6 +11363,7 @@ dependencies = [
  "arrow-select 59.3.2",
  "base64 0.23.1",
  "codspeed-divan-compat",
+ "futures",
  "half",
  "hegeltest",
  "itertools 0.14.0",
@@ -11378,6 +11379,7 @@ dependencies = [
  "vortex-fsst",
  "vortex-mask",
  "vortex-onpair",
+ "vortex-scan",
  "vortex-session",
  "vortex-zstd",
 ]
@@ -12347,8 +12349,6 @@ dependencies = [
 name = "vortex-scan"
 version = "0.1.0"
 dependencies = [
- "arrow-array 59.3.2",
- "arrow-schema 59.3.2",
  "async-lock",
  "async-trait",
  "bit-vec 0.10.2",
@@ -12367,7 +12367,6 @@ dependencies = [
  "tokio",
  "tracing",
  "vortex-array",
- "vortex-arrow",
  "vortex-buffer",
  "vortex-error",
  "vortex-expr",
