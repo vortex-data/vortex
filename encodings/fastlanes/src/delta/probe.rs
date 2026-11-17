@@ -128,16 +128,21 @@ where
     let position = fastlanes::untranspose(within);
     let (lane, _) = fastlanes::delta_lane_row::<T>(position);
     let base = base_bits::<T>(array.bases(), chunk * T::LANES + lane, ctx)?;
-    Ok(Some(deltas.undelta(base, position)))
+    Ok(deltas.undelta(base, position))
 }
 
 /// The deltas of one chunk.
 enum LaneDeltas<'a, T> {
     /// Plain deltas of the chunk.
     Plain(&'a [T; FL_CHUNK_SIZE]),
-    /// The packed block of the chunk, its bit width, and its patches as (position in chunk,
-    /// value) in ascending position.
-    Packed(&'a [T], usize, Vec<(usize, T)>),
+    /// The packed block of the chunk and its bit width, with the bit-packed array and the
+    /// block's index in it, for its patches.
+    Packed {
+        block: &'a [T],
+        width: usize,
+        bp: ArrayView<'a, BitPacked>,
+        block_index: usize,
+    },
 }
 
 impl<'a, T: NativePType + BitPacking> LaneDeltas<'a, T> {
@@ -161,12 +166,12 @@ impl<'a, T: NativePType + BitPacking> LaneDeltas<'a, T> {
             BitWidthsView::Global(width) => {
                 let width = usize::from(width);
                 let words = words_of(width);
-                let patches = block_patches(bp, block)?;
-                Some(Self::Packed(
-                    all.get(block * words..(block + 1) * words)?,
+                Some(Self::Packed {
+                    block: all.get(block * words..(block + 1) * words)?,
                     width,
-                    patches,
-                ))
+                    bp,
+                    block_index: block,
+                })
             }
             BitWidthsView::Blocked(offsets) => {
                 let offsets = offsets.as_opt::<Primitive>()?;
@@ -189,47 +194,54 @@ impl<'a, T: NativePType + BitPacking> LaneDeltas<'a, T> {
                 if packed_block.len() != words_of(width) {
                     return None;
                 }
-                Some(Self::Packed(packed_block, width, block_patches(bp, block)?))
+                Some(Self::Packed {
+                    block: packed_block,
+                    width,
+                    bp,
+                    block_index: block,
+                })
             }
         }
     }
 
-    /// The value at `position` of the undeltaed chunk, whose lane has base `base`.
-    fn undelta(&self, base: T, position: usize) -> T
+    /// The value at `position` of the undeltaed chunk, whose lane has base `base`, or `None`
+    /// when the patches are not in plain host arrays.
+    fn undelta(&self, base: T, position: usize) -> Option<T>
     where
         T: FastLanesDelta + WrappingAdd + WrappingSub,
     {
         match self {
-            Self::Plain(values) => T::undelta_single(values, base, position),
-            Self::Packed(block, width, patches) => {
-                let mut value = T::undelta_pack_single(*width, block, base, position);
-                // A patch replaces the packed delta at its position, so correct the sum for each
-                // patch in the lane up to the value's row.
-                let (lane, row) = fastlanes::delta_lane_row::<T>(position);
-                for &(patched, delta) in patches {
-                    let (patch_lane, patch_row) = fastlanes::delta_lane_row::<T>(patched);
-                    if patch_lane == lane && patch_row <= row {
-                        // SAFETY: `new` checked the block holds 1024 values of `width` bits, and
-                        // `patched` is within the chunk.
-                        let packed =
-                            unsafe { BitPacking::unchecked_unpack_single(*width, block, patched) };
-                        value = value.wrapping_add(&delta).wrapping_sub(&packed);
-                    }
-                }
-                value
+            Self::Plain(values) => Some(T::undelta_single(values, base, position)),
+            &Self::Packed {
+                block,
+                width,
+                bp,
+                block_index,
+            } => {
+                let value = T::undelta_pack_single(width, block, base, position);
+                let correction = patch_correction(bp, block_index, block, width, position)?;
+                Some(value.wrapping_add(&correction))
             }
         }
     }
 }
 
-/// The patches of `bp` in packed block `block`, as (position in block, value) in ascending
-/// position, or `None` when they are not in plain host arrays.
-fn block_patches<T: NativePType>(
+/// What the patches of packed block `block_index` of `bp` add to the undeltaed value at
+/// `position`, whose packed sum `block` holds at `width` bits: for each patch in the value's lane up
+/// to its row, the patch value less the packed delta it replaces. `None` when the patches are not in
+/// plain host arrays.
+fn patch_correction<T>(
     bp: ArrayView<'_, BitPacked>,
-    block: usize,
-) -> Option<Vec<(usize, T)>> {
+    block_index: usize,
+    block: &[T],
+    width: usize,
+    position: usize,
+) -> Option<T>
+where
+    T: NativePType + BitPacking + WrappingAdd + WrappingSub,
+{
     let Some(patches) = bp.patches() else {
-        return Some(Vec::new());
+        return Some(T::zero());
     };
     let values = host_values::<T>(patches.values().as_opt::<Primitive>()?)?;
     let indices = patches.indices().as_opt::<Primitive>()?;
@@ -237,24 +249,44 @@ fn block_patches<T: NativePType>(
         return None;
     }
     // Patch indices count from `patches.offset()` and from the start of `bp`, which sits
-    // `bp.offset()` into its first block; positions here count from the start of that block.
+    // `bp.offset()` into its first block; positions here count from the start of the block.
     let shift = usize::from(bp.offset());
-    let to_index = |position: usize| (position + patches.offset()).checked_sub(shift);
-    let first = to_index(block * FL_CHUNK_SIZE).unwrap_or(0);
-    let end = to_index((block + 1) * FL_CHUNK_SIZE)?;
-    Some(match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
+    let block_start = block_index * FL_CHUNK_SIZE + patches.offset();
+    let (lane, row) = fastlanes::delta_lane_row::<T>(position);
+    let mut correction = T::zero();
+    let mut correct = |patched: usize, delta: T| {
+        // SAFETY: `LaneDeltas::new` checked the block holds 1024 values of `width` bits, and
+        // `patched` is within the block.
+        let packed = unsafe { BitPacking::unchecked_unpack_single(width, block, patched) };
+        correction = correction.wrapping_add(&delta).wrapping_sub(&packed);
+    };
+    match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
         let indices = indices.as_slice::<P>();
-        let lo = indices.partition_point(|&index| AsPrimitive::<usize>::as_(index) < first);
-        let hi = indices.partition_point(|&index| AsPrimitive::<usize>::as_(index) < end);
-        indices[lo..hi]
-            .iter()
-            .zip(&values[lo..hi])
-            .map(|(&index, &value)| {
-                let position = AsPrimitive::<usize>::as_(index) + shift - patches.offset();
-                (position - block * FL_CHUNK_SIZE, value)
-            })
-            .collect()
-    }))
+        let index_of = |index: P| AsPrimitive::<usize>::as_(index) + shift;
+        let lo = indices.partition_point(|&index| index_of(index) < block_start);
+        let hi = indices.partition_point(|&index| index_of(index) < block_start + FL_CHUNK_SIZE);
+        let (indices, values) = (&indices[lo..hi], &values[lo..hi]);
+        if indices.len() <= row + 1 {
+            // Few patches: check each one's lane and row.
+            for (&index, &delta) in indices.iter().zip(values) {
+                let patched = index_of(index) - block_start;
+                let (patch_lane, patch_row) = fastlanes::delta_lane_row::<T>(patched);
+                if patch_lane == lane && patch_row <= row {
+                    correct(patched, delta);
+                }
+            }
+        } else {
+            // Many patches: look up each position of the lane prefix.
+            for k in 0..=row {
+                let patched = fastlanes::delta_index::<T>(lane, k);
+                let target = block_start + patched;
+                if let Ok(i) = indices.binary_search_by(|&index| index_of(index).cmp(&target)) {
+                    correct(patched, values[i]);
+                }
+            }
+        }
+    });
+    Some(correction)
 }
 
 /// The values of a host-backed primitive array as `T`, the unsigned type of the same width.
