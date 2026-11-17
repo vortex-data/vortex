@@ -12,6 +12,7 @@
 
 use fastlanes::BitPacking;
 use fastlanes::Delta as FastLanesDelta;
+use fastlanes::FastLanes;
 use num_traits::AsPrimitive;
 use num_traits::WrappingAdd;
 use num_traits::WrappingSub;
@@ -94,7 +95,6 @@ pub(crate) fn scalar_at(
     }
 }
 
-/// The value at `within` of chunk `chunk`, summed from its lane's base and the deltas of its lane
 /// The value at `within` of chunk `chunk`, read from its lane alone, or `None` when lane reads do
 /// not apply to the array's deltas. A repeated probe passes the deltas it resolved before in
 /// `resolved`; a one-off read finds them in `array`.
@@ -221,12 +221,33 @@ impl ResolvedLanes {
         }
         let packed = PackedDeltas::try_new(deltas)?;
         let bp = packed.packed();
-        let patches = bp.patches().map(|patches| ResolvedPatches {
-            indices: patches.indices().clone(),
-            values: patches.values().clone(),
-            offset: patches.offset(),
-            shift: usize::from(bp.offset()),
-        });
+        // Check here, once, what every read needs, so a probe that cannot read lanes learns it on
+        // its first read rather than on every chunk.
+        let on_host = |array: &ArrayRef| {
+            array
+                .as_opt::<Primitive>()
+                .is_some_and(|array| array.buffer_handle().is_on_host())
+        };
+        if !bp.packed().is_on_host() {
+            return None;
+        }
+        if let BitWidthsView::Blocked(offsets) = bp.bit_widths()
+            && !on_host(offsets)
+        {
+            return None;
+        }
+        let patches = match bp.patches() {
+            None => None,
+            Some(patches) if on_host(patches.indices()) && on_host(patches.values()) => {
+                Some(ResolvedPatches {
+                    indices: patches.indices().clone(),
+                    values: patches.values().clone(),
+                    offset: patches.offset(),
+                    shift: usize::from(bp.offset()),
+                })
+            }
+            Some(_) => return None,
+        };
         Some(Self {
             deltas: ResolvedDeltas::Packed {
                 packed: bp.array().clone(),
@@ -283,10 +304,11 @@ enum LaneDeltas<'a, T> {
     },
 }
 
+// `LaneDeltas::plain`, `LaneDeltas::packed` and `patch_correction` serve both the one-off and the
+// cached read. They are inlined into both, so the one-off read costs what it did before the cache:
+// out of line it is about 6% more instructions per read.
 impl<'a, T: NativePType + BitPacking> LaneDeltas<'a, T> {
     /// The deltas of chunk `chunk` of plain deltas, when they are on the host.
-    // Inlined into both the one-off and the cached read, so the one-off read costs what it did
-    // before the cache: out of line it is about 6% more instructions per read.
     #[expect(
         clippy::inline_always,
         reason = "keeps the one-off read as cheap as without the cache"
@@ -298,9 +320,7 @@ impl<'a, T: NativePType + BitPacking> LaneDeltas<'a, T> {
         Some(Self::Plain(values.try_into().ok()?))
     }
 
-    /// Block `block` of bit-packed deltas, when it is on the host.
-    // Inlined into both the one-off and the cached read, so the one-off read costs what it did
-    // before the cache: out of line it is about 6% more instructions per read.
+    /// Block `block` of bit-packed deltas, when it is on the host and well formed.
     #[expect(
         clippy::inline_always,
         reason = "keeps the one-off read as cheap as without the cache"
@@ -315,6 +335,9 @@ impl<'a, T: NativePType + BitPacking> LaneDeltas<'a, T> {
         match bp.bit_widths() {
             BitWidthsView::Global(width) => {
                 let width = usize::from(width);
+                if width > T::PTYPE.bit_width() {
+                    return None;
+                }
                 let words = words_of(width);
                 Some(Self::Packed {
                     block: all.get(block * words..(block + 1) * words)?,
@@ -338,7 +361,16 @@ impl<'a, T: NativePType + BitPacking> LaneDeltas<'a, T> {
                     });
                 let start = usize::try_from(start.checked_sub(base)?).ok()?;
                 let end = usize::try_from(end.checked_sub(base)?).ok()?;
-                let width = (end - start) / 128;
+                // Release builds do not validate the boundaries, which may come from a file, so a
+                // malformed block falls back to the decode, which reports it.
+                let bytes = end.checked_sub(start)?;
+                let width = bytes / 128;
+                if !bytes.is_multiple_of(128)
+                    || !start.is_multiple_of(size_of::<T>())
+                    || width > T::PTYPE.bit_width()
+                {
+                    return None;
+                }
                 let packed_block = all.get(start / size_of::<T>()..end / size_of::<T>())?;
                 if packed_block.len() != words_of(width) {
                     return None;
@@ -394,7 +426,6 @@ impl<'a, T: NativePType + BitPacking> LaneDeltas<'a, T> {
 /// words `block` hold the deltas at `width` bits: for each patch in the value's lane up to its
 /// row, the patch value less the packed delta it replaces. `None` when the patches are not in plain
 /// host arrays.
-// Inlined into both the one-off and the cached read, like `LaneDeltas::packed`.
 #[expect(
     clippy::inline_always,
     reason = "keeps the one-off read as cheap as without the cache"
@@ -429,31 +460,61 @@ where
     };
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
         let indices = indices.as_slice::<P>();
-        let index_of = |index: P| AsPrimitive::<usize>::as_(index) + shift;
-        let lo = indices.partition_point(|&index| index_of(index) < block_start);
-        let hi = indices.partition_point(|&index| index_of(index) < block_start + FL_CHUNK_SIZE);
-        let (indices, values) = (&indices[lo..hi], &values[lo..hi]);
-        if indices.len() <= row + 1 {
-            // Few patches: check each one's lane and row.
-            for (&index, &delta) in indices.iter().zip(values) {
-                let patched = index_of(index) - block_start;
-                let (patch_lane, patch_row) = fastlanes::delta_lane_row::<T>(patched);
-                if patch_lane == lane && patch_row <= row {
-                    correct(patched, delta);
-                }
-            }
-        } else {
-            // Many patches: look up each position of the lane prefix.
-            for k in 0..=row {
-                let patched = fastlanes::delta_index::<T>(lane, k);
-                let target = block_start + patched;
-                if let Ok(i) = indices.binary_search_by(|&index| index_of(index).cmp(&target)) {
-                    correct(patched, values[i]);
-                }
-            }
-        }
+        correct_lane(indices, values, shift, block_start, lane, row, &mut correct)?;
     });
     Some(correction)
+}
+
+/// Calls `correct` with the position in its block and the value of each of the patches `indices`
+/// and `values` that falls in the block starting at patch index `block_start`, in lane `lane` at
+/// row `row` or above. `None` when the indices are not sorted, which release builds do not check.
+#[expect(
+    clippy::inline_always,
+    reason = "keeps the one-off read as cheap as without the cache"
+)]
+#[inline(always)]
+fn correct_lane<P, T>(
+    indices: &[P],
+    values: &[T],
+    shift: usize,
+    block_start: usize,
+    lane: usize,
+    row: usize,
+    correct: &mut impl FnMut(usize, T),
+) -> Option<()>
+where
+    P: Copy + AsPrimitive<usize>,
+    T: FastLanes + Copy,
+{
+    let index_of = |index: P| index.as_() + shift;
+    let lo = indices.partition_point(|&index| index_of(index) < block_start);
+    let hi = indices.partition_point(|&index| index_of(index) < block_start + FL_CHUNK_SIZE);
+    if lo > hi || hi > values.len() {
+        return None;
+    }
+    let (indices, values) = (&indices[lo..hi], &values[lo..hi]);
+    if indices.len() <= row + 1 {
+        // Few patches: check each one's lane and row.
+        for (&index, &delta) in indices.iter().zip(values) {
+            let patched = index_of(index)
+                .checked_sub(block_start)
+                .filter(|&patched| patched < FL_CHUNK_SIZE)?;
+            let (patch_lane, patch_row) = fastlanes::delta_lane_row::<T>(patched);
+            if patch_lane == lane && patch_row <= row {
+                correct(patched, delta);
+            }
+        }
+    } else {
+        // Many patches: look up each position of the lane prefix.
+        for k in 0..=row {
+            let patched = fastlanes::delta_index::<T>(lane, k);
+            let target = block_start + patched;
+            if let Ok(i) = indices.binary_search_by(|&index| index_of(index).cmp(&target)) {
+                correct(patched, values[i]);
+            }
+        }
+    }
+    Some(())
 }
 
 /// The values of a host-backed primitive array as `T`, the unsigned type of the same width.
