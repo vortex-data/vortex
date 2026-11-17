@@ -47,9 +47,8 @@ impl DynAggregateKernel for DictIsSortedKernel {
             return Ok(Some(IsSorted::make_partial(batch, false, strict, ctx)?));
         }
 
-        // `DictEncoder` produces incremental asc codes, so the values carry the direction and the
-        // codes are always checked ascending. Desc codes, e.g. from `take` or an imported dict,
-        // are out of scope.
+        // `DictEncoder` produces codes incrementally in ascending order, so only that
+        // scenario is considered here. Descending codes are not supported.
         let codes_options = options.with_direction(SortDirection::Asc);
         let sorted = is_sorted_with_options(dict.values(), *options, ctx)?
             && is_sorted_with_options(dict.codes(), codes_options, ctx)?;
