@@ -23,6 +23,7 @@ members = [
     "vortex-layout",
     "vortex-scan",
     "vortex-file",
+    "vortex-filecheck",
     "vortex-index",
     "vortex-table",
     "vortex-ipc",
@@ -163,6 +164,7 @@ env_logger = "0.11"
 fastlanes = { version = "0.8.1", features = ["runtime"] }
 fearless_simd = "1.0.0"
 fearless_simd_macros = "0.1.0"
+filecheck = "0.5.0"
 flatbuffers = "25.2.10"
 fsst-rs = "0.7.0"
 futures = { version = "0.3.31", default-features = false }
@@ -322,6 +324,7 @@ vortex-error = { version = "0.1.0", path = "./vortex-error", default-features = 
 vortex-expr = { version = "0.1.0", path = "./vortex-expr", default-features = false }
 vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-features = false }
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }
+vortex-filecheck = { version = "0.1.0", path = "./vortex-filecheck" }
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }

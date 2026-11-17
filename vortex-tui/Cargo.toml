@@ -24,6 +24,7 @@ native = [
     "dep:parquet",
     "dep:tokio",
     "dep:vortex-datafusion",
+    "dep:vortex-filecheck",
     "ratatui/crossterm",
     "vortex/tokio",
     "vortex/zstd",
@@ -71,6 +72,7 @@ tokio = { workspace = true, features = [
     "macros",
 ], optional = true }
 vortex-datafusion = { workspace = true, optional = true }
+vortex-filecheck = { workspace = true, optional = true }
 
 # WASM-only dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
