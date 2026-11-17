@@ -53,10 +53,6 @@ name = "bitpacking_take"
 harness = false
 
 [[bench]]
-name = "block_fusion"
-harness = false
-
-[[bench]]
 name = "bitpacking_filter"
 harness = false
 
