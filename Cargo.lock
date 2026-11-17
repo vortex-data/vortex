@@ -12032,6 +12032,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-index"
+version = "0.1.0"
+
+[[package]]
 name = "vortex-io"
 version = "0.1.0"
 dependencies = [
