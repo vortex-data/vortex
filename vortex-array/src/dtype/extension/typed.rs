@@ -15,6 +15,8 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::extension::ExtDTypeRef;
@@ -222,6 +224,7 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     fn serialize_metadata(&self) -> VortexResult<Vec<u8>>;
     fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef;
     fn validate_scalar_value(&self, storage_value: &ScalarValue) -> VortexResult<()>;
+    fn validate_array(&self, storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()>;
     fn value_display(&self, f: &mut fmt::Formatter<'_>, storage_value: &ScalarValue)
     -> fmt::Result;
 }
@@ -276,6 +279,10 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
 
     fn validate_scalar_value(&self, storage_value: &ScalarValue) -> VortexResult<()> {
         self.validate_scalar_value(storage_value)
+    }
+
+    fn validate_array(&self, storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+        V::validate_array(self, storage, ctx)
     }
 
     fn value_display(
