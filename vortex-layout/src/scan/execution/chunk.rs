@@ -21,7 +21,9 @@ use vortex_scan::selection::Selection;
 
 use super::PreparedScan;
 use super::SegmentLocation;
-use super::selection::plan_selection;
+use super::SelectedRows;
+use super::prune::DynamicPrunePlanner;
+use super::selection::select_chunk;
 
 /// The row grid every chunk boundary lies on.
 pub(crate) const ROW_BLOCK_SIZE: usize = 8192;
@@ -80,6 +82,10 @@ pub(crate) fn scan_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<
 /// Emits one planner per chunk of a scan's rows, in row order, each spawned as independent so
 /// the driver may run it beside the others. A chunk none of whose rows is selected and kept is
 /// never planned.
+///
+/// A chunk is first pruned again, by a [`DynamicPrunePlanner`], when a dynamic conjunct with a
+/// pruning plan changed its values since the chunk planner was made, which is after the scan's
+/// own pruning finished. Otherwise the chunk goes straight to its conjuncts or its projection.
 pub struct ChunkPlanner {
     scan: Arc<PreparedScan>,
     rows: Range<u64>,
@@ -87,6 +93,9 @@ pub struct ChunkPlanner {
     selection: Selection,
     /// The rows zone pruning kept, over `rows`, or `None` when nothing was pruned.
     kept: Option<Mask>,
+    /// The dynamic versions of the filter's conjuncts when this planner was made, when a dynamic
+    /// conjunct has a pruning plan.
+    dynamic_versions: Option<Vec<Option<u64>>>,
 }
 
 impl ChunkPlanner {
@@ -99,12 +108,38 @@ impl ChunkPlanner {
         kept: Option<Mask>,
     ) -> Self {
         let chunks = scan_chunks(rows.clone(), scan.chunk_rows).into_iter();
+        let dynamic_versions = scan
+            .filter
+            .as_ref()
+            .filter(|filter| filter.has_dynamic_pruning())
+            .map(|filter| filter.dynamic_versions());
         Self {
             scan,
             rows,
             chunks,
             selection,
             kept,
+            dynamic_versions,
+        }
+    }
+
+    /// The planner of a chunk's selected rows: pruning them again first when a dynamic
+    /// conjunct's values changed since this planner was made.
+    fn chunk_planner(&self, selected: SelectedRows) -> Box<dyn Planner> {
+        let moved = match (&self.scan.filter, &self.dynamic_versions) {
+            (Some(filter), Some(versions)) => {
+                filter.moved_dynamic_pruning(versions, self.scan.skip_unselective_dynamic)
+            }
+            _ => Vec::new(),
+        };
+        if moved.is_empty() {
+            self.scan.split_planner(selected)
+        } else {
+            Box::new(DynamicPrunePlanner::new(
+                Arc::clone(&self.scan),
+                selected,
+                moved,
+            ))
         }
     }
 }
@@ -123,15 +158,15 @@ impl Planner for ChunkPlanner {
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
-        let kept = self.kept.as_ref().map(|kept| (kept, self.rows.start));
-        for chunk in self.chunks.by_ref() {
+        while let Some(chunk) = self.chunks.next() {
             let scope = WorkScope {
                 file_ordinal: 0,
                 rows: chunk,
             };
-            if let Some((scope, planner)) = plan_selection(&self.scan, scope, &self.selection, kept)
-            {
-                return Ok(PlannerOutput::Spawn(scope, planner));
+            let kept = self.kept.as_ref().map(|kept| (kept, self.rows.start));
+            if let Some(selected) = select_chunk(scope, &self.selection, kept) {
+                let scope = selected.scope.clone();
+                return Ok(PlannerOutput::Spawn(scope, self.chunk_planner(selected)));
             }
         }
         Ok(PlannerOutput::Done)

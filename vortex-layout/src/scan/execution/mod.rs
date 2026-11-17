@@ -102,6 +102,11 @@ pub struct PreparedScan {
     pub(super) values: ValueCache,
     /// The rows of one chunk, the unit of work a chunk planner emits.
     pub(super) chunk_rows: usize,
+    /// Whether the scan skips a dynamic conjunct that kept almost every row at its current
+    /// values, in its pruning and its evaluation. The filter plans record how selective each
+    /// dynamic conjunct was for every scan of the file; this scan's engine decides whether to act
+    /// on it, as only an engine that applies its dynamic filters again may.
+    pub(super) skip_unselective_dynamic: bool,
 }
 
 impl PreparedScan {

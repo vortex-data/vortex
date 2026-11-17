@@ -258,10 +258,20 @@ fn compose(scan: &Arc<PreparedScan>, rows: Range<u64>) -> Box<dyn Planner> {
 /// Runs `rows` of a prepared scan on one planning run, every spawned chunk admitted to it, and
 /// returns its batches in row order, each with the rows it stands for.
 async fn run_batches(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Vec<Batch>> {
+    run_planner(scan, compose(scan, rows.clone()), rows).await
+}
+
+/// Runs `planner` over `rows` of a prepared scan on one planning run, every spawned chunk
+/// admitted to it, and returns its batches in row order.
+async fn run_planner(
+    scan: &Arc<PreparedScan>,
+    planner: Box<dyn Planner>,
+    rows: Range<u64>,
+) -> VortexResult<Vec<Batch>> {
     let io = scan.io();
     let mut run = Run::new();
     run.admit(
-        compose(scan, rows.clone()),
+        planner,
         WorkScope {
             file_ordinal: 0,
             rows,
@@ -1091,8 +1101,9 @@ async fn unselective_dynamic_conjuncts_switch_off_until_their_value_changes(
     .await?;
     assert_eq!(rows, all);
     assert!(first_reads > unfiltered_reads);
+    // Every scan records how selective the conjunct was; only an opted-in scan acts on it.
     let plans = scan.filter().expect("the scan has a filter");
-    assert_eq!(plans.is_switched_off(0), skip);
+    assert!(plans.is_unselective(0));
 
     let (_, rows, reads) = strings_scan(
         &session,
@@ -1119,7 +1130,53 @@ async fn unselective_dynamic_conjuncts_switch_off_until_their_value_changes(
         strings_scan(&session, &counted, &layout, shared, Some(&filter), skip).await?;
     assert_eq!(rows, all - 300_000);
     let plans = scan.filter().expect("the scan has a filter");
-    assert!(!plans.is_switched_off(0));
+    assert!(!plans.is_unselective(0));
+    Ok(())
+}
+
+/// A chunk prunes again with a dynamic conjunct whose value changed after its scan was pruned,
+/// so the chunks' rows the new value excludes are never read. Without a change, the chunks
+/// evaluate the conjunct over all their rows instead.
+#[tokio::test]
+async fn chunks_prune_again_when_a_dynamic_value_changes() -> VortexResult<()> {
+    const TABLE_CHUNKS: usize = 200;
+    const BOUND: i32 = 190_999;
+    let count = |batches: &[Batch]| batches.iter().map(|batch| batch.array.len()).sum::<usize>();
+
+    // The chunk planner is made before the bound tightens, as after a scan's pruning that kept
+    // every row.
+    let bound = Arc::new(AtomicI32::new(-1));
+    let (scan, changed) = dynamic_scan(TABLE_CHUNKS, &bound).await?;
+    let rows = scan.rows().clone();
+    let chunks = ChunkPlanner::new(
+        Arc::clone(&scan),
+        rows.clone(),
+        scan.selection().clone(),
+        None,
+    );
+    bound.store(BOUND, Ordering::Relaxed);
+    let pruned_again = run_planner(&scan, Box::new(chunks), rows).await?;
+
+    // The chunk planner is made after the bound tightened.
+    let (scan, unchanged) = dynamic_scan(TABLE_CHUNKS, &bound).await?;
+    let rows = scan.rows().clone();
+    let chunks = ChunkPlanner::new(
+        Arc::clone(&scan),
+        rows.clone(),
+        scan.selection().clone(),
+        None,
+    );
+    let evaluated = run_planner(&scan, Box::new(chunks), rows).await?;
+
+    let kept = TABLE_CHUNKS * CHUNK_ROWS - (BOUND as usize + 1);
+    assert_eq!(count(&pruned_again), kept);
+    assert_eq!(count(&evaluated), kept);
+    assert!(
+        changed.requests() < unchanged.requests(),
+        "{} >= {}",
+        changed.requests(),
+        unchanged.requests()
+    );
     Ok(())
 }
 
