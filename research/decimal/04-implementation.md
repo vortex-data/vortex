@@ -5,113 +5,69 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # 4. Implementation plan
 
-This part splits the `Widen` encoding (issue
-[#10733](https://github.com/vortex-data/vortex/issues/10733)) and the canonical decimal fix (issue
-[#10701](https://github.com/vortex-data/vortex/issues/10701)) into PRs. Each PR has a brief in
-[`agents/briefs/`](agents/briefs/), written so that a coding agent can implement the PR from the
-brief alone. The briefs follow [`decisions.md`](../decisions.md), including D25 to D35 from the
-planning review on 2026-10-23.
+This plan tracks [canonical decimals](https://github.com/vortex-data/vortex/issues/10701) and the
+[`Widen` encoding](https://github.com/vortex-data/vortex/issues/10733). The
+[implementation briefs](agents/briefs/) describe the work behind each plan ID.
+[`decisions.md`](../decisions.md) records the design and how it changed.
 
-## How to use the briefs
+## Progress on 2026-11-17
 
-- Give a coding agent one brief, `decisions.md`, and the repository rules in `AGENTS.md` and
-  `STYLE.md`. The brief names the branch, the files, the steps, the tests and the acceptance checks.
-- The briefs and `decisions.md` exist only on the `ct/decimal-research` branch. The agent's own
-  worktree branches from `develop` and has no `research/` directory, so the relative links in the
-  briefs do not work there. Tell the agent to read the files with
-  `git show ct/decimal-research:research/<path>`. Do not change a brief while an agent works from
-  it. If a brief must change, tell that agent.
-- When a PR opens, merges or changes scope, the agent updates its line in the collapsed PR list of
-  [#10701](https://github.com/vortex-data/vortex/issues/10701) or
-  [#10733](https://github.com/vortex-data/vortex/issues/10733) with `gh issue edit`. It edits only
-  that line, and it reads the issue again just before it writes, so that it keeps the edits of
-  others. It does not edit this branch to record progress.
-- The briefs cite `develop` at `b70206818f`, except WD1 to WD4, which cite `origin/develop` at
-  `afa4bc87cd`. Line numbers move as PRs land, so the agent reads the cited code before it changes
-  it. Code from the local integer `Widen` rewrite is cited with its commit, for example
-  `f7408481ce:vortex-array/src/arrays/narrow/mod.rs`. That rewrite is a reference for tests and
-  edge cases. The PRs are written from scratch, and only FX3 ports a rewrite commit as it is (D38).
-- The rewrite commits (`f7408481ce`, `8d548646ee`, `74aa17644e`, `af4b663059` and `7e2e5e4d7a`) are
-  not on `origin`. Only the local branches `ct/narrow-pushdown` and `ct/narrow-encoding` hold them,
-  and those names also exist on `origin` with the older commits of the closed PRs. Agents in local
-  worktrees of this repository can read them. A remote agent or another clone cannot. Before such
-  an agent needs the reference, push them to a new backup branch. Do not delete or reset the two
-  local branches.
-- Agents can run any command that the work needs: builds, tests, the acceptance checks, and the
-  generators of committed files, such as golden snapshots (WD6, CD7, WR3) and the edition record
-  (WR2). CI fails when a committed file is stale. Use the narrowest command, as `AGENTS.md`
-  describes.
-- Several PRs form stacks: WD1 to WD5, WR1 to WR3, CD4 with CD4b and CD6 on it, LT3 with CD5 on it
-  (CD7 folded in, D41), and optionally CD8a and CD8b. `develop` squash-merges
-  PRs. So after the base PR merges, a plain `git rebase develop` replays the base commits again and
-  conflicts. Rebase the next PR with `git rebase --onto develop <old base tip>`, or with
-  `gh stack`. The WD1 to WD5 stack follows "Stack and branches" in the NR brief instead: it starts
-  from `origin/develop`, runs `gh stack sync` after a merge, and uses no manual `--onto`.
-- Every commit carries `Signed-off-by: Connor Tsui <connor.tsui20@gmail.com>` and no AI co-author
-  line.
-- WR3 needs a design pass before an agent starts it. Its brief lists the open questions.
+On [`develop` at `5e2e8b646f`](https://github.com/vortex-data/vortex/tree/5e2e8b646f221911b1a0bb0aac9c4c7a38d54f3d),
+precision determines the canonical width used by Arrow and DuckDB imports. Decimal `Widen` can
+keep a narrower child in memory, and the host reader converts legacy `vortex.decimal` nodes.
+`DecimalArray` still accepts other widths. DecimalByteParts can still produce one when it decodes.
 
-| Brief | PRs |
-| --- | --- |
-| [`01-fixes.md`](agents/briefs/01-fixes.md) | FX1 to FX3, independent fixes |
-| [`02-integer-widen.md`](agents/briefs/02-integer-widen.md) | WD1 to WD6, the integer `Widen` |
-| [`03-canonical-decimal.md`](agents/briefs/03-canonical-decimal.md) | CD1 to CD8c, the canonical decimal fix and decimal `Widen` |
-| [`04-wire.md`](agents/briefs/04-wire.md) | WR1 to WR3, the wire change, and LT1 to LT3 |
+Two PRs address the remaining DecimalByteParts work. [#11459] changes the compressor and CPU
+decoder. A narrow most significant part (MSP) becomes an integer `Widen`, so it can be kept narrow
+without scanning for a decimal precision. The writer stores the integer child in the existing wire
+form. [#11460] builds on it and widens the MSP directly to the canonical decimal width on the GPU.
+Both must land before CD8a can require that width in every decimal array.
+
+🟢 **Done** means the change merged into `develop`. 🔵 **Open** means its implementation PR is open.
+🟡 **In progress** means some pieces merged and others are open. ⚪ **Not started** means no
+implementation PR was found. 🟠 **Parked** marks an experiment that closed without merging.
+➖ **Dropped** marks work removed from the plan.
 
 ## The PRs
 
-| ID | PR | Hard dependencies | Size |
-| --- | --- | --- | --- |
-| FX1 | Strict decoding of stored `DecimalType` and `PType` values, in three commits | None | Medium |
-| FX2 | Dropped. #10798 documents the cast-rule contract instead (see the FX2 brief) | None | None |
-| FX3 | Dictionary `fill_null` no longer truncates the fill code | None | Small |
-| WD1 | In-memory integer `Widen`, with `encode`, the deprecated `encode_values` and a flatten rule | None | Large |
-| WD2 | Benchmarks for compute on integer `Widen` | WD1 | Medium |
-| WD3 | Aggregates run on the child | WD2 | Medium |
-| WD4 | Arithmetic, `between`, `zip` and casts run on the child | WD3 | Large |
-| WD5 | Structural encodings move above `Widen`, and dictionary codes use the child | WD4, FX3 | Medium |
-| WD6 | The existing narrowing call sites move to `encode_values` | WD1 (D35) | Medium |
-| CD1 | Decimal benchmarks | None | Medium |
-| CD2 | Compat fixtures for old decimal forms | None | Medium |
-| CD3 | One width function, imports that check and copy, and the shared helpers | None | Medium |
-| CD3b | One scan for the range of valid decimal values (`valid_range`), shared by CD4, CD6 and CD7 | CD3 | Small |
-| CD3c | Speed up the decimal widening copy, with a benchmark of `copy_to_canonical_width`. It merges before CD4 (D41) | None | Small |
-| CD4p | Decimal `Interleave` execution, so that CD4 can test its fallbacks | None | Medium |
-| CD4 | Decimal `Widen` in memory, `WidenArray::from_stored_decimal` (D40), the decimal `Sum` and `MinMax` kernels (D36), and the serializer lowering (D26) | WD1, WD3, WD4, CD1, CD3, CD3b, CD4p | Large |
-| CD4b | Export decimal `Widen` arrays to Arrow with one copy | CD4 | Small |
-| LT3 | Sum, min, and max on the DecimalByteParts MSP (D19). No benchmark changes (D42) | WD3, CD1 | Medium |
-| CD5 | DecimalByteParts is the decimal over an integer child: the MSP keeps the canonical width, capped at `i64`, a narrower MSP is an integer `Widen`, and decoding needs no scan (D16). CD7 is folded in, so one PR holds both. #10905 closed on 2026-11-05 | WD1, LT3, CD1, CD3, CD3b, #11284, the CD2 fixtures in 0.91.0 | Large |
-| CD6 | The `vortex.decimal` read plugin converts old nodes through `WidenArray::from_stored_decimal` | FX1, CD3, CD3b, CD4, the CD2 fixtures in 0.91.0 | Medium |
-| CD7 | One DecimalByteParts scheme on the canonical array, which stores a narrower MSP as an integer `Widen`, also next to lower parts (D17). Folded into CD5 on 2026-11-05. #10992 closed on 2026-11-05 | WD1, CD1, CD3b, CD5 | Medium |
-| CD8a | Every decimal array has the canonical width | CD3, CD5, CD6, CD7 | Large |
-| CD8b | `DecimalArray::try_new` checks every valid value, with an `ExecutionCtx` | CD8a | Large |
-| CD8c | Remove the code for mixed decimal widths | CD8a | Medium |
-| WR1 | `vortex.widen` wire format for integers and decimals | WD1, CD3, CD4, CD8a | Medium |
-| WR2 | One preview edition with `vortex.widen` and DecimalByteParts v2 | WR1, CD5, CD7 | Small |
-| WR3 | An integer `Narrow` scheme in the compressor (needs a design pass). DecimalByteParts is the only decimal narrowing (D33) | WR1, WR2, WD1, WD5 | Large |
-
-Later work: LT1 puts both formats into `core` and decides the end of the serialization
-workaround. LT2, the range pass in DecimalByteParts decoding that returns a `Widen`, is dropped,
-because the redesign of D16 needs no range. LT3, the pushdown of sum, min, and max into the
-DecimalByteParts MSP, is no longer later work. It is required, it lands on `develop` before CD5,
-and it reshapes the DecimalByteParts benchmarks (D19 and D42). With no lower parts, each
-aggregate runs on the MSP and relabels its result as a decimal. Sum falls back to the decimal sum
-on the decoded array when the integer sum overflows (D16).
-
-## Progress
-
-The collapsed PR lists in [#10701](https://github.com/vortex-data/vortex/issues/10701) and
-[#10733](https://github.com/vortex-data/vortex/issues/10733) track the state of each PR: its link,
-whether it merged, and short notes. Agents update those lists. This branch changes only when a
-brief or a decision changes.
+| ID | Status | Change | Hard dependencies | Size |
+| --- | --- | --- | --- | --- |
+| FX1 | 🟢 Done | Decode stored `DecimalType` and `PType` strictly. [#10755] | None | Medium |
+| FX2 | ➖ Dropped | The cast-rule contract permits the existing rule. [#10746], [#10798] | None | None |
+| FX3 | 🟢 Done | Handle dictionary fill codes above the current width. [#10745], [#10806] | None | Small |
+| WD1 | 🟢 Done | In-memory integer `Widen`, encoding helpers, and flattening. [#10864] | None | Large |
+| WD2 | 🟢 Done | Integer `Widen` compute benchmarks. [#10888] | WD1 | Medium |
+| WD3 | 🟢 Done | Run aggregates on the integer child. [#10890] | WD2 | Medium |
+| WD4 | 🟢 Done | Forward arithmetic, `between`, `zip`, fills, and casts. [#10891], [#11138] | WD3 | Large |
+| WD5 | ⚪ Not started | Lift structural encodings above `Widen` and use the child for dictionary codes. Related issue [#10748]. | WD4, FX3 | Medium |
+| WD6 | 🟠 Parked | Migrate internal narrowing calls to `encode_values`. The experiment closed without merging. [#10943] | WD1 | Medium |
+| CD1 | 🟢 Done | Decimal compute, cast, and export benchmarks. [#10752] | None | Medium |
+| CD2 | 🟢 Done | Compatibility fixtures for old decimal forms. [#10753], [release 0.91.0] | None | Medium |
+| CD3 | 🟢 Done | One precision-to-width mapping and checked Arrow and DuckDB import conversions. [#10897] | None | Medium |
+| CD3b | 🟢 Done | Share a scan over valid decimal values for stored decimal conversion. [#10939] | CD3 | Small |
+| CD3c | 🟢 Done | Benchmark and speed up the widening copy. [#10990], [#10989] | None | Small |
+| CD4p | 🟢 Done | Execute interleaved decimals. [#10940] | None | Medium |
+| CD4 | 🟢 Done | Decimal `Widen`, its writer, compute, stored-value conversion, and lazy same-scale casts. [#11057], [#10946], [#11003], [#11004], [#11005], [#11006] | WD1, WD3, WD4, CD1, CD3, CD3b, CD4p | Large |
+| CD4b | 🟢 Done | Export decimal `Widen` to Arrow with one copy. [#10994] | Decimal support in CD4 | Small |
+| CD6 | 🟢 Done | Read legacy `vortex.decimal` nodes through `WidenArray::from_stored_decimal`. [#10995] | FX1, CD3, CD3b, CD4, release 0.91.0 | Medium |
+| LT3 | 🟢 Done | Push `min`, `max`, `min_max`, `is_sorted`, and eligible sums into the MSP when there are no lower parts. [#11302] | WD3, CD1 | Medium |
+| CUDA `Widen` | 🟢 Done | Execute integer and decimal `Widen` on the device. [#11303] | WD1, CD4 | Unestimated |
+| CD5 | 🟡 In progress | Test split, compressor baselines, `u64` lower parts, and canonical-width benchmark endpoints merged. CPU and GPU decoding are open. [#11456], [#11457], [#11458], [#11510], [#11459], [#11460] | WD1, LT3, CD1, CD3, CD3b, CUDA `Widen`, release 0.91.0 | Large |
+| CD7 | 🔵 Open | [#11459] removes `narrowed_decimal`. The scheme narrows the integer MSP, including next to lower parts, and ignores null payloads when choosing parts. | Shares the CPU implementation with CD5 | Medium |
+| CD8a | ⚪ Not started | Require canonical-width storage for every `DecimalArray`. | CD3, CD5 (CPU and GPU), CD6, CD7 | Large |
+| CD8b | ⚪ Not started | Check each valid value against its precision in `DecimalArray::try_new` with an `ExecutionCtx`. | CD8a | Large |
+| CD8c | ⚪ Not started | Remove mixed-width decimal code. | CD8a | Medium |
+| WR1 | ⚪ Not started | Read and write `vortex.widen` for integers and decimals. | WD1, CD3, CD4, CD8a | Medium |
+| WR2 | ⚪ Not started | Admit `vortex.widen` and DecimalByteParts v2 to a preview edition. DecimalByteParts v2 is in `unstable` today. | WR1, CD5, CD7 | Small |
+| WR3 | ⚪ Not started | Design and implement the integer `Narrow` compressor scheme. DecimalByteParts owns decimal narrowing (D33). | WR1, WR2, WD1, WD5 | Large |
+| LT1 | ⚪ Not started | Admit both wire formats to `core` and decide how writers targeting older editions handle `Widen`. | WR2 | Unestimated |
+| LT2 | ➖ Dropped | Decoding a narrow MSP to a decimal `Widen` required a range scan. CD5 keeps it as an integer child instead (D16). | None | Unestimated |
 
 ## Graph
 
-Each solid arrow is a hard dependency. Some arrows also follow from other arrows. The graph keeps
-them, so that the direct needs of each PR show. The dashed arrows are order rules, not code
-dependencies: the release gate of the compat fixtures (D31), and CD3c merging before CD4, so that
-the CodSpeed run of CD4 measures the fast copy (D41). CD7 is stacked on CD5 and merges right after
-it, so that the old scheme does not split decimals from their storage width for long (#10905).
+Solid arrows show hard dependencies. Dashed arrows mark release or benchmark ordering.
+CD5 and CD7 share one CPU PR, with the GPU decoder stacked on it. The older [#10905], [#10992],
+and [#11354] closed without merging.
 
 ```mermaid
 flowchart TD
@@ -138,9 +94,11 @@ flowchart TD
         CD4["CD4 Decimal Widen"]
         CD4b["CD4b Arrow export of Widen"]
         LT3["LT3 DBP aggregates"]
-        CD5["CD5 DBP decoding"]
+        CUDA["CUDA Widen #11303"]
+        BASE["DBP tests, baselines, and u64 lower parts"]
+        CPU["CD5 CPU + CD7 compressor #11459"]
+        GPU["CD5 GPU #11460"]
         CD6["CD6 Read plugin"]
-        CD7["CD7 DBP scheme"]
         CD8a["CD8a Canonical width"]
         CD8b["CD8b Value check"]
         CD8c["CD8c Dead code"]
@@ -148,14 +106,15 @@ flowchart TD
     subgraph WR["Wire change"]
         WR1["WR1 Wire format"]
         WR2["WR2 Preview edition"]
-        WR3["WR3 Widen scheme"]
+        WR3["WR3 Integer Narrow scheme"]
+        LT1["LT1 Core edition"]
     end
 
     WD1 --> WD2 --> WD3 --> WD4 --> WD5
     FX3 --> WD5
     WD1 --> WD6
     CD2 --> REL
-    REL -.-> CD5
+    REL -.-> CPU
     REL -.-> CD6
     CD1 --> CD4
     CD3 --> CD4
@@ -165,62 +124,105 @@ flowchart TD
     CD3c -.-> CD4
     CD4 --> CD4b
     CD3b --> CD6
-    CD3b --> CD7
-    CD5 --> CD7
+    CD3b --> CPU
+    WD1 --> CUDA
+    CD4 --> CUDA
+    CUDA --> CPU
+    BASE --> CPU
+    CPU --> GPU
     WD1 --> CD4
     WD3 --> CD4
     WD4 --> CD4
-    CD1 --> CD5
-    CD3 --> CD5
-    WD1 --> CD5
+    CD1 --> CPU
+    CD3 --> CPU
+    WD1 --> CPU
     WD3 --> LT3
     CD1 --> LT3
-    LT3 --> CD5
+    LT3 --> CPU
     FX1 --> CD6
     CD3 --> CD6
     CD4 --> CD6
-    WD1 --> CD7
-    CD1 --> CD7
     CD3 --> CD8a
-    CD5 --> CD8a
+    GPU --> CD8a
     CD6 --> CD8a
-    CD7 --> CD8a
     CD8a --> CD8b
     CD8a --> CD8c
     CD8a --> WR1
     CD4 --> WR1
     WR1 --> WR2
-    CD5 --> WR2
-    CD7 --> WR2
+    CPU --> WR2
     WR2 --> WR3
     WD5 --> WR3
+    WR2 --> LT1
+
+    classDef done fill:#d8f3dc,stroke:#237a3b,color:#122b1b
+    classDef openPR fill:#dbeafe,stroke:#3569a8,color:#152c48
+    classDef planned fill:#f6f8fa,stroke:#768390,color:#24292f
+    classDef parked fill:#ffedce,stroke:#97651c,color:#362709
+    class FX1,FX3,WD1,WD2,WD3,WD4,CD1,CD2,REL,CD3,CD3b,CD3c,CD4p,CD4,CD4b,CD6,LT3,CUDA,BASE done
+    class CPU,GPU openPR
+    class WD5,CD8a,CD8b,CD8c,WR1,WR2,WR3,LT1 planned
+    class WD6 parked
 ```
 
 ## Order of work
 
-A PR can start when its dependencies have merged. The waves group the PRs whose dependencies merge
-at about the same time. Two PRs of one wave can run at the same time only when they touch different
-files. The column "Shared files" names the pairs that do not, so run those one after the other.
+1. [#11459] targets `develop`. It fixes the MSP's logical type from the precision, capped at
+   `i64`, and decodes directly to a canonical decimal on the CPU. Wider legacy MSPs need a
+   checked copy on the host. The same PR retries eligible overflowing MSP sums in `i128`.
+   The merged [#11510] makes `decode` and `filter` end at the same physical width on both sides
+   of the comparison.
+2. [#11460] targets [#11459]. It gives the CUDA decoder the same output width for arrays with
+   only an MSP. CUDA support for DBP arrays with lower parts is separate.
+3. Once both decoders produce the canonical width, CD8a can enforce it. CD8b and CD8c touch the
+   same builder and tests. WR1 also calls the constructors that CD8b changes, so land CD8b first
+   or rebase those callers.
+4. WR2 admits the wire forms to preview. WR3 also needs WD5 and a decision about which integers
+   the compressor narrows and at which cascade level. LT1 tracks promotion to `core`.
 
-| Wave | PRs | Note | Shared files |
-| --- | --- | --- | --- |
-| 1 | FX1, FX3, WD1, CD1, CD2, CD3, CD4p, CD3c | No dependencies. Release 0.91.0 publishes the CD2 fixtures. CD3c merges before CD4 (D41) | CD2 calls `smallest_decimal_value_type`, which CD3 removes. The second of the two to merge adapts |
-| 2 | WD2, WD6, CD3b | WD6 needs only WD1 (D35) | None |
-| 3 | WD3, then WD4 | One stack. Read the CodSpeed reports with the rule in the NR brief ("CodSpeed on stacked PRs") | None |
-| 4 | WD5, CD4, then CD4b | FX3 is merged (`dcb4f50ae2`). CD4b is stacked on CD4 and has no release gate | WD5 and CD4 both edit `vortex-array/src/arrays/widen/rules.rs` |
-| 5 | CD6, and LT3, CD5, and CD7 | CD6 merged on 2026-11-05. #10905 (CD5) and #10992 (CD7) closed on 2026-11-05 for the redesign of D16. LT3 lands first, and one PR for CD5 with CD7 folded in stacks on it. That PR merges only after #11284. It can split later if review needs it. The scan design does not land in between, even if CD5 and CD7 miss the release of CD6 | CD5 and CD7 share the crate doc in `encodings/decimal-byte-parts/src/lib.rs`, the tests in `assemble.rs` and `benches/dbp_assemble.rs`, and the stack orders them. CD7 also changes the signature of `split_decimal`. WD6 and CD7: the golden snapshots of `vortex-btrblocks` |
-| 6 | CD8a | The last in-memory step that the wire change needs | None |
-| 7 | CD8b, CD8c, WR1 | Each needs only CD8a | CD8b adds a `ctx` parameter to `DecimalArray::new` and `try_new`, which CD8c and WR1 call. CD8b and CD8c both edit `vortex-array/src/builders/decimal.rs` and the same tests. Land CD8b first, or rebase the others on it |
-| 8 | WR2, then WR3 | WR3 after its design pass. If possible, the wire stack ships in the same release as the in-memory change (D11) | None |
+## How to use the briefs
 
-The critical path runs WD1, WD2, WD3, WD4, CD4, CD5, CD7, CD8a, WR1, WR2 and WR3. Release 0.91.0,
-which publishes the CD2 fixtures, also gates CD5 and CD6, so CD2 is worth landing in wave 1.
+- Give a coding agent one brief, `decisions.md`, and the repository rules in `AGENTS.md` and
+  `STYLE.md`. The brief names the branch, the files, the steps, the tests and the acceptance checks.
+- The briefs and `decisions.md` exist only on the `ct/decimal-research` branch. The agent's own
+  worktree branches from `develop` and has no `research/` directory, so the relative links in the
+  briefs do not work there. Tell the agent to read the files with
+  `git show ct/decimal-research:research/<path>`. Do not change a brief while an agent works from
+  it. If a brief must change, tell that agent.
+- When a PR opens, merges, or changes scope, update its entry in the tracking issue and in the
+  [status table](#the-prs). Read the current issue body just before editing it to preserve other edits.
+- The briefs cite `develop` at `b70206818f`, except WD1 to WD4, which cite `origin/develop` at
+  `afa4bc87cd`. Line numbers move as PRs land, so the agent reads the cited code before it changes
+  it. Code from the local integer `Widen` rewrite is cited with its commit, for example
+  `f7408481ce:vortex-array/src/arrays/narrow/mod.rs`. That rewrite is a reference for tests and
+  edge cases (D38).
+- The rewrite commits named in the integer brief were local references. Preserve any local
+  branches that still hold them. Use the merged WD1 to WD4 PRs for the implementation on
+  `develop`.
+- Agents can run any command that the work needs: builds, tests, the acceptance checks, and the
+  generators of committed files, such as golden snapshots (WD6, CD7, WR3) and the edition record
+  (WR2). CI fails when a committed file is stale. Use the narrowest command, as `AGENTS.md`
+  describes.
+- `develop` squash-merges PRs. Use the actual PR base when restacking. After a base merges, use
+  `git rebase --onto develop <old base tip>` or the stack tooling, so that the base commits are
+  not replayed. The WD1 to WD5 stack has its own workflow in the integer brief.
+- Every commit carries `Signed-off-by: Connor Tsui <connor.tsui20@gmail.com>` and no AI co-author
+  line.
+- WR3 needs a design pass before an agent starts it. Its brief lists the open questions.
+
+| Brief | PRs |
+| --- | --- |
+| [`01-fixes.md`](agents/briefs/01-fixes.md) | FX1 to FX3, independent fixes |
+| [`02-integer-widen.md`](agents/briefs/02-integer-widen.md) | WD1 to WD6, the integer `Widen` |
+| [`03-canonical-decimal.md`](agents/briefs/03-canonical-decimal.md) | CD1 to CD8c, the canonical decimal fix and decimal `Widen` |
+| [`04-wire.md`](agents/briefs/04-wire.md) | WR1 to WR3, the wire change, and LT1 to LT3 |
 
 ## Rules for every PR
 
-- No PR adds temporary code (D11). The serialization lowering of D26, which CD4 adds, is the one
-  documented exception. After WR1 it stays only for contexts that do not permit `vortex.widen`,
-  and LT1 decides its end.
+- Avoid temporary code between PRs (D11).
+- The writer-only plugin shipped in CD4 writes a decimal `Widen` over a concrete decimal leaf
+  as a narrow `vortex.decimal` node under the parent dtype. It does not execute values or
+  validity. WR1 adds the dedicated wire form. LT1 decides the fate of the old writing path.
 - Stored decimal values at any width become the canonical array or a `Widen` only through
   `WidenArray::from_stored_decimal` (D40). No PR adds its own choice of child. DecimalByteParts
   decoding does not go through it, because its MSP is an integer (D16).
@@ -243,32 +245,82 @@ which publishes the CD2 fixtures, also gates CD5 and CD6, so CD2 is worth landin
 
 ## Follow-up issues
 
-These problems came up during planning and the first wave of PRs. They are outside the planned
-PRs, and each one has its own issue. Two are closed.
+| Issue | Status | Change |
+| --- | --- | --- |
+| [#10748] | 🔵 Open issue | Keep structural encodings above other encodings. WD5 covers `Widen` only. |
+| [#10749] | 🟢 Closed | [#10767] returns errors from decimal `scalar_at` and `min_max` for out-of-precision values. Cached decimal statistics were tracked separately in [#10807], also closed. |
+| [#10750] | ➖ Dropped | Closed as not planned. [#10798] documents the cast-rule contract. |
+| [#10751] | 🟢 Closed | [#10757] makes FoR declare and refine its bit-packing child. |
+| [#10754] | 🔵 Open issue | Run all compatibility fixture versions in CI, collect failures, and correct the `--git-ref` documentation. |
+| [#10756] | 🟢 Closed | [#10760] and [#10852] return read errors for corrupt ALP-RD, RLE, and RunEnd metadata. |
+| [#10908] | 🟢 Closed | [#11138] dispatches `zip` on either value branch. |
+| [#11284] | 🟡 Closed, partially implemented | [#11303] implements CUDA `Widen`. The ordinary `vortex.decimal` reader still rejects noncanonical buffers in device memory. [Reader on develop]. |
+| [#11520] | 🔵 Open issue | Null payloads can prevent compression of nullable decimals. [#11457] pins this case and [#11459] changes part selection. The reporter plans to rerun the reproducer after [#11459] merges. |
 
-| Issue | Problem |
-| --- | --- |
-| #10748 | Generic structural encodings always sit above other encodings. WD5 does this for `Widen` only |
-| #10749 | Decimal `scalar_at` and `min_max` panic on a stored value outside the precision, which a file read can produce. #10767 fixes both and is in review |
-| #10750 | Closed as not planned. The push-down cast rules return no wrong result, and #10798 documents them as a valid form |
-| #10751 | Closed by #10757. The FoR scheme now declares and refines its bit-packing child |
-| #10754 | The compat harness: no CI job runs `--mode all`, one failing fixture stops the whole check, and the README describes `--git-ref` wrongly |
-| #10756 | Corrupt ALP-RD, RLE and RunEnd metadata can panic a file read. #10760 fixes ALP-RD and merged on 2026-10-29. #10852 fixes RLE and RunEnd and is open |
-| #10908 | `ZipExecuteAdaptor` dispatches only on the `if_true` branch, so a `Widen` in the `if_false` branch of `zip` does not run on the child. Found in the review of WD4 |
-
-The stale versioning docs needed no issue, because #10747 fixes them.
+[#10747] updated the versioning documentation.
 
 ## Risks
 
-| Risk | Mitigation |
+| Risk | Consequence or mitigation |
 | --- | --- |
-| CD5 changes the CUDA decoder, which few reviewers know. A `Widen` MSP on the device fails today, because CUDA has no `Widen` kernel and no CPU fallback for device buffers | #11284 adds a device `Widen` kernel for integer and decimal `Widen`s, and CD5 depends on it with no stopgap (D16). The GPU still rejects a legacy MSP that is wider than its logical dtype. The change needs a CUDA reviewer |
-| A legacy DecimalByteParts MSP that is wider than its logical dtype scans and copies on read | Accepted (D16 and D21). Only nodes from writers before 0.91.0 have this shape |
-| A gap column decodes to a `Widen` over a copied child, and a later canonicalization copies again | Accepted (D19). CD3c makes the widening copy fast |
-| The Python decimal subclass mapping (`vortex-python/src/arrays/native.rs`) does not cover `Widen`, and `__vortex_array_metadata__` calls `array_serialize` without the D26 lowering | A follow-up issue |
-| After CD6, a CUDA read of an old decimal node copies the buffer to the host and returns a `Widen` or the canonical array, and CUDA has no `Widen` kernel. The plugin also copies a device validity to the host with the crate-private `ArrayRef::try_into_host_sync`, because `from_stored_decimal` executes the validity on the host | Accepted (D37): the host converts old nodes, which are rare. A CUDA reviewer confirms in CD6 that such a scan still works |
-| The reference commits of the rewrite exist only on local branches | Keep the local branches. Push a backup branch before a remote agent needs the reference (see "How to use the briefs") |
-| WD6 writes signed internal children that earlier releases have not read | Readers on `develop` accept any integer type there. WD6 runs the latest release on its files |
-| The `take_map` regressions on #10333 have no known cause | WD6 compares CodSpeed runs on WD1, WD3, WD4 and WD6, and reads the flame graph diff |
-| WR3 has open design questions | A design pass before any code. The other wire PRs do not depend on it |
-| The decimal critical path is long | Wave 1 holds eight PRs with no dependencies, and WD6 needs only WD1. CD5 and CD6 run in parallel on CD4 |
+| A legacy DecimalByteParts MSP is wider than its logical width. | [#11459] checks and narrows it on the host. This conversion rejects device buffers. |
+| An old decimal value fits its stored width but needs a precision with a wider canonical width. | The legacy reader may copy to construct a correctly typed child, and a later canonicalization may copy again. CD3c speeds up the widening copy. |
+| A legacy `vortex.decimal` buffer is already on the device. | The plugin needs host values to select a valid child precision. [#11303] executes an existing `Widen`. It does not implement a device reader for those nodes. |
+| A consumer requires wide storage. | [#11459] documents the extra copy from an `i64` MSP to `i128` at precision 38, an extra Arrow export copy for some narrow MSPs, and larger default output for the precision-40 fixture. [#11510] supplies the canonical-width decode baseline. |
+| The Python decimal subclass mapping does not cover `Widen`. | A legacy decimal read can return a `Widen`. The Python subclass and metadata exposure need follow-up. |
+| WD6 changes the signedness of some internal children. | The parked [#10943] records its old-reader comparison and outstanding performance and CUDA checks. |
+
+[#10745]: https://github.com/vortex-data/vortex/pull/10745
+[#10746]: https://github.com/vortex-data/vortex/pull/10746
+[#10747]: https://github.com/vortex-data/vortex/pull/10747
+[#10748]: https://github.com/vortex-data/vortex/issues/10748
+[#10749]: https://github.com/vortex-data/vortex/issues/10749
+[#10750]: https://github.com/vortex-data/vortex/issues/10750
+[#10751]: https://github.com/vortex-data/vortex/issues/10751
+[#10752]: https://github.com/vortex-data/vortex/pull/10752
+[#10753]: https://github.com/vortex-data/vortex/pull/10753
+[#10754]: https://github.com/vortex-data/vortex/issues/10754
+[#10755]: https://github.com/vortex-data/vortex/pull/10755
+[#10756]: https://github.com/vortex-data/vortex/issues/10756
+[#10757]: https://github.com/vortex-data/vortex/pull/10757
+[#10760]: https://github.com/vortex-data/vortex/pull/10760
+[#10767]: https://github.com/vortex-data/vortex/pull/10767
+[#10798]: https://github.com/vortex-data/vortex/pull/10798
+[#10806]: https://github.com/vortex-data/vortex/pull/10806
+[#10807]: https://github.com/vortex-data/vortex/issues/10807
+[#10852]: https://github.com/vortex-data/vortex/pull/10852
+[#10864]: https://github.com/vortex-data/vortex/pull/10864
+[#10888]: https://github.com/vortex-data/vortex/pull/10888
+[#10890]: https://github.com/vortex-data/vortex/pull/10890
+[#10891]: https://github.com/vortex-data/vortex/pull/10891
+[#10897]: https://github.com/vortex-data/vortex/pull/10897
+[#10905]: https://github.com/vortex-data/vortex/pull/10905
+[#10908]: https://github.com/vortex-data/vortex/issues/10908
+[#10939]: https://github.com/vortex-data/vortex/pull/10939
+[#10940]: https://github.com/vortex-data/vortex/pull/10940
+[#10943]: https://github.com/vortex-data/vortex/pull/10943
+[#10946]: https://github.com/vortex-data/vortex/pull/10946
+[#10989]: https://github.com/vortex-data/vortex/pull/10989
+[#10990]: https://github.com/vortex-data/vortex/pull/10990
+[#10992]: https://github.com/vortex-data/vortex/pull/10992
+[#10994]: https://github.com/vortex-data/vortex/pull/10994
+[#10995]: https://github.com/vortex-data/vortex/pull/10995
+[#11003]: https://github.com/vortex-data/vortex/pull/11003
+[#11004]: https://github.com/vortex-data/vortex/pull/11004
+[#11005]: https://github.com/vortex-data/vortex/pull/11005
+[#11006]: https://github.com/vortex-data/vortex/pull/11006
+[#11057]: https://github.com/vortex-data/vortex/pull/11057
+[#11138]: https://github.com/vortex-data/vortex/pull/11138
+[#11284]: https://github.com/vortex-data/vortex/issues/11284
+[#11302]: https://github.com/vortex-data/vortex/pull/11302
+[#11303]: https://github.com/vortex-data/vortex/pull/11303
+[#11354]: https://github.com/vortex-data/vortex/pull/11354
+[#11456]: https://github.com/vortex-data/vortex/pull/11456
+[#11457]: https://github.com/vortex-data/vortex/pull/11457
+[#11458]: https://github.com/vortex-data/vortex/pull/11458
+[#11459]: https://github.com/vortex-data/vortex/pull/11459
+[#11460]: https://github.com/vortex-data/vortex/pull/11460
+[#11510]: https://github.com/vortex-data/vortex/pull/11510
+[#11520]: https://github.com/vortex-data/vortex/issues/11520
+[release 0.91.0]: https://github.com/vortex-data/vortex/releases/tag/0.91.0
+[Reader on develop]: https://github.com/vortex-data/vortex/blob/5e2e8b646f221911b1a0bb0aac9c4c7a38d54f3d/vortex-array/src/arrays/decimal/vtable/plugin/mod.rs#L10-L17
