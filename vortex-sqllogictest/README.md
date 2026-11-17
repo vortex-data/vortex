@@ -66,4 +66,10 @@ cargo nextest run -p vortex-sqllogictest -E 'test(/slt::filecheck::/)'
 ```
 
 A failing section fails its trial, unless it is marked `severity: warn`, which reports it
-on stderr without failing. Check files are written by hand; `--complete` does not rewrite them.
+on stderr without failing.
+
+PR benchmark runs (`sql-bench-matrix.yml`) run every check file here against their own data
+with `vx filecheck --root vortex-bench/data --warn-only --format markdown`, and add the
+summary to the benchmark PR comment. To cover benchmark data too, add a second `files:` line
+matching it relative to `vortex-bench/data/`, such as
+`tpch/[^/]+/vortex-file-compressed/lineitem_\d{4}\.vortex`. Check files are written by hand; `--complete` does not rewrite them.

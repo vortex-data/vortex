@@ -98,7 +98,9 @@ mod native_cli {
                 Commands::Inspect(args) => &args.file,
                 Commands::Query(args) => &args.file,
                 Commands::Segments(args) => &args.file,
-                Commands::Filecheck(args) => &args.file,
+                Commands::Filecheck(args) => args
+                    .input_path()
+                    .vortex_expect("clap requires at least one path"),
             }
         }
     }

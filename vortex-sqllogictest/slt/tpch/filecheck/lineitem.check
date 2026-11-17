@@ -7,7 +7,10 @@
 # `data*` matches every chunk of a chunked column and the single unit of an unchunked one, so
 # these checks do not depend on how many chunks the scale factor produces.
 
+# The SLT fixture, relative to `slt/`, and the benchmark data at every scale factor,
+# relative to `vortex-bench/data/`.
 files: tpch/data/lineitem\.vortex
+files: tpch/[^/]+/vortex-file-compressed/lineitem_\d{4}\.vortex
 
 # The four low-cardinality string columns get dictionary layouts, in schema order.
 check: unit: l_returnflag/data/values

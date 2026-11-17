@@ -3,7 +3,10 @@
 
 # Invariants of every TPC-H table written by `data-gen`.
 
+# The SLT fixtures, relative to `slt/`, and the benchmark data at every scale factor,
+# relative to `vortex-bench/data/`.
 files: tpch/data/.*\.vortex
+files: tpch/[^/]+/vortex-file-compressed/[a-z]+_\d{4}\.vortex
 
 # Every column has a zone map: a struct of statistics whose null count is constant, as TPC-H
 # has no nulls.

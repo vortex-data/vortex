@@ -319,6 +319,18 @@ jobs:
                 --vx target/release_debug/vx \
                 --seed ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
                 -o file-trees
+          # Checks the encodings of the dataset's Vortex files against every check file whose
+          # `files:` regexes match them, and writes a Markdown summary for the PR comment. Check
+          # files that match nothing are skipped. Warn-only and observability only, so it never
+          # fails the benchmark or holds up its job.
+          - name: Check file encodings
+            if: ${{ !cancelled() && inputs.mode == 'pr' && matrix.remote_key == null }}
+            continue-on-error: true
+            timeout-minutes: 20
+            shell: bash
+            run: |
+              target/release_debug/vx filecheck --root vortex-bench/data --warn-only \
+                --format markdown vortex-sqllogictest/slt/*/filecheck/*.check > filecheck.md
 
       # "Fetch baseline" reads the file-size records "Capture file sizes" appends, so it waits for them.
       - parallel:
@@ -348,6 +360,10 @@ jobs:
 
           uv run --no-project scripts/compare-benchmark-jsons.py base.ingest.jsonl results.json \
             "${{ matrix.name }}" --pr-records results.ingest.jsonl > comment.md
+          if [ -s filecheck.md ]; then
+            printf '\n' >> comment.md
+            cat filecheck.md >> comment.md
+          fi
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PR
