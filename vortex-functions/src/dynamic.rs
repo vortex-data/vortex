@@ -149,6 +149,11 @@ impl DynamicComparisonExpr {
         self.default
     }
 
+    /// The dtype of the dynamic value, whether or not the value is known yet.
+    pub fn dtype(&self) -> &DType {
+        &self.rhs.dtype
+    }
+
     /// A comparison against the same dynamic value with a different operator and default.
     pub fn with_operator(&self, operator: CompareOperator, default: bool) -> Self {
         Self {
@@ -362,6 +367,16 @@ mod tests {
         );
 
         assert!(!expr.as_scalar().is_some_and(|f| f.signature().is_strict()));
+    }
+
+    #[test]
+    fn dtype_of_unknown_value() {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let expr = dynamic(CompareOperator::Lt, || None, dtype.clone(), true, root());
+
+        let options = expr.as_::<DynamicComparison>();
+        assert_eq!(options.scalar(), None);
+        assert_eq!(options.dtype(), &dtype);
     }
 
     #[test]
