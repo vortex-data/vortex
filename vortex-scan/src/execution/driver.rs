@@ -254,7 +254,11 @@ async fn acquire_slot(own: Arc<Semaphore>, shared: Arc<Semaphore>) -> SemaphoreG
 
 /// The planners of a scan, composed: with a filter, its pruning plans first over the whole scan,
 /// continuing into the chunks of the rows they keep; without, the chunks directly.
-fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
+///
+/// This is the planner a multi-file plan spawns for each of its files. Every request it
+/// publishes names the scan's [source](PreparedScan::source), so a driver reading many files
+/// serves them all from one [`SourcesIoService`](vortex_io::request::SourcesIoService).
+pub fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
     let rows = scan.rows().clone();
     let chunks = {
         let scan = Arc::clone(scan);

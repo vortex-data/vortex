@@ -12,4 +12,4 @@ pub mod next;
 pub mod planner;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

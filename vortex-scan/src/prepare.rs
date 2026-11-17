@@ -9,6 +9,8 @@ use std::sync::Arc;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
+use vortex_io::request::SourceId;
+use vortex_io::request::SourcesIoService;
 use vortex_session::VortexSession;
 
 use crate::analysis::referenced_field_paths;
@@ -132,7 +134,29 @@ impl ScanBuilder {
     /// Initializes the source plan and plans the filter and the projection, from the file's cache
     /// where an earlier scan planned them already. Touches no segment. Lowering and optimizing a
     /// wide file is real CPU, so a driver runs this where it runs compute.
+    ///
+    /// The scan is the only source its requests name, and [`PreparedScan::io`] serves them.
     pub fn prepare(self) -> VortexResult<PreparedScan> {
+        // The id is minted by a service of the scan's own, which `io` stands in for.
+        SourcesIoService::new().register_with(|source| {
+            let scan = self.prepare_as(source)?;
+            let io = scan.io();
+            Ok((scan, io))
+        })
+    }
+
+    /// Prepares the scan as one source of `sources`, for a driver that reads several sources,
+    /// such as the files of a table, through one service. Every request the scan's planners
+    /// publish names the id `sources` mints for it, and `sources` serves them.
+    pub fn prepare_in(self, sources: &SourcesIoService) -> VortexResult<Arc<PreparedScan>> {
+        sources.register_with(|source| {
+            let scan = Arc::new(self.prepare_as(source)?);
+            let io = scan.io();
+            Ok((scan, io))
+        })
+    }
+
+    fn prepare_as(self, source: SourceId) -> VortexResult<PreparedScan> {
         let file = self.file;
         let cache = file.cache.unwrap_or_default();
         let root = match cache.root() {
@@ -203,6 +227,7 @@ impl ScanBuilder {
             ranges,
             cache,
             locations: file.locations,
+            source,
             projection,
             filter,
             row_offset: self.row_offset,

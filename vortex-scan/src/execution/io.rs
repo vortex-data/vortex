@@ -321,6 +321,7 @@ mod tests {
     use super::segment_ranges;
     use crate::execution::PreparedScan;
     use crate::execution::SegmentLocation;
+    use crate::execution::planning::tests::scripted::source_id;
     use crate::execution::SelectedRows;
     use crate::execution::cache::ScanCache;
     use crate::execution::operator::Cx;
@@ -359,6 +360,7 @@ mod tests {
 
     fn request(intent: IoIntent, id: u32) -> IoRequest {
         IoRequest {
+            source: source_id(),
             intent,
             request: IoRequestId(id),
             target: IoTarget::range(0, 4),
@@ -611,6 +613,7 @@ mod tests {
             ranges,
             cache,
             locations,
+            source: source_id(),
             projection,
             filter: None,
             row_offset: 0,
