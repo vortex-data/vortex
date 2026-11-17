@@ -23,6 +23,8 @@ mod limit;
 pub mod object_store;
 mod read_at;
 pub mod request;
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+pub mod uring;
 pub mod runtime;
 pub mod session;
 #[cfg(not(target_arch = "wasm32"))]
