@@ -12473,7 +12473,6 @@ dependencies = [
  "futures",
  "tempfile",
  "tokio",
- "twox-hash",
  "vortex",
  "vortex-array",
  "vortex-buffer",

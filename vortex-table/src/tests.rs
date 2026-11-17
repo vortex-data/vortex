@@ -7,6 +7,8 @@ use std::sync::LazyLock;
 use vortex::VortexSessionDefault;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinArray;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
@@ -53,7 +55,6 @@ async fn a_written_manifest_reads_back_the_same() -> VortexResult<()> {
         data_file(1500..4000).await?,
     ];
     let manifest = manifest(&files).await?;
-    assert_eq!(manifest.row_count(), 4000);
     assert_eq!(manifest.entries[1].row_count, 500);
 
     let mut written = ByteBufferMut::empty();
@@ -70,7 +71,7 @@ async fn an_entry_records_the_exact_footer_region() -> VortexResult<()> {
     let entry = &manifest.entries[0];
 
     assert_eq!(entry.byte_size, bytes.len() as u64);
-    let tail = bytes.slice(usize::try_from(entry.footer_offset())?..bytes.len());
+    let tail = bytes.slice(bytes.len() - entry.footer.len()..);
     assert_eq!(entry.footer, tail);
     // The region alone is enough to parse the footer: no more data is asked for.
     let step = Footer::deserializer(entry.footer.clone(), SESSION.clone())
@@ -84,12 +85,32 @@ async fn an_entry_records_the_exact_footer_region() -> VortexResult<()> {
 }
 
 #[tokio::test]
-async fn rewriting_a_file_changes_its_footer_hash() -> VortexResult<()> {
-    let before = manifest(&[data_file(0..1000).await?]).await?;
-    let after = manifest(&[data_file(5000..6000).await?]).await?;
-    assert_ne!(
-        before.entries[0].footer_hash(),
-        after.entries[0].footer_hash()
+async fn an_empty_manifest_reads_back_empty() -> VortexResult<()> {
+    let mut written = ByteBufferMut::empty();
+    Manifest::default().write(&SESSION, &mut written).await?;
+    let read = Manifest::read(&SESSION, Arc::new(written.freeze())).await?;
+    assert_eq!(read, Manifest::default());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_manifest_with_the_wrong_column_types_is_an_error() -> VortexResult<()> {
+    // The manifest's column names, but signed sizes: reading must fail, not panic.
+    let wrong = StructArray::from_fields(&[
+        ("path", VarBinArray::from(vec!["a"]).into_array()),
+        ("byte_size", PrimitiveArray::from_iter([1i64]).into_array()),
+        ("row_count", PrimitiveArray::from_iter([1u64]).into_array()),
+        ("footer", VarBinArray::from(vec![&b"x"[..]]).into_array()),
+    ])?;
+    let mut written = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut written, wrong.into_array().to_array_stream())
+        .await?;
+    assert!(
+        Manifest::read(&SESSION, Arc::new(written.freeze()))
+            .await
+            .is_err()
     );
     Ok(())
 }

@@ -11,13 +11,11 @@
 //! | `footer`    | binary | the file's footer region, through the end of the file    |
 //!
 //! The footer holds the file's dtype, layout, segment map, and column statistics, so a planner
-//! prunes a file on its statistics and opens it from the manifest alone, with no IO. The
-//! region's hash identifies the exact bytes of a file, which is what out-of-file indexes bind to.
+//! prunes a file on its statistics and opens it from the manifest alone, with no IO.
 
 use std::sync::Arc;
 
 use futures::TryStreamExt;
-use twox_hash::XxHash3_64;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -29,6 +27,7 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
@@ -88,17 +87,6 @@ impl ManifestEntry {
             footer,
         })
     }
-
-    /// First byte of the footer region in the file.
-    pub fn footer_offset(&self) -> u64 {
-        self.byte_size - self.footer.len() as u64
-    }
-
-    /// XXH3-64 of the footer region. A rewritten file, even one with the same path and size,
-    /// hashes differently.
-    pub fn footer_hash(&self) -> u64 {
-        XxHash3_64::oneshot(&self.footer)
-    }
 }
 
 /// The files of a table, in table order. A file's ordinal is its index in `entries`.
@@ -109,11 +97,6 @@ pub struct Manifest {
 }
 
 impl Manifest {
-    /// Rows in the table.
-    pub fn row_count(&self) -> u64 {
-        self.entries.iter().map(|entry| entry.row_count).sum()
-    }
-
     /// The manifest as a struct array, one row per file.
     pub fn to_array(&self) -> VortexResult<ArrayRef> {
         let u64s = |f: fn(&ManifestEntry) -> u64| {
@@ -133,6 +116,7 @@ impl Manifest {
     /// Appends the rows of a struct array that [`to_array`](Self::to_array) made.
     fn extend_from_array(&mut self, array: ArrayRef, session: &VortexSession) -> VortexResult<()> {
         let mut ctx = session.create_execution_ctx();
+        vortex_ensure_eq!(array.dtype(), Self::default().to_array()?.dtype());
         let array = array.execute::<StructArray>(&mut ctx)?;
         let field = |name: &str| array.unmasked_field_by_name(name).cloned();
         let byte_size = field("byte_size")?.execute::<PrimitiveArray>(&mut ctx)?;
