@@ -484,8 +484,8 @@ SD (#11184) merged on 2026-11-13. The final three items below belong to NU.
 - DS2 merged on 2026-11-17 ([#11268](https://github.com/vortex-data/vortex/pull/11268)). The
   DataFusion scan checks extension identity before copying the table field's metadata, so plain
   storage cannot be labeled as an extension. The check covers nested fields and caller-supplied
-  schemas. An all-null file can still participate because it has no values to mislabel. The opener
-  still checks the whole schema. [#11270](https://github.com/vortex-data/vortex/issues/11270)
+  schemas. A file column with dtype `Null` skips the check because it has no values to mislabel.
+  The opener still checks the whole schema. [#11270](https://github.com/vortex-data/vortex/issues/11270)
   tracks whether an unread column should be able to fail a scan.
 - Add converter traits for DuckDB, Python and JNI, modeled on the Arrow registry. Move the
   hard-coded type lists into converters, and add converters where the implicit conversions of today
