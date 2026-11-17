@@ -1,13 +1,16 @@
-# vortex-array Guidance
+# Dispatch Macro Guidance
 
-Applies to files under `vortex-array/`, and to every call of the dispatch macros defined here.
+Applies to files under `vortex-array/src/dtype/`, and to every call of the dispatch macros declared
+here.
 
 ## Dispatch macros
 
-The `match_each_*!` macros turn a runtime type tag into a type parameter. They are defined in
-`src/dtype/ptype.rs` (`match_each_native_ptype!`, `match_each_integer_ptype!` and the other
-ptype families), `src/dtype/decimal/macros.rs`, `src/scalar/typed_view/primitive/pvalue.rs`,
-`src/canonical.rs`, `src/builders/mod.rs`, and `src/arrays/varbin/builder.rs`.
+The `match_each_*!` macros turn a runtime type tag into a type parameter. The ptype families
+(`match_each_native_ptype!`, `match_each_integer_ptype!`, `match_each_unsigned_integer_ptype!` and
+the others) are declared in `ptype.rs`, and the decimal ones in `decimal/macros.rs`. The same rules
+apply to the other dispatch macros in `vortex-array`: `match_each_pvalue!`
+(`src/scalar/typed_view/primitive/pvalue.rs`), `match_each_canonical!` (`src/canonical.rs`), and
+the builder macros in `src/builders/mod.rs` and `src/arrays/varbin/builder.rs`.
 
 cargo-mutants cannot mutate code inside a macro invocation or a `macro_rules!` body, so logic
 written there is never mutation tested. Keep each call a thin dispatch: resolve the type, then
