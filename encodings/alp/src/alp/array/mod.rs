@@ -22,6 +22,7 @@ use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
+use vortex_array::block::BlockOp;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -46,6 +47,7 @@ use vortex_session::registry::CachedId;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
+use crate::alp::block::alp_block_op;
 use crate::alp::decompress::execute_decompress;
 
 mod plugin;
@@ -127,6 +129,14 @@ impl VTable for ALP {
         Ok(ExecutionResult::done(
             execute_decompress(array, ctx)?.into_array(),
         ))
+    }
+
+    fn block_op(
+        array: ArrayView<'_, Self>,
+        slot_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        alp_block_op(array, slot_idx, ctx)
     }
 }
 
