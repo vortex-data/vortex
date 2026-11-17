@@ -642,6 +642,14 @@ fn run_fusion(
     }
     let top = child;
     trace_op!(record_execute_encoding(&top));
+    tracing::debug!(
+        target: "vortex_array::block",
+        encoding = %top.encoding_id(),
+        len = top.len(),
+        ops = plan.ops.len(),
+        frames = plan.frames,
+        "fused chain"
+    );
     let validity = top.validity()?;
     let result = run_fused(
         plan.source.as_mut(),
