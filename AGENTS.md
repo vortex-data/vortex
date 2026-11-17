@@ -282,3 +282,18 @@ Use `git commit --signoff` to add this line.
 - Check that every commit on the branch is signed off before pushing;
   `git rebase --signoff <base>` adds missing sign-offs to commits on a branch you created.
 - Agent attribution belongs in a `Co-Authored-By:` trailer, never in `Signed-off-by:`.
+
+## Performance Pull Requests
+
+When a change comes with a benchmark that shows its performance impact, split it into two stacked
+pull requests, so that CodSpeed measures the change against a baseline:
+
+1. A benchmark pull request into `develop` that adds only the benchmark and its `[[bench]]`
+   entry. It must build and run on `develop` without the change.
+2. An implementation pull request with the change, based on the benchmark branch. Once the
+   benchmark pull request merges, retarget it to `develop`; GitHub does this automatically when
+   the merged branch is deleted.
+
+Link each pull request from the other's description, and put the before and after numbers in the
+implementation pull request. A benchmark added in the same pull request as the change has no
+baseline, so CodSpeed reports it only as new.
