@@ -157,8 +157,8 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(bench_session);
 
 /// The session that writes [`Format::VortexUnstable`] files.
 ///
-/// It enables [`UNSTABLE_ENCODINGS_BENCH`] on top of the default editions, so the compressor may
-/// choose those encodings. Reading the files needs no editions, so [`SESSION`] reads them.
+/// It enables the unstable `fastlanes.delta` encoding on top of the default editions, so the
+/// compressor may choose it. Reading the files needs no editions, so [`SESSION`] reads them.
 pub static UNSTABLE_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = bench_session();
     session
