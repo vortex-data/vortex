@@ -260,11 +260,11 @@ one. These rules override any default PR format from your harness.
     `Fix FSL import bug`.
   - Refactor or chore, where nothing observable changes: the change itself,
     `Move ALP kernel logic out of dispatch macros`.
-- Description: start with 1–3 sentences of plain prose saying what changed and why. Add a longer
-  explanation after them only when the change's complexity warrants it, such as a new design,
-  non-obvious trade-offs, or behaviour a reviewer cannot infer from the diff. Most PRs need only
-  the opening sentences. Do not use boilerplate headings (`## Summary`, `## Changes`,
-  `## Test plan`), and do not copy the template's comments into it.
+- Description: open with the problem and its solution, concisely, in 1–3 sentences of plain
+  prose. Follow with implementation details only when the change's complexity warrants it, such
+  as a new design, non-obvious trade-offs, or behaviour a reviewer cannot infer from the diff.
+  Most PRs need only the opening sentences. Do not use boilerplate headings (`## Summary`,
+  `## Changes`, `## Test plan`), and do not copy the template's comments into it.
 - Leave out the checks you ran, lists of new types or functions, per-file walkthroughs, and test
   inventories. Mention tests in one line only when they are new or unusual.
 - Give a benchmark's headline result in one line. Post a full table as a PR comment.
