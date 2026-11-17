@@ -37,15 +37,10 @@ use crate::IntoArray;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::aggregate_fn::session::AggregateKernels;
 use crate::array::ArrayId;
-use crate::arrays::Primitive;
-use crate::block::BlockOp;
-use crate::block::FusionInput;
-use crate::block::fusable_ptype;
-use crate::block::run_fused;
+use crate::block::fuse_into_parent;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
-use crate::dtype::PType;
 use crate::matcher::Matcher;
 use crate::memory::BufferAllocatorRef;
 use crate::memory::MemorySessionExt;
@@ -236,20 +231,25 @@ impl ArrayRef {
             trace_op!(record_execute_until_done_check(done_target, done_canonical));
 
             if done_target || done_canonical {
-                // Block fusion from a canonical leaf: the parents waiting on the stack transform
-                // the leaf's buffer block by block, so none of them materializes an intermediate.
+                // On the way up, a canonical child of a spine parent starts a block program
+                // instead of being put back, and the parent becomes a fused array.
                 if done_canonical
                     && ctx.block_fusion
                     && current_builder.is_none()
-                    && stack.len() >= MIN_FUSED_OPS_OVER_CANONICAL
-                    && stack.last().is_some_and(|frame| frame.spine)
-                    && let Some(fused) = plan_fusion(&current_array, &stack, true, ctx)?
+                    && let Some(frame) = stack.last()
+                    && frame.spine
+                    && frame.parent_builder.is_none()
                 {
-                    (current_array, current_builder) =
-                        run_fusion(fused, current_array, &mut stack, ctx)?;
-                    current_array = optimizer.optimize_array(&current_array)?;
-                    child_rewritten = !stack.is_empty();
-                    continue;
+                    match fuse_into_parent(current_array, &frame.parent_array, frame.slot_idx, ctx)?
+                    {
+                        Ok(fused) => {
+                            stack.pop();
+                            current_array = fused;
+                            child_rewritten = false;
+                            continue;
+                        }
+                        Err(child) => current_array = child,
+                    }
                 }
                 match stack.pop() {
                     None => {
@@ -378,19 +378,25 @@ impl ArrayRef {
                 ));
             }
 
-            // Step 2c: block fusion from an encoded leaf. Every edge on the stack had its
-            // execute_parent probe on the way down and this leaf had 2a and 2b, so fusing skips no
-            // kernel: it replaces executing this leaf and then each waiting parent level-wise.
+            // Step 2c: on the way up, fuse this array into the spine parent waiting for it: start a
+            // block program from it, or extend the one a fused array holds, and the parent becomes
+            // a fused array. This edge had its execute_parent probes in 2a and 2b, so fusing skips
+            // no kernel. A fused array no parent extends is executed below, which drives it.
             if ctx.block_fusion
                 && current_builder.is_none()
-                && stack.last().is_some_and(|frame| frame.spine)
-                && let Some(fused) = plan_fusion(&current_array, &stack, false, ctx)?
+                && let Some(frame) = stack.last()
+                && frame.spine
+                && frame.parent_builder.is_none()
             {
-                (current_array, current_builder) =
-                    run_fusion(fused, current_array, &mut stack, ctx)?;
-                current_array = optimizer.optimize_array(&current_array)?;
-                child_rewritten = !stack.is_empty();
-                continue;
+                match fuse_into_parent(current_array, &frame.parent_array, frame.slot_idx, ctx)? {
+                    Ok(fused) => {
+                        stack.pop();
+                        current_array = fused;
+                        child_rewritten = false;
+                        continue;
+                    }
+                    Err(child) => current_array = child,
+                }
             }
 
             let expected_len = current_array.len();
@@ -488,11 +494,6 @@ impl ArrayRef {
     }
 }
 
-/// Fuse a chain over a canonical buffer only once at least this many ops transform it. With one,
-/// level-wise execution runs that op's kernel over the buffer, often in place, which fusing
-/// cannot beat.
-const MIN_FUSED_OPS_OVER_CANONICAL: usize = 2;
-
 fn block_fusion_default() -> bool {
     static ENABLED: LazyLock<bool> =
         LazyLock::new(|| std::env::var("VORTEX_BLOCK_FUSION").map_or(true, |v| v != "0"));
@@ -524,176 +525,6 @@ fn push_frame(
         original_len: child.len(),
     });
     Ok((optimizer.optimize_array(&child)?, None))
-}
-
-/// A chain the executor can fuse: the input at its bottom and, from the bottom up, the ops that
-/// transform its blocks.
-struct FusionPlan {
-    input: FusionInput,
-    ops: Vec<Box<dyn BlockOp>>,
-    /// The input's type, then each op's output type.
-    ptypes: Vec<PType>,
-    /// How many of the ops belong to parents suspended on the top of the stack. The others belong
-    /// to the leaf itself.
-    frames: usize,
-}
-
-/// Walk up the stack from `leaf` while the suspended parents transform blocks of their child, and
-/// return the chain if fusing it saves at least one full-length intermediate.
-///
-/// The bottom of the chain is the leaf itself when it is canonical, else its own block source or,
-/// if it has none, a child it transforms, with the leaf's op over it. The bottom is found before
-/// any op is built, so a leaf that cannot fuse costs no op construction.
-fn plan_fusion(
-    leaf: &ArrayRef,
-    stack: &[StackFrame],
-    leaf_is_canonical: bool,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<FusionPlan>> {
-    let Some(leaf_ptype) = fusable_ptype(leaf) else {
-        return Ok(None);
-    };
-    if leaf.is_empty() {
-        return Ok(None);
-    }
-    // The frames that could fuse, without building their ops yet.
-    let candidates = stack
-        .iter()
-        .rev()
-        .take_while(|frame| {
-            frame.spine
-                && frame.parent_builder.is_none()
-                && fusable_ptype(&frame.parent_array).is_some()
-        })
-        .count();
-    if candidates == 0 || (leaf_is_canonical && candidates < MIN_FUSED_OPS_OVER_CANONICAL) {
-        return Ok(None);
-    }
-
-    let mut ops = Vec::new();
-    let mut ptypes = vec![leaf_ptype];
-    let input = if leaf_is_canonical {
-        FusionInput::Canonical(leaf.clone().downcast::<Primitive>())
-    } else if let Some(source) = leaf.block_source(ctx)? {
-        // Fusing an encoded leaf saves its own buffer even below a single parent.
-        FusionInput::Source(source)
-    } else if let Some(input) = child_input(leaf, &mut ops, &mut ptypes, ctx)? {
-        input
-    } else {
-        return Ok(None);
-    };
-
-    let leaf_ops = ops.len();
-    for frame in stack.iter().rev().take(candidates) {
-        let Some(op) = frame
-            .parent_array
-            .block_op(frame.slot_idx, &frame.original_dtype, ctx)?
-        else {
-            break;
-        };
-        ops.push(op);
-        ptypes.push(fusable_ptype(&frame.parent_array).vortex_expect("checked above"));
-    }
-    let frames = ops.len() - leaf_ops;
-    let min_ops = if matches!(input, FusionInput::Canonical(_)) {
-        MIN_FUSED_OPS_OVER_CANONICAL
-    } else {
-        1
-    };
-    if frames == 0 || ops.len() < min_ops {
-        return Ok(None);
-    }
-    Ok(Some(FusionPlan {
-        input,
-        ops,
-        ptypes,
-        frames,
-    }))
-}
-
-/// The input of a primitive child of `leaf` that `leaf` transforms block by block, with `leaf`'s
-/// op pushed onto `ops`. The child may be canonical, or an encoding with a block source that
-/// `leaf`'s own execute would run a fused kernel over, such as FoR over BitPacked.
-fn child_input(
-    leaf: &ArrayRef,
-    ops: &mut Vec<Box<dyn BlockOp>>,
-    ptypes: &mut Vec<PType>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<FusionInput>> {
-    for (slot_idx, child) in leaf.slots().iter().enumerate() {
-        let Some(child) = child else { continue };
-        let Some(child_ptype) = fusable_ptype(child) else {
-            continue;
-        };
-        if child.len() != leaf.len() {
-            continue;
-        }
-        let Some(op) = leaf.block_op(slot_idx, child.dtype(), ctx)? else {
-            continue;
-        };
-        let input = match child.clone().try_downcast::<Primitive>() {
-            Ok(primitive) => FusionInput::Canonical(primitive),
-            Err(child) => match child.block_source(ctx)? {
-                Some(source) => FusionInput::Source(source),
-                None => continue,
-            },
-        };
-        ops.push(op);
-        ptypes.insert(0, child_ptype);
-        return Ok(Some(input));
-    }
-    Ok(None)
-}
-
-/// Run `plan` and pop its parents' frames, returning the outermost parent's canonical array and
-/// the builder its frame suspended.
-fn run_fusion(
-    mut plan: FusionPlan,
-    leaf: ArrayRef,
-    stack: &mut Vec<StackFrame>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<(ArrayRef, Option<Box<dyn ArrayBuilder>>)> {
-    let frames = stack.split_off(stack.len() - plan.frames);
-    // Put each child back into its parent, from the leaf up, to recover the outermost parent's
-    // validity and statistics.
-    let mut child = leaf;
-    let mut builder = None;
-    for frame in frames.into_iter().rev() {
-        debug_assert_eq!(child.dtype(), &frame.original_dtype);
-        debug_assert_eq!(child.len(), frame.original_len);
-        // SAFETY: `child` is the slot's original array, with its dtype and len.
-        child = unsafe { frame.parent_array.put_slot_unchecked(frame.slot_idx, child) }?;
-        builder = frame.parent_builder;
-    }
-    let top = child;
-    let len = top.len();
-    trace_op!(record_execute_encoding(&top));
-    trace_op!(record_block_fusion(
-        &top,
-        match plan.input {
-            FusionInput::Source(_) => "source",
-            FusionInput::Canonical(_) => "canonical",
-        },
-        plan.frames,
-        plan.ops.len(),
-    ));
-    tracing::debug!(
-        target: "vortex_array::block",
-        encoding = %top.encoding_id(),
-        len = top.len(),
-        ops = plan.ops.len(),
-        frames = plan.frames,
-        "fused chain"
-    );
-    let validity = top.validity()?;
-    let (dtype, stats) = (top.dtype().clone(), top.statistics().to_owned());
-    // Release the chain's arrays so a canonical input can be decoded in its own buffer.
-    drop(top);
-    let result =
-        run_fused(plan.input, &mut plan.ops, &plan.ptypes, len, validity, ctx)?.into_array();
-    vortex_ensure_eq!(result.dtype(), &dtype, "fused chain changed the dtype");
-    result.statistics().set_iter(stats.into_iter());
-    Ok((result, builder))
 }
 
 struct StackFrame {

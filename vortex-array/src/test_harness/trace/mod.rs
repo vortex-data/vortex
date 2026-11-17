@@ -665,13 +665,22 @@ pub(crate) fn record_execute_slot(
     });
 }
 
-pub(crate) fn record_block_fusion(top: &ArrayRef, input: &'static str, frames: usize, ops: usize) {
-    record(TraceEvent::BlockFusion {
-        top: ArraySummary::new(top),
+pub(crate) fn record_fuse_start(input: &'static str, array: &ArrayRef) {
+    record(TraceEvent::FuseStart {
         input,
-        frames,
+        array: ArraySummary::new(array),
+    });
+}
+
+pub(crate) fn record_fuse_extend(parent: &ArrayRef, ops: usize) {
+    record(TraceEvent::FuseExtend {
+        parent: ArraySummary::new(parent),
         ops,
     });
+}
+
+pub(crate) fn record_block_drive(input: &'static str, ops: usize, len: usize) {
+    record(TraceEvent::BlockDrive { input, ops, len });
 }
 
 /// Record how the executor ran one op of a fused chain, for the chain's first block only: every
@@ -944,11 +953,18 @@ enum TraceEvent {
         subject: &'static str,
         array: ArraySummary,
     },
-    BlockFusion {
-        top: ArraySummary,
+    FuseStart {
         input: &'static str,
-        frames: usize,
+        array: ArraySummary,
+    },
+    FuseExtend {
+        parent: ArraySummary,
         ops: usize,
+    },
+    BlockDrive {
+        input: &'static str,
+        ops: usize,
+        len: usize,
     },
     BlockOp {
         op_idx: usize,
@@ -1037,7 +1053,9 @@ impl TraceEvent {
             | TraceEvent::ExecuteEncoding { .. }
             | TraceEvent::SlotTransition { .. }
             | TraceEvent::BuilderEvent { .. }
-            | TraceEvent::BlockFusion { .. }
+            | TraceEvent::FuseStart { .. }
+            | TraceEvent::FuseExtend { .. }
+            | TraceEvent::BlockDrive { .. }
             | TraceEvent::ExecuteDone { .. } => 2,
             TraceEvent::BlockOp { .. } => 3,
             TraceEvent::ExecuteUntilIteration { .. }
@@ -1196,12 +1214,15 @@ impl TraceEvent {
             TraceEvent::ExecuteDone { array } => {
                 write!(f, "Done array={array}")
             }
-            TraceEvent::BlockFusion {
-                top,
-                input,
-                frames,
-                ops,
-            } => write!(f, "fuse top={top} input={input} frames={frames} ops={ops}"),
+            TraceEvent::FuseStart { input, array } => {
+                write!(f, "fuse start input={input} array={array}")
+            }
+            TraceEvent::FuseExtend { parent, ops } => {
+                write!(f, "fuse extend parent={parent} ops={ops}")
+            }
+            TraceEvent::BlockDrive { input, ops, len } => {
+                write!(f, "drive input={input} ops={ops} len={len}")
+            }
             TraceEvent::BlockOp {
                 op_idx,
                 shape,

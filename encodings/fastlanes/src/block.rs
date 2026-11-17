@@ -33,6 +33,7 @@ use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 
 use crate::BitPacked;
@@ -131,13 +132,12 @@ where
         bit_width,
         elems_per_chunk,
         offset,
-        len: bp.len(),
-        chunk: 0,
         patches,
+        straddle: None,
     })))
 }
 
-/// Unpacks one FastLanes chunk per block with its strategy.
+/// Unpacks the FastLanes chunks under each requested range with its strategy.
 struct PackedSource<T, S> {
     strategy: S,
     packed: ByteBuffer,
@@ -145,17 +145,14 @@ struct PackedSource<T, S> {
     elems_per_chunk: usize,
     /// The position of the first row within the first chunk.
     offset: usize,
-    len: usize,
-    /// The next chunk to unpack.
-    chunk: usize,
     patches: Option<BlockPatches<T>>,
+    /// Scratch for ranges that straddle two chunks, allocated on first use.
+    straddle: Option<Box<BlockBuf>>,
 }
 
-impl<T: PhysicalPType, S: UnpackStrategy<T> + Send> BlockSource for PackedSource<T, S> {
-    fn next_block<'s>(&'s mut self, scratch: &'s mut BlockBuf) -> VortexResult<BlockIn<'s>> {
-        let chunk_start = self.chunk * FL_CHUNK_SIZE;
-        let first = self.offset.max(chunk_start);
-        let end = (chunk_start + FL_CHUNK_SIZE).min(self.offset + self.len);
+impl<T: PhysicalPType, S: UnpackStrategy<T>> PackedSource<T, S> {
+    /// Unpack chunk `chunk` into `out` and return its values.
+    fn unpack<'o>(&self, chunk: usize, out: &'o mut [MaybeUninit<T::Physical>]) -> &'o mut [T] {
         // SAFETY: `ByteBuffer` is aligned for the packed integers it was built from, and the
         // constructor checked it holds `elems_per_chunk` integers for every chunk.
         let packed = unsafe {
@@ -163,26 +160,60 @@ impl<T: PhysicalPType, S: UnpackStrategy<T> + Send> BlockSource for PackedSource
                 self.packed
                     .as_ptr()
                     .cast::<T::Physical>()
-                    .add(self.chunk * self.elems_per_chunk),
+                    .add(chunk * self.elems_per_chunk),
                 self.elems_per_chunk,
             )
         };
-        self.chunk += 1;
-        let out = scratch.out::<T::Physical>(FL_CHUNK_SIZE);
         // SAFETY: the unpack writes all `FL_CHUNK_SIZE` values of `out`, which holds one chunk,
-        // from `packed`, which holds one chunk at `bit_width`.
-        let values = unsafe {
+        // from `packed`, which holds one chunk at `bit_width`. `T` and `T::Physical` have the same
+        // size and alignment.
+        unsafe {
             let out =
                 std::mem::transmute::<&mut [MaybeUninit<T::Physical>], &mut [T::Physical]>(out);
             self.strategy.unpack_chunk(self.bit_width, packed, out);
-            // `T` and `T::Physical` have the same size and alignment.
             std::mem::transmute::<&mut [T::Physical], &mut [T]>(out)
+        }
+    }
+}
+
+impl<T: PhysicalPType, S: UnpackStrategy<T> + Send> BlockSource for PackedSource<T, S> {
+    fn fill<'s>(
+        &'s mut self,
+        rows: Range<usize>,
+        scratch: &'s mut BlockBuf,
+    ) -> VortexResult<BlockIn<'s>> {
+        let (first, end) = (self.offset + rows.start, self.offset + rows.end);
+        let chunk = first / FL_CHUNK_SIZE;
+        let chunk_start = chunk * FL_CHUNK_SIZE;
+        let block: &mut [T] = if end <= chunk_start + FL_CHUNK_SIZE {
+            // On the source's own grid every range lies in one chunk: lend part of it.
+            let values = self.unpack(chunk, scratch.out::<T::Physical>(FL_CHUNK_SIZE));
+            &mut values[first - chunk_start..end - chunk_start]
+        } else {
+            // A range straddling two chunks is assembled from both.
+            let mut straddle = self.straddle.take().unwrap_or_else(BlockBuf::new_boxed);
+            let out = scratch.out::<T>(rows.len());
+            let mut written = 0;
+            for chunk in chunk..=(end - 1) / FL_CHUNK_SIZE {
+                let chunk_start = chunk * FL_CHUNK_SIZE;
+                let values = self.unpack(chunk, straddle.out::<T::Physical>(FL_CHUNK_SIZE));
+                let part = &values[first.max(chunk_start) - chunk_start
+                    ..end.min(chunk_start + FL_CHUNK_SIZE) - chunk_start];
+                out[written..written + part.len()].write_copy_of_slice(part);
+                written += part.len();
+            }
+            self.straddle = Some(straddle);
+            // SAFETY: the chunks' parts cover the `rows.len()` values of `out`.
+            unsafe { std::mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(out) }
         };
-        let block = &mut values[first - chunk_start..end - chunk_start];
         if let Some(patches) = &mut self.patches {
-            patches.apply(first - self.offset, block);
+            patches.apply(rows.start, block);
         }
         Ok(BlockIn::from_slice(block))
+    }
+
+    fn block_offset(&self) -> usize {
+        self.offset
     }
 }
 
@@ -238,6 +269,7 @@ impl<T: NativePType + WrappingAdd> BlockOp for AddReferences<T> {
                 // SAFETY: the chunk runs cover the block, and each run's values were overwritten.
                 Ok(unsafe { block.assume_written() })
             }
+            _ => vortex_bail!("FoR adds per-chunk references to copied or in-place blocks only"),
         }
     }
 }
@@ -280,15 +312,21 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::block::BLOCK_LEN;
+    use vortex_array::block::BlockBuf;
     use vortex_array::block::fused_chain_count;
     use vortex_array::block::in_place_chain_count;
     use vortex_array::scalar::Scalar;
     use vortex_array::test_harness::trace::trace_op;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::for_block_source;
+    use super::packed_source;
+    use crate::BitPacked;
     use crate::FoR;
     use crate::bitpack_compress::bitpack_encode;
 
@@ -439,6 +477,7 @@ mod tests {
             .filter(|line| {
                 line.starts_with("ExecuteSpine")
                     || line.starts_with("fuse ")
+                    || line.starts_with("drive ")
                     || line.starts_with("block_op")
             })
             .collect::<Vec<_>>()
@@ -446,23 +485,30 @@ mod tests {
     }
 
     /// FoR over BitPacked alone runs FoR's own fused kernel. Above it, each FoR asks for its
-    /// child as its spine, and the chain fuses as soon as the leaf can emit blocks: FoR over
-    /// BitPacked unpacks into scratch, ops that keep the width add their reference in place, and
-    /// the last op writes the output. With two FoRs waiting, the leaf is FoR(FoR(BitPacked)),
-    /// whose own op runs over its child's source.
+    /// child as its spine, so the executor descends to FoR over BitPacked. On the way back up that
+    /// leaf starts a block program, each FoR extends it with its op, and the root drives it once:
+    /// FoR over BitPacked unpacks into scratch, ops that keep the width add their reference in
+    /// place, and the last op writes the output.
     #[rstest]
     #[case::fused_for_bp_alone(1, "")]
     #[case::two_levels(
         2,
         "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
-fuse top=fastlanes.for.v2(u32, len=3000) input=source frames=1 ops=1
+fuse start input=source array=fastlanes.for.v2(u32, len=3000)
+fuse extend parent=fastlanes.for.v2(u32, len=3000) ops=1
+drive input=source ops=1 len=3000
 block_op 0 copy u32->u32 scratch0 -> output"
     )]
     #[case::four_levels(
         4,
         "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
 ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
-fuse top=fastlanes.for.v2(u32, len=3000) input=source frames=2 ops=3
+ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
+fuse start input=source array=fastlanes.for.v2(u32, len=3000)
+fuse extend parent=fastlanes.for.v2(u32, len=3000) ops=1
+fuse extend parent=fastlanes.for.v2(u32, len=3000) ops=2
+fuse extend parent=fastlanes.for.v2(u32, len=3000) ops=3
+drive input=source ops=3 len=3000
 block_op 0 in_place u32->u32 scratch0 -> scratch0
 block_op 1 in_place u32->u32 scratch0 -> scratch0
 block_op 2 copy u32->u32 scratch0 -> output"
@@ -472,8 +518,9 @@ block_op 2 copy u32->u32 scratch0 -> output"
         Ok(())
     }
 
-    /// Three FoRs over a canonical leaf. A leaf another owner shares is copied into scratch by
-    /// the first op; one the executor owns is decoded block by block in its own buffer.
+    /// Three FoRs over a canonical leaf: the innermost FoR's own op over the leaf starts the
+    /// program, and each FoR above extends it. A leaf another owner shares is copied into scratch
+    /// by the first op; one the executor owns is decoded block by block in its own buffer.
     #[test]
     fn canonical_leaf_schedule() -> VortexResult<()> {
         let build = || -> VortexResult<ArrayRef> {
@@ -483,15 +530,19 @@ block_op 2 copy u32->u32 scratch0 -> output"
             }
             Ok(array)
         };
-        let frames = "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
+        let built = "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
 ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
-fuse top=fastlanes.for.v2(u32, len=3000) input=canonical frames=2 ops=3";
+fuse start input=canonical array=vortex.primitive(u32, len=3000)
+fuse extend parent=fastlanes.for.v2(u32, len=3000) ops=1
+fuse extend parent=fastlanes.for.v2(u32, len=3000) ops=2
+fuse extend parent=fastlanes.for.v2(u32, len=3000) ops=3
+drive input=canonical ops=3 len=3000";
 
         let shared = build()?;
         assert_eq!(
             fusion_trace(shared.clone())?,
             format!(
-                "{frames}
+                "{built}
 block_op 0 copy u32->u32 source -> scratch0
 block_op 1 in_place u32->u32 scratch0 -> scratch0
 block_op 2 copy u32->u32 scratch0 -> output"
@@ -502,7 +553,7 @@ block_op 2 copy u32->u32 scratch0 -> output"
         assert_eq!(
             fusion_trace(build()?)?,
             format!(
-                "{frames}
+                "{built}
 block_op 0 in_place u32->u32 leaf -> leaf
 block_op 1 in_place u32->u32 leaf -> leaf
 block_op 2 in_place u32->u32 leaf -> leaf"
@@ -525,9 +576,54 @@ block_op 2 in_place u32->u32 leaf -> leaf"
         assert_eq!(
             fusion_trace(array)?,
             "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3072) child=fastlanes.bitpacked.v2(u32, len=3072)
-fuse top=fastlanes.for.v2(u32, len=3072) input=source frames=1 ops=1
+fuse start input=source array=fastlanes.bitpacked.v2(u32, len=3072)
+fuse extend parent=fastlanes.for.v2(u32, len=3072) ops=1
+drive input=source ops=1 len=3072
 block_op 0 copy u32->u32 scratch0 -> output"
         );
+        Ok(())
+    }
+
+    /// A packed source fills any in-order ranges, including ones that straddle FastLanes chunks,
+    /// which the executor only asks for when a grid other than the source's own is in use.
+    #[rstest]
+    #[case::plain(false)]
+    #[case::fused_reference(true)]
+    fn packed_source_fills_any_ranges(#[case] with_reference: bool) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // A sliced BitPacked array, starting part way into its first chunk, with patches.
+        let bp = for_stack(5000, 0, false)?
+            .slice(517..4800)?
+            .execute::<ArrayRef>(&mut ctx)?;
+        assert!(bp.is::<BitPacked>());
+        let array = if with_reference {
+            FoR::try_new(bp, Scalar::from(1000u32))?.into_array()
+        } else {
+            bp
+        };
+        let expected = array.clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let mut source = if with_reference {
+            for_block_source(array.as_::<FoR>(), &mut ctx)?
+        } else {
+            packed_source(array.as_::<BitPacked>(), &mut ctx)?
+        }
+        .vortex_expect("a source");
+        let mut scratch = BlockBuf::new_boxed();
+        let mut values = Vec::new();
+        for rows in [0..300, 300..1324, 1324..1500, 1500..2900, 2900..array.len()]
+            .into_iter()
+            .flat_map(|rows| {
+                // At most one block per call.
+                (rows.start..rows.end)
+                    .step_by(BLOCK_LEN)
+                    .map(move |start| start..(start + BLOCK_LEN).min(rows.end))
+            })
+        {
+            let block = source.fill(rows.clone(), &mut scratch)?;
+            assert_eq!(block.len(), rows.len());
+            values.extend_from_slice(block.as_slice::<u32>());
+        }
+        assert_eq!(values, expected.as_slice::<u32>());
         Ok(())
     }
 }

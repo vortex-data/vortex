@@ -3,45 +3,36 @@
 
 //! Block-fused execution of primitive encoding chains.
 //!
-//! The iterative executor descends an encoding tree with `ExecuteSlot` frames. An encoding that
-//! asks for its last child with [`ExecuteSpine`](crate::ExecutionStep::ExecuteSpine) promises that
-//! once that child is canonical it only transforms the child's values row by row. When the
-//! executor reaches a leaf, the spine frames on top of its stack are therefore a chain of parents
-//! that each transform their child. Instead of executing the leaf to a full-length buffer,
-//! popping, running the parent's kernel into another full-length buffer and so on, the executor
-//! fuses the chain: the leaf emits blocks of at most [`BLOCK_LEN`] rows ([`BlockSource`]), each
-//! parent transforms a block ([`BlockOp`]), and only the outermost parent writes full-length
-//! output. Every intermediate stays in L1.
+//! The iterative executor trampolines down an encoding tree with `ExecuteSlot` frames. An
+//! encoding that asks for its last child with [`ExecuteSpine`](crate::ExecutionStep::ExecuteSpine)
+//! promises that once that child is canonical it only transforms the child's values row by row,
+//! as its [`VTable::block_op`](crate::vtable::VTable::block_op) does.
 //!
-//! An encoding opts in by requesting its spine with [`require_spine!`](crate::require_spine) and
-//! implementing [`VTable::block_op`](crate::vtable::VTable::block_op) for that slot, and a leaf by
-//! implementing [`VTable::block_source`](crate::vtable::VTable::block_source).
+//! On the way back up, instead of executing a child into a full-length buffer and then the
+//! parent's kernel into another, the executor builds a block program: the first child that can
+//! emit blocks ([`VTable::block_source`](crate::vtable::VTable::block_source), or a canonical
+//! primitive array) starts it, and each spine parent above extends it with its [`BlockOp`]. The
+//! parent becomes a `Fused` array that carries the program up the stack. When the next parent
+//! cannot extend it, or at the root, executing the fused array drives the program: blocks of at
+//! most [`BLOCK_LEN`] rows flow through every op in L1, and only the last op writes full-length
+//! output. Execution then carries on as before.
 
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
+use std::ops::Range;
 
 use num_traits::AsPrimitive;
-use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_compute::lane_kernels::ReinterpretSink;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 
-use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
-use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
-use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
-use crate::trace_op;
-use crate::validity::Validity;
 
 #[cfg(any(test, feature = "_test-harness"))]
 thread_local! {
@@ -254,6 +245,7 @@ impl<'a> BlockInOut<'a> {
 }
 
 /// One block for a [`BlockOp`] to transform: from an input into separate memory, or in place.
+#[non_exhaustive]
 pub enum Block<'a> {
     /// Read `input` and write `out`, which never alias.
     Copy {
@@ -355,11 +347,24 @@ impl<'a> Written<'a> {
 
 /// The bottom of a fused chain: emits an array's own values, block by block, in row order.
 pub trait BlockSource: Send {
-    /// Emit the next block of at most [`BLOCK_LEN`] rows, starting where the last one ended.
+    /// Emit exactly the values of `rows`, at most [`BLOCK_LEN`] of them, written into `scratch`
+    /// or borrowed from memory the source owns.
     ///
-    /// The block holds values of the array's primitive type, written into `scratch` or borrowed
-    /// from the source. The executor stops calling once the blocks cover the array.
-    fn next_block<'s>(&'s mut self, scratch: &'s mut BlockBuf) -> VortexResult<BlockIn<'s>>;
+    /// The executor asks for consecutive ranges in row order, starting at 0, and stops once they
+    /// cover the array. The returned block stays valid until the next call. A source only writes
+    /// to the `scratch` it is given.
+    fn fill<'s>(
+        &'s mut self,
+        rows: Range<usize>,
+        scratch: &'s mut BlockBuf,
+    ) -> VortexResult<BlockIn<'s>>;
+
+    /// The row at which this source would start its second block if it chose its own blocks,
+    /// modulo [`BLOCK_LEN`]: a sliced BitPacked array's offset into its first chunk, so its blocks
+    /// line up with its chunks. The executor cuts blocks at these boundaries.
+    fn block_offset(&self) -> usize {
+        0
+    }
 }
 
 /// A parent's transform of one block of its child's values into one block of its own.
@@ -431,254 +436,12 @@ impl<T: NativePType> BlockPatches<T> {
     }
 }
 
-/// Emits a canonical primitive array's values straight from its buffer.
-pub(crate) struct PrimitiveSource<T> {
-    values: Buffer<T>,
-    next: usize,
-}
+mod fused;
+mod program;
+#[cfg(test)]
+mod tests;
 
-impl<T: NativePType> PrimitiveSource<T> {
-    pub(crate) fn new(values: Buffer<T>) -> Self {
-        Self { values, next: 0 }
-    }
-}
-
-impl<T: NativePType> BlockSource for PrimitiveSource<T> {
-    fn next_block<'s>(&'s mut self, _scratch: &'s mut BlockBuf) -> VortexResult<BlockIn<'s>> {
-        let start = self.next;
-        let end = (start + BLOCK_LEN).min(self.values.len());
-        self.next = end;
-        Ok(BlockIn::from_slice(&self.values.as_slice()[start..end]))
-    }
-}
-
-/// The primitive type of a fusable array, or `None` if it is not primitive.
-pub(crate) fn fusable_ptype(array: &ArrayRef) -> Option<PType> {
-    match array.dtype() {
-        DType::Primitive(ptype, _) => Some(*ptype),
-        _ => None,
-    }
-}
-
-/// The bottom of a chain the executor runs.
-pub(crate) enum FusionInput {
-    /// A leaf's block source.
-    Source(Box<dyn BlockSource>),
-    /// A canonical primitive array, which the chain may decode in place when the executor holds
-    /// its only reference.
-    Canonical(PrimitiveArray),
-}
-
-/// Run `input` through `ops`, from the leaf up, into `len` values of the last type in `ptypes`.
-///
-/// `ptypes[i]` is the type `ops[i]` reads and `ptypes[i + 1]` the type it writes.
-pub(crate) fn run_fused(
-    input: FusionInput,
-    ops: &mut [Box<dyn BlockOp>],
-    ptypes: &[PType],
-    len: usize,
-    validity: Validity,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray> {
-    debug_assert_eq!(ptypes.len(), ops.len() + 1);
-    #[cfg(any(test, feature = "_test-harness"))]
-    FUSED_CHAINS.with(|count| count.set(count.get() + 1));
-    let out_ptype = *ptypes.last().vortex_expect("at least one type");
-    let mut source: Box<dyn BlockSource> = match input {
-        FusionInput::Source(source) => source,
-        FusionInput::Canonical(array) => {
-            let in_place = (0..ops.len()).all(|i| in_place_op(ops, ptypes, i));
-            match_each_native_ptype!(array.ptype(), |S| {
-                match array.try_into_buffer_mut::<S>() {
-                    Ok(mut values) if in_place => {
-                        // SAFETY: `values` holds `len` initialized values of `ptypes[0]`, and
-                        // every op keeps the width, so each block is overwritten in place.
-                        unsafe {
-                            run_blocks_in_place(ops, ptypes, len, values.as_mut_ptr().cast())?
-                        };
-                        #[cfg(any(test, feature = "_test-harness"))]
-                        IN_PLACE_CHAINS.with(|count| count.set(count.get() + 1));
-                        return Ok(PrimitiveArray::from_byte_buffer(
-                            values.into_byte_buffer().freeze(),
-                            out_ptype,
-                            validity,
-                        ));
-                    }
-                    Ok(values) => {
-                        Box::new(PrimitiveSource::new(values.freeze())) as Box<dyn BlockSource>
-                    }
-                    Err(values) => Box::new(PrimitiveSource::new(values)),
-                }
-            })
-        }
-    };
-    match_each_native_ptype!(out_ptype, |T| {
-        let mut output = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
-        let dst = output.spare_capacity_mut().as_mut_ptr().cast::<u8>();
-        // SAFETY: `dst` has room for `len` values of `T`, the type of `ptypes.last()`.
-        unsafe { run_blocks(source.as_mut(), ops, ptypes, len, dst)? };
-        // SAFETY: `run_blocks` wrote every one of the `len` values.
-        unsafe { output.set_len(len) };
-        Ok(PrimitiveArray::new(output.freeze(), validity))
-    })
-}
-
-/// Whether `ops[i]` may overwrite its input: it supports it and keeps the width.
-fn in_place_op(ops: &[Box<dyn BlockOp>], ptypes: &[PType], i: usize) -> bool {
-    ops[i].supports_in_place() && ptypes[i].byte_width() == ptypes[i + 1].byte_width()
-}
-
-/// Run every op in place over `len` values of `ptypes[0]` at `values`.
-///
-/// # Safety
-///
-/// `values` must hold `len` initialized values of `ptypes[0]`, and every op must be in place.
-unsafe fn run_blocks_in_place(
-    ops: &mut [Box<dyn BlockOp>],
-    ptypes: &[PType],
-    len: usize,
-    values: *mut u8,
-) -> VortexResult<()> {
-    let width = ptypes[0].byte_width();
-    let mut start = 0;
-    while start < len {
-        let n = BLOCK_LEN.min(len - start);
-        // SAFETY: `start + n <= len`.
-        let ptr = unsafe { values.add(start * width) };
-        for (i, op) in ops.iter_mut().enumerate() {
-            let block = Block::InPlace(BlockInOut {
-                ptr,
-                len: n,
-                in_ptype: ptypes[i],
-                out_ptype: ptypes[i + 1],
-                _borrow: PhantomData,
-            });
-            if start == 0 {
-                trace_op!(record_block_op(
-                    i,
-                    "in_place",
-                    "leaf",
-                    "leaf",
-                    ptypes[i],
-                    ptypes[i + 1]
-                ));
-            }
-            check_written(&op.process(start, block)?, ptr, n, ptypes[i + 1])?;
-        }
-        start += n;
-    }
-    Ok(())
-}
-
-/// How a trace names the memory a block lives in.
-fn scratch_name(scratch: Option<usize>) -> &'static str {
-    match scratch {
-        None => "source",
-        Some(0) => "scratch0",
-        Some(_) => "scratch1",
-    }
-}
-
-/// Check an op wrote the block it was handed.
-fn check_written(
-    written: &Written<'_>,
-    ptr: *mut u8,
-    len: usize,
-    ptype: PType,
-) -> VortexResult<()> {
-    vortex_ensure!(
-        std::ptr::eq(written.ptr, ptr) && written.len == len && written.ptype == ptype,
-        "block op returned a block other than the one it was handed"
-    );
-    Ok(())
-}
-
-/// Run `source` through `ops` into `dst`, overwriting scratch blocks in place where an op allows
-/// it and copying between two scratch blocks where it does not. The last op writes `dst`.
-///
-/// # Safety
-///
-/// `dst` must have room for `len` values of `ptypes.last()`.
-unsafe fn run_blocks(
-    source: &mut dyn BlockSource,
-    ops: &mut [Box<dyn BlockOp>],
-    ptypes: &[PType],
-    len: usize,
-    dst: *mut u8,
-) -> VortexResult<()> {
-    let mut scratch = [BlockBuf::new_boxed(), BlockBuf::new_boxed()];
-    let in_place: Vec<bool> = (0..ops.len())
-        .map(|i| in_place_op(ops, ptypes, i))
-        .collect();
-    let out_width = ptypes[ops.len()].byte_width();
-    let last = ops.len() - 1;
-    let mut start = 0;
-    while start < len {
-        let block = source.next_block(&mut scratch[0])?;
-        let n = block.len();
-        vortex_ensure!(
-            n > 0 && start + n <= len,
-            "block source emitted {n} rows at row {start} of {len}"
-        );
-        vortex_ensure_eq!(block.ptype(), ptypes[0]);
-        let mut cur = block.ptr.cast_mut();
-        // Which scratch block holds the current values, if any: a source may lend its own memory,
-        // which ops must not overwrite.
-        let mut cur_scratch = scratch.iter().position(|buf| buf.contains(cur));
-        for (i, op) in ops.iter_mut().enumerate() {
-            let out_ptype = ptypes[i + 1];
-            let from = scratch_name(cur_scratch);
-            let block = if i != last && in_place[i] && cur_scratch.is_some() {
-                if start == 0 {
-                    trace_op!(record_block_op(
-                        i, "in_place", from, from, ptypes[i], out_ptype
-                    ));
-                }
-                Block::InPlace(BlockInOut {
-                    ptr: cur,
-                    len: n,
-                    in_ptype: ptypes[i],
-                    out_ptype,
-                    _borrow: PhantomData,
-                })
-            } else {
-                let out = if i == last {
-                    if start == 0 {
-                        trace_op!(record_block_op(
-                            i, "copy", from, "output", ptypes[i], out_ptype
-                        ));
-                    }
-                    // SAFETY: `start + n <= len`, so the block fits in `dst`.
-                    unsafe { dst.add(start * out_width) }
-                } else {
-                    let target = usize::from(cur_scratch == Some(0));
-                    cur_scratch = Some(target);
-                    if start == 0 {
-                        let to = scratch_name(cur_scratch);
-                        trace_op!(record_block_op(i, "copy", from, to, ptypes[i], out_ptype));
-                    }
-                    scratch[target].as_mut_ptr()
-                };
-                let copy = Block::Copy {
-                    input: BlockIn {
-                        ptr: cur,
-                        len: n,
-                        ptype: ptypes[i],
-                        _borrow: PhantomData,
-                    },
-                    out: BlockOut {
-                        ptr: out,
-                        len: n,
-                        ptype: out_ptype,
-                        _borrow: PhantomData,
-                    },
-                };
-                cur = out;
-                copy
-            };
-            check_written(&op.process(start, block)?, cur, n, out_ptype)?;
-        }
-        start += n;
-    }
-    Ok(())
-}
+pub(crate) use fused::fuse_into_parent;
+pub(crate) use program::BlockProgram;
+pub(crate) use program::ProgramInput;
+pub(crate) use program::fusable_ptype;
