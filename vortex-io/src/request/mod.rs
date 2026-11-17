@@ -3,11 +3,20 @@
 
 //! IO requests, results, and the source that fulfils them.
 //!
-//! The protocol moves bytes at a range. A source has exactly one other property a consumer may
-//! ask for, its length, because a Vortex file cannot be located from its start without it.
-//! Nothing else is a request: anything a stage needs that is not bytes at a range is
-//! construction-time data for that stage.
+//! The protocol moves bytes at a range of a byte source. A source has exactly one other property
+//! a consumer may ask for, its length, because a Vortex file cannot be located from its start
+//! without it. The one request that is not about an existing source opens a new one: a planner
+//! that discovers a file mid-plan asks for it to be [opened](IoTarget::Open), and is answered with
+//! the [`SourceId`] its later reads name. Anything else a stage needs is construction-time data
+//! for that stage.
+//!
+//! Every request names the source it reads. Ids are minted by a [`SourcesIoService`] when a source
+//! is registered or opened, never defaulted, so a plan reads any number of files through one
+//! service.
 
+use std::fmt;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
@@ -17,17 +26,46 @@ use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+mod open;
+mod read_at;
 mod source;
+mod sources;
 
+pub use open::FileSystemOpenable;
+pub use open::Openable;
+pub use open::ReadAtOpenable;
+pub use read_at::ReadAtIoService;
 pub use source::ReadAtIoSource;
+pub use sources::SourcesIoService;
+
+/// The byte source a request reads, such as one file of a table.
+///
+/// Only a [`SourcesIoService`] mints ids, when a source is registered with it or opened through
+/// it. There is no default and no public constructor, so no planner can name a source it was not
+/// given.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SourceId(u32);
+
+impl SourceId {
+    /// The id's number, unique within the service that minted it. For messages and ordering.
+    pub fn index(self) -> u32 {
+        self.0
+    }
+}
+
+impl fmt::Display for SourceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "source {}", self.0)
+    }
+}
 
 /// Consumer-chosen label for one request, unique within the issuing object.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IoRequestId(pub u32);
 
-/// What to fetch from the source: its length, or bytes at a range. This enum is closed; see the
-/// module documentation.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+/// What to fetch from the source: its length, bytes at a range, or a new source to open. This
+/// enum is closed; see the module documentation.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum IoTarget {
     /// Total length of the source in bytes.
     Size,
@@ -40,6 +78,41 @@ pub enum IoTarget {
         /// The alignment the delivered bytes have at least.
         alignment: Alignment,
     },
+    /// Opens a new byte source, answered with [`IoResult::Opened`]. Two opens with the same
+    /// [key](Openable::key) are answered with the same id. Addressed to the
+    /// [service's own id](SourcesIoService::id), not to a source.
+    Open(OpenTarget),
+}
+
+/// The thing an [`IoTarget::Open`] opens. Compared and hashed by its [key](Openable::key).
+#[derive(Clone)]
+pub struct OpenTarget(pub Arc<dyn Openable>);
+
+impl OpenTarget {
+    /// A target opening `openable`.
+    pub fn new(openable: impl Openable) -> Self {
+        Self(Arc::new(openable))
+    }
+}
+
+impl fmt::Debug for OpenTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Open").field(self.0.key()).finish()
+    }
+}
+
+impl PartialEq for OpenTarget {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.key() == other.0.key()
+    }
+}
+
+impl Eq for OpenTarget {}
+
+impl Hash for OpenTarget {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.key().hash(state);
+    }
 }
 
 impl IoTarget {
@@ -64,9 +137,11 @@ pub enum IoIntent {
     Announce,
 }
 
-/// One request: a consumer-chosen id and the target it names.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+/// One request: the source it reads, a consumer-chosen id, and the target it names.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IoRequest {
+    /// The source the request reads, or for an [`IoTarget::Open`], the service that opens it.
+    pub source: SourceId,
     /// Required delivery, background prefetch, or coalescing-only interest.
     pub intent: IoIntent,
     /// Identifies the request within the issuing object.
@@ -79,13 +154,15 @@ pub struct IoRequest {
 pub type IoBatch = Vec<IoRequest>;
 
 /// Result for one request. The variant matches the target: `Size` for `Size`, `Bytes` for
-/// `Range`. The driver checks this before delivering, so a consumer never sees a mismatch.
+/// `Range`, `Opened` for `Open`. The driver checks this before delivering, so a consumer never sees a mismatch.
 #[derive(Debug, Clone)]
 pub enum IoResult {
     /// Total length of the source in bytes.
     Size(u64),
     /// The bytes of a range request, possibly not yet resident on the host.
     Bytes(BufferHandle),
+    /// The id later requests name to read the source an [`IoTarget::Open`] opened.
+    Opened(SourceId),
 }
 
 impl IoResult {
@@ -93,7 +170,9 @@ impl IoResult {
     pub fn matches(&self, target: &IoTarget) -> bool {
         matches!(
             (self, target),
-            (Self::Size(_), IoTarget::Size) | (Self::Bytes(_), IoTarget::Range { .. })
+            (Self::Size(_), IoTarget::Size)
+                | (Self::Bytes(_), IoTarget::Range { .. })
+                | (Self::Opened(_), IoTarget::Open(_))
         )
     }
 
@@ -102,6 +181,7 @@ impl IoResult {
         match self {
             Self::Size(_) => "size",
             Self::Bytes(_) => "bytes",
+            Self::Opened(_) => "opened",
         }
     }
 }
@@ -168,27 +248,49 @@ pub trait IoConsumer {
 ///
 /// A consumer that issues requests one after another keeps its id allocation, its in-flight
 /// request, and the delivered result here, so its own state carries none of them.
-#[derive(Default)]
 pub struct IoSlot {
+    source: SourceId,
     next_id: u32,
     request: Option<IoRequest>,
     result: Option<IoResult>,
 }
 
 impl IoSlot {
+    /// A slot whose requests read `source`.
+    pub fn new(source: SourceId) -> Self {
+        Self {
+            source,
+            next_id: 0,
+            request: None,
+            result: None,
+        }
+    }
+
+    /// The source this slot's requests read.
+    pub fn source(&self) -> SourceId {
+        self.source
+    }
+
     /// Issues a request for `target` with a fresh id. Panics if one is already outstanding or
     /// its result has not been taken, since that is a bug in the owner.
     pub fn issue(&mut self, target: IoTarget) -> IoBatch {
+        self.issue_to(self.source, target)
+    }
+
+    /// Like [`issue`](Self::issue), naming `source` instead of the slot's own, such as the
+    /// service that answers an [`IoTarget::Open`].
+    pub fn issue_to(&mut self, source: SourceId, target: IoTarget) -> IoBatch {
         if self.request.is_some() || self.result.is_some() {
             vortex_panic!("IoSlot: issue while a request is outstanding");
         }
         let request = IoRequest {
+            source,
             intent: IoIntent::Fetch,
             request: IoRequestId(self.next_id),
             target,
         };
         self.next_id += 1;
-        self.request = Some(request);
+        self.request = Some(request.clone());
         vec![request]
     }
 
