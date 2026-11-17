@@ -23,8 +23,25 @@ pub trait ExprSerializeProtoExt {
 /// already-serialized expressions keep round-tripping.
 pub(crate) const ROOT_ID: &str = "vortex.root";
 
+pub const MAX_EXPR_PROTO_DEPTH: usize = 100;
+
+fn ensure_proto_depth(depth: usize) -> VortexResult<()> {
+    vortex_ensure!(
+        depth <= MAX_EXPR_PROTO_DEPTH,
+        "expression nesting depth exceeds the maximum of {MAX_EXPR_PROTO_DEPTH}"
+    );
+    Ok(())
+}
+
 impl ExprSerializeProtoExt for Expression {
     fn serialize_proto(&self) -> VortexResult<pb::Expr> {
+        self.serialize_proto_at_depth(1)
+    }
+}
+
+impl Expression {
+    fn serialize_proto_at_depth(&self, depth: usize) -> VortexResult<pb::Expr> {
+        ensure_proto_depth(depth)?;
         if let Expression::Variable(name) = self {
             return Err(unbound_variable(name));
         }
@@ -39,7 +56,7 @@ impl ExprSerializeProtoExt for Expression {
         let children = self
             .children()
             .iter()
-            .map(|child| child.serialize_proto())
+            .map(|child| child.serialize_proto_at_depth(depth + 1))
             .try_collect()?;
 
         let metadata = scalar_fn.options().serialize()?.ok_or_else(|| {
@@ -60,6 +77,15 @@ impl ExprSerializeProtoExt for Expression {
 
 impl Expression {
     pub fn from_proto(expr: &pb::Expr, session: &VortexSession) -> VortexResult<Expression> {
+        Self::from_proto_at_depth(expr, session, 1)
+    }
+
+    fn from_proto_at_depth(
+        expr: &pb::Expr,
+        session: &VortexSession,
+        depth: usize,
+    ) -> VortexResult<Expression> {
+        ensure_proto_depth(depth)?;
         // Root is not a registered scalar fn, so it must be resolved before the registry lookup.
         if expr.id == ROOT_ID {
             vortex_ensure!(
@@ -75,7 +101,7 @@ impl Expression {
         let children = expr
             .children
             .iter()
-            .map(|e| Expression::from_proto(e, session))
+            .map(|e| Expression::from_proto_at_depth(e, session, depth + 1))
             .collect::<VortexResult<Vec<_>>>()?;
 
         let scalar_fn = if let Some(vtable) = session.scalar_fns().registry().get(&expr_id) {
