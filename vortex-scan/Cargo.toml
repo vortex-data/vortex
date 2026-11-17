@@ -14,22 +14,42 @@ version = { workspace = true }
 [package.metadata.docs.rs]
 all-features = true
 
+[features]
+_test-harness = ["vortex-array/_test-harness"]
+
 [dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+async-lock = { workspace = true }
+async-trait = { workspace = true }
+bit-vec = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+once_cell = { workspace = true }
+parking_lot = { workspace = true }
+paste = { workspace = true }
+roaring = { workspace = true }
+rustc-hash = { workspace = true }
+sketches-ddsketch = { workspace = true }
+smallvec = { workspace = true }
+termtree = { workspace = true }
+tracing = { workspace = true }
 vortex-array = { workspace = true }
+vortex-arrow = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
+vortex-expr = { workspace = true }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-metrics = { workspace = true }
+vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
-async-trait = { workspace = true }
-futures = { workspace = true }
-roaring = { workspace = true }
-tracing = { workspace = true }
-
 [dev-dependencies]
-parking_lot = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time"] }
+vortex-io = { workspace = true, features = ["tokio"] }
+insta = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 

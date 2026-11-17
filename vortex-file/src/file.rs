@@ -18,16 +18,16 @@ use vortex_array::expr::Expression;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
+use vortex_layout::lowering::ScanFile;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::metrics::ScanUsage;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::SplitBy;
-use vortex_layout::scan::v2::ScanCache;
-use vortex_layout::scan::v2::ScanFile;
-use vortex_layout::scan::v2::SegmentLocation;
 use vortex_layout::segments::SegmentSource;
 use vortex_layout::segments::UsageSegmentSource;
 use vortex_scan::DataSourceRef;
+use vortex_scan::prepare::ScanCache;
+use vortex_scan::prepare::SegmentLocation;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -281,7 +281,7 @@ impl VortexFile {
     /// The parts of this file the planner-driven scan executor reads through: its root layout,
     /// where each of its segments lives, and its segment source.
     ///
-    /// Pass this to [`vortex_layout::scan::v2::ScanBuilder::new`] to build a V2 scan explicitly.
+    /// Pass this to [`vortex_layout::lowering::ScanBuilder::new`] to build a V2 scan explicitly.
     /// With [caching](Self::with_caching), every returned [`ScanFile`] shares one [`ScanCache`].
     pub fn scan_file(&self) -> ScanFile {
         let (locations, cache) = match &self.scan_cache {

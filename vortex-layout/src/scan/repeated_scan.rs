@@ -364,7 +364,7 @@ fn selected_mask(selection: &Selection, range: &Range<u64>) -> Option<RowMask> {
 fn can_prune_file(ctx: &TaskContext) -> VortexResult<bool> {
     ctx.count::<true>(ScanRecorder::attempt_file_scan);
     if let Some(filter) = &ctx.filter
-        && filter.can_prune_file(ctx.reader.as_ref())?
+        && can_prune_conjuncts(filter, ctx.reader.as_ref())?
     {
         ctx.count::<true>(ScanRecorder::prune_file);
         return Ok(true);
@@ -557,4 +557,16 @@ mod tests {
         assert!(matches!(stream.next().now_or_never(), Some(Some(Err(_)))));
         assert!(matches!(stream.next().now_or_never(), Some(None)));
     }
+}
+
+fn can_prune_conjuncts(
+    filter: &FilterExpr,
+    reader: &dyn crate::LayoutReader,
+) -> VortexResult<bool> {
+    for conjunct in filter.conjuncts() {
+        if reader.can_prune_file(conjunct)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }

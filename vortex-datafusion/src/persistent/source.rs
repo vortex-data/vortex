@@ -37,10 +37,10 @@ use vortex::expr::Expression;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::metrics::ScanMetrics;
-use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::segments::SegmentSource;
 use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
+use vortex::scan::prepare::WeakScanCache;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 

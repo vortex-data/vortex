@@ -24,6 +24,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_layout::plan::physical::PackPlan;
 use vortex_layout::plan::physical::PlanRef;
 use vortex_layout::plan::physical::SegmentScanPlan;
+use vortex_layout::plan::physical::SegmentScanPlanExt;
 use vortex_layout::plan::physical::pipeline::Scan;
 use vortex_layout::plan::physical::pipeline::Split;
 use vortex_layout::plan::physical::pipeline::Turn;

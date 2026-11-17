@@ -35,7 +35,6 @@ use crate::VTable;
 use crate::children::OwnedLayoutChildren;
 use crate::plan::physical::PackPlan;
 use crate::plan::physical::PlanRef;
-use crate::plan::physical::PlanSlots;
 use crate::segments::SegmentSource;
 
 /// Struct layout vtable.
@@ -136,7 +135,7 @@ impl VTable for Struct {
                 layout.struct_fields().clone(),
                 layout.dtype().nullability(),
                 layout.row_count(),
-                PlanSlots::from_layout(&layout.to_layout()),
+                crate::lowering::slots_from_layout(&layout.to_layout()),
             )
         };
         Ok(plan.into_plan())

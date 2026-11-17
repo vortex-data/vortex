@@ -31,6 +31,7 @@ use crate::layouts::flat::reader::FlatReader;
 use crate::plan::physical::FilterPlan;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScanPlan;
+use crate::plan::physical::SegmentScanPlanExt;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 

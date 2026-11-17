@@ -67,8 +67,8 @@ use crate::layouts::zoned::schema::aggregate_stats_table_dtype;
 use crate::layouts::zoned::schema::legacy_stats_table_dtype;
 use crate::layouts::zoned::schema::try_aggregate_fns_from_specs;
 use crate::plan::physical::LegacyStatsPlan;
+use crate::plan::physical::LegacyStatsPlanExt;
 use crate::plan::physical::PlanRef;
-use crate::plan::physical::PlanSlots;
 use crate::plan::physical::ZonedPlan;
 use crate::segments::SegmentSource;
 
@@ -275,7 +275,7 @@ fn zoned_plan<V: VTable<LayoutData = ZonedData>>(layout: &Layout<V>) -> VortexRe
             .ok_or_else(|| vortex_err!("Zoned layout has no data child"))?;
         return data.new_plan();
     }
-    let slots = PlanSlots::from_layout_slots(&layout.to_layout(), [0, 1]);
+    let slots = crate::lowering::slots_from_layout_slots(&layout.to_layout(), [0, 1]);
     let zone_len = u64::try_from(metadata.zone_len())?;
     // A legacy table is converted to the aggregate schema when the plan is optimized.
     Ok(match metadata.legacy_stats() {

@@ -20,6 +20,8 @@ use vortex_array::expr::stats::Stat;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+pub(crate) use vortex_scan::execution::zone_map::aggregate_state_dtype;
+pub(crate) use vortex_scan::execution::zone_map::aggregate_stats_table_dtype;
 use vortex_session::VortexSession;
 
 pub const MAX_IS_TRUNCATED: &str = "max_is_truncated";
@@ -86,20 +88,6 @@ impl AggregateSpecProto {
             options: vec![],
         }
     }
-}
-
-/// Return the auxiliary stats-table schema for a zoned layout.
-pub(crate) fn aggregate_stats_table_dtype(
-    column_dtype: &DType,
-    aggregate_fns: &[AggregateFnRef],
-) -> DType {
-    DType::Struct(
-        StructFields::from_iter(aggregate_fns.iter().filter_map(|aggregate_fn| {
-            aggregate_state_dtype(column_dtype, aggregate_fn)
-                .map(|dtype| (aggregate_fn.to_string(), dtype.as_nullable()))
-        })),
-        Nullability::NonNullable,
-    )
 }
 
 pub(crate) fn legacy_stats_table_dtype(column_dtype: &DType, present_stats: &[Stat]) -> DType {
@@ -172,19 +160,6 @@ pub(crate) fn try_aggregate_fns_from_specs(
         .map(|aggregate_spec| aggregate_spec.to_aggregate_fn_opt(session))
         .collect::<VortexResult<Option<Vec<_>>>>()
         .map(|aggregate_fns| aggregate_fns.map(Arc::from))
-}
-
-pub(crate) fn aggregate_state_dtype(
-    column_dtype: &DType,
-    aggregate_fn: &AggregateFnRef,
-) -> Option<DType> {
-    aggregate_fn.state_dtype(column_dtype).or_else(|| {
-        if let DType::Extension(ext) = column_dtype {
-            aggregate_fn.state_dtype(ext.storage_dtype())
-        } else {
-            None
-        }
-    })
 }
 
 /// Converts a legacy stats table of `table_dtype`, holding `stats` of a `column_dtype` column, to
