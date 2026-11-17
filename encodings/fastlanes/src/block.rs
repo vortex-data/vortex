@@ -3,13 +3,15 @@
 
 //! Block-fused execution for BitPacked and FoR. See [`vortex_array::block`].
 //!
-//! BitPacked emits blocks by unpacking one FastLanes chunk at a time ([`PackedSource`]). FoR adds
-//! its references to each block of its child ([`AddReference`], [`AddReferences`]), so FoR over
-//! BitPacked fuses as BitPacked's source with FoR's op on top.
+//! BitPacked emits blocks by unpacking one FastLanes chunk at a time ([`PackedSource`]), with the
+//! same [`UnpackStrategy`] the level-wise unpack uses. FoR over BitPacked with one reference is a
+//! source too, unpacking with FastLanes' fused unpack-and-add ([`FoRStrategy`]). FoR over any
+//! other child adds its references to each block ([`AddReference`], [`AddReferences`]).
 
 use std::mem::MaybeUninit;
 
-use fastlanes::BitPacking;
+use fastlanes::FoR as FastLanesFoR;
+use num_traits::AsPrimitive;
 use num_traits::WrappingAdd;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -36,45 +38,105 @@ use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
 use crate::FoR;
 use crate::FoRArrayExt;
+use crate::FoRArraySlotsExt;
 use crate::FoRReferences;
 use crate::FoRSlots;
+use crate::unpack_iter::BitPackingStrategy;
+use crate::unpack_iter::UnpackStrategy;
 
 /// BitPacked's block source, for arrays with one global bit width.
 pub(crate) fn packed_source(
     bp: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<Box<dyn BlockSource>>> {
+    match_each_integer_ptype!(bp.dtype().as_ptype(), |T| {
+        packed_source_with::<T, _>(bp, BitPackingStrategy, |value| value, ctx)
+    })
+}
+
+/// FoR's block source over a BitPacked child with one global reference: FastLanes' fused
+/// unpack adds the reference to each chunk while it unpacks it, as FoR's own execute does.
+pub(crate) fn for_block_source(
+    array: ArrayView<'_, FoR>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Box<dyn BlockSource>>> {
+    let (Some(bp), FoRReferences::Global(reference)) =
+        (array.encoded().as_opt::<BitPacked>(), array.references())
+    else {
+        return Ok(None);
+    };
+    match_each_integer_ptype!(bp.dtype().as_ptype(), |T| {
+        let reference = reference
+            .as_primitive()
+            .typed_value::<T>()
+            .vortex_expect("FoR reference is non-null");
+        packed_source_with::<T, _>(
+            bp,
+            FoRStrategy(reference.as_()),
+            |value: T| value.wrapping_add(reference),
+            ctx,
+        )
+    })
+}
+
+/// Unpacks a chunk and adds a reference in one pass.
+struct FoRStrategy<P>(P);
+
+impl<T: PhysicalPType<Physical: FastLanesFoR>> UnpackStrategy<T> for FoRStrategy<T::Physical> {
+    unsafe fn unpack_chunk(
+        &self,
+        bit_width: usize,
+        chunk: &[T::Physical],
+        dst: &mut [T::Physical],
+    ) {
+        // SAFETY: the caller guarantees the sizes `unchecked_unfor_pack` requires.
+        unsafe { T::Physical::unchecked_unfor_pack(bit_width, chunk, self.0, dst) }
+    }
+}
+
+/// A source unpacking each chunk of `bp` with `strategy`, and patching its values mapped by
+/// `patch`.
+fn packed_source_with<T, S>(
+    bp: ArrayView<'_, BitPacked>,
+    strategy: S,
+    patch: impl Fn(T) -> T,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Box<dyn BlockSource>>>
+where
+    T: PhysicalPType,
+    S: UnpackStrategy<T> + Send + 'static,
+{
     let BitWidthsView::Global(bit_width) = bp.bit_widths() else {
         return Ok(None);
     };
     let bit_width = usize::from(bit_width);
-    match_each_integer_ptype!(bp.dtype().as_ptype(), |T| {
-        let offset = usize::from(bp.offset());
-        let elems_per_chunk = 128 * bit_width / size_of::<T>();
-        let packed = bp.packed().as_host().clone();
-        vortex_ensure_eq!(
-            packed.len(),
-            (offset + bp.len()).div_ceil(FL_CHUNK_SIZE) * elems_per_chunk * size_of::<T>(),
-            "packed buffer does not hold every chunk"
-        );
-        let patches = bp
-            .patches()
-            .map(|patches| BlockPatches::try_new(&patches, ctx, |_, value: T| value))
-            .transpose()?;
-        Ok(Some(Box::new(PackedSource::<T> {
-            packed,
-            bit_width,
-            elems_per_chunk,
-            offset,
-            len: bp.len(),
-            chunk: 0,
-            patches,
-        }) as Box<dyn BlockSource>))
-    })
+    let offset = usize::from(bp.offset());
+    let elems_per_chunk = 128 * bit_width / size_of::<T>();
+    let packed = bp.packed().as_host().clone();
+    vortex_ensure_eq!(
+        packed.len(),
+        (offset + bp.len()).div_ceil(FL_CHUNK_SIZE) * elems_per_chunk * size_of::<T>(),
+        "packed buffer does not hold every chunk"
+    );
+    let patches = bp
+        .patches()
+        .map(|patches| BlockPatches::try_new(&patches, ctx, |_, value: T| patch(value)))
+        .transpose()?;
+    Ok(Some(Box::new(PackedSource::<T, S> {
+        strategy,
+        packed,
+        bit_width,
+        elems_per_chunk,
+        offset,
+        len: bp.len(),
+        chunk: 0,
+        patches,
+    })))
 }
 
-/// Unpacks one FastLanes chunk per block.
-struct PackedSource<T> {
+/// Unpacks one FastLanes chunk per block with its strategy.
+struct PackedSource<T, S> {
+    strategy: S,
     packed: ByteBuffer,
     bit_width: usize,
     elems_per_chunk: usize,
@@ -86,7 +148,7 @@ struct PackedSource<T> {
     patches: Option<BlockPatches<T>>,
 }
 
-impl<T: PhysicalPType<Physical: BitPacking>> BlockSource for PackedSource<T> {
+impl<T: PhysicalPType, S: UnpackStrategy<T> + Send> BlockSource for PackedSource<T, S> {
     fn next_block<'s>(&'s mut self, scratch: &'s mut BlockBuf) -> VortexResult<BlockIn<'s>> {
         let chunk_start = self.chunk * FL_CHUNK_SIZE;
         let first = self.offset.max(chunk_start);
@@ -109,7 +171,7 @@ impl<T: PhysicalPType<Physical: BitPacking>> BlockSource for PackedSource<T> {
         let values = unsafe {
             let out =
                 std::mem::transmute::<&mut [MaybeUninit<T::Physical>], &mut [T::Physical]>(out);
-            BitPacking::unchecked_unpack(self.bit_width, packed, out);
+            self.strategy.unpack_chunk(self.bit_width, packed, out);
             // `T` and `T::Physical` have the same size and alignment.
             std::mem::transmute::<&mut [T::Physical], &mut [T]>(out)
         };
