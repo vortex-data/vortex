@@ -54,40 +54,87 @@ impl ViewedDType {
 
     /// The viewed [`fbd::DType`] instance.
     fn flatbuffer(&self) -> fbd::DType<'_> {
+        // SAFETY: the location came from a dtype table in this verified buffer.
         unsafe { fbd::DType::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
-    }
-
-    /// Returns the underlying shared buffer
-    fn buffer(&self) -> &FlatBuffer {
-        &self.flatbuffer
     }
 }
 
-impl StructFields {
-    /// Creates a new instance from a flatbuffer-defined object and its underlying buffer.
-    fn from_fb(
-        fb_struct: fbd::Struct_<'_>,
-        buffer: FlatBuffer,
-        session: VortexSession,
-    ) -> VortexResult<Self> {
+impl DType {
+    /// Create a [`DType`] from a flatbuffer buffer.
+    pub fn from_flatbuffer(buffer: FlatBuffer, session: &VortexSession) -> VortexResult<Self> {
+        let fb = root::<fbd::DType>(&buffer)?;
+        DTypeDecoder {
+            lazy_buffer: Some(&buffer),
+            session,
+        }
+        .decode(fb)
+    }
+
+    /// Decode a flatbuffer dtype and all its children before returning it.
+    ///
+    /// File readers use this entry point so a schema error can be returned before the dtype
+    /// reaches statistics, layout readers, or infallible field accessors.
+    pub fn from_flatbuffer_eager(buffer: &[u8], session: &VortexSession) -> VortexResult<Self> {
+        let fb = root::<fbd::DType>(buffer)?;
+        DTypeDecoder {
+            lazy_buffer: None,
+            session,
+        }
+        .decode(fb)
+    }
+}
+
+impl TryFrom<ViewedDType> for DType {
+    type Error = VortexError;
+
+    fn try_from(view: ViewedDType) -> Result<Self, Self::Error> {
+        DTypeDecoder {
+            lazy_buffer: Some(&view.flatbuffer),
+            session: &view.session,
+        }
+        .decode(view.flatbuffer())
+    }
+}
+
+struct DTypeDecoder<'a> {
+    /// When present, retain the verified buffer in lazy field views.
+    lazy_buffer: Option<&'a FlatBuffer>,
+    session: &'a VortexSession,
+}
+
+impl DTypeDecoder<'_> {
+    fn field(&self, fb: fbd::DType<'_>) -> VortexResult<FieldDType> {
+        if let Some(buffer) = self.lazy_buffer {
+            return Ok(FieldDType::from(ViewedDType::from_fb_loc(
+                fb._tab.loc(),
+                buffer.clone(),
+                self.session.clone(),
+            )));
+        }
+
+        Ok(FieldDType::from(self.decode(fb)?))
+    }
+
+    fn fields<'fb>(
+        &self,
+        dtypes: impl ExactSizeIterator<Item = fbd::DType<'fb>>,
+    ) -> VortexResult<Vec<FieldDType>> {
+        let mut fields = Vec::with_capacity(dtypes.len());
+        for dtype in dtypes {
+            fields.push(self.field(dtype)?);
+        }
+        Ok(fields)
+    }
+
+    fn struct_fields(&self, fb_struct: fbd::Struct_<'_>) -> VortexResult<StructFields> {
         let names: FieldNames = fb_struct
             .names()
             .ok_or_else(|| vortex_err!("failed to parse struct names from flatbuffer"))?
             .iter()
             .collect();
-
         let dtypes = fb_struct
             .dtypes()
-            .ok_or_else(|| vortex_err!("failed to parse struct dtypes from flatbuffer"))?
-            .iter()
-            .map(|dt| {
-                FieldDType::from(ViewedDType::from_fb_loc(
-                    dt._tab.loc(),
-                    buffer.clone(),
-                    session.clone(),
-                ))
-            })
-            .collect::<Vec<_>>();
+            .ok_or_else(|| vortex_err!("failed to parse struct dtypes from flatbuffer"))?;
 
         if names.len() != dtypes.len() {
             vortex_bail!(
@@ -97,36 +144,20 @@ impl StructFields {
             );
         }
 
+        let dtypes = self.fields(dtypes.iter())?;
         Ok(StructFields::from_fields(names, dtypes))
     }
-}
 
-impl UnionVariants {
-    /// Creates a new instance from a flatbuffer-defined object and its underlying buffer.
-    fn from_fb(
-        fb_union: fbd::Union<'_>,
-        buffer: FlatBuffer,
-        session: VortexSession,
-    ) -> VortexResult<Self> {
+    fn union_variants(&self, fb_union: fbd::Union<'_>) -> VortexResult<UnionVariants> {
         let names = fb_union
             .names()
             .ok_or_else(|| vortex_err!("failed to parse union names from flatbuffer"))?
             .iter()
             .collect();
-
         let dtypes = fb_union
             .dtypes()
-            .ok_or_else(|| vortex_err!("failed to parse union dtypes from flatbuffer"))?
-            .iter()
-            .map(|dt| {
-                FieldDType::from(ViewedDType::from_fb_loc(
-                    dt._tab.loc(),
-                    buffer.clone(),
-                    session.clone(),
-                ))
-            })
-            .collect::<Vec<_>>();
-
+            .ok_or_else(|| vortex_err!("failed to parse union dtypes from flatbuffer"))?;
+        let dtypes = self.fields(dtypes.iter())?;
         let type_ids: Vec<u8> = fb_union
             .type_ids()
             .ok_or_else(|| vortex_err!("failed to parse union type_ids from flatbuffer"))?
@@ -136,15 +167,8 @@ impl UnionVariants {
 
         UnionVariants::try_from_fields(names, dtypes, type_ids)
     }
-}
 
-impl MapDType {
-    /// Creates a map dtype from a flatbuffer-defined object and its underlying buffer.
-    fn from_fb(
-        fb_map: fbd::Map<'_>,
-        buffer: FlatBuffer,
-        session: VortexSession,
-    ) -> VortexResult<Self> {
+    fn map_dtype(&self, fb_map: fbd::Map<'_>) -> VortexResult<MapDType> {
         let key = fb_map
             .key_type()
             .ok_or_else(|| vortex_err!("failed to parse map key type from flatbuffer"))?;
@@ -152,38 +176,13 @@ impl MapDType {
             .value_type()
             .ok_or_else(|| vortex_err!("failed to parse map value type from flatbuffer"))?;
 
-        MapDType::try_from_fields(
-            FieldDType::from(ViewedDType::from_fb_loc(
-                key._tab.loc(),
-                buffer.clone(),
-                session.clone(),
-            )),
-            FieldDType::from(ViewedDType::from_fb_loc(value._tab.loc(), buffer, session)),
-            fb_map.keys_sorted(),
-        )
+        MapDType::try_from_fields(self.field(key)?, self.field(value)?, fb_map.keys_sorted())
     }
-}
 
-impl DType {
-    /// Create a [`DType`] from a flatbuffer buffer.
-    pub fn from_flatbuffer(buffer: FlatBuffer, session: &VortexSession) -> VortexResult<Self> {
-        let fb_loc = {
-            let fb_dtype = root::<fbd::DType>(&buffer)?;
-            fb_dtype._tab.loc()
-        };
-        let view = ViewedDType::from_fb_loc(fb_loc, buffer, session.clone());
-        Self::try_from(view)
-    }
-}
-
-impl TryFrom<ViewedDType> for DType {
-    type Error = VortexError;
-
-    fn try_from(vfdt: ViewedDType) -> Result<Self, Self::Error> {
-        let fb = vfdt.flatbuffer();
+    fn decode(&self, fb: fbd::DType<'_>) -> VortexResult<DType> {
         match fb.type_type() {
-            fb::Type::Null => Ok(Self::Null),
-            fb::Type::Bool => Ok(Self::Bool(
+            fb::Type::Null => Ok(DType::Null),
+            fb::Type::Bool => Ok(DType::Bool(
                 fb.type__as_bool()
                     .ok_or_else(|| vortex_err!("failed to parse bool from flatbuffer"))?
                     .nullable()
@@ -193,7 +192,7 @@ impl TryFrom<ViewedDType> for DType {
                 let fb_primitive = fb
                     .type__as_primitive()
                     .ok_or_else(|| vortex_err!("failed to parse primitive from flatbuffer"))?;
-                Ok(Self::Primitive(
+                Ok(DType::Primitive(
                     fb_primitive.ptype().try_into()?,
                     fb_primitive.nullable().into(),
                 ))
@@ -202,18 +201,18 @@ impl TryFrom<ViewedDType> for DType {
                 let fb_decimal = fb
                     .type__as_decimal()
                     .ok_or_else(|| vortex_err!("failed to parse decimal dtype from flatbuffer"))?;
-                Ok(Self::Decimal(
+                Ok(DType::Decimal(
                     DecimalDType::try_new(fb_decimal.precision(), fb_decimal.scale())?,
                     fb_decimal.nullable().into(),
                 ))
             }
-            fb::Type::Utf8 => Ok(Self::Utf8(
+            fb::Type::Utf8 => Ok(DType::Utf8(
                 fb.type__as_utf_8()
                     .ok_or_else(|| vortex_err!("failed to parse utf-8 from flatbuffer"))?
                     .nullable()
                     .into(),
             )),
-            fb::Type::Binary => Ok(Self::Binary(
+            fb::Type::Binary => Ok(DType::Binary(
                 fb.type__as_binary()
                     .ok_or_else(|| vortex_err!("failed to parse binary from flatbuffer"))?
                     .nullable()
@@ -227,12 +226,8 @@ impl TryFrom<ViewedDType> for DType {
                 let list_element = fb_list.element_type().ok_or_else(|| {
                     vortex_err!("failed to parse list element type from flatbuffer")
                 })?;
-                let element_dtype = Self::try_from(ViewedDType::from_fb_loc(
-                    list_element._tab.loc(),
-                    vfdt.buffer().clone(),
-                    vfdt.session.clone(),
-                ))?;
-                Ok(Self::List(
+                let element_dtype = self.decode(list_element)?;
+                Ok(DType::List(
                     Arc::new(element_dtype),
                     fb_list.nullable().into(),
                 ))
@@ -245,12 +240,8 @@ impl TryFrom<ViewedDType> for DType {
                 let list_element = fb_fixed_size_list.element_type().ok_or_else(|| {
                     vortex_err!("failed to parse list element type from flatbuffer")
                 })?;
-                let element_dtype = Self::try_from(ViewedDType::from_fb_loc(
-                    list_element._tab.loc(),
-                    vfdt.buffer().clone(),
-                    vfdt.session.clone(),
-                ))?;
-                Ok(Self::FixedSizeList(
+                let element_dtype = self.decode(list_element)?;
+                Ok(DType::FixedSizeList(
                     Arc::new(element_dtype),
                     fb_fixed_size_list.size(),
                     fb_fixed_size_list.nullable().into(),
@@ -260,31 +251,29 @@ impl TryFrom<ViewedDType> for DType {
                 let fb_map = fb
                     .type__as_map()
                     .ok_or_else(|| vortex_err!("failed to parse map from flatbuffer"))?;
-                let map = MapDType::from_fb(fb_map, vfdt.buffer().clone(), vfdt.session.clone())?;
-                Ok(Self::Map(map, fb_map.nullable().into()))
+                let map = self.map_dtype(fb_map)?;
+                Ok(DType::Map(map, fb_map.nullable().into()))
             }
             fb::Type::Struct_ => {
                 let fb_struct = fb
                     .type__as_struct_()
                     .ok_or_else(|| vortex_err!("failed to parse struct from flatbuffer"))?;
-                let struct_dtype =
-                    StructFields::from_fb(fb_struct, vfdt.buffer().clone(), vfdt.session.clone())?;
+                let struct_dtype = self.struct_fields(fb_struct)?;
 
-                Ok(Self::Struct(struct_dtype, fb_struct.nullable().into()))
+                Ok(DType::Struct(struct_dtype, fb_struct.nullable().into()))
             }
             fb::Type::Union => {
                 let fb_union = fb
                     .type__as_union()
                     .ok_or_else(|| vortex_err!("failed to parse union from flatbuffer"))?;
-                let variants =
-                    UnionVariants::from_fb(fb_union, vfdt.buffer().clone(), vfdt.session.clone())?;
-                Ok(Self::Union(variants, fb_union.nullable().into()))
+                let variants = self.union_variants(fb_union)?;
+                Ok(DType::Union(variants, fb_union.nullable().into()))
             }
             fb::Type::Variant => {
                 let fb_variant = fb
                     .type__as_variant()
                     .ok_or_else(|| vortex_err!("failed to parse variant from flatbuffer"))?;
-                Ok(Self::Variant(fb_variant.nullable().into()))
+                Ok(DType::Variant(fb_variant.nullable().into()))
             }
             fb::Type::Extension => {
                 let fb_ext = fb
@@ -298,12 +287,8 @@ impl TryFrom<ViewedDType> for DType {
                 let storage_dtype = fb_ext.storage_dtype().ok_or_else(|| {
                     vortex_err!("storage_dtype must be present on DType fbs message")
                 })?;
-                let storage_view = ViewedDType::from_fb_loc(
-                    storage_dtype._tab.loc(),
-                    vfdt.buffer().clone(),
-                    vfdt.session.clone(),
-                );
-                let storage_dtype = DType::try_from(storage_view)
+                let storage_dtype = self
+                    .decode(storage_dtype)
                     .map_err(|e| e.with_context("failed to create DType from fbs message"))?;
 
                 let metadata = fb_ext
@@ -312,15 +297,15 @@ impl TryFrom<ViewedDType> for DType {
                         vortex_err!("failed to parse extension metadata from flatbuffer")
                     })?
                     .bytes();
-                let ext_dtype = if let Some(vtable) = vfdt.session.dtypes().registry().get(&id) {
+                let ext_dtype = if let Some(vtable) = self.session.dtypes().registry().get(&id) {
                     vtable.deserialize(metadata, storage_dtype)?
-                } else if vfdt.session.allows_unknown() {
+                } else if self.session.allows_unknown() {
                     ForeignExtDType::from_parts(id, metadata.to_vec(), storage_dtype)?
                 } else {
                     return Err(vortex_err!("No such DType extension ID: {}", id));
                 };
 
-                Ok(Self::Extension(ext_dtype))
+                Ok(DType::Extension(ext_dtype))
             }
             _ => Err(vortex_err!("Unknown DType variant")),
         }
@@ -585,15 +570,10 @@ mod test {
 
     fn roundtrip_dtype(dtype: DType) {
         let bytes = dtype.write_flatbuffer_bytes().unwrap();
-        let root_fb = root::<fb::DType>(&bytes).unwrap();
-        let view = ViewedDType::from_fb_loc(
-            root_fb._tab.loc(),
-            FlatBuffer::from(bytes.clone()),
-            SESSION.clone(),
-        );
-
-        let deserialized = DType::try_from(view).unwrap();
-        assert_eq!(dtype, deserialized);
+        let eager = DType::from_flatbuffer_eager(&bytes, &SESSION).unwrap();
+        let lazy = DType::from_flatbuffer(bytes, &SESSION).unwrap();
+        assert_eq!(eager, dtype);
+        assert_eq!(lazy, dtype);
     }
 
     #[test]

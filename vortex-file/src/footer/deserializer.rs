@@ -276,12 +276,8 @@ impl FooterDeserializer {
         initial_read: &[u8],
         segment: &PostscriptSegment,
     ) -> VortexResult<DType> {
-        let sliced_buffer = FlatBuffer::copy_from(checked_segment_slice(
-            initial_read,
-            initial_offset,
-            segment,
-        )?);
-        DType::from_flatbuffer(sliced_buffer, &self.session)
+        let bytes = checked_segment_slice(initial_read, initial_offset, segment)?;
+        DType::from_flatbuffer_eager(bytes, &self.session)
     }
 
     /// Parse the [`FileStatistics`] from the initial read buffer.
@@ -357,12 +353,20 @@ fn checked_segment_slice<'a>(
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::flatbuffers::WriteFlatBufferExt;
+    use vortex_array::flatbuffers::dtype as fb_dtype;
+    use vortex_buffer::Buffer;
+    use vortex_io::session::RuntimeSession;
+    use vortex_layout::session::LayoutSession;
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::OpenOptionsSessionExt;
+    use crate::WriteOptionsSessionExt;
 
     fn segment(offset: u64, length: u32) -> PostscriptSegment {
         PostscriptSegment {
@@ -449,6 +453,51 @@ mod tests {
             .with_size(declared_size);
         let err = deserializer.deserialize().unwrap_err();
         assert!(err.to_string().contains("exceeds declared"), "{err}");
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::with_statistics(true)]
+    #[case::without_statistics(false)]
+    #[tokio::test]
+    async fn open_rejects_unknown_struct_field_dtype(#[case] statistics: bool) -> VortexResult<()> {
+        let session = VortexSession::empty()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+
+        let array = StructArray::from_fields(&[("value", Buffer::from(vec![1i64]).into_array())])?;
+        let mut options = session.write_options();
+        if !statistics {
+            options = options.with_file_statistics(Vec::new());
+        }
+        let mut bytes = ByteBufferMut::empty();
+        options
+            .write(&mut bytes, array.into_array().to_array_stream())
+            .await?;
+
+        let postscript =
+            Footer::deserializer(ByteBuffer::empty(), session.clone()).parse_postscript(&bytes)?;
+        assert_eq!(postscript.statistics.is_some(), statistics);
+        let dtype_segment = postscript.dtype.expect("writer embeds the file dtype");
+        let dtype_bytes = checked_segment_slice(&bytes, 0, &dtype_segment)?;
+        let dtype = root::<fb_dtype::DType>(dtype_bytes)?;
+        let fields = dtype.type__as_struct_().expect("file dtype is a struct");
+        let field = fields.dtypes().expect("struct has field dtypes").get(0);
+        let tag = field._tab.vtable().get(fb_dtype::DType::VT_TYPE_TYPE);
+        assert_ne!(tag, 0, "the dtype tag must be present");
+        let tag_offset =
+            usize::try_from(dtype_segment.offset)? + field._tab.loc() + usize::from(tag);
+        bytes[tag_offset] = u8::MAX;
+
+        let Err(error) = session.open_options().open(Arc::new(bytes.freeze())).await else {
+            vortex_bail!("opening a file with an unknown field dtype must fail");
+        };
+        assert!(
+            error.to_string().contains("Unknown DType variant"),
+            "{error}"
+        );
         Ok(())
     }
 }
