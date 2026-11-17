@@ -38,6 +38,8 @@ pub mod convert;
 #[cfg(feature = "native")]
 pub mod datafusion_helper;
 #[cfg(feature = "native")]
+pub mod filecheck;
+#[cfg(feature = "native")]
 pub mod inspect;
 #[cfg(feature = "native")]
 pub mod query;
@@ -80,6 +82,8 @@ mod native_cli {
         Query(super::query::QueryArgs),
         /// Display segment information for a Vortex file
         Segments(super::segments::SegmentsArgs),
+        /// Check the array encoding trees of a Vortex file against FileCheck-style directives
+        Filecheck(super::filecheck::FilecheckArgs),
     }
 
     impl Commands {
@@ -94,6 +98,7 @@ mod native_cli {
                 Commands::Inspect(args) => &args.file,
                 Commands::Query(args) => &args.file,
                 Commands::Segments(args) => &args.file,
+                Commands::Filecheck(args) => &args.file,
             }
         }
     }
@@ -149,6 +154,7 @@ mod native_cli {
             Commands::Inspect(args) => super::inspect::exec_inspect(session, args).await?,
             Commands::Query(args) => super::query::exec_query(session, args).await?,
             Commands::Segments(args) => super::segments::exec_segments(session, args).await?,
+            Commands::Filecheck(args) => super::filecheck::exec_filecheck(session, args).await?,
         };
 
         Ok(())

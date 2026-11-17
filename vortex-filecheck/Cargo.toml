@@ -1,0 +1,30 @@
+[package]
+name = "vortex-filecheck"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "FileCheck-style checks of the array encodings in Vortex files"
+edition = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+anyhow = { workspace = true }
+filecheck = { workspace = true }
+futures = { workspace = true }
+regex = { workspace = true }
+vortex = { workspace = true, features = ["files"] }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# `VortexSession::default()` finds the Tokio runtime only with this feature.
+vortex = { workspace = true, features = ["files", "tokio"] }
+
+[lints]
+workspace = true
