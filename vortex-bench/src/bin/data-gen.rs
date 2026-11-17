@@ -74,20 +74,14 @@ async fn main() -> anyhow::Result<()> {
             .to_file_path()
             .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", benchmark.data_url()))?;
 
-        if args
-            .formats
-            .iter()
-            .any(|f| matches!(f, Format::OnDiskVortex))
-        {
-            convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Default).await?;
-        }
-
-        if args
-            .formats
-            .iter()
-            .any(|f| matches!(f, Format::VortexCompact))
-        {
-            convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Compact).await?;
+        for compaction in [
+            CompactionStrategy::Default,
+            CompactionStrategy::Compact,
+            CompactionStrategy::Unstable,
+        ] {
+            if args.formats.contains(&compaction.format()) {
+                convert_parquet_directory_to_vortex(&base_path, compaction).await?;
+            }
         }
 
         if args

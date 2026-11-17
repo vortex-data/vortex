@@ -104,7 +104,10 @@ pub fn format_to_df_format(format: Format, scan_v2: bool) -> anyhow::Result<Arc<
     Ok(match format {
         Format::Csv => Arc::new(CsvFormat::default()) as _,
         Format::Parquet => Arc::new(ParquetFormat::new()),
-        Format::OnDiskVortex | Format::VortexCompact | Format::VortexSpatialNative => {
+        Format::OnDiskVortex
+        | Format::VortexCompact
+        | Format::VortexUnstable
+        | Format::VortexSpatialNative => {
             Arc::new(VortexFormat::new_with_options(SESSION.clone(), options))
         }
         Format::ArrowIpc | Format::OnDiskDuckDB | Format::Lance | Format::LitData => {

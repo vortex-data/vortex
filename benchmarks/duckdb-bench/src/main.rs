@@ -156,23 +156,9 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", benchmark.data_url()))?;
 
             for format in args.formats.iter().copied() {
-                match format {
-                    Format::OnDiskVortex => {
-                        convert_parquet_directory_to_vortex(
-                            &base_path,
-                            CompactionStrategy::Default,
-                        )
-                        .await?;
-                    }
-                    Format::VortexCompact => {
-                        convert_parquet_directory_to_vortex(
-                            &base_path,
-                            CompactionStrategy::Compact,
-                        )
-                        .await?;
-                    }
-                    // OnDiskDuckDB tables are created during register_tables by loading from Parquet
-                    _ => {}
+                // OnDiskDuckDB tables are created during register_tables by loading from Parquet
+                if let Some(compaction) = CompactionStrategy::for_format(format) {
+                    convert_parquet_directory_to_vortex(&base_path, compaction).await?;
                 }
                 benchmark.prepare_format(format, &base_path).await?;
             }

@@ -36,6 +36,7 @@ use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
+use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::utils::aliases::hash_map::HashMap;
 
@@ -76,12 +77,15 @@ pub use datasets::BenchmarkDataset;
 pub use output::BenchmarkOutput;
 pub use output::create_output_writer;
 use vortex::VortexSessionDefault;
+use vortex::editions::ComponentKind;
 use vortex::editions::Edition;
 use vortex::editions::EditionDeclaration;
 use vortex::editions::EditionFamily;
 use vortex::editions::EditionId;
+use vortex::editions::EditionInclusion;
 use vortex::editions::EditionMember;
 use vortex::editions::EditionSessionExt;
+use vortex::editions::unstable;
 pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
@@ -117,7 +121,31 @@ static UNSTABLE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[EditionMember::layout(&"vortex.list")],
 };
 
-pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+const BENCH_UNSTABLE_ARRAYS_FAMILY: EditionFamily = EditionFamily {
+    name: "bench-unstable-arrays",
+    origin: "vortex-bench",
+    doc: "Every array encoding in the unstable edition, without its layouts or aggregates.",
+};
+
+/// The array encodings of the unstable edition, without its layouts or aggregates.
+///
+/// Members are copied from [`unstable::DECLARATION`] when the session is built, so new unstable
+/// encodings are benchmarked without changes here. The unstable layouts and aggregates are left
+/// out because not every scan can read them; [`UNSTABLE_BENCH`] adds the list layout for the
+/// suites that read through V1.
+const UNSTABLE_ARRAYS_BENCH: EditionId = EditionId::new("bench-unstable-arrays", 2026, 10, 0);
+
+static UNSTABLE_ARRAYS_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
+    edition: Edition {
+        id: UNSTABLE_ARRAYS_BENCH,
+        immutable: false,
+        min_library_version: None,
+    },
+    added: &[],
+};
+
+/// Builds a benchmark session with the bench edition families registered.
+fn bench_session() -> VortexSession {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
     session
@@ -128,15 +156,52 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .register_edition(&UNSTABLE_BENCH_DECLARATION)
         .vortex_expect("bench edition declaration is valid");
     session
+}
+
+pub static SESSION: LazyLock<VortexSession> = LazyLock::new(bench_session);
+
+/// The session that writes [`Format::VortexUnstable`] files.
+///
+/// It enables the array encodings of the unstable edition on top of the default editions, so the
+/// compressor may choose them. Reading those files needs no editions, so [`SESSION`] reads them.
+pub static UNSTABLE_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = bench_session();
+    session
+        .editions()
+        .declare_family(&BENCH_UNSTABLE_ARRAYS_FAMILY)
+        .vortex_expect("bench unstable arrays family is valid");
+    session
+        .register_edition(&UNSTABLE_ARRAYS_BENCH_DECLARATION)
+        .vortex_expect("bench unstable arrays declaration is valid");
+    for member in unstable::DECLARATION
+        .added
+        .iter()
+        .filter(|member| member.kind == ComponentKind::Array)
+    {
+        session
+            .editions()
+            .declare_inclusion(EditionInclusion::new(
+                ComponentKind::Array,
+                member.component,
+                UNSTABLE_ARRAYS_BENCH,
+            ))
+            .vortex_expect("unstable array encoding inclusion is valid");
+    }
+    session
+        .enable_edition(UNSTABLE_ARRAYS_BENCH)
+        .vortex_expect("bench unstable arrays edition is registered");
+    session
 });
 
-/// Enables [`UNSTABLE_BENCH`] on [`SESSION`], so it writes lists with the list layout.
+/// Enables [`UNSTABLE_BENCH`] on the benchmark sessions, so they write lists with the list layout.
 ///
 /// The V2 scan cannot read the list layout yet, so only suites that read through V1 call this.
 fn enable_unstable_bench_edition() {
-    SESSION
-        .enable_edition(UNSTABLE_BENCH)
-        .vortex_expect("bench edition is registered");
+    for session in [&*SESSION, &*UNSTABLE_SESSION] {
+        session
+            .enable_edition(UNSTABLE_BENCH)
+            .vortex_expect("bench edition is registered");
+    }
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -206,6 +271,11 @@ pub enum Format {
     #[clap(name = "vortex-compact")]
     #[serde(rename = "vortex-compact")]
     VortexCompact,
+    /// Vortex files whose compressor may also choose the array encodings of the unstable
+    /// edition. See [`UNSTABLE_SESSION`].
+    #[clap(name = "vortex-unstable")]
+    #[serde(rename = "vortex-unstable")]
+    VortexUnstable,
     #[clap(name = "vortex-spatial-native")]
     #[serde(rename = "vortex-spatial-native")]
     VortexSpatialNative,
@@ -257,6 +327,7 @@ impl Format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
+            Format::VortexUnstable => "vortex-unstable",
             Format::VortexSpatialNative => "vortex-spatial-native",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
@@ -271,6 +342,7 @@ impl Format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
+            Format::VortexUnstable => "vortex",
             Format::VortexSpatialNative => "vortex",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
@@ -307,19 +379,53 @@ pub enum CompactionStrategy {
     Compact,
     #[default]
     Default,
+    /// The default strategy, written by [`UNSTABLE_SESSION`] so the compressor may also choose
+    /// the array encodings of the unstable edition.
+    Unstable,
 }
 
 impl CompactionStrategy {
-    pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
+    /// The session whose enabled editions decide which encodings this strategy may write.
+    pub fn session(&self) -> &'static VortexSession {
+        match self {
+            CompactionStrategy::Compact | CompactionStrategy::Default => &SESSION,
+            CompactionStrategy::Unstable => &UNSTABLE_SESSION,
+        }
+    }
+
+    /// The Vortex format this strategy writes.
+    pub fn format(&self) -> Format {
+        match self {
+            CompactionStrategy::Compact => Format::VortexCompact,
+            CompactionStrategy::Default => Format::OnDiskVortex,
+            CompactionStrategy::Unstable => Format::VortexUnstable,
+        }
+    }
+
+    /// The strategy that writes `format`, or `None` if `format` is not a Vortex file format
+    /// written from Parquet.
+    pub fn for_format(format: Format) -> Option<Self> {
+        match format {
+            Format::VortexCompact => Some(CompactionStrategy::Compact),
+            Format::OnDiskVortex => Some(CompactionStrategy::Default),
+            Format::VortexUnstable => Some(CompactionStrategy::Unstable),
+            _ => None,
+        }
+    }
+
+    /// Write options for this strategy.
+    pub fn write_options(&self) -> VortexWriteOptions {
+        let session = self.session();
+        let options = session.write_options();
         match self {
             CompactionStrategy::Compact => options.with_strategy(
-                WriteStrategyBuilder::from_session(&SESSION)
+                WriteStrategyBuilder::from_session(session)
                     .with_btrblocks_builder(
-                        BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
+                        BtrBlocksCompressorBuilder::from_session(session).with_compact(),
                     )
                     .build(),
             ),
-            CompactionStrategy::Default => options,
+            CompactionStrategy::Default | CompactionStrategy::Unstable => options,
         }
     }
 }
@@ -347,6 +453,7 @@ where
             Format::Parquet => base_path.join(Format::Parquet.name()),
             Format::OnDiskVortex => base_path.join(Format::OnDiskVortex.name()),
             Format::VortexCompact => base_path.join(Format::VortexCompact.name()),
+            Format::VortexUnstable => base_path.join(Format::VortexUnstable.name()),
             Format::OnDiskDuckDB => base_path
                 .join(Format::OnDiskDuckDB.name())
                 .join("duckdb.db"),
@@ -614,4 +721,30 @@ where
     }
 
     sql_statements
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex::editions::ComponentKind;
+    use vortex::editions::EditionSessionExt;
+    use vortex::editions::unstable;
+    use vortex::session::VortexSession;
+
+    use super::SESSION;
+    use super::UNSTABLE_SESSION;
+
+    /// Only the unstable session may write the unstable array encodings, and neither session
+    /// enables the unstable layouts or aggregates.
+    #[rstest]
+    #[case::default(&SESSION, false)]
+    #[case::unstable(&UNSTABLE_SESSION, true)]
+    fn unstable_members_enabled(#[case] session: &VortexSession, #[case] arrays_enabled: bool) {
+        for member in unstable::DECLARATION.added {
+            let id = member.component.component_id();
+            let enabled = session.enabled_component_ids(member.kind).contains(&id);
+            let expected = arrays_enabled && member.kind == ComponentKind::Array;
+            assert_eq!(enabled, expected, "{:?} {id}", member.kind);
+        }
+    }
 }

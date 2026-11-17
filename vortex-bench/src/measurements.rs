@@ -403,7 +403,7 @@ pub struct CustomUnitMeasurement {
 impl ToJson for CustomUnitMeasurement {
     fn to_json(&self) -> serde_json::Value {
         let engine = match self.format {
-            Format::OnDiskVortex | Format::VortexCompact => Engine::Vortex,
+            Format::OnDiskVortex | Format::VortexCompact | Format::VortexUnstable => Engine::Vortex,
             Format::Parquet => Engine::Vortex,
             Format::Lance => Engine::Vortex,
             _ => Engine::Vortex, // Default to Vortex for other formats.

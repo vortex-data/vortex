@@ -208,6 +208,7 @@ impl DuckClient {
             Format::Parquet
             | Format::OnDiskVortex
             | Format::VortexCompact
+            | Format::VortexUnstable
             | Format::VortexSpatialNative => "VIEW",
             Format::OnDiskDuckDB => "TABLE",
             Format::Lance => {

@@ -17,10 +17,10 @@ use vortex::dtype::FieldNames;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
-use vortex::file::WriteOptionsSessionExt;
 use vortex::file::v2::ScanDriver;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::scan::v2::ScanBuilder;
+use vortex_bench::CompactionStrategy;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_bench::compress::Compressed;
@@ -31,12 +31,21 @@ use vortex_bench::compress::read_projection;
 use vortex_bench::conversions::parquet_to_vortex_chunks;
 
 /// Compressor implementation for Vortex format.
-pub struct VortexCompressor;
+pub struct VortexCompressor {
+    compaction: CompactionStrategy,
+}
+
+impl VortexCompressor {
+    /// A compressor that writes `format`, or `None` if `format` is not a Vortex file format.
+    pub fn for_format(format: Format) -> Option<Self> {
+        CompactionStrategy::for_format(format).map(|compaction| Self { compaction })
+    }
+}
 
 #[async_trait]
 impl Compressor for VortexCompressor {
     fn format(&self) -> Format {
-        Format::OnDiskVortex
+        self.compaction.format()
     }
 
     async fn load(&self, parquet_path: &Path) -> Result<Uncompressed> {
@@ -46,14 +55,14 @@ impl Compressor for VortexCompressor {
 
     async fn compress(&self, input: &Uncompressed) -> Result<Compressed> {
         let array = input.vortex()?.clone();
+        let write_options = self.compaction.write_options();
 
         // Run the timed work as a task so it uses only the runtime's worker threads, the same
         // pool the Parquet compressor runs on.
         let start = Instant::now();
         let buf = tokio::spawn(async move {
             let mut buf = Vec::new();
-            SESSION
-                .write_options()
+            write_options
                 .write(&mut Cursor::new(&mut buf), array.to_array_stream())
                 .await?;
             anyhow::Ok(buf)

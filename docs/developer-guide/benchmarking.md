@@ -252,6 +252,23 @@ uv run --project bench-orchestrator vx-bench prepare-data <benchmark> --format p
 The data generator creates base Parquet data and converts it to each requested format. Scale
 factors are configurable per suite (e.g. `--opt scale-factor=10.0` for TPC-H SF=10).
 
+### Unstable Encodings
+
+The `vortex-unstable` format writes Vortex files whose compressor may also choose the array
+encodings of the `unstable` edition, such as `fastlanes.bitpacked.v2`, `fastlanes.for.v2`,
+`fastlanes.delta`, and `vortex.decimal_byte_parts.v2`. Comparing it against `vortex` shows what
+those encodings change. The unstable layouts and aggregates are not enabled, so every scan can
+read the files. Files that contain `vortex.patched` need `VORTEX_EXPERIMENTAL_PATCHED_ARRAY=1`
+set while both writing and reading:
+
+```bash
+uv run --project bench-orchestrator vx-bench prepare-data tpch \
+  --formats-json '["vortex","vortex-unstable"]'
+
+uv run --project bench-orchestrator vx-bench run tpch \
+  --targets-json '[{"engine":"datafusion","format":"vortex"},{"engine":"datafusion","format":"vortex-unstable"}]'
+```
+
 ### Running SQL Benchmarks
 
 SQL benchmarks can be run directly via their per-engine binaries:

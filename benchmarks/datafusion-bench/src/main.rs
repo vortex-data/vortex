@@ -262,7 +262,12 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     format: Format,
     scan_v2: bool,
 ) -> anyhow::Result<()> {
-    if !scan_v2 && use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact)
+    if !scan_v2
+        && use_scan_api()
+        && matches!(
+            format,
+            Format::OnDiskVortex | Format::VortexCompact | Format::VortexUnstable
+        )
     {
         register_v2_tables(session, benchmark, format).await
     } else {
