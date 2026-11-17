@@ -11,8 +11,10 @@ check: unit: o_orderstatus/data/values
 check: unit: o_orderpriority/data/values
 check: unit: o_clerk/data/values
 
-# No chunk of any column stores its values uncompressed.
+# No chunk of any column stores its values uncompressed. This is a lint rather than a
+# requirement: the compressor may rightly leave incompressible data alone.
 units: o_*/data[*]
+severity: warn
 not: root: vortex.primitive(
 not: root: vortex.varbinview(
 

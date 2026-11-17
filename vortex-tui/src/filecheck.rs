@@ -12,6 +12,7 @@ use anyhow::bail;
 use vortex::session::VortexSession;
 use vortex_filecheck::DumpOptions;
 use vortex_filecheck::Glob;
+use vortex_filecheck::SectionOutcome;
 use vortex_filecheck::format_report;
 use vortex_filecheck::load_units;
 use vortex_filecheck::read_check_file;
@@ -39,9 +40,12 @@ pub struct FilecheckArgs {
     /// Include array statistics in the dump.
     #[arg(long)]
     pub stats: bool,
-    /// Print the full match explanation for each failure instead of its last lines.
+    /// Print the full match trace for each failure instead of the lines around it.
     #[arg(long)]
     pub explain: bool,
+    /// Report every failing section as a warning and exit successfully.
+    #[arg(long)]
+    pub warn_only: bool,
 }
 
 /// Run `vx filecheck`.
@@ -71,10 +75,15 @@ pub async fn exec_filecheck(session: &VortexSession, args: FilecheckArgs) -> any
     };
 
     let check = read_check_file(&checks_path)?;
-    let outcomes = run_checks(&units, &check.sections)?;
+    let mut outcomes = run_checks(&units, &check.sections)?;
+    if args.warn_only {
+        outcomes
+            .iter_mut()
+            .for_each(SectionOutcome::downgrade_to_warning);
+    }
     print!("{}", format_report(&outcomes, args.explain));
 
-    let failed = outcomes.iter().filter(|outcome| !outcome.passed()).count();
+    let failed = outcomes.iter().filter(|outcome| outcome.is_error()).count();
     if failed > 0 {
         bail!("{failed} of {} check sections failed", outcomes.len());
     }

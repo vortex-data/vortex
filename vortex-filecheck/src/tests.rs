@@ -122,6 +122,71 @@ fn malformed_check_files_are_rejected(#[case] text: &str, #[case] message: &str)
     );
 }
 
+#[test]
+fn severity_defaults_to_error_and_can_be_set_per_file_and_section() -> anyhow::Result<()> {
+    let severities = |text: &str| -> anyhow::Result<Vec<Severity>> {
+        Ok(parse_check_file(text)?
+            .sections
+            .iter()
+            .map(|section| section.severity)
+            .collect())
+    };
+    assert_eq!(
+        severities("check: a\nunits: b*\ncheck: c\n")?,
+        [Severity::Error, Severity::Error]
+    );
+    assert_eq!(
+        severities("severity: warn\ncheck: a\nunits: b*\ncheck: c\n")?,
+        [Severity::Warn, Severity::Warn]
+    );
+    assert_eq!(
+        severities("check: a\nunits: b*\nseverity: warn\ncheck: c\nunits: d*\ncheck: e\n")?,
+        [Severity::Error, Severity::Warn, Severity::Error]
+    );
+    assert_eq!(
+        severities("severity: warn\nunits: b*\nseverity: error\ncheck: c\n")?,
+        [Severity::Warn, Severity::Error]
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case::unknown_value("severity: fatal\ncheck: a\n", "`warn` or `error`")]
+#[case::twice_in_a_section("units: a*\nseverity: warn\nseverity: error\ncheck: b\n", "line 3")]
+#[case::twice_for_the_file("severity: warn\ncheck: a\nseverity: warn\n", "line 3")]
+fn malformed_severities_are_rejected(#[case] text: &str, #[case] message: &str) {
+    let err = parse_check_file(text).expect_err("check file must be rejected");
+    assert!(
+        format!("{err:#}").contains(message),
+        "expected {message:?} in {err:#}"
+    );
+}
+
+#[tokio::test]
+async fn warn_sections_fail_without_errors() -> anyhow::Result<()> {
+    let mut outcomes = check(
+        "units: ints*\nseverity: warn\ncheck: vortex.no_such_encoding\n\n\
+         units: strs*\ncheck: vortex.no_such_encoding\n",
+        &[],
+    )
+    .await?;
+    assert!(outcomes[0].is_warning() && !outcomes[0].is_error());
+    assert!(outcomes[1].is_error() && !outcomes[1].is_warning());
+    let report = format_report(&outcomes, false);
+    assert!(report.contains("WARN line 1: units: ints*"), "{report}");
+    assert!(report.contains("FAIL line 5: units: strs*"), "{report}");
+    assert!(
+        report.contains("2 sections: 0 passed, 1 warned, 1 failed"),
+        "{report}"
+    );
+
+    outcomes
+        .iter_mut()
+        .for_each(SectionOutcome::downgrade_to_warning);
+    assert!(outcomes.iter().all(SectionOutcome::is_warning));
+    Ok(())
+}
+
 #[tokio::test]
 async fn failures_name_the_directive_that_missed() -> anyhow::Result<()> {
     let outcomes = check(

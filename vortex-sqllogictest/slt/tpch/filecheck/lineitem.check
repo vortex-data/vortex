@@ -15,8 +15,10 @@ check: unit: l_linestatus/data/values
 check: unit: l_shipinstruct/data/values
 check: unit: l_shipmode/data/values
 
-# No chunk of any column stores its values uncompressed.
+# No chunk of any column stores its values uncompressed. This is a lint rather than a
+# requirement: the compressor may rightly leave incompressible data alone.
 units: l_*/data[*]
+severity: warn
 not: root: vortex.primitive(
 not: root: vortex.varbinview(
 

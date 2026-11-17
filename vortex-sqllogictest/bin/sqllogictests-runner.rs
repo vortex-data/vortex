@@ -158,9 +158,14 @@ fn drive_filecheck(check_path: &Path) -> anyhow::Result<()> {
     if outcomes.iter().all(FileOutcome::passed) {
         return Ok(());
     }
+    if !outcomes.iter().any(FileOutcome::has_errors) {
+        // Sections with `severity: warn` report without failing the trial.
+        eprint!("{}", format_tree_report(&outcomes, false));
+        return Ok(());
+    }
     let reproduce: Vec<String> = outcomes
         .iter()
-        .filter(|outcome| !outcome.passed())
+        .filter(|outcome| outcome.has_errors())
         .map(|outcome| {
             format!(
                 "  cargo run -p vortex-tui --bin vx -- filecheck {} {} --explain",
