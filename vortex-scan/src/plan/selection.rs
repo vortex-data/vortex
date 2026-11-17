@@ -30,7 +30,7 @@ struct SelectedData {
 
 /// Binds a projection's selection before segment discovery can initialize unselected children.
 /// Whole-value dependencies retain their original plans and cache identities.
-pub fn selected(plan: PlanRef, rows: Range<u64>, mask: Mask) -> PlanRef {
+pub(crate) fn selected(plan: PlanRef, rows: Range<u64>, mask: Mask) -> PlanRef {
     if mask.all_true() {
         return plan;
     }

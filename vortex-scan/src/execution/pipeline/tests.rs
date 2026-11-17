@@ -40,7 +40,7 @@ use crate::plan::PackPlan;
 use crate::plan::PlanRef;
 use crate::plan::Take;
 use crate::plan::optimize;
-use crate::selection::selected;
+use crate::plan::selection::selected;
 use crate::test::SESSION;
 use crate::test::Store;
 use crate::test::TestSource;

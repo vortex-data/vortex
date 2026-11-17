@@ -15,14 +15,12 @@ pub mod cache;
 pub mod driver;
 pub mod filter_expr;
 pub(crate) mod io;
-pub mod limit;
-pub mod metrics;
 pub mod operator;
 pub(crate) mod operators;
 pub mod pipeline;
 pub mod planning;
 mod retain;
-pub mod zone_map;
+pub(crate) mod zone_map;
 
 mod adaptor;
 mod chunk;
@@ -43,7 +41,7 @@ use vortex_session::VortexSession;
 pub use self::chunk::ChunkPlanner;
 pub(crate) use self::chunk::FILTERED_ROWS_PER_CHUNK;
 pub(crate) use self::chunk::MAX_ROWS_PER_CHUNK;
-pub(crate) use self::chunk::ROW_BLOCK_SIZE;
+pub use self::chunk::ROW_BLOCK_SIZE;
 #[cfg(test)]
 pub(crate) use self::chunk::row_chunks;
 pub(crate) use self::chunk::rows_per_chunk;

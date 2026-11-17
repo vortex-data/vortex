@@ -24,7 +24,7 @@ use crate::planning::planner::WorkScope;
 use crate::selection::Selection;
 
 /// The row grid every chunk boundary lies on.
-pub(crate) const ROW_BLOCK_SIZE: usize = 8192;
+pub const ROW_BLOCK_SIZE: usize = 8192;
 /// The rows of a projection chunk.
 pub(crate) const MAX_ROWS_PER_CHUNK: usize = 8 * ROW_BLOCK_SIZE;
 /// The rows of a filtered chunk, balancing conjunct setup against parallelism.

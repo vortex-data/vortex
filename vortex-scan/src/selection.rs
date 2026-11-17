@@ -553,5 +553,3 @@ mod tests {
         }
     }
 }
-
-pub use crate::plan::selection::selected;

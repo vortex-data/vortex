@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_expr::analysis::referenced_field_paths;
 use vortex_session::VortexSession;
@@ -31,22 +30,6 @@ use crate::plan::plan_row_idx_expression;
 use crate::selection::Selection;
 use crate::source::ScanInput;
 use crate::strict_sorted_buffer::StrictSortedBuffer;
-
-/// The rows a byte range of the file stands for when an engine splits the file by bytes before
-/// opening it. Consecutive byte ranges give consecutive row ranges that tile the file, with
-/// boundaries on the grid's 8,192-row blocks so the executor's chunks stay block aligned.
-pub fn partition_row_range(bytes: Range<u64>, file_size: u64, row_count: u64) -> Range<u64> {
-    let row = |byte: u64| -> u64 {
-        if byte >= file_size {
-            return row_count;
-        }
-        let row = u128::from(byte) * u128::from(row_count) / u128::from(file_size);
-        let row = u64::try_from(row).vortex_expect("a row of the file fits u64");
-        row / ROW_BLOCK_SIZE as u64 * ROW_BLOCK_SIZE as u64
-    };
-    let start = row(bytes.start);
-    start..row(bytes.end).max(start)
-}
 
 /// Prepares a scan on the planner-driven executor.
 ///

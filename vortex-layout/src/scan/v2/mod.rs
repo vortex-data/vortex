@@ -8,7 +8,9 @@ use std::sync::Arc;
 
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_scan::execution::ROW_BLOCK_SIZE;
 use vortex_scan::plan::LazyPlanRef;
 pub use vortex_scan::prepare::ChunkPlanner;
 pub use vortex_scan::prepare::FilterPlans;
@@ -19,7 +21,6 @@ use vortex_scan::prepare::ScanBuilder as EngineScanBuilder;
 pub use vortex_scan::prepare::ScanCache;
 pub use vortex_scan::prepare::SegmentLocation;
 pub use vortex_scan::prepare::WeakScanCache;
-pub use vortex_scan::prepare::partition_row_range;
 use vortex_scan::selection::Selection;
 use vortex_scan::source::ScanInput;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
@@ -27,6 +28,22 @@ use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::segments::SegmentSource;
+
+/// The rows a byte range of the file stands for when an engine splits the file by bytes before
+/// opening it. Consecutive byte ranges give consecutive row ranges that tile the file, with
+/// boundaries on the grid's 8,192-row blocks so the executor's chunks stay block aligned.
+pub fn partition_row_range(bytes: Range<u64>, file_size: u64, row_count: u64) -> Range<u64> {
+    let row = |byte: u64| -> u64 {
+        if byte >= file_size {
+            return row_count;
+        }
+        let row = u128::from(byte) * u128::from(row_count) / u128::from(file_size);
+        let row = u64::try_from(row).vortex_expect("a row of the file fits u64");
+        row / ROW_BLOCK_SIZE as u64 * ROW_BLOCK_SIZE as u64
+    };
+    let start = row(bytes.start);
+    start..row(bytes.end).max(start)
+}
 
 /// The parts of a file the planner-driven executor reads through.
 #[derive(Clone)]
@@ -142,8 +159,7 @@ impl ScanBuilder {
         self.into_scan_builder().prepare()
     }
 
-    /// Converts this native builder into the source-independent scan builder.
-    pub fn into_scan_builder(self) -> EngineScanBuilder {
+    fn into_scan_builder(self) -> EngineScanBuilder {
         let mut builder = EngineScanBuilder::new(self.session, self.file)
             .with_projection(self.projection)
             .with_some_filter(self.filter)
