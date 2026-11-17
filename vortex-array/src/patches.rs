@@ -25,11 +25,16 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::ArrayProbe;
 use crate::ArrayRef;
 use crate::ArraySlots;
+use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ProbeState;
+use crate::arrays::PiecewiseSequence;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::piecewise_sequence::constant_unsigned_usize;
+use crate::arrays::piecewise_sequence::contiguous_runs;
+use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -934,16 +939,7 @@ impl Patches {
         take_indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Self>> {
-        if take_indices.is_empty() {
-            return Ok(None);
-        }
-
-        let take_indices = take_indices.clone().execute::<PrimitiveArray>(ctx)?;
-        if self.is_map_faster_than_search(&take_indices) {
-            self.take_map(take_indices, true, ctx)
-        } else {
-            self.take_search(take_indices, true, ctx)
-        }
+        self.take_impl(take_indices, true, ctx)
     }
 
     /// Take the indices from the patches.
@@ -954,16 +950,76 @@ impl Patches {
         take_indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Self>> {
+        self.take_impl(take_indices, false, ctx)
+    }
+
+    fn take_impl(
+        &self,
+        take_indices: &ArrayRef,
+        include_nulls: bool,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Self>> {
         if take_indices.is_empty() {
             return Ok(None);
         }
 
+        // Piecewise indices are non-nullable, so `include_nulls` makes no difference to them.
+        if let Some(piecewise) = take_indices.as_opt::<PiecewiseSequence>()
+            && let Some((starts, lengths)) = maybe_contiguous_slices(piecewise, ctx)?
+            && let Some(runs) =
+                SortedRuns::try_new(&starts, lengths, self.array_len, take_indices.len())
+        {
+            return self.take_sorted_runs(&starts, &runs, take_indices.len(), ctx);
+        }
+
         let take_indices = take_indices.clone().execute::<PrimitiveArray>(ctx)?;
         if self.is_map_faster_than_search(&take_indices) {
-            self.take_map(take_indices, false, ctx)
+            self.take_map(take_indices, include_nulls, ctx)
         } else {
-            self.take_search(take_indices, false, ctx)
+            self.take_search(take_indices, include_nulls, ctx)
         }
+    }
+
+    /// Take ascending, non-overlapping runs of indices without expanding them.
+    ///
+    /// The runs and the sorted patch indices are merged by galloping along both, so the cost
+    /// depends on the number of runs and patches rather than the number of indices.
+    fn take_sorted_runs(
+        &self,
+        starts: &PrimitiveArray,
+        runs: &SortedRuns,
+        output_len: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Self>> {
+        let patch_indices = self.indices.clone().execute::<PrimitiveArray>(ctx)?;
+        let mut new_indices = BufferMut::<u64>::with_capacity_in(
+            self.num_patches().min(output_len),
+            ctx.allocator().clone(),
+        );
+        let mut value_runs = ValueRuns::default();
+        match_each_unsigned_integer_ptype!(patch_indices.ptype(), |P| {
+            match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+                merge_sorted_runs(
+                    patch_indices.as_slice::<P>(),
+                    self.offset,
+                    starts.as_slice::<S>(),
+                    runs,
+                    &mut new_indices,
+                    &mut value_runs,
+                )
+            })
+        });
+
+        if new_indices.is_empty() {
+            return Ok(None);
+        }
+        let values = value_runs.take_from(&self.values)?;
+
+        // SAFETY: there is one index and one value per matched patch. The indices are strictly
+        // increasing non-nullable `u64` positions below `output_len`.
+        Ok(Some(unsafe {
+            Self::new_unchecked(output_len, 0, new_indices.into_array(), values, None, None)
+        }))
     }
 
     #[expect(
@@ -1325,18 +1381,31 @@ fn filter_patches_with_mask<T: IntegerPType>(
 ///
 /// The cost is logarithmic in the distance from `start` to the result.
 fn gallop_lower_bound<T: Ord>(values: &[T], start: usize, needle: &T) -> usize {
+    gallop_partition_point(values, start, |value| value < needle)
+}
+
+/// Returns the first position at or after `start` for which `pred` is false, where `pred` is
+/// true for a prefix of `values`.
+///
+/// The cost is logarithmic in the distance from `start` to the result.
+#[inline]
+fn gallop_partition_point<T>(
+    values: &[T],
+    start: usize,
+    mut pred: impl FnMut(&T) -> bool,
+) -> usize {
     let mut low = start;
     let mut high = start;
     let mut step = 1;
 
-    while high < values.len() && values[high] < *needle {
+    while high < values.len() && pred(&values[high]) {
         low = high + 1;
         high += step;
         step *= 2;
     }
 
     let high = high.min(values.len());
-    low + values[low..high].partition_point(|value| value < needle)
+    low + values[low..high].partition_point(pred)
 }
 
 /// Finds the patch of each mask index, for masks that are sparser than the patches.
@@ -1491,6 +1560,184 @@ fn take_indices_with_search_fn<
     Ok((values_indices, new_indices))
 }
 
+/// The lengths of take index runs that are ascending, non-overlapping, and in bounds.
+enum SortedRuns {
+    /// Every run has this length.
+    Constant(usize),
+    /// The output offset of each run, followed by the total length.
+    Offsets(Vec<usize>),
+}
+
+impl SortedRuns {
+    /// Returns `None` unless the runs are ascending, non-overlapping, and in bounds, and their
+    /// lengths sum to `output_len`.
+    fn try_new(
+        starts: &PrimitiveArray,
+        lengths: Columnar,
+        array_len: usize,
+        output_len: usize,
+    ) -> Option<Self> {
+        match lengths {
+            Columnar::Constant(length) => {
+                let length = constant_unsigned_usize(&length);
+                let sorted = match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+                    constant_runs_are_sorted(starts.as_slice::<S>(), length, array_len)
+                });
+                (sorted && starts.len().checked_mul(length) == Some(output_len))
+                    .then_some(Self::Constant(length))
+            }
+            Columnar::Canonical(lengths) => {
+                let lengths = lengths.into_primitive();
+                let offsets = match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+                    match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
+                        sorted_run_offsets(
+                            starts.as_slice::<S>(),
+                            lengths.as_slice::<L>(),
+                            array_len,
+                        )
+                    })
+                })?;
+                (offsets.last() == Some(&output_len)).then_some(Self::Offsets(offsets))
+            }
+        }
+    }
+
+    #[inline]
+    fn offset(&self, run: usize) -> usize {
+        match self {
+            Self::Constant(length) => run * length,
+            Self::Offsets(offsets) => offsets[run],
+        }
+    }
+
+    #[inline]
+    fn len(&self, run: usize) -> usize {
+        match self {
+            Self::Constant(length) => *length,
+            Self::Offsets(offsets) => offsets[run + 1] - offsets[run],
+        }
+    }
+}
+
+fn constant_runs_are_sorted<S: UnsignedPType>(
+    starts: &[S],
+    length: usize,
+    array_len: usize,
+) -> bool {
+    let end = |start: &S| -> usize {
+        let start: usize = start.as_();
+        start.saturating_add(length)
+    };
+    starts.last().is_some_and(|last| end(last) <= array_len)
+        && starts.windows(2).all(|w| end(&w[0]) <= w[1].as_())
+}
+
+/// Returns the output offset of each run followed by the total length, or `None` unless the runs
+/// are ascending, non-overlapping, and in bounds.
+fn sorted_run_offsets<S: UnsignedPType, L: UnsignedPType>(
+    starts: &[S],
+    lengths: &[L],
+    array_len: usize,
+) -> Option<Vec<usize>> {
+    let mut offsets = Vec::with_capacity(starts.len() + 1);
+    let mut total = 0;
+    let mut end = 0;
+    for (&start, &length) in starts.iter().zip(lengths) {
+        let (start, length): (usize, usize) = (start.as_(), length.as_());
+        if start < end {
+            return None;
+        }
+        end = start.checked_add(length).filter(|&end| end <= array_len)?;
+        offsets.push(total);
+        // Non-overlapping runs in bounds sum to at most `array_len`.
+        total += length;
+    }
+    offsets.push(total);
+    Some(offsets)
+}
+
+/// Merges sorted take index runs with the sorted patch indices.
+///
+/// Gallops through the patches to the start of each run, and through the run starts to the next
+/// patch, so runs and patches that do not meet are skipped in logarithmic time. Pushes the output
+/// position of every matched patch to `new_indices` and its value position to `value_runs`.
+fn merge_sorted_runs<P: UnsignedPType, S: UnsignedPType>(
+    patch_indices: &[P],
+    offset: usize,
+    starts: &[S],
+    runs: &SortedRuns,
+    new_indices: &mut BufferMut<u64>,
+    value_runs: &mut ValueRuns,
+) {
+    let mut patch = 0;
+    let mut run = 0;
+    while run < starts.len() {
+        // Compare in the offset space of the stored patch indices.
+        let start = starts[run].as_() + offset;
+        patch = gallop_partition_point(patch_indices, patch, |p| p.as_() < start);
+        let Some(next) = patch_indices.get(patch) else {
+            break;
+        };
+
+        let end = start + runs.len(run);
+        let mut next = next.as_();
+        if next < end {
+            let matched = gallop_partition_point(patch_indices, patch + 1, |p| p.as_() < end);
+            let output_offset = runs.offset(run);
+            new_indices.extend(
+                patch_indices[patch..matched]
+                    .iter()
+                    .map(|p| (p.as_() - start + output_offset) as u64),
+            );
+            value_runs.push(patch, matched - patch);
+            patch = matched;
+            let Some(after) = patch_indices.get(patch) else {
+                break;
+            };
+            next = after.as_();
+        }
+
+        // Move to the last run starting at or before the next patch, the only one that may
+        // contain it.
+        let following = gallop_partition_point(starts, run + 1, |s| s.as_() + offset <= next);
+        run = (following - 1).max(run + 1);
+    }
+}
+
+/// Positions of the taken patch values, as contiguous runs.
+#[derive(Default)]
+struct ValueRuns {
+    starts: Vec<u64>,
+    lengths: Vec<u64>,
+    len: usize,
+}
+
+impl ValueRuns {
+    /// Appends a run, extending the previous one when they meet.
+    fn push(&mut self, start: usize, length: usize) {
+        self.len += length;
+        let (start, length) = (start as u64, length as u64);
+        if let (Some(&last_start), Some(last_length)) =
+            (self.starts.last(), self.lengths.last_mut())
+            && last_start + *last_length == start
+        {
+            *last_length += length;
+            return;
+        }
+        self.starts.push(start);
+        self.lengths.push(length);
+    }
+
+    /// Takes the runs from `values`, slicing when there is only one.
+    fn take_from(self, values: &ArrayRef) -> VortexResult<ArrayRef> {
+        if let [start] = self.starts.as_slice() {
+            let start = usize::try_from(*start)?;
+            return values.slice(start..start + self.len);
+        }
+        values.take(contiguous_runs(self.starts, self.lengths, self.len))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::ops::Range;
@@ -1506,8 +1753,11 @@ mod test {
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::PiecewiseSequenceArray;
     use crate::assert_arrays_eq;
     use crate::dtype::PType;
     use crate::patches::Patches;
@@ -2996,5 +3246,114 @@ mod test {
             patches.search_index(2048, &mut ctx).unwrap(),
             SearchResult::NotFound(1)
         );
+    }
+
+    /// Builds piecewise indices, encoding uniform lengths or multipliers as constants.
+    fn piecewise(starts: &[u64], lengths: &[u64], multipliers: &[u64]) -> ArrayRef {
+        fn param(values: &[u64]) -> ArrayRef {
+            match values.first() {
+                Some(&first) if values.iter().all(|&v| v == first) => {
+                    ConstantArray::new(first, values.len()).into_array()
+                }
+                _ => Buffer::copy_from(values).into_array(),
+            }
+        }
+        let len =
+            usize::try_from(lengths.iter().sum::<u64>()).vortex_expect("length fits in usize");
+        PiecewiseSequenceArray::try_new(
+            Buffer::copy_from(starts).into_array(),
+            param(lengths),
+            param(multipliers),
+            len,
+        )
+        .vortex_expect("valid piecewise indices")
+        .into_array()
+    }
+
+    fn assert_take_piecewise_matches_materialized(
+        patches: &Patches,
+        indices: &ArrayRef,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let materialized = indices.clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let expected = patches.take_search(materialized, false, &mut ctx)?;
+        let actual = patches.take(indices, &mut ctx)?;
+
+        match (actual, expected) {
+            (None, None) => {}
+            (Some(actual), Some(expected)) => {
+                assert_eq!(actual.array_len(), expected.array_len());
+                assert_arrays_eq!(actual.indices(), expected.indices(), &mut ctx);
+                assert_arrays_eq!(actual.values(), expected.values(), &mut ctx);
+            }
+            (actual, expected) => panic!(
+                "expected {} patches, got {}",
+                expected.map_or(0, |p| p.num_patches()),
+                actual.map_or(0, |p| p.num_patches())
+            ),
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::contiguous(vec![0, 10, 30], vec![5, 8, 10], vec![1, 1, 1])]
+    #[case::adjacent_runs(vec![4, 8], vec![4, 4], vec![1, 1])]
+    #[case::repeated_runs(vec![2, 2], vec![6, 6], vec![1, 1])]
+    #[case::descending(vec![30, 10, 0], vec![5, 8, 10], vec![1, 1, 1])]
+    #[case::constant(vec![4, 5, 9], vec![3, 2, 1], vec![0, 0, 0])]
+    #[case::strided(vec![0, 1], vec![20, 13], vec![2, 3])]
+    #[case::sparse_stride(vec![4], vec![3], vec![13])]
+    #[case::empty_pieces(vec![0, 9, 39], vec![0, 3, 1], vec![1, 1, 1])]
+    #[case::no_matches(vec![0, 21], vec![2, 2], vec![1, 1])]
+    #[case::out_of_bounds(vec![10, 40], vec![2, 5], vec![1, 1])]
+    #[case::out_of_order_varied(vec![30, 0, 10], vec![5, 8, 2], vec![1, 1, 1])]
+    // More pieces than patches, so the merge mostly gallops over the pieces.
+    #[case::many_unit_pieces((0..42).step_by(2).collect(), vec![1; 21], vec![1; 21])]
+    #[case::many_varied_pieces(
+        (0..40).step_by(2).collect(),
+        (0..20).map(|i| i % 3).collect(),
+        vec![1; 20]
+    )]
+    #[case::many_overlapping_pieces((0..40).step_by(2).collect(), vec![3; 20], vec![1; 20])]
+    #[case::many_descending_pieces((0..40).rev().step_by(2).collect(), vec![1; 20], vec![1; 20])]
+    fn take_piecewise_matches_materialized(
+        #[case] starts: Vec<u64>,
+        #[case] lengths: Vec<u64>,
+        #[case] multipliers: Vec<u64>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Slicing gives the patches a non-zero offset.
+        let patches = Patches::new(
+            45,
+            0,
+            buffer![3u16, 4, 6, 9, 10, 11, 12, 13, 17, 30, 33, 41, 42, 44].into_array(),
+            buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].into_array(),
+            None,
+            &mut ctx,
+        )?
+        .slice(2..44, &mut ctx)?
+        .vortex_expect("sliced patches are non-empty");
+
+        assert_take_piecewise_matches_materialized(
+            &patches,
+            &piecewise(&starts, &lengths, &multipliers),
+        )
+    }
+
+    #[test]
+    fn take_piecewise_long_runs_of_dense_patches() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let patches = Patches::new(
+            200,
+            0,
+            Buffer::from_iter(0u32..200).into_array(),
+            Buffer::from_iter(0i64..200).into_array(),
+            None,
+            &mut ctx,
+        )?;
+        assert_take_piecewise_matches_materialized(
+            &patches,
+            &piecewise(&[5, 50, 120], &[30, 40, 20], &[1, 1, 1]),
+        )
     }
 }
