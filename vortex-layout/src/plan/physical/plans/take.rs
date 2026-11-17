@@ -153,13 +153,15 @@ impl PlanVTable for Take {
         let values = values_plan;
         let values_rows = 0..values.row_count();
         let len = usize::try_from(values_rows.end)?;
-        let values = match compiler.compile(&values, values_rows, &Mask::new_true(len))? {
-            Some(values) => values,
-            None => Chain::new(OnceSource::new(
-                Canonical::empty(values.dtype()).into_array(),
-            )),
-        };
-        let source = TakeSource::new(plan.clone(), None, Some(cache));
+        let file_rows = compiler.file_rows(plan.row_count());
+        let values =
+            match compiler.compile_detached(&values, values_rows, &Mask::new_true(len), None)? {
+                Some(values) => values,
+                None => Chain::new(OnceSource::new(
+                    Canonical::empty(values.dtype()).into_array(),
+                )),
+            };
+        let source = TakeSource::new(plan.clone(), None, Some((cache, file_rows)));
         Ok(Some(compiler.join_with(
             vec![codes, values],
             TakeSource::capacity,

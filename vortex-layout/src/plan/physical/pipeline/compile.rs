@@ -20,7 +20,9 @@ use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScanPlan;
 use crate::plan::physical::operator::Operator;
 use crate::plan::physical::operator::Source;
+use crate::plan::physical::operators::OnceSource;
 use crate::plan::physical::operators::ScanSource;
+use crate::plan::physical::operators::select;
 
 /// A pipeline under construction: a source and the stages after it, not yet given outlets, so a
 /// parent plan can add stages before it becomes a pipeline.
@@ -115,6 +117,50 @@ impl Compiler<'_> {
         }
     }
 
+    /// Compiles `plan` like [`compile`](Self::compile), for a plan whose row zero is row `start`
+    /// of the compiling plan's domain.
+    pub fn compile_at(
+        &mut self,
+        start: u64,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: &Mask,
+    ) -> VortexResult<Option<Chain>> {
+        let domain = self.core.domain;
+        self.core.domain = domain.map(|domain| domain + start);
+        let chain = self.compile(plan, rows, mask);
+        self.core.domain = domain;
+        chain
+    }
+
+    /// Compiles `plan` like [`compile`](Self::compile), for a plan whose rows are not rows of
+    /// the compiling plan's domain, such as dictionary values or a zone table.
+    ///
+    /// The segments it reads are retained while the first `serving` rows of the compiling plan's
+    /// domain are claimed, or not at all when `serving` is `None`, as for dictionary values the
+    /// value cache keeps decoded.
+    pub fn compile_detached(
+        &mut self,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: &Mask,
+        serving: Option<u64>,
+    ) -> VortexResult<Option<Chain>> {
+        let serves = serving.and_then(|serving| self.file_rows(serving));
+        let outer = std::mem::replace(&mut self.core.serves, serves);
+        let domain = self.core.domain.take();
+        let chain = self.compile(plan, rows, mask);
+        self.core.domain = domain;
+        self.core.serves = outer;
+        chain
+    }
+
+    /// The file rows of the first `len` rows of the compiling plan's domain, when they are
+    /// known.
+    pub(crate) fn file_rows(&self, len: u64) -> Option<Range<u64>> {
+        self.core.domain.map(|start| start..start + len)
+    }
+
     /// The global row index of the scanned plan's row zero.
     pub fn row_offset(&self) -> u64 {
         self.core.row_offset
@@ -148,11 +194,30 @@ impl Compiler<'_> {
         } else {
             Some(usize::try_from(rows.start)?..usize::try_from(rows.end)?)
         };
+        // Only a segment another chunk also reads is worth keeping: one this chunk slices, which
+        // spans a chunk boundary, or a zone table every chunk reads whole. A chunk's own stages
+        // share their reads of a segment already.
+        let file_rows = match &self.core.serves {
+            Some(serves) => Some(serves.clone()),
+            None if slice.is_some() => self.file_rows(scan.row_count()),
+            None => None,
+        };
+        let retain = match (&self.core.retained, file_rows) {
+            (Some(retained), Some(file_rows)) => {
+                if let Some(array) = retained.get(scan.segment_id()) {
+                    let array = select(array, slice.as_ref(), filter.as_ref())?;
+                    return Ok(Some(Chain::new(OnceSource::new(array))));
+                }
+                Some((retained.clone(), file_rows))
+            }
+            _ => None,
+        };
         self.core.segments.push(scan.segment_id());
         Ok(Some(Chain::new(ScanSource::new(
             scan.clone(),
             slice,
             filter,
+            retain,
         ))))
     }
 }

@@ -11,11 +11,13 @@ use std::sync::Weak;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::expr::BoundExpression;
+use vortex_scan::planning::driver::Liveness;
 
 use super::io::SegmentRanges;
 use super::retain::RetainedSegments;
 use super::retain::RetainingSegmentSource;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::pipeline::RetainedArrays;
 use crate::plan::physical::pipeline::ValueCache;
 use crate::scan::execution::FilterPlans;
 use crate::segments::SegmentSource;
@@ -29,16 +31,27 @@ use crate::segments::SegmentSource;
 /// scans. The lowered plan keeps the children it has initialized, each distinct projection keeps
 /// its optimized plan, each distinct filter keeps its conjunct and pruning plans along with the
 /// zones those plans have already excluded, and dictionary values stay keyed by the cached plan
-/// that produced them. Recently read segments are retained up to a byte budget, so the chunks of
-/// the file's scans that share a stored segment read it once.
+/// that produced them.
+///
+/// A [default](Self::default) cache, and one [`with_retained_bytes`](Self::with_retained_bytes),
+/// holds the file's [`Liveness`], which every scan of the file reports its live work to.
+/// Dictionary values, and the arrays decoded from the file's segments, are kept while that work
+/// still claims a row they cover, and dropped once none does, so only scans that overlap in time
+/// share them. A chunk's projection then reuses the segments its filter decoded, and neighbouring
+/// chunks decode a segment spanning their boundary once. An owner that scans the file
+/// repeatedly, one scan after another, should use [`retaining_values`](Self::retaining_values),
+/// which keeps every decoded value for as long as the cache lives, and retains recently read
+/// segments up to a byte budget.
 ///
 /// A cache describes one file's layout, segment locations, and segment source. Use a new cache
-/// when any of them changes. Cached plans and values live as long as the cache, one set per
+/// when any of them changes. Cached plans live as long as the cache, one set per
 /// distinct projection.
+/// The segment bytes whose decoded arrays a file's scans may retain at once by default.
+const DEFAULT_RETAINED_ARRAY_BYTES: u64 = 1 << 30;
+
 #[derive(Clone, Default)]
 pub struct ScanCache(Arc<Inner>);
 
-#[derive(Default)]
 struct Inner {
     root: Mutex<Option<PlanRef>>,
     /// Optimized plans of non-identity projections. Values are cached by the plan that produced
@@ -51,16 +64,73 @@ struct Inner {
     values: ValueCache,
     /// Recently read segments, shared by the chunks of every scan of the file.
     retained: Arc<RetainedSegments>,
+    /// Arrays decoded from the file's segments, kept while live work claims their rows, or
+    /// `None` for a cache that tracks no liveness and retains the segments' bytes instead.
+    arrays: Option<RetainedArrays>,
+    /// The rows of the file live work of its scans still claims, or `None` for a cache that keeps
+    /// its values for as long as it lives.
+    liveness: Option<Liveness>,
+}
+
+impl Default for Inner {
+    fn default() -> Self {
+        let liveness = Liveness::new();
+        Self {
+            root: Mutex::default(),
+            projections: Mutex::default(),
+            ranges: Mutex::default(),
+            filters: Mutex::default(),
+            values: ValueCache::with_liveness(liveness.clone()),
+            retained: Arc::new(RetainedSegments::new(0)),
+            arrays: Some(RetainedArrays::new(
+                liveness.clone(),
+                DEFAULT_RETAINED_ARRAY_BYTES,
+            )),
+            liveness: Some(liveness),
+        }
+    }
 }
 
 impl ScanCache {
-    /// A cache whose scans retain up to `bytes` of recently read segments, so chunks that share
-    /// a stored segment read it once. The default retains 64 MiB; zero retains nothing.
+    /// A cache whose scans retain the arrays decoded from up to `bytes` of segments whose rows
+    /// live work still claims. The default allows 1 GiB, which the claims keep far below; zero
+    /// retains nothing.
     pub fn with_retained_bytes(bytes: u64) -> Self {
+        let inner = Inner::default();
+        let arrays = inner
+            .liveness
+            .clone()
+            .map(|liveness| RetainedArrays::new(liveness, bytes));
+        Self(Arc::new(Inner { arrays, ..inner }))
+    }
+
+    /// A cache that keeps the values its scans decode, such as dictionary values, for as long as
+    /// it lives, for an owner that scans the file repeatedly. Its scans track no liveness.
+    pub fn retaining_values() -> Self {
+        Self::keeping_values(Arc::default())
+    }
+
+    /// [`retaining_values`](Self::retaining_values), retaining up to `bytes` of recently read
+    /// segments.
+    #[cfg(test)]
+    pub(super) fn retaining_values_with_retained_bytes(bytes: u64) -> Self {
+        Self::keeping_values(Arc::new(RetainedSegments::new(bytes)))
+    }
+
+    fn keeping_values(retained: Arc<RetainedSegments>) -> Self {
         Self(Arc::new(Inner {
-            retained: Arc::new(RetainedSegments::new(bytes)),
+            values: ValueCache::default(),
+            liveness: None,
+            arrays: None,
+            retained,
             ..Inner::default()
         }))
+    }
+
+    /// The liveness every scan of the file reports its live work to, or `None` when the cache
+    /// keeps its values for as long as it lives.
+    pub fn liveness(&self) -> Option<Liveness> {
+        self.0.liveness.clone()
     }
 
     /// The lowered root plan an earlier scan kept.
@@ -124,12 +194,21 @@ impl ScanCache {
         )
     }
 
-    /// Serves `segments` through the segments the file's scans retain.
+    /// Serves `segments` through the segments the file's scans retain, when the cache retains
+    /// segments' bytes rather than their decoded arrays.
     pub(super) fn retaining(&self, segments: Arc<dyn SegmentSource>) -> Arc<dyn SegmentSource> {
+        if self.0.arrays.is_some() {
+            return segments;
+        }
         Arc::new(RetainingSegmentSource {
             inner: segments,
             retained: Arc::clone(&self.0.retained),
         })
+    }
+
+    /// The arrays decoded from the file's segments that its scans share, if it retains them.
+    pub(super) fn arrays(&self) -> Option<RetainedArrays> {
+        self.0.arrays.clone()
     }
 
     pub(super) fn values(&self) -> ValueCache {

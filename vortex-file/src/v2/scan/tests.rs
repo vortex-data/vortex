@@ -21,6 +21,7 @@ use vortex_arrow::ExecuteArrowExt;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::scan::v2::ScanBuilder;
@@ -119,5 +120,26 @@ async fn batches_are_mapped_off_the_polling_thread() -> VortexResult<()> {
     assert!(!batches.is_empty());
     assert_eq!(mapped_on.len(), batches.len());
     assert!(mapped_on.iter().all(|thread| *thread != polling));
+    Ok(())
+}
+
+/// A file opened with caching hands out a retaining cache, whose scans track no liveness, and
+/// its scans outlive the file handle. `scan_cache_reuses_values_between_scans` tests that the
+/// cache reuses its values.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cached_file_shares_a_retaining_cache() -> VortexResult<()> {
+    let file = file().await?.with_caching();
+    let scan_file = file.scan_file();
+    let cache = scan_file
+        .cache
+        .as_ref()
+        .ok_or_else(|| vortex_err!("a cached file shares a scan cache"))?;
+    assert!(cache.liveness().is_none());
+    drop(file);
+    let arrays: Vec<ArrayRef> = driver()
+        .run(ScanBuilder::new(SESSION.clone(), scan_file))
+        .try_collect()
+        .await?;
+    assert!(!arrays.is_empty());
     Ok(())
 }

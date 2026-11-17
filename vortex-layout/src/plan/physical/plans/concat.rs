@@ -204,7 +204,8 @@ impl PlanVTable for Concat {
                 continue;
             };
             let chunk = plan.slot_required(index)?;
-            if let Some(chain) = compiler.compile(
+            if let Some(chain) = compiler.compile_at(
+                start,
                 &chunk,
                 rows.start + span.start as u64 - start..rows.start + span.end as u64 - start,
                 &local_mask,
