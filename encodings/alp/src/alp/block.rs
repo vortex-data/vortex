@@ -36,7 +36,9 @@ pub(crate) fn alp_block_op(
         let patches = patches
             .map(|patches| BlockPatches::try_new(&patches, ctx, |_, value: F| value))
             .transpose()?;
-        Ok(Some(Box::new(Decode::<F> { exponents, patches }) as Box<dyn BlockOp>))
+        Ok(Some(
+            Box::new(Decode::<F> { exponents, patches }) as Box<dyn BlockOp>
+        ))
     })
 }
 
@@ -57,7 +59,9 @@ where
         mut out: BlockOut<'_>,
     ) -> VortexResult<()> {
         let exponents = self.exponents;
-        let values = out.map_from(input, |encoded: F::ALPInt| F::decode_single(encoded, exponents));
+        let values = out.map_from(input, |encoded: F::ALPInt| {
+            F::decode_single(encoded, exponents)
+        });
         if let Some(patches) = &mut self.patches {
             patches.apply(start, values);
         }

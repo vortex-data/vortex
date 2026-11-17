@@ -27,8 +27,8 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_buffer::Buffer;
-use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_buffer::ByteBuffer;
+use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -38,9 +38,9 @@ use crate::BitPackedArrayExt;
 use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
 use crate::FoR;
-use crate::FoRReferences;
 use crate::FoRArrayExt;
 use crate::FoRArraySlotsExt;
+use crate::FoRReferences;
 use crate::FoRSlots;
 
 /// The references a [`PackedSource`] adds while unpacking.
@@ -173,12 +173,15 @@ where
         let out = scratch.out::<T::Physical>(FL_CHUNK_SIZE);
         // SAFETY: both unpacks write all `FL_CHUNK_SIZE` values, so viewing them as initialized
         // afterwards is sound.
-        let out =
-            unsafe { std::mem::transmute::<&mut [MaybeUninit<T::Physical>], &mut [T::Physical]>(out) };
+        let out = unsafe {
+            std::mem::transmute::<&mut [MaybeUninit<T::Physical>], &mut [T::Physical]>(out)
+        };
         // SAFETY: `packed` holds one chunk at `bit_width` and `out` has room for one chunk.
         unsafe {
             match &self.references {
-                PackedReferences::None => T::Physical::unchecked_unpack(self.bit_width, packed, out),
+                PackedReferences::None => {
+                    T::Physical::unchecked_unpack(self.bit_width, packed, out)
+                }
                 PackedReferences::Global(reference) => {
                     T::Physical::unchecked_unfor_pack(self.bit_width, packed, *reference, out)
                 }
@@ -206,7 +209,12 @@ struct AddReference<T> {
 }
 
 impl<T: NativePType + WrappingAdd> BlockOp for AddReference<T> {
-    fn process(&mut self, _start: usize, input: BlockIn<'_>, mut out: BlockOut<'_>) -> VortexResult<()> {
+    fn process(
+        &mut self,
+        _start: usize,
+        input: BlockIn<'_>,
+        mut out: BlockOut<'_>,
+    ) -> VortexResult<()> {
         let reference = self.reference;
         out.map_from(input, |value: T| value.wrapping_add(&reference));
         Ok(())
@@ -220,7 +228,12 @@ struct AddReferences<T> {
 }
 
 impl<T: NativePType + WrappingAdd> BlockOp for AddReferences<T> {
-    fn process(&mut self, start: usize, input: BlockIn<'_>, mut out: BlockOut<'_>) -> VortexResult<()> {
+    fn process(
+        &mut self,
+        start: usize,
+        input: BlockIn<'_>,
+        mut out: BlockOut<'_>,
+    ) -> VortexResult<()> {
         let input = input.as_slice::<T>();
         let out = out.as_uninit::<T>();
         // A block may straddle a FoR chunk boundary, so split it there.
@@ -283,6 +296,7 @@ pub(crate) fn for_block_op(
 
 #[cfg(test)]
 mod tests {
+    use std::f64::consts::PI;
     use std::sync::LazyLock;
 
     use rstest::rstest;
@@ -315,14 +329,19 @@ mod tests {
     /// Execute `array` with and without fusion and check the results agree, and how many chains
     /// fused.
     fn assert_fuses_like_execute(array: &ArrayRef, chains: usize) -> VortexResult<()> {
-        let expected = array
-            .clone()
-            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx().with_block_fusion(false))?;
+        let expected = array.clone().execute::<PrimitiveArray>(
+            &mut SESSION.create_execution_ctx().with_block_fusion(false),
+        )?;
         let before = fused_chain_count();
-        let fused = array
-            .clone()
-            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx().with_block_fusion(true))?;
-        assert_eq!(fused_chain_count() - before, chains, "fused chains for\n{}", array.display_tree());
+        let fused = array.clone().execute::<PrimitiveArray>(
+            &mut SESSION.create_execution_ctx().with_block_fusion(true),
+        )?;
+        assert_eq!(
+            fused_chain_count() - before,
+            chains,
+            "fused chains for\n{}",
+            array.display_tree()
+        );
         assert_arrays_eq!(fused, expected, &mut SESSION.create_execution_ctx());
         Ok(())
     }
@@ -330,9 +349,17 @@ mod tests {
     /// `depth` FoR levels over a BitPacked leaf at width 10, whose values above 1000 are patched.
     fn for_stack(len: usize, depth: usize, nullable: bool) -> VortexResult<ArrayRef> {
         let mut ctx = SESSION.create_execution_ctx();
-        let values = (0..len as u32).map(|i| if i % 97 == 0 { 5000 + i } else { (i * 7) % 1000 });
+        let values = (0..len as u32).map(|i| {
+            if i % 97 == 0 {
+                5000 + i
+            } else {
+                (i * 7) % 1000
+            }
+        });
         let values = if nullable {
-            PrimitiveArray::from_option_iter(values.enumerate().map(|(i, v)| (i % 13 != 0).then_some(v)))
+            PrimitiveArray::from_option_iter(
+                values.enumerate().map(|(i, v)| (i % 13 != 0).then_some(v)),
+            )
         } else {
             PrimitiveArray::from_iter(values)
         };
@@ -404,7 +431,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_option_iter((0..5000).map(|i| {
             let value = if i % 301 == 0 {
-                std::f64::consts::PI * f64::from(i)
+                PI * f64::from(i)
             } else {
                 f64::from(i) * 0.25 - 100.0
             };
@@ -415,7 +442,11 @@ mod tests {
         let encoded = alp.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?;
         let min = *encoded.as_slice::<i64>().iter().min().unwrap_or(&0);
         let shifted = PrimitiveArray::new(
-            encoded.as_slice::<i64>().iter().map(|&v| v - min).collect::<vortex_buffer::Buffer<i64>>(),
+            encoded
+                .as_slice::<i64>()
+                .iter()
+                .map(|&v| v - min)
+                .collect::<vortex_buffer::Buffer<i64>>(),
             encoded.validity()?,
         );
         let bp = bitpack_encode(&shifted, 16, None, &mut ctx)?.into_array();
@@ -425,4 +456,3 @@ mod tests {
         assert_fuses_like_execute(&array.slice(301..4500)?, 1)
     }
 }
-

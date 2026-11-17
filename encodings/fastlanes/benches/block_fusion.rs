@@ -8,7 +8,9 @@
 //! the noise between the two.
 
 #![expect(clippy::unwrap_used)]
+#![allow(clippy::cast_possible_truncation)]
 
+use std::f64::consts::PI;
 use std::sync::LazyLock;
 
 use divan::Bencher;
@@ -72,8 +74,8 @@ fn for_stack(len: usize, depth: usize) -> ArrayRef {
 
 /// `depth` FoR levels over an uncompressed leaf.
 fn for_over_primitive(len: usize, depth: usize) -> ArrayRef {
-    let mut array = PrimitiveArray::from_iter((0..len as u64).map(|i| ((i * 7) % 1000) as u32))
-        .into_array();
+    let mut array =
+        PrimitiveArray::from_iter((0..len as u64).map(|i| ((i * 7) % 1000) as u32)).into_array();
     for level in 0..depth {
         array = FoR::try_new(array, Scalar::from(1_000u32 + level as u32))
             .unwrap()
@@ -87,7 +89,7 @@ fn alp_for_bp(len: usize) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
     let values = PrimitiveArray::from_iter((0..len).map(|i| {
         if i % 1001 == 0 {
-            std::f64::consts::PI * i as f64
+            PI * i as f64
         } else {
             (i % 5000) as f64 * 0.25 - 100.0
         }
@@ -107,7 +109,13 @@ fn alp_for_bp(len: usize) -> ArrayRef {
             .collect::<Buffer<i64>>(),
         encoded.validity().unwrap(),
     );
-    let bits = (64 - shifted.as_slice::<i64>().iter().max().unwrap().leading_zeros()) as u8;
+    let bits = (64
+        - shifted
+            .as_slice::<i64>()
+            .iter()
+            .max()
+            .unwrap()
+            .leading_zeros()) as u8;
     let bp = bitpack_encode(&shifted, bits, None, &mut ctx)
         .unwrap()
         .into_array();
@@ -135,12 +143,20 @@ const SLICE_STARTS: &[usize] = &[512, 517];
 
 #[divan::bench(consts = LENS, args = SLICE_STARTS)]
 fn sliced_for_bp_fused<const N: usize>(bencher: Bencher, start: usize) {
-    bench_execute(bencher, &for_stack(N + 1024, 1).slice(start..N + start).unwrap(), true);
+    bench_execute(
+        bencher,
+        &for_stack(N + 1024, 1).slice(start..N + start).unwrap(),
+        true,
+    );
 }
 
 #[divan::bench(consts = LENS, args = SLICE_STARTS)]
 fn sliced_for_bp_levelwise<const N: usize>(bencher: Bencher, start: usize) {
-    bench_execute(bencher, &for_stack(N + 1024, 1).slice(start..N + start).unwrap(), false);
+    bench_execute(
+        bencher,
+        &for_stack(N + 1024, 1).slice(start..N + start).unwrap(),
+        false,
+    );
 }
 
 const PRIMITIVE_DEPTHS: &[usize] = &[2, 4];

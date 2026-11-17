@@ -18,9 +18,10 @@
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 
+use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
-use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -102,7 +103,10 @@ pub struct BlockIn<'a> {
 impl<'a> BlockIn<'a> {
     /// A block over initialized values.
     pub fn from_slice<T: NativePType>(values: &'a [T]) -> Self {
-        assert!(values.len() <= BLOCK_LEN, "a block holds at most {BLOCK_LEN} rows");
+        assert!(
+            values.len() <= BLOCK_LEN,
+            "a block holds at most {BLOCK_LEN} rows"
+        );
         Self {
             ptr: values.as_ptr().cast(),
             len: values.len(),
@@ -209,12 +213,7 @@ pub trait BlockOp: Send {
     ///
     /// `input` holds the child's values for those rows, in the child's primitive type, and `out`
     /// receives the parent's, in the parent's primitive type. Every value of `out` must be written.
-    fn process(
-        &mut self,
-        start: usize,
-        input: BlockIn<'_>,
-        out: BlockOut<'_>,
-    ) -> VortexResult<()>;
+    fn process(&mut self, start: usize, input: BlockIn<'_>, out: BlockOut<'_>) -> VortexResult<()>;
 }
 
 /// Patches resolved once and applied block by block in row order.
@@ -238,7 +237,7 @@ impl<T: NativePType> BlockPatches<T> {
             indices
                 .as_slice::<I>()
                 .iter()
-                .map(|&index| index as usize - offset)
+                .map(|&index| AsPrimitive::<usize>::as_(index) - offset)
                 .collect()
         });
         let values = indices
