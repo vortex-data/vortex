@@ -20,7 +20,6 @@
 pub mod manifest;
 
 pub use manifest::Manifest;
-pub use manifest::ManifestBuilder;
 pub use manifest::ManifestEntry;
 
 #[cfg(test)]

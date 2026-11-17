@@ -3,20 +3,16 @@
 
 //! The manifest: one row per data file, itself stored as a Vortex file.
 //!
-//! | column          | type   | meaning                                                         |
-//! |-----------------|--------|-----------------------------------------------------------------|
-//! | `path`          | utf8   | the file, relative to the table                                 |
-//! | `byte_size`     | u64    | the file's length                                               |
-//! | `row_count`     | u64    | rows in the file                                                |
-//! | `footer_offset` | u64    | first byte of the file's footer region                          |
-//! | `footer_len`    | u64    | length of the footer region, through the end of the file        |
-//! | `footer_hash`   | u64    | [`footer_hash`] of the region                                   |
-//! | `footer`        | binary | the region itself, or empty when the manifest does not inline it |
+//! | column      | type   | meaning                                                  |
+//! |-------------|--------|----------------------------------------------------------|
+//! | `path`      | utf8   | the file, relative to the table                          |
+//! | `byte_size` | u64    | the file's length                                        |
+//! | `row_count` | u64    | rows in the file                                         |
+//! | `footer`    | binary | the file's footer region, through the end of the file    |
 //!
 //! The footer holds the file's dtype, layout, segment map, and column statistics, so a planner
-//! prunes a file on its statistics and opens it from the manifest alone: with the footer inlined
-//! that costs no IO at all, and without it one read of a known range. The hash identifies the
-//! exact bytes of a file, which is what out-of-file indexes bind to.
+//! prunes a file on its statistics and opens it from the manifest alone, with no IO. The
+//! region's hash identifies the exact bytes of a file, which is what out-of-file indexes bind to.
 
 use std::sync::Arc;
 
@@ -33,7 +29,6 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
@@ -53,39 +48,67 @@ pub struct ManifestEntry {
     pub byte_size: u64,
     /// Rows in the file.
     pub row_count: u64,
-    /// First byte of the file's footer region.
-    pub footer_offset: u64,
-    /// Length of the footer region, through the end of the file.
-    pub footer_len: u64,
-    /// Hash of the footer region.
-    pub footer_hash: u64,
-    /// The footer region, when the manifest inlines it.
-    pub footer: Option<ByteBuffer>,
+    /// The file's footer region: from the end of its segments through the end of the file.
+    pub footer: ByteBuffer,
 }
 
-/// The hash a manifest records for a footer region: XXH3-64 over the region's bytes. A rewritten
-/// file, even one with the same path and size, hashes differently.
-pub fn footer_hash(region: &[u8]) -> u64 {
-    XxHash3_64::oneshot(region)
+impl ManifestEntry {
+    /// The entry for the file at `path`, whose bytes `read` serves.
+    ///
+    /// The footer is found the way any open finds it. Its region starts where the file's
+    /// segments end.
+    pub async fn read(
+        session: &VortexSession,
+        path: impl Into<String>,
+        read: Arc<dyn VortexReadAt>,
+    ) -> VortexResult<Self> {
+        let byte_size = read.size().await?;
+        let file = session
+            .open_options()
+            .with_file_size(byte_size)
+            .open(Arc::clone(&read))
+            .await?;
+        let offset = file
+            .footer()
+            .segments_end()
+            .ok_or_else(|| vortex_err!("the file's segment ranges overflow"))?;
+        let footer = read
+            .read_at(
+                offset,
+                usize::try_from(byte_size - offset)?,
+                Alignment::none(),
+            )
+            .await?
+            .try_into_host()?
+            .await?;
+        Ok(Self {
+            path: path.into(),
+            byte_size,
+            row_count: file.row_count(),
+            footer,
+        })
+    }
+
+    /// First byte of the footer region in the file.
+    pub fn footer_offset(&self) -> u64 {
+        self.byte_size - self.footer.len() as u64
+    }
+
+    /// XXH3-64 of the footer region. A rewritten file, even one with the same path and size,
+    /// hashes differently.
+    pub fn footer_hash(&self) -> u64 {
+        XxHash3_64::oneshot(&self.footer)
+    }
 }
 
-/// The files of a table, in table order.
+/// The files of a table, in table order. A file's ordinal is its index in `entries`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Manifest {
-    entries: Vec<ManifestEntry>,
+    /// The table's files.
+    pub entries: Vec<ManifestEntry>,
 }
 
 impl Manifest {
-    /// A manifest over `entries`, in table order.
-    pub fn new(entries: Vec<ManifestEntry>) -> Self {
-        Self { entries }
-    }
-
-    /// The table's files, in table order. A file's ordinal is its index here.
-    pub fn entries(&self) -> &[ManifestEntry] {
-        &self.entries
-    }
-
     /// Rows in the table.
     pub fn row_count(&self) -> u64 {
         self.entries.iter().map(|entry| entry.row_count).sum()
@@ -97,61 +120,35 @@ impl Manifest {
             PrimitiveArray::from_iter(self.entries.iter().map(f)).into_array()
         };
         let paths: Vec<&str> = self.entries.iter().map(|e| e.path.as_str()).collect();
-        let footers: Vec<&[u8]> = self
-            .entries
-            .iter()
-            .map(|e| {
-                e.footer
-                    .as_ref()
-                    .map_or(&[][..], |footer| footer.as_slice())
-            })
-            .collect();
+        let footers: Vec<&[u8]> = self.entries.iter().map(|e| e.footer.as_slice()).collect();
         Ok(StructArray::from_fields(&[
             ("path", VarBinArray::from(paths).into_array()),
             ("byte_size", u64s(|e| e.byte_size)),
             ("row_count", u64s(|e| e.row_count)),
-            ("footer_offset", u64s(|e| e.footer_offset)),
-            ("footer_len", u64s(|e| e.footer_len)),
-            ("footer_hash", u64s(|e| e.footer_hash)),
             ("footer", VarBinArray::from(footers).into_array()),
         ])?
         .into_array())
     }
 
-    /// Reads a manifest back from the struct array [`to_array`](Self::to_array) made.
-    pub fn from_array(array: ArrayRef, session: &VortexSession) -> VortexResult<Self> {
+    /// Appends the rows of a struct array that [`to_array`](Self::to_array) made.
+    fn extend_from_array(&mut self, array: ArrayRef, session: &VortexSession) -> VortexResult<()> {
         let mut ctx = session.create_execution_ctx();
         let array = array.execute::<StructArray>(&mut ctx)?;
         let field = |name: &str| array.unmasked_field_by_name(name).cloned();
-        let mut u64s = |name: &str| -> VortexResult<Vec<u64>> {
-            let column = field(name)?.execute::<PrimitiveArray>(&mut ctx)?;
-            Ok(column.as_slice::<u64>().to_vec())
-        };
-        let byte_size = u64s("byte_size")?;
-        let row_count = u64s("row_count")?;
-        let footer_offset = u64s("footer_offset")?;
-        let footer_len = u64s("footer_len")?;
-        let hash = u64s("footer_hash")?;
+        let byte_size = field("byte_size")?.execute::<PrimitiveArray>(&mut ctx)?;
+        let row_count = field("row_count")?.execute::<PrimitiveArray>(&mut ctx)?;
         let paths = field("path")?.execute::<VarBinViewArray>(&mut ctx)?;
         let footers = field("footer")?.execute::<VarBinViewArray>(&mut ctx)?;
-        vortex_ensure_eq!(paths.len(), byte_size.len());
-        let entries = (0..paths.len())
-            .map(|i| {
-                let path = String::from_utf8(paths.bytes_at(i).to_vec())
-                    .map_err(|e| vortex_err!("manifest path {i} is not utf8: {e}"))?;
-                let footer = footers.bytes_at(i);
-                Ok(ManifestEntry {
-                    path,
-                    byte_size: byte_size[i],
-                    row_count: row_count[i],
-                    footer_offset: footer_offset[i],
-                    footer_len: footer_len[i],
-                    footer_hash: hash[i],
-                    footer: (!footer.is_empty()).then_some(footer),
-                })
-            })
-            .collect::<VortexResult<_>>()?;
-        Ok(Self { entries })
+        for i in 0..array.len() {
+            self.entries.push(ManifestEntry {
+                path: String::from_utf8(paths.bytes_at(i).to_vec())
+                    .map_err(|e| vortex_err!("manifest path {i} is not utf8: {e}"))?,
+                byte_size: byte_size.as_slice::<u64>()[i],
+                row_count: row_count.as_slice::<u64>()[i],
+                footer: footers.bytes_at(i),
+            });
+        }
+        Ok(())
     }
 
     /// Writes the manifest as a Vortex file.
@@ -175,82 +172,10 @@ impl Manifest {
             .run(ScanBuilder::new(session.clone(), file.scan_file()))
             .try_collect()
             .await?;
-        let mut entries = Vec::new();
+        let mut manifest = Self::default();
         for chunk in chunks {
-            entries.extend(Self::from_array(chunk, session)?.entries);
+            manifest.extend_from_array(chunk, session)?;
         }
-        Ok(Self { entries })
-    }
-}
-
-/// Builds a manifest one data file at a time, reading each file's footer region.
-pub struct ManifestBuilder {
-    session: VortexSession,
-    inline_footers: bool,
-    entries: Vec<ManifestEntry>,
-}
-
-impl ManifestBuilder {
-    /// A builder that inlines every file's footer region into the manifest, so scans open files
-    /// without reading their footers.
-    pub fn new(session: VortexSession) -> Self {
-        Self {
-            session,
-            inline_footers: true,
-            entries: Vec::new(),
-        }
-    }
-
-    /// Whether to inline footer regions. Without, a scan reads each file's region once, at the
-    /// offset and length the manifest records.
-    pub fn with_inline_footers(mut self, inline: bool) -> Self {
-        self.inline_footers = inline;
-        self
-    }
-
-    /// Appends the file at `path`, whose bytes `read` serves, as the table's next file.
-    ///
-    /// The footer is found the way any open finds it; its region is everything from the end of
-    /// the file's segments to the end of the file.
-    pub async fn add(
-        &mut self,
-        path: impl Into<String>,
-        read: Arc<dyn VortexReadAt>,
-    ) -> VortexResult<()> {
-        let byte_size = read.size().await?;
-        let file = self
-            .session
-            .open_options()
-            .with_file_size(byte_size)
-            .open(Arc::clone(&read))
-            .await?;
-        let footer = file.footer();
-        let footer_offset = footer
-            .segments_end()
-            .ok_or_else(|| vortex_err!("the file's segment ranges overflow"))?;
-        let region = read
-            .read_at(
-                footer_offset,
-                usize::try_from(byte_size - footer_offset)?,
-                Alignment::none(),
-            )
-            .await?
-            .try_into_host()?
-            .await?;
-        self.entries.push(ManifestEntry {
-            path: path.into(),
-            byte_size,
-            row_count: footer.row_count(),
-            footer_offset,
-            footer_len: region.len() as u64,
-            footer_hash: footer_hash(&region),
-            footer: self.inline_footers.then_some(region),
-        });
-        Ok(())
-    }
-
-    /// The manifest of the files added, in the order they were added.
-    pub fn finish(self) -> Manifest {
-        Manifest::new(self.entries)
+        Ok(manifest)
     }
 }

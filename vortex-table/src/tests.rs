@@ -4,7 +4,6 @@
 use std::sync::Arc;
 use std::sync::LazyLock;
 
-use rstest::rstest;
 use vortex::VortexSessionDefault;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -18,8 +17,7 @@ use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
 use crate::Manifest;
-use crate::ManifestBuilder;
-use crate::manifest::footer_hash;
+use crate::ManifestEntry;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| VortexSession::default().with_tokio());
 
@@ -37,32 +35,26 @@ async fn data_file(rows: std::ops::Range<u64>) -> VortexResult<ByteBuffer> {
     Ok(buf.freeze())
 }
 
-async fn manifest(files: &[ByteBuffer], inline_footers: bool) -> VortexResult<Manifest> {
-    let mut builder = ManifestBuilder::new(SESSION.clone()).with_inline_footers(inline_footers);
+async fn manifest(files: &[ByteBuffer]) -> VortexResult<Manifest> {
+    let mut manifest = Manifest::default();
     for (i, bytes) in files.iter().enumerate() {
-        builder
-            .add(format!("data/part-{i}.vortex"), Arc::new(bytes.clone()))
-            .await?;
+        let path = format!("data/part-{i}.vortex");
+        let entry = ManifestEntry::read(&SESSION, path, Arc::new(bytes.clone())).await?;
+        manifest.entries.push(entry);
     }
-    Ok(builder.finish())
+    Ok(manifest)
 }
 
-#[rstest]
-#[case::inlined(true)]
-#[case::not_inlined(false)]
 #[tokio::test]
-async fn a_written_manifest_reads_back_the_same(#[case] inline: bool) -> VortexResult<()> {
+async fn a_written_manifest_reads_back_the_same() -> VortexResult<()> {
     let files = [
         data_file(0..1000).await?,
         data_file(1000..1500).await?,
         data_file(1500..4000).await?,
     ];
-    let manifest = manifest(&files, inline).await?;
+    let manifest = manifest(&files).await?;
     assert_eq!(manifest.row_count(), 4000);
-    assert_eq!(manifest.entries()[1].row_count, 500);
-    for entry in manifest.entries() {
-        assert_eq!(entry.footer.is_some(), inline);
-    }
+    assert_eq!(manifest.entries[1].row_count, 500);
 
     let mut written = ByteBufferMut::empty();
     manifest.write(&SESSION, &mut written).await?;
@@ -74,24 +66,18 @@ async fn a_written_manifest_reads_back_the_same(#[case] inline: bool) -> VortexR
 #[tokio::test]
 async fn an_entry_records_the_exact_footer_region() -> VortexResult<()> {
     let bytes = data_file(0..2048).await?;
-    let manifest = manifest(std::slice::from_ref(&bytes), true).await?;
-    let entry = &manifest.entries()[0];
+    let manifest = manifest(std::slice::from_ref(&bytes)).await?;
+    let entry = &manifest.entries[0];
 
     assert_eq!(entry.byte_size, bytes.len() as u64);
-    assert_eq!(entry.footer_offset + entry.footer_len, entry.byte_size);
-    let tail = bytes.slice(usize::try_from(entry.footer_offset)?..bytes.len());
-    let inlined = entry
-        .footer
-        .clone()
-        .ok_or_else(|| vortex_error::vortex_err!("inlined"))?;
-    assert_eq!(inlined, tail);
-    assert_eq!(entry.footer_hash, footer_hash(&tail));
+    let tail = bytes.slice(usize::try_from(entry.footer_offset())?..bytes.len());
+    assert_eq!(entry.footer, tail);
     // The region alone is enough to parse the footer: no more data is asked for.
-    let step = Footer::deserializer(inlined, SESSION.clone())
+    let step = Footer::deserializer(entry.footer.clone(), SESSION.clone())
         .with_size(entry.byte_size)
         .deserialize()?;
     let DeserializeStep::Done(footer) = step else {
-        vortex_error::vortex_bail!("the inlined region is not the whole footer");
+        vortex_error::vortex_bail!("the region is not the whole footer");
     };
     assert_eq!(footer.row_count(), 2048);
     Ok(())
@@ -99,11 +85,11 @@ async fn an_entry_records_the_exact_footer_region() -> VortexResult<()> {
 
 #[tokio::test]
 async fn rewriting_a_file_changes_its_footer_hash() -> VortexResult<()> {
-    let before = manifest(&[data_file(0..1000).await?], false).await?;
-    let after = manifest(&[data_file(5000..6000).await?], false).await?;
+    let before = manifest(&[data_file(0..1000).await?]).await?;
+    let after = manifest(&[data_file(5000..6000).await?]).await?;
     assert_ne!(
-        before.entries()[0].footer_hash,
-        after.entries()[0].footer_hash
+        before.entries[0].footer_hash(),
+        after.entries[0].footer_hash()
     );
     Ok(())
 }

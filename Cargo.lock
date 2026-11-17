@@ -12471,7 +12471,6 @@ name = "vortex-table"
 version = "0.1.0"
 dependencies = [
  "futures",
- "rstest",
  "tempfile",
  "tokio",
  "twox-hash",

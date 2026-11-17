@@ -28,7 +28,6 @@ vortex-layout = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
-rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex = { workspace = true, default-features = false, features = ["files"] }
