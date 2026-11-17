@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Encodings of TPC-H lineitem as written by `data-gen`. Print the dump these directives match
+# with `vx filecheck slt/tpch/data/lineitem.vortex`.
+#
+# `data*` matches every chunk of a chunked column and the single unit of an unchunked one, so
+# these checks do not depend on how many chunks the scale factor produces.
+
+files: tpch/data/lineitem\.vortex
+
+# The four low-cardinality string columns get dictionary layouts, in schema order.
+check: unit: l_returnflag/data/values
+check: unit: l_linestatus/data/values
+check: unit: l_shipinstruct/data/values
+check: unit: l_shipmode/data/values
+
+# No chunk of any column stores its values uncompressed.
+units: l_*/data[*]
+not: root: vortex.primitive(
+not: root: vortex.varbinview(
+
+# Free text is compressed with a string compressor in every chunk.
+units: l_comment/data*
+regex: TEXT=vortex\.(fsst|onpair)
+check: root: $TEXT(utf8
+
+# Dictionary codes are bit-packed.
+units: l_*/data/codes*
+check: root: fastlanes.bitpacked
+
+# Dates are frame-of-reference then bit-packed, under the date extension type.
+units: l_*date/data*
+check: root: vortex.ext(vortex.date[days]
+nextln: storage: fastlanes.for
+nextln: encoded: fastlanes.bitpacked
+
+# Decimals are split into byte parts, and the most significant part is bit-packed...
+units: l_extendedprice/data*
+check: root: vortex.decimal_byte_parts.v2(
+nextln: msp: fastlanes.bitpacked
+
+units: l_discount/data*
+check: root: vortex.decimal_byte_parts.v2(
+nextln: msp: fastlanes.bitpacked
+
+units: l_tax/data*
+check: root: vortex.decimal_byte_parts.v2(
+nextln: msp: fastlanes.bitpacked
+
+# ...except l_quantity's, whose 50 distinct values are dictionary-encoded.
+units: l_quantity/data*
+check: root: vortex.decimal_byte_parts.v2(
+nextln: msp: vortex.dict(
+nextln: codes: fastlanes.bitpacked

@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Invariants of every TPC-H table written by `data-gen`.
+
+files: tpch/data/.*\.vortex
+
+# Every column has a zone map: a struct of statistics whose null count is constant, as TPC-H
+# has no nulls.
+units: */zones
+check: root: vortex.struct(
+check: vortex.null_count(): vortex.constant
