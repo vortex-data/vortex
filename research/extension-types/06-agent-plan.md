@@ -49,7 +49,8 @@ hints. If a file moved, find the code by name.
   intended. If a test fails for a reason outside your task, report it.
 - Do not reduce the scope of a task. If a step is harder than expected, report that instead.
 - Do not touch generated files under `*/flatbuffers/generated/` or `*/proto/generated/`.
-- Never push, never open a PR, never comment on GitHub, and never change another worktree.
+- Never push, never open a PR, never comment on GitHub, and never change another worktree. Work only
+  in the worktree that Codex created for your session.
 - The typing error text is fixed. `DType::require_claim` returns
   `"{function} requires the {claim} claim, but {dtype} does not hold it"`.
 - Run checks once, on the tip of your branch, never for each commit. The crates to check are listed
@@ -75,7 +76,7 @@ hints. If a file moved, find the code by name.
 4. Write your report to `<reports>/<ID>.md`, where `<reports>` is the directory in your prompt. Use
    these sections, in plain English:
    - Status: done, or blocked.
-   - Branch and head commit.
+   - Worktree path, branch and head commit.
    - What changed, in five to ten lines.
    - Choices that the plan left open, and what you chose.
    - Differences from the plan, and why.
@@ -118,8 +119,8 @@ Each line names the test that pins it and the task that adds the test.
 | Wave | Tasks | Starts when |
 | --- | --- | --- |
 | A | CL1 then CL2 (one agent), U1, NU, SF then SN3 (one agent) | The plan is approved |
-| B | TY1, TY2, TY3 then TY4 (one agent), ST1 then ST2 (one agent) | CL2 passed review. The branches start from CL2 |
-| C | TY5, CL3, VC1 then VC2, LP4 | Wave B is in review, and the maintainer agrees |
+| B | TY1, TY2, TY3 then TY4 (one agent), ST1 then ST2 (one agent) | CL2 passed review. The branches start from CL2, and each task starts a new agent |
+| C | TY5, CL3, VC1 then VC2, LP4 | Wave B is in review |
 | D | RU1 to RU3, BD1, BD3, AF, LP1 to LP3 | Each needs a decision first (see "Wave D") |
 
 Tasks that follow "then" run in one agent, one after the other, as separate branches and PRs.
@@ -560,8 +561,7 @@ lists.
 
 ## Wave C
 
-These tasks start after the maintainer looks at waves A and B. Each is specified enough to run, but
-it can wait.
+These tasks start after wave B is in review. Each is specified enough to run.
 
 - **TY5:** make the variants of `BoundExpression` private (`vortex-array/src/expr/bound_expression.rs`),
   so no code builds a node without `return_dtype` (X8). Branch `ct/bound-expression-private` from
@@ -594,58 +594,74 @@ This section is for the coordinating session, not for the agents.
 
 ### Launch
 
-Each agent runs in its own Rex tab, in its own worktree, with this command. `<W>` is the worktree,
-`<ID>` the task, `<base>` the base branch and `<reports>` the report directory.
+Each agent runs in its own Rex tab. Codex creates a managed Git worktree for each session
+(`--worktree`), so the `vortexN` worktrees stay untouched. `<ID>` is the task, `<base>` the base
+branch and `<reports>` the report directory.
 
 ```bash
-rex window new -s "$REX_SESSION" "<ID>" -c "<W>" --focus=false --keep-open --json -- \
+rex window new -s "$REX_SESSION" "<ID>" -c /Users/connor/spiral/vortex-data/vortex6 \
+  --focus=false --keep-open --json -- \
   codex -m gpt-6.2-sol \
     -c model_reasoning_effort=high \
     -c service_tier=priority \
     --approve-for-me \
+    --worktree \
     --add-dir /Users/connor/spiral/vortex-data/.bare \
     --add-dir "<reports>" \
-    -C "<W>" \
-    "You implement task <ID> of the Vortex extension type plan. Read /Users/connor/spiral/vortex-data/vortex6/research/extension-types/06-agent-plan.md: 'Global Constraints', 'Agent protocol', 'Review Focus' and 'Task <ID>'. Read the spec files that it names in /Users/connor/spiral/vortex-data/vortex6/research, but do not change them. Work only in <W>. Your base is <base>. Your report directory is <reports>."
+    -C /Users/connor/spiral/vortex-data/vortex6 \
+    "You implement task <ID> of the Vortex extension type plan. Read /Users/connor/spiral/vortex-data/vortex6/research/extension-types/06-agent-plan.md: 'Global Constraints', 'Agent protocol', 'Review Focus' and 'Task <ID>'. Read the spec files that it names in /Users/connor/spiral/vortex-data/vortex6/research, but do not change them. Work only in the worktree that Codex created for this session. Your base is <base>. Your report directory is <reports>."
 ```
 
 - `service_tier=priority` is the Fast tier, and `model_reasoning_effort=high` is the high effort.
 - `--approve-for-me` sends approval requests to automatic review in the workspace-write sandbox.
+- `--worktree` starts the session in a new managed worktree. The agent then creates its branch from
+  `<base>`, so the commit that the worktree starts from does not matter.
 - `--add-dir` for the bare repository lets the agent commit, because the Git directory of a
   worktree is outside it. The report directory is the other writable path.
 - An agent that runs two tasks gets a second prompt in the same tab after the first task passes
   review: "Task <ID2> next. Read 'Task <ID2>' in the plan. Your base is <base2>."
+- Each new worktree starts with an empty `target/` directory, so the first build of each agent is
+  a cold build.
 
 ### Monitoring and review
 
 1. For each agent, a background shell waits for `<reports>/<ID>.done` and wakes the coordinating
    session.
-2. The coordinator reads the report and the branch (`git -C <W> log`, `git -C <W> diff <base>...`),
+2. The coordinator reads the report and the branch (`git log <base>..<branch>`, `git diff <base>...<branch>`),
    and reviews the diff against the task, the spec and the Review Focus. The review uses the
    `code-review` and `rust-style` skills.
 3. If changes are needed, the coordinator writes `<reports>/<ID>-review-<n>.md`, deletes the
    `.done` file, and sends "Read the review at `<path>`" to the tab with `rex send` and
    `rex send-key enter`.
-4. After two review rounds, the coordinator fixes small remaining issues itself, or asks the
-   maintainer.
-5. `rex capture -s "$REX_SESSION" -b <block> --trim` shows a tab that seems stuck.
+4. After two review rounds, the coordinator fixes small remaining issues itself.
+5. The maintainer is not available while the agents run (2026-11-17). So the coordinator answers a
+   "blocked" report itself, picks the option that the spec supports best, and records the choice
+   in the PR body.
+6. `rex capture -s "$REX_SESSION" -b <block> --trim` shows a tab that seems stuck.
 
 ### Publishing
 
 After a branch passes review, the coordinator pushes it and opens a draft PR. The PR body follows
 the `connor-voice` skill. The maintainer marks PRs ready. CL1 and CL2 form a stack. The wave B PRs
-use the CL2 branch as their base until CL2 merges, and then rebase onto `develop`. The PR plans in
-[#11114](https://github.com/vortex-data/vortex/issues/11114) and
-[#11115](https://github.com/vortex-data/vortex/issues/11115) get the new IDs and links.
+use the CL2 branch as their base until CL2 merges, and then rebase onto `develop`. The coordinator
+also updates the PR plans in [#11114](https://github.com/vortex-data/vortex/issues/11114) and
+[#11115](https://github.com/vortex-data/vortex/issues/11115) with the new IDs and links, after it
+reads their `updatedAt` so that no other edit is lost.
 
-### Worktrees
+The agents build on `develop`, not on the crate moves of
+[#10762](https://github.com/vortex-data/vortex/pull/10762) and
+[#10769](https://github.com/vortex-data/vortex/pull/10769). Whichever lands second ports the other's
+changes.
 
-| Slot | Wave A | Wave B |
+### Agents
+
+| Agent | Wave A | Wave B |
 | --- | --- | --- |
-| W1 | CL1, then CL2 | TY1 |
-| W2 | U1 | TY2 |
-| W3 | NU | TY3, then TY4 |
-| W4 | SF, then SN3 | ST1, then ST2 |
+| 1 | CL1, then CL2 | TY1 |
+| 2 | U1 | TY2 |
+| 3 | NU | TY3, then TY4 |
+| 4 | SF, then SN3 | ST1, then ST2 |
 
-A wave B task starts in a slot when that slot's wave A work is in review or published and CL2 has
-passed review. After the work is published, each worktree returns to its placeholder branch.
+Wave B starts new agents, each in a new managed worktree, as soon as CL2 has passed review. After
+the work of an agent is published, the coordinator removes its managed worktree and any leftover
+branch that Codex created, with the `git-workspace-cleanup` skill.
