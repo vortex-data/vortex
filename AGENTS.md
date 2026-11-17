@@ -242,8 +242,23 @@ Check new and modified lines against this list before finishing:
 
 ## Summaries
 
-When summarizing work, write valid Markdown that can be copied into GitHub. Include the checks
-you ran and call out any checks you could not run.
+When summarizing work in chat, write valid Markdown that can be copied into GitHub. Include the
+checks you ran and call out any checks you could not run. Do not list checks in PR descriptions.
+
+## Pull Requests
+
+PRs are squash-merged: the title and description become the commit message, so keep both short.
+
+- Title: imperative mood, at most 72 characters, describing the effect rather than the mechanism
+  (`Speed up sparse takes from chunked Dict arrays`, not
+  `Take few rows of encoded Dict values when appending to a builder`). No `feat:`, `fix(x):` or
+  similar prefix: the required `changelog/*` label already categorizes the PR. CI enforces both.
+- Description: aim for about 150 words. Say what changed and why, plus anything a reviewer cannot
+  get from the diff. Fill in the template's prompts; do not add headings of your own.
+- Leave out the checks you ran, lists of new types or functions, per-file walkthroughs, and test
+  inventories. Mention tests in one line only when they are new or unusual.
+- Give a benchmark's headline result in one line. Post a full table as a comment instead.
+- Call out breaking or behaviour changes explicitly, and add the `changelog/break` label.
 
 ## Branches
 

@@ -1,23 +1,11 @@
-## Summary
-
-- Tracking Issue: #000
-
 <!--
-Explain the rationale for this change and its impact. Is it part of a longer effort, or a bigger change? Larger PRs deserve larger summaries, and there is no need to duplicate an attached issue or discussion, but clarity is preferred over brevity.
-
-Link the tracked effort or open issue above, or delete the line if there is none.
--->
-
-## Changes
-
-<!--
-Summarize what changed and why, calling out the important parts when the PR spans many crates. Describe how the change is tested (only if new tests have been added).
+What this changes and why, in 1–3 sentences. It becomes the squash commit message.
+Do not list files, new APIs, or the checks you ran: reviewers can see the diff and CI.
 -->
 
 <!--
-## API Changes
-
-Uncomment this section if there are user-facing changes, such as a broken public API or a change in the behavior of an engine integration. A breaking change also needs the `changelog/break` label.
-
-A change to an edition's membership or freeze belongs in its own PR with the `changelog/edition` label.
+Optional, delete if empty:
+- Breaking or behaviour change (also add the `changelog/break` label)
+- Headline benchmark number
+- Tracking issue / follow-up PRs
 -->
