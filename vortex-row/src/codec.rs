@@ -1441,19 +1441,32 @@ pub(crate) trait RowEncode: Copy {
     fn encode_to(self, out: &mut [u8], descending: bool);
 }
 
+/// Writes big-endian `bytes` into `out`, inverting each byte for descending order.
+#[inline]
+fn write_row_bytes<const N: usize>(bytes: [u8; N], out: &mut [u8], descending: bool) {
+    if descending {
+        for (i, b) in bytes.iter().enumerate() {
+            out[i] = b ^ 0xFF;
+        }
+    } else {
+        out.copy_from_slice(&bytes);
+    }
+}
+
+/// Writes big-endian two's-complement `bytes` into `out` with the sign bit flipped, so
+/// negatives sort before non-negatives, inverting each byte for descending order.
+#[inline]
+fn write_signed_row_bytes<const N: usize>(mut bytes: [u8; N], out: &mut [u8], descending: bool) {
+    bytes[0] ^= 0x80;
+    write_row_bytes(bytes, out, descending);
+}
+
 macro_rules! impl_row_encode_unsigned {
     ($t:ty) => {
         impl RowEncode for $t {
             #[inline]
             fn encode_to(self, out: &mut [u8], descending: bool) {
-                let bytes = self.to_be_bytes();
-                if descending {
-                    for (i, b) in bytes.iter().enumerate() {
-                        out[i] = b ^ 0xFF;
-                    }
-                } else {
-                    out.copy_from_slice(&bytes);
-                }
+                write_row_bytes(self.to_be_bytes(), out, descending);
             }
         }
     };
@@ -1464,16 +1477,7 @@ macro_rules! impl_row_encode_signed {
         impl RowEncode for $t {
             #[inline]
             fn encode_to(self, out: &mut [u8], descending: bool) {
-                let mut bytes = self.to_be_bytes();
-                // Flip sign bit so negatives < non-negatives lexicographically.
-                bytes[0] ^= 0x80;
-                if descending {
-                    for (i, b) in bytes.iter().enumerate() {
-                        out[i] = b ^ 0xFF;
-                    }
-                } else {
-                    out.copy_from_slice(&bytes);
-                }
+                write_signed_row_bytes(self.to_be_bytes(), out, descending);
             }
         }
     };
