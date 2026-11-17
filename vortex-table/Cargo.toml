@@ -18,7 +18,6 @@ workspace = true
 
 [dependencies]
 futures = { workspace = true, features = ["std"] }
-parking_lot = { workspace = true }
 twox-hash = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
@@ -27,7 +26,6 @@ vortex-file = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-session = { workspace = true }
-vortex-utils = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

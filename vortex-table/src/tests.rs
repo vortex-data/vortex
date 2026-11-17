@@ -11,14 +11,15 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
+use vortex_file::DeserializeStep;
+use vortex_file::Footer;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
 use crate::Manifest;
 use crate::ManifestBuilder;
-use crate::footer::footer_hash;
-use crate::footer::parse_footer;
+use crate::manifest::footer_hash;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| VortexSession::default().with_tokio());
 
@@ -39,7 +40,9 @@ async fn data_file(rows: std::ops::Range<u64>) -> VortexResult<ByteBuffer> {
 async fn manifest(files: &[ByteBuffer], inline_footers: bool) -> VortexResult<Manifest> {
     let mut builder = ManifestBuilder::new(SESSION.clone()).with_inline_footers(inline_footers);
     for (i, bytes) in files.iter().enumerate() {
-        builder.add(format!("data/part-{i}.vortex"), bytes).await?;
+        builder
+            .add(format!("data/part-{i}.vortex"), Arc::new(bytes.clone()))
+            .await?;
     }
     Ok(builder.finish())
 }
@@ -83,10 +86,14 @@ async fn an_entry_records_the_exact_footer_region() -> VortexResult<()> {
         .ok_or_else(|| vortex_error::vortex_err!("inlined"))?;
     assert_eq!(inlined, tail);
     assert_eq!(entry.footer_hash, footer_hash(&tail));
-    assert_eq!(
-        parse_footer(inlined, entry.byte_size, &SESSION)?.row_count(),
-        2048
-    );
+    // The region alone is enough to parse the footer: no more data is asked for.
+    let step = Footer::deserializer(inlined, SESSION.clone())
+        .with_size(entry.byte_size)
+        .deserialize()?;
+    let DeserializeStep::Done(footer) = step else {
+        vortex_error::vortex_bail!("the inlined region is not the whole footer");
+    };
+    assert_eq!(footer.row_count(), 2048);
     Ok(())
 }
 

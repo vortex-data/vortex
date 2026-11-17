@@ -21,6 +21,7 @@
 use std::sync::Arc;
 
 use futures::TryStreamExt;
+use twox_hash::XxHash3_64;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -29,6 +30,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -41,9 +43,6 @@ use vortex_io::VortexWrite;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::scan::v2::ScanBuilder;
 use vortex_session::VortexSession;
-
-use crate::footer::FooterRegion;
-use crate::footer::footer_hash;
 
 /// One data file of a table.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,24 +63,10 @@ pub struct ManifestEntry {
     pub footer: Option<ByteBuffer>,
 }
 
-impl ManifestEntry {
-    /// The entry for a file of `byte_size` bytes at `path`, from its footer region.
-    pub fn new(
-        path: impl Into<String>,
-        byte_size: u64,
-        region: &FooterRegion,
-        inline: bool,
-    ) -> Self {
-        Self {
-            path: path.into(),
-            byte_size,
-            row_count: region.footer.row_count(),
-            footer_offset: region.offset,
-            footer_len: region.bytes.len() as u64,
-            footer_hash: footer_hash(&region.bytes),
-            footer: inline.then(|| region.bytes.clone()),
-        }
-    }
+/// The hash a manifest records for a footer region: XXH3-64 over the region's bytes. A rewritten
+/// file, even one with the same path and size, hashes differently.
+pub fn footer_hash(region: &[u8]) -> u64 {
+    XxHash3_64::oneshot(region)
 }
 
 /// The files of a table, in table order.
@@ -195,5 +180,77 @@ impl Manifest {
             entries.extend(Self::from_array(chunk, session)?.entries);
         }
         Ok(Self { entries })
+    }
+}
+
+/// Builds a manifest one data file at a time, reading each file's footer region.
+pub struct ManifestBuilder {
+    session: VortexSession,
+    inline_footers: bool,
+    entries: Vec<ManifestEntry>,
+}
+
+impl ManifestBuilder {
+    /// A builder that inlines every file's footer region into the manifest, so scans open files
+    /// without reading their footers.
+    pub fn new(session: VortexSession) -> Self {
+        Self {
+            session,
+            inline_footers: true,
+            entries: Vec::new(),
+        }
+    }
+
+    /// Whether to inline footer regions. Without, a scan reads each file's region once, at the
+    /// offset and length the manifest records.
+    pub fn with_inline_footers(mut self, inline: bool) -> Self {
+        self.inline_footers = inline;
+        self
+    }
+
+    /// Appends the file at `path`, whose bytes `read` serves, as the table's next file.
+    ///
+    /// The footer is found the way any open finds it; its region is everything from the end of
+    /// the file's segments to the end of the file.
+    pub async fn add(
+        &mut self,
+        path: impl Into<String>,
+        read: Arc<dyn VortexReadAt>,
+    ) -> VortexResult<()> {
+        let byte_size = read.size().await?;
+        let file = self
+            .session
+            .open_options()
+            .with_file_size(byte_size)
+            .open(Arc::clone(&read))
+            .await?;
+        let footer = file.footer();
+        let footer_offset = footer
+            .segments_end()
+            .ok_or_else(|| vortex_err!("the file's segment ranges overflow"))?;
+        let region = read
+            .read_at(
+                footer_offset,
+                usize::try_from(byte_size - footer_offset)?,
+                Alignment::none(),
+            )
+            .await?
+            .try_into_host()?
+            .await?;
+        self.entries.push(ManifestEntry {
+            path: path.into(),
+            byte_size,
+            row_count: footer.row_count(),
+            footer_offset,
+            footer_len: region.len() as u64,
+            footer_hash: footer_hash(&region),
+            footer: self.inline_footers.then_some(region),
+        });
+        Ok(())
+    }
+
+    /// The manifest of the files added, in the order they were added.
+    pub fn finish(self) -> Manifest {
+        Manifest::new(self.entries)
     }
 }

@@ -17,17 +17,11 @@
 //! - pruning every file at once on a columnar table of the files' statistics;
 //! - a planner that scans the files the manifest keeps, and an example that runs it.
 
-pub mod footer;
 pub mod manifest;
-pub mod storage;
-pub mod writer;
 
 pub use manifest::Manifest;
+pub use manifest::ManifestBuilder;
 pub use manifest::ManifestEntry;
-pub use storage::LocalStorage;
-pub use storage::MemoryStorage;
-pub use storage::TableStorage;
-pub use writer::ManifestBuilder;
 
 #[cfg(test)]
 mod tests;
