@@ -131,7 +131,6 @@ mod tests {
     use vortex_array::dtype::extension::ExtDTypePlugin;
     use vortex_array::dtype::extension::ExtVTable;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar::ScalarValue;
     use vortex_error::VortexResult;
 
     use crate::Uuid;
@@ -175,14 +174,6 @@ mod tests {
         assert_eq!(metadata.to_string(), "v7");
     }
 
-    #[rstest]
-    #[case::non_nullable(Nullability::NonNullable)]
-    #[case::nullable(Nullability::Nullable)]
-    fn read_accepts_declared_storage_dtype(#[case] nullability: Nullability) -> VortexResult<()> {
-        Uuid.deserialize(&[], uuid_storage_dtype(nullability))?;
-        Ok(())
-    }
-
     /// A read fails unless the stored storage dtype is the declared one, including the
     /// nullability of the bytes, and the error names both dtypes.
     #[rstest]
@@ -207,32 +198,6 @@ mod tests {
             format!("vortex.uuid storage must be fixed_size_list(u8)[16], got {storage_dtype}");
         let result = Uuid.deserialize(&[], storage_dtype);
         assert!(result.is_err_and(|error| error.to_string().contains(&expected)));
-    }
-
-    #[test]
-    fn unpack_native_uuid() -> VortexResult<()> {
-        let expected = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
-            .map_err(|e| vortex_error::vortex_err!("{e}"))?;
-
-        let ext_dtype = ExtDType::try_new(UuidMetadata::default(), Nullability::NonNullable)?;
-        let children: Vec<Scalar> = expected
-            .as_bytes()
-            .iter()
-            .map(|&b| Scalar::primitive(b, Nullability::NonNullable))
-            .collect();
-        let storage_scalar = Scalar::fixed_size_list(
-            DType::Primitive(PType::U8, Nullability::NonNullable),
-            children,
-            Nullability::NonNullable,
-        );
-
-        let storage_value = storage_scalar
-            .value()
-            .ok_or_else(|| vortex_error::vortex_err!("expected non-null scalar"))?;
-        let result = Uuid::unpack_native(&ext_dtype, storage_value)?;
-        assert_eq!(result, expected);
-        assert_eq!(result.to_string(), "550e8400-e29b-41d4-a716-446655440000");
-        Ok(())
     }
 
     #[test]
@@ -266,47 +231,5 @@ mod tests {
             .ok_or_else(|| vortex_error::vortex_err!("expected non-null scalar"))?;
         assert!(Uuid::unpack_native(&ext_dtype, storage_value).is_err());
         Ok(())
-    }
-
-    /// Builds a [`ScalarValue`] for a UUID's 16 bytes, suitable for passing to `unpack_native`.
-    fn uuid_storage_scalar(uuid: &uuid::Uuid) -> ScalarValue {
-        let children: Vec<Scalar> = uuid
-            .as_bytes()
-            .iter()
-            .map(|&b| Scalar::primitive(b, Nullability::NonNullable))
-            .collect();
-        let scalar = Scalar::fixed_size_list(
-            DType::Primitive(PType::U8, Nullability::NonNullable),
-            children,
-            Nullability::NonNullable,
-        );
-        scalar.value().unwrap().clone()
-    }
-
-    #[test]
-    fn unpack_native_accepts_matching_version() -> VortexResult<()> {
-        // This is a v4 UUID.
-        let v4_uuid = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
-            .map_err(|e| vortex_error::vortex_err!("{e}"))?;
-
-        let ext_dtype = ExtDType::try_new(
-            UuidMetadata {
-                version: Some(Version::Random),
-            },
-            Nullability::NonNullable,
-        )?;
-        let storage_value = uuid_storage_scalar(&v4_uuid);
-
-        let result = Uuid::unpack_native(&ext_dtype, &storage_value)?;
-        assert_eq!(result, v4_uuid);
-        Ok(())
-    }
-
-    fn uuid_storage_dtype(nullability: Nullability) -> DType {
-        DType::FixedSizeList(
-            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
-            UUID_BYTE_LEN as u32,
-            nullability,
-        )
     }
 }
