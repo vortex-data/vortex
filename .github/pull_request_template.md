@@ -8,5 +8,11 @@ Leave out file lists, new-API inventories and the checks you ran: reviewers have
 Add one line each, only if they apply:
 - a breaking or behaviour change (and the `changelog/break` label)
 - a headline benchmark result (post full tables as a comment)
-- `Closes #N`, `Part of #N` or `Stacked on #N`
+- `Stacked on #N`
+-->
+
+<!--
+Tracking issue: search the issues for one that tracks this work. If one exists, replace this
+comment with `Closes #N` (the PR resolves it) or `Part of #N` (one step of a larger effort).
+Otherwise delete this comment.
 -->

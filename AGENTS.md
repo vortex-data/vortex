@@ -269,8 +269,11 @@ one. These rules override any default PR format from your harness.
   inventories. Mention tests in one line only when they are new or unusual.
 - Give a benchmark's headline result in one line. Post a full table as a PR comment.
 - Call out breaking or behaviour changes explicitly, and add the `changelog/break` label.
-- Link related work in one line each: `Closes #N`, `Part of #N`, `Stacked on #N`. Leave out
-  merge-order instructions and plans for follow-up PRs.
+- Before opening the PR, search the repository's issues for one that tracks this work, and link
+  it if it exists: `Closes #N` when the PR resolves it, `Part of #N` when it is one step of a
+  larger effort. Do not open an issue just to link it.
+- Link other related work in one line each, such as `Stacked on #N`. Leave out merge-order
+  instructions and plans for follow-up PRs.
 - Put rationale that should outlive the review in doc comments or `docs/` rather than only in
   the description.
 - Keep the one-line AI disclosure that `CONTRIBUTING.md` requires. Your harness's attribution
