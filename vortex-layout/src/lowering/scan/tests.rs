@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future::poll_fn;
 use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
@@ -9,6 +10,7 @@ use std::sync::LazyLock;
 use arrow_array::cast::AsArray;
 use arrow_array::types::Int32Type;
 use arrow_schema::Field;
+use futures::Stream;
 use futures::TryStreamExt;
 use futures::stream;
 use rstest::rstest;
@@ -234,7 +236,7 @@ async fn run_batches(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult
             }
             Progress::RootDone(_) if run.live_roots() > 0 => {}
             Progress::RootDone(_) | Progress::Idle => break,
-            Progress::Waiting => std::future::poll_fn(|cx| run.poll_completion(cx)).await?,
+            Progress::Waiting => poll_fn(|cx| run.poll_completion(cx)).await?,
         }
     }
     batches.sort_by_key(|batch| batch.scope.rows.start);
@@ -259,7 +261,7 @@ async fn run_scan(builder: ScanBuilder) -> VortexResult<Vec<ArrayRef>> {
 
 async fn collect(
     dtype: DType,
-    stream: impl futures::Stream<Item = VortexResult<ArrayRef>>,
+    stream: impl Stream<Item = VortexResult<ArrayRef>>,
 ) -> VortexResult<ArrayRef> {
     let chunks: Vec<ArrayRef> = stream.try_collect().await?;
     Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())

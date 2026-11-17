@@ -90,7 +90,7 @@ impl ZoneMap {
     ///
     /// # Safety
     /// The table fields must hold valid statistics for `column_dtype` and `aggregate_fns`.
-    pub unsafe fn new_unchecked(
+    unsafe fn new_unchecked(
         column_dtype: DType,
         array: StructArray,
         aggregate_fns: Arc<[AggregateFnRef]>,
@@ -368,10 +368,7 @@ fn row_count_array(zone_len: u64, row_count: u64, num_zones: usize) -> VortexRes
 }
 
 /// Return the auxiliary stats-table schema for a zoned layout.
-pub fn aggregate_stats_table_dtype(
-    column_dtype: &DType,
-    aggregate_fns: &[AggregateFnRef],
-) -> DType {
+fn aggregate_stats_table_dtype(column_dtype: &DType, aggregate_fns: &[AggregateFnRef]) -> DType {
     DType::Struct(
         StructFields::from_iter(aggregate_fns.iter().filter_map(|aggregate_fn| {
             aggregate_state_dtype(column_dtype, aggregate_fn)
@@ -382,7 +379,7 @@ pub fn aggregate_stats_table_dtype(
 }
 
 /// Returns an aggregate state dtype, resolving extension storage types when needed.
-pub fn aggregate_state_dtype(column_dtype: &DType, aggregate_fn: &AggregateFnRef) -> Option<DType> {
+fn aggregate_state_dtype(column_dtype: &DType, aggregate_fn: &AggregateFnRef) -> Option<DType> {
     aggregate_fn.state_dtype(column_dtype).or_else(|| {
         if let DType::Extension(ext) = column_dtype {
             aggregate_fn.state_dtype(ext.storage_dtype())

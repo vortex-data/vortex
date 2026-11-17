@@ -4,6 +4,7 @@
 //! Source inputs and byte access for scans.
 
 use std::any::Any;
+use std::fmt;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -60,7 +61,7 @@ impl Deref for SegmentId {
 }
 
 impl Display for SegmentId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "SegmentId({})", self.0)
     }
 }

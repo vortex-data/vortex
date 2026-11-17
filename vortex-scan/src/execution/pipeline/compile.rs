@@ -19,6 +19,7 @@ use crate::execution::operator::Operator;
 use crate::execution::operator::Source;
 use crate::plan::ConcatPlan;
 use crate::plan::PlanRef;
+use crate::source::SegmentId;
 
 /// A pipeline under construction: a source and the stages after it, not yet given outlets, so a
 /// parent plan can add stages before it becomes a pipeline.
@@ -132,7 +133,7 @@ impl Compiler<'_> {
     ///
     /// Source adapters call this for each segment their chain will request so filter prefetching
     /// and projection announcements see the same dependencies as execution.
-    pub fn register_segment(&mut self, segment: crate::source::SegmentId) {
+    pub fn register_segment(&mut self, segment: SegmentId) {
         self.core.segments.push(segment);
     }
 }

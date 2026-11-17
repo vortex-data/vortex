@@ -10,6 +10,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
+use futures::future::ready;
 use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
@@ -273,7 +274,7 @@ impl Store {
 impl SegmentSource for Store {
     fn request(&self, id: SegmentId) -> SegmentFuture {
         self.requests.fetch_add(1, Ordering::Relaxed);
-        futures::future::ready(Ok(self.read(id))).boxed()
+        ready(Ok(self.read(id))).boxed()
     }
 }
 

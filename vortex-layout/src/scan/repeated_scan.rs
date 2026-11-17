@@ -37,6 +37,7 @@ use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
+use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::scan::filter::FilterExpr;
 use crate::scan::limit::RowLimit;
@@ -559,10 +560,7 @@ mod tests {
     }
 }
 
-fn can_prune_conjuncts(
-    filter: &FilterExpr,
-    reader: &dyn crate::LayoutReader,
-) -> VortexResult<bool> {
+fn can_prune_conjuncts(filter: &FilterExpr, reader: &dyn LayoutReader) -> VortexResult<bool> {
     for conjunct in filter.conjuncts() {
         if reader.can_prune_file(conjunct)? {
             return Ok(true);

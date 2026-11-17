@@ -22,6 +22,7 @@ use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::expr::stats::Stat;
 use vortex_array::stats::as_stat_bitset_bytes;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
@@ -80,7 +81,7 @@ fn child_of(plan: &PlanRef, slot: usize) -> VortexResult<PlanRef> {
     plan.slot_required(slot)
 }
 
-fn assert_unsupported(error: vortex_error::VortexError) {
+fn assert_unsupported(error: VortexError) {
     assert!(
         error
             .to_string()

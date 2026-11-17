@@ -20,6 +20,7 @@ use vortex_scan::plan::PlanVTable;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::ReadContext;
 
+use self::execute::ScanSource;
 use crate::segments::SegmentId;
 
 /// Reads one serialized array segment.
@@ -138,7 +139,7 @@ impl PlanVTable for SegmentScan {
             Some(usize::try_from(rows.start)?..usize::try_from(rows.end)?)
         };
         compiler.register_segment(plan.segment_id());
-        Ok(Some(Chain::new(execute::ScanSource::new(
+        Ok(Some(Chain::new(ScanSource::new(
             plan.clone(),
             slice,
             filter,

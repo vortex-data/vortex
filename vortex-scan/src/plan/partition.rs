@@ -37,6 +37,7 @@
 //! examples.
 
 use std::any::Any;
+use std::array;
 use std::cell::RefCell;
 use std::fmt;
 use std::hash::Hash;
@@ -488,7 +489,7 @@ fn bind_part(expr: &Expression, root: Option<&DType>) -> VortexResult<BoundExpre
 
 const NAMES_LEN: usize = 100;
 static NAMES: LazyLock<[FieldName; NAMES_LEN]> =
-    LazyLock::new(|| std::array::from_fn(|position| FieldName::from(format!("{position}"))));
+    LazyLock::new(|| array::from_fn(|position| FieldName::from(format!("{position}"))));
 pub(crate) fn positional_name(slot: PlanSlot) -> FieldName {
     let name = NAMES.get(slot);
     name.cloned().unwrap_or_else(|| format!("{slot}").into())

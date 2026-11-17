@@ -52,6 +52,7 @@ use vortex_expr::stats::all_non_nan;
 use vortex_expr::stats::all_non_null;
 use vortex_expr::stats::all_null;
 use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
+use vortex_expr::stats::stat;
 use vortex_mask::Mask;
 
 use super::ZoneMap;
@@ -385,7 +386,7 @@ fn fixed_size_list_min_max_stat_fn_lowers_to_unknown_mask() {
     let max_fn = Stat::Max
         .aggregate_fn()
         .expect("max should have an aggregate function");
-    let predicate = is_null(vortex_expr::stats::stat(root(), max_fn));
+    let predicate = is_null(stat(root(), max_fn));
 
     // Missing StatFn lowers to a nullable null literal, so `is_null(...)` is true for every zone.
     let mask = prune(&zone_map, &predicate).unwrap();
@@ -410,7 +411,7 @@ fn unsupported_aggregate_input_dtype_errors() {
     let max_fn = Stat::Max
         .aggregate_fn()
         .expect("max should have an aggregate function");
-    let predicate = is_null(vortex_expr::stats::stat(root(), max_fn));
+    let predicate = is_null(stat(root(), max_fn));
     let error = prune(&zone_map, &predicate).unwrap_err();
 
     assert!(

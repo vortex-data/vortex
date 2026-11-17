@@ -15,6 +15,7 @@ pub use vortex_scan::prepare::FilterPlans;
 pub use vortex_scan::prepare::PreparedScan;
 pub use vortex_scan::prepare::PruneNext;
 pub use vortex_scan::prepare::PrunePlanner;
+use vortex_scan::prepare::ScanBuilder as EngineScanBuilder;
 pub use vortex_scan::prepare::ScanCache;
 pub use vortex_scan::prepare::SegmentLocation;
 pub use vortex_scan::prepare::WeakScanCache;
@@ -142,8 +143,8 @@ impl ScanBuilder {
     }
 
     /// Converts this native builder into the source-independent scan builder.
-    pub fn into_scan_builder(self) -> vortex_scan::prepare::ScanBuilder {
-        let mut builder = vortex_scan::prepare::ScanBuilder::new(self.session, self.file)
+    pub fn into_scan_builder(self) -> EngineScanBuilder {
+        let mut builder = EngineScanBuilder::new(self.session, self.file)
             .with_projection(self.projection)
             .with_some_filter(self.filter)
             .with_selection(self.selection)
@@ -156,7 +157,7 @@ impl ScanBuilder {
     }
 }
 
-impl From<ScanBuilder> for vortex_scan::prepare::ScanBuilder {
+impl From<ScanBuilder> for EngineScanBuilder {
     fn from(builder: ScanBuilder) -> Self {
         builder.into_scan_builder()
     }
