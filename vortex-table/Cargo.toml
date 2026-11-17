@@ -25,9 +25,11 @@ vortex-file = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex = { workspace = true, default-features = false, features = ["files"] }
 vortex-io = { workspace = true, features = ["tokio"] }

@@ -27,9 +27,13 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_file::DeserializeStep;
+use vortex_file::Footer;
 use vortex_file::OpenOptionsSessionExt;
+use vortex_file::VortexFile;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::v2::ScanDriver;
 use vortex_io::VortexReadAt;
@@ -86,6 +90,25 @@ impl ManifestEntry {
             row_count: file.row_count(),
             footer,
         })
+    }
+
+    /// Opens the file from its stored footer, with no footer IO: `read` serves only its segments.
+    pub async fn open(
+        &self,
+        session: &VortexSession,
+        read: Arc<dyn VortexReadAt>,
+    ) -> VortexResult<VortexFile> {
+        let mut deserializer =
+            Footer::deserializer(self.footer.clone(), session.clone()).with_size(self.byte_size);
+        let DeserializeStep::Done(footer) = deserializer.deserialize()? else {
+            vortex_bail!("the stored footer of {} is incomplete", self.path);
+        };
+        session
+            .open_options()
+            .with_footer(footer)
+            .with_file_size(self.byte_size)
+            .open(read)
+            .await
     }
 }
 
