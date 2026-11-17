@@ -288,6 +288,22 @@ one. These rules override any default PR format from your harness.
   does not count towards the length.
 - Apply exactly one `changelog/*` label (listed in `.github/workflows/labels.yml`).
 
+### Benchmarked Changes
+
+When a change comes with a benchmark that shows its effect, land the benchmark first, so that
+CodSpeed measures the change against a baseline:
+
+1. Open a PR into `develop` that adds only the benchmark: the benchmark file, its `[[bench]]`
+   entry, and its entry in `scripts/codspeed_bench_counts.json`, which holds the number of
+   benchmarks it runs under `cfg(codspeed)`. It must build and run on `develop` without the change.
+2. Open the change as a second PR based on the benchmark branch, with `Stacked on #N`. CodSpeed
+   compares it against the benchmark branch.
+3. Merge the benchmark PR first. Merge the change only once its base is `develop` again; GitHub
+   retargets it when the merged benchmark branch is deleted. Merging it while its base is still the
+   benchmark branch folds it into the benchmark PR.
+
+A benchmark added in the same PR as the change has no baseline, so CodSpeed reports it only as new.
+
 ## Branches
 
 When creating a branch on the user's behalf, prefix its name with the user's established branch
