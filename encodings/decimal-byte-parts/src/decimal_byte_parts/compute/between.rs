@@ -165,19 +165,18 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(10, 2);
-        let values = [100i32, 200, 300, 400, 500];
+        let values = buffer![100i32, 200, 300, 400, 500];
         let validity = Validity::from_iter([true, false, true, true, true]);
         let parts = DecimalByteParts::try_new(
             widen_msp(
-                PrimitiveArray::new(buffer![100i32, 200, 300, 400, 500], validity.clone())
-                    .into_array(),
+                PrimitiveArray::new(values.clone(), validity.clone()).into_array(),
                 decimal_dtype,
             )?,
             decimal_dtype,
         )?
         .into_array();
         let canonical = DecimalArray::new(
-            Buffer::from_iter(values.iter().map(|v| *v as i128)),
+            Buffer::from_iter(values.into_iter().map(i64::from)),
             decimal_dtype,
             validity,
         )

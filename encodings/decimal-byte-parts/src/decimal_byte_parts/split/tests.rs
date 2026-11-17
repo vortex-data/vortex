@@ -13,7 +13,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype;
 use vortex_array::dtype::DecimalDType;
-use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
@@ -137,10 +136,6 @@ fn test_rejects_mask_of_other_length() {
     decimal(buffer![i256::ZERO, I256_ABOVE_I128], Validity::NonNullable),
     1
 )]
-#[case::legacy_wider_i64_at_p4(
-    DecimalArray::new(buffer![0i64, i64::MAX], DecimalDType::new(4, 0), Validity::NonNullable),
-    0
-)]
 fn test_split_decimal_rejects_too_small_count(
     #[case] decimal: DecimalArray,
     #[case] lower_part_count: usize,
@@ -174,25 +169,10 @@ fn test_split_decimal_rejects_too_small_count(
     4,
     "allows at most 3 lower parts, got 4"
 )]
-#[case::legacy_wider_storage(
-    DecimalArray::new(buffer![0i128], DecimalDType::new(4, 0), Validity::NonNullable),
+#[case::all_null(
+    decimal(buffer![i16::MAX], Validity::AllInvalid),
     1,
     "allows at most 0 lower parts, got 1"
-)]
-#[case::legacy_wider_all_null(
-    DecimalArray::new(buffer![i128::MAX], DecimalDType::new(4, 0), Validity::AllInvalid),
-    1,
-    "allows at most 0 lower parts, got 1"
-)]
-#[case::i64_one_at_p38(
-    DecimalArray::new(buffer![0i64], DecimalDType::new(38, 0), Validity::NonNullable),
-    1,
-    "i64 values split into 0 lower parts, got 1"
-)]
-#[case::i128_three_at_p76(
-    DecimalArray::new(buffer![0i128], DecimalDType::new(76, 0), Validity::NonNullable),
-    3,
-    "i128 values split into 0 or 1 lower parts, got 3"
 )]
 #[case::empty(
     decimal(Buffer::<i64>::empty(), Validity::NonNullable),
@@ -316,30 +296,14 @@ fn test_split_i256_part_order(
     Ok(())
 }
 
-/// A valid value outside the precision can need more lower parts than the precision allows.
-#[test]
-fn test_encode_rejects_lower_parts_past_canonical_width() {
-    let decimal = DecimalArray::new(
-        buffer![-99i128, 0, 1 << 70],
-        DecimalDType::new(18, 0),
-        Validity::NonNullable,
-    );
-    let result = DecimalByteParts::encode(&decimal, &mut SESSION.create_execution_ctx());
-    assert!(
-        result
-            .as_ref()
-            .is_err_and(|err| err.to_string().contains("allows at most 0 lower parts")),
-        "expected the lower-part bound to reject the parts, got {result:?}"
-    );
-}
-
 #[rstest]
-#[case::narrower_i32_at_p38(DecimalType::I32, 38, PType::I64)]
-#[case::wider_i64_at_p4(DecimalType::I64, 4, PType::I16)]
-#[case::wider_i128_at_p4(DecimalType::I128, 4, PType::I16)]
-#[case::wider_i256_at_p4(DecimalType::I256, 4, PType::I16)]
-fn test_split_legacy_storage_uses_logical_msp(
-    #[case] stored_type: DecimalType,
+#[case::i8(2, PType::I8)]
+#[case::i16(4, PType::I16)]
+#[case::i32(9, PType::I32)]
+#[case::i64(18, PType::I64)]
+#[case::i128(38, PType::I64)]
+#[case::i256(76, PType::I64)]
+fn test_split_uses_logical_msp(
     #[case] precision: u8,
     #[case] expected_ptype: PType,
     #[values(
@@ -351,7 +315,7 @@ fn test_split_legacy_storage_uses_logical_msp(
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let decimal_dtype = DecimalDType::new(precision, 0);
-    let decimal = match_each_decimal_value_type!(stored_type, |T| {
+    let decimal = match_each_decimal_value_type!(decimal_dtype.canonical_values_type(), |T| {
         let mut values = [-99i16, 0, 99].map(|value| {
             <T as dtype::BigCast>::from(value)
                 .vortex_expect("fixture values fit every storage width")

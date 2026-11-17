@@ -225,6 +225,26 @@ fn test_from_stored_decimal_trusts_canonical_width() -> VortexResult<()> {
     Ok(())
 }
 
+#[test]
+fn test_encode_decimal_rejects_value_outside_precision() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let parts = stored_parts(
+        &[Some(1_000_000_000_000_000_000)],
+        DecimalType::I64,
+        DecimalDType::new(18, 0),
+    );
+    let input = WidenArray::from_stored_decimal(parts, Precision::Absent, &mut ctx)?;
+
+    let error = WidenArray::encode_decimal(input.downcast::<Decimal>(), &mut ctx)
+        .expect_err("the stored value exceeds the input precision");
+    assert!(
+        error.to_string().contains("Decimal range must fit"),
+        "{error}"
+    );
+
+    Ok(())
+}
+
 #[rstest]
 #[case::value_outside_precision(
     vec![Some(1), Some(100)], Precision::Absent, "Decimal range must fit",

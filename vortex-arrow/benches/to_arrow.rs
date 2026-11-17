@@ -116,7 +116,7 @@ fn array() -> ArrayRef {
         ),
         (
             "decimal",
-            DecimalArray::from_iter(0i64..1024, DecimalDType::new(19, 2)).into_array(),
+            DecimalArray::from_iter(0i128..1024, DecimalDType::new(19, 2)).into_array(),
         ),
     ])
     .unwrap()

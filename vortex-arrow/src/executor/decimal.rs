@@ -266,8 +266,6 @@ mod tests {
     use std::sync::LazyLock;
 
     use arrow_array::Array;
-    use arrow_array::Decimal32Array;
-    use arrow_array::Decimal64Array;
     use arrow_array::Decimal128Array;
     use arrow_array::Decimal256Array;
     use arrow_array::StructArray as ArrowStructArray;
@@ -281,19 +279,19 @@ mod tests {
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::WidenArray;
-    use vortex_array::builders::ArrayBuilder;
-    use vortex_array::builders::DecimalBuilder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::DecimalType;
     use vortex_array::dtype::NativeDecimalType;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_panic;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
+    use super::narrow_values;
     use crate::ExecuteArrowExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -361,59 +359,39 @@ mod tests {
     }
 
     #[rstest]
-    #[case::i8(0i8)]
-    #[case::i16(0i16)]
-    #[case::i32(0i32)]
-    #[case::i64(0i64)]
-    #[case::i128(0i128)]
-    #[case::i256(vortex_array::dtype::i256::ZERO)]
-    fn test_to_arrow_decimal<T: NativeDecimalType>(
-        #[case] _decimal_type: T,
-        #[values(
-            DataType::Decimal32(2, 1),
-            DataType::Decimal64(2, 1),
-            DataType::Decimal128(2, 1),
-            DataType::Decimal256(2, 1)
-        )]
-        data_type: DataType,
+    #[case::decimal32(DataType::Decimal32, 9)]
+    #[case::decimal64(DataType::Decimal64, 18)]
+    #[case::decimal128(DataType::Decimal128, 38)]
+    #[case::decimal256(DataType::Decimal256, 76)]
+    fn test_to_arrow_decimal(
+        #[case] arrow_type: fn(u8, i8) -> DataType,
+        #[case] max_precision: u8,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let mut decimal = DecimalBuilder::new_in::<T>(
-            DecimalDType::new(2, 1),
-            false.into(),
-            vortex_buffer::BufferAllocatorRef::static_ref(),
-        );
-        decimal.append_value(10);
-        decimal.append_value(11);
-        decimal.append_value(12);
-        let decimal = decimal.finish();
+        let values = [-12, 0, 11];
+        let reference = Decimal256Array::from_iter_values(values.map(i256::from_i128))
+            .with_precision_and_scale(76, 1)?;
 
-        let field = Field::new("", data_type.clone(), false);
-        let actual = decimal.execute_arrow(Some(&field), &mut ctx)?;
-        let expected: arrow_array::ArrayRef = match data_type {
-            DataType::Decimal32(precision, scale) => Arc::new(
-                Decimal32Array::from(vec![10, 11, 12])
-                    .with_precision_and_scale(precision, scale)?,
-            ),
-            DataType::Decimal64(precision, scale) => Arc::new(
-                Decimal64Array::from(vec![10, 11, 12])
-                    .with_precision_and_scale(precision, scale)?,
-            ),
-            DataType::Decimal128(precision, scale) => Arc::new(
-                Decimal128Array::from(vec![10, 11, 12])
-                    .with_precision_and_scale(precision, scale)?,
-            ),
-            DataType::Decimal256(precision, scale) => Arc::new(
-                Decimal256Array::from(vec![
-                    i256::from_i128(10),
-                    i256::from_i128(11),
-                    i256::from_i128(12),
-                ])
-                .with_precision_and_scale(precision, scale)?,
-            ),
-            data_type => vortex_panic!("the test cases only select decimal types, got {data_type}"),
-        };
-        assert_eq!(&actual, &expected);
+        for (precision, values_type) in [
+            (2, DecimalType::I8),
+            (4, DecimalType::I16),
+            (9, DecimalType::I32),
+            (18, DecimalType::I64),
+            (38, DecimalType::I128),
+            (76, DecimalType::I256),
+        ] {
+            if precision > max_precision {
+                break;
+            }
+
+            let decimal = DecimalArray::from_iter(values, DecimalDType::new(precision, 1));
+            assert_eq!(decimal.values_type(), values_type);
+
+            let field = Field::new("", arrow_type(precision, 1), false);
+            let actual = decimal.execute_arrow(Some(&field), &mut ctx)?;
+            let expected = arrow_cast::cast(&reference, field.data_type())?;
+            assert_eq!(&actual, &expected, "exporting {values_type} to {field}");
+        }
 
         Ok(())
     }
@@ -513,26 +491,15 @@ mod tests {
         Ok(())
     }
 
-    /// A child stored wider than its canonical width, with a value that does not fit in the Arrow
-    /// width in a null row. Some or all of the rows are null. The export narrows the child, so it
-    /// must skip the null rows.
     #[rstest]
-    #[case::partially_null(Validity::from_iter([true, false]), vec![Some(1), None])]
-    #[case::all_null(Validity::AllInvalid, vec![None, None])]
-    fn test_widen_to_arrow_skips_null_rows_when_narrowing(
-        #[case] validity: Validity,
-        #[case] expected: Vec<Option<i64>>,
+    #[case::partially_null(Mask::from_iter([true, false]), [1, 0])]
+    #[case::all_null(Mask::new_false(2), [0, 0])]
+    fn test_narrow_values_skips_null_rows(
+        #[case] validity: Mask,
+        #[case] expected: [i64; 2],
     ) -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let values =
-            DecimalArray::new(buffer![1i128, i128::MAX], DecimalDType::new(9, 2), validity);
-
-        let field = Field::new("", DataType::Decimal64(18, 2), true);
-        let arrow = widen(values, 18)?.execute_arrow(Some(&field), &mut ctx)?;
-        assert_arrow_eq(
-            &arrow,
-            Decimal64Array::from(expected).with_precision_and_scale(18, 2)?,
-        );
+        let values = narrow_values::<i128, i64>(buffer![1i128, i128::MAX], &validity)?;
+        assert_eq!(values.as_slice(), &expected);
 
         Ok(())
     }
@@ -544,8 +511,12 @@ mod tests {
         #[case] validity: Validity,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let values = DecimalArray::new(buffer![i128::MAX, 0], DecimalDType::new(9, 2), validity);
-        let field = Field::new("", DataType::Decimal64(9, 2), values.dtype().is_nullable());
+        let values = DecimalArray::new(
+            buffer![i128::from(i64::MAX) + 1, 0],
+            DecimalDType::new(19, 2),
+            validity,
+        );
+        let field = Field::new("", DataType::Decimal64(18, 2), values.dtype().is_nullable());
 
         let err = values
             .into_array()

@@ -35,6 +35,7 @@ use crate::dtype::BigCast;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::FieldNames;
+use crate::dtype::NativeDecimalType;
 use crate::dtype::half::f16;
 use crate::dtype::i256;
 use crate::executor::ExecutionCtx;
@@ -519,8 +520,8 @@ fn decimal_contiguous_take_preserves_storage_and_shares_buffer(
     )]
     values_type: DecimalType,
 ) -> VortexResult<()> {
-    let dtype = DecimalDType::new(2, 0);
     let (child, expected) = match_each_decimal_value_type!(values_type, |T| {
+        let dtype = DecimalDType::new(T::MAX_PRECISION, 0);
         let values = Buffer::from_iter([1i8, 2, 3, 4, 5].map(|value| {
             <T as BigCast>::from(value).vortex_expect("small values fit every decimal type")
         }));
@@ -540,12 +541,7 @@ fn decimal_contiguous_take_preserves_storage_and_shares_buffer(
             dtype,
             Validity::NonNullable,
         )?;
-        let expected = DecimalArray::from_iter(
-            [3i8, 4].map(|value| {
-                <T as BigCast>::from(value).vortex_expect("small values fit every decimal type")
-            }),
-            dtype,
-        );
+        let expected = DecimalArray::from_iter([3i8, 4], dtype);
 
         (child, expected)
     });

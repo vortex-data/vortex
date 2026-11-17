@@ -39,8 +39,8 @@ use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
+use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
-use crate::match_each_decimal_value;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::match_smallest_list_offset_type;
@@ -91,34 +91,17 @@ pub(crate) fn constant_canonicalize(
                 ))
             })
         }
-        DType::Decimal(decimal_type, ..) => {
-            let size = decimal_type.canonical_values_type();
-            let decimal = scalar.as_decimal();
-            let Some(value) = decimal.decimal_value() else {
-                let all_null = match_each_decimal_value_type!(size, |D| {
-                    // SAFETY: All-null decimal arrays with zeroed buffers and matching validity.
-                    unsafe {
-                        DecimalArray::new_unchecked(
-                            Buffer::<D>::zeroed(array.len()),
-                            *decimal_type,
-                            validity,
-                        )
-                    }
-                });
-                return Ok(Canonical::Decimal(all_null));
-            };
+        DType::Decimal(decimal, ..) => {
+            let value = scalar.as_decimal().decimal_value();
+            match_each_decimal_value_type!(decimal.canonical_values_type(), |T| {
+                let buffer = constant_decimal_buffer::<T>(value, array.len());
 
-            let decimal_array = match_each_decimal_value!(value, |value| {
-                // SAFETY: Constant decimal values with correct type and validity.
-                unsafe {
-                    DecimalArray::new_unchecked(
-                        Buffer::full(value, array.len()),
-                        *decimal_type,
-                        validity,
-                    )
-                }
-            });
-            Canonical::Decimal(decimal_array)
+                // SAFETY: The buffer has one value per row at the dtype's canonical width.
+                // The constant validity above reflects whether the repeated scalar is null.
+                Canonical::Decimal(unsafe {
+                    DecimalArray::new_unchecked(buffer, *decimal, validity)
+                })
+            })
         }
         DType::Utf8(_) => {
             let value = scalar
@@ -218,6 +201,22 @@ pub(crate) fn constant_canonicalize(
             Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage_self))
         }
     })
+}
+
+/// Repeats a scalar at its decimal dtype's canonical width, using zeros for a null scalar.
+fn constant_decimal_buffer<T: NativeDecimalType>(
+    value: Option<DecimalValue>,
+    len: usize,
+) -> Buffer<T> {
+    match value {
+        Some(value) => Buffer::full(
+            value
+                .cast::<T>()
+                .vortex_expect("decimal scalar fits its precision"),
+            len,
+        ),
+        None => Buffer::<T>::zeroed(len),
+    }
 }
 
 /// Builds the canonical view array for a constant string or binary run.
@@ -553,6 +552,19 @@ mod tests {
 
     /// A shared session for these constant-array tests, used to create execution contexts.
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn canonicalize_decimal_with_wide_scalar() -> VortexResult<()> {
+        let dtype = DecimalDType::new(5, 2);
+        let scalar = Scalar::decimal(123i128.into(), dtype, Nullability::NonNullable);
+        let result = ConstantArray::new(scalar, 3)
+            .into_array()
+            .execute::<DecimalArray>(&mut SESSION.create_execution_ctx())?;
+
+        assert_eq!(result.values_type(), dtype.canonical_values_type());
+        assert_eq!(result.buffer::<i32>().as_slice(), &[123; 3]);
+        Ok(())
+    }
 
     #[test]
     fn test_canonicalize_null() {

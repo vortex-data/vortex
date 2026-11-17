@@ -67,13 +67,9 @@ fn test_rejects_invalid_decimal_dtypes(
     DecimalArray::from_iter([-999i32, 0, 999], DecimalDType::new(9, 2)),
     [-999, 0, 999],
 )]
-#[case::wider_stored(
-    DecimalArray::from_iter([-999i128, 0, 999], DecimalDType::new(9, 2)),
-    [-999, 0, 999],
-)]
 #[case::null_garbage(
     DecimalArray::new(
-        buffer![i128::MIN, 999, i128::MAX],
+        buffer![i32::MIN, 999, i32::MAX],
         DecimalDType::new(9, 2),
         Validity::from_iter([false, true, false]),
     ),
@@ -156,18 +152,6 @@ fn test_encode_decimal_ignores_null_payloads() -> VortexResult<()> {
     assert_arrays_eq!(encoded, input, &mut ctx);
 
     Ok(())
-}
-
-#[test]
-fn test_encode_decimal_rejects_value_outside_precision() {
-    let input = DecimalArray::from_iter([1_000_000_000_000_000_000i64], DecimalDType::new(18, 0));
-
-    let error = WidenArray::encode_decimal(input, &mut SESSION.create_execution_ctx())
-        .expect_err("the valid value exceeds the input precision");
-    assert!(
-        error.to_string().contains("Decimal range must fit"),
-        "{error}"
-    );
 }
 
 #[test]

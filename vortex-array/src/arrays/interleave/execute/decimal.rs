@@ -118,6 +118,7 @@ mod tests {
     use crate::arrays::DecimalArray;
     use crate::arrays::InterleaveArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::WidenArray;
     use crate::arrays::decimal::DecimalArrayExt;
     use crate::assert_arrays_eq;
     use crate::dtype::BigCast;
@@ -237,14 +238,16 @@ mod tests {
         })
     }
 
-    /// Sources that store their values at another width are copied to the canonical width first.
-    /// The `i8` source widens, and the `i256` source narrows with garbage in its null slots.
     #[test]
-    fn test_decimal_interleave_mixed_stored_widths() -> VortexResult<()> {
+    fn test_decimal_interleave_widen_and_canonical() -> VortexResult<()> {
         let dtype = DecimalDType::new(9, 0);
-        let narrow = DecimalArray::new(buffer![1i8, -2], dtype, Validity::NonNullable);
+        let child = DecimalArray::from_iter([1i8, -2], DecimalDType::new(2, 0));
+        let narrow = WidenArray::try_new(
+            child.into_array(),
+            DType::Decimal(dtype, Nullability::NonNullable),
+        )?;
         let wide = DecimalArray::new(
-            buffer![i256::from_i128(3), i256::MIN, i256::MAX],
+            buffer![3i32, i32::MIN, i32::MAX],
             dtype,
             Validity::from_iter([true, false, false]),
         );
@@ -264,36 +267,13 @@ mod tests {
     #[test]
     fn test_decimal_interleave_empty() -> VortexResult<()> {
         let dtype = DecimalDType::new(9, 0);
-        let empty = DecimalArray::new(Buffer::<i8>::empty(), dtype, Validity::NonNullable);
-        let expected = DecimalArray::new(Buffer::<i32>::empty(), dtype, Validity::NonNullable);
+        let empty = DecimalArray::new(Buffer::<i32>::empty(), dtype, Validity::NonNullable);
+        let expected = empty.clone();
 
         assert_interleaved(
             vec![empty.clone().into_array(), empty.into_array()],
             &[],
             expected,
         )
-    }
-
-    #[test]
-    fn test_decimal_interleave_rejects_values_outside_precision() -> VortexResult<()> {
-        let source = DecimalArray::new(
-            buffer![100i16],
-            DecimalDType::new(2, 0),
-            Validity::NonNullable,
-        )
-        .into_array();
-        let array = InterleaveArray::try_new(
-            vec![source.clone(), source],
-            PrimitiveArray::from_iter([0u8]).into_array(),
-            PrimitiveArray::from_iter([0u8]).into_array(),
-        )?
-        .into_array();
-
-        let error = array
-            .execute::<DecimalArray>(&mut SESSION.create_execution_ctx())
-            .expect_err("the narrowing copy to `i8` rejects 100 at precision 2");
-        assert!(error.to_string().contains("precision"), "{error}");
-
-        Ok(())
     }
 }

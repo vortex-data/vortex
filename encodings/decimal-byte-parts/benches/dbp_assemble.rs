@@ -180,11 +180,7 @@ mod arrays {
     /// values fit `i128`. Assembly writes `i256` values directly.
     #[divan::bench(args = [1_024, 8_192])]
     fn dbp_assemble_i256_one_lower_part(bencher: Bencher, len: usize) {
-        let decimal = DecimalArray::new(
-            i128_values(len),
-            DecimalDType::new(76, 2),
-            Validity::NonNullable,
-        );
+        let decimal = DecimalArray::from_iter(i128_values(len), DecimalDType::new(76, 2));
         let parts =
             split_decimal(&decimal, &Mask::new_true(len), 1).vortex_expect("split benchmark input");
         bench_parts(
