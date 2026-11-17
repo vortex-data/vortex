@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![expect(clippy::cast_possible_truncation)]
+
+mod scan_metrics;
+
 use std::fs;
 use std::iter;
 use std::sync::Arc;
