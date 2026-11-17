@@ -1,3 +1,2 @@
-# Keep image definitions in the shared config: a local images map replaces
-# the inherited map rather than merging with it.
+# Runner and image definitions are maintained in the shared configuration.
 _extends: .github-private
