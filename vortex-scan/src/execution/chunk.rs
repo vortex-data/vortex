@@ -46,7 +46,7 @@ pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> u
 }
 
 /// Fixed boundaries in the file's row domain, clipped to the requested range.
-pub fn row_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<u64>> {
+pub(crate) fn row_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<u64>> {
     if rows.is_empty() {
         return Vec::new();
     }
@@ -63,7 +63,7 @@ pub fn row_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<u64>> {
 /// is under half of `rows_per_chunk` joined to its neighbour. An engine cuts a file into
 /// partitions whose edges fall off the chunk grid, and a short edge chunk would cost a whole
 /// chunk's planning and conjunct setup for a few rows.
-pub fn scan_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<u64>> {
+pub(crate) fn scan_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<u64>> {
     let mut chunks = row_chunks(rows, rows_per_chunk);
     let short = |chunk: &Range<u64>| chunk.end - chunk.start < rows_per_chunk as u64 / 2;
     if chunks.len() > 1 && chunks.last().is_some_and(short) {

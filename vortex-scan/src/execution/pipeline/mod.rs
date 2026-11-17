@@ -49,7 +49,7 @@ pub use self::compile::Compiler;
 pub(crate) use self::compile::overlapping;
 pub(crate) use self::port::Arena;
 pub use self::port::Inlet;
-pub(crate) use self::port::PortId;
+pub(super) use self::port::PortId;
 pub use self::scan::ReadId;
 pub use self::scan::ReadRequest;
 pub use self::scan::Scan;

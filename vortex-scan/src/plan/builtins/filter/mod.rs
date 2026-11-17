@@ -90,8 +90,8 @@ impl PlanVTable for Filter {
         }
     }
 
-    /// Fuses with a segment-scan child, whose source keeps the selected rows itself; over any
-    /// other child, compiles the child over every row and keeps the selected rows of each batch.
+    /// Fuses with a child that declares itself a payload source by passing the mask directly.
+    /// For other children, compiles over every row and applies the mask to the resulting batches.
     fn compile(
         plan: &Plan<Self>,
         rows: Range<u64>,

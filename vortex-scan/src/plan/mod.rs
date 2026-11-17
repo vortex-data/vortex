@@ -51,8 +51,7 @@ pub use builtins::TakePlan;
 pub use builtins::Zoned;
 pub use builtins::ZonedData;
 pub use builtins::ZonedPlan;
-pub use builtins::plan_row_idx_expression;
-pub use builtins::row_idx_dtype;
+pub(crate) use builtins::plan_row_idx_expression;
 #[doc(hidden)]
 pub use builtins::zoned::is_zone_pruning;
 pub use display::PlanIndentedFormatter;

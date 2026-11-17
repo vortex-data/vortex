@@ -79,8 +79,10 @@ pub trait PlanVTable: 'static + Clone + Sized + Send + Sync + Debug {
         Cow::Owned(format!("slot[{slot}]"))
     }
 
-    /// Whether this node reads payload data rather than only its child plans.
-    /// Metadata-only pruning must not traverse such a source outside a pruning node.
+    /// Whether this node reads payload data and can apply a row mask at the source.
+    ///
+    /// Metadata-only pruning rejects these nodes outside pruning subplans. A Filter directly
+    /// above such a node forwards its mask to the node's compiler instead of adding a mask stage.
     fn is_data_source(_plan: &Plan<Self>) -> bool {
         false
     }

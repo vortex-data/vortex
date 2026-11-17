@@ -66,7 +66,7 @@ impl RowIdxPlan {
 }
 
 /// Returns the dtype of a generated row index.
-pub fn row_idx_dtype() -> DType {
+fn row_idx_dtype() -> DType {
     DType::Primitive(PType::U64, Nullability::NonNullable)
 }
 
@@ -173,7 +173,7 @@ impl PartitionRule for RowIdxFnRule {
 /// Expressions that only use data bypass the row-index source, expressions that only use
 /// `#row_idx` bypass `child`, and mixed expressions combine independently planned branches with a
 /// [`PackPlan`]. The file row offset is supplied by the execution row domain.
-pub fn plan_row_idx_expression(
+pub(crate) fn plan_row_idx_expression(
     expression: BoundExpression,
     child: PlanRef,
     session: &VortexSession,

@@ -142,7 +142,7 @@ impl PreparedScan {
 
     /// The planner of one chunk's selected rows: its conjuncts when the scan has a filter, else
     /// its projection.
-    pub(crate) fn split_planner(self: &Arc<Self>, selected: SelectedRows) -> Box<dyn Planner> {
+    fn split_planner(self: &Arc<Self>, selected: SelectedRows) -> Box<dyn Planner> {
         if self.filter.is_some() {
             Box::new(FilterPlanner::new(Arc::clone(self), selected))
         } else {
@@ -152,7 +152,7 @@ impl PreparedScan {
 }
 
 /// The rows a planner works on: a chunk, and which of its rows are selected.
-pub(crate) struct SelectedRows {
+struct SelectedRows {
     /// The chunk the rows belong to.
     scope: WorkScope,
     /// Which rows of `scope.rows` are selected.
