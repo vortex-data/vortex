@@ -10,7 +10,6 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scan::execution::ROW_BLOCK_SIZE;
 use vortex_scan::plan::LazyPlanRef;
 pub use vortex_scan::prepare::ChunkPlanner;
 pub use vortex_scan::prepare::FilterPlans;
@@ -28,6 +27,9 @@ use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::segments::SegmentSource;
+
+// Match the scan executor's row grid so byte partitions and scan chunks stay aligned.
+const ROW_BLOCK_SIZE: usize = 8192;
 
 /// The rows a byte range of the file stands for when an engine splits the file by bytes before
 /// opening it. Consecutive byte ranges give consecutive row ranges that tile the file, with
