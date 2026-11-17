@@ -258,15 +258,14 @@ fn take(bencher: Bencher, count: usize) {
         });
 }
 
-/// Rows in the sorted array the search benchmark searches: 256 chunks of `u32`.
-const SEARCH_LEN: usize = 256 * 1024;
-
-/// Binary-searches a sorted Delta array for scattered needles, one search at a time, as a
-/// `Patches` lookup does over Delta-encoded patch indices.
-#[divan::bench(args = [64])]
+/// Binary-searches a sorted Delta array of `SIMULATION_BYTES` for scattered needles, one search
+/// at a time, as a `Patches` lookup does over Delta-encoded patch indices. Each search crosses
+/// several chunks before it narrows to one.
+#[divan::bench(args = [16])]
 fn search_sorted(bencher: Bencher, count: usize) {
-    let array = delta_bitpacked::<u32>(SEARCH_LEN).into_array();
-    let max = values::<u32>(SEARCH_LEN)[SEARCH_LEN - 1];
+    let len = SIMULATION_BYTES / size_of::<u32>();
+    let array = delta_bitpacked_u32();
+    let max = values::<u32>(len)[len - 1];
     let needles: Vec<u32> = (0..count)
         .map(|i| u32::try_from(i * 7919 % usize::try_from(max).unwrap()).unwrap())
         .collect();
