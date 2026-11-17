@@ -237,6 +237,17 @@ fn display_name(dataset: &str, pattern: Option<AccessPattern>) -> String {
     }
 }
 
+/// The format part of a measurement name.
+///
+/// This is the file extension, except for [`Format::VortexUnstable`], which shares the `vortex`
+/// extension with [`Format::OnDiskVortex`] but must not share its measurement names.
+fn format_label(format: Format) -> &'static str {
+    match format {
+        Format::VortexUnstable => "vortex-unstable",
+        format => format.ext(),
+    }
+}
+
 /// Build a measurement name for a benchmark run.
 ///
 /// For taxi (legacy), the name is `random-access/{format}-tokio-local-disk` to preserve
@@ -252,7 +263,7 @@ fn measurement_name(
     format: Format,
     remote: bool,
 ) -> String {
-    let fmt = format.ext();
+    let fmt = format_label(format);
     let suffix = source_suffix(remote);
     match pattern {
         Some(p) => format!("random-access/{}/{}/{}-{}", dataset, p.name(), fmt, suffix),
@@ -334,7 +345,7 @@ async fn open_accessor(
     let name = format!(
         "random-access/{}/{}-{}",
         dataset.name(),
-        format.ext(),
+        format_label(format),
         source_suffix(remote.is_some())
     );
     match format {
@@ -534,6 +545,16 @@ pub async fn run(config: RunConfig) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vortex_formats_have_distinct_measurement_names() {
+        let name = |format| measurement_name("taxi", Some(AccessPattern::Uniform), format, false);
+        assert_ne!(name(Format::OnDiskVortex), name(Format::VortexUnstable));
+        assert_eq!(
+            name(Format::OnDiskVortex),
+            "random-access/taxi/uniform/vortex-tokio-local-disk"
+        );
+    }
 
     #[test]
     fn v3_random_access_dataset_names_match_schema_dims() {

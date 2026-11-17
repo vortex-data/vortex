@@ -281,6 +281,7 @@ pub const ALLOWED_FORMATS: &[Format] = &[
     Format::ArrowIpc,
     Format::Parquet,
     Format::OnDiskVortex,
+    Format::VortexUnstable,
     Format::Lance,
     Format::LitData,
 ];
