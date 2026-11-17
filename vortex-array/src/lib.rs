@@ -102,6 +102,7 @@ mod trace_macros;
 pub(crate) use trace_macros::trace_op;
 mod array;
 pub mod arrays;
+pub mod block;
 pub mod buffer;
 pub mod builders;
 pub mod builtins;

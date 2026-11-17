@@ -14,6 +14,8 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::fixed_width::vtable as fixed_width;
 use crate::arrays::primitive::PrimitiveData;
+use crate::block::BlockSource;
+use crate::block::PrimitiveSource;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
@@ -129,6 +131,15 @@ impl VTable for Primitive {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    fn block_source(
+        array: ArrayView<'_, Self>,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockSource>>> {
+        Ok(Some(match_each_native_ptype!(array.ptype(), |P| {
+            Box::new(PrimitiveSource::new(array.to_buffer::<P>())) as Box<dyn BlockSource>
+        })))
     }
 
     fn append_to_builder(
