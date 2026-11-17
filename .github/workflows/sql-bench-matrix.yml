@@ -331,8 +331,9 @@ jobs:
               path: file-trees/
               retention-days: 5
               if-no-files-found: ignore
+          # A fork PR's job has no OIDC token, so pr-bench-report.yml reads its baseline.
           - name: Fetch baseline from the benchmarks database
-            if: inputs.mode == 'pr'
+            if: inputs.mode == 'pr' && github.event.pull_request.head.repo.fork != true
             uses: ./.github/actions/fetch-bench-baseline
             with:
               role-arn: ${{ vars.GH_BENCH_READ_ROLE_ARN }}
@@ -349,6 +350,14 @@ jobs:
           uv run --no-project scripts/compare-benchmark-jsons.py base.ingest.jsonl results.json \
             "${{ matrix.name }}" --pr-records results.ingest.jsonl > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
+
+      # A fork PR's job has no OIDC token, so pr-bench-report.yml reads its baseline and comments.
+      - name: Upload report for pr-bench-report.yml
+        if: inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == true
+        uses: ./.github/actions/upload-fork-bench-report
+        with:
+          benchmark-name: ${{ matrix.name }}
+          comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}
 
       - name: Comment PR
         if: inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false

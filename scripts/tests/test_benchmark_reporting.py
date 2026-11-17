@@ -10,6 +10,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pandas as pd
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPARE_SCRIPT = REPO_ROOT / "scripts" / "compare-benchmark-jsons.py"
@@ -740,6 +741,27 @@ def test_baseline_fetch_refuses_a_shallow_checkout(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert "shallow checkout" in result.stderr
     assert "fetch-depth: 0" in result.stderr
+
+
+def test_baseline_fetch_walks_the_given_head(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fork PR report checks out the default branch, so the PR head is not `HEAD`.
+
+    The baseline must come from the history of the PR head that `--head` names, which
+    includes commits that the checked-out branch does not reach.
+    """
+
+    fetch = load_module("fetch_benchmark_baseline", FETCH_BASELINE_SCRIPT)
+    repo = git_repo_with_one_commit(tmp_path / "repo")
+    identity = ["-c", "user.name=Vortex Test", "-c", "user.email=test@example.com"]
+    subprocess.run(["git", *identity, "commit", "--quiet", "--allow-empty", "-m", "pr"], cwd=repo, check=True)
+    pr_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    subprocess.run(["git", "checkout", "--quiet", "--detach", "HEAD~1"], cwd=repo, check=True)
+    monkeypatch.chdir(repo)
+
+    assert pr_head not in fetch.reachable_commits("HEAD")
+    assert pr_head in fetch.reachable_commits(pr_head)
 
 
 def test_baseline_fetch_groups_distinct_pr_identities_by_kind() -> None:
