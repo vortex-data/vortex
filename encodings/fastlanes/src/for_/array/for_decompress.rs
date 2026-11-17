@@ -411,13 +411,33 @@ fn apply_patches<T: NativePType + WrappingAdd>(
 
     let values = values.as_slice::<T>();
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
-        for (&index, &value) in indices.as_slice::<P>().iter().zip_eq(values) {
-            let index = <P as AsPrimitive<usize>>::as_(index) - patches.offset();
-            let reference = chunk_reference((offset + index) / FL_CHUNK_SIZE);
-            uninit_range.set_value(index, value.wrapping_add(&reference));
-        }
+        set_patch_values(
+            uninit_range,
+            indices.as_slice::<P>(),
+            values,
+            patches.offset(),
+            offset,
+            chunk_reference,
+        )
     });
     Ok(())
+}
+
+/// Write each patch value plus the reference of its chunk into `uninit_range` at its index, less
+/// `patch_offset`.
+fn set_patch_values<P: AsPrimitive<usize>, T: NativePType + WrappingAdd>(
+    uninit_range: &mut UninitRange<T>,
+    indices: &[P],
+    values: &[T],
+    patch_offset: usize,
+    offset: usize,
+    chunk_reference: impl Fn(usize) -> T,
+) {
+    for (&index, &value) in indices.iter().zip_eq(values) {
+        let index = <P as AsPrimitive<usize>>::as_(index) - patch_offset;
+        let reference = chunk_reference((offset + index) / FL_CHUNK_SIZE);
+        uninit_range.set_value(index, value.wrapping_add(&reference));
+    }
 }
 
 #[cfg(test)]

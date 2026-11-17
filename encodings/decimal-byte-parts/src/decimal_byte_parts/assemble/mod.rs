@@ -14,6 +14,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::NativeDecimalType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::i256;
 use vortex_array::match_each_signed_integer_ptype;
 use vortex_array::validity::Validity;
@@ -85,50 +86,63 @@ fn assemble_wide_decimal_from_arrays(
         .map(|part| part.clone().execute::<PrimitiveArray>(exec_ctx))
         .collect::<VortexResult<Vec<_>>>()?;
 
-    Ok(match_each_signed_integer_ptype!(msp.ptype(), |Msp| {
-        let msp = msp.as_slice::<Msp>();
-        match lower.as_slice() {
-            [first] => DecimalArray::new(
-                assemble_wide_decimal::<i128, Msp, 1>(
-                    msp,
-                    first.as_slice::<u64>().iter().map(|&word| [word]),
-                ),
-                decimal_dtype,
-                validity,
-            )
-            .into_array(),
-            [first, second] => DecimalArray::new(
-                assemble_wide_decimal::<i256, Msp, 2>(
-                    msp,
-                    first
-                        .as_slice::<u64>()
-                        .iter()
-                        .zip(second.as_slice::<u64>())
-                        .map(|(&a, &b)| [a, b]),
-                ),
-                decimal_dtype,
-                validity,
-            )
-            .into_array(),
-            [first, second, third] => DecimalArray::new(
-                assemble_wide_decimal::<i256, Msp, 3>(
-                    msp,
-                    first
-                        .as_slice::<u64>()
-                        .iter()
-                        .zip(second.as_slice::<u64>())
-                        .zip(third.as_slice::<u64>())
-                        .map(|((&a, &b), &c)| [a, b, c]),
-                ),
-                decimal_dtype,
-                validity,
-            )
-            .into_array(),
-            _ => {
-                vortex_bail!("expected between one and {MAX_LOWER_PARTS} lower parts")
-            }
+    match_each_signed_integer_ptype!(msp.ptype(), |Msp| {
+        assemble_wide_decimal_array(msp.as_slice::<Msp>(), &lower, decimal_dtype, validity)
+    })
+}
+
+/// Assemble a signed MSP slice and its `u64` lower parts into a decimal array whose storage
+/// type is chosen by the number of lower parts.
+fn assemble_wide_decimal_array<Msp>(
+    msp: &[Msp],
+    lower: &[PrimitiveArray],
+    decimal_dtype: DecimalDType,
+    validity: Validity,
+) -> VortexResult<ArrayRef>
+where
+    Msp: NativePType + Into<i64>,
+{
+    Ok(match lower {
+        [first] => DecimalArray::new(
+            assemble_wide_decimal::<i128, Msp, 1>(
+                msp,
+                first.as_slice::<u64>().iter().map(|&word| [word]),
+            ),
+            decimal_dtype,
+            validity,
+        )
+        .into_array(),
+        [first, second] => DecimalArray::new(
+            assemble_wide_decimal::<i256, Msp, 2>(
+                msp,
+                first
+                    .as_slice::<u64>()
+                    .iter()
+                    .zip(second.as_slice::<u64>())
+                    .map(|(&a, &b)| [a, b]),
+            ),
+            decimal_dtype,
+            validity,
+        )
+        .into_array(),
+        [first, second, third] => DecimalArray::new(
+            assemble_wide_decimal::<i256, Msp, 3>(
+                msp,
+                first
+                    .as_slice::<u64>()
+                    .iter()
+                    .zip(second.as_slice::<u64>())
+                    .zip(third.as_slice::<u64>())
+                    .map(|((&a, &b), &c)| [a, b, c]),
+            ),
+            decimal_dtype,
+            validity,
+        )
+        .into_array(),
+        _ => {
+            vortex_bail!("expected between one and {MAX_LOWER_PARTS} lower parts")
         }
-    }))
+    })
 }
 
 /// Assemble a signed MSP slice and one array of `K` lower words per row.

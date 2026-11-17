@@ -19,12 +19,14 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
+use vortex_layout::scan::metrics::ScanUsage;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::scan::v2::ScanCache;
 use vortex_layout::scan::v2::ScanFile;
 use vortex_layout::scan::v2::SegmentLocation;
 use vortex_layout::segments::SegmentSource;
+use vortex_layout::segments::UsageSegmentSource;
 use vortex_scan::DataSourceRef;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -54,6 +56,8 @@ pub struct VortexFile {
     layout_reader_cache: Option<OnceLock<Arc<dyn LayoutReader>>>,
     /// None if V2 scan caching is turned off
     scan_cache: Option<FileScanCache>,
+    /// Resource usage that segment reads and scans of this handle add to.
+    usage: Option<Arc<ScanUsage>>,
 }
 
 /// What repeated V2 scans of a file share: its segment locations, read from the footer once, and
@@ -111,6 +115,7 @@ impl VortexFile {
             metadata: Arc::new(HashMap::new()),
             layout_reader_cache: None,
             scan_cache: None,
+            usage: None,
         }
     }
 
@@ -136,6 +141,7 @@ impl VortexFile {
             metadata: self.metadata,
             layout_reader_cache: Some(OnceLock::new()),
             scan_cache: Some(scan_cache),
+            usage: self.usage,
         }
     }
 
@@ -188,9 +194,11 @@ impl VortexFile {
     /// Replace the segment source used by this file.
     ///
     /// Any cached layout reader or V2 scan state is cleared so that subsequent scans read from
-    /// the replacement source.
+    /// the replacement source. Usage from [`Self::with_usage`] is cleared too, because the
+    /// replacement source does not count reads.
     pub fn with_segment_source(mut self, segment_source: Arc<dyn SegmentSource>) -> Self {
         self.segment_source = segment_source;
+        self.usage = None;
         if self.layout_reader_cache.is_some() {
             self.layout_reader_cache = Some(OnceLock::new());
         }
@@ -198,6 +206,18 @@ impl VortexFile {
             cache.plans = ScanCache::default();
         }
         self
+    }
+
+    /// Returns a handle on this file whose segment reads and scans add to `usage`.
+    ///
+    /// The handle shares the footer and the inner segment source, so deriving it reads nothing.
+    /// It counts every segment read above the current segment source, so apply it after any
+    /// caching wrapper: reads that a cache serves then count too.
+    pub fn with_usage(self, usage: Arc<ScanUsage>) -> Self {
+        let source = UsageSegmentSource::new(self.segment_source(), Arc::clone(&usage));
+        let mut file = self.with_segment_source(Arc::new(source));
+        file.usage = Some(usage);
+        file
     }
 
     /// Returns a reference to the Vortex session used to open this file.
@@ -252,10 +272,10 @@ impl VortexFile {
     /// Initiate a scan of the file, returning a builder for projection, filtering, selection, and
     /// execution options.
     pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
-        Ok(ScanBuilder::new(
-            self.session.clone(),
-            self.layout_reader()?,
-        ))
+        Ok(
+            ScanBuilder::new(self.session.clone(), self.layout_reader()?)
+                .with_some_usage(self.usage.clone()),
+        )
     }
 
     /// The parts of this file the planner-driven scan executor reads through: its root layout,

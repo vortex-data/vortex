@@ -13,6 +13,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
+use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::ToI256;
@@ -260,28 +261,38 @@ where
     ScalarValue: From<P>,
 {
     match_each_decimal_value!(decimal_value, |decimal_v| {
-        let Some(encoded) = <P as NumCast>::from(decimal_v) else {
-            let decimal_i256 = decimal_v
-                .to_i256()
-                .vortex_expect("i256 is big enough for any DecimalValue");
-            return if decimal_i256
-                > P::max_value()
-                    .to_i256()
-                    .vortex_expect("i256 is big enough for any PType")
-            {
-                Err(Positive)
-            } else {
-                assert!(
-                    decimal_i256
-                        < P::min_value()
-                            .to_i256()
-                            .vortex_expect("i256 is big enough for any PType")
-                );
-                Err(Negative)
-            };
-        };
-        Ok(ScalarValue::from(encoded))
+        native_decimal_to_primitive::<P, _>(decimal_v)
     })
+}
+
+/// Converts a native decimal value into `P`, or returns the direction in which it overflows `P`.
+fn native_decimal_to_primitive<P, D>(decimal_v: D) -> Result<ScalarValue, Sign>
+where
+    P: IntegerPType + ToI256,
+    ScalarValue: From<P>,
+    D: NativeDecimalType,
+{
+    let Some(encoded) = <P as NumCast>::from(decimal_v) else {
+        let decimal_i256 = decimal_v
+            .to_i256()
+            .vortex_expect("i256 is big enough for any DecimalValue");
+        return if decimal_i256
+            > P::max_value()
+                .to_i256()
+                .vortex_expect("i256 is big enough for any PType")
+        {
+            Err(Positive)
+        } else {
+            assert!(
+                decimal_i256
+                    < P::min_value()
+                        .to_i256()
+                        .vortex_expect("i256 is big enough for any PType")
+            );
+            Err(Negative)
+        };
+    };
+    Ok(ScalarValue::from(encoded))
 }
 
 #[cfg(test)]

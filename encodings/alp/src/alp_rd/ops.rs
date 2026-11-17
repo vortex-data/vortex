@@ -139,6 +139,41 @@ mod test {
         assert_arrays_eq!(sliced, PrimitiveArray::from_iter([b, outlier]), &mut ctx);
     }
 
+    /// Long enough for the SIMD combine kernels, with patches before, inside and after the slice.
+    #[rstest]
+    #[case(0.1f32, 0.2f32, 3e25f32)]
+    #[case(0.1f64, 0.2f64, 3e100f64)]
+    fn test_slice_patched_simd_lengths<T: ALPRDFloat + NativePType>(
+        #[case] a: T,
+        #[case] b: T,
+        #[case] outlier: T,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values: Vec<T> = (0..2051)
+            .map(|i| match i {
+                _ if i % 37 == 0 => outlier,
+                _ if i % 2 == 0 => a,
+                _ => b,
+            })
+            .collect();
+        let array = PrimitiveArray::from_iter(values.iter().copied());
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
+        assert!(encoded.left_parts_patches().is_some());
+
+        assert_arrays_eq!(
+            encoded.clone().into_array(),
+            PrimitiveArray::from_iter(values.iter().copied()),
+            &mut ctx
+        );
+        let sliced = encoded.slice(5..2040)?;
+        assert_arrays_eq!(
+            sliced,
+            PrimitiveArray::from_iter(values[5..2040].iter().copied()),
+            &mut ctx
+        );
+        Ok(())
+    }
+
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]
     #[case(0.1f64, 0.2f64, 3e100f64)]
