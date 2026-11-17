@@ -141,12 +141,8 @@ fn check<T: Copy + PartialEq + Debug + From<u8>>(bits: &BitBuffer) {
     check_bitmap_strategies(&values, bits);
 }
 
-#[rstest]
-fn filter_matches_expected(
-    #[values(0.001, 0.05, 0.2, 0.5, 0.9, 0.999)] density: f64,
-    #[values(0, 3, 64)] offset: usize,
-    #[values(9, 151, 2000)] len: usize,
-) {
+/// Filters a random selection of the given density for values of every width.
+fn check_random(density: f64, offset: usize, len: usize) {
     let mut rng = StdRng::seed_from_u64(42);
     let selected = (0..len)
         .map(|_| rng.random_bool(density))
@@ -160,12 +156,8 @@ fn filter_matches_expected(
     check::<u128>(&bits);
 }
 
-#[rstest]
-fn filter_runs_matches_expected(
-    #[values(1, 12, 200)] run_len: usize,
-    #[values(1, 16, 300)] gap: usize,
-    #[values(0, 5)] offset: usize,
-) {
+/// Filters runs of selected values for values of every width.
+fn check_runs(run_len: usize, gap: usize, offset: usize) {
     let bits = make_bits(2000, offset, |i| i % (run_len + gap) < run_len);
 
     check::<u8>(&bits);
@@ -173,6 +165,53 @@ fn filter_runs_matches_expected(
     check::<u32>(&bits);
     check::<u64>(&bits);
     check::<u128>(&bits);
+}
+
+#[rstest]
+#[cfg_attr(miri, ignore = "too slow under Miri, which runs a subset")]
+fn filter_matches_expected(
+    #[values(0.001, 0.05, 0.2, 0.5, 0.9, 0.999)] density: f64,
+    #[values(0, 3, 64)] offset: usize,
+    #[values(9, 151, 2000)] len: usize,
+) {
+    check_random(density, offset, len);
+}
+
+#[rstest]
+#[cfg_attr(miri, ignore = "too slow under Miri, which runs a subset")]
+fn filter_runs_matches_expected(
+    #[values(1, 12, 200)] run_len: usize,
+    #[values(1, 16, 300)] gap: usize,
+    #[values(0, 5)] offset: usize,
+) {
+    check_runs(run_len, gap, offset);
+}
+
+/// A subset of [`filter_matches_expected`] small enough for Miri that still reaches each row of
+/// the strategy ladder, in place and out of place, at aligned and unaligned offsets.
+#[rstest]
+// Mostly empty words.
+#[case(0.001, 3, 2000)]
+// Below every in-place and branchless threshold, and a length that ends mid-word.
+#[case(0.2, 64, 151)]
+// A selection shorter than one word.
+#[case(0.5, 0, 9)]
+// Dense enough to byte compress values of every width, and to compact in place.
+#[case(0.9, 3, 2000)]
+fn filter_strategies(#[case] density: f64, #[case] offset: usize, #[case] len: usize) {
+    check_random(density, offset, len);
+}
+
+/// A subset of [`filter_runs_matches_expected`] small enough for Miri.
+#[rstest]
+// Alternating values, too short to copy as runs.
+#[case(1, 1, 0)]
+// Runs long enough in bytes to copy as runs only for values of 8 or more bytes.
+#[case(12, 16, 5)]
+// Long runs between long gaps.
+#[case(200, 300, 5)]
+fn filter_run_strategies(#[case] run_len: usize, #[case] gap: usize, #[case] offset: usize) {
+    check_runs(run_len, gap, offset);
 }
 
 #[test]
