@@ -8,7 +8,8 @@ use crate::ExecutionCtx;
 use crate::aggregate_fn::fns::fixed_size_bytes::FixedSizeBytes;
 use crate::arrays::FixedSizeListArray;
 
-/// Check whether a fixed-size list of bytes is sorted by byte, with nulls first.
+/// Check whether a fixed-size list of bytes is sorted by byte, in the direction and null order of
+/// `options`.
 pub(super) fn check_fixed_size_bytes_sorted(
     array: &FixedSizeListArray,
     options: &IsSortedOptions,

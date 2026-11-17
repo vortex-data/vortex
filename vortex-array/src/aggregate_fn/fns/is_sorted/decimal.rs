@@ -5,7 +5,6 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use super::IsSortedIteratorExt;
 use super::IsSortedOptions;
 use crate::ExecutionCtx;
 use crate::arrays::DecimalArray;
@@ -26,10 +25,7 @@ fn compute_is_sorted<T: NativeDecimalType>(
     array: &DecimalArray,
     options: &IsSortedOptions,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<bool>
-where
-    dyn Iterator<Item = T>: IsSortedIteratorExt,
-{
+) -> VortexResult<bool> {
     match array
         .as_ref()
         .validity()?

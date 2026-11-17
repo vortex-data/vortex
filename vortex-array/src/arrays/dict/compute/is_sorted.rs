@@ -7,7 +7,6 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
-use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
 use crate::aggregate_fn::fns::is_sorted::SortDirection;
 use crate::aggregate_fn::fns::is_sorted::is_sorted_with_options;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
@@ -48,23 +47,12 @@ impl DynAggregateKernel for DictIsSortedKernel {
             return Ok(Some(IsSorted::make_partial(batch, false, strict, ctx)?));
         }
 
-        let sorted = match options.direction {
-            SortDirection::Asc => {
-                is_sorted_with_options(dict.values(), *options, ctx)?
-                    && is_sorted_with_options(dict.codes(), *options, ctx)?
-            }
-            SortDirection::Desc => {
-                // `DictEncoder` produce incremental asc codes, so a desc
-                // column gets `DESC` values and `ASC` codes. So, using `DESC` codes,
-                // e.g. from `take` or an imported dict, are out of scope.
-                let asc_options = IsSortedOptions {
-                    strict,
-                    direction: SortDirection::Asc,
-                };
-                is_sorted_with_options(dict.values(), *options, ctx)?
-                    && is_sorted_with_options(dict.codes(), asc_options, ctx)?
-            }
-        };
+        // `DictEncoder` produces incremental asc codes, so the values carry the direction and the
+        // codes are always checked ascending. Desc codes, e.g. from `take` or an imported dict,
+        // are out of scope.
+        let codes_options = options.with_direction(SortDirection::Asc);
+        let sorted = is_sorted_with_options(dict.values(), *options, ctx)?
+            && is_sorted_with_options(dict.codes(), codes_options, ctx)?;
 
         if sorted {
             Ok(Some(IsSorted::make_partial(batch, true, strict, ctx)?))
@@ -93,6 +81,7 @@ mod tests {
     use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::fns::is_sorted::IsSorted;
     use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
+    use crate::aggregate_fn::fns::is_sorted::NullOrder;
     use crate::aggregate_fn::fns::is_sorted::SortDirection;
     use crate::aggregate_fn::fns::is_sorted::is_sorted_with_options;
     use crate::aggregate_fn::kernels::DynAggregateKernel;
@@ -112,12 +101,52 @@ mod tests {
         #[values(false, true)] strict: bool,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let options = IsSortedOptions { strict, direction };
+        let options = IsSortedOptions::default()
+            .with_strict(strict)
+            .with_direction(direction);
         let dict = DictArray::try_new(codes.into_array(), values.into_array())?.into_array();
 
         let decoded = dict.clone().execute::<Canonical>(&mut ctx)?.into_array();
         let sorted = is_sorted_with_options(&decoded, options, &mut ctx)?;
         assert!(verdict.is_none_or(|verdict| verdict == sorted));
+
+        let expected = verdict
+            .map(|verdict| IsSorted::make_partial(&dict, verdict, strict, &mut ctx))
+            .transpose()?;
+        let result = DictIsSortedKernel.aggregate(&IsSorted.bind(options), &dict, &mut ctx)?;
+        assert_eq!(result, expected);
+        Ok(())
+    }
+
+    /// Null codes decode to nulls, so trailing null codes are sorted only with nulls last.
+    #[rstest]
+    #[case::nulls_first(NullOrder::First, None)]
+    #[case::nulls_last(NullOrder::Last, Some(true))]
+    fn trailing_null_codes(
+        #[case] null_order: NullOrder,
+        #[case] verdict: Option<bool>,
+        #[values(SortDirection::Asc, SortDirection::Desc)] direction: SortDirection,
+        #[values(false, true)] strict: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let options = IsSortedOptions {
+            strict,
+            direction,
+            null_order,
+        };
+        let values = match direction {
+            SortDirection::Asc => buffer![1i32, 5],
+            SortDirection::Desc => buffer![5i32, 1],
+        };
+        let dict = DictArray::try_new(
+            PrimitiveArray::from_option_iter([Some(0u32), Some(1), None]).into_array(),
+            values.into_array(),
+        )?
+        .into_array();
+
+        let decoded = dict.clone().execute::<Canonical>(&mut ctx)?.into_array();
+        let sorted = is_sorted_with_options(&decoded, options, &mut ctx)?;
+        assert_eq!(sorted, null_order == NullOrder::Last);
 
         let expected = verdict
             .map(|verdict| IsSorted::make_partial(&dict, verdict, strict, &mut ctx))
@@ -135,10 +164,7 @@ mod tests {
             PrimitiveArray::from_option_iter([None, Some(5i32)]).into_array(),
         )?
         .into_array();
-        let options = IsSortedOptions {
-            strict: true,
-            ..Default::default()
-        };
+        let options = IsSortedOptions::default().with_strict(true);
 
         let result = DictIsSortedKernel.aggregate(&IsSorted.bind(options), &dict, &mut ctx)?;
         assert_eq!(

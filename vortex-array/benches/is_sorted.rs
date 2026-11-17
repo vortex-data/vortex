@@ -71,7 +71,13 @@ fn scan(bencher: Bencher, array: ArrayRef, options: IsSortedOptions) {
 #[divan::bench(args = CASES)]
 fn primitive_scan(bencher: Bencher, &(direction, strict): &(SortDirection, bool)) {
     let array = PrimitiveArray::from_iter(values(direction)).into_array();
-    scan(bencher, array, IsSortedOptions { strict, direction });
+    scan(
+        bencher,
+        array,
+        IsSortedOptions::default()
+            .with_strict(strict)
+            .with_direction(direction),
+    );
 }
 
 #[divan::bench(args = CASES)]
@@ -80,7 +86,13 @@ fn nullable_primitive_scan(bencher: Bencher, &(direction, strict): &(SortDirecti
         std::iter::once(None).chain(values(direction).skip(1).map(Some)),
     )
     .into_array();
-    scan(bencher, array, IsSortedOptions { strict, direction });
+    scan(
+        bencher,
+        array,
+        IsSortedOptions::default()
+            .with_strict(strict)
+            .with_direction(direction),
+    );
 }
 
 #[divan::bench(args = [SortDirection::Asc, SortDirection::Desc])]
@@ -95,10 +107,7 @@ fn nullable_bool_scan(bencher: Bencher, direction: SortDirection) {
     scan(
         bencher,
         array,
-        IsSortedOptions {
-            strict: false,
-            direction,
-        },
+        IsSortedOptions::default().with_direction(direction),
     );
 }
 
@@ -106,7 +115,13 @@ fn nullable_bool_scan(bencher: Bencher, direction: SortDirection) {
 fn utf8_scan(bencher: Bencher, &(direction, strict): &(SortDirection, bool)) {
     let array =
         VarBinViewArray::from_iter_str(values(direction).map(|v| format!("{v:016}"))).into_array();
-    scan(bencher, array, IsSortedOptions { strict, direction });
+    scan(
+        bencher,
+        array,
+        IsSortedOptions::default()
+            .with_strict(strict)
+            .with_direction(direction),
+    );
 }
 
 /// `DictEncoder` assigns ascending codes, so the values carry the direction.
@@ -128,6 +143,9 @@ fn dictionary(bencher: Bencher, &(direction, strict): &(SortDirection, bool)) {
             )
         })
         .bench_refs(|(array, ctx)| {
-            is_sorted_with_options(array, IsSortedOptions { strict, direction }, ctx).unwrap()
+            let options = IsSortedOptions::default()
+                .with_strict(strict)
+                .with_direction(direction);
+            is_sorted_with_options(array, options, ctx).unwrap()
         });
 }

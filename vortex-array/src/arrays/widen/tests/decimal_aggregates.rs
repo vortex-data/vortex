@@ -24,6 +24,7 @@ use crate::aggregate_fn::fns::first::First;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
 use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
+use crate::aggregate_fn::fns::is_sorted::NullOrder;
 use crate::aggregate_fn::fns::is_sorted::SortDirection;
 use crate::aggregate_fn::fns::last::Last;
 use crate::aggregate_fn::fns::max::Max;
@@ -52,25 +53,25 @@ use crate::scalar::Scalar;
 /// Decimal aggregates paired with whether the [`Widen`] kernel must return a partial.
 fn aggregates() -> Vec<(AggregateFnRef, bool)> {
     let options = NumericalAggregateOpts::default();
+    let sort_options = IsSortedOptions::default();
 
     vec![
         (MinMax.bind(options), true),
         (Min.bind(options), true),
         (Max.bind(options), true),
         (IsConstant.bind(EmptyOptions), true),
-        (IsSorted.bind(IsSortedOptions::default()), true),
+        (IsSorted.bind(sort_options), true),
+        (IsSorted.bind(sort_options.with_strict(true)), true),
         (
-            IsSorted.bind(IsSortedOptions {
-                strict: true,
-                ..Default::default()
-            }),
+            IsSorted.bind(sort_options.with_direction(SortDirection::Desc)),
             true,
         ),
         (
-            IsSorted.bind(IsSortedOptions {
-                strict: false,
-                direction: SortDirection::Desc,
-            }),
+            IsSorted.bind(
+                sort_options
+                    .with_strict(true)
+                    .with_null_order(NullOrder::Last),
+            ),
             true,
         ),
         (Sum.bind(options), true),
