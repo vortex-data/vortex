@@ -49,6 +49,15 @@ impl Importer {
             }
         }
     }
+
+    /// A part of the error for a null item in a valid list, in an array that also holds a null
+    /// list. The session checks each item against the lists above it, so it names the null.
+    fn visible_null_error(self) -> &'static str {
+        match self {
+            Importer::Dyn => "non-nullable Vortex array",
+            Importer::Session => "must not be null unless an ancestor is null, got a null at index",
+        }
+    }
 }
 
 #[rstest]
@@ -173,7 +182,7 @@ fn null_item_in_valid_list_is_rejected(
         .unwrap_err();
 
     assert!(
-        err.to_string().contains("non-nullable Vortex array"),
+        err.to_string().contains(importer.visible_null_error()),
         "unexpected error: {err}"
     );
     Ok(())
@@ -225,7 +234,7 @@ fn null_leaf_in_valid_nested_list_is_rejected(
         .unwrap_err();
 
     assert!(
-        err.to_string().contains("non-nullable Vortex array"),
+        err.to_string().contains(importer.visible_null_error()),
         "unexpected error: {err}"
     );
     Ok(())
