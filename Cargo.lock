@@ -12471,6 +12471,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-table"
+version = "0.1.0"
+
+[[package]]
 name = "vortex-tensor"
 version = "0.1.0"
 dependencies = [

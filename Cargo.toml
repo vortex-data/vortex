@@ -24,6 +24,7 @@ members = [
     "vortex-scan",
     "vortex-file",
     "vortex-index",
+    "vortex-table",
     "vortex-ipc",
     "vortex",
     "vortex-bench",
