@@ -252,7 +252,7 @@ PRs are squash-merged: the title and description become the commit message, so k
 - Title: imperative mood, at most 72 characters, describing the effect rather than the mechanism
   (`Speed up sparse takes from chunked Dict arrays`, not
   `Take few rows of encoded Dict values when appending to a builder`). No `feat:`, `fix(x):` or
-  similar prefix: the required `changelog/*` label already categorizes the PR. CI enforces both.
+  similar prefix: the required `changelog/*` label already categorizes the PR.
 - Description: aim for about 150 words. Say what changed and why, plus anything a reviewer cannot
   get from the diff. Fill in the template's prompts; do not add headings of your own.
 - Leave out the checks you ran, lists of new types or functions, per-file walkthroughs, and test

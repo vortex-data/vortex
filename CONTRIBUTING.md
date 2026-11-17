@@ -26,7 +26,7 @@ The contribution process is outlined below:
    - Give the PR a clear, brief description; this will be the commit
      message when the PR is merged.
    - Keep the title to 72 characters or fewer, without a `feat:`-style prefix; the
-     `changelog/*` label categorizes the PR. CI checks both once the PR leaves draft.
+     `changelog/*` label categorizes the PR.
    - For significant new functionality, ensure that you write tests to cover that new functionality. Similarly,
      for bugfixes, include a test that reproduces the original bug (and that should now pass after the fix).
    - Make sure the PR passes all CI tests.
