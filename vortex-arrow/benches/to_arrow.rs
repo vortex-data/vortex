@@ -260,7 +260,9 @@ const STRING_VALIDITIES: &[StringValidity] =
 const ARROW_STRING_LAYOUTS: &[ArrowStringLayout] =
     &[ArrowStringLayout::Offset, ArrowStringLayout::View];
 
-const STRING_ROWS: usize = 100_000;
+// CPU simulation charges each instrumented 100,000-row case far more than the 1 ms per-iteration
+// budget. 32,768 rows still span four zstd frames when flat and fill four 8,192-row chunks.
+const STRING_ROWS: usize = if cfg!(codspeed) { 32_768 } else { 100_000 };
 const STRING_CHUNKS: usize = 4;
 const DICTIONARY_SIZE: usize = 2_048;
 const SPARSE_DICTIONARY_ROWS: usize = 1_024;
