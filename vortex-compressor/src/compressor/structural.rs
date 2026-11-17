@@ -50,12 +50,15 @@ impl CascadingCompressor {
         Ok((compressed.nbytes() < bitmap.nbytes()).then_some(compressed))
     }
 
-    /// Compresses an array-backed validity mask using the enabled boolean schemes.
+    /// Compresses an array-backed validity with the enabled boolean schemes, keeping the bitmap
+    /// when it does not get smaller.
+    ///
+    /// A scheme that stores a validity it builds itself calls this before storing it.
     ///
     /// # Errors
     ///
     /// Returns an error if compression of the validity array fails.
-    pub(super) fn compress_validity(
+    pub fn compress_validity(
         &self,
         validity: Validity,
         exec_ctx: &mut ExecutionCtx,
@@ -68,13 +71,36 @@ impl CascadingCompressor {
         }
     }
 
+    /// Returns `array` with its validity compressed, if it is a bool, primitive, decimal or
+    /// string leaf with a validity bitmap; any other array is returned as it is.
+    ///
+    /// A scheme that stores its input's validity calls this on its input before encoding it, so
+    /// that the encoding stores the compressed bitmap.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if compression of the validity array fails.
+    pub fn with_compressed_validity(
+        &self,
+        array: &ArrayRef,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        if !array.is_canonical() {
+            return Ok(array.clone());
+        }
+        let canonical = array.clone().execute::<Canonical>(exec_ctx)?;
+        Ok(self
+            .compress_leaf_validity(canonical, exec_ctx)?
+            .into_array())
+    }
+
     /// Compresses the validity bitmap of a bool, primitive, decimal or string leaf in place,
     /// leaving the leaf unchanged when the bitmap does not get smaller.
     ///
     /// # Errors
     ///
     /// Returns an error if compression of the validity array fails.
-    pub(super) fn compress_leaf_validity(
+    fn compress_leaf_validity(
         &self,
         canonical: Canonical,
         exec_ctx: &mut ExecutionCtx,

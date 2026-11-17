@@ -93,7 +93,7 @@ impl Scheme for VarBinScheme {
             compressed_offsets,
             varbin.bytes().clone(),
             varbin.dtype().clone(),
-            varbin.validity()?,
+            compressor.compress_validity(varbin.validity()?, exec_ctx)?,
             exec_ctx,
         )?
         .into_array())

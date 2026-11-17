@@ -28,6 +28,7 @@ use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
+use vortex_array::validity::Validity;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -153,11 +154,12 @@ fn is_constant_varbinview(array: ArrayView<'_, VarBinView>, mask: &Mask, first: 
 /// Returns an error if [`compress_constant`] fails.
 pub(crate) fn compress_as_constant(
     array: ArrayRef,
+    compress_validity: impl FnOnce(Validity, &mut ExecutionCtx) -> VortexResult<Validity>,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let before_nbytes = array.nbytes();
     let _winner_span = trace::winner_compress_span(CONSTANT_SCHEME_ID, before_nbytes).entered();
-    let compressed = compress_constant(&array, exec_ctx)?;
+    let compressed = compress_constant(&array, compress_validity, exec_ctx)?;
 
     let after_nbytes = compressed.nbytes();
     let actual_ratio = (after_nbytes != 0).then(|| before_nbytes as f64 / after_nbytes as f64);
@@ -169,13 +171,18 @@ pub(crate) fn compress_as_constant(
 
 /// Encodes an array whose valid values are all equal.
 ///
-/// Returns a [`ConstantArray`], wrapped in a [`MaskedArray`] when the array has some nulls, or a
-/// null [`ConstantArray`] when the array is all-null.
+/// Returns a [`ConstantArray`], wrapped in a [`MaskedArray`] with the validity compressed by
+/// `compress_validity` when the array has some nulls, or a null [`ConstantArray`] when the array
+/// is all-null.
 ///
 /// # Errors
 ///
 /// Returns an error if computing validity or extracting the constant scalar fails.
-fn compress_constant(source: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+fn compress_constant(
+    source: &ArrayRef,
+    compress_validity: impl FnOnce(Validity, &mut ExecutionCtx) -> VortexResult<Validity>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     let validity = source.validity()?;
     let mask = validity.execute_mask(source.len(), ctx)?;
 
@@ -191,6 +198,7 @@ fn compress_constant(source: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
     if mask.all_true() {
         Ok(const_arr)
     } else {
+        let validity = compress_validity(validity, ctx)?;
         Ok(MaskedArray::try_new(const_arr, validity, ctx)?.into_array())
     }
 }
