@@ -272,7 +272,7 @@ pub enum Format {
     #[serde(rename = "vortex-compact")]
     VortexCompact,
     /// Vortex files whose compressor may also choose the array encodings of the unstable
-    /// edition. See [`UNSTABLE_SESSION`].
+    /// edition.
     #[clap(name = "vortex-unstable")]
     #[serde(rename = "vortex-unstable")]
     VortexUnstable,
