@@ -7,8 +7,6 @@
 //! extension metadata, or inherit missing metadata from the operand they are compared with. This
 //! supplies the logical dtype that Vortex requires without adding implicit casts.
 
-use std::error::Error;
-use std::fmt;
 use std::sync::Arc;
 
 use arrow_schema::DataType;
@@ -46,7 +44,9 @@ use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
-pub(crate) mod convertible;
+// FIXME(DK)
+pub use convertible::*;
+pub mod convertible;
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
@@ -174,30 +174,11 @@ pub(crate) fn raw_projection(
 }
 
 /// Why an expression was not converted.
-#[derive(Debug)]
-pub enum Unconverted {
+enum Unconverted {
     /// A valid expression that Vortex cannot evaluate; it stays in DataFusion.
     Unsupported,
     /// A malformed expression or a failed conversion.
     Failed(DataFusionError),
-}
-
-impl fmt::Display for Unconverted {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Unsupported => f.write_str("Unsupported expression"),
-            Self::Failed(error) => fmt::Display::fmt(error, f),
-        }
-    }
-}
-
-impl Error for Unconverted {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Unsupported => None,
-            Self::Failed(error) => Some(error),
-        }
-    }
 }
 
 impl From<DataFusionError> for Unconverted {
@@ -207,239 +188,7 @@ impl From<DataFusionError> for Unconverted {
 }
 
 /// Conversion result where `?` propagates both unsupported expressions and errors.
-pub type Conversion<T> = Result<T, Unconverted>;
-
-/// Shared inputs for matching and constructing a native expression.
-#[derive(Clone, Copy)]
-pub struct ConvertibleCtx<'a> {
-    /// The DataFusion input schema.
-    pub schema: &'a Schema,
-    /// Session used to resolve Arrow types and import literals.
-    pub session: &'a VortexSession,
-    /// Lambda parameters read by the native root, or `None` for scan input columns.
-    pub scope: Option<&'a StructFields>,
-}
-
-impl<'a> ConvertibleCtx<'a> {
-    /// Create a context for expressions over scan input columns.
-    pub fn new(schema: &'a Schema, session: &'a VortexSession) -> Self {
-        Self {
-            schema,
-            session,
-            scope: None,
-        }
-    }
-}
-
-/// Recognition and construction of one built-in expression form.
-///
-/// Inputs are borrowed and converter state is consumed after recursion. Matching and construction
-/// both receive the same [`ConvertibleCtx`]. Concrete converters can be combined directly:
-///
-/// ```
-/// use std::sync::Arc;
-/// use datafusion_common::Result as DFResult;
-/// use datafusion_physical_expr::PhysicalExpr;
-/// use vortex::expr::Expression;
-/// use vortex_datafusion::convert::{Convertible, ConvertibleCtx, ConvertColumn, ConvertNot};
-///
-/// fn convert(
-///     expr: &Arc<dyn PhysicalExpr>,
-///     ctx: &ConvertibleCtx<'_>,
-/// ) -> DFResult<Option<Expression>> {
-///     let mut recur = |child| convert(child, ctx);
-///     if let Some(converted) = ConvertNot::try_convert(expr, ctx, &mut recur)? {
-///         return Ok(Some(converted));
-///     }
-///     ConvertColumn::try_convert(expr, ctx, recur)
-/// }
-/// ```
-pub trait Convertible<'a>: Sized {
-    /// The DataFusion expression matched by this converter.
-    type DFExpr: PhysicalExpr;
-
-    /// Downcast and select the inputs to convert before constructing this node.
-    ///
-    /// `Unconverted::Unsupported` means no match; other conversion errors must be propagated.
-    fn maybe_match(
-        expr: &'a Arc<dyn PhysicalExpr>,
-        ctx: &ConvertibleCtx<'_>,
-    ) -> Conversion<(Vec<&'a Arc<dyn PhysicalExpr>>, Self)> {
-        let expr = expr
-            .downcast_ref::<Self::DFExpr>()
-            .ok_or(Unconverted::Unsupported)?;
-        Self::maybe_convert(expr, ctx)
-    }
-
-    /// Select inputs and capture the configuration of a typed DataFusion node.
-    fn maybe_convert(
-        expr: &'a Self::DFExpr,
-        ctx: &ConvertibleCtx<'_>,
-    ) -> Conversion<(Vec<&'a Arc<dyn PhysicalExpr>>, Self)>;
-
-    /// Construct this node from its converted inputs, using the supplied context.
-    fn construct(
-        self,
-        children: Vec<Expression>,
-        ctx: &ConvertibleCtx<'_>,
-    ) -> Conversion<Expression>;
-
-    /// Try this converter, using the caller's recursion to convert its selected inputs.
-    ///
-    /// Returns `None` for an unsupported node, child, or constructed expression.
-    fn try_convert(
-        expr: &'a Arc<dyn PhysicalExpr>,
-        ctx: &ConvertibleCtx<'_>,
-        mut recur: impl FnMut(&'a Arc<dyn PhysicalExpr>) -> DFResult<Option<Expression>>,
-    ) -> DFResult<Option<Expression>> {
-        conversion_result(Self::maybe_match(expr, ctx).and_then(
-            |(children, convertible)| {
-                recur_and_construct(
-                    children,
-                    convertible,
-                    ctx,
-                    &mut |child| recur(child)?.ok_or(Unconverted::Unsupported),
-                )
-            },
-        ))
-    }
-}
-
-/// Typed construction for fixed-arity converters, adapted to [`Convertible`] below.
-pub trait ConvertibleFixedArity<'a>: Sized {
-    /// The DataFusion expression matched by this converter.
-    type DFExpr: PhysicalExpr;
-    /// The converted children, represented by an `[Expression; N]` array.
-    type Children: TryFrom<Vec<Expression>>;
-
-    /// Select inputs and capture the configuration of a typed DataFusion node.
-    fn maybe_convert_fixed(
-        expr: &'a Self::DFExpr,
-        ctx: &ConvertibleCtx<'_>,
-    ) -> Conversion<(Vec<&'a Arc<dyn PhysicalExpr>>, Self)>;
-
-    /// Construct from the fixed-size array, using the supplied context.
-    fn construct_fixed(
-        self,
-        children: Self::Children,
-        ctx: &ConvertibleCtx<'_>,
-    ) -> Conversion<Expression>;
-}
-
-impl<'a, T: ConvertibleFixedArity<'a>> Convertible<'a> for T {
-    type DFExpr = <T as ConvertibleFixedArity<'a>>::DFExpr;
-
-    fn maybe_convert(
-        expr: &'a <Self as Convertible<'a>>::DFExpr,
-        ctx: &ConvertibleCtx<'_>,
-    ) -> Conversion<(Vec<&'a Arc<dyn PhysicalExpr>>, Self)> {
-        <T as ConvertibleFixedArity<'a>>::maybe_convert_fixed(expr, ctx)
-    }
-
-    fn construct(
-        self,
-        children: Vec<Expression>,
-        ctx: &ConvertibleCtx<'_>,
-    ) -> Conversion<Expression> {
-        let count = children.len();
-        let children = T::Children::try_from(children).map_err(|_| {
-            exec_datafusion_err!("Cannot construct expression from {count} converted children")
-        })?;
-        <T as ConvertibleFixedArity<'a>>::construct_fixed(self, children, ctx)
-    }
-}
-
-/// Add a selected-child count check to a variable-arity converter.
-///
-/// Matching records the selected input count; construction rejects a different number of results.
-/// The wrapped converter and its configuration stay on the stack.
-pub struct ConvertibleVariableArity<T> {
-    convertible: T,
-    arity: usize,
-}
-
-impl<'a, T: Convertible<'a>> Convertible<'a> for ConvertibleVariableArity<T> {
-    type DFExpr = T::DFExpr;
-
-    fn maybe_convert(
-        expr: &'a Self::DFExpr,
-        ctx: &ConvertibleCtx<'_>,
-    ) -> Conversion<(Vec<&'a Arc<dyn PhysicalExpr>>, Self)> {
-        let (children, convertible) = T::maybe_convert(expr, ctx)?;
-        let arity = children.len();
-        Ok((children, Self { convertible, arity }))
-    }
-
-    fn construct(
-        self,
-        children: Vec<Expression>,
-        ctx: &ConvertibleCtx<'_>,
-    ) -> Conversion<Expression> {
-        if children.len() != self.arity {
-            return Err(exec_datafusion_err!(
-                "Expected {} converted children, found {}",
-                self.arity,
-                children.len()
-            )
-            .into());
-        }
-        self.convertible.construct(children, ctx)
-    }
-}
-
-fn recur_and_construct<'a, T: Convertible<'a>>(
-    children: Vec<&'a Arc<dyn PhysicalExpr>>,
-    convertible: T,
-    ctx: &ConvertibleCtx<'_>,
-    recur: &mut impl FnMut(&'a Arc<dyn PhysicalExpr>) -> Conversion<Expression>,
-) -> Conversion<Expression> {
-    let children = children
-        .into_iter()
-        .map(recur)
-        .collect::<Conversion<Vec<_>>>()?;
-    convertible.construct(children, ctx)
-}
-
-fn next_child(children: &mut impl Iterator<Item = Expression>) -> Conversion<Expression> {
-    children
-        .next()
-        .ok_or_else(|| exec_datafusion_err!("Missing converted child").into())
-}
-
-/// Keep unsupported expressions distinct from conversion errors at public API boundaries.
-fn conversion_result<T>(result: Conversion<T>) -> DFResult<Option<T>> {
-    match result {
-        Ok(converted) => Ok(Some(converted)),
-        Err(Unconverted::Unsupported) => Ok(None),
-        Err(Unconverted::Failed(error)) => Err(error),
-    }
-}
-
-/// Convert one native node, using the caller's recursion for its selected inputs.
-///
-/// The callback receives borrowed DataFusion children in construction order. Field paths stay
-/// configuration and repeated IN literals are deduplicated before traversal. Unsupported nodes
-/// return `None` without calling `recur`; unsupported children or construction also return `None`.
-/// Whole-tree validation and lambda-scoped traversal remain with the recursive converter.
-pub fn try_convert_node<'a>(
-    expr: &'a Arc<dyn PhysicalExpr>,
-    ctx: &ConvertibleCtx<'_>,
-    mut recur: impl FnMut(&'a Arc<dyn PhysicalExpr>) -> DFResult<Option<Expression>>,
-) -> DFResult<Option<Expression>> {
-    conversion_result(convertible::convert_node(
-        expr,
-        ctx,
-        &mut |child| recur(child)?.ok_or(Unconverted::Unsupported),
-    ))
-}
-
-/// Resolve an Arrow field through the session registry; unknown types are unsupported.
-fn arrow_dtype(field: &Field, session: &VortexSession) -> Conversion<DType> {
-    session
-        .arrow()
-        .from_arrow_field(field)
-        .map_err(|_| Unconverted::Unsupported)
-}
+type Conversion<T> = Result<T, Unconverted>;
 
 /// The default [`ExpressionConverter`] implementation.
 ///
@@ -569,11 +318,9 @@ impl DefaultExpressionConverter {
             session: &self.session,
             scope,
         };
-        convertible::convert_node(
-            expr,
-            &ctx,
-            &mut |child| self.convert_tree(child, schema, input_dtype),
-        )
+        default_convert_recursive(expr, &ctx, &mut |child| {
+            self.convert_tree(child, schema, input_dtype)
+        })
     }
 
     /// Imports a literal, using `operand_field` only when the literal has no extension metadata.
@@ -692,18 +439,6 @@ pub(crate) fn is_infallible(expr: &Expression) -> bool {
     expr.as_scalar()
         .is_none_or(|scalar_fn| scalar_fn.signature().is_infallible())
         && expr.children().iter().all(is_infallible)
-}
-
-/// Escapes the LIKE wildcards and escape character in `literal`.
-fn escape_like(literal: &str) -> String {
-    let mut escaped = String::with_capacity(literal.len());
-    for c in literal.chars() {
-        if matches!(c, '%' | '_' | '\\') {
-            escaped.push('\\');
-        }
-        escaped.push(c);
-    }
-    escaped
 }
 
 /// The Vortex return dtype of a converted expression; unresolvable dtypes are unsupported.

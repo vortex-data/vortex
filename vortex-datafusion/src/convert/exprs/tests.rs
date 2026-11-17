@@ -92,15 +92,15 @@ use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex_array::assert_arrays_eq;
 
-use super::*;
 use super::convertible::supported_data_types;
 use super::convertible::try_operator_from_df;
+use super::*;
 use crate::common_tests::TestSessionContext;
 use crate::convert::ConvertCase;
 use crate::convert::ConvertColumn;
 use crate::convert::ConvertIsNull;
 use crate::convert::ConvertNot;
-use crate::convert::ConvertibleCtx;
+use crate::convert::Ctx;
 use crate::convert::TryToDataFusion;
 
 #[rstest::fixture]
@@ -2817,7 +2817,7 @@ fn test_fallible_boolean_rhs_is_residual(
 
 fn convert_with_custom_coalesce(
     expr: &Arc<dyn PhysicalExpr>,
-    ctx: &ConvertibleCtx<'_>,
+    ctx: &Ctx<'_>,
     visited: &mut Vec<String>,
 ) -> DFResult<Option<Expression>> {
     visited.push(expr.to_string());
@@ -2858,14 +2858,15 @@ fn test_one_step_custom_child_under_native_parents() -> anyhow::Result<()> {
     let converter = DefaultExpressionConverter::new(session.clone());
     assert!(converter.try_convert(&expr, &schema)?.is_none());
     assert!(
-        try_convert_node(&custom, &ConvertibleCtx::new(&schema, &session), |_| {
+        try_convert_node(&custom, &Ctx::new(&schema, &session), |_| {
             Err(exec_datafusion_err!("Unsupported nodes must not recurse"))
         })?
         .is_none()
     );
     let mut visited = Vec::new();
-    let converted = convert_with_custom_coalesce(&expr, &ConvertibleCtx::new(&schema, &session), &mut visited)?
-        .ok_or_else(|| exec_datafusion_err!("Expected custom conversion"))?;
+    let converted =
+        convert_with_custom_coalesce(&expr, &Ctx::new(&schema, &session), &mut visited)?
+            .ok_or_else(|| exec_datafusion_err!("Expected custom conversion"))?;
     assert_eq!(
         visited,
         vec![
@@ -2890,7 +2891,9 @@ fn test_one_step_custom_child_under_native_parents() -> anyhow::Result<()> {
 }
 
 #[rstest]
-fn test_one_step_selects_function_inputs(#[values(false, true)] length: bool) -> anyhow::Result<()> {
+fn test_one_step_selects_function_inputs(
+    #[values(false, true)] length: bool,
+) -> anyhow::Result<()> {
     let schema = Schema::new(vec![Field::new(
         "a",
         if length {
@@ -2915,7 +2918,7 @@ fn test_one_step_selects_function_inputs(#[values(false, true)] length: bool) ->
     let session = VortexSession::default();
     let converter = DefaultExpressionConverter::new(session.clone());
     let mut selected = Vec::new();
-    let converted = try_convert_node(&expr, &ConvertibleCtx::new(&schema, &session), |child| {
+    let converted = try_convert_node(&expr, &Ctx::new(&schema, &session), |child| {
         selected.push(child);
         Ok(Some(get_item("a", root())))
     })?;
@@ -2937,7 +2940,7 @@ fn test_one_step_deduplicates_in_list_before_traversal() -> anyhow::Result<()> {
     let session = VortexSession::default();
     let converter = DefaultExpressionConverter::new(session.clone());
     let mut selected = Vec::new();
-    let converted = try_convert_node(&expr, &ConvertibleCtx::new(&schema, &session), |child| {
+    let converted = try_convert_node(&expr, &Ctx::new(&schema, &session), |child| {
         selected.push(child);
         Ok(Some(convert(Arc::clone(child), &schema)?))
     })?;
@@ -2966,20 +2969,24 @@ fn test_one_step_constructor_declines_fallible_children(
     let session = VortexSession::default();
     let fallible = is_null(Binary.new_expr(Operator::Div, [lit(1i32), lit(0i32)]));
     let mut children = [get_item("a", root()), fallible].into_iter();
-    assert!(try_convert_node(&expr, &ConvertibleCtx::new(&schema, &session), |_| Ok(children.next()))?.is_none());
+    assert!(
+        try_convert_node(&expr, &Ctx::new(&schema, &session), |_| Ok(children.next()))?.is_none()
+    );
     Ok(())
 }
 
 #[rstest]
-fn test_fixed_arity_converter_rejects_wrong_arity(#[values(0, 2)] arity: usize) -> anyhow::Result<()> {
+fn test_fixed_arity_converter_rejects_wrong_arity(
+    #[values(0, 2)] arity: usize,
+) -> anyhow::Result<()> {
     let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::NotExpr::new(Arc::new(
         df_expr::Literal::new(ScalarValue::Boolean(Some(true))),
     )));
     let session = VortexSession::default();
     let schema = Schema::empty();
-    let (_, convertible) = ConvertNot::maybe_match(&expr, &ConvertibleCtx::new(&schema, &session))?;
+    let (_, convertible) = ConvertNot::maybe_match(&expr, &Ctx::new(&schema, &session))?;
     let error = convertible
-        .construct(vec![lit(true); arity], &ConvertibleCtx::new(&schema, &session))
+        .construct(vec![lit(true); arity], &Ctx::new(&schema, &session))
         .unwrap_err();
     assert!(matches!(error, Unconverted::Failed(_)));
     Ok(())
@@ -2990,7 +2997,8 @@ fn test_one_step_case_child_order(#[values(false, true)] with_else: bool) -> any
     let condition: Arc<dyn PhysicalExpr> =
         Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(false))));
     let value: Arc<dyn PhysicalExpr> = Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1))));
-    let otherwise: Arc<dyn PhysicalExpr> = Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(2))));
+    let otherwise: Arc<dyn PhysicalExpr> =
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(2))));
     let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::CaseExpr::try_new(
         None,
         vec![(Arc::clone(&condition), Arc::clone(&value))],
@@ -3004,7 +3012,7 @@ fn test_one_step_case_child_order(#[values(false, true)] with_else: bool) -> any
     }
     let mut children = children.into_iter();
     let mut selected = Vec::new();
-    let converted = try_convert_node(&expr, &ConvertibleCtx::new(&schema, &session), |child| {
+    let converted = try_convert_node(&expr, &Ctx::new(&schema, &session), |child| {
         selected.push(child);
         Ok(children.next())
     })?;
@@ -3036,7 +3044,8 @@ fn test_one_step_ignores_unreferenced_unsupported_field() -> anyhow::Result<()> 
         Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))),
     ));
     let session = VortexSession::default();
-    let converted = convert_with_custom_coalesce(&expr, &ConvertibleCtx::new(&schema, &session), &mut Vec::new())?;
+    let converted =
+        convert_with_custom_coalesce(&expr, &Ctx::new(&schema, &session), &mut Vec::new())?;
     assert_eq!(
         converted,
         Some(Binary.new_expr(Operator::Eq, [get_item("a", root()), lit(1i32)]))
@@ -3052,16 +3061,15 @@ fn test_variable_arity_converter_rejects_wrong_arity(
         None,
         vec![(
             Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(true)))),
-            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1))))
-                as Arc<dyn PhysicalExpr>,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))) as Arc<dyn PhysicalExpr>,
         )],
         None,
     )?);
     let session = VortexSession::default();
     let schema = Schema::empty();
-    let (_, convertible) = ConvertCase::maybe_match(&expr, &ConvertibleCtx::new(&schema, &session))?;
+    let (_, convertible) = ConvertCase::maybe_match(&expr, &Ctx::new(&schema, &session))?;
     let error = convertible
-        .construct(vec![lit(true); arity], &ConvertibleCtx::new(&schema, &session))
+        .construct(vec![lit(true); arity], &Ctx::new(&schema, &session))
         .unwrap_err();
     assert!(error.to_string().contains("Expected 2 converted children"));
     Ok(())
@@ -3069,7 +3077,7 @@ fn test_variable_arity_converter_rejects_wrong_arity(
 
 fn convert_with_subset(
     expr: &Arc<dyn PhysicalExpr>,
-    ctx: &ConvertibleCtx<'_>,
+    ctx: &Ctx<'_>,
 ) -> DFResult<Option<Expression>> {
     let mut recur = |child| convert_with_subset(child, ctx);
     if let Some(converted) = ConvertNot::try_convert(expr, ctx, &mut recur)? {
@@ -3089,7 +3097,7 @@ fn test_compose_public_converters_with_borrowed_inputs() -> anyhow::Result<()> {
         df_expr::IsNullExpr::new(Arc::new(df_expr::Column::new("a", 0))),
     )));
     let session = VortexSession::default();
-    let converted = convert_with_subset(&expr, &ConvertibleCtx::new(&schema, &session))?
+    let converted = convert_with_subset(&expr, &Ctx::new(&schema, &session))?
         .ok_or_else(|| exec_datafusion_err!("Expected subset conversion"))?;
     assert_eq!(converted, not(is_null(get_item("a", root()))));
     let input = session.arrow().from_arrow_record_batch(batch, &schema)?;
