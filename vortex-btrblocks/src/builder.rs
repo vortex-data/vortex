@@ -3,6 +3,8 @@
 
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
+use std::sync::Arc;
+
 use vortex_array::ArrayId;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_fastlanes::bitpacked_v2_id;
@@ -12,6 +14,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
 use crate::CascadingCompressor;
+use crate::ChildPolicy;
 use crate::CompressionSessionExt;
 use crate::Scheme;
 use crate::SchemeExt;
@@ -143,6 +146,7 @@ pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
     allowed: AllowedIds,
     mode: CompressionMode,
+    child_policy: Option<Arc<dyn ChildPolicy>>,
 }
 
 impl BtrBlocksCompressorBuilder {
@@ -154,6 +158,7 @@ impl BtrBlocksCompressorBuilder {
             schemes: session.compression().schemes().to_vec(),
             allowed: AllowedIds::from_session(session),
             mode: CompressionMode::Default,
+            child_policy: None,
         }
     }
 
@@ -166,6 +171,7 @@ impl BtrBlocksCompressorBuilder {
             schemes: Vec::new(),
             allowed: AllowedIds::all(),
             mode: CompressionMode::All,
+            child_policy: None,
         }
     }
 
@@ -231,10 +237,21 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
+    /// Sets a policy that decides, child by child, whether to compress the children schemes
+    /// register, overriding the schemes' own decisions.
+    pub fn with_child_policy(mut self, policy: Arc<dyn ChildPolicy>) -> Self {
+        self.child_policy = Some(policy);
+        self
+    }
+
     /// Builds the configured [`BtrBlocksCompressor`] from the schemes that its preset does not
     /// exclude and whose produced serialized IDs are all allowed.
     pub fn build(self) -> BtrBlocksCompressor {
-        BtrBlocksCompressor(CascadingCompressor::new(self.allowed_schemes()))
+        let compressor = CascadingCompressor::new(self.allowed_schemes());
+        BtrBlocksCompressor(match self.child_policy {
+            Some(policy) => compressor.with_child_policy(policy),
+            None => compressor,
+        })
     }
 
     fn allowed_schemes(&self) -> Vec<&'static dyn Scheme> {
