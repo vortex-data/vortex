@@ -5,17 +5,28 @@
 
 use std::sync::LazyLock;
 
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::WidenArray;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::i256;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use super::DecimalByteParts;
 use super::DecimalBytePartsArray;
+use super::MAX_I128_LOWER_PARTS;
+use super::MAX_I256_LOWER_PARTS;
+use super::msp_ptype;
+use super::split_decimal;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
@@ -23,20 +34,58 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
+/// Executes the validity of `decimal`, the mask that [`split_decimal`] and
+/// [`lower_part_count`](super::lower_part_count) take.
+pub(crate) fn validity_mask(decimal: &DecimalArray) -> VortexResult<Mask> {
+    decimal
+        .validity()?
+        .execute_mask(decimal.len(), &mut SESSION.create_execution_ctx())
+}
+
+/// Wraps a strictly narrower signed child at the logical MSP dtype, preserving nullability.
+pub(crate) fn widen_msp(child: ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<ArrayRef> {
+    let logical_dtype = DType::Primitive(msp_ptype(decimal_dtype), child.dtype().nullability());
+
+    WidenArray::try_new(child, logical_dtype).map(IntoArray::into_array)
+}
+
 /// An `i128`-backed decimal array, encoded as byte parts with one lower part.
 pub(crate) fn i128_parts(values: Vec<i128>, validity: Validity) -> DecimalBytePartsArray {
-    DecimalByteParts::encode(
+    encode_with_lower_parts(
         &DecimalArray::new(Buffer::from(values), DecimalDType::new(38, 2), validity),
-        &mut SESSION.create_execution_ctx(),
+        MAX_I128_LOWER_PARTS,
     )
-    .vortex_expect("valid decimal byte parts")
 }
 
 /// An `i256`-backed decimal array, encoded as byte parts with three lower parts.
 pub(crate) fn i256_parts(values: Vec<i256>, validity: Validity) -> DecimalBytePartsArray {
-    DecimalByteParts::encode(
+    encode_with_lower_parts(
         &DecimalArray::new(Buffer::from(values), DecimalDType::new(76, 2), validity),
-        &mut SESSION.create_execution_ctx(),
+        MAX_I256_LOWER_PARTS,
+    )
+}
+
+/// Encodes `decimal` as byte parts with `lower_part_count` lower parts, whatever its values need.
+fn encode_with_lower_parts(
+    decimal: &DecimalArray,
+    lower_part_count: usize,
+) -> DecimalBytePartsArray {
+    let mask = validity_mask(decimal).vortex_expect("the fixture validity executes");
+    let parts = split_decimal(decimal, &mask, lower_part_count)
+        .vortex_expect("the fixture splits into a supported shape");
+    DecimalByteParts::try_new_with_lower_parts(
+        parts.msp,
+        parts.lower_parts,
+        decimal.decimal_dtype(),
     )
     .vortex_expect("valid decimal byte parts")
+}
+
+/// The number of lower parts that holds every value of `values_type`.
+pub(crate) fn full_width_lower_part_count(values_type: DecimalType) -> usize {
+    match values_type {
+        DecimalType::I128 => MAX_I128_LOWER_PARTS,
+        DecimalType::I256 => MAX_I256_LOWER_PARTS,
+        _ => 0,
+    }
 }

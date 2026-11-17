@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Tests of part validation and execution.
+
 use std::sync::LazyLock;
 
 use rstest::rstest;
@@ -10,13 +12,13 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
-use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
@@ -34,6 +36,7 @@ use crate::decimal_byte_parts::LOWER_PART_DTYPE;
 use crate::decimal_byte_parts::MAX_LOWER_PARTS;
 use crate::decimal_byte_parts::testing::i128_parts;
 use crate::decimal_byte_parts::testing::i256_parts;
+use crate::decimal_byte_parts::testing::widen_msp;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
@@ -127,6 +130,11 @@ fn test_scalar_at_matches_decoded_rows(
     )
     .into_array()
     .cast(DType::Primitive(msp_ptype, Nullability::Nullable))?;
+    let msp = if msp_ptype == PType::I64 {
+        msp
+    } else {
+        widen_msp(msp, dtype)?
+    };
 
     // Set the highest bit of each word to catch accidental sign extension. The low bits differ, so
     // a swapped word shows up too.
@@ -212,6 +220,16 @@ fn test_scalar_at_null_with_lower_parts() -> VortexResult<()> {
     DecimalDType::new(76, 2),
     "expected 1..=4 slots, got 5"
 )]
+#[case::one_lower_part_at_p18(
+    vec![lower_part()],
+    DecimalDType::new(18, 2),
+    "allows at most 0 lower parts, got 1"
+)]
+#[case::three_lower_parts_at_p38(
+    vec![lower_part(), lower_part(), lower_part()],
+    DecimalDType::new(38, 2),
+    "allows at most 1 lower parts, got 3"
+)]
 fn test_rejects_invalid_parts(
     #[case] lower_parts: Vec<ArrayRef>,
     #[case] decimal_dtype: DecimalDType,
@@ -243,48 +261,8 @@ fn test_rejects_missing_slots(#[case] slots: Vec<Option<ArrayRef>>) {
 }
 
 #[test]
-fn test_wide_decimal_buffer_types() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-
-    let i128_array = i128_parts(vec![1i128 << 100], Validity::NonNullable);
-    let canonical = i128_array.into_array().execute::<DecimalArray>(&mut ctx)?;
-    assert_eq!(canonical.values_type(), DecimalType::I128);
-
-    let i256_array = i256_parts(vec![i256::from_parts(0, 1 << 100)], Validity::NonNullable);
-    let canonical = i256_array.into_array().execute::<DecimalArray>(&mut ctx)?;
-    assert_eq!(canonical.values_type(), DecimalType::I256);
-
-    // A narrow MSP with a single lower part still fits 128 bits.
-    let array = DecimalByteParts::try_new_with_lower_parts(
-        buffer![1i8, -1, 0].into_array(),
-        vec![buffer![7u64, 7, 7].into_array()],
-        DecimalDType::new(38, 2),
-    )?;
-    let canonical = array.into_array().execute::<DecimalArray>(&mut ctx)?;
-    assert_eq!(canonical.values_type(), DecimalType::I128);
-    assert_eq!(
-        canonical.buffer::<i128>().as_slice(),
-        &[(1i128 << 64) | 7, (-1i128 << 64) | 7, 7]
-    );
-
-    // Two lower parts under a narrow MSP overflow 128 bits, so the value widens.
-    let array = DecimalByteParts::try_new_with_lower_parts(
-        buffer![1i8].into_array(),
-        vec![buffer![0u64].into_array(), buffer![9u64].into_array()],
-        DecimalDType::new(76, 2),
-    )?;
-    let canonical = array.into_array().execute::<DecimalArray>(&mut ctx)?;
-    assert_eq!(canonical.values_type(), DecimalType::I256);
-    assert_eq!(
-        canonical.buffer::<i256>().as_slice(),
-        &[i256::from_parts(9, 1)]
-    );
-    Ok(())
-}
-
-#[test]
 fn test_unused_buffer_of_values_is_ignored_for_null_rows() -> VortexResult<()> {
-    // Null rows may hold arbitrary bits in the lower parts; they must stay null.
+    // Null rows may hold arbitrary bits in the lower parts and must stay null.
     let array = DecimalByteParts::try_new_with_lower_parts(
         PrimitiveArray::new(
             buffer![0i64, 0, 0],
@@ -310,6 +288,37 @@ fn test_unused_buffer_of_values_is_ignored_for_null_rows() -> VortexResult<()> {
         ),
         &mut ctx
     );
+
+    Ok(())
+}
+
+#[rstest]
+#[case::p2(2, PType::I8)]
+#[case::p4(4, PType::I16)]
+#[case::p9(9, PType::I32)]
+#[case::p18(18, PType::I64)]
+#[case::p38(38, PType::I64)]
+#[case::p76(76, PType::I64)]
+fn test_msp_requires_logical_ptype(
+    #[case] precision: u8,
+    #[case] expected_ptype: PType,
+    #[values(PType::I8, PType::I16, PType::I32, PType::I64)] stored_ptype: PType,
+    #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+) -> VortexResult<()> {
+    let decimal_dtype = DecimalDType::new(precision, 0);
+    let msp = ConstantArray::new(
+        Scalar::default_value(&DType::Primitive(stored_ptype, nullability)),
+        3,
+    )
+    .into_array();
+    let result = DecimalByteParts::try_new(msp.clone(), decimal_dtype);
+    assert_eq!(result.is_ok(), stored_ptype == expected_ptype);
+
+    if stored_ptype.byte_width() < expected_ptype.byte_width() {
+        let msp = widen_msp(msp, decimal_dtype)?;
+        let array = DecimalByteParts::try_new(msp, decimal_dtype)?;
+        assert_eq!(array.dtype(), &DType::Decimal(decimal_dtype, nullability));
+    }
 
     Ok(())
 }

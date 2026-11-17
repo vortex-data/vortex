@@ -73,47 +73,68 @@ mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::WidenArray;
     use vortex::array::assert_arrays_eq;
-    use vortex::array::validity::Validity;
-    use vortex::buffer::Buffer;
+    use vortex::dtype::DType;
     use vortex::dtype::DecimalDType;
+    use vortex::dtype::NativePType;
+    use vortex::dtype::PType;
     use vortex::encodings::decimal_byte_parts::DecimalByteParts;
-    use vortex::error::VortexExpect;
+    use vortex::error::VortexResult;
     use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
+    use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
-    #[rstest]
-    #[case::i8_p5_s2(Buffer::from(vec![100i8, 101, 102, -1, -100]), 5, 2)]
-    #[case::i16_p10_s2(Buffer::from(vec![100i16, 200, 300, 400, 500]), 10, 2)]
-    #[case::i32_p18_s4(Buffer::from(vec![100i32, 200, 300, 400, 500]), 18, 4)]
-    #[case::i64_p38_s6(Buffer::from(vec![100i64, 200, 300, 400, 500]), 38, 6)]
-    #[crate::test]
-    async fn test_decimal_byte_parts_gpu_decode<T: vortex::dtype::NativePType>(
-        #[case] encoded: Buffer<T>,
-        #[case] precision: u8,
-        #[case] scale: i8,
-    ) {
-        let mut ctx = SESSION.create_execution_ctx();
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
-            .vortex_expect("create execution context");
-
-        let decimal_dtype = DecimalDType::new(precision, scale);
-        let dbp_array = DecimalByteParts::try_new(
-            PrimitiveArray::new(encoded, Validity::NonNullable).into_array(),
-            decimal_dtype,
+    /// The stored MSP values of every case: they fit precision 2, and one row is null.
+    fn fixture<T: NativePType + From<i8>>() -> PrimitiveArray {
+        PrimitiveArray::from_option_iter(
+            [Some(-99i8), None, Some(42), Some(99)].map(|value| value.map(<T as From<i8>>::from)),
         )
-        .vortex_expect("create DecimalBytePartsArray");
+    }
+
+    /// Each case stores the MSP at `stored`, built by [`fixture`], and gives the logical MSP ptype
+    /// of the precision. A narrower stored MSP is wrapped in a `Widen`.
+    #[rstest]
+    #[case::i8_p2(fixture::<i8>(),    2,  PType::I8)]
+    #[case::i8_p5(fixture::<i8>(),    5,  PType::I32)]
+    #[case::i64_p38(fixture::<i64>(), 38, PType::I64)]
+    #[case::i16_p76(fixture::<i16>(), 76, PType::I64)]
+    #[crate::test]
+    async fn test_decimal_byte_parts_gpu_decode(
+        #[case] stored: PrimitiveArray,
+        #[case] precision: u8,
+        #[case] logical_ptype: PType,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
+
+        let decimal_dtype = DecimalDType::new(precision, 2);
+        let nullability = stored.dtype().nullability();
+        let msp = if stored.ptype() == logical_ptype {
+            stored.into_array()
+        } else {
+            WidenArray::try_new(
+                stored.into_array(),
+                DType::Primitive(logical_ptype, nullability),
+            )?
+            .into_array()
+        };
+        let dbp_array = DecimalByteParts::try_new(msp, decimal_dtype)?.into_array();
 
         let gpu_result = DecimalBytePartsExecutor
-            .execute(dbp_array.clone().into_array(), &mut cuda_ctx)
-            .await
-            .vortex_expect("GPU decode");
+            .execute(dbp_array.clone(), &mut cuda_ctx)
+            .await?
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_decimal();
 
-        assert_arrays_eq!(dbp_array, gpu_result.into_array(), &mut ctx);
+        assert_arrays_eq!(gpu_result, dbp_array, &mut ctx);
+
+        Ok(())
     }
 }
