@@ -224,6 +224,14 @@ Branch `ct/ext-claims-types` from `ct/ext-claims`. Check `vortex-array`, `vortex
 Branch `ct/ext-compare-claims` from `ct/ext-claims-types`. Check `vortex-array`,
 `vortex-datetime-parts`, `vortex-duckdb`, `vortex-datafusion`.
 
+Changed on 2026-11-17, after the first report: DuckDB gets the `supports_pushdown_type` callback,
+which declines table filters on a column whose dtype does not hold `Ord`. The DuckDB tests check
+the callback directly, because DuckDB cannot scan a Vortex `Json` column. The DataFusion tests that
+expected a pushed JSON comparison now expect DataFusion to keep it. The WKB end-to-end test found
+two DuckDB issues that the callback exposes, and TY1 fixes both. The multi-file reader treated a
+full-width projection as scan order, but DuckDB permutes it when it moves a filter above the scan.
+A join can add a runtime filter on a declined column after planning, and the scan skips it.
+
 **Files:**
 - Modify: `vortex-array/src/scalar_fn/fns/binary/mod.rs` (`return_dtype`, lines 142-178), the
   operator type of `Binary`, `vortex-array/src/scalar_fn/fns/between/mod.rs` (lines 302-325),
@@ -284,6 +292,13 @@ Branch `ct/ext-compare-claims` from `ct/ext-claims-types`. Check `vortex-array`,
 
 Branch `ct/ext-aggregate-claims` from `ct/ext-claims-types`. Check `vortex-array`, `vortex-uuid`,
 `vortex-layout`, `vortex-duckdb`.
+
+Changed on 2026-11-17, after the first report: TY2 also keeps files written before it readable.
+A `vortex.zoned` layout whose stored aggregate the current aggregates reject disables pruning and
+reads only its data child. The footer skips a file statistics partial whose aggregate rejects the
+column, with one warning for each file and column. Composite IDs that a writer stored stay
+readable. The DuckDB test checks the pushdown decision directly, because DuckDB cannot scan a
+Vortex `Json` column. Add `vortex-file` to the checks.
 
 **Files:**
 - Modify: `vortex-array/src/aggregate_fn/fns/{min,max,min_max,bounded_min,bounded_max,is_sorted,is_constant,all_non_distinct}/mod.rs`,
@@ -394,6 +409,11 @@ Check `vortex-row`, and `vortex-array` if Step 3 changes it.
 
 Branch `ct/ext-stats-readers` from `ct/ext-claims-types`. Check `vortex-layout`, `vortex-file`,
 `vortex-expr`, `vortex-duckdb`, `vortex-datafusion`.
+
+Changed on 2026-11-17, after the first report: the zone map reader and the file statistics moved
+to TY2. A bound rewrite is skipped for an extension type stored as floats, because the NaN
+aggregates accept only primitive floats. The DataFusion test uses a constant `Timestamp` column,
+because DataFusion cannot convert UUID scalars yet.
 
 **Files:**
 - Modify: `vortex-layout/src/layouts/file_stats.rs` (`get` and `to_stats_set`, lines 205-232),
@@ -579,6 +599,162 @@ These tasks start after wave B is in review. Each is specified enough to run.
   (`vortex-array/src/arrays/extension/tests.rs:131`), need a decision in VC1.
 - **LP4:** registration stops replacing and duplicating silently (EXT-R2).
 
+### Task VC1: ExtensionArray::try_new checks values
+
+Branch `ct/ext-array-value-checks` from `ct/ext-validate-array` (NU). Check `vortex-array` and each
+crate whose callers change.
+
+Decided on 2026-11-17, while the maintainer was away:
+
+- `ExtensionArray::try_new` takes an `ExecutionCtx`. It checks the storage dtype, then calls the
+  erased `validate_storage_array` of NU. `ExtensionArray::new` takes the same context and panics
+  on the same errors.
+- `ExtensionArray::new_unchecked` stays `unsafe`. Its caller promises that the storage dtype
+  matches, and that each visible value is legal or taken unchanged from an extension array of the
+  same dtype. So an array is as legal as its source: an array that `try_new` built holds legal
+  values, and an array decoded from a file holds what the file holds (X23). Rows that a null
+  ancestor masks can hold placeholder storage values. Breaking the value clause gives wrong results
+  or read errors, not undefined behavior. Changed after the first report, because a slice of file
+  data cannot promise legal values.
+- `new_unchecked` gets no debug value check, which changes section 8.2 of the design notes.
+  Builders write storage zeros into a non-nullable child under a null parent
+  (`vortex-array/src/builders/struct_.rs:197-202`, `vortex-array/src/builders/fixed_size_list.rs:298`),
+  and a child array cannot see the validity of its parent. A non-nullable `Uuid` v4 child under a
+  null struct row holds the zero UUID, which is not a legal `Uuid` v4 value, so a debug check
+  would reject a correct array.
+- Each call of `ExtensionArray::new` or `try_new` outside tests (about 100 in about 50 files)
+  moves to one of the two constructors:
+  - `new_unchecked`, with a `// SAFETY:` comment that says why the values are legal. This covers
+    kernels that keep input values (slice, take, filter, mask and the like), canonicalization,
+    the compressor (`vortex-compressor/src/compressor/cascade.rs:198`), code that wraps storage it
+    already holds again, and `ExtensionBuilder::finish_into_extension`, whose values come from
+    checked scalars, from legal arrays, or are placeholders.
+  - `try_new`, for storage that no check has seen: `try_from_storage`,
+    `try_from_storage_with_vtable`, and rules that wrap storage values that no check has seen
+    (design notes, section 5).
+  - The new `try_new_structural`, which checks only the storage dtype, as the decode path does.
+    Imports from Arrow, DuckDB, FFI and Python use it, because an import rebuilds each nested
+    child without the validity of its ancestors, and a value check there would reject a
+    placeholder under a null parent. VC2 checks imported values from the root. Changed after the
+    second report.
+  - Tests use `try_new`, unless a test builds illegal values on purpose.
+- `ExtensionBuilder::append_zeros` keeps storage zeros. Its doc says that the value is a
+  placeholder for rows under a null parent, and a legal value only when the storage zero of the
+  type is legal. List in the report each caller that reaches it outside a null parent. Do not
+  change those callers.
+- `ExtensionBuilder::append_value` rejects an `ExtScalar` of another extension dtype, with the
+  top-level nullability ignored. Today it accepts any scalar whose storage matches, so a value that
+  another type checked could enter the array.
+- The `NonZero` read-error test (`vortex-array/src/arrays/extension/tests.rs:131`) stands for data
+  from a file. Build its array the way a file read builds one, through the structural decode path
+  (`Array::try_from_parts` or the deserialize of the encoding). If the test cannot reach that path,
+  use `new_unchecked` with a `// SAFETY:` comment that says the test stands for file data (X23).
+- Add a `validate_array` override where a type has a faster check than the default: `Time` (the
+  storage minimum and maximum against one day), `Uuid` (the version nibble against the metadata),
+  and any other repository type with a value check. `Timestamp` has no value check (X31).
+- File reads keep only the structural `validate`. The strict read mode and the import checks are
+  VC2.
+
+**Tests:**
+
+- `try_new_rejects_illegal_values`: a `Time` value over one day fails, with primitive, constant and
+  chunked storage. A null slot that holds an illegal storage value passes.
+- `builder_pads_null_parent_with_placeholder`: a nullable struct with a non-nullable `Uuid` v4
+  child. Append a null struct row, finish, and read the row as null.
+- The NU harness over each new override, with legal and illegal storage.
+
+- [ ] **Step 1: Write the tests.**
+- [ ] **Step 2: Run them and see them fail.**
+- [ ] **Step 3: Change the constructors and add the overrides.**
+- [ ] **Step 4: Move each caller to its constructor, crate by crate.**
+- [ ] **Step 5: Run the checks for each changed crate.** Expected: all pass.
+- [ ] **Step 6: Commit** "Check extension values in ExtensionArray::try_new". Put the overrides
+  in a second commit, "Add validate_array overrides for Time and Uuid".
+
+### Task VC2: value checks on import and in strict reads
+
+Branch `ct/ext-visible-value-checks` from VC1. Check `vortex-array` and each crate that changes.
+
+A value check must skip rows that a null ancestor masks, so it can only run where the whole array
+is known: at the root of an import, or on a chunk that a scan decodes. VC2 adds one validator for
+both.
+
+**Interfaces:**
+
+```rust
+/// Checks each extension value that is visible from the root of `array`.
+pub fn validate_extension_values(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()>;
+```
+
+- It walks struct fields, list and list view elements, fixed-size list elements, map entries,
+  chunks, and the storage of nested extension dtypes. A row of a child is visible only when every
+  ancestor row that holds it is valid.
+- It runs `validate_array` on the visible rows of each extension node. It skips subtrees whose
+  dtype holds no extension dtype, so a plain array costs one dtype walk.
+- It returns an error for an illegal value and never panics (I7).
+
+**Callers:**
+
+- Each import calls it once at the root, after the structural import of VC1: Arrow (the entry
+  points of `vortex-arrow`), DuckDB (vector to Vortex), FFI, and Python.
+- The optional strict read mode (X23) calls it on each chunk before the scan returns it. Add it as
+  an option of the existing file open or scan options, off by default, and follow the naming of
+  the options next to it.
+
+**Tests:**
+
+- `import_rejects_time_over_one_day`: an Arrow import of a `Time` value over one day fails, at the
+  top level and inside a struct.
+- `import_accepts_placeholder_under_null_parent`: an Arrow struct with a null row and a
+  non-nullable `Uuid` v4 child that holds the zero UUID in that row imports, and the row reads as
+  null.
+- `strict_read_rejects_illegal_values`: a file whose data holds an illegal value (written from an
+  array that `try_new_structural` built) reads in the default mode and fails in the strict mode.
+- One import test each for DuckDB, FFI and Python, where the crate has a test harness for imports.
+
+- [ ] **Step 1: Write the tests.**
+- [ ] **Step 2: Run them and see them fail.**
+- [ ] **Step 3: Implement the validator.**
+- [ ] **Step 4: Call it from the imports and the strict read mode.**
+- [ ] **Step 5: Run the checks for each changed crate.** Expected: all pass.
+- [ ] **Step 6: Commit** "Check extension values on import and in strict reads".
+
+### Task CL3: claim checks in the conformance harness
+
+Branch `ct/ext-claim-conformance`. CL3 needs CL1, CL2 and NU. Build the base from local
+`ct/ext-claims-types`: apply `CL2.patch` with `git apply --index`, then `NU-full.patch` with
+`git apply --index --3way`. Three files conflict (`erased.rs`, `typed.rs` and `vtable.rs` under
+`vortex-array/src/dtype/extension/`), because CL1 and NU add methods at the same places. Keep both
+sides, and stage the three files. Save that staged base as `patches/CL3-base.patch`.
+
+**Checks to add to the harness of NU:**
+
+1. The claims ignore the top-level nullability: the nullable and the non-nullable dtype report the
+   same claims, and `DType::holds` gives the same answer for each claim.
+2. `Ord` comes with `Eq`.
+3. The declared storage dtype holds every claim, for both nullabilities (CL4).
+4. With an optional reference order on native values, for each pair of legal non-null values:
+   if the type claims `Eq`, equal storage values are exactly the equal native values (CL2). If the
+   type claims `Ord`, the storage order is the native order (CL3).
+
+**Reference types** in `vortex-array/src/extension/tests/`, next to `DivisibleInt` and `Opaque`:
+
+- `DecimalLike` over `i64`, with a scale in its metadata. It claims `Eq` and `Ord`. The
+  differential test against the built-in `Decimal` waits for TY1 to TY3 and for CD8a
+  ([#10701](https://github.com/vortex-data/vortex/issues/10701)), so CL3 does not add it.
+- `Refined` over `i64`, positive values only. It claims `Eq` and `Ord` and overrides
+  `validate_array` with a check of the storage minimum.
+
+**Tests:** run the claim checks over every extension type in `vortex-array`, with a reference order
+where the native type has one, and over `Uuid` (byte order), `Vector`, `FixedShapeTensor`, `Json`
+and WKB in their own crates.
+
+- [ ] **Step 1: Build the base and write the tests.**
+- [ ] **Step 2: Run them and see them fail.**
+- [ ] **Step 3: Implement the checks and the reference types.**
+- [ ] **Step 4: Run the checks for each changed crate.** Expected: all pass.
+- [ ] **Step 5: Commit** "Check claims in the extension conformance harness".
+
 ## Wave D
 
 Each of these needs a decision before an agent can start:
@@ -628,14 +804,17 @@ rex window new -s "$REX_SESSION" "<ID>" -c /Users/connor/spiral/vortex-data/vort
 
 ### Monitoring and review
 
-1. For each agent, a background shell waits for `<reports>/<ID>.done` and wakes the coordinating
-   session.
+1. One background shell waits for any `<reports>/<ID>.done` and wakes the coordinating session. It
+   also wakes the session when a tab shows "Ready" on three checks in a row without a `.done`
+   file, because then a prompt was lost or the agent stopped early.
 2. The coordinator reads the report and the branch (`git log <base>..<branch>`, `git diff <base>...<branch>`),
    and reviews the diff against the task, the spec and the Review Focus. The review uses the
    `code-review` and `rust-style` skills.
 3. If changes are needed, the coordinator writes `<reports>/<ID>-review-<n>.md`, deletes the
    `.done` file, and sends "Read the review at `<path>`" to the tab with `rex send` and
-   `rex send-key enter`.
+   `rex send-key enter`. Wait about two seconds between the two commands, and then make sure that
+   the tab shows "Working". Codex treats an Enter that follows a paste too closely as part of the
+   paste, so the prompt stays unsent and the agent waits in "Ready" (seen on 2026-11-17).
 4. After two review rounds, the coordinator fixes small remaining issues itself.
 5. The maintainer is not available while the agents run (2026-11-17). So the coordinator answers a
    "blocked" report itself, picks the option that the spec supports best, and records the choice

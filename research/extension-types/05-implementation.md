@@ -223,10 +223,18 @@ breaks something that works today. Those parts must land together, or in a fixed
 4. TY2 includes the writers' part of phase 4. Once `Min` and `Max` reject types without `Ord`, the
    storage fallback of `aggregate_state_dtype` (`vortex-layout/src/layouts/zoned/schema.rs:177-188`)
    would write a storage-typed state for those columns. No version wrote that form before. So TY2
-   removes the fallback from the writer. The legacy reader keeps its own fallback, so old files
-   still read. DuckDB aggregate pushdown needs no change in TY2: it already declines when
-   `aggregate.build(dtype)` fails (`vortex-duckdb/src/table_function.rs:582`), and DuckDB then
-   aggregates by itself. TY2 adds a test for this.
+   removes the fallback from the writer. The legacy reader keeps its own fallback, so old
+   `vortex.stats` layouts still read. DuckDB aggregate pushdown needs no change in TY2: it already
+   declines when `aggregate.build(dtype)` fails (`vortex-duckdb/src/table_function.rs:582`), and
+   DuckDB then aggregates by itself. TY2 adds a test for this. Since a scan of a Vortex `Json`
+   column fails in DuckDB before the guard, the test checks the pushdown decision directly.
+   TY2 also owns the read side of files written before it (decided on 2026-11-17). A
+   `vortex.zoned` layout rebuilds its zones schema from the current aggregates, and on `develop`
+   `Min` and `Max` accept every extension type. So when a current aggregate rejects a stored spec
+   for the column, the reader disables pruning and reads only the data child, as it does for an
+   unresolved aggregate ID. The footer skips a file statistics partial whose aggregate rejects the
+   column, with one warning for each file and column. Without these two changes, files with min
+   and max of a type without `Ord` would stop opening when TY2 lands.
 5. A change of `PartialOrd` for `Scalar` (XQ8) lands with TY2, or after it. Today `min` and `max`
    merge partial results with `vortex_expect`, so an earlier change can panic.
 6. The spatial validator fix SN1 (EXT-N2) merged before the storage declaration SD (#11184), which
@@ -242,6 +250,12 @@ breaks something that works today. Those parts must land together, or in a fixed
    check the claims before it accepts a filter. DataFusion needs no change: a `return_dtype` error
    during planning becomes `Unsupported`, and DataFusion keeps the filter
    (`vortex-datafusion/src/convert/exprs/mod.rs:895-899`). TY1 adds a `Json` test for both engines.
+   DuckDB builds constant table filters without the `pushdown_expression` hook, and a pushed table
+   filter is mandatory. So TY1 also registers DuckDB's `supports_pushdown_type` callback, which
+   declines table filters on a column whose dtype does not hold `Ord` (decided on 2026-11-17).
+   The callback sees no operator, so the rule is per column: a struct that holds a type without
+   `Ord` loses table pushdown for all of its fields. DuckDB cannot scan a Vortex `Json` column
+   yet, so the DuckDB tests check the callback directly.
 8. CL2 lands before TY1 to TY4. Without the claims of the repository types, every check rejects the
    types that work today, for example a compare of two `Timestamp` columns.
 9. TY1 keeps the order in which compare dispatches kernels: the kernels of an encoding run before
@@ -294,7 +308,11 @@ the other's changes. The changes of phase 3 are small in each file, so they port
 - SN3 covers visibility below list views, maps, run-end arrays, and dictionaries. Those levels
   still treat every child slot as visible, so a masked null at a non-nullable level can fail
   import. SN3 also gives masked dictionary keys a valid target when `new_null_array` builds keys
-  outside the values.
+  outside the values. SN3 covers the canonical recursion of `ArrowSession` (decided on
+  2026-11-17). Two paths remain for follow-ups. The Arrow rebuild before an extension importer
+  does not pass visibility below list views, maps, run-end arrays, or dictionaries, and an empty
+  dictionary there would need a placeholder in the importer's own storage form. The public
+  functions in `vortex_arrow::convert` read Arrow nulls directly and pass no visibility.
 - SF returns an error for a dtype that fails to decode in a lazily parsed struct field. Today
   `StructFields::fields()` calls `vortex_expect` on a fallible decode, so a crafted file panics
   when its footer is read ([#8848](https://github.com/vortex-data/vortex/issues/8848)). The fix
@@ -418,11 +436,14 @@ cast, which phase 5 decides (XQ10). U1 removes the storage reinterpretation firs
 
 ## Phase 4: statistics
 
-- ST1: readers ignore stored min and max of an extension type without `Ord` (X22, X38), and log a
-  warning once for each file and column. This covers the zone map reader, file pruning and the file
-  statistics that reach engines. DuckDB column statistics then stop exporting byte-ordered WKB
-  bounds from old files. The DataFusion `constant_distinct_count` replaces its hardcoded temporal
-  list with `Eq`. The pruning NaN guard looks through extension dtypes to their storage (EXT-A5).
+- ST1: engines ignore stored min and max of an extension type without `Ord` (X22, X38). DuckDB
+  column statistics stop exporting byte-ordered WKB bounds from old files. The DataFusion
+  `constant_distinct_count` replaces its hardcoded temporal list with `Eq`. DataFusion cannot
+  convert UUID scalars yet, so a constant UUID column still reports no count. The pruning NaN
+  guard looks through extension dtypes to their storage (EXT-A5). The NaN aggregates accept only
+  primitive floats, so a bound rewrite is skipped for an extension type stored as floats. No type
+  in the repository is stored as floats and claims `Ord`, so no pruning is lost. The zone map
+  reader and the file statistics moved to TY2 ("Order constraints", item 4).
 - ST2: the bloom filter accepts an extension column only when its dtype holds `Eq` (EXT-A4).
 - The writers' part lands with TY2 ("Order constraints", item 4). Types with `Ord` keep their
   logical `Min` and `Max`, so the format does not change.
