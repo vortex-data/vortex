@@ -131,7 +131,7 @@ impl Compiler<'_> {
     }
 
     /// The rows `rows` of `scan`'s segment, filtered by `filter`, read by the split compiling.
-    /// A segment several readers read is decoded once and shared.
+    /// Readers of part of a segment can share its decoded array through the value cache.
     pub(crate) fn scan(
         &mut self,
         scan: &SegmentScanPlan,
@@ -148,11 +148,15 @@ impl Compiler<'_> {
         } else {
             Some(usize::try_from(rows.start)?..usize::try_from(rows.end)?)
         };
+        // Whole segments are usually consumed once. Retain only segments that span chunks,
+        // where neighboring readers would otherwise repeat their deserialization.
+        let decoded = slice.as_ref().and_then(|_| self.core.values.decoded());
         self.core.segments.push(scan.segment_id());
         Ok(Some(Chain::new(ScanSource::new(
             scan.clone(),
             slice,
             filter,
+            decoded,
         ))))
     }
 }

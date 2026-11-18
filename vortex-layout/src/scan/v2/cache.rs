@@ -30,13 +30,24 @@ use crate::segments::SegmentSource;
 /// its optimized plan, each distinct filter keeps its conjunct and pruning plans along with the
 /// zones those plans have already excluded, and dictionary values stay keyed by the cached plan
 /// that produced them. Recently read segments are retained up to a byte budget, so the chunks of
-/// the file's scans that share a stored segment read it once.
+/// the file's scans that share a stored segment read it once. Segments spanning scan chunks also
+/// share their deserialized arrays in a separate cache with a 16 MiB weighted capacity.
 ///
 /// A cache describes one file's layout, segment locations, and segment source. Use a new cache
 /// when any of them changes. Cached plans and values live as long as the cache, one set per
 /// distinct projection.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct ScanCache(Arc<Inner>);
+
+impl Default for ScanCache {
+    fn default() -> Self {
+        Self(Arc::new(Inner {
+            // Reuse neighboring chunks' deserialization without retaining the whole file.
+            values: ValueCache::with_decoded_segments(16 * 1024 * 1024),
+            ..Inner::default()
+        }))
+    }
+}
 
 #[derive(Default)]
 struct Inner {
@@ -56,9 +67,15 @@ struct Inner {
 impl ScanCache {
     /// A cache whose scans retain up to `bytes` of recently read segments, so chunks that share
     /// a stored segment read it once. The default retains 64 MiB; zero retains nothing.
+    /// Zero also disables the separate deserialized-segment cache.
     pub fn with_retained_bytes(bytes: u64) -> Self {
         Self(Arc::new(Inner {
             retained: Arc::new(RetainedSegments::new(bytes)),
+            values: if bytes == 0 {
+                ValueCache::default()
+            } else {
+                ValueCache::with_decoded_segments(16 * 1024 * 1024)
+            },
             ..Inner::default()
         }))
     }
