@@ -123,43 +123,17 @@ fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
         });
 }
 
-const PIECEWISE_ARGS: &[(f64, usize)] = &[
-    // patches_sparsity, run_length
-    (0.1, 1),
-    (0.1, 16),
-    (0.1, 256),
-    (0.01, 1),
-    (0.01, 16),
-    (0.01, 256),
-];
+const PIECEWISE_RUN_LENGTHS: &[usize] = &[1, 16, 256];
 
-#[divan::bench(args = PIECEWISE_ARGS)]
-fn take_piecewise(bencher: Bencher, (patches_sparsity, run_length): (f64, usize)) {
+#[divan::bench(args = PIECEWISE_RUN_LENGTHS)]
+fn take_piecewise(bencher: Bencher, run_length: usize) {
     let mut rng = StdRng::seed_from_u64(0);
-    let patches = fixture(ARRAY_LEN, patches_sparsity, &mut rng);
+    let patches = fixture(ARRAY_LEN, 0.1, &mut rng);
     let indices = piecewise_indices(patches.array_len(), run_length, &mut rng);
 
     bencher
         .with_inputs(|| (&patches, &indices, SESSION.create_execution_ctx()))
         .bench_refs(|(patches, indices, ctx)| patches.take(indices, ctx));
-}
-
-#[divan::bench(args = PIECEWISE_ARGS)]
-fn take_piecewise_materialized(bencher: Bencher, (patches_sparsity, run_length): (f64, usize)) {
-    let mut rng = StdRng::seed_from_u64(0);
-    let patches = fixture(ARRAY_LEN, patches_sparsity, &mut rng);
-    let indices = piecewise_indices(patches.array_len(), run_length, &mut rng);
-
-    bencher
-        .with_inputs(|| (&patches, &indices, SESSION.create_execution_ctx()))
-        .bench_refs(|(patches, indices, ctx)| {
-            let prim = indices
-                .clone()
-                .execute::<PrimitiveArray>(ctx)
-                .vortex_expect("operation should succeed in benchmark")
-                .into_array();
-            patches.take(&prim, ctx)
-        });
 }
 
 fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
