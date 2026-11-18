@@ -337,9 +337,11 @@ impl Allocation {
     /// leaves the allocation unchanged if the allocator cannot shrink it.
     pub(crate) fn shrink(&mut self, new_size: usize) -> bool {
         debug_assert!(new_size > 0 && new_size <= self.layout.size());
+
         let Ok(new_layout) = Layout::from_size_align(new_size, self.layout.align()) else {
             return false;
         };
+
         // SAFETY: ptr denotes a live block owned by allocator, old_layout fits the block, and the
         // new layout keeps the alignment and is no larger than the old one.
         match unsafe { self.allocator.shrink(self.ptr, self.layout, new_layout) } {
@@ -707,6 +709,25 @@ mod tests {
         assert_eq!(allocator.shrinks.load(Ordering::Relaxed), 0);
         assert_eq!(allocator.calls.load(Ordering::Relaxed), 2);
         Ok(())
+    }
+
+    #[test]
+    fn shrink_to_fit_trims_small_slack() {
+        let allocator = Arc::new(MovingAllocator::default());
+        // Byte alignment puts the data at offset 0 with no padding.
+        let mut buffer = BufferMut::<u8>::with_capacity_preferred_aligned_in(
+            200,
+            Alignment::of::<u8>(),
+            None,
+            BufferAllocatorRef::new(ArcAllocator(Arc::clone(&allocator))),
+        );
+        buffer.extend_from_slice(&[7; 100]);
+
+        buffer.shrink_to_fit();
+
+        assert_eq!(buffer.as_slice(), [7; 100]);
+        assert_eq!(buffer.allocation.size(), 100);
+        assert_eq!(allocator.shrinks.load(Ordering::Relaxed), 1);
     }
 
     #[rstest]
