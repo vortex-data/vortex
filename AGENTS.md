@@ -46,6 +46,9 @@ Before changing files in a subtree, read the closest nested `AGENTS.md`. In part
 
 - `.github/AGENTS.md` covers workflows and other GitHub configuration.
 - `docs/AGENTS.md` covers Sphinx documentation.
+- `vortex-spatial/AGENTS.md` covers Arrow and DataFusion upgrades that geoarrow does not yet
+  support: patch geoarrow in the workspace and set `publish = false` on `vortex-spatial` until a
+  compatible release exists. Published crates must never depend on a `[patch]`.
 
 ## Verification
 
