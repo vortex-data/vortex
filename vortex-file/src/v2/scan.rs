@@ -6,7 +6,7 @@
 //! A planner says what it needs: compute, or reads. This driver decides where each runs. It
 //! composes the planners over a [`PreparedScan`], the pruning plans first when the scan has a
 //! filter and the chunks of the rows they keep after, and runs them on planning runs it owns:
-//! the root run stepped on `spawn_cpu` tasks as the stream is polled, each spawned chunk on a
+//! the root run stepped on `spawn_cpu` tasks by a task of the runtime, each spawned chunk on a
 //! task of its own, up to the concurrency, or on the root run at a concurrency of one. Every
 //! read is a `spawn_io` task of the file's segment source. Batches the caller wants as Arrow are
 //! converted on the task that produced them, beside the scan's other chunks.
@@ -134,7 +134,15 @@ impl ScanDriver {
         let root = compose(&scan);
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map_fn));
-        let batches = run_stream(self.handle, root, scope, io.session(), map_fn, inline)
+        let root = run_stream(
+            self.handle.clone(),
+            root,
+            scope,
+            io.session(),
+            map_fn,
+            inline,
+        );
+        let batches = on_runtime(&self.handle, root, in_flight)
             .map_ok(move |yielded| match yielded {
                 Yielded::Batch(start, batch) => {
                     stream::once(future::ready(Ok((start, batch)))).boxed()
@@ -279,6 +287,37 @@ fn run_stream<A: Send + 'static>(
             }
         }
     })
+    .boxed()
+}
+
+/// Polls `stream` on a task of the runtime and forwards its items through a channel of
+/// `capacity`.
+///
+/// The root run only takes its next step when its stream is polled. Stepping it on its own task
+/// keeps the caller, which may poll from outside the runtime, from paying a wake-up round trip
+/// for every chunk the root run launches. The chunks themselves are still spawned by the caller,
+/// so they reach the runtime as before, and the task, which only the root run's own steps and
+/// reads wake, is never queued behind a chunk's work. The task starts on the first poll and is aborted when the
+/// returned stream is dropped; a panic in it is re-raised when the stream reaches its end.
+fn on_runtime<T: Send + 'static>(
+    handle: &Handle,
+    stream: BoxStream<'static, T>,
+    capacity: usize,
+) -> BoxStream<'static, T> {
+    let handle = handle.clone();
+    stream::once(async move {
+        let (mut send, recv) = mpsc::channel(capacity);
+        let task = handle.spawn(async move {
+            let mut stream = stream;
+            while let Some(item) = stream.next().await {
+                if send.send(item).await.is_err() {
+                    return;
+                }
+            }
+        });
+        recv.chain(stream::once(task).filter_map(|()| future::ready(None)))
+    })
+    .flatten()
     .boxed()
 }
 

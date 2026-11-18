@@ -58,7 +58,10 @@ pub fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<
 }
 
 /// Default number of concurrent requests to allow for local file I/O.
-pub const DEFAULT_CONCURRENCY: usize = 32;
+///
+/// A take that reopens a file reads whole segments, often tens of reads of up to a few MB each,
+/// and on a warm page cache those run as fast as they can be spread over threads.
+pub const DEFAULT_CONCURRENCY: usize = 64;
 
 /// An adapter type wrapping a [`File`] to implement [`VortexReadAt`].
 pub struct FileReadAt {
