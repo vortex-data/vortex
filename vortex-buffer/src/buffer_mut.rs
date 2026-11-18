@@ -16,6 +16,7 @@ use vortex_error::vortex_panic;
 
 use crate::Alignment;
 use crate::Allocation;
+use crate::BitBuffer;
 use crate::Buffer;
 use crate::BufferAllocatorRef;
 use crate::ByteBufferMut;
@@ -754,6 +755,48 @@ impl<T> BufferMut<T> {
         self.length += slice.len();
     }
 
+    /// Overwrites each element whose bit is set in `positions` with `value`.
+    ///
+    /// Elements whose bit is unset keep their values. When `USE_RUNS` is true, this fills each
+    /// contiguous run of set bits as a slice. When false, this writes one element per set bit.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `positions` and the buffer have different lengths.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use vortex_buffer::BitBuffer;
+    /// use vortex_buffer::BufferMut;
+    ///
+    /// let mut buffer = BufferMut::from_iter([1, 2, 3, 4]);
+    /// buffer.fill_where::<false>(&BitBuffer::from_iter([true, false, false, true]), 0);
+    /// assert_eq!(buffer.as_slice(), &[0, 2, 3, 0]);
+    /// ```
+    #[inline]
+    pub fn fill_where<const USE_RUNS: bool>(&mut self, positions: &BitBuffer, value: T)
+    where
+        T: Copy,
+    {
+        assert_eq!(
+            positions.len(),
+            self.len(),
+            "fill_where requires one position bit per buffer element",
+        );
+
+        if USE_RUNS {
+            let values = self.as_mut_slice();
+            for (start, end) in positions.set_slices() {
+                values[start..end].fill(value);
+            }
+        } else {
+            for index in positions.set_indices() {
+                self[index] = value;
+            }
+        }
+    }
+
     /// Return the [`ByteBufferMut`] for this [`BufferMut`].
     pub fn into_byte_buffer(self) -> ByteBufferMut {
         let capacity = self
@@ -1054,11 +1097,24 @@ mod tests {
     use std::cell::Cell;
 
     use allocator_api2::alloc::Global;
+    use rstest::rstest;
 
     use crate::Alignment;
+    use crate::BitBuffer;
     use crate::BufferAllocatorRef;
     use crate::BufferMut;
     use crate::buffer_mut;
+
+    #[track_caller]
+    fn assert_fill_where(values: &[u32], positions: &BitBuffer, expected: &[u32]) {
+        let mut by_index = BufferMut::copy_from(values);
+        by_index.fill_where::<false>(positions, 0);
+        assert_eq!(by_index.as_slice(), expected);
+
+        let mut by_run = BufferMut::copy_from(values);
+        by_run.fill_where::<true>(positions, 0);
+        assert_eq!(by_run.as_slice(), expected);
+    }
 
     #[derive(Copy, Debug, PartialEq)]
     struct CopyWithCloneCounter<'a> {
@@ -1295,5 +1351,34 @@ mod tests {
 
         buf[3] = 7;
         assert_eq!(buf.as_slice()[3], 7);
+    }
+
+    #[rstest]
+    #[case::no_position([false, false, false, false], [1, 2, 3, 4])]
+    #[case::some_positions([true, false, false, true], [0, 2, 3, 0])]
+    #[case::every_position([true, true, true, true], [0, 0, 0, 0])]
+    fn fill_where_overwrites_only_set_positions(
+        #[case] positions: [bool; 4],
+        #[case] expected: [u32; 4],
+    ) {
+        assert_fill_where(&[1, 2, 3, 4], &BitBuffer::from_iter(positions), &expected);
+    }
+
+    #[test]
+    fn fill_where_reads_positions_from_their_offset() {
+        let positions = BitBuffer::from_iter([false, true, false, false, true]).slice(1..);
+        assert_fill_where(&[1, 2, 3, 4], &positions, &[0, 2, 3, 0]);
+    }
+
+    #[test]
+    fn fill_where_accepts_an_empty_buffer() {
+        assert_fill_where(&[], &BitBuffer::empty(), &[]);
+    }
+
+    #[test]
+    #[should_panic(expected = "fill_where requires one position bit per buffer element")]
+    fn fill_where_rejects_positions_of_another_length() {
+        let mut buffer = BufferMut::from_iter([1u32, 2, 3]);
+        buffer.fill_where::<false>(&BitBuffer::from_iter([true, false]), 0);
     }
 }
