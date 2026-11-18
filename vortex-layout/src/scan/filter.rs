@@ -13,8 +13,11 @@ use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+
+use crate::LayoutReader;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
@@ -156,6 +159,19 @@ impl FilterExpr {
     #[inline]
     pub fn dynamic_updates(&self, conjunct_idx: usize) -> Option<&DynamicExprUpdates> {
         self.dynamic_conjuncts[conjunct_idx].as_ref()
+    }
+
+    /// Returns whether whole-file statistics reject any conjunct.
+    ///
+    /// The reader owns the proof cache, so repeated calls for one dynamic version are cheap.
+    pub(super) fn can_prune_file(&self, reader: &dyn LayoutReader) -> VortexResult<bool> {
+        for conjunct in &self.conjuncts {
+            if reader.can_prune_file(conjunct)? {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
     }
 
     /// Returns the next preferred conjunct to evaluate.

@@ -70,6 +70,7 @@ mod primitive;
 mod struct_;
 mod validity;
 mod varbinview;
+mod variant;
 
 pub use bool::*;
 pub(crate) use child::ChildBuilder;
@@ -84,6 +85,7 @@ pub use primitive::*;
 pub use struct_::*;
 pub(crate) use validity::ValidityBuilder;
 pub use varbinview::*;
+pub use variant::*;
 
 pub use crate::arrays::varbin::builder::VarBinBuilder;
 
@@ -171,6 +173,17 @@ pub trait ArrayBuilder: Send {
 
     /// Allocate space for extra `additional` items
     fn reserve_exact(&mut self, additional: usize);
+
+    /// Reserves room for `additional` more appended arrays.
+    ///
+    /// A nested builder keeps an appended array as a chunk of its child rather than copying its
+    /// values, so a caller that is about to append many arrays in a row - canonicalizing a
+    /// [`ChunkedArray`](crate::arrays::ChunkedArray), say - can say how many are coming and spare
+    /// the chunk lists their incremental growth. Builders without children have no chunk list and
+    /// ignore this.
+    fn reserve_chunks(&mut self, additional: usize) {
+        let _ = additional;
+    }
 
     /// Constructs an Array from the builder components.
     ///
@@ -434,7 +447,6 @@ pub fn builder_with_capacity_in(
         DType::List(dtype, n) => Box::new(ListViewBuilder::<u64, u64>::with_capacity_in(
             Arc::clone(dtype),
             *n,
-            2 * capacity, // Arbitrarily choose 2 times the `offsets` capacity here.
             capacity,
             allocator,
         )),
@@ -460,9 +472,7 @@ pub fn builder_with_capacity_in(
             allocator,
         )),
         DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
-        DType::Variant(_) => {
-            vortex_panic!("Variant builders are not implemented")
-        }
+        DType::Variant(n) => Box::new(VariantBuilder::new(*n)),
         DType::Extension(ext_dtype) => Box::new(ExtensionBuilder::with_capacity_in(
             ext_dtype.clone(),
             capacity,

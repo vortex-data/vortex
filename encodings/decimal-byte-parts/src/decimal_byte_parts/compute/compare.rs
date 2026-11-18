@@ -13,6 +13,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
+use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::ToI256;
@@ -103,6 +104,8 @@ fn compare_constant_wide(
             .vortex_expect("every DecimalValue fits i256")
     });
 
+    // TODO(connor): Check the constant MSP against the Widen child's range to restore the
+    // whole-answer shortcut for narrow storage next to lower parts.
     let split = match split_constant(constant, lower_parts.len(), msp_ptype) {
         Ok(split) => split,
         Err(sign) => {
@@ -116,10 +119,7 @@ fn compare_constant_wide(
     let mut answer = compare_lower_part(&lower_parts[last], split.words[last], operator)?;
 
     for (part, word) in lower_parts.iter().zip(&split.words).take(last).rev() {
-        answer = match lower_part_constant(part, *word) {
-            Some(constant) => lexicographic_step(part, constant, operator, answer)?,
-            None => ConstantArray::new(below_word(operator), part.len()).into_array(),
-        };
+        answer = lexicographic_step(part, Scalar::from(*word), operator, answer)?;
     }
 
     let msp_scalar = Scalar::primitive(split.msp, nullability)
@@ -164,29 +164,9 @@ fn compare_lower_part(
     word: u64,
     operator: CompareOperator,
 ) -> VortexResult<ArrayRef> {
-    match lower_part_constant(part, word) {
-        Some(constant) => part.binary(
-            ConstantArray::new(constant, part.len()).into_array(),
-            Operator::from(operator),
-        ),
-        None => Ok(ConstantArray::new(below_word(operator), part.len()).into_array()),
-    }
-}
-
-/// Converts one word of the constant into the type of a lower part.
-///
-/// A part narrower than 64 bits cannot hold a word beyond its range. In that case, this returns
-/// `None` and every value in the part is below the word.
-fn lower_part_constant(part: &ArrayRef, word: u64) -> Option<Scalar> {
-    Scalar::from(word).cast(part.dtype()).ok()
-}
-
-/// The answer for a part whose every value is below the word of the constant. The less
-/// significant parts cannot change it.
-fn below_word(operator: CompareOperator) -> bool {
-    matches!(
-        operator,
-        CompareOperator::Lt | CompareOperator::Lte | CompareOperator::NotEq
+    part.binary(
+        ConstantArray::new(Scalar::from(word), part.len()).into_array(),
+        Operator::from(operator),
     )
 }
 
@@ -283,28 +263,38 @@ where
     ScalarValue: From<P>,
 {
     match_each_decimal_value!(decimal_value, |decimal_v| {
-        let Some(encoded) = <P as NumCast>::from(decimal_v) else {
-            let decimal_i256 = decimal_v
-                .to_i256()
-                .vortex_expect("i256 is big enough for any DecimalValue");
-            return if decimal_i256
-                > P::max_value()
-                    .to_i256()
-                    .vortex_expect("i256 is big enough for any PType")
-            {
-                Err(Positive)
-            } else {
-                assert!(
-                    decimal_i256
-                        < P::min_value()
-                            .to_i256()
-                            .vortex_expect("i256 is big enough for any PType")
-                );
-                Err(Negative)
-            };
-        };
-        Ok(ScalarValue::from(encoded))
+        native_decimal_to_primitive::<P, _>(decimal_v)
     })
+}
+
+/// Converts a native decimal value into `P`, or returns the direction in which it overflows `P`.
+fn native_decimal_to_primitive<P, D>(decimal_v: D) -> Result<ScalarValue, Sign>
+where
+    P: IntegerPType + ToI256,
+    ScalarValue: From<P>,
+    D: NativeDecimalType,
+{
+    let Some(encoded) = <P as NumCast>::from(decimal_v) else {
+        let decimal_i256 = decimal_v
+            .to_i256()
+            .vortex_expect("i256 is big enough for any DecimalValue");
+        return if decimal_i256
+            > P::max_value()
+                .to_i256()
+                .vortex_expect("i256 is big enough for any PType")
+        {
+            Err(Positive)
+        } else {
+            assert!(
+                decimal_i256
+                    < P::min_value()
+                        .to_i256()
+                        .vortex_expect("i256 is big enough for any PType")
+            );
+            Err(Negative)
+        };
+    };
+    Ok(ScalarValue::from(encoded))
 }
 
 #[cfg(test)]
@@ -339,6 +329,7 @@ mod tests {
     use crate::DecimalBytePartsArray;
     use crate::decimal_byte_parts::testing::i128_parts;
     use crate::decimal_byte_parts::testing::i256_parts;
+    use crate::decimal_byte_parts::testing::widen_msp;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -441,12 +432,17 @@ mod tests {
         let decimal_dtype = DecimalDType::new(40, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
         let lhs = DecimalByteParts::try_new(
-            PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).into_array(),
+            widen_msp(
+                PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid)
+                    .into_array(),
+                decimal_dtype,
+            )
+            .unwrap(),
             decimal_dtype,
         )
         .unwrap()
         .into_array();
-        // This cannot be converted to a i32.
+        // This cannot be converted to an i64.
         let rhs = ConstantArray::new(
             Scalar::try_new(
                 dtype.clone(),
@@ -468,7 +464,7 @@ mod tests {
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
-        // This cannot be converted to a i32.
+        // This cannot be converted to an i64.
         let rhs = ConstantArray::new(
             Scalar::try_new(dtype, Some(DecimalValue::I128(9999999999999965304).into())).unwrap(),
             lhs.len(),
@@ -612,53 +608,32 @@ mod tests {
         )
     }
 
-    /// Narrow parts cannot hold every constant of their precision: a constant above the parts'
-    /// range answers by its sign, and a word above a lower part's range sits above every value
-    /// in that part.
+    /// A `Widen` MSP with no lower parts compares at its logical `i64` width, so constants outside
+    /// the range of the `i8` child still compare the values.
     #[test]
-    fn narrow_parts_match_decimal() -> VortexResult<()> {
-        let dtype = DecimalDType::new(38, 2);
-        let validity = Validity::from_iter([true, false, true, true]);
-        let msp = PrimitiveArray::new(buffer![1i16, 0, -1, 3], validity.clone()).into_array();
-        let lower = buffer![5u16, 7, 9, u16::MAX].into_array();
-        let array = DecimalByteParts::try_new_with_lower_parts(msp, vec![lower], dtype)?;
+    fn widen_msp_matches_decimal_outside_child_range() -> VortexResult<()> {
+        let dtype = DecimalDType::new(10, 0);
+        let msp = PrimitiveArray::from_option_iter([Some(1i8), Some(-1), None]).into_array();
+        let array = DecimalByteParts::try_new(widen_msp(msp, dtype)?, dtype)?;
+        let baseline = DecimalArray::from_option_iter([Some(1i64), Some(-1), None], dtype);
 
-        let values: Vec<i128> = vec![
-            (1i128 << 64) + 5,
-            7,
-            -(1i128 << 64) + 9,
-            (3i128 << 64) + i128::from(u16::MAX),
-        ];
-        let baseline = DecimalArray::new(Buffer::from(values.clone()), dtype, validity);
-
-        let mut constants = values;
-        constants.extend([
-            1i128 << 100,
-            -(1i128 << 100),
-            (1i128 << 64) + 70_000,
-            (3i128 << 64) + 70_000,
-            -(1i128 << 64) + 70_000,
-            (1i128 << 64) + 4,
-            (1i128 << 64) + 6,
-            0,
-            -1,
-        ]);
         assert_matches_decimal(
             &array,
             &baseline,
-            constants.into_iter().map(DecimalValue::I128),
+            [1000i64, -1000, 127, 128, -128, -129].map(DecimalValue::I64),
         )
     }
 
-    /// Middle lower parts can also be narrow. A word above a middle part's range decides the
-    /// answer before the less significant parts.
+    /// A differing middle word decides the answer before the less significant parts. Constant MSPs
+    /// outside the range of the `i8` child still compare at the logical `i64` width.
     #[test]
-    fn narrow_middle_parts_match_decimal() -> VortexResult<()> {
+    fn middle_parts_match_decimal() -> VortexResult<()> {
         let dtype = DecimalDType::new(76, 2);
         let validity = Validity::from_iter([true, false, true, true]);
         let msp = PrimitiveArray::new(buffer![1i8, 0, -1, 3], validity.clone()).into_array();
-        let upper = buffer![5u8, 7, u8::MAX, 0].into_array();
-        let middle = buffer![9u16, u16::MAX, 0, 3].into_array();
+        let msp = widen_msp(msp, dtype)?;
+        let upper = buffer![5u64, 7, u64::from(u8::MAX), 0].into_array();
+        let middle = buffer![9u64, u64::from(u16::MAX), 0, 3].into_array();
         let lower = buffer![2u64, u64::MAX, 4, 0].into_array();
         let array =
             DecimalByteParts::try_new_with_lower_parts(msp, vec![upper, middle, lower], dtype)?;
@@ -690,6 +665,8 @@ mod tests {
             value(3, 0, 70_000, 0),
             value(1, 5, 9, 1),
             value(1, 5, 9, 3),
+            value(1 << 40, 0, 0, 0),
+            value(-(1 << 40), 0, 0, 0),
         ]);
         assert_matches_decimal(
             &array,

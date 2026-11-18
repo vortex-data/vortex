@@ -131,6 +131,7 @@ mod tests {
 
     use crate::DecimalByteParts;
     use crate::decimal_byte_parts::testing::i128_parts;
+    use crate::decimal_byte_parts::testing::widen_msp;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -167,7 +168,11 @@ mod tests {
         let values = [100i32, 200, 300, 400, 500];
         let validity = Validity::from_iter([true, false, true, true, true]);
         let parts = DecimalByteParts::try_new(
-            PrimitiveArray::new(buffer![100i32, 200, 300, 400, 500], validity.clone()).into_array(),
+            widen_msp(
+                PrimitiveArray::new(buffer![100i32, 200, 300, 400, 500], validity.clone())
+                    .into_array(),
+                decimal_dtype,
+            )?,
             decimal_dtype,
         )?
         .into_array();
@@ -203,9 +208,11 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(38, 2);
-        let parts =
-            DecimalByteParts::try_new(buffer![100i32, 200, 400].into_array(), decimal_dtype)?
-                .into_array();
+        let parts = DecimalByteParts::try_new(
+            widen_msp(buffer![100i32, 200, 400].into_array(), decimal_dtype)?,
+            decimal_dtype,
+        )?
+        .into_array();
 
         let actual = parts.between(
             bound(lower, decimal_dtype, 3),
@@ -221,7 +228,10 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(38, 2);
         let parts = DecimalByteParts::try_new(
-            PrimitiveArray::from_option_iter([Some(100i32), None, Some(400)]).into_array(),
+            widen_msp(
+                PrimitiveArray::from_option_iter([Some(100i32), None, Some(400)]).into_array(),
+                decimal_dtype,
+            )?,
             decimal_dtype,
         )?
         .into_array();

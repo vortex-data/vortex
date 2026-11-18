@@ -23,6 +23,7 @@ use crate::array::VTable;
 use crate::array::child_to_validity;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Extension;
@@ -58,6 +59,7 @@ use crate::arrays::struct_::StructDataParts;
 use crate::arrays::union::UnionDataParts;
 use crate::arrays::varbinview::VarBinViewDataParts;
 use crate::arrays::variant::VariantArraySlotsExt;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -65,6 +67,7 @@ use crate::dtype::PType;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::matcher::Matcher;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
@@ -253,7 +256,26 @@ impl Canonical {
                 Canonical::Union(UnionArray::empty(variants.clone(), *nullability))
             }
             DType::Variant(_) => {
-                vortex_panic!("Canonical empty is not supported for Variant")
+                // A Variant array needs Variant-typed core storage, and the core
+                // storage must not be a `VariantArray` (that would recurse back
+                // here). A zero-length constant of a null Variant scalar is the
+                // cheapest valid core storage; a non-nullable Variant empty
+                // casts from the nullable one, which is safe because it has no
+                // null values to drop.
+                let core_storage =
+                    ConstantArray::new(Scalar::null(DType::Variant(Nullability::Nullable)), 0)
+                        .into_array();
+                let core_storage = if core_storage.dtype() == dtype {
+                    core_storage
+                } else {
+                    core_storage
+                        .cast(dtype.clone())
+                        .vortex_expect("empty Variant core storage must accept the outer dtype")
+                };
+                Canonical::Variant(
+                    VariantArray::try_new(core_storage, None)
+                        .vortex_expect("empty Variant core storage must be valid"),
+                )
             }
             DType::Extension(ext_dtype) => Canonical::Extension(ExtensionArray::new(
                 ext_dtype.clone(),
@@ -1259,18 +1281,43 @@ mod tests {
                 UnionVariants::new(["a"].into(), vec![i32_dtype])?,
                 nullability,
             ),
+            DType::Variant(nullability),
             DType::Extension(Timestamp::new(TimeUnit::Microseconds, nullability).erased()),
         ];
-        let mut arrays: Vec<_> = dtypes
+        let arrays: Vec<_> = dtypes
             .iter()
             .map(|dtype| Canonical::empty(dtype).into_array())
             .collect();
-        let value = Scalar::variant(Scalar::primitive(1i32, nullability))
-            .cast(&DType::Variant(nullability))?;
-        arrays.push(
-            VariantArray::try_new(ConstantArray::new(value, 2).into_array(), None)?.into_array(),
-        );
         Ok(arrays)
+    }
+
+    #[rstest]
+    fn empty_variant_is_a_valid_canonical(
+        #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+    ) -> VortexResult<()> {
+        let dtype = DType::Variant(nullability);
+        let canonical = Canonical::empty(&dtype);
+        assert!(matches!(canonical, Canonical::Variant(_)));
+        assert_eq!(canonical.dtype(), &dtype);
+        assert!(canonical.is_empty());
+
+        let array = canonical.into_array();
+        assert!(array.is_empty());
+        assert_eq!(array.dtype(), &dtype);
+        assert_eq!(array.len(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn empty_variant_slice_executes() -> VortexResult<()> {
+        let source =
+            ConstantArray::new(Scalar::null(DType::Variant(Nullability::Nullable)), 1).into_array();
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = source.slice(0..0)?.execute::<ArrayRef>(&mut ctx)?;
+        assert!(result.is_empty());
+        assert_eq!(result.dtype(), source.dtype());
+        Ok(())
     }
 
     #[rstest]

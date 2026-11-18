@@ -82,8 +82,9 @@ pub(crate) fn write_vortex_metadata<V: ExtVTable>(
 /// Restores a Vortex dtype using metadata and the importer's inferred Vortex storage.
 ///
 /// Returns `None` when the field has no Vortex payload. A present payload **must** have a
-/// supported encoding marker and metadata compatible with `storage_dtype`. Native Arrow metadata
-/// is not read. Reconstruction goes through the dtype plugin so its storage checks also apply.
+/// supported encoding marker. The restored metadata must declare exactly `storage_dtype`, including
+/// nested nullability. Native Arrow metadata is not read. Reconstruction goes through the dtype
+/// plugin so its storage checks also apply.
 pub(crate) fn read_vortex_metadata<V: ExtVTable>(
     field: &Field,
     vtable: &V,

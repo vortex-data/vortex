@@ -11,6 +11,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
 use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
@@ -33,6 +34,7 @@ pub struct DivisibleInt;
 
 impl ExtVTable for DivisibleInt {
     type Metadata = Divisor;
+    type StoredMetadata = Self::Metadata;
     type NativeValue<'a> = u64;
 
     #[expect(clippy::disallowed_methods, reason = "test-only id")]
@@ -44,7 +46,7 @@ impl ExtVTable for DivisibleInt {
         Ok(metadata.0.to_le_bytes().to_vec())
     }
 
-    fn deserialize_metadata(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize_metadata(&self, data: &[u8]) -> VortexResult<Self::StoredMetadata> {
         vortex_ensure_eq!(data.len(), 8, "divisible int metadata has the wrong length");
         let bytes: [u8; 8] = data
             .try_into()
@@ -54,12 +56,16 @@ impl ExtVTable for DivisibleInt {
         Ok(Divisor(n))
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        vortex_ensure!(
-            matches!(ext_dtype.storage_dtype(), DType::Primitive(PType::U64, _)),
-            "divisible int storage dtype must be u64"
-        );
-        Ok(())
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        _storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(stored_metadata)
+    }
+
+    fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+        DType::Primitive(PType::U64, Nullability::NonNullable)
     }
 
     fn unpack_native<'a>(
@@ -77,34 +83,35 @@ impl ExtVTable for DivisibleInt {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+    use vortex_error::VortexResult;
+
     use super::DivisibleInt;
     use super::Divisor;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::dtype::extension::ExtDType;
+    use crate::dtype::extension::ExtDTypePlugin;
+    use crate::dtype::extension::ExtVTable;
 
     #[test]
-    fn rejects_wrong_storage_dtype() {
-        let divisor = Divisor(10);
+    fn read_accepts_u64_storage() -> VortexResult<()> {
+        let metadata = DivisibleInt.serialize_metadata(&Divisor(10))?;
+        let storage_dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
 
-        assert!(
-            ExtDType::<DivisibleInt>::try_new(
-                divisor,
-                DType::Primitive(PType::I32, Nullability::NonNullable)
-            )
-            .is_err()
-        );
-        assert!(
-            ExtDType::<DivisibleInt>::try_new(divisor, DType::Utf8(Nullability::NonNullable))
-                .is_err()
-        );
-        assert!(
-            ExtDType::<DivisibleInt>::try_new(
-                divisor,
-                DType::Primitive(PType::U64, Nullability::NonNullable)
-            )
-            .is_ok()
-        );
+        DivisibleInt.deserialize(&metadata, storage_dtype)?;
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::wrong_primitive(DType::Primitive(PType::I32, Nullability::NonNullable))]
+    #[case::non_primitive(DType::Utf8(Nullability::NonNullable))]
+    fn read_rejects_wrong_storage_dtype(#[case] storage_dtype: DType) -> VortexResult<()> {
+        let metadata = DivisibleInt.serialize_metadata(&Divisor(10))?;
+
+        assert!(DivisibleInt.deserialize(&metadata, storage_dtype).is_err());
+
+        Ok(())
     }
 }

@@ -46,6 +46,9 @@ pub fn initialize(session: &VortexSession) {
 }
 
 #[cfg(test)]
+mod arrow_properties;
+
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
@@ -99,8 +102,11 @@ mod tests {
             leading_bytes.len(),
         )
         .into_array();
-        let ext_dtype =
-            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage.dtype().clone())?;
+        let ext_dtype = ExtDType::try_with_vtable(
+            Uuid,
+            UuidMetadata::default(),
+            storage.dtype().nullability(),
+        )?;
         Ok(ExtensionArray::new(ext_dtype.erased(), storage).into_array())
     }
 

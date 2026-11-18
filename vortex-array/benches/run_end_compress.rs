@@ -15,6 +15,7 @@ use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::runend::RunEnd;
+use vortex_array::arrays::runend::compress::bool_run_count;
 use vortex_array::arrays::runend::compress::runend_encode;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::memory::MemorySession;
@@ -22,6 +23,7 @@ use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
@@ -85,6 +87,19 @@ fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
     bencher
         .with_inputs(|| (&values, SESSION.create_execution_ctx()))
         .bench_refs(|(values, ctx)| runend_encode(values.as_view(), ctx));
+}
+
+/// Counts the runs of a bitmap that starts mid-byte, as a sliced boolean array does.
+#[divan::bench(args = BENCH_ARGS)]
+fn count_bool_runs(bencher: Bencher, (length, run_step): (usize, usize)) {
+    const OFFSET: usize = 3;
+
+    let bits = BitBuffer::from_iter((0..length + OFFSET).map(|idx| (idx / run_step) % 2 == 0))
+        .slice(OFFSET..);
+
+    bencher
+        .with_inputs(|| &bits)
+        .bench_refs(|bits| bool_run_count(bits));
 }
 
 #[divan::bench(types = [u8, u16, u32, u64], args = BENCH_ARGS)]
