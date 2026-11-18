@@ -428,6 +428,7 @@ fn is_supported_length_alias(func: &BoundFunction) -> bool {
 
 /// Lower `IS NOT DISTINCT FROM`, which unlike `=` is never NULL.
 fn not_distinct_from(left: Expression, right: Expression) -> Expression {
+    // TODO(ayush): use NULL-safe equality once `eq` has a mode for it.
     let both_null = and(is_null(left.clone()), is_null(right.clone()));
     let both_equal = and(
         and(is_not_null(left.clone()), is_not_null(right.clone())),
