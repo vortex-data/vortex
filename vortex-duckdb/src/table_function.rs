@@ -855,8 +855,10 @@ pub fn deserialize(
 
 #[cfg(test)]
 mod tests {
-    use vortex::dtype::extension::ExtDType;
+    use rstest::rstest;
     use vortex_array::EmptyMetadata;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtDTypeRef;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::Timestamp;
     use vortex_json::Json;
@@ -864,6 +866,7 @@ mod tests {
     use vortex_spatial::extension::WellKnownBinary;
 
     use super::*;
+    use crate::duckdb::LogicalType;
 
     #[test]
     fn table_filter_pushdown_requires_ord() -> VortexResult<()> {
@@ -895,7 +898,32 @@ mod tests {
             [0, 1, 2].map(|column_id| bind.supports_pushdown_type(column_id)),
             [false, true, false],
         );
+        Ok(())
+    }
 
+    #[rstest]
+    #[case::wkb(ExtDType::<WellKnownBinary>::try_new(SpatialMetadata::new(None), Nullability::NonNullable)?.erased(), false)]
+    #[case::timestamp(Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased(), true)]
+    fn max_pushdown_requires_ord(
+        #[case] ext: ExtDTypeRef,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let dtype = DType::Extension(ext);
+        let bind = BindState {
+            dtype: DType::struct_([("col", dtype.clone())], Nullability::NonNullable),
+            columns: vec![DuckdbField {
+                name: "col".into(),
+                logical_type: LogicalType::null(),
+                dtype,
+                projection_expr: None,
+            }],
+            ..BindState::empty()
+        };
+
+        assert_eq!(
+            can_push_projection_aggregate(&PushedAggregate::Max, &bind, 0),
+            expected
+        );
         Ok(())
     }
 }

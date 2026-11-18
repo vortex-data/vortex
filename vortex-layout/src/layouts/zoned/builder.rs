@@ -20,7 +20,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 
 use crate::layouts::file_stats::contains_variant;
-use crate::layouts::zoned::schema::aggregate_state_dtype;
 
 /// Accumulates aggregate-function partials for each logical zone.
 pub(crate) struct AggregateStatsAccumulator {
@@ -33,7 +32,8 @@ impl AggregateStatsAccumulator {
         let builders = aggregate_fns
             .iter()
             .filter_map(|aggregate_fn| {
-                aggregate_state_dtype(dtype, aggregate_fn)
+                aggregate_fn
+                    .state_dtype(dtype)
                     // A variant state has no builder, so a zone map cannot hold it.
                     .filter(|partial_dtype| !contains_variant(partial_dtype))
                     .map(|partial_dtype| {

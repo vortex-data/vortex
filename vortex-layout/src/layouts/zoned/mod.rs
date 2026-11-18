@@ -133,9 +133,13 @@ impl VTable for Zoned {
             "ZonedLayout expects exactly 2 children (data, zones)"
         );
         vortex_ensure_eq!(args.children.child_row_count(0), args.row_count);
-        let Some(aggregate_fns) =
-            try_aggregate_fns_from_specs(&metadata.aggregate_specs, args.session)?
-        else {
+        let aggregate_fns = try_aggregate_fns_from_specs(&metadata.aggregate_specs, args.session)?;
+        // Old files can hold aggregate states that the current aggregates reject. The zones child
+        // cannot be read without the original state dtypes, but the data child does not need it.
+        let Some(aggregate_fns) = aggregate_fns.filter(|fns| {
+            fns.iter()
+                .all(|aggregate| aggregate.state_dtype(args.dtype).is_some())
+        }) else {
             args.children.child(0, args.dtype)?;
             return Ok(ZonedData {
                 zone_len: 0,
@@ -609,12 +613,16 @@ mod tests {
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
     use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
     use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
+    use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+    use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
     use vortex_array::aggregate_fn::fns::max::Max;
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::aggregate_fn::session::AggregateFnSession;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::extension::datetime::TimeUnit;
+    use vortex_array::extension::datetime::Timestamp;
     use vortex_array::stats::as_stat_bitset_bytes;
     use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
@@ -815,6 +823,55 @@ mod tests {
         // An unknown aggregate disables zoned pruning (`zone_len == 0`) while leaving the data
         // child readable, so the index is ignored rather than turned into a hard read error.
         assert_eq!(layout.zone_len, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn retired_storage_sortedness_disables_pruning_in_strict_sessions() -> VortexResult<()> {
+        let dtype = DType::Extension(
+            Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased(),
+        );
+        let read_ctx = ReadContext::new([]);
+        let storage = dtype.as_extension().storage_dtype();
+        let sorted = IsSorted.bind(IsSortedOptions { strict: false });
+        let id = "vortex.is_sorted[vortex.timestamp]";
+        let zones_dtype = DType::struct_(
+            [(
+                format!("{id}(strict=false)"),
+                sorted.state_dtype(storage).expect("storage is ordered"),
+            )],
+            Nullability::NonNullable,
+        );
+        let children = OwnedLayoutChildren::layout_children(vec![
+            FlatLayout::new(3, dtype.clone(), SegmentId::from(0), read_ctx.clone()).into_layout(),
+            FlatLayout::new(1, zones_dtype, SegmentId::from(1), read_ctx.clone()).into_layout(),
+        ]);
+        let metadata = ZonedMetadata {
+            zone_len: 3,
+            aggregate_specs: Arc::new([aggregate_spec(sorted).with_test_id(id)]),
+        };
+        let build_ctx = LayoutBuildContext {
+            session: &SESSION,
+            array_read_ctx: &read_ctx,
+        };
+        let layout = <Zoned as VTable>::build(
+            &ZonedLayoutEncoding,
+            &dtype,
+            3,
+            &metadata,
+            vec![],
+            children.as_ref(),
+            &build_ctx,
+        )?;
+        assert_eq!(layout.zone_len(), 0);
+        assert_eq!(
+            layout
+                .into_layout()
+                .slot(0)?
+                .expect("data child")
+                .row_count(),
+            3
+        );
         Ok(())
     }
 

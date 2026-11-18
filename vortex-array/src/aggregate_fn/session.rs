@@ -14,7 +14,6 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::ExtensionStoragePushdown;
 use crate::aggregate_fn::fns::all_nan::AllNan;
 use crate::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
 use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
@@ -58,10 +57,6 @@ use crate::arrays::runend::compute::min_max::RunEndMinMaxKernel;
 use crate::arrays::runend::compute::sum::RunEndSumKernel;
 use crate::arrays::widen::compute::aggregate::WidenArrayAggregate;
 use crate::dtype::DType;
-use crate::dtype::extension::ExtVTable;
-use crate::extension::datetime::Date;
-use crate::extension::datetime::Time;
-use crate::extension::datetime::Timestamp;
 
 /// Session state for aggregate functions and encoding-specific aggregate kernels.
 ///
@@ -132,12 +127,6 @@ impl Default for AggregateFnSession {
         this.register(SumV2);
         this.register(UncompressedSizeInBytes);
 
-        // Temporal extension types compare like their integer storage, so comparison-based
-        // aggregates are pushed down into it.
-        this.register_storage_ordered(Date);
-        this.register_storage_ordered(Time);
-        this.register_storage_ordered(Timestamp);
-
         // Register the built-in aggregate kernels.
         this.register_aggregate_kernel(Chunked.id(), None::<AggregateFnId>, &ChunkedArrayAggregate);
         this.register_aggregate_kernel(Dict.id(), Some(MinMax.id()), &DictMinMaxKernel);
@@ -184,17 +173,6 @@ impl AggregateFnSession {
         let id = vtable.id();
         let pluginref = Arc::new(vtable) as AggregateFnPluginRef;
         self.registry.insert(id, pluginref);
-    }
-
-    /// Push the comparison-based aggregates `is_sorted` and `min_max` down into the storage of
-    /// extension type `ext`, through [`ExtensionStoragePushdown`].
-    ///
-    /// Only call this when comparing two values of `ext` is the same as comparing their storage,
-    /// as for the temporal types and for UUIDs, which are stored big-endian. See
-    /// [`ExtensionStoragePushdown`] for how to check.
-    pub fn register_storage_ordered<E: ExtVTable>(&self, ext: E) {
-        self.register(ExtensionStoragePushdown::new(IsSorted, ext.clone()));
-        self.register(ExtensionStoragePushdown::new(MinMax, ext));
     }
 
     /// The default per-chunk zone statistics for a column of `input_dtype`, collected from every

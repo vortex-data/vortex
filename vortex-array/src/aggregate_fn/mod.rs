@@ -32,8 +32,7 @@ pub use typed::*;
 mod erased;
 pub use erased::*;
 
-mod storage_pushdown;
-pub use storage_pushdown::*;
+pub(crate) mod extension;
 
 mod options;
 pub use options::*;

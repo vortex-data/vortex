@@ -3,7 +3,6 @@
 
 mod bool;
 mod decimal;
-mod extension;
 mod fixed_size_list;
 mod list;
 mod map;
@@ -20,7 +19,6 @@ use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_constant;
 use self::decimal::check_decimal_constant;
-use self::extension::check_extension_constant;
 use self::fixed_size_list::check_fixed_size_list_constant;
 use self::list::check_listview_constant;
 use self::map::check_map_constant;
@@ -38,9 +36,17 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::extension::accumulate_storage;
+use crate::aggregate_fn::extension::claimed_storage_dtype;
+use crate::aggregate_fn::extension::into_storage_scalar;
+use crate::aggregate_fn::extension::storage_dtype;
+use crate::aggregate_fn::extension::wrap_storage_scalar;
 use crate::arrays::Constant;
+use crate::arrays::Extension;
 use crate::arrays::Null;
+use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::Claim;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -92,6 +98,10 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
 /// 4. Is all invalid.
 /// 5. Is all valid AND has minimum and maximum statistics that are equal.
 pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+    if !array.dtype().holds(Claim::Eq) {
+        return Ok(false);
+    }
+
     // Short-circuit using cached array statistics.
     if let Precision::Exact(value) = array.statistics().get_as::<bool>(Stat::IsConstant) {
         return Ok(value);
@@ -288,18 +298,18 @@ impl AggregateFnVTable for IsConstant {
         Ok(EmptyOptions)
     }
 
-    fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        match input_dtype {
-            DType::Null | DType::Variant(..) => None,
-            _ => Some(DType::Bool(Nullability::NonNullable)),
+    fn return_dtype(&self, _options: &Self::Options, mut input_dtype: &DType) -> Option<DType> {
+        while input_dtype.is_extension() {
+            input_dtype = claimed_storage_dtype(input_dtype, Claim::Eq)?;
         }
+
+        let supported = input_dtype.holds(Claim::Eq) && !matches!(input_dtype, DType::Null);
+        supported.then_some(DType::Bool(Nullability::NonNullable))
     }
 
-    fn partial_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        match input_dtype {
-            DType::Null | DType::Variant(..) => None,
-            _ => Some(make_is_constant_partial_dtype(input_dtype)),
-        }
+    fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+        self.return_dtype(options, input_dtype)
+            .map(|_| make_is_constant_partial_dtype(input_dtype))
     }
 
     fn empty_partial(
@@ -327,7 +337,7 @@ impl AggregateFnVTable for IsConstant {
 
         Ok(IsConstantPartial {
             is_constant,
-            first_value: scalar.as_struct().field_by_idx(1),
+            first_value: scalar.as_struct().field_by_idx(1).map(into_storage_scalar),
         })
     }
 
@@ -355,7 +365,7 @@ impl AggregateFnVTable for IsConstant {
         // Only a constant partial that saw no values is the empty (null) state: a non-constant
         // verdict stands regardless of whether a value was observed.
         let first_value = match &partial.first_value {
-            Some(first_value) => first_value.clone().cast(&element_dtype)?,
+            Some(first_value) => wrap_storage_scalar(first_value, &element_dtype)?,
             None if partial.is_constant => return Ok(Scalar::null(dtype)),
             None => Scalar::null(element_dtype),
         };
@@ -377,6 +387,20 @@ impl AggregateFnVTable for IsConstant {
         !partial.is_constant
     }
 
+    fn try_accumulate(
+        &self,
+        args: AggregateArgs<'_, EmptyOptions>,
+        partial: &mut Self::Partial,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        let Some(array) = batch.as_opt::<Extension>() else {
+            return Ok(false);
+        };
+        accumulate_storage(self, args, partial, array.storage_array(), ctx)?;
+        Ok(true)
+    }
+
     fn accumulate(
         &self,
         args: AggregateArgs<'_, Self::Options>,
@@ -394,7 +418,7 @@ impl AggregateFnVTable for IsConstant {
                     return Ok(());
                 }
 
-                partial.check_value(c.scalar().clone().into_nullable());
+                partial.check_value(into_storage_scalar(c.scalar().clone()).into_nullable());
                 Ok(())
             }
             Columnar::Canonical(c) => {
@@ -402,12 +426,15 @@ impl AggregateFnVTable for IsConstant {
                     return Ok(());
                 }
 
-                // Convert to ArrayRef for DynArrayData methods.
+                if let Canonical::Extension(array) = c {
+                    return accumulate_storage(self, args, partial, array.storage_array(), ctx);
+                }
+
                 let array_ref = c.clone().into_array();
 
                 let all_invalid = array_ref.all_invalid(ctx)?;
                 if all_invalid {
-                    partial.check_value(Scalar::null(args.dtype.as_nullable()));
+                    partial.check_value(Scalar::null(storage_dtype(args.dtype).as_nullable()));
                     return Ok(());
                 }
 
@@ -430,7 +457,7 @@ impl AggregateFnVTable for IsConstant {
                     Canonical::VarBinView(v) => check_varbinview_constant(v),
                     Canonical::Decimal(d) => check_decimal_constant(d),
                     Canonical::Struct(s) => check_struct_constant(s, ctx)?,
-                    Canonical::Extension(e) => check_extension_constant(e, ctx)?,
+                    Canonical::Extension(_) => unreachable!(),
                     Canonical::List(l) => check_listview_constant(l, ctx)?,
                     Canonical::Map(m) => check_map_constant(m, ctx)?,
                     Canonical::FixedSizeList(f) => check_fixed_size_list_constant(f, ctx)?,
