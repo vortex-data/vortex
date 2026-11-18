@@ -33,8 +33,8 @@ impl FilterReduce for Bool {
 
         let src = array.to_bit_buffer();
         let density = mask_values.density();
-        let sparse =
-            density < SPARSE_DENSITY_THRESHOLD && (density < 0.01 || !mostly_uniform(&src));
+        let sparse = density < SPARSE_DENSITY_THRESHOLD
+            && (density < 0.01 || !early_word_extraction() || !mostly_uniform(&src));
         let buffer = if sparse {
             filter_sparse(&src, mask_values, mask.true_count())
         } else {
@@ -42,6 +42,22 @@ impl FilterReduce for Bool {
         };
 
         Ok(Some(BoolArray::new(buffer, validity).into_array()))
+    }
+}
+
+/// Whether mostly-uniform bitmaps should leave the sparse path early.
+///
+/// Hardware PEXT and the aarch64 software kernel are faster than the sparse path there.
+/// The x86 software kernel is slower, so x86 without BMI2 keeps the sparse path.
+fn early_word_extraction() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        std::arch::is_x86_feature_detected!("bmi2")
+    }
+
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        true
     }
 }
 
@@ -126,8 +142,10 @@ unsafe fn filter_pext_bmi2(src: &BitBuffer, mask_buf: &BitBuffer, true_count: us
 fn filter_pext_fallback(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
     if src.len() - true_count <= src.len() / 50 {
         filter_pext_dense(src, mask_buf, true_count)
-    } else if mostly_uniform(src) {
-        filter_pext_uniform(src, mask_buf, true_count)
+    } else if true_count <= src.len() / 16 || mostly_uniform(src) {
+        // Below 1/16 density, most mask bytes are zero, so skipping them is cheaper than
+        // looking up every byte, even for mixed source data.
+        filter_pext_skip_empty(src, mask_buf, true_count)
     } else {
         filter_pext_mixed(src, mask_buf, true_count)
     }
@@ -137,7 +155,7 @@ fn filter_pext_fallback(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize
 // word path. Inline closures also avoid an out-of-line Fn::call shim for each mixed word.
 #[allow(clippy::inline_always)]
 #[inline(never)]
-fn filter_pext_uniform(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
+fn filter_pext_skip_empty(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
     filter_inner(
         src,
         mask_buf,
