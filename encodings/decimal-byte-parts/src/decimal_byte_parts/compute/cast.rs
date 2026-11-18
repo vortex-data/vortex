@@ -90,7 +90,8 @@ mod tests {
             DecimalArray::new(
                 buffer![100i64, 200, 300, 400],
                 decimal_dtype,
-                Validity::AllValid
+                Validity::AllValid,
+                &mut ctx,
             ),
             &mut ctx
         );

@@ -10,9 +10,11 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::WidenArray;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::DecimalType;
+use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::i256;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -34,6 +36,20 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
+/// Builds a canonical-width fixture containing any bit pattern a file could have stored.
+pub(crate) fn stored_decimal<T: NativeDecimalType>(
+    values: Buffer<T>,
+    dtype: DecimalDType,
+    validity: Validity,
+) -> VortexResult<DecimalArray> {
+    DecimalArray::try_new_handle_from_trusted_values(
+        BufferHandle::new_host(values.into_byte_buffer()),
+        T::DECIMAL_TYPE,
+        dtype,
+        validity,
+    )
+}
+
 /// Executes the validity of `decimal`, the mask that [`split_decimal`] and
 /// [`lower_part_count`](super::lower_part_count) take.
 pub(crate) fn validity_mask(decimal: &DecimalArray) -> VortexResult<Mask> {
@@ -52,7 +68,12 @@ pub(crate) fn widen_msp(child: ArrayRef, decimal_dtype: DecimalDType) -> VortexR
 /// An `i128`-backed decimal array, encoded as byte parts with one lower part.
 pub(crate) fn i128_parts(values: Vec<i128>, validity: Validity) -> DecimalBytePartsArray {
     encode_with_lower_parts(
-        &DecimalArray::new(Buffer::from(values), DecimalDType::new(38, 2), validity),
+        &DecimalArray::new(
+            Buffer::from(values),
+            DecimalDType::new(38, 2),
+            validity,
+            &mut SESSION.create_execution_ctx(),
+        ),
         MAX_I128_LOWER_PARTS,
     )
 }
@@ -60,7 +81,12 @@ pub(crate) fn i128_parts(values: Vec<i128>, validity: Validity) -> DecimalBytePa
 /// An `i256`-backed decimal array, encoded as byte parts with three lower parts.
 pub(crate) fn i256_parts(values: Vec<i256>, validity: Validity) -> DecimalBytePartsArray {
     encode_with_lower_parts(
-        &DecimalArray::new(Buffer::from(values), DecimalDType::new(76, 2), validity),
+        &DecimalArray::new(
+            Buffer::from(values),
+            DecimalDType::new(76, 2),
+            validity,
+            &mut SESSION.create_execution_ctx(),
+        ),
         MAX_I256_LOWER_PARTS,
     )
 }

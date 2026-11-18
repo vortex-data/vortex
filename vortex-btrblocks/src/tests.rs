@@ -161,6 +161,7 @@ fn test_leaf_validity_is_compressed(
             (0..100_000i64).collect(),
             DecimalDType::new(12, 2),
             validity,
+            &mut SESSION.create_execution_ctx(),
         )
         .into_array(),
         "string" => VarBinViewArray::from_iter(
@@ -197,6 +198,7 @@ fn test_default_compressor_roundtrip() -> VortexResult<()> {
         (0..2048i64).map(|i| i * 123).collect(),
         DecimalDType::new(12, 2),
         Validity::NonNullable,
+        &mut ctx,
     );
     let timestamps = TemporalArray::new_timestamp(
         PrimitiveArray::from_iter((0..2048i64).map(|i| 1_700_000_000_000_000 + i * 123_456))

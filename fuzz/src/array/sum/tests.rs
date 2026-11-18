@@ -168,6 +168,7 @@ fn test_sum_decimal_widens_beyond_i128() -> VortexResult<()> {
         buffer![value, value],
         DecimalDType::new(38, 2),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     )
     .into_array();
     assert_eq!(
@@ -182,6 +183,7 @@ fn test_sum_decimal_widens_beyond_i128() -> VortexResult<()> {
 }
 
 fn decimal_chunks(groups: &[&[i8]]) -> VortexResult<ArrayRef> {
+    let mut ctx = SESSION.create_execution_ctx();
     let unit = i256::from_i128(10).wrapping_pow(75);
     let dtype = DecimalDType::new(76, -76);
     ChunkedArray::try_new(
@@ -193,6 +195,7 @@ fn decimal_chunks(groups: &[&[i8]]) -> VortexResult<ArrayRef> {
                     .collect::<Buffer<_>>(),
                 dtype,
                 Validity::NonNullable,
+                &mut ctx,
             )
             .into_array()
         }),
@@ -230,7 +233,7 @@ fn test_sum_decimal_native_overflow(#[values(false, true)] negative: bool) -> Vo
         let values = iter::repeat_n(value, 10)
             .chain(iter::repeat_n(-value, if mixed { 10 } else { 0 }))
             .collect::<Buffer<_>>();
-        let array = DecimalArray::new(values, dtype, Validity::NonNullable).into_array();
+        let array = DecimalArray::new(values, dtype, Validity::NonNullable, &mut ctx).into_array();
         let expected = (!mixed).then(|| Scalar::null(DType::Decimal(dtype, Nullability::Nullable)));
         assert_eq!(sum_canonical_array(&array, &mut ctx)?, expected);
     }
@@ -246,10 +249,11 @@ fn test_sum_decimal_precision_boundary_and_nulls(
     #[case] validity: Validity,
     #[case] expected_multiple: Option<i64>,
 ) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DecimalDType::new(76, 0);
     let max = i256::from_i128(10).wrapping_pow(76) - i256::ONE;
-    let array = DecimalArray::new(buffer![max, i256::ONE, -max], dtype, validity).into_array();
-    let mut ctx = SESSION.create_execution_ctx();
+    let array =
+        DecimalArray::new(buffer![max, i256::ONE, -max], dtype, validity, &mut ctx).into_array();
     let expected = expected_multiple.map(|multiple| {
         Scalar::decimal(
             DecimalValue::I256(max * i256::from(multiple)),

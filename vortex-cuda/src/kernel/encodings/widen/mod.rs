@@ -89,12 +89,14 @@ impl CudaExecute for WidenExecutor {
                         .await?
                 };
 
-                Ok(Canonical::Decimal(DecimalArray::try_new_handle(
-                    values,
-                    target_type,
-                    *decimal_dtype,
-                    parts.validity,
-                )?))
+                Ok(Canonical::Decimal(
+                    DecimalArray::try_new_handle_from_trusted_values(
+                        values,
+                        target_type,
+                        *decimal_dtype,
+                        parts.validity,
+                    )?,
+                ))
             }
             (dtype, child) => vortex_bail!(
                 "CUDA Widen requires an integer or decimal child matching {dtype}, got {}",

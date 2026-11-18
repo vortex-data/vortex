@@ -2,13 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::ops::RangeInclusive;
 
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
@@ -17,6 +17,8 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
+use crate::arrays::decimal::cast_value_in_precision;
+use crate::arrays::decimal::precision_bounds;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
@@ -42,18 +44,19 @@ pub struct DecimalBuilder {
     nulls: LazyBitBufferBuilder,
 }
 
-/// Wrapper around the typed builder.
-///
-/// We want to be able to downcast a `Box<dyn ArrayBuilder>` to a [`DecimalBuilder`] and we
-/// generally don't have enough type information to get the `T` at the call site, so we instead use
-/// this to hold values and can push values into the correct buffer type generically.
+/// Stores values and their precision bounds at the canonical width.
 enum DecimalBuffer {
-    I8(BufferMut<i8>),
-    I16(BufferMut<i16>),
-    I32(BufferMut<i32>),
-    I64(BufferMut<i64>),
-    I128(BufferMut<i128>),
-    I256(BufferMut<i256>),
+    I8(DecimalValues<i8>),
+    I16(DecimalValues<i16>),
+    I32(DecimalValues<i32>),
+    I64(DecimalValues<i64>),
+    I128(DecimalValues<i128>),
+    I256(DecimalValues<i256>),
+}
+
+struct DecimalValues<T> {
+    buffer: BufferMut<T>,
+    bounds: RangeInclusive<T>,
 }
 
 macro_rules! delegate_fn {
@@ -131,24 +134,40 @@ impl DecimalBuilder {
         Self {
             dtype: DType::Decimal(decimal, nullability),
             values: match_each_decimal_value_type!(decimal.canonical_values_type(), |D| {
-                DecimalBuffer::from(BufferMut::<D>::with_capacity_in(
-                    capacity,
-                    allocator.clone(),
-                ))
+                DecimalBuffer::from(DecimalValues {
+                    buffer: BufferMut::<D>::with_capacity_in(capacity, allocator.clone()),
+                    bounds: precision_bounds::<D>(decimal),
+                })
             }),
             nulls: LazyBitBufferBuilder::new(capacity, allocator.clone()),
         }
     }
 
-    /// Appends a decimal `value` to the builder.
+    /// Appends one unscaled decimal value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `value` falls outside the declared precision.
     pub fn append_value<V: NativeDecimalType>(&mut self, value: V) {
-        self.values.push(value);
+        let dtype = *self.decimal_dtype();
+        delegate_fn!(&mut self.values, |T, values| {
+            let value = cast_value_in_precision(value, dtype, &values.bounds);
+            values.buffer.push(value);
+        });
         self.nulls.append_non_null();
     }
 
-    /// Appends `n` copies of `value` as non-null entries, directly writing into the buffer.
+    /// Appends `n` copies of an unscaled decimal value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `value` falls outside the declared precision.
     pub fn append_n_values<V: NativeDecimalType>(&mut self, value: V, n: usize) {
-        self.values.push_n(value, n);
+        let dtype = *self.decimal_dtype();
+        delegate_fn!(&mut self.values, |T, values| {
+            let value = cast_value_in_precision(value, dtype, &values.bounds);
+            values.buffer.push_n(value, n);
+        });
         self.nulls.append_n_non_nulls(n);
     }
 
@@ -159,18 +178,11 @@ impl DecimalBuilder {
         array: ArrayView<'_, Decimal>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        let mask = array.validity()?.execute_mask(array.len(), ctx)?;
         match_each_decimal_value_type!(array.values_type(), |D| {
-            // Extends the values buffer from another buffer of type D where D can be coerced to the
-            // builder type.
             self.values.extend(array.buffer::<D>().iter().copied());
         });
-
-        self.nulls.append_validity_mask(
-            &array
-                .as_ref()
-                .validity()?
-                .execute_mask(array.as_ref().len(), ctx)?,
-        );
+        self.nulls.append_validity_mask(&mask);
         Ok(())
     }
 
@@ -180,7 +192,8 @@ impl DecimalBuilder {
 
         let decimal_dtype = *self.decimal_dtype();
 
-        delegate_fn!(self.values.take(), |T, values| {
+        delegate_fn!(&mut self.values, |T, values| {
+            let values = values.buffer.take();
             assert!(
                 validity.maybe_len().is_none_or(|len| len == values.len()),
                 "validity of length {:?} does not cover the {} values appended",
@@ -222,12 +235,12 @@ impl ArrayBuilder for DecimalBuilder {
     }
 
     fn append_zeros(&mut self, n: usize) {
-        self.values.push_n(0, n);
+        self.values.push_zeros(n);
         self.nulls.append_n_non_nulls(n);
     }
 
     unsafe fn append_nulls_unchecked(&mut self, n: usize) {
-        self.values.push_n(0, n);
+        self.values.push_zeros(n);
         self.nulls.append_n_nulls(n);
     }
 
@@ -240,9 +253,10 @@ impl ArrayBuilder for DecimalBuilder {
 
         match scalar.as_decimal().decimal_value() {
             None => self.append_null(),
-            Some(v) => match_each_decimal_value!(v, |dec_val| {
-                self.append_value(dec_val);
-            }),
+            Some(value) => {
+                match_each_decimal_value!(value, |v| { self.values.push_scalar(v) });
+                self.nulls.append_non_null();
+            }
         }
 
         Ok(())
@@ -263,77 +277,62 @@ impl ArrayBuilder for DecimalBuilder {
 }
 
 impl DecimalBuffer {
-    fn take(&mut self) -> Self {
-        delegate_fn!(self, |T, buffer| { DecimalBuffer::from(buffer.take()) })
-    }
-
-    fn push<V: NativeDecimalType>(&mut self, value: V) {
-        delegate_fn!(self, |T, buffer| {
-            buffer.push(
-                <T as BigCast>::from(value)
-                    .ok_or_else(|| {
-                        vortex_err!(
-                            "decimal conversion failure {:?}, type: {:?} to {:?}",
-                            value,
-                            V::DECIMAL_TYPE,
-                            T::DECIMAL_TYPE,
-                        )
-                    })
-                    .vortex_expect("operation should succeed in builder"),
-            )
+    fn push_scalar<V: NativeDecimalType>(&mut self, value: V) {
+        delegate_fn!(self, |T, values| {
+            let value = <T as BigCast>::from(value)
+                .vortex_expect("a scalar of the builder dtype fits its canonical width");
+            values.buffer.push(value);
         });
     }
 
-    fn push_n<V: NativeDecimalType>(&mut self, value: V, n: usize) {
-        delegate_fn!(self, |T, buffer| {
-            buffer.push_n(
-                <T as BigCast>::from(value).vortex_expect("decimal conversion failure"),
-                n,
-            )
-        });
+    fn push_zeros(&mut self, n: usize) {
+        delegate_fn!(self, |T, values| { values.buffer.push_n(T::default(), n) });
     }
 
     fn reserve(&mut self, additional: usize) {
-        delegate_fn!(self, |T, buffer| { buffer.reserve(additional) })
+        delegate_fn!(self, |T, values| { values.buffer.reserve(additional) })
     }
 
     fn len(&self) -> usize {
-        delegate_fn!(self, |T, buffer| { buffer.len() })
+        delegate_fn!(self, |T, values| { values.buffer.len() })
     }
 
-    pub fn extend<I, V: NativeDecimalType>(&mut self, iter: I)
+    fn extend<I, V: NativeDecimalType>(&mut self, iter: I)
     where
         I: Iterator<Item = V>,
     {
-        delegate_fn!(self, |T, buffer| {
-            buffer.extend(
+        delegate_fn!(self, |T, values| {
+            values.buffer.extend(
                 iter.map(|x| <T as BigCast>::from(x).vortex_expect("decimal conversion failure")),
             )
         })
     }
 }
 
-macro_rules! impl_from_buffer {
+macro_rules! impl_from_values {
     ($T:ty, $variant:ident) => {
-        impl From<BufferMut<$T>> for DecimalBuffer {
-            fn from(buffer: BufferMut<$T>) -> Self {
-                Self::$variant(buffer)
+        impl From<DecimalValues<$T>> for DecimalBuffer {
+            fn from(values: DecimalValues<$T>) -> Self {
+                Self::$variant(values)
             }
         }
     };
 }
 
-impl_from_buffer!(i8, I8);
-impl_from_buffer!(i16, I16);
-impl_from_buffer!(i32, I32);
-impl_from_buffer!(i64, I64);
-impl_from_buffer!(i128, I128);
-impl_from_buffer!(i256, I256);
+impl_from_values!(i8, I8);
+impl_from_values!(i16, I16);
+impl_from_values!(i32, I32);
+impl_from_values!(i64, I64);
+impl_from_values!(i128, I128);
+impl_from_values!(i256, I256);
 
 #[cfg(test)]
 mod tests {
+    use std::panic::AssertUnwindSafe;
+    use std::panic::catch_unwind;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::BufferAllocatorRef;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -349,6 +348,27 @@ mod tests {
     use crate::scalar::Scalar;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[rstest]
+    #[case::single(|builder: &mut DecimalBuilder| builder.append_value(-100i64))]
+    #[case::repeated(|builder: &mut DecimalBuilder| builder.append_n_values(100i64, 3))]
+    fn invalid_append_preserves_the_builder(#[case] append: fn(&mut DecimalBuilder)) {
+        let dtype = DecimalDType::new(2, 1);
+        let mut builder = DecimalBuilder::new_in(
+            dtype,
+            Nullability::Nullable,
+            BufferAllocatorRef::static_ref(),
+        );
+        builder.append_null();
+
+        assert!(catch_unwind(AssertUnwindSafe(|| append(&mut builder))).is_err());
+        builder.append_value(99i64);
+        assert_arrays_eq!(
+            builder.finish(),
+            DecimalArray::from_option_iter([None, Some(99i8)], dtype),
+            &mut SESSION.create_execution_ctx()
+        );
+    }
 
     #[test]
     fn append_values_at_canonical_width() -> VortexResult<()> {

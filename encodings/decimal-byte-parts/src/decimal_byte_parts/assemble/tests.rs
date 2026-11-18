@@ -15,6 +15,7 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::BigCast;
 use vortex_array::dtype::DType;
@@ -37,6 +38,7 @@ use crate::DecimalByteParts;
 use crate::DecimalBytePartsArraySlotsExt;
 use crate::decimal_byte_parts::split_decimal;
 use crate::decimal_byte_parts::testing::full_width_lower_part_count;
+use crate::decimal_byte_parts::testing::stored_decimal;
 use crate::decimal_byte_parts::testing::validity_mask;
 use crate::decimal_byte_parts::testing::widen_msp;
 
@@ -57,6 +59,24 @@ fn round_trip(decimal: DecimalArray) -> VortexResult<DecimalArray> {
         &mut ctx,
     )?
     .execute::<DecimalArray>(&mut ctx)
+}
+
+#[test]
+fn same_width_msp_rejects_partial_value() {
+    let msp = PrimitiveArray::from_buffer_handle(
+        BufferHandle::new_host(buffer![0u8; 9]),
+        PType::I64,
+        Validity::NonNullable,
+    )
+    .into_array();
+    let error = assemble_decimal(
+        &msp,
+        &[],
+        DecimalDType::new(18, 0),
+        &mut SESSION.create_execution_ctx(),
+    )
+    .expect_err("a trailing byte cannot be a whole i64");
+    assert!(error.to_string().contains("not divisible"), "{error}");
 }
 
 #[rstest]
@@ -84,6 +104,7 @@ fn test_split_without_valid_rows(
             Buffer::<T>::zeroed(len),
             DecimalDType::new(T::MAX_PRECISION, 0),
             validity,
+            &mut ctx,
         )
     });
     let lower_part_count = full_width_lower_part_count(values_type);
@@ -120,9 +141,15 @@ fn test_split_zeroes_null_words(
             buffer![i256::from_i128(-1); 263],
             DecimalDType::new(76, 2),
             validity,
+            &mut ctx,
         )
     } else {
-        DecimalArray::new(buffer![-1i128; 263], DecimalDType::new(38, 2), validity)
+        DecimalArray::new(
+            buffer![-1i128; 263],
+            DecimalDType::new(38, 2),
+            validity,
+            &mut ctx,
+        )
     };
     let decimal = decimal
         .slice(3..len + 3)?
@@ -168,11 +195,11 @@ fn test_split_zeroes_null_words(
 #[case::i256_word_3(i256::from_parts(0, 1i128 << 64))]
 #[case::i256_mixed(i256::from_parts(u128::MAX, -3))]
 fn test_split_assemble<T: NativeDecimalType>(#[case] value: T) -> VortexResult<()> {
-    let decimal = DecimalArray::new(
+    let decimal = stored_decimal(
         Buffer::from(vec![value]),
         DecimalDType::new(T::MAX_PRECISION, 2),
         Validity::NonNullable,
-    );
+    )?;
     let round_tripped = round_trip(decimal)?;
     assert_eq!(round_tripped.buffer::<T>().as_slice(), &[value]);
 
@@ -184,7 +211,12 @@ fn test_split_narrow_decimal_reuses_values(
     #[values(Validity::NonNullable, Validity::from_iter([true, false, true]))] validity: Validity,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let decimal = DecimalArray::new(buffer![1i32, 2, 3], DecimalDType::new(9, 0), validity);
+    let decimal = DecimalArray::new(
+        buffer![1i32, 2, 3],
+        DecimalDType::new(9, 0),
+        validity,
+        &mut ctx,
+    );
     let parts = split_decimal(&decimal, &validity_mask(&decimal)?, 0)?;
     assert!(parts.lower_parts.is_empty());
     assert_eq!(parts.msp.dtype().as_ptype(), PType::I32);
@@ -318,6 +350,7 @@ fn test_decode_uses_widen_msp_child(
             values,
             decimal_dtype,
             Validity::from_iter([true, false, true]),
+            &mut ctx,
         )
     });
     assert_arrays_eq!(traced.output, expected, &mut ctx);

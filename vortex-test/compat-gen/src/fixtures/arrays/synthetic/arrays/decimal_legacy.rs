@@ -36,7 +36,7 @@ struct LegacyDecimalColumn {
 }
 
 impl LegacyDecimalColumn {
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let values_type = self.decimal_dtype.canonical_values_type();
         let validity = match self.validity {
             Some(validity) => Validity::from_iter(validity),
@@ -52,7 +52,7 @@ impl LegacyDecimalColumn {
                     })
                 })
                 .collect::<VortexResult<Buffer<T>>>()?;
-            Ok(DecimalArray::try_new(values, self.decimal_dtype, validity)?.into_array())
+            Ok(DecimalArray::try_new(values, self.decimal_dtype, validity, ctx)?.into_array())
         })
     }
 }
@@ -106,11 +106,11 @@ impl FlatLayoutFixture for LegacyDecimalFixture {
         vec![Decimal.id()]
     }
 
-    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let fields = self
             .columns
             .iter()
-            .map(|column| Ok((column.name, column.build()?)))
+            .map(|column| Ok((column.name, column.build(ctx)?)))
             .collect::<VortexResult<Vec<_>>>()?;
         Ok(StructArray::try_from_iter(fields)?.into_array())
     }

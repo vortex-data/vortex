@@ -372,7 +372,13 @@ fn binary_low_cardinality() -> ArrayRef {
 fn decimal_prices() -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(115);
     let values: Buffer<i64> = (0..N).map(|_| rng.random_range(0..10_000_000i64)).collect();
-    DecimalArray::new(values, DecimalDType::new(12, 2), Validity::NonNullable).into_array()
+    DecimalArray::new(
+        values,
+        DecimalDType::new(12, 2),
+        Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
+    )
+    .into_array()
 }
 
 /// Prices like [`decimal_prices`], with a tenth of the rows null, whose null slots hold values
@@ -396,6 +402,7 @@ fn decimal_null_slot_values() -> ArrayRef {
         values,
         DecimalDType::new(12, 2),
         Validity::Array(BoolArray::from_iter(validity).into_array()),
+        &mut SESSION.create_execution_ctx(),
     )
     .into_array()
 }
@@ -406,7 +413,13 @@ fn decimal_negative() -> ArrayRef {
     let values: Buffer<i64> = (0..N)
         .map(|_| rng.random_range(-100_000..=100_000i64))
         .collect();
-    DecimalArray::new(values, DecimalDType::new(10, 2), Validity::NonNullable).into_array()
+    DecimalArray::new(
+        values,
+        DecimalDType::new(10, 2),
+        Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
+    )
+    .into_array()
 }
 
 /// Decimals at a precision whose canonical width is `i256`, with values from 2^64 to 2^100: they
@@ -416,7 +429,13 @@ fn decimal_wide_p40() -> ArrayRef {
     let values: Buffer<i256> = (0..N)
         .map(|_| i256::from_i128(rng.random_range(1i128 << 64..1i128 << 100)))
         .collect();
-    DecimalArray::new(values, DecimalDType::new(40, 2), Validity::NonNullable).into_array()
+    DecimalArray::new(
+        values,
+        DecimalDType::new(40, 2),
+        Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
+    )
+    .into_array()
 }
 
 /// Near-monotone microsecond timestamps: TemporalScheme (datetime-parts) habitat.

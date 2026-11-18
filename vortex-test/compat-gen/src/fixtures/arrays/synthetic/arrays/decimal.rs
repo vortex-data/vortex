@@ -32,12 +32,13 @@ impl FlatLayoutFixture for DecimalFixture {
         vec![Decimal.id()]
     }
 
-    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // Decimal(5,2) stored as i32: represents 123.45, -678.90, 0.01
         let dec_5_2 = DecimalArray::new(
             buffer![12345i32, -67890, 1],
             DecimalDType::new(5, 2),
             Validity::NonNullable,
+            ctx,
         );
 
         // Decimal(10,4) stored as i64: represents 123456.7890, -0.0001, 999999.9999
@@ -45,6 +46,7 @@ impl FlatLayoutFixture for DecimalFixture {
             buffer![1234567890i64, -1, 9999999999],
             DecimalDType::new(10, 4),
             Validity::NonNullable,
+            ctx,
         );
 
         // Decimal(18,0) stored as i64: large integers
@@ -52,6 +54,7 @@ impl FlatLayoutFixture for DecimalFixture {
             buffer![0i64, 999_999_999_999_999_999, -999_999_999_999_999_999],
             DecimalDType::new(18, 0),
             Validity::NonNullable,
+            ctx,
         );
 
         // Nullable Decimal(7,3) stored as i32

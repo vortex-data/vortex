@@ -139,7 +139,12 @@ mod arrays {
 
     #[divan::bench(args = cases())]
     fn dbp_assemble(bencher: Bencher, (values_type, len): (DecimalType, usize)) {
-        let decimal = decimal_array(values_type, len, Validity::NonNullable);
+        let decimal = decimal_array(
+            values_type,
+            len,
+            Validity::NonNullable,
+            &mut SESSION.create_execution_ctx(),
+        );
         let parts = split_decimal(
             &decimal,
             &Mask::new_true(len),

@@ -193,12 +193,12 @@ fn widen_decimal_values(
     dtype: &DType,
     validity: Validity,
 ) -> VortexResult<ArrayRef> {
-    let values = DecimalArray::new_handle(
+    let values = DecimalArray::try_new_handle_from_trusted_values(
         array.buffer_handle().clone(),
         array.values_type(),
         array.decimal_dtype(),
         validity,
-    );
+    )?;
     values.statistics().inherit_from(array.statistics());
 
     Ok(WidenArray::try_new(values.into_array(), dtype.clone())?.into_array())
@@ -306,7 +306,8 @@ where
         decimal_cast_error::<F, T>(values[idx], from_decimal_dtype, to_decimal_dtype)
     })?;
 
-    Ok(DecimalArray::new(buffer, to_decimal_dtype, validity).into_array())
+    // SAFETY: The cast keeps the validity and checks each valid result against the target bounds.
+    Ok(unsafe { DecimalArray::new_unchecked(buffer, to_decimal_dtype, validity) }.into_array())
 }
 
 fn cast_decimal_buffer<F, T>(
@@ -522,6 +523,7 @@ mod tests {
             values.iter().copied().map(i256::from_i128).collect(),
             decimal_dtype,
             Validity::NonNullable,
+            &mut ctx,
         );
         let target = DType::Primitive(PType::I64, Nullability::NonNullable);
         let casted = array.into_array().cast(target.clone())?;
@@ -560,6 +562,7 @@ mod tests {
             values.iter().copied().collect(),
             decimal_dtype,
             Validity::NonNullable,
+            &mut ctx,
         );
 
         let target = DType::Primitive(PType::F64, Nullability::NonNullable);
@@ -641,11 +644,7 @@ mod tests {
             let ten = i256::from_i128(10);
             let minimum = i256::from_i128(T::MIN as i128) * ten;
             let maximum = i256::from_i128(T::MAX as i128) * ten;
-            let array = DecimalArray::new(
-                buffer![minimum, maximum],
-                decimal_dtype,
-                Validity::NonNullable,
-            );
+            let array = DecimalArray::from_iter([minimum, maximum], decimal_dtype);
             let casted = array.into_array().cast(dtype.clone())?;
             assert_arrays_eq!(
                 casted,
@@ -666,11 +665,7 @@ mod tests {
                 minimum - ten,
                 maximum + ten,
             ] {
-                let array = DecimalArray::new(
-                    buffer![i256::ZERO, value],
-                    decimal_dtype,
-                    Validity::NonNullable,
-                );
+                let array = DecimalArray::from_iter([i256::ZERO, value], decimal_dtype);
                 let error = array
                     .into_array()
                     .cast(dtype.clone())?
@@ -691,7 +686,7 @@ mod tests {
         let target = DType::Primitive(PType::I8, Nullability::Nullable);
         for validity in [Validity::from_iter([false, true]), Validity::AllInvalid] {
             let expected = PrimitiveArray::new(buffer![0i8, 12], validity.clone());
-            let array = DecimalArray::new(buffer![999i128, 12], decimal_dtype, validity);
+            let array = DecimalArray::new(buffer![999i128, 12], decimal_dtype, validity, &mut ctx);
             let casted = array.into_array().cast(target.clone())?;
             assert_arrays_eq!(casted, expected, &mut ctx);
         }
@@ -699,6 +694,7 @@ mod tests {
             buffer![999i128, 12],
             decimal_dtype,
             Validity::from_iter([false, true]),
+            &mut ctx,
         );
         assert!(
             array
@@ -720,18 +716,14 @@ mod tests {
         let value = i256::from_i128(123) * factor + i256::ONE;
         let decimal_dtype = DecimalDType::new(76, 40);
         let target = DType::Primitive(PType::I64, Nullability::NonNullable);
-        let array = DecimalArray::new(buffer![value, -value], decimal_dtype, Validity::NonNullable);
+        let array = DecimalArray::from_iter([value, -value], decimal_dtype);
         let casted = array.into_array().cast(target.clone())?;
         assert_arrays_eq!(casted, PrimitiveArray::from_iter([123i64, -123]), &mut ctx);
         for (value, expected) in [(value, 123i64), (-value, -123)] {
             let scalar = Scalar::decimal(value.into(), decimal_dtype, Nullability::NonNullable);
             assert_eq!(scalar.cast(&target)?, Scalar::from(expected));
         }
-        let huge = DecimalArray::new(
-            buffer![1i8],
-            DecimalDType::new(1, -128),
-            Validity::NonNullable,
-        );
+        let huge = DecimalArray::from_iter([1i8], DecimalDType::new(1, -128));
         assert!(
             huge.into_array()
                 .cast(target)?
@@ -745,11 +737,7 @@ mod tests {
     fn cast_decimal_to_nullable() {
         let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(10, 2);
-        let array = DecimalArray::new(
-            buffer![100i64, 200, 300],
-            decimal_dtype,
-            Validity::NonNullable,
-        );
+        let array = DecimalArray::from_iter([100i64, 200, 300], decimal_dtype);
 
         // Cast to nullable
         let nullable_dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
@@ -765,7 +753,12 @@ mod tests {
         assert_eq!(casted.len(), 3);
         assert_arrays_eq!(
             casted,
-            DecimalArray::new(buffer![100i64, 200, 300], decimal_dtype, Validity::AllValid),
+            DecimalArray::new(
+                buffer![100i64, 200, 300],
+                decimal_dtype,
+                Validity::AllValid,
+                &mut ctx
+            ),
             &mut ctx
         );
     }
@@ -776,7 +769,12 @@ mod tests {
         let decimal_dtype = DecimalDType::new(10, 2);
 
         // Create nullable array with no nulls
-        let array = DecimalArray::new(buffer![100i64, 200, 300], decimal_dtype, Validity::AllValid);
+        let array = DecimalArray::new(
+            buffer![100i64, 200, 300],
+            decimal_dtype,
+            Validity::AllValid,
+            &mut ctx,
+        );
 
         // Cast to non-nullable
         let non_nullable_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
@@ -791,11 +789,7 @@ mod tests {
         assert!(matches!(casted.validity(), Ok(Validity::NonNullable)));
         assert_arrays_eq!(
             casted,
-            DecimalArray::new(
-                buffer![100i64, 200, 300],
-                decimal_dtype,
-                Validity::NonNullable
-            ),
+            DecimalArray::from_iter([100i64, 200, 300], decimal_dtype),
             &mut ctx
         );
     }
@@ -821,11 +815,7 @@ mod tests {
     #[test]
     fn cast_different_scale_rescales() {
         let mut ctx = SESSION.create_execution_ctx();
-        let array = DecimalArray::new(
-            buffer![100i64],
-            DecimalDType::new(10, 2),
-            Validity::NonNullable,
-        );
+        let array = DecimalArray::from_iter([100i64], DecimalDType::new(10, 2));
 
         // Cast 1.00 to scale 3, where it is stored as 1000.
         let different_dtype = DType::Decimal(DecimalDType::new(15, 3), Nullability::NonNullable);
@@ -845,11 +835,7 @@ mod tests {
     #[test]
     fn cast_downcast_precision_succeeds_when_values_fit() {
         let mut ctx = SESSION.create_execution_ctx();
-        let array = DecimalArray::new(
-            buffer![100i64],
-            DecimalDType::new(18, 2),
-            Validity::NonNullable,
-        );
+        let array = DecimalArray::from_iter([100i64], DecimalDType::new(18, 2));
 
         // Downcasting precision is allowed when every value fits.
         let smaller_dtype = DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable);
@@ -868,11 +854,7 @@ mod tests {
     #[test]
     fn cast_downcast_precision_checks_values() {
         let mut ctx = SESSION.create_execution_ctx();
-        let array = DecimalArray::new(
-            buffer![1000i64],
-            DecimalDType::new(18, 0),
-            Validity::NonNullable,
-        );
+        let array = DecimalArray::from_iter([1000i64], DecimalDType::new(18, 0));
 
         let smaller_dtype = DType::Decimal(DecimalDType::new(3, 0), Nullability::NonNullable);
         let result = array
@@ -892,11 +874,7 @@ mod tests {
     #[test]
     fn cast_lower_scale_requires_exact_rescale() {
         let mut ctx = SESSION.create_execution_ctx();
-        let array = DecimalArray::new(
-            buffer![123456i64],
-            DecimalDType::new(10, 4),
-            Validity::NonNullable,
-        );
+        let array = DecimalArray::from_iter([123456i64], DecimalDType::new(10, 4));
 
         let lower_scale_dtype = DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable);
         let result = array
@@ -920,6 +898,7 @@ mod tests {
             buffer![100i64, 123456],
             DecimalDType::new(10, 4),
             Validity::from_iter([true, false]),
+            &mut ctx,
         );
 
         let lower_scale_dtype = DType::Decimal(DecimalDType::new(3, 2), Nullability::Nullable);
@@ -944,11 +923,7 @@ mod tests {
     #[test]
     fn cast_to_non_decimal_returns_err() {
         let mut ctx = SESSION.create_execution_ctx();
-        let array = DecimalArray::new(
-            buffer![100i64],
-            DecimalDType::new(10, 2),
-            Validity::NonNullable,
-        );
+        let array = DecimalArray::from_iter([100i64], DecimalDType::new(10, 2));
 
         // Try to cast to non-decimal type - should fail since no kernel can handle it
         let result = array
@@ -966,10 +941,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case(DecimalArray::new(buffer![100i64, 200, 300], DecimalDType::new(10, 2), Validity::NonNullable))]
-    #[case(DecimalArray::new(buffer![10000i64, 20000, 30000], DecimalDType::new(18, 4), Validity::NonNullable))]
+    #[case(DecimalArray::from_iter([100i64, 200, 300], DecimalDType::new(10, 2)))]
+    #[case(DecimalArray::from_iter([10000i64, 20000, 30000], DecimalDType::new(18, 4)))]
     #[case(DecimalArray::from_option_iter([Some(100i32), None, Some(300)], DecimalDType::new(10, 2)))]
-    #[case(DecimalArray::new(buffer![42i32], DecimalDType::new(5, 1), Validity::NonNullable))]
+    #[case(DecimalArray::from_iter([42i32], DecimalDType::new(5, 1)))]
     fn test_cast_decimal_conformance(#[case] array: DecimalArray) {
         test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
@@ -977,7 +952,7 @@ mod tests {
     #[test]
     fn cast_decimal_f64() {
         let dtype = DecimalDType::new(6, 2);
-        let array = DecimalArray::new(buffer![125i32, 250, -375], dtype, Validity::NonNullable);
+        let array = DecimalArray::from_iter([125i32, 250, -375], dtype);
         let target = DType::Primitive(PType::F64, Nullability::NonNullable);
         let casted = array.into_array().cast(target.clone()).unwrap();
         assert_eq!(casted.dtype(), &target);
@@ -1020,14 +995,14 @@ mod tests {
 
     #[test]
     fn cast_decimal_f64_all_null() {
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DecimalDType::new(6, 2);
         let buf = buffer![i32::MAX, i32::MIN, 12345];
-        let array = DecimalArray::new(buf, dtype, Validity::AllInvalid);
+        let array = DecimalArray::new(buf, dtype, Validity::AllInvalid, &mut ctx);
         let target = DType::Primitive(PType::F64, Nullability::Nullable);
         let casted = array.into_array().cast(target.clone()).unwrap();
         assert_eq!(casted.dtype(), &target);
 
-        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             casted,
             PrimitiveArray::from_option_iter([None::<f64>; 3]),

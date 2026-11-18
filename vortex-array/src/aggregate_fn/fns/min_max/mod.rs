@@ -1005,12 +1005,13 @@ mod tests {
 
     #[test]
     fn test_decimal() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let decimal = DecimalArray::new(
             buffer![100i16, 2000, 200],
             DecimalDType::new(4, 2),
             Validity::from_iter([true, false, true]),
+            &mut ctx,
         );
-        let mut ctx = SESSION.create_execution_ctx();
         let result = min_max(
             &decimal.into_array(),
             &mut ctx,
@@ -1071,7 +1072,7 @@ mod tests {
                     None => T::MAX,
                 })
                 .collect();
-            let array = DecimalArray::new(buffer, decimal_dtype, validity).into_array();
+            let array = DecimalArray::new(buffer, decimal_dtype, validity, &mut ctx).into_array();
             let actual = min_max(&array, &mut ctx, NumericalAggregateOpts::default())?;
             assert_eq!(actual, expected);
             if let Some(actual) = actual {
@@ -1086,13 +1087,14 @@ mod tests {
 
     #[test]
     fn test_decimal_value_outside_precision_in_null_slot() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         // The out-of-range value sits in a null slot, so it must be ignored.
         let decimal = DecimalArray::new(
             buffer![5i8, 100i8],
             DecimalDType::new(2, 0),
             Validity::from_iter([true, false]),
+            &mut ctx,
         );
-        let mut ctx = SESSION.create_execution_ctx();
         let result = min_max(
             &decimal.into_array(),
             &mut ctx,

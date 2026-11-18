@@ -24,15 +24,10 @@ use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::validity::Validity;
 
 /// A decimal `Widen`, whose values are not a stored integer.
 fn decimal_widen() -> ArrayRef {
-    let values = DecimalArray::new(
-        buffer![1i16, 2],
-        DecimalDType::new(4, 2),
-        Validity::NonNullable,
-    );
+    let values = DecimalArray::from_iter([1i16, 2], DecimalDType::new(4, 2));
     let dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable);
 
     WidenArray::try_new(values.into_array(), dtype)

@@ -171,14 +171,14 @@ impl CanonicalCudaExt for Canonical {
                     ..
                 } = decimal.into_data_parts();
                 let validity = validity_into_host(validity, ctx).await?;
-                Ok(Canonical::Decimal(unsafe {
-                    DecimalArray::new_unchecked_handle(
+                Ok(Canonical::Decimal(
+                    DecimalArray::try_new_handle_from_trusted_values(
                         BufferHandle::new_host(values.try_into_host()?.await?),
                         values_type,
                         decimal_dtype,
                         validity,
-                    )
-                }))
+                    )?,
+                ))
             }
             Canonical::VarBinView(varbinview) => {
                 let VarBinViewDataParts {

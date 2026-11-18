@@ -1123,6 +1123,7 @@ mod test {
             buffer![100i16, 200, 300, 4000],
             decimal_dtype,
             Validity::from_iter([true, true, true, false]),
+            &mut ctx,
         )
         .into_array();
         let fill_scalar = Scalar::decimal(DecimalValue::I32(123), decimal_dtype, Nullable);
@@ -1131,6 +1132,7 @@ mod test {
             buffer![100i16, 200, 123, 123, 123, 123, 123, 300, 0, 123],
             decimal_dtype,
             Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),
+            &mut ctx,
         );
         assert_arrays_eq!(sparse, expected, &mut ctx);
 

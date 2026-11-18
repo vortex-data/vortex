@@ -80,12 +80,14 @@ impl CudaExecute for DecimalBytePartsExecutor {
             widen_decimal_values(buffer, values_type, canonical_type, array.len(), ctx).await?
         };
 
-        // SAFETY: The buffer holds `array.len()` values of `canonical_type`, either the executed
-        // MSP buffer at that width or the output of `widen_decimal_values`. The decimal dtype is
-        // the array's own dtype, and the MSP's validity is the array's validity.
-        Ok(Canonical::Decimal(unsafe {
-            DecimalArray::new_unchecked_handle(values, canonical_type, decimal_dtype, validity)
-        }))
+        Ok(Canonical::Decimal(
+            DecimalArray::try_new_handle_from_trusted_values(
+                values,
+                canonical_type,
+                decimal_dtype,
+                validity,
+            )?,
+        ))
     }
 }
 

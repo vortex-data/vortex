@@ -370,12 +370,11 @@ fn flat_elements(
                         None => T::default(),
                     }
                 }));
-                DecimalArray::new(
-                    buffer.freeze(),
-                    *decimal,
-                    element_validity(elements, *nullability),
-                )
-                .into_array()
+                let validity = element_validity(elements, *nullability);
+                // SAFETY: Both buffers have one entry per element. Each valid scalar fits the
+                // element dtype, and each null element contributes a zero.
+                unsafe { DecimalArray::new_unchecked(buffer.freeze(), *decimal, validity) }
+                    .into_array()
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {

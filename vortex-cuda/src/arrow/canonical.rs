@@ -2239,6 +2239,7 @@ mod tests {
                 Buffer::<i32>::empty(),
                 DecimalDType::new(9, 2),
                 Validity::NonNullable,
+                &mut SESSION.create_execution_ctx(),
             )
             .into_array(),
             DataType::Decimal32(9, 2),
@@ -2254,6 +2255,7 @@ mod tests {
                 Buffer::<i8>::empty(),
                 DecimalDType::new(2, 2),
                 Validity::NonNullable,
+                &mut SESSION.create_execution_ctx(),
             )
             .into_array(),
             DataType::Decimal32(2, 2),

@@ -823,10 +823,20 @@ mod tests {
             buffer![100i64, 100, 100, 100, 100],
             decimal_dtype,
             Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
         );
-        let chunk2 =
-            DecimalArray::new(buffer![200i64, 200, 200], decimal_dtype, Validity::AllValid);
-        let chunk3 = DecimalArray::new(buffer![300i64, 300], decimal_dtype, Validity::AllValid);
+        let chunk2 = DecimalArray::new(
+            buffer![200i64, 200, 200],
+            decimal_dtype,
+            Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
+        );
+        let chunk3 = DecimalArray::new(
+            buffer![300i64, 300],
+            decimal_dtype,
+            Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
+        );
         let dtype = chunk1.dtype().clone();
         let chunked = ChunkedArray::try_new(
             vec![
@@ -849,14 +859,24 @@ mod tests {
     #[test]
     fn sum_chunked_decimals_with_nulls() -> VortexResult<()> {
         let decimal_dtype = DecimalDType::new(10, 2);
-        let chunk1 =
-            DecimalArray::new(buffer![100i64, 100, 100], decimal_dtype, Validity::AllValid);
+        let chunk1 = DecimalArray::new(
+            buffer![100i64, 100, 100],
+            decimal_dtype,
+            Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
+        );
         let chunk2 = DecimalArray::new(
             buffer![0i64, 0],
             decimal_dtype,
             Validity::from_iter([false, false]),
+            &mut SESSION.create_execution_ctx(),
         );
-        let chunk3 = DecimalArray::new(buffer![200i64, 200], decimal_dtype, Validity::AllValid);
+        let chunk3 = DecimalArray::new(
+            buffer![200i64, 200],
+            decimal_dtype,
+            Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
+        );
         let dtype = chunk1.dtype().clone();
         let chunked = ChunkedArray::try_new(
             vec![

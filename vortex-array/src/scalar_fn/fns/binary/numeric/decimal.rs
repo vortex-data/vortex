@@ -11,9 +11,8 @@
 //!
 //! Lanes execute in a working width wide enough that in-precision inputs cannot spuriously
 //! overflow an intermediate, then narrow to the result's own storage width. Every lane is still
-//! checked at that width: [`DecimalArray`] does not validate its stored values against the
-//! declared precision, so an out-of-precision value can reach a kernel and must not be able to
-//! overflow it. An operation that overflows the result precision on a valid lane is an error;
+//! checked at that width because a canonical file read trusts the declared precision. An
+//! out-of-precision input can reach the kernel. Overflow on a valid lane returns an error, and
 //! invalid lanes never error.
 //!
 //! Storage width is independent of precision, so two arrays sharing a dtype may still be stored
@@ -411,7 +410,9 @@ fn decimal_array_narrowed<W: NativeDecimalType>(
 ) -> ArrayRef {
     let target = decimal_dtype.canonical_values_type();
     if target == W::DECIMAL_TYPE {
-        return DecimalArray::new(values, decimal_dtype, validity).into_array();
+        // SAFETY: The arithmetic kernel checks each valid result against the declared precision.
+        return unsafe { DecimalArray::new_unchecked(values, decimal_dtype, validity) }
+            .into_array();
     }
 
     match_each_decimal_value_type!(target, |O| {
@@ -420,7 +421,9 @@ fn decimal_array_narrowed<W: NativeDecimalType>(
             <O as BigCast>::from(value)
                 .vortex_expect("precision-checked decimal result must fit the output width")
         }));
-        DecimalArray::new(narrowed.freeze(), decimal_dtype, validity).into_array()
+        // SAFETY: Narrowing preserves the checked results, their length, and their validity.
+        unsafe { DecimalArray::new_unchecked(narrowed.freeze(), decimal_dtype, validity) }
+            .into_array()
     })
 }
 

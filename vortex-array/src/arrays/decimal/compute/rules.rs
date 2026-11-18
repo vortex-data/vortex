@@ -170,8 +170,9 @@ mod tests {
         });
         let handle = BufferHandle::new_device(Arc::new(TestDeviceBuffer(bytes.clone())));
         let validity = Validity::from_iter([true, false, true, false, true, true]);
-        let array = DecimalArray::try_new_handle(handle, values_type, dtype, validity.clone())?
-            .into_array();
+        let array =
+            DecimalArray::try_new_handle(handle, values_type, dtype, validity.clone(), &mut ctx)?
+                .into_array();
         let sliced = array.slice(1..5)?;
 
         let range = 1..3;

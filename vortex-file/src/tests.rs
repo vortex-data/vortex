@@ -282,12 +282,17 @@ async fn test_decimal_widen_default_writer_roundtrip(
         buffer![-125i16, 50, 0, 250, 900],
         DecimalDType::new(4, 2),
         validity.clone(),
+        &mut ctx,
     );
     let dtype = DType::Decimal(decimal_dtype, validity.nullability());
     let widened = WidenArray::try_new(values.into_array(), dtype)?.into_array();
     let array = StructArray::from_fields(&[("decimal", widened)])?.into_array();
-    let expected_values =
-        DecimalArray::new(buffer![-125i64, 50, 0, 250, 900], decimal_dtype, validity);
+    let expected_values = DecimalArray::new(
+        buffer![-125i64, 50, 0, 250, 900],
+        decimal_dtype,
+        validity,
+        &mut ctx,
+    );
     let expected = StructArray::from_fields(&[("decimal", expected_values.into_array())])?;
 
     let actual = write_read_roundtrip(array).await?;
@@ -328,6 +333,7 @@ async fn decimal_writer_uses_default_or_session_restrictions(
                 .collect::<Buffer<i256>>(),
             DecimalDType::new(76, 2),
             Validity::NonNullable,
+            &mut session.create_execution_ctx(),
         )
     } else {
         DecimalArray::new(
@@ -336,6 +342,7 @@ async fn decimal_writer_uses_default_or_session_restrictions(
                 .collect::<Buffer<i128>>(),
             DecimalDType::new(38, 2),
             Validity::NonNullable,
+            &mut session.create_execution_ctx(),
         )
     }
     .into_array();
@@ -400,7 +407,12 @@ async fn rejected_decimal_keeps_nested_int_dict() -> VortexResult<()> {
             (distinct[(i * 7 + i / 3) % distinct.len()] << 64) + i128::try_from(i * 31).unwrap()
         })
         .collect::<Buffer<i128>>();
-    let decimal = DecimalArray::new(values, DecimalDType::new(38, 2), Validity::NonNullable);
+    let decimal = DecimalArray::new(
+        values,
+        DecimalDType::new(38, 2),
+        Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
+    );
     let array = StructArray::from_fields(&[("decimal", decimal.into_array())])?.into_array();
 
     let mut buffer = ByteBufferMut::empty();
@@ -438,6 +450,7 @@ async fn rejected_decimal_keeps_nested_int_dict() -> VortexResult<()> {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_round_trip_many_types() {
+    let mut ctx = SESSION.create_execution_ctx();
     let strings = VarBinArray::from(vec!["ab", "foo", "bar"]).into_array();
 
     let numbers = buffer![1u32, 2, 3].into_array();
@@ -446,6 +459,7 @@ async fn test_round_trip_many_types() {
         buffer![100i8, 10i8, 2i8],
         DecimalDType::new(2, 1),
         Validity::from_iter([false, true, false]),
+        &mut ctx,
     )
     .into_array();
 
@@ -453,6 +467,7 @@ async fn test_round_trip_many_types() {
         buffer![100i16, 10i16, 2i16],
         DecimalDType::new(4, 2),
         Validity::from_iter([false, true, false]),
+        &mut ctx,
     )
     .into_array();
 
@@ -460,6 +475,7 @@ async fn test_round_trip_many_types() {
         buffer![100i32, 10i32, 2i32],
         DecimalDType::new(9, 2),
         Validity::from_iter([false, true, false]),
+        &mut ctx,
     )
     .into_array();
 
@@ -467,6 +483,7 @@ async fn test_round_trip_many_types() {
         buffer![100i64, 10i64, 20234i64],
         DecimalDType::new(17, 2),
         Validity::from_iter([false, true, false]),
+        &mut ctx,
     )
     .into_array();
 
@@ -474,6 +491,7 @@ async fn test_round_trip_many_types() {
         buffer![100i128, 139348340i128, 23943942i128],
         DecimalDType::new(35, 2),
         Validity::from_iter([true, false, false]),
+        &mut ctx,
     )
     .into_array();
 
@@ -510,7 +528,7 @@ async fn test_round_trip_many_types() {
 
     let read = ChunkedArray::try_new(chunks, dtype).unwrap();
 
-    assert_arrays_eq!(read, st, &mut SESSION.create_execution_ctx());
+    assert_arrays_eq!(read, st, &mut ctx);
 }
 
 #[tokio::test]
