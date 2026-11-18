@@ -27,6 +27,7 @@ use crate::ArrayView;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::VTable;
 use crate::aggregate_fn::fns::sum::sum;
@@ -41,6 +42,8 @@ use crate::arrays::Constant;
 use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
 use crate::arrays::SliceArray;
+use crate::block::BlockOp;
+use crate::block::BlockSource;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -678,10 +681,47 @@ impl ArrayRef {
         self.0.data.reduce(self)
     }
 
+    /// See [`VTable::block_source`](crate::vtable::VTable::block_source).
+    pub(crate) fn block_source(
+        &self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockSource>>> {
+        self.0.data.block_source(self, ctx)
+    }
+
+    /// See [`VTable::block_op`](crate::vtable::VTable::block_op).
+    pub(crate) fn block_op(
+        &self,
+        slot_idx: usize,
+        child_dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        self.0.data.block_op(self, slot_idx, child_dtype, ctx)
+    }
+
     pub(crate) fn execute_encoding(self, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let inner = Arc::as_ptr(&self.0);
-        // SAFETY: the Arc outlives the DynArrayData function call
-        unsafe { (&*inner).data.execute(self, ctx) }
+        let len = self.len();
+        let dtype = self.dtype().clone();
+        let stats = self.statistics().share_existing();
+        let encoding_id = self.encoding_id();
+        let result = self.execute_encoding_unchecked(ctx)?;
+
+        if matches!(result.step(), ExecutionStep::Done) {
+            if cfg!(debug_assertions) {
+                vortex_ensure_eq!(
+                    result.array().len(),
+                    len,
+                    "Result length mismatch for {encoding_id}"
+                );
+                vortex_ensure_eq!(
+                    result.array().dtype(),
+                    &dtype,
+                    "Executed canonical dtype mismatch for {encoding_id}"
+                );
+            }
+            result.array().statistics().transfer_from(&stats);
+        }
+        Ok(result)
     }
 
     /// Execute a single encoding step without applying `Done`-result postconditions.
@@ -693,11 +733,12 @@ impl ArrayRef {
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ExecutionResult> {
-        let inner = Arc::as_ptr(&self.0);
-        // SAFETY: `inner` points at the allocation owned by `self.0`. `self` stays alive for the
-        // duration of the call, so the pointee remains valid. Avoiding an extra `Arc` clone here
-        // preserves uniqueness so execute-time metadata cursors can use `Arc::get_mut`.
-        unsafe { (&*inner).data.execute_unchecked(self, ctx) }
+        // Take the step as a function first, so no borrow of the array's data is live while the
+        // step runs and possibly drops the last reference. Moving `self` in without an extra
+        // `Arc` clone preserves uniqueness, so execute-time metadata cursors can use
+        // `Arc::get_mut`.
+        let execute = self.0.data.execute_fn();
+        execute(self, ctx)
     }
 
     // ArrayVisitor delegation methods

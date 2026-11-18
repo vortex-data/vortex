@@ -18,10 +18,12 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::block::BlockOp;
+use vortex_array::block::BlockSource;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
-use vortex_array::require_child;
 use vortex_array::require_opt_child;
+use vortex_array::require_spine;
 use vortex_array::scalar::Scalar;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
@@ -37,6 +39,8 @@ use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::FoRData;
 use crate::FoRReferences;
+use crate::block::for_block_op;
+use crate::block::for_block_source;
 use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRArraySlotsExt;
 use crate::for_::array::FoRSlots;
@@ -142,9 +146,25 @@ impl VTable for FoR {
         let array = if fused {
             array
         } else {
-            require_child!(array, array.encoded(), FoRSlots::ENCODED => Primitive)
+            require_spine!(array, array.encoded(), FoRSlots::ENCODED => Primitive)
         };
         Ok(ExecutionResult::done(decompress(array, ctx)?.into_array()))
+    }
+
+    fn block_source(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockSource>>> {
+        for_block_source(array, ctx)
+    }
+
+    fn block_op(
+        array: ArrayView<'_, Self>,
+        slot_idx: usize,
+        _child_dtype: &DType,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        for_block_op(array, slot_idx)
     }
 }
 
