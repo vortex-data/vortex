@@ -11,9 +11,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
@@ -31,7 +29,6 @@ use crate::arrays::decimal::DecimalArrayExt;
 use crate::dtype::BigCast;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::DecimalType;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
@@ -474,58 +471,6 @@ where
     Some(factor)
 }
 
-/// Upcast a DecimalArray to a wider physical representation (e.g., i32 -> i64) while keeping
-/// the same precision and scale.
-///
-/// This is useful when you need to widen the underlying storage type to accommodate operations
-/// that might overflow the current representation, or to match the physical type expected by
-/// downstream consumers.
-///
-/// # Errors
-///
-/// Returns an error if `to_values_type` is narrower than the array's current values type.
-/// Only upcasting (widening) is supported.
-pub fn upcast_decimal_values(
-    array: ArrayView<'_, Decimal>,
-    to_values_type: DecimalType,
-) -> VortexResult<DecimalArray> {
-    let from_values_type = array.values_type();
-
-    // If already the target type, just clone
-    if from_values_type == to_values_type {
-        return Ok(array.array().as_::<Decimal>().into_owned());
-    }
-
-    // Only allow upcasting (widening)
-    if to_values_type < from_values_type {
-        vortex_bail!(
-            "Cannot downcast decimal values from {:?} to {:?}. Only upcasting is supported.",
-            from_values_type,
-            to_values_type
-        );
-    }
-
-    let decimal_dtype = array.decimal_dtype();
-    let validity = array.validity()?;
-
-    // Use match_each_decimal_value_type to dispatch based on source and target types
-    match_each_decimal_value_type!(from_values_type, |F| {
-        let from_buffer = array.buffer::<F>();
-        match_each_decimal_value_type!(to_values_type, |T| {
-            let to_buffer = upcast_decimal_buffer::<F, T>(from_buffer);
-            Ok(DecimalArray::new(to_buffer, decimal_dtype, validity))
-        })
-    })
-}
-
-/// Upcast a buffer of decimal values from type F to type T.
-/// Since T is wider than F, this conversion never fails.
-fn upcast_decimal_buffer<F: NativeDecimalType, T: NativeDecimalType>(from: Buffer<F>) -> Buffer<T> {
-    from.iter()
-        .map(|&v| T::from(v).vortex_expect("upcast should never fail"))
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
@@ -535,7 +480,6 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use super::upcast_decimal_values;
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
@@ -544,14 +488,12 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
-    use crate::dtype::BigCast;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::DecimalType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::i256;
-    use crate::match_each_decimal_value_type;
     use crate::match_each_integer_ptype;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
@@ -646,16 +588,16 @@ mod tests {
     }
 
     #[rstest]
+    #[case::i8(2, 99, 9)]
+    #[case::i16(4, 123, 12)]
+    #[case::i32(9, 123, 12)]
+    #[case::i64(18, 123, 12)]
+    #[case::i128(38, 123, 12)]
+    #[case::i256(76, 123, 12)]
     fn cast_decimal_to_integer_storage_and_nulls(
-        #[values(
-            DecimalType::I8,
-            DecimalType::I16,
-            DecimalType::I32,
-            DecimalType::I64,
-            DecimalType::I128,
-            DecimalType::I256
-        )]
-        storage: DecimalType,
+        #[case] precision: u8,
+        #[case] value: i8,
+        #[case] truncated: i8,
         #[values(
             PType::I8, PType::I16, PType::I32, PType::I64, PType::U8, PType::U16, PType::U32,
             PType::U64
@@ -663,22 +605,17 @@ mod tests {
         target: PType,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let decimal_dtype = DecimalDType::new(3, 1);
-        let array = match_each_decimal_value_type!(storage, |F| {
-            DecimalArray::from_option_iter(
-                [Some(19i8), None, Some(123)].map(|value| value.and_then(<F as BigCast>::from)),
-                decimal_dtype,
-            )
-        });
+        let decimal_dtype = DecimalDType::new(precision, 1);
+        let array = DecimalArray::from_option_iter([Some(19i8), None, Some(value)], decimal_dtype);
         let dtype = DType::Primitive(target, Nullability::Nullable);
         let casted = array.into_array().cast(dtype.clone())?;
         match_each_integer_ptype!(target, |T| {
             assert_arrays_eq!(
                 casted,
-                PrimitiveArray::from_option_iter([Some(1 as T), None, Some(12 as T)]),
+                PrimitiveArray::from_option_iter([Some(1 as T), None, Some(truncated as T)]),
                 &mut ctx
             );
-            for (value, expected) in [(19i8, 1 as T), (123, 12 as T)] {
+            for (value, expected) in [(19i8, 1 as T), (value, truncated as T)] {
                 let scalar = Scalar::decimal(value.into(), decimal_dtype, Nullability::Nullable);
                 assert_eq!(
                     scalar.cast(&dtype)?,
@@ -791,7 +728,7 @@ mod tests {
             assert_eq!(scalar.cast(&target)?, Scalar::from(expected));
         }
         let huge = DecimalArray::new(
-            buffer![i256::ONE],
+            buffer![1i8],
             DecimalDType::new(1, -128),
             Validity::NonNullable,
         );
@@ -809,7 +746,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(10, 2);
         let array = DecimalArray::new(
-            buffer![100i32, 200, 300],
+            buffer![100i64, 200, 300],
             decimal_dtype,
             Validity::NonNullable,
         );
@@ -828,7 +765,7 @@ mod tests {
         assert_eq!(casted.len(), 3);
         assert_arrays_eq!(
             casted,
-            DecimalArray::new(buffer![100i32, 200, 300], decimal_dtype, Validity::AllValid),
+            DecimalArray::new(buffer![100i64, 200, 300], decimal_dtype, Validity::AllValid),
             &mut ctx
         );
     }
@@ -839,7 +776,7 @@ mod tests {
         let decimal_dtype = DecimalDType::new(10, 2);
 
         // Create nullable array with no nulls
-        let array = DecimalArray::new(buffer![100i32, 200, 300], decimal_dtype, Validity::AllValid);
+        let array = DecimalArray::new(buffer![100i64, 200, 300], decimal_dtype, Validity::AllValid);
 
         // Cast to non-nullable
         let non_nullable_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
@@ -855,7 +792,7 @@ mod tests {
         assert_arrays_eq!(
             casted,
             DecimalArray::new(
-                buffer![100i32, 200, 300],
+                buffer![100i64, 200, 300],
                 decimal_dtype,
                 Validity::NonNullable
             ),
@@ -885,7 +822,7 @@ mod tests {
     fn cast_different_scale_rescales() {
         let mut ctx = SESSION.create_execution_ctx();
         let array = DecimalArray::new(
-            buffer![100i32],
+            buffer![100i64],
             DecimalDType::new(10, 2),
             Validity::NonNullable,
         );
@@ -1008,7 +945,7 @@ mod tests {
     fn cast_to_non_decimal_returns_err() {
         let mut ctx = SESSION.create_execution_ctx();
         let array = DecimalArray::new(
-            buffer![100i32],
+            buffer![100i64],
             DecimalDType::new(10, 2),
             Validity::NonNullable,
         );
@@ -1029,124 +966,12 @@ mod tests {
     }
 
     #[rstest]
-    #[case(DecimalArray::new(buffer![100i32, 200, 300], DecimalDType::new(10, 2), Validity::NonNullable))]
+    #[case(DecimalArray::new(buffer![100i64, 200, 300], DecimalDType::new(10, 2), Validity::NonNullable))]
     #[case(DecimalArray::new(buffer![10000i64, 20000, 30000], DecimalDType::new(18, 4), Validity::NonNullable))]
     #[case(DecimalArray::from_option_iter([Some(100i32), None, Some(300)], DecimalDType::new(10, 2)))]
     #[case(DecimalArray::new(buffer![42i32], DecimalDType::new(5, 1), Validity::NonNullable))]
     fn test_cast_decimal_conformance(#[case] array: DecimalArray) {
         test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
-    }
-
-    #[test]
-    fn upcast_decimal_values_i32_to_i64() {
-        let decimal_dtype = DecimalDType::new(10, 2);
-        let array = DecimalArray::new(
-            buffer![100i32, 200, 300],
-            decimal_dtype,
-            Validity::NonNullable,
-        );
-
-        assert_eq!(array.values_type(), DecimalType::I32);
-
-        let array = array.as_view();
-        let casted = upcast_decimal_values(array, DecimalType::I64).unwrap();
-
-        assert_eq!(casted.values_type(), DecimalType::I64);
-        assert_eq!(casted.decimal_dtype(), decimal_dtype);
-        assert_eq!(casted.len(), 3);
-
-        // Verify values are preserved
-        let buffer = casted.buffer::<i64>();
-        assert_eq!(buffer.as_ref(), &[100i64, 200, 300]);
-    }
-
-    #[test]
-    fn upcast_decimal_values_i64_to_i128() {
-        let decimal_dtype = DecimalDType::new(18, 4);
-        let array = DecimalArray::new(
-            buffer![10000i64, 20000, 30000],
-            decimal_dtype,
-            Validity::NonNullable,
-        );
-
-        let array = array.as_view();
-        let casted = upcast_decimal_values(array, DecimalType::I128).unwrap();
-
-        assert_eq!(casted.values_type(), DecimalType::I128);
-        assert_eq!(casted.decimal_dtype(), decimal_dtype);
-
-        let buffer = casted.buffer::<i128>();
-        assert_eq!(buffer.as_ref(), &[10000i128, 20000, 30000]);
-    }
-
-    #[test]
-    fn upcast_decimal_values_same_type_returns_clone() {
-        let decimal_dtype = DecimalDType::new(10, 2);
-        let array = DecimalArray::new(
-            buffer![100i32, 200, 300],
-            decimal_dtype,
-            Validity::NonNullable,
-        );
-
-        let array = array.as_view();
-        let casted = upcast_decimal_values(array, DecimalType::I32).unwrap();
-
-        assert_eq!(casted.values_type(), DecimalType::I32);
-        assert_eq!(casted.decimal_dtype(), decimal_dtype);
-        assert_arrays_eq!(
-            casted,
-            DecimalArray::from_iter([100i32, 200, 300], decimal_dtype),
-            &mut SESSION.create_execution_ctx()
-        );
-    }
-
-    #[test]
-    fn upcast_decimal_values_with_nulls() {
-        let decimal_dtype = DecimalDType::new(10, 2);
-        let array = DecimalArray::from_option_iter([Some(100i32), None, Some(300)], decimal_dtype);
-
-        let array = array.as_view();
-        let casted = upcast_decimal_values(array, DecimalType::I64).unwrap();
-
-        assert_eq!(casted.values_type(), DecimalType::I64);
-        assert_eq!(casted.len(), 3);
-
-        // Check validity is preserved
-        let mask = casted
-            .as_ref()
-            .validity()
-            .unwrap()
-            .execute_mask(casted.as_ref().len(), &mut SESSION.create_execution_ctx())
-            .unwrap();
-        assert!(mask.value(0));
-        assert!(!mask.value(1));
-        assert!(mask.value(2));
-
-        // Check non-null values
-        let buffer = casted.buffer::<i64>();
-        assert_eq!(buffer[0], 100);
-        assert_eq!(buffer[2], 300);
-    }
-
-    #[test]
-    fn upcast_decimal_values_downcast_fails() {
-        let decimal_dtype = DecimalDType::new(18, 4);
-        let array = DecimalArray::new(
-            buffer![10000i64, 20000, 30000],
-            decimal_dtype,
-            Validity::NonNullable,
-        );
-
-        // Attempt to downcast from i64 to i32 should fail
-        let array = array.as_view();
-        let result = upcast_decimal_values(array, DecimalType::I32);
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Cannot downcast decimal values")
-        );
     }
 
     #[test]

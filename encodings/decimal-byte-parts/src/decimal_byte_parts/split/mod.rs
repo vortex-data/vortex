@@ -110,11 +110,6 @@ impl DecimalParts {
 /// Null slots do not count, so they can hold any value. An array without valid values needs no
 /// lower parts. A storage width up to `i64` needs no lower parts either, so it needs no scan.
 ///
-/// The count depends only on the stored values, not on the precision. A value outside the
-/// precision can need more lower parts than the precision allows, and [`split_decimal`] then
-/// rejects the count. The scan uses stored integer values directly so selecting the parts does not
-/// require decimal scalars that fit the declared precision.
-///
 /// # Errors
 ///
 /// Returns an error if `mask` does not have the length of `decimal`.
@@ -157,8 +152,8 @@ fn range_fits<W: BigCast, T: NativeDecimalType>(min: T, max: T) -> bool {
 ///
 /// These shapes are supported:
 ///
-/// - Any storage width with no lower parts. Storage at the logical MSP width is reused, narrower
-///   storage is widened, and wider storage gets a checked conversion.
+/// - Any storage width with no lower parts. Values up to `i64` are reused. Wider values are
+///   checked and copied into an `i64` MSP.
 /// - `i128` values with one lower part, or `i256` values with three lower parts. The values split
 ///   on 64-bit boundaries into an `i64` MSP and the lower parts.
 /// - `i256` values with one lower part. The values are copied into `i128`, and then split as

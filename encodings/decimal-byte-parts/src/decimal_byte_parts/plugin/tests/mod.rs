@@ -538,7 +538,7 @@ fn wider_legacy_msp_checks_precision(
         &DType::Primitive(logical_ptype, Nullability::NonNullable)
     );
     assert!(!msp.is::<Widen>());
-    let expected = DecimalArray::new(in_precision, decimal_dtype, Validity::NonNullable);
+    let expected = DecimalArray::from_iter(in_precision, decimal_dtype);
     assert_arrays_eq!(decoded, expected, &mut ctx);
 
     for outside_precision in [-limit, limit] {

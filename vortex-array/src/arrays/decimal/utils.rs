@@ -282,7 +282,6 @@ mod tests {
     use crate::dtype::ToI256;
     use crate::dtype::i256;
     use crate::match_each_decimal_value_type;
-    use crate::validity::Validity;
 
     /// Runs [`copy_to_canonical_width`], checks that the copy has the canonical width of `target`,
     /// and reads the copy back as `i256`.
@@ -397,15 +396,7 @@ mod tests {
     /// Each pair selects a different widening or narrowing conversion.
     #[rstest]
     fn converted_buffer_every_storage_pair(
-        #[values(
-            DecimalType::I8,
-            DecimalType::I16,
-            DecimalType::I32,
-            DecimalType::I64,
-            DecimalType::I128,
-            DecimalType::I256
-        )]
-        storage: DecimalType,
+        #[values(2, 4, 9, 18, 38, 76)] precision: u8,
         #[values(
             DecimalType::I8,
             DecimalType::I16,
@@ -417,13 +408,7 @@ mod tests {
         target: DecimalType,
     ) -> VortexResult<()> {
         let values = [1i8, -2, 3];
-        let dtype = DecimalDType::new(2, 0);
-        let array = match_each_decimal_value_type!(storage, |S| {
-            let values = values.map(|value| {
-                <S as BigCast>::from(value).vortex_expect("small values fit every decimal type")
-            });
-            DecimalArray::new(Buffer::copy_from(values), dtype, Validity::NonNullable)
-        });
+        let array = DecimalArray::from_iter(values, DecimalDType::new(precision, 0));
 
         match_each_decimal_value_type!(target, |W| {
             let converted = converted_buffer::<W>(&array, &Mask::new_true(values.len()))?;

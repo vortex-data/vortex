@@ -564,7 +564,7 @@ mod tests {
     #[test]
     fn decimal_matches_materialized_size() -> VortexResult<()> {
         let array = DecimalArray::new(
-            buffer![12345i64, -123i64, 0i64],
+            buffer![12345i32, -123, 0],
             DecimalDType::new(5, 2),
             Validity::NonNullable,
         )

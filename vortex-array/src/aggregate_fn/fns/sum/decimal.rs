@@ -130,6 +130,7 @@ mod tests {
     use crate::arrays::DecimalArray;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
+    use crate::dtype::NativeDecimalType;
     use crate::dtype::Nullability;
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::i256;
@@ -150,7 +151,7 @@ mod tests {
     #[test]
     fn sum_decimal_basic() -> VortexResult<()> {
         let decimal = DecimalArray::new(
-            buffer![100i32, 200i32, 300i32],
+            buffer![100i16, 200, 300],
             DecimalDType::new(4, 2),
             Validity::AllValid,
         );
@@ -169,7 +170,7 @@ mod tests {
     #[test]
     fn sum_decimal_with_nulls() -> VortexResult<()> {
         let decimal = DecimalArray::new(
-            buffer![100i32, 200i32, 300i32, 400i32],
+            buffer![100i16, 200, 300, 400],
             DecimalDType::new(4, 2),
             Validity::from_iter([true, false, true, true]),
         );
@@ -188,7 +189,7 @@ mod tests {
     #[test]
     fn sum_decimal_negative_values() -> VortexResult<()> {
         let decimal = DecimalArray::new(
-            buffer![100i32, -200i32, 300i32, -50i32],
+            buffer![100i16, -200, 300, -50],
             DecimalDType::new(4, 2),
             Validity::AllValid,
         );
@@ -206,16 +207,16 @@ mod tests {
 
     #[test]
     fn sum_decimal_near_i32_max() -> VortexResult<()> {
-        let near_max = i32::MAX - 1000;
+        let near_max = i64::from(i32::MAX) - 1000;
         let decimal = DecimalArray::new(
-            buffer![near_max, 500i32, 400i32],
+            buffer![near_max, 500, 400],
             DecimalDType::new(10, 2),
             Validity::AllValid,
         );
 
         let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;
 
-        let expected_sum = near_max as i64 + 500 + 400;
+        let expected_sum = near_max + 500 + 400;
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(20, 2), Nullability::NonNullable),
             Some(ScalarValue::from(DecimalValue::from(expected_sum))),
@@ -227,7 +228,7 @@ mod tests {
 
     #[test]
     fn sum_decimal_large_i64_values() -> VortexResult<()> {
-        let large_val = i64::MAX / 4;
+        let large_val = i128::from(i64::MAX) / 4;
         let decimal = DecimalArray::new(
             buffer![large_val, large_val, large_val, large_val + 1],
             DecimalDType::new(19, 0),
@@ -236,7 +237,7 @@ mod tests {
 
         let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;
 
-        let expected_sum = (large_val as i128) * 4 + 1;
+        let expected_sum = large_val * 4 + 1;
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(29, 0), Nullability::NonNullable),
             Some(ScalarValue::from(DecimalValue::from(expected_sum))),
@@ -268,7 +269,7 @@ mod tests {
     #[test]
     fn sum_decimal_single_value() -> VortexResult<()> {
         let decimal =
-            DecimalArray::new(buffer![42i32], DecimalDType::new(3, 1), Validity::AllValid);
+            DecimalArray::new(buffer![42i16], DecimalDType::new(3, 1), Validity::AllValid);
 
         let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;
 
@@ -284,7 +285,7 @@ mod tests {
     #[test]
     fn sum_decimal_all_nulls_except_one() -> VortexResult<()> {
         let decimal = DecimalArray::new(
-            buffer![100i32, 200i32, 300i32, 400i32],
+            buffer![100i16, 200, 300, 400],
             DecimalDType::new(4, 2),
             Validity::from_iter([false, false, true, false]),
         );
@@ -325,11 +326,8 @@ mod tests {
     #[test]
     fn sum_decimal_i256_overflow() -> VortexResult<()> {
         let decimal_dtype = DecimalDType::new(76, 0);
-        let decimal = DecimalArray::new(
-            buffer![i256::MAX, i256::MAX, i256::MAX],
-            decimal_dtype,
-            Validity::AllValid,
-        );
+        let max = i256::MAX_BY_PRECISION[76];
+        let decimal = DecimalArray::new(buffer![max; 6], decimal_dtype, Validity::AllValid);
 
         assert_eq!(
             sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())

@@ -32,11 +32,10 @@ use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 
-/// The builder for building a [`DecimalArray`].
+/// Builds a [`DecimalArray`] at the canonical width for its precision.
 ///
-/// The output will be a new [`DecimalArray`] holding values of `T`. Any value that is a valid
-/// [decimal type][NativeDecimalType] can be appended to the builder and it will be immediately
-/// coerced into the target type.
+/// Appended values may use any [`NativeDecimalType`]. The builder converts them to the canonical
+/// width before storing them.
 pub struct DecimalBuilder {
     dtype: DType,
     values: DecimalBuffer,
@@ -98,27 +97,23 @@ macro_rules! delegate_fn {
 impl DecimalBuilder {
     /// Creates a new `DecimalBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
     #[deprecated(note = "use `new_in` with an explicit allocator")]
-    pub fn new<T: NativeDecimalType>(decimal: DecimalDType, nullability: Nullability) -> Self {
-        Self::new_in::<T>(decimal, nullability, BufferAllocatorRef::static_ref())
+    pub fn new(decimal: DecimalDType, nullability: Nullability) -> Self {
+        Self::new_in(decimal, nullability, BufferAllocatorRef::static_ref())
     }
 
     /// Creates a new `DecimalBuilder` with the default capacity using `allocator`.
-    pub fn new_in<T: NativeDecimalType>(
+    pub fn new_in(
         decimal: DecimalDType,
         nullability: Nullability,
         allocator: &BufferAllocatorRef,
     ) -> Self {
-        Self::with_capacity_in::<T>(DEFAULT_BUILDER_CAPACITY, decimal, nullability, allocator)
+        Self::with_capacity_in(DEFAULT_BUILDER_CAPACITY, decimal, nullability, allocator)
     }
 
     /// Creates a new `DecimalBuilder` with the given `capacity`.
     #[deprecated(note = "use `with_capacity_in` with an explicit allocator")]
-    pub fn with_capacity<T: NativeDecimalType>(
-        capacity: usize,
-        decimal: DecimalDType,
-        nullability: Nullability,
-    ) -> Self {
-        Self::with_capacity_in::<T>(
+    pub fn with_capacity(capacity: usize, decimal: DecimalDType, nullability: Nullability) -> Self {
+        Self::with_capacity_in(
             capacity,
             decimal,
             nullability,
@@ -127,7 +122,7 @@ impl DecimalBuilder {
     }
 
     /// Creates a new `DecimalBuilder` with `capacity` using `allocator`.
-    pub fn with_capacity_in<T: NativeDecimalType>(
+    pub fn with_capacity_in(
         capacity: usize,
         decimal: DecimalDType,
         nullability: Nullability,
@@ -135,7 +130,7 @@ impl DecimalBuilder {
     ) -> Self {
         Self {
             dtype: DType::Decimal(decimal, nullability),
-            values: match_each_decimal_value_type!(T::DECIMAL_TYPE, |D| {
+            values: match_each_decimal_value_type!(decimal.canonical_values_type(), |D| {
                 DecimalBuffer::from(BufferMut::<D>::with_capacity_in(
                     capacity,
                     allocator.clone(),
@@ -193,10 +188,8 @@ impl DecimalBuilder {
                 values.len()
             );
 
-            // SAFETY: the values are this builder's own `Buffer<T>`, so they are aligned and a
-            // whole number of elements, and the assert above pairs an array-backed validity with
-            // exactly those values. Whether they fit the precision is the appender's business, as
-            // it is on the checked path, which does not verify it either.
+            // SAFETY: The builder allocated a typed buffer at the dtype's canonical width, and
+            // the length check above covers array-backed validity.
             unsafe { DecimalArray::new_unchecked::<T>(values.freeze(), decimal_dtype, validity) }
         })
     }
@@ -342,6 +335,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_buffer::BufferAllocatorRef;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::VortexSessionExecute;
@@ -350,62 +344,34 @@ mod tests {
     use crate::builders::DecimalBuilder;
     use crate::builders::decimal::DecimalArray;
     use crate::dtype::DecimalDType;
+    use crate::dtype::DecimalType;
     use crate::dtype::Nullability;
-    use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
-    fn test_mixed_extend() {
-        let values = 42i8;
-
-        let mut i8s = DecimalBuilder::new_in::<i8>(
-            DecimalDType::new(2, 1),
-            false.into(),
-            BufferAllocatorRef::static_ref(),
-        );
-        for v in 0..values {
-            i8s.append_value(v);
-        }
-        let i8s = i8s.finish();
-
-        let mut i128s = DecimalBuilder::new_in::<i128>(
-            DecimalDType::new(2, 1),
-            false.into(),
-            BufferAllocatorRef::static_ref(),
-        );
-        i8s.append_to_builder(&mut i128s, &mut SESSION.create_execution_ctx())
-            .unwrap();
-        let i128s = i128s.finish();
-
-        for i in 0..i8s.len() {
-            assert_eq!(
-                i8s.execute_scalar(i, &mut SESSION.create_execution_ctx())
-                    .unwrap(),
-                i128s
-                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
-                    .unwrap()
-            );
-        }
-        assert_eq!(i8s.len(), 42);
-        assert_eq!(i128s.len(), 42);
+    fn append_values_at_canonical_width() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        for value in 0i8..42 {
-            let expected = Scalar::decimal(
-                DecimalValue::I8(value),
-                DecimalDType::new(2, 1),
-                Nullability::NonNullable,
-            );
-            assert_eq!(
-                i8s.execute_scalar(value as usize, &mut ctx).unwrap(),
-                expected
-            );
-            assert_eq!(
-                i128s.execute_scalar(value as usize, &mut ctx).unwrap(),
-                expected
-            );
-        }
+        let dtype = DecimalDType::new(2, 1);
+        let mut builder = DecimalBuilder::new_in(
+            dtype,
+            Nullability::Nullable,
+            BufferAllocatorRef::static_ref(),
+        );
+        builder.append_value(-42i128);
+        builder.append_n_values(99i16, 2);
+        builder.append_null();
+        let array = builder.finish_into_decimal();
+        assert_eq!(array.values_type(), DecimalType::I8);
+
+        array.append_to_builder(&mut builder, &mut ctx)?;
+        assert_arrays_eq!(
+            builder.finish(),
+            DecimalArray::from_option_iter([Some(-42i8), Some(99), Some(99), None], dtype),
+            &mut ctx
+        );
+        Ok(())
     }
 
     #[test]
@@ -413,7 +379,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
 
         // Simply test that the builder accepts its own finish output via scalar.
-        let mut builder = DecimalBuilder::new_in::<i64>(
+        let mut builder = DecimalBuilder::new_in(
             DecimalDType::new(10, 2),
             true.into(),
             BufferAllocatorRef::static_ref(),
@@ -430,7 +396,7 @@ mod tests {
         assert_arrays_eq!(&array, &expected, &mut ctx);
 
         // Test by taking a scalar from the array and appending it to a new builder.
-        let mut builder2 = DecimalBuilder::new_in::<i64>(
+        let mut builder2 = DecimalBuilder::new_in(
             DecimalDType::new(10, 2),
             true.into(),
             BufferAllocatorRef::static_ref(),
@@ -446,7 +412,7 @@ mod tests {
         assert_arrays_eq!(&array2, &array, &mut ctx);
 
         // Test wrong dtype error.
-        let mut builder = DecimalBuilder::new_in::<i64>(
+        let mut builder = DecimalBuilder::new_in(
             DecimalDType::new(10, 2),
             false.into(),
             BufferAllocatorRef::static_ref(),
