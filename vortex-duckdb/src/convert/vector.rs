@@ -6,6 +6,7 @@ use std::sync::Arc;
 use num_traits::AsPrimitive;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::ExtensionArray;
@@ -15,6 +16,7 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::decimal::check_precision;
 use vortex::array::arrays::decimal::copy_to_canonical_width;
+use vortex::array::arrays::extension::validate_extension_values;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::builders::ArrayBuilder;
 use vortex::array::builders::VarBinViewBuilder;
@@ -255,8 +257,7 @@ fn timestamp_from_storage(
     Ok(ExtensionArray::try_new_structural(dtype.erased(), storage)?.into_array())
 }
 
-/// Converts flat vector to a vortex array
-pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<ArrayRef> {
+fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<ArrayRef> {
     let logical_type = vector.logical_type();
     match logical_type.as_type_id() {
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => {
@@ -470,13 +471,15 @@ pub fn data_chunk_to_vortex(
             flat_vector_to_vortex(vector, len.as_())
         })
         .collect::<VortexResult<Vec<_>>>()?;
-    StructArray::try_new(
+    let array = StructArray::try_new(
         field_names.clone(),
         columns,
         len.as_(),
         Validity::NonNullable,
-    )
-    .map(|a| a.into_array())
+    )?
+    .into_array();
+    validate_extension_values(&array, &mut crate::SESSION.create_execution_ctx())?;
+    Ok(array)
 }
 
 #[cfg(test)]
@@ -486,7 +489,6 @@ mod tests {
 
     use geo_types::point;
     use rstest::rstest;
-    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::Decimal;
     use vortex::array::arrays::Extension;
@@ -508,6 +510,7 @@ mod tests {
     use super::*;
     use crate::cpp;
     use crate::cpp::DUCKDB_TYPE;
+    use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
     use crate::duckdb::Vector;
 
@@ -544,6 +547,21 @@ mod tests {
             *storage = <T as BigCast>::from(slot)
                 .vortex_expect("test slot must fit the DuckDB storage width");
         }
+    }
+
+    #[test]
+    fn import_rejects_time_over_one_day() {
+        let mut chunk = DataChunk::new([LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIME)]);
+        chunk.set_len(1);
+        let vector = chunk.get_vector_mut(0);
+        // SAFETY: The vector has one initialized slot of type duckdb_time.
+        let slots = unsafe { vector.as_slice_mut::<duckdb_time>(1) };
+        slots[0].micros = 86_400_000_001;
+
+        let names = FieldNames::from_iter(["time"]);
+        let err = data_chunk_to_vortex(&names, &chunk)
+            .expect_err("a visible time beyond one day must fail import");
+        assert!(err.to_string().contains("Invalid time scalar"), "{err}");
     }
 
     #[test]

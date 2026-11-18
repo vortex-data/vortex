@@ -103,8 +103,8 @@ impl Array<Extension> {
     /// Wraps storage after checking that its dtype matches the extension's storage declaration.
     ///
     /// The values are as legal as the source data. Callers that require legal values must check
-    /// the values visible from the root of the whole array. Imports use this constructor because
-    /// a child cannot tell which of its rows a null ancestor masks.
+    /// the whole array with [`super::validate_extension_values`]. Imports use this constructor
+    /// because a child cannot tell which of its rows a null ancestor masks.
     ///
     /// # Errors
     ///

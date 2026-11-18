@@ -44,11 +44,13 @@ use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::extension::validate_extension_values;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
@@ -58,7 +60,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::dtype::extension::ExtDTypeRef;
 use vortex_array::dtype::extension::ExtId;
-use vortex_array::dtype::session::DTypeSession;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::dtype::session::ExtDTypeRegistry;
 use vortex_array::extension::datetime::AnyTemporal;
@@ -72,11 +73,13 @@ use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
+use vortex_session::VortexSession;
+use vortex_session::WeakVortexSession;
 use vortex_session::registry::Id;
 
 use crate::ArrowExportOptions;
 use crate::IntoVortexArray;
-use crate::convert::from_arrow_dyn;
+use crate::convert::from_arrow_dyn_structural;
 use crate::convert::import_dictionary;
 use crate::convert::map_from_arrow_parts;
 use crate::convert::trim_map_entries;
@@ -264,6 +267,8 @@ pub trait ArrowImportVTable: 'static + Send + Sync + Debug {
     /// Use [`ArrowSession::from_arrow_storage`] when the Arrow layout matches the storage layout
     /// of `dtype`. When importing storage with another layout, pass a nullability to
     /// [`ArrowSession::from_arrow_array`] to avoid dispatching this plugin again.
+    /// The session passed to the plugin defers extension value checks until the enclosing
+    /// array has been imported.
     #[allow(clippy::wrong_self_convention)]
     fn from_arrow_array(
         &self,
@@ -328,6 +333,7 @@ type ArrowImporterRegistry = ArcSwapMap<Id, Arc<[ArrowImportVTableRef]>>;
 /// its extension name so it remains a plain struct. Key and value fields still reach their
 /// importers.
 ///
+/// [`DTypeSession`]: vortex_array::dtype::session::DTypeSession
 /// [`ExecuteArrowExt`]: crate::ExecuteArrowExt
 /// [`ext_metadata`]: crate::ext_metadata
 /// [`VortexSession`]: vortex_session::VortexSession
@@ -338,19 +344,21 @@ pub struct ArrowSession {
     exporters_by_vortex: VortexExporterRegistry,
     importers: ArrowImporterRegistry,
     /// The extension dtypes that the session can look up by Vortex ID. This is the registry of a
-    /// [`DTypeSession`], so dtypes that are registered there later are also found.
+    /// [`DTypeSession`](vortex_array::dtype::session::DTypeSession), so later registrations are found.
     ext_dtypes: ExtDTypeRegistry,
+    /// Plugin callbacks import subtrees and leave validation to the root import.
+    validation_session: Option<WeakVortexSession>,
 }
 
 impl ArrowSession {
-    /// Create a session without plugins that can look up the extension dtypes of `dtype_session`
-    /// by Vortex ID.
-    fn new(dtype_session: &DTypeSession) -> Self {
+    /// Share the dtype registry with the parent session so imports can look up Vortex IDs.
+    fn new(session: &VortexSession) -> Self {
         Self {
             exporters: ArrowExporterRegistry::default(),
             exporters_by_vortex: VortexExporterRegistry::default(),
             importers: ArrowImporterRegistry::default(),
-            ext_dtypes: dtype_session.registry().clone(),
+            ext_dtypes: session.dtypes().registry().clone(),
+            validation_session: Some(session.downgrade()),
         }
     }
 
@@ -877,7 +885,8 @@ impl ArrowSession {
         for (col, field) in batch.columns().iter().zip(schema.fields().iter()) {
             columns.push(self.from_arrow_array_inner(ArrowArrayRef::clone(col), field)?);
         }
-        Ok(StructArray::try_new(names, columns, length, Validity::NonNullable)?.into_array())
+        let imported = StructArray::try_new(names, columns, length, Validity::NonNullable)?;
+        self.validate_imported(imported.into_array())
     }
 
     /// Decode an Arrow array into a Vortex array.
@@ -912,13 +921,15 @@ impl ArrowSession {
     ///
     /// Returns an error for unsupported Arrow types, including Arrow `Null` with a non-nullable
     /// request, or if an import plugin rejects the field or array.
+    /// Visible extension values outside their dtype's domain also return an error.
     pub fn from_arrow_array<'a>(
         &self,
         array: ArrowArrayRef,
         field: impl IntoArrowField<'a>,
     ) -> VortexResult<ArrayRef> {
         let field = field.into_arrow_field(array.data_type());
-        self.from_arrow_array_inner(array, field.as_ref())
+        let imported = self.from_arrow_array_inner(array, field.as_ref())?;
+        self.validate_imported(imported)
     }
 
     /// Import `array`, which holds the Arrow form of the storage of `ext`, as an array of `ext`.
@@ -947,7 +958,18 @@ impl ArrowSession {
         let field = Field::new("", array.data_type().clone(), storage_dtype.is_nullable());
         let field = storage_import_field(&field, storage_dtype);
         let storage = self.from_arrow_array_canonical(array, &field)?;
-        Ok(ExtensionArray::try_new_structural(ext.clone(), storage)?.into_array())
+        let imported = ExtensionArray::try_new_structural(ext.clone(), storage)?;
+        self.validate_imported(imported.into_array())
+    }
+
+    fn validate_imported(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
+        if let Some(session) = &self.validation_session {
+            // An ArrowSession cloned out of its VortexSession can outlive it. Once the owner
+            // drops, validation runs without the owner's registered kernels.
+            let session = session.upgrade().unwrap_or_else(VortexSession::empty);
+            validate_extension_values(&array, &mut session.create_execution_ctx())?;
+        }
+        Ok(array)
     }
 
     /// Import a nested array or root array with a resolved Arrow [`Field`].
@@ -995,8 +1017,12 @@ impl ArrowSession {
             if !importers.is_empty() {
                 let dtype = self.from_arrow_field(field)?;
                 let len = array.len();
+                let structural_session = Self {
+                    validation_session: None,
+                    ..self.clone()
+                };
                 for plugin in importers.iter() {
-                    match plugin.from_arrow_array(array, field, &dtype, self)? {
+                    match plugin.from_arrow_array(array, field, &dtype, &structural_session)? {
                         // Parents such as lists reuse the Arrow offsets into this array without
                         // checking them again, so a plugin must preserve its length, both in what
                         // it imports and in what it hands back when it declines.
@@ -1116,7 +1142,7 @@ impl ArrowSession {
             DataType::Dictionary(_, values_type) => {
                 self.import_dictionary_values(array.as_ref(), field, values_type)
             }
-            _ => from_arrow_dyn(array.as_ref(), field.is_nullable()),
+            _ => from_arrow_dyn_structural(array.as_ref(), field.is_nullable()),
         }
     }
 
@@ -1246,7 +1272,7 @@ pub trait ArrowSessionExt: SessionExt {
 
 impl<S: SessionExt> ArrowSessionExt for S {
     fn arrow(&self) -> SessionGuard<'_, ArrowSession> {
-        self.get_or_insert_with(|| ArrowSession::new(&self.dtypes()))
+        self.get_or_insert_with(|| ArrowSession::new(&self.session()))
     }
 }
 
@@ -1265,6 +1291,7 @@ mod tests {
     use arrow_array::MapArray;
     use arrow_array::StringArray;
     use arrow_array::StructArray;
+    use arrow_array::Time32SecondArray;
     use arrow_array::new_null_array;
     use arrow_array::types::Int32Type;
     use arrow_buffer::NullBuffer;
@@ -1277,7 +1304,6 @@ mod tests {
     use arrow_schema::Metadata;
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::Dict;
     use vortex_array::arrays::FixedSizeList;
     use vortex_array::arrays::ListArray;
@@ -1295,12 +1321,48 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
     use vortex_session::registry::CachedId;
 
     use super::*;
+    use crate::convert::from_arrow_dyn;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[rstest]
+    #[case::top_level(false)]
+    #[case::inside_struct(true)]
+    fn import_rejects_time_over_one_day(#[case] nested: bool) -> VortexResult<()> {
+        let time: ArrowArrayRef = Arc::new(Time32SecondArray::from(vec![86_401]));
+        let array: ArrowArrayRef = if nested {
+            let fields = Fields::from(vec![Field::new("time", time.data_type().clone(), false)]);
+            Arc::new(StructArray::try_new(fields, vec![time], None)?)
+        } else {
+            time
+        };
+
+        for result in [
+            SESSION.arrow().from_arrow_array(Arc::clone(&array), false),
+            from_arrow_dyn(array.as_ref(), false),
+        ] {
+            let err = result.expect_err("a visible time beyond one day must fail import");
+            assert!(err.to_string().contains("Invalid time scalar"), "{err}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn import_checks_only_referenced_dictionary_values() -> VortexResult<()> {
+        let values: ArrowArrayRef = Arc::new(Time32SecondArray::from(vec![42, 86_401]));
+        let valid = DictionaryArray::try_new(Int32Array::from(vec![0]), Arc::clone(&values))?;
+        let invalid = DictionaryArray::try_new(Int32Array::from(vec![1]), values)?;
+        SESSION.arrow().from_arrow_array(Arc::new(valid), false)?;
+        let err = SESSION
+            .arrow()
+            .from_arrow_array(Arc::new(invalid), false)
+            .expect_err("a referenced illegal dictionary value must fail import");
+        assert!(err.to_string().contains("Invalid time scalar"), "{err}");
+        Ok(())
+    }
 
     #[rstest]
     #[case::prefix(0, 2)]

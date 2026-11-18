@@ -14,6 +14,7 @@ pub use session::SessionGuard;
 pub use session::SessionMut;
 pub use session::VortexSession;
 pub use session::VortexSessionVar;
+pub use session::WeakVortexSession;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct UnknownPluginPolicy {

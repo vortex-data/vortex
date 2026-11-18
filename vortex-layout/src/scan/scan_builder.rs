@@ -13,6 +13,8 @@ use futures::Stream;
 use futures::stream::BoxStream;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::extension::validate_extension_values;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
@@ -87,6 +89,7 @@ pub struct ScanBuilder<A> {
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
     /// but not by the scan [`Selection`] which remains relative.
     row_offset: u64,
+    validate_extension_values: bool,
 }
 
 impl ScanBuilder<ArrayRef> {
@@ -114,6 +117,7 @@ impl ScanBuilder<ArrayRef> {
             metrics: None,
             limit: None,
             row_offset: 0,
+            validate_extension_values: false,
         }
     }
 
@@ -261,6 +265,14 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    /// Checks visible extension values in each output batch when enabled. Off by default.
+    ///
+    /// Validation applies to the selected rows and projected columns before mapping the batch.
+    pub fn with_validate_extension_values(mut self, validate: bool) -> Self {
+        self.validate_extension_values = validate;
+        self
+    }
+
     /// Adds the resource usage of this scan to `usage`.
     ///
     /// The caller owns the scope. Share one value across scans to get the total of a partition or
@@ -351,6 +363,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             metrics: self.metrics,
             limit: self.limit,
             row_offset: self.row_offset,
+            validate_extension_values: self.validate_extension_values,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
         }
     }
@@ -406,6 +419,15 @@ impl<A: 'static + Send> ScanBuilder<A> {
                 )
             };
 
+        let mut map_fn = self.map_fn;
+        if self.validate_extension_values {
+            let session = self.session.clone();
+            map_fn = Arc::new(move |array| {
+                validate_extension_values(&array, &mut session.create_execution_ctx())?;
+                map_fn(array)
+            });
+        }
+
         Ok(RepeatedScan::new(
             self.session.clone(),
             layout_reader,
@@ -416,7 +438,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             self.selection,
             splits,
             self.concurrency,
-            self.map_fn,
+            map_fn,
             self.usage,
             self.metrics,
             self.limit,

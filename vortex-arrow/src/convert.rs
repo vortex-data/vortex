@@ -8,6 +8,7 @@
 
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use arrow_array::AnyDictionaryArray;
 use arrow_array::Array as ArrowArray;
@@ -68,6 +69,7 @@ use arrow_schema::DataType;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::DictArray;
@@ -84,6 +86,7 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::decimal::check_precision;
 use vortex_array::arrays::decimal::copy_to_canonical_width;
+use vortex_array::arrays::extension::validate_extension_values;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -112,6 +115,7 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use crate::dtype::from_arrow_time_unit;
 use crate::import_nullability::import_leaf;
@@ -320,6 +324,18 @@ pub fn from_arrow_temporal<T: ArrowPrimitiveType>(
 where
     T::Native: NativePType,
 {
+    let imported = from_arrow_temporal_structural(value, nullable)?;
+    validate_imported(&imported)?;
+    Ok(imported)
+}
+
+fn from_arrow_temporal_structural<T: ArrowPrimitiveType>(
+    value: &ArrowPrimitiveArray<T>,
+    nullable: bool,
+) -> VortexResult<ArrayRef>
+where
+    T::Native: NativePType,
+{
     let storage = from_arrow_primitive(value, nullable)?;
 
     let nullability = storage.dtype().nullability();
@@ -430,12 +446,21 @@ pub fn from_arrow_boolean(value: &ArrowBooleanArray, nullable: bool) -> VortexRe
 
 /// Conversion of an Arrow struct array into a Vortex `Struct` array, converting each column.
 pub fn from_arrow_struct(value: &ArrowStructArray, nullable: bool) -> VortexResult<ArrayRef> {
+    let imported = from_arrow_struct_structural(value, nullable)?;
+    validate_imported(&imported)?;
+    Ok(imported)
+}
+
+fn from_arrow_struct_structural(
+    value: &ArrowStructArray,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
     let names = value.column_names().iter().copied().collect();
     let columns = value
         .columns()
         .iter()
         .zip(value.fields())
-        .map(|(column, field)| from_arrow_dyn(column.as_ref(), field.is_nullable()))
+        .map(|(column, field)| from_arrow_dyn_structural(column.as_ref(), field.is_nullable()))
         .collect::<VortexResult<Vec<_>>>()?;
     let validity = level_validity(value.nulls(), nullable)?;
 
@@ -444,6 +469,15 @@ pub fn from_arrow_struct(value: &ArrowStructArray, nullable: bool) -> VortexResu
 
 /// Conversion of an Arrow (large) list array into a Vortex `List` array.
 pub fn from_arrow_list<O: IntegerPType + OffsetSizeTrait>(
+    array: &GenericListArray<O>,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
+    let imported = from_arrow_list_structural(array, nullable)?;
+    validate_imported(&imported)?;
+    Ok(imported)
+}
+
+fn from_arrow_list_structural<O: IntegerPType + OffsetSizeTrait>(
     value: &GenericListArray<O>,
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
@@ -454,7 +488,7 @@ pub fn from_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     };
 
     let (offsets, referenced) = trim_offsets(value.offsets());
-    let elements = from_arrow_dyn(
+    let elements = from_arrow_dyn_structural(
         value
             .values()
             .slice(referenced.start, referenced.len())
@@ -475,13 +509,22 @@ pub fn from_arrow_list_view<O: OffsetSizeTrait + NativePType>(
     array: &GenericListViewArray<O>,
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
+    let imported = from_arrow_list_view_structural(array, nullable)?;
+    validate_imported(&imported)?;
+    Ok(imported)
+}
+
+fn from_arrow_list_view_structural<O: OffsetSizeTrait + NativePType>(
+    array: &GenericListViewArray<O>,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
     let elements_are_nullable = match array.data_type() {
         DataType::ListView(field) => field.is_nullable(),
         DataType::LargeListView(field) => field.is_nullable(),
         dt => vortex_panic!("Invalid data type for ListViewArray: {dt}"),
     };
 
-    let elements = from_arrow_dyn(array.values().as_ref(), elements_are_nullable)?;
+    let elements = from_arrow_dyn_structural(array.values().as_ref(), elements_are_nullable)?;
 
     let offsets = array.offsets().clone().into_array();
     let sizes = array.sizes().clone().into_array();
@@ -499,6 +542,15 @@ pub fn from_arrow_fixed_size_list(
     array: &ArrowFixedSizeListArray,
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
+    let imported = from_arrow_fixed_size_list_structural(array, nullable)?;
+    validate_imported(&imported)?;
+    Ok(imported)
+}
+
+fn from_arrow_fixed_size_list_structural(
+    array: &ArrowFixedSizeListArray,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
     let DataType::FixedSizeList(field, list_size) = array.data_type() else {
         vortex_panic!(
             "Arrow fixed-size lists must have a FixedSizeList data type, got {}",
@@ -506,7 +558,7 @@ pub fn from_arrow_fixed_size_list(
         );
     };
 
-    let elements = from_arrow_dyn(array.values().as_ref(), field.is_nullable())?;
+    let elements = from_arrow_dyn_structural(array.values().as_ref(), field.is_nullable())?;
     let validity = level_validity(array.nulls(), nullable)?;
 
     Ok(
@@ -586,11 +638,17 @@ pub(crate) fn trim_map_entries(array: &ArrowMapArray) -> (ArrowStructArray, Offs
 
 /// Conversion of an Arrow map array into a Vortex `Map` array.
 pub fn from_arrow_map(array: &ArrowMapArray, nullable: bool) -> VortexResult<ArrayRef> {
+    let imported = from_arrow_map_structural(array, nullable)?;
+    validate_imported(&imported)?;
+    Ok(imported)
+}
+
+fn from_arrow_map_structural(array: &ArrowMapArray, nullable: bool) -> VortexResult<ArrayRef> {
     let DataType::Map(_, keys_sorted) = array.data_type() else {
         vortex_panic!("Invalid data type for MapArray: {}", array.data_type());
     };
     let (entries, offsets) = trim_map_entries(array);
-    let entries = from_arrow_struct(&entries, false)?;
+    let entries = from_arrow_struct_structural(&entries, false)?;
     map_from_arrow_parts(entries, &offsets, array.nulls(), *keys_sorted, nullable)
 }
 
@@ -610,9 +668,11 @@ pub fn from_arrow_dictionary<K: ArrowDictionaryKeyType>(
     array: &DictionaryArray<K>,
     nullable: bool,
 ) -> VortexResult<DictArray> {
-    import_dictionary(array, nullable, |values| {
-        from_arrow_dyn(values.as_ref(), nullable)
-    })
+    let imported = import_dictionary(array, nullable, |values| {
+        from_arrow_dyn_structural(values.as_ref(), nullable)
+    })?;
+    validate_imported(imported.as_ref())?;
+    Ok(imported)
 }
 
 /// Import dictionary codes alongside values converted by the caller.
@@ -635,7 +695,7 @@ pub(crate) fn import_dictionary(
     let values = import_values(values)?;
 
     let codes = if nullable {
-        from_arrow_dyn(keys, keys.is_nullable())?
+        from_arrow_dyn_structural(keys, keys.is_nullable())?
     } else {
         downcast_integer_array!(
             keys => non_nullable_dictionary_codes(keys),
@@ -706,6 +766,15 @@ pub fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> VortexResult<Validit
 ///
 /// This applies the nullability rules of [`crate::ArrowSession::from_arrow_array`].
 pub fn from_arrow_dyn(array: &dyn ArrowArray, nullable: bool) -> VortexResult<ArrayRef> {
+    let imported = from_arrow_dyn_structural(array, nullable)?;
+    validate_imported(&imported)?;
+    Ok(imported)
+}
+
+pub(crate) fn from_arrow_dyn_structural(
+    array: &dyn ArrowArray,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
     match array.data_type() {
         DataType::Boolean => from_arrow_boolean(array.as_boolean(), nullable),
         DataType::UInt8 => from_arrow_primitive(array.as_primitive::<UInt8Type>(), nullable),
@@ -725,48 +794,63 @@ pub fn from_arrow_dyn(array: &dyn ArrowArray, nullable: bool) -> VortexResult<Ar
         DataType::LargeBinary => from_arrow_bytes(array.as_binary::<i64>(), nullable),
         DataType::BinaryView => from_arrow_byte_view(array.as_binary_view(), nullable),
         DataType::Utf8View => from_arrow_byte_view(array.as_string_view(), nullable),
-        DataType::Struct(_) => from_arrow_struct(array.as_struct(), nullable),
-        DataType::List(_) => from_arrow_list(array.as_list::<i32>(), nullable),
-        DataType::LargeList(_) => from_arrow_list(array.as_list::<i64>(), nullable),
-        DataType::ListView(_) => from_arrow_list_view(array.as_list_view::<i32>(), nullable),
-        DataType::LargeListView(_) => from_arrow_list_view(array.as_list_view::<i64>(), nullable),
-        DataType::FixedSizeList(..) => {
-            from_arrow_fixed_size_list(array.as_fixed_size_list(), nullable)
+        DataType::Struct(_) => from_arrow_struct_structural(array.as_struct(), nullable),
+        DataType::List(_) => from_arrow_list_structural(array.as_list::<i32>(), nullable),
+        DataType::LargeList(_) => from_arrow_list_structural(array.as_list::<i64>(), nullable),
+        DataType::ListView(_) => {
+            from_arrow_list_view_structural(array.as_list_view::<i32>(), nullable)
         }
-        DataType::Map(..) => from_arrow_map(array.as_map(), nullable),
+        DataType::LargeListView(_) => {
+            from_arrow_list_view_structural(array.as_list_view::<i64>(), nullable)
+        }
+        DataType::FixedSizeList(..) => {
+            from_arrow_fixed_size_list_structural(array.as_fixed_size_list(), nullable)
+        }
+        DataType::Map(..) => from_arrow_map_structural(array.as_map(), nullable),
         DataType::Null => from_arrow_null(as_null_array(array), nullable),
         DataType::Timestamp(u, _) => match u {
-            ArrowTimeUnit::Second => {
-                from_arrow_temporal(array.as_primitive::<TimestampSecondType>(), nullable)
-            }
-            ArrowTimeUnit::Millisecond => {
-                from_arrow_temporal(array.as_primitive::<TimestampMillisecondType>(), nullable)
-            }
-            ArrowTimeUnit::Microsecond => {
-                from_arrow_temporal(array.as_primitive::<TimestampMicrosecondType>(), nullable)
-            }
-            ArrowTimeUnit::Nanosecond => {
-                from_arrow_temporal(array.as_primitive::<TimestampNanosecondType>(), nullable)
-            }
+            ArrowTimeUnit::Second => from_arrow_temporal_structural(
+                array.as_primitive::<TimestampSecondType>(),
+                nullable,
+            ),
+            ArrowTimeUnit::Millisecond => from_arrow_temporal_structural(
+                array.as_primitive::<TimestampMillisecondType>(),
+                nullable,
+            ),
+            ArrowTimeUnit::Microsecond => from_arrow_temporal_structural(
+                array.as_primitive::<TimestampMicrosecondType>(),
+                nullable,
+            ),
+            ArrowTimeUnit::Nanosecond => from_arrow_temporal_structural(
+                array.as_primitive::<TimestampNanosecondType>(),
+                nullable,
+            ),
         },
-        DataType::Date32 => from_arrow_temporal(array.as_primitive::<Date32Type>(), nullable),
-        DataType::Date64 => from_arrow_temporal(array.as_primitive::<Date64Type>(), nullable),
+        DataType::Date32 => {
+            from_arrow_temporal_structural(array.as_primitive::<Date32Type>(), nullable)
+        }
+        DataType::Date64 => {
+            from_arrow_temporal_structural(array.as_primitive::<Date64Type>(), nullable)
+        }
         DataType::Time32(u) => match u {
             ArrowTimeUnit::Second => {
-                from_arrow_temporal(array.as_primitive::<Time32SecondType>(), nullable)
+                from_arrow_temporal_structural(array.as_primitive::<Time32SecondType>(), nullable)
             }
-            ArrowTimeUnit::Millisecond => {
-                from_arrow_temporal(array.as_primitive::<Time32MillisecondType>(), nullable)
-            }
+            ArrowTimeUnit::Millisecond => from_arrow_temporal_structural(
+                array.as_primitive::<Time32MillisecondType>(),
+                nullable,
+            ),
             ArrowTimeUnit::Microsecond | ArrowTimeUnit::Nanosecond => unreachable!(),
         },
         DataType::Time64(u) => match u {
-            ArrowTimeUnit::Microsecond => {
-                from_arrow_temporal(array.as_primitive::<Time64MicrosecondType>(), nullable)
-            }
-            ArrowTimeUnit::Nanosecond => {
-                from_arrow_temporal(array.as_primitive::<Time64NanosecondType>(), nullable)
-            }
+            ArrowTimeUnit::Microsecond => from_arrow_temporal_structural(
+                array.as_primitive::<Time64MicrosecondType>(),
+                nullable,
+            ),
+            ArrowTimeUnit::Nanosecond => from_arrow_temporal_structural(
+                array.as_primitive::<Time64NanosecondType>(),
+                nullable,
+            ),
             ArrowTimeUnit::Second | ArrowTimeUnit::Millisecond => unreachable!(),
         },
         DataType::Decimal32(..) => {
@@ -789,13 +873,13 @@ pub fn from_arrow_dyn(array: &dyn ArrowArray, nullable: bool) -> VortexResult<Ar
                 )
             })?;
             Ok(import_dictionary(dict, nullable, |values| {
-                from_arrow_dyn(values.as_ref(), nullable)
+                from_arrow_dyn_structural(values.as_ref(), nullable)
             })?
             .into_array())
         }
         DataType::RunEndEncoded(ends, _) => {
             run_end_from_arrow_dyn(array, ends.data_type(), |values| {
-                from_arrow_dyn(values.as_ref(), nullable)
+                from_arrow_dyn_structural(values.as_ref(), nullable)
             })
         }
         dt => {
@@ -807,6 +891,11 @@ pub fn from_arrow_dyn(array: &dyn ArrowArray, nullable: bool) -> VortexResult<Ar
 /// Canonical conversion of an Arrow [`RecordBatch`] into a Vortex struct array.
 pub fn from_arrow_batch(batch: &RecordBatch, nullable: bool) -> VortexResult<ArrayRef> {
     from_arrow_struct(&arrow_array::StructArray::from(batch.clone()), nullable)
+}
+
+fn validate_imported(array: &ArrayRef) -> VortexResult<()> {
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    validate_extension_values(array, &mut SESSION.create_execution_ctx())
 }
 
 #[cfg(test)]

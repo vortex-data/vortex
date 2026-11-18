@@ -38,7 +38,9 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::sync::Arc;
+use std::sync::Weak;
 
+use arc_swap::ArcSwap;
 use arc_swap::Guard;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
@@ -163,6 +165,20 @@ impl<V: VortexSessionVar> Debug for SessionMut<'_, V> {
 #[derive(Clone)]
 pub struct VortexSession(SharedSessionVars);
 
+/// A reference to a session that allows a session variable to use it without keeping it alive.
+#[derive(Clone, Debug)]
+pub struct WeakVortexSession(Weak<ArcSwap<SessionVars>>);
+
+impl WeakVortexSession {
+    /// Returns the session while at least one strong handle still exists.
+    pub fn upgrade(&self) -> Option<VortexSession> {
+        self.0
+            .upgrade()
+            .map(ArcSwapMap::from_inner)
+            .map(VortexSession)
+    }
+}
+
 impl Debug for VortexSession {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.0
@@ -174,6 +190,11 @@ impl VortexSession {
     /// Create a new [`VortexSession`] with no session state.
     pub fn empty() -> Self {
         Self(SharedSessionVars::default())
+    }
+
+    /// References this session without extending its lifetime.
+    pub fn downgrade(&self) -> WeakVortexSession {
+        WeakVortexSession(self.0.downgrade())
     }
 
     /// Inserts a session variable of type `V`, unconditionally replacing any existing variable of

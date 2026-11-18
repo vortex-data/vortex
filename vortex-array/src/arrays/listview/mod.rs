@@ -8,6 +8,7 @@ pub use array::ListViewData;
 pub use array::ListViewDataParts;
 pub use array::ListViewSlots;
 pub use array::ListViewSlotsView;
+pub(crate) use array::referenced_elements_mask;
 pub use vtable::ListViewArray;
 
 pub(crate) mod compute;
