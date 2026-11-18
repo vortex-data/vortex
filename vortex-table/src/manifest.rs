@@ -26,11 +26,8 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
-use vortex_file::DeserializeStep;
-use vortex_file::Footer;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::VortexFile;
 use vortex_file::WriteOptionsSessionExt;
@@ -83,21 +80,21 @@ impl ManifestEntry {
         })
     }
 
-    /// Opens the file from its stored footer, with no footer IO: `read` serves only its segments.
+    /// Opens the file, fetching its footer in one read: the reader is told exactly how much of
+    /// the tail to read, so it never reads a guessed tail and then again.
     pub async fn open(
         &self,
         session: &VortexSession,
         read: Arc<dyn VortexReadAt>,
     ) -> VortexResult<VortexFile> {
-        let mut deserializer =
-            Footer::deserializer(self.footer.clone(), session.clone()).with_size(self.byte_size);
-        let DeserializeStep::Done(footer) = deserializer.deserialize()? else {
-            vortex_bail!("the stored footer of {} is incomplete", self.path);
-        };
         session
             .open_options()
-            .with_footer(footer)
             .with_file_size(self.byte_size)
+            .with_initial_read_size(usize::try_from(
+                self.byte_size
+                    .checked_sub(self.footer_offset)
+                    .ok_or_else(|| vortex_err!("{}: footer offset is past the end", self.path))?,
+            )?)
             .open(read)
             .await
     }

@@ -6,8 +6,8 @@
 //! notice. It is not published, and no other crate in the workspace depends on it.
 //!
 //! The table is deliberately minimal. A [`Manifest`], itself a Vortex file, lists the data files
-//! with their footers. A [`TableScan`] opens every file from its stored footer without reading
-//! it, drops the files whose statistics rule out the filter, and runs each kept file's ordinary
+//! with where each one's footer starts. A [`TableScan`] opens every file with one read of its
+//! footer, drops the files whose statistics rule out the filter, and runs each kept file's ordinary
 //! scan, in table order. See `examples/table_scan.rs`.
 
 pub mod manifest;

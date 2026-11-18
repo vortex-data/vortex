@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Scanning a table: open its files from their stored footers, drop the files whose statistics
+//! Scanning a table: open its files, reading each footer in one read, drop the files whose statistics
 //! rule the filter out, and run each remaining file's ordinary scan, in table order.
 //!
 //! Every file is scanned by its own [`ScanDriver`]. TODO: once IO requests carry a source id, a
@@ -27,7 +27,7 @@ use crate::Manifest;
 
 /// A file a scan keeps, and the table row its first row is.
 pub struct PlannedFile {
-    /// The file, opened from its stored footer.
+    /// The opened file.
     pub file: VortexFile,
     /// The table row of the file's first row.
     pub row_offset: u64,

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Writes a table of ten Vortex files and a manifest, then scans it with a filter: the manifest's
-//! stored footers open every file without reading it, the files' statistics rule out the ones
-//! that cannot match, and each kept file runs its ordinary scan.
+//! Writes a table of ten Vortex files and a manifest, then scans it with a filter: each file opens
+//! with one read of its footer, found at the offset the manifest records, the files' statistics
+//! rule out the ones that cannot match, and each kept file runs its ordinary scan.
 //!
 //! ```sh
 //! cargo run -p vortex-table --example table_scan
