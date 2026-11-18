@@ -12,10 +12,8 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::Decimal;
 use crate::arrays::DictArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::decimal::DecimalArrayExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -92,12 +90,7 @@ pub fn dict_encoder_in(
             bytes_dict_builder(array.dtype().clone(), constraints, allocator)
         }
         DType::Decimal(decimal_dtype, nullability) => {
-            // A canonical array may store values that do not fit the precision's values type.
-            let canonical = decimal_dtype.canonical_values_type();
-            let values_type = array
-                .as_opt::<Decimal>()
-                .map_or(canonical, |decimal| decimal.values_type().max(canonical));
-            match_each_decimal_value_type!(values_type, |D| {
+            match_each_decimal_value_type!(decimal_dtype.canonical_values_type(), |D| {
                 decimal_dict_builder::<D>(*decimal_dtype, *nullability, constraints, allocator)
             })
         }

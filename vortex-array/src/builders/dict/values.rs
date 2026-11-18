@@ -52,11 +52,6 @@ where
         }
     }
 
-    /// Returns whether the dictionary holds no values.
-    pub(super) fn is_empty(&self) -> bool {
-        self.values.is_empty()
-    }
-
     /// Returns the codes of the longest prefix of `values` that fits the dictionary constraints,
     /// adding the values it has not seen yet. `mask` holds the validity of `values`, and `key`
     /// gives the lookup key of a value.
@@ -67,6 +62,13 @@ where
         key: impl Fn(V) -> K,
     ) -> BufferMut<Code> {
         let mut codes = BufferMut::<Code>::with_capacity_in(values.len(), self.allocator.clone());
+
+        // An all-null mask adds the null entry for the whole input, so empty input would add an
+        // entry that no code references.
+        if values.is_empty() {
+            return codes;
+        }
+
         match mask {
             Mask::AllTrue(_) => {
                 for &value in values {

@@ -29,6 +29,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::WidenArray;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
 use vortex_array::builders::dict::dict_encoder_in;
@@ -36,6 +37,8 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_decimal_byte_parts::DecimalBytePartsArraySlotsExt;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -561,21 +564,21 @@ async fn peek_probe_sample(
 
 /// Returns whether the probe compressor chose a dictionary for a sample.
 ///
-/// A decimal can also be compressed to a wrapper of one array as long as itself, such as byte
-/// parts with a single part, whose child holds the dictionary. Its dictionary then holds the
-/// decimal values in another form, with the same codes, so the column gets a dict layout either
-/// way.
+/// Byte parts with only a most significant part can also hold the dictionary, under an integer
+/// `Widen` when compression narrowed that part. The dictionary then holds the unscaled decimals
+/// with the same codes, so the column gets a dict layout either way. Byte parts with lower parts
+/// do not count, because a dictionary of one part says little about the distinct count of the
+/// whole decimals.
 fn is_dictionary(compressed: &ArrayRef) -> bool {
     if compressed.is::<Dict>() {
         return true;
     }
-    if !matches!(compressed.dtype(), DType::Decimal(..)) {
+
+    let Some(parts) = compressed.as_opt::<DecimalByteParts>() else {
         return false;
-    }
-    match compressed.children().as_slice() {
-        [child] => child.len() == compressed.len() && child.is::<Dict>(),
-        _ => false,
-    }
+    };
+
+    parts.lower_parts().is_empty() && WidenArray::to_stored_integer(parts.msp()).is::<Dict>()
 }
 
 pub fn dict_layout_supported(dtype: &DType) -> bool {
@@ -644,17 +647,22 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::WidenArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::dict::DictConstraints;
     use vortex_array::builders::dict::dict_encode;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
     use vortex_array::expr::root;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::session::ArraySession;
+    use vortex_buffer::buffer;
+    use vortex_decimal_byte_parts::DecimalByteParts;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -667,6 +675,7 @@ mod tests {
     use super::DictionaryChunk;
     use super::DictionaryTransformer;
     use super::dict_encode_stream;
+    use super::is_dictionary;
     use crate::LayoutStrategy;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::dict::Dict;
@@ -909,6 +918,40 @@ mod tests {
             PROBE_LEN.min(nchunks * chunk_len)
         );
         assert_arrays_eq!(actual, values, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    /// The probe counts a dictionary under byte parts with only a most significant part, also
+    /// under an integer `Widen` there, and does not count one next to lower parts.
+    #[rstest]
+    #[case::msp(false, false, true)]
+    #[case::widen_msp(true, false, true)]
+    #[case::lower_parts(false, true, false)]
+    fn probe_finds_dictionary_in_byte_parts(
+        #[case] widen: bool,
+        #[case] lower_part: bool,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let codes = buffer![0u8, 1, 0, 1].into_array();
+        let msp = if widen {
+            let dict = DictArray::try_new(codes, buffer![100i16, -5].into_array())?.into_array();
+            WidenArray::try_new(dict, DType::Primitive(PType::I64, NonNullable))?.into_array()
+        } else {
+            DictArray::try_new(codes, buffer![100i64, -5].into_array())?.into_array()
+        };
+
+        let parts = if lower_part {
+            DecimalByteParts::try_new_with_lower_parts(
+                msp,
+                vec![buffer![0u64; 4].into_array()],
+                DecimalDType::new(38, 2),
+            )?
+        } else {
+            DecimalByteParts::try_new(msp, DecimalDType::new(18, 2))?
+        };
+
+        assert_eq!(is_dictionary(&parts.into_array()), expected);
+
         Ok(())
     }
 }

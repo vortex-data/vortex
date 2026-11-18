@@ -221,6 +221,7 @@ mod tests {
     use vortex_array::dtype::BigCast;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::DecimalType;
+    use vortex_array::dtype::NativeDecimalType;
     use vortex_array::dtype::i256;
     use vortex_array::match_each_decimal_value_type;
     use vortex_array::validity::Validity;
@@ -299,7 +300,7 @@ mod tests {
                         .iter()
                         .map(|&v| <T as BigCast>::from(v).vortex_expect("fits"))
                         .collect::<Buffer<T>>(),
-                    DecimalDType::new(18, 2),
+                    DecimalDType::new(T::MAX_PRECISION, 2),
                     validity(),
                 )
             })
