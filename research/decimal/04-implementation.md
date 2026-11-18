@@ -63,7 +63,7 @@ implementation PR was found. 🟠 **Parked** marks an experiment that closed wit
 | CD8b | 🟢 Done | Check valid host values against their precision at construction. Device buffers keep only the layout check. [#11572] | CD8a | Large |
 | CD8c | 🟢 Done | Remove mixed-width decimal code for operands of the same dtype. [#11573] | CD8a | Medium |
 | WR1 | 🔵 Open | Read and write `vortex.widen` for integers and decimals. [#11597] keeps `vortex.decimal` for a decimal leaf. Unlike the brief, a write whose editions do not permit `vortex.widen` returns an error instead of writing the canonical array. | WD1, CD3, CD4, CD8a | Medium |
-| WR2p | 🔵 Open | Reject node buffers in the DecimalByteParts v2 reader, so it accepts only what the writer emits before the contract freezes. [#11596] | None | Small |
+| WR2p | 🔵 Open | Make the DecimalByteParts v2 reader accept only what the writer emits before the contract freezes: no node buffers, and at least one lower part. A v2 MSP then can never be wider than its logical dtype. [#11596] | None | Small |
 | WR2 | ⚪ Not started | Admit `vortex.widen` and DecimalByteParts v2 to a preview edition. [#11595] removed v2 from `unstable` because `between` and aggregates decode when lower parts exist. Open question: does WR2 wait for those kernels? | WR1, WR2p, CD5, CD7 | Small |
 | WR3 | ⚪ Not started | Design and implement the integer `Narrow` compressor scheme. DecimalByteParts owns decimal narrowing (D33). | WR1, WR2, WD1, WD5 | Large |
 | LT1 | ⚪ Not started | Admit both wire formats to `core` and decide how writers targeting older editions handle `Widen`. | WR2 | Unestimated |
