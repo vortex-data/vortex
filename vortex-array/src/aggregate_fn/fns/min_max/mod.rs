@@ -393,6 +393,8 @@ impl AggregateFnVTable for MinMax {
         args: AggregateArgs<'_, Self::Options>,
         scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
+        args.dtype.require_claim(Claim::Ord, "min_max")?;
+
         let mut partial = MinMaxPartial {
             min: None,
             max: None,
@@ -457,6 +459,10 @@ impl AggregateFnVTable for MinMax {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
+        if !batch.dtype().holds(Claim::Ord) {
+            return Ok(false);
+        }
+
         if let Some(array) = batch.as_opt::<Extension>() {
             accumulate_extension(args, partial, &array, ctx)?;
             return Ok(true);
@@ -503,6 +509,8 @@ impl AggregateFnVTable for MinMax {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        batch.dtype().require_claim(Claim::Ord, "min_max")?;
+
         match batch {
             Columnar::Constant(c) => {
                 if c.is_empty() {

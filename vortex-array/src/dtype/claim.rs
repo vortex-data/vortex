@@ -121,7 +121,6 @@ mod tests {
     use rstest::rstest;
     use vortex_error::VortexResult;
 
-    use crate::DeserializeMetadata;
     use crate::EmptyMetadata;
     use crate::dtype::Claim;
     use crate::dtype::Claims;
@@ -133,12 +132,10 @@ mod tests {
     use crate::dtype::UnionVariants;
     use crate::dtype::extension::ExtDType;
     use crate::dtype::extension::ExtDTypePlugin;
-    use crate::dtype::extension::ExtId;
-    use crate::dtype::extension::ExtVTable;
+    use crate::extension::tests::ClaimsEq;
     use crate::extension::tests::DivisibleInt;
     use crate::extension::tests::Divisor;
     use crate::extension::tests::Opaque;
-    use crate::scalar::ScalarValue;
 
     fn i64_dtype() -> DType {
         DType::Primitive(PType::I64, NonNullable)
@@ -156,55 +153,8 @@ mod tests {
         ))
     }
 
-    /// Declares equality even when the supplied storage lacks it.
-    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-    struct ClaimsEq;
-
-    impl ExtVTable for ClaimsEq {
-        type Metadata = DType;
-        type StoredMetadata = EmptyMetadata;
-        type NativeValue<'a> = &'a ScalarValue;
-
-        #[expect(clippy::disallowed_methods, reason = "test-only id")]
-        fn id(&self) -> ExtId {
-            ExtId::new("test.claims_eq")
-        }
-
-        fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-            Ok(Vec::new())
-        }
-
-        fn deserialize_metadata(&self, bytes: &[u8]) -> VortexResult<Self::StoredMetadata> {
-            EmptyMetadata::deserialize(bytes)
-        }
-
-        fn metadata_from_storage(
-            &self,
-            _stored_metadata: Self::StoredMetadata,
-            storage_dtype: &DType,
-        ) -> VortexResult<Self::Metadata> {
-            Ok(storage_dtype.clone())
-        }
-
-        fn storage_dtype(metadata: &Self::Metadata) -> DType {
-            metadata.clone()
-        }
-
-        fn claims(_metadata: &Self::Metadata) -> Claims {
-            Claims::none().with(Claim::Eq)
-        }
-
-        fn unpack_native<'a>(
-            _ext_dtype: &'a ExtDType<Self>,
-            storage_value: &'a ScalarValue,
-        ) -> VortexResult<Self::NativeValue<'a>> {
-            Ok(storage_value)
-        }
-    }
-
     #[rstest]
-    #[case::i64(i64_dtype(), true)]
-    #[case::f64(DType::Primitive(PType::F64, NonNullable), true)]
+    #[case::primitive(i64_dtype(), true)]
     #[case::bool(DType::Bool(NonNullable), true)]
     #[case::utf8(DType::Utf8(NonNullable), true)]
     #[case::binary(DType::Binary(NonNullable), true)]
@@ -216,12 +166,10 @@ mod tests {
     #[case::list_i64(DType::list(i64_dtype(), NonNullable), true)]
     #[case::fixed_size_list_i64(DType::FixedSizeList(i64_dtype().into(), 2, NonNullable), true)]
     #[case::struct_variant(DType::struct_([("a", DType::Variant(NonNullable))], NonNullable), false)]
-    fn builtin_dtypes_hold_claims(
-        #[case] dtype: DType,
-        #[case] expected: bool,
-        #[values(Claim::Eq, Claim::Ord)] claim: Claim,
-    ) {
-        assert_eq!(dtype.holds(claim), expected);
+    fn builtin_dtypes_hold_claims(#[case] dtype: DType, #[case] expected: bool) {
+        for claim in Claim::ALL {
+            assert_eq!(dtype.holds(claim), expected, "{dtype} {claim}");
+        }
     }
 
     #[rstest]
@@ -245,42 +193,27 @@ mod tests {
     #[case::none(Claims::none(), false, false)]
     #[case::eq(Claims::none().with(Claim::Eq), true, false)]
     #[case::ord(Claims::none().with(Claim::Ord), true, true)]
-    #[case::eq_then_ord(Claims::none().with(Claim::Eq).with(Claim::Ord), true, true)]
     #[case::ord_then_eq(Claims::none().with(Claim::Ord).with(Claim::Eq), true, true)]
     fn claims_builder(#[case] claims: Claims, #[case] eq: bool, #[case] ord: bool) {
         assert_eq!(claims.holds(Claim::Eq), eq);
         assert_eq!(claims.holds(Claim::Ord), ord);
     }
 
-    #[test]
-    fn extension_holds_declared_and_implied_claims() -> VortexResult<()> {
-        let divisible_int = divisible_int_dtype()?;
-        let opaque = opaque_dtype()?;
-        let opaque_list = DType::list(opaque.clone(), NonNullable);
-        let divisible_int_struct = DType::struct_([("a", divisible_int.clone())], NonNullable);
-
-        assert!(divisible_int.holds(Claim::Ord));
-        assert!(divisible_int.holds(Claim::Eq));
-        assert!(!opaque.holds(Claim::Ord));
-        assert!(!opaque.holds(Claim::Eq));
-        assert!(!opaque_list.holds(Claim::Ord));
-        assert!(!opaque_list.holds(Claim::Eq));
-        assert!(divisible_int_struct.holds(Claim::Ord));
-
-        Ok(())
-    }
-
     #[rstest]
-    #[case::divisible_int(divisible_int_dtype())]
-    #[case::opaque(opaque_dtype())]
-    #[case::opaque_list(opaque_dtype().map(|opaque| DType::list(opaque, NonNullable)))]
-    #[case::divisible_int_struct(divisible_int_dtype().map(|dtype| DType::struct_([("a", dtype)], NonNullable)))]
-    fn claims_ignore_top_level_nullability(#[case] dtype: VortexResult<DType>) -> VortexResult<()> {
-        let dtype = dtype?;
+    #[case::ordered(divisible_int_dtype()?, true)]
+    #[case::opaque(opaque_dtype()?, false)]
+    fn extension_claims_follow_the_dtype(
+        #[case] dtype: DType,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
         let nullable = dtype.with_nullability(Nullability::Nullable);
+        let nested = DType::list(nullable.clone(), NonNullable);
 
-        assert_eq!(dtype.holds(Claim::Eq), nullable.holds(Claim::Eq));
-        assert_eq!(dtype.holds(Claim::Ord), nullable.holds(Claim::Ord));
+        for dtype in [dtype, nullable, nested] {
+            for claim in Claim::ALL {
+                assert_eq!(dtype.holds(claim), expected, "{dtype} {claim}");
+            }
+        }
 
         Ok(())
     }

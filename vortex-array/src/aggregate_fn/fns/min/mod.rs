@@ -23,6 +23,7 @@ use crate::aggregate_fn::fns::min_max::columnar_min_max;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::min_max::nan_scalar;
 use crate::aggregate_fn::fns::min_max::scalar_is_nan;
+use crate::dtype::Claim;
 use crate::dtype::DType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
@@ -142,6 +143,8 @@ impl AggregateFnVTable for Min {
         args: AggregateArgs<'_, Self::Options>,
         scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
+        args.dtype.require_claim(Claim::Ord, "min")?;
+
         let mut partial = MinPartial { min: None };
         // `merge` normalizes the parsed scalar: nulls stay empty and NaNs poison or drop.
         partial.merge_storage(args, into_storage_scalar(scalar.clone()))?;

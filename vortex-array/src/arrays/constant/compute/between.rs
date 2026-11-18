@@ -8,6 +8,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::dtype::Claim;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::BetweenReduce;
@@ -19,6 +20,10 @@ impl BetweenReduce for Constant {
         upper: &ArrayRef,
         options: &BetweenOptions,
     ) -> VortexResult<Option<ArrayRef>> {
+        if !array.dtype().holds(Claim::Ord) {
+            return Ok(None);
+        }
+
         // Can reduce if everything is constant
         if let Some(((constant, lower), upper)) = Some(array.scalar())
             .zip(lower.as_constant())

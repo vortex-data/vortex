@@ -24,6 +24,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArraySlotsExt;
+use crate::dtype::Claim;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnRef;
@@ -142,6 +143,8 @@ impl PreparedSetData {
 
     /// The elements and their haystack, built on the first call and shared after it.
     fn element_set<'a>(&'a self, ctx: &mut ExecutionCtx) -> VortexResult<&'a ElementSet> {
+        self.element_dtype()
+            .require_claim(Claim::Eq, "list_contains")?;
         self.0
             .set
             .get_or_init(|| ElementSet::try_new(self.list(), ctx).map_err(Arc::new))

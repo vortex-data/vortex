@@ -321,9 +321,11 @@ impl AggregateFnVTable for IsConstant {
 
     fn partial_from_scalar(
         &self,
-        _args: AggregateArgs<'_, Self::Options>,
+        args: AggregateArgs<'_, Self::Options>,
         scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
+        args.dtype.require_claim(Claim::Eq, "is_constant")?;
+
         // A null struct means the producing accumulator was empty.
         if scalar.is_null() {
             return Ok(IsConstantPartial::empty());
@@ -394,6 +396,10 @@ impl AggregateFnVTable for IsConstant {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
+        if !batch.dtype().holds(Claim::Eq) {
+            return Ok(false);
+        }
+
         let Some(array) = batch.as_opt::<Extension>() else {
             return Ok(false);
         };
@@ -408,6 +414,8 @@ impl AggregateFnVTable for IsConstant {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        batch.dtype().require_claim(Claim::Eq, "is_constant")?;
+
         if !partial.is_constant {
             return Ok(());
         }
