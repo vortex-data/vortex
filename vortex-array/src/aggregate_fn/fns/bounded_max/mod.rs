@@ -25,6 +25,8 @@ use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::extension::into_storage_scalar;
+use crate::aggregate_fn::extension::wrap_storage_scalar;
 use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::columnar_min_max;
@@ -97,7 +99,7 @@ impl BoundedMaxPartial {
     fn final_scalar(&self, args: AggregateArgs<'_, BoundedMaxOptions>) -> VortexResult<Scalar> {
         let dtype = args.return_dtype.clone();
         match &self.state {
-            BoundedMaxState::Value(max) => max.cast(&dtype),
+            BoundedMaxState::Value(max) => wrap_storage_scalar(max, &dtype),
             BoundedMaxState::Empty | BoundedMaxState::Unknown => Ok(Scalar::null(dtype)),
         }
     }
@@ -227,7 +229,7 @@ impl AggregateFnVTable for BoundedMax {
             } else if bound.is_null() {
                 BoundedMaxState::Empty
             } else {
-                BoundedMaxState::Value(bound)
+                BoundedMaxState::Value(into_storage_scalar(bound))
             }
         };
         Ok(BoundedMaxPartial { state })
@@ -259,7 +261,7 @@ impl AggregateFnVTable for BoundedMax {
             BoundedMaxState::Value(max) => Ok(Scalar::struct_(
                 dtype,
                 vec![
-                    max.cast(&bound_dtype)?,
+                    wrap_storage_scalar(max, &bound_dtype)?,
                     Scalar::bool(false, Nullability::NonNullable),
                 ],
             )),
@@ -331,7 +333,7 @@ impl AggregateFnVTable for BoundedMax {
 /// Merge the byte-bounded upper bound of `max` into `partial`.
 fn merge_max(partial: &mut BoundedMaxPartial, max: Scalar, max_bytes: usize) -> VortexResult<()> {
     match truncate_max(max, max_bytes)? {
-        Some(bound) => partial.merge_bound(bound),
+        Some(bound) => partial.merge_bound(into_storage_scalar(bound)),
         None => partial.unknown(),
     }
     Ok(())

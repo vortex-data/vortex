@@ -14,11 +14,14 @@ use flatbuffers::WIPOffset;
 use itertools::Itertools;
 use prost::encoding::decode_varint;
 use prost::encoding::encode_varint;
+use tracing::debug;
 use vortex_array::aggregate_fn::AggregateFnId;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::dtype::Claim;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
+use vortex_array::expr::stats::Stat;
 use vortex_array::flatbuffers::FlatBufferRoot;
 use vortex_array::flatbuffers::WriteFlatBuffer;
 use vortex_array::flatbuffers::array::ArrayStats;
@@ -237,6 +240,7 @@ impl FileStatistics {
                     &aggregate_fns,
                     &mut partials,
                     &dtype,
+                    &path,
                     session,
                 )?);
                 dtypes.push(dtype);
@@ -261,20 +265,19 @@ impl FileStatistics {
         if let DType::Struct(struct_fields, _) = file_dtype {
             vortex_ensure_eq!(array_stats.len(), struct_fields.nfields());
 
-            let aggregates: Arc<[AggregateStats]> = array_stats
-                .into_iter()
-                .zip(struct_fields.fields())
-                .map(|(array_stat, field_dtype)| {
-                    aggregates_from_array_stats(&array_stat, &field_dtype, session)
-                })
-                .try_collect()?;
-
-            let dtypes = struct_fields.fields().collect();
-            let paths = struct_fields
+            let dtypes: Arc<[DType]> = struct_fields.fields().collect();
+            let paths: Arc<[FieldPath]> = struct_fields
                 .names()
                 .iter()
                 .map(|name| FieldPath::from_name(name.clone()))
                 .collect();
+            let aggregates: Arc<[AggregateStats]> = array_stats
+                .into_iter()
+                .zip(dtypes.iter().zip(paths.iter()))
+                .map(|(array_stat, (dtype, path))| {
+                    aggregates_from_array_stats(&array_stat, dtype, path, session)
+                })
+                .try_collect()?;
 
             Ok(Self::new(aggregates, dtypes, paths))
         } else {
@@ -283,7 +286,8 @@ impl FileStatistics {
             let array_stat = array_stats
                 .pop()
                 .vortex_expect("we just checked that there was 1 field");
-            let aggregates = aggregates_from_array_stats(&array_stat, file_dtype, session)?;
+            let aggregates =
+                aggregates_from_array_stats(&array_stat, file_dtype, &FieldPath::root(), session)?;
 
             Ok(Self::new(
                 Arc::new([aggregates]),
@@ -341,24 +345,33 @@ impl FileStatistics {
 fn aggregates_from_array_stats(
     array_stats: &ArrayStats<'_>,
     dtype: &DType,
+    path: &FieldPath,
     session: &VortexSession,
 ) -> VortexResult<AggregateStats> {
     let stats_set = StatsSet::from_flatbuffer(array_stats, dtype, session)?;
-    Ok(AggregateStats::new(
-        stats_set
-            .iter()
-            .filter_map(|(stat, value)| {
-                let aggregate_fn = stat.aggregate_fn()?;
-                let stat_dtype = stat.dtype(dtype)?;
-                let value = value
-                    .clone()
-                    .map(|value| Scalar::try_new(stat_dtype.clone(), Some(value)))
-                    .transpose()
-                    .ok()?;
-                Some(AggregateStat::from_value(aggregate_fn, value))
-            })
-            .collect(),
-    ))
+    let ordered = dtype.holds(Claim::Ord);
+    let mut skipped = false;
+    let aggregates = stats_set
+        .iter()
+        .filter_map(|(stat, value)| {
+            if !ordered && matches!(stat, Stat::Min | Stat::Max) {
+                skipped = true;
+                return None;
+            }
+            let aggregate_fn = stat.aggregate_fn()?;
+            let stat_dtype = stat.dtype(dtype)?;
+            let value = value
+                .clone()
+                .map(|value| Scalar::try_new(stat_dtype.clone(), Some(value)))
+                .transpose()
+                .ok()?;
+            Some(AggregateStat::from_value(aggregate_fn, value))
+        })
+        .collect();
+    if skipped {
+        debug!(%path, %dtype, "Ignoring file statistics for unsupported aggregates");
+    }
+    Ok(AggregateStats::new(aggregates))
 }
 
 /// Resolves an [`fb::AggregateSpec`]'s aggregate function, or `None` if the session doesn't
@@ -395,18 +408,27 @@ fn aggregate_stats_from_partials(
     aggregate_fns: &[Option<AggregateFnRef>],
     partials: &mut PartialsReader<'_>,
     dtype: &DType,
+    path: &FieldPath,
     session: &VortexSession,
 ) -> VortexResult<AggregateStats> {
     let mut aggregates = Vec::with_capacity(set.len());
+    let mut skipped = false;
     for &spec in set {
         // Read the partial even for an unknown aggregate, to stay in step with the stream.
         let bytes = partials.next_partial()?;
         let Some(aggregate_fn) = &aggregate_fns[usize::from(spec)] else {
             continue;
         };
-        let partial_dtype = aggregate_fn.state_dtype(dtype).ok_or_else(|| {
-            vortex_err!("aggregate {aggregate_fn} does not support field dtype {dtype}")
-        })?;
+        let Some(partial_dtype) = aggregate_fn.state_dtype(dtype) else {
+            // Old files can hold aggregates over dtypes that lack a claim the aggregate now
+            // requires. Any other rejection means the footer does not match its schema.
+            vortex_ensure!(
+                !(dtype.holds(Claim::Eq) && dtype.holds(Claim::Ord)),
+                "aggregate {aggregate_fn} does not support field dtype {dtype}"
+            );
+            skipped = true;
+            continue;
+        };
         let partial = ScalarValue::from_proto_bytes(bytes, &partial_dtype, session)?;
         let partial = Scalar::try_new(partial_dtype, partial)?;
         aggregates.push(AggregateStat::try_from_partial(
@@ -414,6 +436,9 @@ fn aggregate_stats_from_partials(
             partial,
             dtype,
         )?);
+    }
+    if skipped {
+        debug!(%path, %dtype, "Ignoring file statistics for unsupported aggregates");
     }
     Ok(AggregateStats::new(aggregates))
 }
@@ -598,6 +623,7 @@ mod tests {
 
     use flatbuffers::FlatBufferBuilder;
     use rstest::rstest;
+    use vortex_array::EmptyMetadata;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
@@ -612,12 +638,27 @@ mod tests {
     use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::extension::ExtDType;
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
+    use vortex_array::flatbuffers::FlatBuffer;
     use vortex_array::flatbuffers::WriteFlatBufferExt;
     use vortex_array::scalar::ScalarValue;
+    use vortex_buffer::Alignment;
+    use vortex_buffer::ByteBufferMut;
+    use vortex_json::Json;
+    use vortex_layout::layouts::flat::FlatLayout;
+    use vortex_layout::segments::SegmentId;
+    use vortex_session::registry::ReadContext;
 
     use super::*;
+    use crate::Footer;
+    use crate::MAGIC_BYTES;
+    use crate::VERSION;
+    use crate::footer::DeserializeStep;
+    use crate::footer::SegmentSpec;
+    use crate::footer::postscript::Postscript;
+    use crate::footer::postscript::PostscriptSegment;
 
     fn i32_dtype() -> DType {
         DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -874,6 +915,65 @@ mod tests {
         fbb.finished_data().to_vec()
     }
 
+    /// Construct a footer using the provided statistics segment exactly as stored by an old writer.
+    fn open_footer_with_stats(file_dtype: DType, statistics: &[u8]) -> VortexResult<Footer> {
+        let session = VortexSession::empty();
+        let layout = FlatLayout::new(
+            1,
+            file_dtype.clone(),
+            SegmentId::from(0),
+            ReadContext::new([]),
+        )
+        .into_layout();
+        let segments = Arc::new([SegmentSpec {
+            offset: 0,
+            length: 0,
+            alignment: Alignment::none(),
+        }]);
+        let buffers = Footer::new(layout, segments, None, ReadContext::new([]))
+            .into_serializer(&session)
+            .exclude_dtype()
+            .serialize()?;
+        let [layout, footer, _, _] = buffers.as_slice() else {
+            vortex_bail!("expected layout, footer, postscript, and EOF buffers");
+        };
+        let segment = |offset: usize, len: usize| -> VortexResult<PostscriptSegment> {
+            Ok(PostscriptSegment {
+                offset: u64::try_from(offset)?,
+                length: u32::try_from(len)?,
+                alignment: FlatBuffer::alignment(),
+            })
+        };
+        let postscript = Postscript {
+            dtype: None,
+            layout: segment(0, layout.len())?,
+            statistics: Some(segment(layout.len() + footer.len(), statistics.len())?),
+            footer: segment(layout.len(), footer.len())?,
+            metadata: Vec::new(),
+        }
+        .write_flatbuffer_bytes()?;
+        let mut buffer = ByteBufferMut::empty();
+        for bytes in [
+            layout.as_ref(),
+            footer.as_ref(),
+            statistics,
+            postscript.as_ref(),
+        ] {
+            buffer.extend_from_slice(bytes);
+        }
+        buffer.extend_from_slice(&VERSION.to_le_bytes());
+        buffer.extend_from_slice(&u16::try_from(postscript.len())?.to_le_bytes());
+        buffer.extend_from_slice(&MAGIC_BYTES);
+        let len = u64::try_from(buffer.len())?;
+        let mut deserializer = Footer::deserializer(buffer.freeze(), session)
+            .with_dtype(file_dtype)
+            .with_size(len);
+        let DeserializeStep::Done(footer) = deserializer.deserialize()? else {
+            vortex_bail!("the supplied buffer contains the complete footer");
+        };
+        Ok(footer)
+    }
+
     fn read_raw(bytes: &[u8], file_dtype: &DType) -> VortexResult<FileStatistics> {
         let fb = flatbuffers::root::<fb::FileStatistics>(bytes).vortex_expect("valid flatbuffer");
         FileStatistics::from_flatbuffer(&fb, file_dtype, &VortexSession::empty())
@@ -894,6 +994,76 @@ mod tests {
         encode_varint(partial.len() as u64, &mut prefixed);
         prefixed.extend_from_slice(&partial);
         Ok((options, prefixed))
+    }
+
+    #[test]
+    fn file_stats_ignore_min_max_without_ord() -> VortexResult<()> {
+        let json_dtype = DType::Extension(
+            ExtDType::<Json>::try_new(EmptyMetadata, Nullability::Nullable)?.erased(),
+        );
+        let path = FieldPath::from_name("col");
+        let file_dtype = DType::struct_([("col", json_dtype.clone())], Nullability::NonNullable);
+        let min = Scalar::extension_ref(
+            json_dtype.as_extension().clone(),
+            Scalar::from(r#"{"a":1}"#).into_nullable(),
+        );
+        let max = Scalar::extension_ref(
+            json_dtype.as_extension().clone(),
+            Scalar::from(r#"{"z":2}"#).into_nullable(),
+        );
+        let mut partials = Vec::new();
+        for scalar in [min, max, Scalar::from(1u64)] {
+            let bytes = ScalarValue::to_proto_bytes::<Vec<u8>>(scalar.value());
+            encode_varint(bytes.len() as u64, &mut partials);
+            partials.extend(bytes);
+        }
+        let options = NumericalAggregateOpts::skip_nans().serialize();
+        let null_count = NullCount.bind(EmptyOptions);
+        let null_options = null_count.options().serialize()?.unwrap_or_default();
+        let bytes = raw_file_stats(
+            &[
+                ("vortex.min", &options),
+                ("vortex.max", &options),
+                ("vortex.null_count", &null_options),
+            ],
+            &[&[0, 1, 2]],
+            &[0],
+            &partials,
+        );
+
+        let footer = open_footer_with_stats(file_dtype, &bytes)?;
+        let (stats, dtype) = footer
+            .statistics()
+            .expect("valid statistics are preserved")
+            .get_by_path(&path)
+            .expect("col is present");
+        assert_eq!(dtype, &json_dtype);
+        assert_eq!(stats.iter().count(), 1);
+        assert_eq!(
+            value(stats, &null_count),
+            Precision::exact(ScalarValue::from(1u64))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unsupported_aggregate_with_all_claims_is_rejected() -> VortexResult<()> {
+        let file_dtype = DType::struct_(
+            [("col", DType::Utf8(Nullability::NonNullable))],
+            Nullability::NonNullable,
+        );
+        // `sum` shares the options of `min`, and the reader rejects it before decoding the partial.
+        let (options, partial) = min_spec_and_partial(7)?;
+        let bytes = raw_file_stats(&[("vortex.sum", &options)], &[&[0]], &[0], &partial);
+
+        let error = read_raw(&bytes, &file_dtype)
+            .err()
+            .vortex_expect("a sum over strings does not match the schema");
+        assert!(
+            error.to_string().contains("does not support field dtype"),
+            "unexpected error: {error}"
+        );
+        Ok(())
     }
 
     #[test]

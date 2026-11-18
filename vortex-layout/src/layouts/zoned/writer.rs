@@ -353,7 +353,10 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::ArrayContext;
+    use vortex_array::ArrayRef;
+    use vortex_array::EmptyMetadata;
     use vortex_array::IntoArray;
+    use vortex_array::MaskFuture;
     use vortex_array::aggregate_fn::AggregateFnVTable;
     use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
     use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
@@ -361,9 +364,15 @@ mod tests {
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::aggregate_fn::fns::sum::Sum;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::ExtensionArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::TemporalArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
+    use vortex_array::expr::root;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::Timestamp;
     use vortex_buffer::buffer;
@@ -372,20 +381,177 @@ mod tests {
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_json::Json;
+    use vortex_session::registry::ReadContext;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::*;
+    use crate::LayoutBuildContext;
+    use crate::children::OwnedLayoutChildren;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::file_stats::contains_variant;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::Zoned;
-    use crate::layouts::zoned::schema::aggregate_state_dtype;
+    use crate::layouts::zoned::ZonedLayoutEncoding;
+    use crate::layouts::zoned::ZonedMetadata;
+    use crate::layouts::zoned::schema::aggregate_specs_from_fns;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::session::LayoutSession;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    fn json_array() -> VortexResult<ArrayRef> {
+        let storage =
+            VarBinViewArray::from_iter_nullable_str([Some(r#"{"b":2}"#), None, Some(r#"{"a":1}"#)]);
+        Ok(
+            ExtensionArray::try_from_storage::<Json>(EmptyMetadata, storage.into_array())?
+                .into_array(),
+        )
+    }
+
+    #[rstest]
+    #[case::unordered(json_array()?, false)]
+    #[case::ordered(
+        TemporalArray::new_timestamp(buffer![2i64, 1, 3].into_array(), TimeUnit::Milliseconds, None).into_array(),
+        true,
+    )]
+    fn zone_map_writes_min_max_only_for_ord(
+        #[case] array: ArrayRef,
+        #[case] has_bounds: bool,
+    ) -> VortexResult<()> {
+        block_on(|handle| async move {
+            let session = VortexSession::empty()
+                .with::<LayoutSession>()
+                .with::<RuntimeSession>()
+                .with_handle(handle);
+            let dtype = array.dtype().clone();
+            let strategy = ZonedStrategy::new(
+                FlatLayoutStrategy::default(),
+                FlatLayoutStrategy::default(),
+                ZonedLayoutOptions {
+                    block_size: NonZeroUsize::new(3).unwrap(),
+                    ..Default::default()
+                },
+            );
+            let (ptr, eof) = SequenceId::root().split();
+            let layout = strategy
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::new(TestSegments::default()),
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+            let zoned = layout.as_::<Zoned>();
+            let fields = zoned.stats_table_dtype().as_struct_fields();
+            for aggregate in [
+                Min.bind(NumericalAggregateOpts::skip_nans()),
+                Max.bind(NumericalAggregateOpts::skip_nans()),
+            ] {
+                assert_eq!(
+                    fields.field(aggregate.to_string().as_str()),
+                    has_bounds.then(|| dtype.as_nullable()),
+                );
+            }
+            assert!(
+                fields
+                    .field(NullCount.bind(EmptyOptions).to_string().as_str())
+                    .is_some()
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn old_zoned_json_min_max_leaves_data_readable() -> VortexResult<()> {
+        block_on(|handle| async move {
+            let session = VortexSession::empty()
+                .with::<LayoutSession>()
+                .with::<RuntimeSession>()
+                .with_handle(handle);
+            vortex_json::initialize(&session);
+            let array = json_array()?;
+            let dtype = array.dtype();
+            let options = NumericalAggregateOpts::skip_nans();
+            let aggregate_fns = [Max.bind(options), Min.bind(options)];
+            let metadata = ZonedMetadata {
+                zone_len: 3,
+                aggregate_specs: aggregate_specs_from_fns(&aggregate_fns)?,
+            };
+            let ctx = LayoutWriterContext::new(ArrayContext::empty());
+            let segments = Arc::new(TestSegments::default());
+            let flat = FlatLayoutStrategy::default();
+            let (ptr, eof) = SequenceId::root().split();
+            let (zones_ptr, zones_eof) = SequenceId::root().split();
+            let data = flat
+                .write_stream(
+                    ctx.clone(),
+                    Arc::<TestSegments>::clone(&segments),
+                    array.clone().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+
+            let mut exec = session.create_execution_ctx();
+            let zones = StructArray::from_fields(&[
+                (
+                    aggregate_fns[0].to_string(),
+                    array
+                        .slice(0..1)?
+                        .execute::<ExtensionArray>(&mut exec)?
+                        .into_array(),
+                ),
+                (
+                    aggregate_fns[1].to_string(),
+                    array
+                        .slice(2..3)?
+                        .execute::<ExtensionArray>(&mut exec)?
+                        .into_array(),
+                ),
+            ])?
+            .into_array();
+            let zones = flat
+                .write_stream(
+                    ctx,
+                    Arc::<TestSegments>::clone(&segments),
+                    zones.to_array_stream().sequenced(zones_ptr),
+                    zones_eof,
+                    &session,
+                )
+                .await?;
+            let children = OwnedLayoutChildren::layout_children(vec![data, zones]);
+            let read_ctx = ReadContext::new([]);
+            let build_ctx = LayoutBuildContext {
+                session: &session,
+                array_read_ctx: &read_ctx,
+            };
+            let layout = <Zoned as VTable>::build(
+                &ZonedLayoutEncoding,
+                dtype,
+                3,
+                &metadata,
+                vec![],
+                children.as_ref(),
+                &build_ctx,
+            )?;
+            assert_eq!(layout.zone_len(), 0);
+            let reader = layout.into_layout().new_reader(
+                "col".into(),
+                segments,
+                &session,
+                &Default::default(),
+            )?;
+            let result = reader
+                .projection_evaluation(&(0..3), &root().bind(dtype)?, MaskFuture::new_true(3))?
+                .await?;
+            assert_arrays_eq!(result, array, &mut exec);
+            Ok(())
+        })
+    }
 
     #[rstest]
     #[case::variant(DType::Variant(Nullability::Nullable))]
@@ -398,7 +564,7 @@ mod tests {
         let accumulator =
             AggregateStatsAccumulator::new(&dtype, &default_zoned_aggregate_fns(&dtype, &session));
         for aggregate_fn in accumulator.aggregate_fns().iter() {
-            let state = aggregate_state_dtype(&dtype, aggregate_fn).vortex_expect("kept state");
+            let state = aggregate_fn.state_dtype(&dtype).vortex_expect("kept state");
             assert!(!contains_variant(&state), "{aggregate_fn} keeps a variant");
         }
     }
