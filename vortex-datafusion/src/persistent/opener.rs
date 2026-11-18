@@ -528,7 +528,7 @@ impl FileOpener for VortexOpener {
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to plan Vortex scan: {e}"))?;
                 let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
-                Ok(driver.run_prepared_mapped(scan, map_batch))
+                Ok(driver.run_prepared(scan, map_batch))
             } else {
                 // Share V1 layout readers across partitions of the file.
                 let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {

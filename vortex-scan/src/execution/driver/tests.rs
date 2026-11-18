@@ -96,7 +96,7 @@ async fn prepared_batches_are_mapped_off_the_polling_thread(
     let builder = builder();
     let driver = ScanDriver::new(builder.session().handle(), concurrency, true);
     let batches: Vec<ArrayRef> = driver
-        .run_prepared_mapped(builder.prepare()?, map_fn)
+        .run_prepared(builder.prepare()?, map_fn)
         .try_collect()
         .await?;
 

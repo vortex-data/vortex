@@ -83,7 +83,7 @@ impl ScanDriver {
             handle
                 .spawn_cpu(move || {
                     let scan = builder.prepare()?;
-                    VortexResult::Ok(self.run_prepared_mapped(scan, map_fn))
+                    VortexResult::Ok(self.run_prepared(scan, map_fn))
                 })
                 .await
         })
@@ -93,7 +93,7 @@ impl ScanDriver {
 
     /// Runs an already prepared scan, applying `map_fn` on the task that produced each batch.
     /// Use this when preparation errors must be reported before returning the stream.
-    pub fn run_prepared_mapped<A: Send + 'static>(
+    pub fn run_prepared<A: Send + 'static>(
         self,
         scan: PreparedScan,
         map_fn: impl Fn(ArrayRef) -> VortexResult<A> + Send + Sync + 'static,
