@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod expr;
-
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::ops::BitAnd;
@@ -11,7 +9,6 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use Nullability::NonNullable;
-pub use expr::*;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
@@ -34,6 +31,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_expr::transform::partition_bound;
 use vortex_mask::Mask;
+pub use vortex_scan::row_idx::*;
 use vortex_sequence::Sequence;
 use vortex_sequence::SequenceArray;
 use vortex_session::VortexSession;

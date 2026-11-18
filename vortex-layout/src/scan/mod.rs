@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod arrow;
-mod execution;
 mod filter;
 pub mod layout;
 mod limit;

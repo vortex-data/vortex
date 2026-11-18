@@ -28,11 +28,11 @@ use vortex::error::vortex_err;
 use vortex::io::request::IoService;
 use vortex::io::request::IoSource;
 use vortex::io::runtime::Handle;
-use vortex::layout::scan::v2::PreparedScan;
 use vortex::scan::planning::driver::Progress;
 use vortex::scan::planning::driver::Run;
 use vortex::scan::planning::planner::Planner;
 use vortex::scan::planning::planner::WorkScope;
+use vortex::scan::prepare::PreparedScan;
 use vortex_utils::parallelism::get_available_parallelism;
 
 /// Maps a scan's batches to Arrow on the task that produced them.

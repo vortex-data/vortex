@@ -22,12 +22,12 @@ use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::metrics::ScanUsage;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::SplitBy;
-use vortex_layout::scan::v2::ScanCache;
 use vortex_layout::scan::v2::ScanFile;
-use vortex_layout::scan::v2::SegmentLocation;
 use vortex_layout::segments::SegmentSource;
 use vortex_layout::segments::UsageSegmentSource;
 use vortex_scan::DataSourceRef;
+use vortex_scan::prepare::ScanCache;
+use vortex_scan::prepare::SegmentLocation;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
