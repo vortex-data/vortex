@@ -97,3 +97,25 @@ impl BitBufferMeta {
         (self.offset + self.len).div_ceil(8)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::BitBufferMeta;
+
+    #[rstest]
+    #[case(0, 0, 0)]
+    #[case(0, 1, 1)]
+    #[case(0, 8, 1)]
+    #[case(0, 9, 2)]
+    #[case(3, 0, 1)]
+    #[case(3, 5, 1)]
+    #[case(3, 6, 2)]
+    #[case(7, 1, 1)]
+    #[case(7, 2, 2)]
+    #[case(2, 64, 9)]
+    fn test_byte_len(#[case] offset: usize, #[case] len: usize, #[case] expected: usize) {
+        assert_eq!(BitBufferMeta::new(offset, len).byte_len(), expected);
+    }
+}
