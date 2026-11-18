@@ -432,6 +432,13 @@ Nested structs and fixed-size lists apply the same rules recursively. Each nulla
 adds its own outer sentinel. Null parents canonicalize their child body before comparison can
 observe underlying child values.
 
+## Extension Values
+
+An extension value is encoded as its storage value. The encoder accepts an extension dtype only
+when it holds the `Ord` claim, which declares that the storage order is the value order. It
+rejects an extension dtype without that claim, also when the dtype is nested in a struct, list,
+fixed-size list, or map.
+
 ## Unsupported Types
 
 The current row encoder rejects types for which it does not define byte-sort semantics:
@@ -440,14 +447,9 @@ The current row encoder rejects types for which it does not define byte-sort sem
 | --- | --- |
 | `Variant` | No row encoding order is defined. |
 | `Union` | Values with different active variants have no defined order. |
-| `Extension` | The extension API does not declare whether logical ordering matches storage ordering. |
 
 The absence of these encodings is intentional. Adding one requires defining both the logical
 ordering and the exact byte representation that preserves that ordering.
-
-Extensions can be added once the extension API exposes an explicit contract declaring that
-logical ordering is identical to storage ordering. The row encoder must not infer that contract
-from the storage dtype alone.
 
 ## Size and Output Layout
 
