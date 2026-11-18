@@ -30,10 +30,16 @@ use std::sync::Arc;
 
 use arrow_array::Array as ArrowArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::DictionaryArray;
+use arrow_array::GenericListViewArray;
+use arrow_array::OffsetSizeTrait;
+use arrow_array::PrimitiveArray as ArrowPrimitiveArray;
 use arrow_array::RecordBatch;
 use arrow_array::RunArray;
 use arrow_array::cast::AsArray;
+use arrow_array::downcast_dictionary_array;
 use arrow_array::make_array;
+use arrow_array::types::ArrowDictionaryKeyType;
 use arrow_array::types::Int16Type;
 use arrow_array::types::Int32Type;
 use arrow_array::types::Int64Type;
@@ -55,6 +61,7 @@ use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
@@ -67,6 +74,7 @@ use vortex_array::dtype::session::DTypeSession;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::dtype::session::ExtDTypeRegistry;
 use vortex_array::extension::datetime::AnyTemporal;
+use vortex_array::memory::BufferAllocatorRef;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -87,9 +95,11 @@ use crate::convert::nulls;
 use crate::convert::remove_nulls;
 use crate::convert::trim_map_entries;
 use crate::convert::trim_offsets;
+use crate::declared_nullability::dictionary_values_visibility;
 use crate::declared_nullability::drop_masked_nulls;
 use crate::declared_nullability::fixed_size_list_elements_visibility;
 use crate::declared_nullability::list_elements_visibility;
+use crate::declared_nullability::list_view_elements_visibility;
 use crate::declared_nullability::with_declared_nullability;
 use crate::dtype::from_arrow_data_type;
 use crate::dtype::to_data_type_naive;
@@ -885,8 +895,11 @@ impl ArrowSession {
         visible: Option<&NullBuffer>,
     ) -> VortexResult<ArrayRef> {
         if let DataType::Dictionary(..) = field.data_type() {
-            let array = without_masked_nulls(array, field, visible)?;
-            return self.dictionary_from_arrow(array.as_ref(), field);
+            let array = array.as_ref();
+            return downcast_dictionary_array!(
+                array => self.dictionary_from_arrow(array, field, visible),
+                _ => vortex_bail!("expected an Arrow DictionaryArray, got {}", array.data_type()),
+            );
         }
 
         // A plugin import is final, because `from_arrow_array_with_importers` already checked that
@@ -974,13 +987,8 @@ impl ArrowSession {
     /// with extension metadata still reach their importers. Leaf types use the canonical
     /// conversion.
     ///
-    /// `visible` is the visibility of `array`, as [`crate::declared_nullability`] defines it. A
-    /// struct, list, large list, or fixed-size list level drops its masked nulls from its validity
-    /// and passes the visibility of its children on. A list view, map, or leaf level drops them
-    /// from the Arrow array with [`without_masked_nulls`], as a dictionary level does in
-    /// [`Self::from_arrow_array_inner`]. These levels, a run-end level, and the values of a
-    /// dictionary pass no visibility on, so a level below them treats every slot as visible, and a
-    /// masked null in it fails the import where the level is non-nullable.
+    /// `visible` is the visibility of `array`, as [`crate::declared_nullability`] defines it.
+    /// Each container derives child visibility from the rows that can read its children.
     #[allow(clippy::wrong_self_convention)]
     fn from_arrow_array_canonical(
         &self,
@@ -1079,64 +1087,45 @@ impl ArrowSession {
                 )
             }
             DataType::ListView(elem_field) => {
-                let array = without_masked_nulls(array, field, visible)?;
-                let list = array.as_list_view::<i32>();
-                let elements = self
-                    .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
-                let offsets = list.offsets().clone().into_array();
-                let sizes = list.sizes().clone().into_array();
-                let validity = nulls(list.nulls(), field.is_nullable())?;
-                // SAFETY: Arrow list views share one integer type for offsets and sizes, and every
-                // view lies within the values. The validity has one entry per list.
-                Ok(
-                    unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) }
-                        .into_array(),
-                )
+                self.list_view_from_arrow(array.as_list_view::<i32>(), field, elem_field, visible)
             }
             DataType::LargeListView(elem_field) => {
-                let array = without_masked_nulls(array, field, visible)?;
-                let list = array.as_list_view::<i64>();
-                let elements = self
-                    .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
-                let offsets = list.offsets().clone().into_array();
-                let sizes = list.sizes().clone().into_array();
-                let validity = nulls(list.nulls(), field.is_nullable())?;
-                // SAFETY: Arrow list views share one integer type for offsets and sizes, and every
-                // view lies within the values. The validity has one entry per list.
-                Ok(
-                    unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) }
-                        .into_array(),
-                )
+                self.list_view_from_arrow(array.as_list_view::<i64>(), field, elem_field, visible)
             }
             DataType::Map(entries_field, keys_sorted) => {
-                let array = without_masked_nulls(array, field, visible)?;
                 let map = array.as_map();
                 let (entries, offsets) = trim_map_entries(map);
+                let rows_visible = NullBuffer::union(visible, map.nulls());
+                let entries_visible = list_elements_visibility(
+                    &offsets,
+                    rows_visible.as_ref(),
+                    &entries,
+                    entries_field.is_nullable(),
+                );
 
-                // The entries field only groups keys and values, so `from_arrow_datatype` ignores
-                // its extension name. Import it as a plain struct too, while key and value fields
-                // still reach their importers.
+                // The entries field only groups keys and values. Import it as a plain struct,
+                // while key and value fields reach their importers with the entries' visibility.
                 let entries = self.from_arrow_array_canonical(
                     Arc::new(entries),
                     entries_field.as_ref(),
-                    None,
+                    entries_visible.as_ref(),
                 )?;
-
-                map_from_arrow_parts(
-                    entries,
-                    &offsets,
-                    map.nulls(),
-                    *keys_sorted,
-                    field.is_nullable(),
-                )
+                let validity = declared_validity(map.nulls(), field, visible)?;
+                map_from_arrow_parts(entries, &offsets, validity, *keys_sorted)
             }
             DataType::RunEndEncoded(ends_field, values_field) => {
                 let values_field = run_end_values_field(values_field, field.is_nullable().into());
                 let array = array.as_ref();
                 match ends_field.data_type() {
-                    DataType::Int16 => self.run_end_from_arrow::<Int16Type>(array, &values_field),
-                    DataType::Int32 => self.run_end_from_arrow::<Int32Type>(array, &values_field),
-                    DataType::Int64 => self.run_end_from_arrow::<Int64Type>(array, &values_field),
+                    DataType::Int16 => {
+                        self.run_end_from_arrow::<Int16Type>(array, &values_field, visible)
+                    }
+                    DataType::Int32 => {
+                        self.run_end_from_arrow::<Int32Type>(array, &values_field, visible)
+                    }
+                    DataType::Int64 => {
+                        self.run_end_from_arrow::<Int64Type>(array, &values_field, visible)
+                    }
                     ends_dt => vortex_bail!(
                         "Arrow run-end array run ends must be Int16, Int32 or Int64, got {ends_dt}"
                     ),
@@ -1149,6 +1138,35 @@ impl ArrowSession {
         }
     }
 
+    fn list_view_from_arrow<O: OffsetSizeTrait + NativePType>(
+        &self,
+        list: &GenericListViewArray<O>,
+        field: &Field,
+        element: &Field,
+        visible: Option<&NullBuffer>,
+    ) -> VortexResult<ArrayRef> {
+        let rows_visible = NullBuffer::union(visible, list.nulls());
+        let elements_visible = list_view_elements_visibility(
+            list.offsets(),
+            list.sizes(),
+            rows_visible.as_ref(),
+            list.values().as_ref(),
+            element.is_nullable(),
+        );
+        let values = self.from_arrow_array_inner(
+            ArrowArrayRef::clone(list.values()),
+            element,
+            elements_visible.as_ref(),
+        )?;
+        let offsets = list.offsets().clone().into_array();
+        let sizes = list.sizes().clone().into_array();
+        let validity = declared_validity(list.nulls(), field, visible)?;
+
+        // SAFETY: Arrow validates the integer buffers and bounds. The child import preserves
+        // its length, and the validity is for the same list rows.
+        Ok(unsafe { ListViewArray::new_unchecked(values, offsets, sizes, validity) }.into_array())
+    }
+
     /// Decode an Arrow run-end array, recursing into its values so extension metadata on the
     /// values field reaches its importer.
     #[allow(clippy::wrong_self_convention)]
@@ -1156,6 +1174,7 @@ impl ArrowSession {
         &self,
         array: &dyn ArrowArray,
         values_field: &Field,
+        visible: Option<&NullBuffer>,
     ) -> VortexResult<ArrayRef>
     where
         R::Native: NativePType,
@@ -1164,36 +1183,62 @@ impl ArrowSession {
             .as_any()
             .downcast_ref::<RunArray<R>>()
             .ok_or_else(|| vortex_err!("expected an Arrow RunArray, got {}", array.data_type()))?;
-        run_end_from_arrow(run_array, |values| {
-            self.from_arrow_array_inner(values, values_field, None)
-        })
+        run_end_from_arrow(
+            run_array,
+            visible,
+            values_field.is_nullable(),
+            |values, values_visible| {
+                self.from_arrow_array_inner(values, values_field, values_visible)
+            },
+        )
     }
 
     /// Decode an Arrow dictionary array into a [`DictArray`], importing its values with `field`'s
     /// metadata so that an extension name on the dictionary field reaches its importer.
-    fn dictionary_from_arrow(
+    fn dictionary_from_arrow<K: ArrowDictionaryKeyType>(
         &self,
-        array: &dyn ArrowArray,
+        dict: &DictionaryArray<K>,
         field: &Field,
+        visible: Option<&NullBuffer>,
     ) -> VortexResult<ArrayRef> {
-        let dict = array.as_any_dictionary_opt().ok_or_else(|| {
-            vortex_err!(
-                "expected an Arrow DictionaryArray, got {}",
-                array.data_type()
-            )
-        })?;
+        let keys = dict.keys();
+        let key_nulls = drop_masked_nulls(
+            keys.nulls(),
+            field.is_nullable(),
+            visible,
+            field.data_type(),
+        )?;
 
-        let values_field = field
-            .clone()
-            .with_data_type(dict.values().data_type().clone());
-        let values =
-            self.from_arrow_array_inner(ArrowArrayRef::clone(dict.values()), &values_field, None)?;
+        let values = dict.values();
+        let values_visible =
+            dictionary_values_visibility(keys, visible, values.as_ref(), field.is_nullable())?;
+        let values_field = field.clone().with_data_type(values.data_type().clone());
+        let mut values = self.from_arrow_array_inner(
+            ArrowArrayRef::clone(values),
+            &values_field,
+            values_visible.as_ref(),
+        )?;
 
-        let codes = dict.keys();
-        let codes = from_arrow_dyn(codes, codes.is_nullable())?;
+        // Arrow ignores what lies under a null key, so a key whose null the import drops can point
+        // outside the values. Such keys read the first value instead, and a dictionary without
+        // values gets a default value for them to read.
+        let mut codes = keys.values().clone();
+        let drops_key_nulls = key_nulls.is_none() && keys.null_count() > 0;
+        if drops_key_nulls && codes.iter().any(|code| code.as_usize() >= values.len()) {
+            if values.is_empty() {
+                let mut builder =
+                    builder_with_capacity_in(values.dtype(), 1, BufferAllocatorRef::static_ref());
+                builder.append_default();
+                values = builder.finish();
+            }
+            codes = keys.iter().map(Option::unwrap_or_default).collect();
+        }
+        let codes = ArrowPrimitiveArray::<K>::new(codes, key_nulls);
+        let codes = from_arrow_dyn(&codes, codes.is_nullable())?;
 
-        // SAFETY: arrow-rs enforces the dictionary invariants on construction, so the codes are
-        // in-bounds for the values.
+        // SAFETY: Arrow validates every valid key. A dropped null key that points outside the
+        // values becomes zero, which reads an existing or default value, and importing the original
+        // values preserves their length.
         Ok(unsafe { DictArray::new_unchecked(codes, values) }.into_array())
     }
 }
@@ -1230,15 +1275,12 @@ fn declared_validity(
 /// imports as `field`.
 ///
 /// The nulls leave the Arrow array itself, for a level whose conversion reads them from there. A
-/// level that no null row masks keeps its nulls, as in [`declared_validity`]. For a list view,
-/// [`remove_nulls`] also strips the nulls of non-nullable elements without checking them, as the
-/// rebuild in [`with_declared_nullability`] does.
+/// level that no null row masks keeps its nulls, as in [`declared_validity`].
 ///
 /// # Errors
 ///
 /// Returns an error if the level holds a null in a visible slot, or if arrow-rs rejects the slots
-/// under the nulls that it drops. A dictionary fails this way when a key under them points outside
-/// its values, as in a dictionary of only nulls, which can have no values.
+/// under the nulls that it drops.
 fn without_masked_nulls(
     array: ArrowArrayRef,
     field: &Field,
@@ -1744,7 +1786,7 @@ mod tests {
     /// A dictionary of one null key over the values `["a"]`.
     ///
     /// The dictionary that `new_null_array` builds has no values, which
-    /// `test_masked_nulls_of_dictionary_without_values_fail` covers.
+    /// `test_masked_nulls_of_dictionary_without_values` covers.
     fn null_dictionary() -> ArrowArrayRef {
         Arc::new(DictionaryArray::<Int32Type>::new(
             Int32Array::new_null(1),
@@ -1776,22 +1818,170 @@ mod tests {
         Ok(())
     }
 
-    /// The dictionary that `new_null_array` builds has no values, so no key under its nulls can
-    /// point at one, and the import cannot drop them under a null row.
+    /// A non-nullable dictionary element under a null list needs an in-bounds code even when
+    /// Arrow supplies no dictionary values.
     #[test]
-    fn test_masked_nulls_of_dictionary_without_values_fail() {
+    fn test_masked_nulls_of_dictionary_without_values() -> VortexResult<()> {
         let dictionary = DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8));
         let element = Arc::new(Field::new_list_field(dictionary, false));
         let lists = new_null_array(&DataType::FixedSizeList(element, 2), 1);
+        let imported = SESSION.arrow().from_arrow_array(lists, true)?;
+        let elements = VarBinViewArray::from_iter_str(["", ""]).into_array();
+        let expected = FixedSizeListArray::try_new(elements, 2, Validity::AllInvalid, 1)?;
+        assert_arrays_eq!(imported, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    /// arrow-rs does not check the keys of a dictionary that it imports over the C Data Interface,
+    /// which `DictionaryArray::new_unchecked` stands in for here.
+    #[test]
+    fn test_dictionary_key_outside_values_fails() {
+        // SAFETY: the import rejects the key that points outside the values before it reads them.
+        let dictionary = unsafe {
+            DictionaryArray::<Int32Type>::new_unchecked(
+                Int32Array::from(vec![0, 2]),
+                Arc::new(Int32Array::from(vec![Some(7), None])),
+            )
+        };
+        let field = Field::new("dictionary", dictionary.data_type().clone(), false);
         let err = SESSION
             .arrow()
-            .from_arrow_array(lists, true)
-            .expect_err("a dictionary without values must fail to drop its masked nulls");
+            .from_arrow_array(Arc::new(dictionary), &field)
+            .expect_err("a key outside the dictionary values must fail the import");
         assert!(
             err.to_string()
-                .contains("Failed to drop the nulls that a null row masks in non-nullable"),
+                .contains("Arrow dictionary keys must point inside the 2 values, got 2 at index 1"),
             "unexpected error: {err}"
         );
+    }
+
+    fn list_view_with_masked_value(
+        value: Option<i32>,
+        visible_null: bool,
+    ) -> VortexResult<(ArrowArrayRef, Field)> {
+        let list: ArrowArrayRef = Arc::new(GenericListViewArray::<i32>::try_new(
+            nullable_item(),
+            ScalarBuffer::from(vec![i32::from(visible_null), 1]),
+            ScalarBuffer::from(vec![1, 1]),
+            Arc::new(Int32Array::from(vec![Some(7), value])),
+            Some(NullBuffer::from(vec![true, false])),
+        )?);
+        let field = Field::new(
+            "list",
+            DataType::ListView(Arc::new(Field::new_list_field(DataType::Int32, false))),
+            true,
+        );
+        Ok((list, field))
+    }
+
+    fn map_with_masked_value(
+        value: Option<i32>,
+        visible_null: bool,
+    ) -> VortexResult<(ArrowArrayRef, Field)> {
+        let fields = vec![
+            Field::new("key", DataType::Int32, false),
+            Field::new("value", DataType::Int32, true),
+        ];
+        let values: Vec<_> = if visible_null {
+            vec![value, Some(7)]
+        } else {
+            vec![Some(7), value]
+        };
+        let entries = StructArray::try_new(
+            Fields::from(fields.clone()),
+            vec![
+                Arc::new(Int32Array::from(vec![0, 1])),
+                Arc::new(Int32Array::from(values)),
+            ],
+            None,
+        )?;
+        let map: ArrowArrayRef = Arc::new(MapArray::try_new(
+            Arc::new(Field::new_struct("entries", fields.clone(), false)),
+            OffsetBuffer::new(vec![0, 1, 2].into()),
+            entries,
+            Some(NullBuffer::from(vec![true, false])),
+            false,
+        )?);
+        let entries = Field::new_struct(
+            "entries",
+            vec![fields[0].clone(), fields[1].clone().with_nullable(false)],
+            false,
+        );
+        let field = Field::new("map", DataType::Map(Arc::new(entries), false), true);
+        Ok((map, field))
+    }
+
+    fn mask_encoded_rows(
+        encoded: ArrowArrayRef,
+        visible_null: bool,
+    ) -> VortexResult<(ArrowArrayRef, Field)> {
+        let encoded_field = Field::new("encoded", encoded.data_type().clone(), true);
+        let rows: ArrowArrayRef = Arc::new(StructArray::try_new(
+            Fields::from(vec![encoded_field.clone()]),
+            vec![encoded],
+            Some(NullBuffer::from(vec![true, visible_null, false])),
+        )?);
+        let field = Field::new_struct("rows", vec![encoded_field.with_nullable(false)], true);
+        Ok((rows, field))
+    }
+
+    fn runs_with_masked_value(
+        value: Option<i32>,
+        visible_null: bool,
+    ) -> VortexResult<(ArrowArrayRef, Field)> {
+        let runs = RunArray::<Int32Type>::try_new(
+            &Int32Array::from(vec![1, 3]),
+            &Int32Array::from(vec![Some(7), value]),
+        )?;
+        mask_encoded_rows(Arc::new(runs), visible_null)
+    }
+
+    fn dictionary_with_masked_value(
+        value: Option<i32>,
+        visible_null: bool,
+    ) -> VortexResult<(ArrowArrayRef, Field)> {
+        let dictionary = DictionaryArray::<Int32Type>::try_new(
+            Int32Array::from(vec![0, 1, 1]),
+            Arc::new(Int32Array::from(vec![Some(7), value])),
+        )?;
+        mask_encoded_rows(Arc::new(dictionary), visible_null)
+    }
+
+    /// The error for a visible null in a level that masks some of its slots, which
+    /// [`drop_masked_nulls`] rejects while it drops the masked nulls.
+    const VISIBLE_NULL_IN_MASKED_LEVEL: &str = "must not be null unless an ancestor is null";
+
+    /// The error for a visible null in a level whose slots are all visible. Its parent passes no
+    /// visibility on, so the leaf import rejects every null.
+    const VISIBLE_NULL_IN_VISIBLE_LEVEL: &str =
+        "Cannot convert an Arrow array containing nulls into a non-nullable Vortex array";
+
+    #[rstest]
+    #[case::list_view(list_view_with_masked_value, VISIBLE_NULL_IN_MASKED_LEVEL)]
+    #[case::map(map_with_masked_value, VISIBLE_NULL_IN_MASKED_LEVEL)]
+    #[case::run_end(runs_with_masked_value, VISIBLE_NULL_IN_VISIBLE_LEVEL)]
+    #[case::dictionary(dictionary_with_masked_value, VISIBLE_NULL_IN_VISIBLE_LEVEL)]
+    fn test_nested_container_value_visibility(
+        #[case] array: fn(Option<i32>, bool) -> VortexResult<(ArrowArrayRef, Field)>,
+        #[case] visible_null_error: &str,
+    ) -> VortexResult<()> {
+        let session = SESSION.arrow();
+        let (masked, field) = array(None, false)?;
+        let (filled, _) = array(Some(0), false)?;
+        let imported = session.from_arrow_array(masked, &field)?;
+        let expected = session.from_arrow_array(filled, &field)?;
+        assert_eq!(imported.dtype(), &session.from_arrow_field(&field)?);
+        assert_arrays_eq!(imported, expected, &mut SESSION.create_execution_ctx());
+
+        let (visible, field) = array(None, true)?;
+        let err = session
+            .from_arrow_array(visible, &field)
+            .expect_err("a null that no null row masks must fail the import");
+        assert!(
+            err.to_string().contains(visible_null_error),
+            "unexpected error: {err}"
+        );
+        Ok(())
     }
 
     /// The structs `[{x: null}, null]` where Arrow marks `x` nullable, and a field that marks it

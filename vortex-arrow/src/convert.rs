@@ -607,9 +607,8 @@ pub fn from_arrow_fixed_size_list(
 pub(crate) fn map_from_arrow_parts(
     entries: ArrayRef,
     offsets: &OffsetBuffer<i32>,
-    arrow_nulls: Option<&NullBuffer>,
+    validity: Validity,
     keys_sorted: bool,
-    nullable: bool,
 ) -> VortexResult<ArrayRef> {
     let DType::Struct(struct_dtype, Nullability::NonNullable) = entries.dtype() else {
         vortex_bail!(
@@ -650,7 +649,6 @@ pub(crate) fn map_from_arrow_parts(
     let sizes = Buffer::<i32>::from_iter(offsets.windows(2).map(|window| window[1] - window[0]))
         .into_array();
     let offsets = offsets.inner().slice(0, len).into_array();
-    let validity = nulls(arrow_nulls, nullable)?;
     // SAFETY: the sizes are the differences of sorted, non-negative Arrow Map offsets that lie
     // within the entries, and share their integer type. The validity has one entry per map.
     let entries = unsafe { ListViewArray::new_unchecked(entries, offsets, sizes, validity) };
@@ -678,7 +676,12 @@ pub fn from_arrow_map(array: &ArrowMapArray, nullable: bool) -> VortexResult<Arr
     };
     let (entries, offsets) = trim_map_entries(array);
     let entries = from_arrow_struct(&entries, false)?;
-    map_from_arrow_parts(entries, &offsets, array.nulls(), *keys_sorted, nullable)
+    map_from_arrow_parts(
+        entries,
+        &offsets,
+        nulls(array.nulls(), nullable)?,
+        *keys_sorted,
+    )
 }
 
 /// Conversion of an Arrow null array into a Vortex `Null` array.

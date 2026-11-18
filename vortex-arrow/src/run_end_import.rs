@@ -5,6 +5,7 @@ use arrow_array::Array as _;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RunArray;
 use arrow_array::types::RunEndIndexType;
+use arrow_buffer::NullBuffer;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -16,15 +17,20 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 
+use crate::declared_nullability::run_end_values_visibility;
+
 /// Build a Vortex run-end array from an Arrow [`RunArray`].
 ///
-/// `import_values` converts the Arrow values of the runs that intersect the logical range. The
-/// caller supplies it, so extension metadata on the values field reaches the session's import
-/// plugins. This function slices both children from one physical run range, so the ends and the
-/// values cannot drift apart.
+/// `visible` is the [visibility](crate::declared_nullability) of `array`, and `values_nullable` is
+/// the nullability of its values field. `import_values` converts the Arrow values of the runs that
+/// intersect the logical range, with their visibility. The caller supplies it, so extension
+/// metadata on the values field reaches the session's import plugins. This function slices both
+/// children from one physical run range, so the ends and the values cannot drift apart.
 pub(crate) fn run_end_from_arrow<R: RunEndIndexType>(
     array: &RunArray<R>,
-    import_values: impl FnOnce(ArrowArrayRef) -> VortexResult<ArrayRef>,
+    visible: Option<&NullBuffer>,
+    values_nullable: bool,
+    import_values: impl FnOnce(ArrowArrayRef, Option<&NullBuffer>) -> VortexResult<ArrayRef>,
 ) -> VortexResult<ArrayRef>
 where
     R::Native: NativePType,
@@ -39,12 +45,21 @@ where
         (first, len, array.run_ends().offset())
     };
 
-    let ends_buf =
-        Buffer::<R::Native>::from_arrow_scalar_buffer(array.run_ends().inner().slice(first, len));
+    let physical_ends = array.run_ends().inner().slice(first, len);
+    let physical_values = array.values().slice(first, len);
+    let values_visible = run_end_values_visibility(
+        &physical_ends,
+        offset,
+        visible,
+        physical_values.as_ref(),
+        values_nullable,
+    );
+
+    let ends_buf = Buffer::<R::Native>::from_arrow_scalar_buffer(physical_ends);
     let ends = PrimitiveArray::new(ends_buf, Validity::NonNullable)
         .reinterpret_cast(R::Native::PTYPE.to_unsigned())
         .into_array();
-    let values = import_values(array.values().slice(first, len))?;
+    let values = import_values(physical_values, values_visible.as_ref())?;
 
     vortex_ensure_eq!(
         ends.len(),

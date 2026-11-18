@@ -14,13 +14,16 @@
 //! The _visibility_ of a level is an `Option<&NullBuffer>` that marks its visible slots, where
 //! `None` means that every slot is visible. A `Some` always masks at least one slot. A struct
 //! passes [`NullBuffer::union`] of its visibility and its nulls on to its fields, which keeps this
-//! property. A list passes the visibility of its elements on with [`list_elements_visibility`] or
-//! [`fixed_size_list_elements_visibility`], which also give `None` when the elements hold no null
-//! that their import could drop. So a level that gets `None` never has a masked null to drop.
+//! property. A list, list view, run-end array, or dictionary passes the visibility of its children
+//! on with the function for its kind, such as [`list_elements_visibility`], which also gives `None`
+//! when the children hold no null that their import could drop. So a level that gets `None` never
+//! has a masked null to drop.
 //!
 //! The canonical import in [`ArrowSession`] applies the rule to each level as it converts it.
 //! [`with_declared_nullability`] instead rebuilds a whole Arrow array in the declared form, for an
-//! array that an importer receives.
+//! array that an importer receives. This rebuild stops propagating visibility at list views, maps,
+//! run-end arrays, and dictionaries. The public functions in [`crate::convert`] read nulls directly
+//! from the Arrow arrays without propagating visibility.
 //!
 //! [`ArrowSession`]: crate::ArrowSession
 //! [`ArrowSession::from_arrow_storage`]: crate::ArrowSession::from_arrow_storage
@@ -33,19 +36,23 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::FixedSizeListArray;
 use arrow_array::GenericListArray;
 use arrow_array::OffsetSizeTrait;
+use arrow_array::PrimitiveArray;
 use arrow_array::StructArray;
 use arrow_array::cast::AsArray;
 use arrow_array::make_array;
+use arrow_array::types::ArrowPrimitiveType;
 use arrow_buffer::ArrowNativeType;
 use arrow_buffer::BooleanBufferBuilder;
 use arrow_buffer::NullBuffer;
 use arrow_buffer::OffsetBuffer;
+use arrow_buffer::ScalarBuffer;
 use arrow_data::ArrayData;
 use arrow_schema::DataType;
 use arrow_schema::FieldRef;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
 use crate::convert::remove_nulls;
 
@@ -90,8 +97,10 @@ pub(crate) fn drop_masked_nulls(
 /// `visible` is the [visibility](self) of `array`. An extension level rebuilds as its storage. A
 /// struct, list, large list, or fixed-size list level that pairs with a level of the same kind in
 /// `dtype` is rebuilt recursively, where a struct pairs only when its fields have the declared
-/// names in order. Any other level only takes its own declared nullability, so the levels below it
-/// keep the nullability that Arrow gives them.
+/// names in order. Any other level only takes its own declared nullability. When such a level
+/// drops its nulls, [`remove_nulls`] also strips the nulls of the non-nullable Arrow children below
+/// it without checking that a null row masks them, so a visible null there imports as the value
+/// under it.
 ///
 /// # Errors
 ///
@@ -239,8 +248,7 @@ pub(crate) fn list_elements_visibility<O: OffsetSizeTrait>(
 
     // Null lists mask no element when they are empty, which is how arrow-rs builders and pyarrow
     // write them.
-    let visible = NullBuffer::new(visible.finish());
-    (visible.null_count() > 0).then_some(visible)
+    visibility_mask(visible)
 }
 
 /// The [visibility](self) of the `values` of fixed-size lists of `size`, for their import at a
@@ -267,6 +275,119 @@ pub(crate) fn fixed_size_list_elements_visibility(
     Some(NullBuffer::new(visible.finish()))
 }
 
+/// A list-view element is visible if any visible row references it.
+pub(crate) fn list_view_elements_visibility<O: OffsetSizeTrait>(
+    offsets: &ScalarBuffer<O>,
+    sizes: &ScalarBuffer<O>,
+    rows_visible: Option<&NullBuffer>,
+    values: &dyn Array,
+    element_nullable: bool,
+) -> Option<NullBuffer> {
+    if !reads_visibility(values, element_nullable) {
+        return None;
+    }
+
+    // List views can overlap or be out of order. Merge their ranges so a shared element
+    // contributes one bit regardless of how many lists reference it.
+    let mut ranges: Vec<_> = offsets
+        .iter()
+        .zip(sizes.iter())
+        .enumerate()
+        .filter(|(row, (_, size))| {
+            size.as_usize() > 0 && rows_visible.is_none_or(|v| v.is_valid(*row))
+        })
+        .map(|(_, (offset, size))| {
+            let start = offset.as_usize();
+            (start, start + size.as_usize())
+        })
+        .collect();
+    ranges.sort_unstable();
+
+    let mut visible = BooleanBufferBuilder::new(values.len());
+    for (start, end) in ranges {
+        if start > visible.len() {
+            visible.append_n(start - visible.len(), false);
+        }
+        if end > visible.len() {
+            visible.append_n(end - visible.len(), true);
+        }
+    }
+    visible.append_n(values.len() - visible.len(), false);
+    visibility_mask(visible)
+}
+
+/// The [visibility](self) of the `values` of the runs that end at `run_ends`, for their import at a
+/// level that is `nullable`.
+///
+/// `run_ends` are the physical ends of the runs that intersect the logical range, which starts at
+/// the logical `offset`. `rows_visible` marks the visible rows of that range, and a value is
+/// visible when one of its rows is.
+pub(crate) fn run_end_values_visibility<R: ArrowNativeType>(
+    run_ends: &ScalarBuffer<R>,
+    offset: usize,
+    rows_visible: Option<&NullBuffer>,
+    values: &dyn Array,
+    nullable: bool,
+) -> Option<NullBuffer> {
+    let rows_visible = rows_visible.filter(|_| reads_visibility(values, nullable))?;
+
+    let mut visible = BooleanBufferBuilder::new(run_ends.len());
+    let mut start = 0;
+    for end in run_ends {
+        // The last run can end past the logical range.
+        let end = (end.as_usize() - offset).min(rows_visible.len());
+        let run_rows = rows_visible.inner().slice(start, end - start);
+        visible.append(run_rows.count_set_bits() > 0);
+        start = end;
+    }
+
+    visibility_mask(visible)
+}
+
+/// The [visibility](self) of the `values` of a dictionary with `keys`, for their import at a level
+/// that is `nullable`.
+///
+/// `keys_visible` marks the visible keys, and a value is visible when a visible, valid key points
+/// at it.
+///
+/// # Errors
+///
+/// Returns an error if a visible, valid key points outside the values. arrow-rs checks the keys
+/// when it builds a dictionary, but not when it imports one over the C Data Interface.
+pub(crate) fn dictionary_values_visibility<K: ArrowPrimitiveType>(
+    keys: &PrimitiveArray<K>,
+    keys_visible: Option<&NullBuffer>,
+    values: &dyn Array,
+    nullable: bool,
+) -> VortexResult<Option<NullBuffer>> {
+    if !reads_visibility(values, nullable) {
+        return Ok(None);
+    }
+
+    let mut visible = BooleanBufferBuilder::new(values.len());
+    visible.append_n(values.len(), false);
+    for (row, key) in keys.iter().enumerate() {
+        let Some(key) = key.filter(|_| keys_visible.is_none_or(|rows| rows.is_valid(row))) else {
+            continue;
+        };
+        let index = key.as_usize();
+        vortex_ensure!(
+            index < values.len(),
+            "Arrow dictionary keys must point inside the {} values, got {key:?} at index {row}",
+            values.len()
+        );
+        visible.set_bit(index, true);
+    }
+
+    Ok(visibility_mask(visible))
+}
+
+/// Returns the mask only when it hides a slot.
+fn visibility_mask(mut bits: BooleanBufferBuilder) -> Option<NullBuffer> {
+    let visible = NullBuffer::new(bits.finish());
+    (visible.null_count() > 0).then_some(visible)
+}
+
 /// Whether the import of `values` at a level that is `nullable` reads the visibility of its slots.
 ///
 /// A non-nullable leaf reads it to check its nulls, and a nested level passes it down when it or a
@@ -275,7 +396,13 @@ pub(crate) fn fixed_size_list_elements_visibility(
 /// never needs. For a nested level, this builds and walks every level below it, so the callers
 /// first test whether a null row or a slice masks any element at all.
 fn reads_visibility(values: &dyn Array, nullable: bool) -> bool {
-    if values.data_type().is_nested() {
+    if values.data_type().is_nested()
+        || (!nullable
+            && matches!(
+                values.data_type(),
+                DataType::Dictionary(..) | DataType::RunEndEncoded(..)
+            ))
+    {
         holds_nulls(&values.to_data())
     } else {
         !nullable && values.null_count() > 0
