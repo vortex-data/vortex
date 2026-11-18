@@ -53,6 +53,11 @@ pub struct FilterPlans {
 }
 
 impl FilterPlans {
+    /// The plans of the conjuncts, each over the scan's root row domain.
+    pub(crate) fn predicates(&self) -> &[PlanRef] {
+        &self.predicates
+    }
+
     /// Plans `expression`'s conjuncts over `root`.
     ///
     /// With `skip_unselective_dynamic`, a dynamic conjunct that kept almost every row on its last
