@@ -129,6 +129,26 @@ fn is_constant_false_does_not_imply_one_distinct_value() -> VortexResult<()> {
     Ok(())
 }
 
+#[test]
+fn constant_distinct_count_uses_eq() -> VortexResult<()> {
+    let (timestamp_stats, timestamp_dtype) =
+        bounds_stats(&DFScalarValue::TimestampNanosecond(Some(123), None))?;
+    assert_eq!(
+        stats_set_to_df(&timestamp_stats, &timestamp_dtype)?.distinct_count,
+        Precision::Exact(1)
+    );
+
+    let json_dtype = DType::Extension(
+        ExtDType::<Json>::try_new(EmptyMetadata, Nullability::NonNullable)?.erased(),
+    );
+    let json_stats = StatsSet::of(Stat::IsConstant, VortexPrecision::exact(true));
+    assert_eq!(
+        stats_set_to_df(&json_stats, &json_dtype)?.distinct_count,
+        Precision::Absent
+    );
+    Ok(())
+}
+
 /// A statistic the column dtype cannot carry comes back `Absent`.
 #[rstest]
 #[case::min_of_null_column(Stat::Min, DType::Null, ScalarValue::from(1i32))]

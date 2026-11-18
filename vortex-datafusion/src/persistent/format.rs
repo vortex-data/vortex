@@ -63,7 +63,6 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
-use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue as VortexScalarValue;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
@@ -76,6 +75,7 @@ use crate::convert::ExpressionConverter;
 use crate::convert::TryToDataFusion;
 use crate::convert::stats::constant_distinct_count;
 use crate::convert::stats::is_nan_free;
+use crate::convert::stats::scalar_stat;
 
 const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 
@@ -783,18 +783,8 @@ fn scalar_stat_to_df(
     stats_dtype: &DType,
     target_dtype: &DataType,
 ) -> DFPrecision<DFScalarValue> {
-    let Some(stat_dtype) = stat.dtype(stats_dtype) else {
-        return DFPrecision::Absent;
-    };
-
-    value
-        .and_then(|stat_value| {
-            let scalar = Scalar::try_new(stat_dtype, Some(stat_value))
-                .ok()?
-                .try_to_df()
-                .ok()?;
-            scalar.cast_to(target_dtype).ok()
-        })
+    scalar_stat(stat, value, stats_dtype)
+        .and_then(|scalar| scalar.try_to_df().ok()?.cast_to(target_dtype).ok())
         .to_df()
 }
 
