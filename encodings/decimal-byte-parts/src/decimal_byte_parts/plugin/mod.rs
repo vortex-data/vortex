@@ -46,7 +46,7 @@ pub fn decimal_byte_parts_v2_id() -> ArrayId {
     *ID
 }
 
-/// Serde for the [`DecimalByteParts`] array using the frozen v1 and v2 wire formats.
+/// Serde for [`DecimalByteParts`] using the frozen v1 and experimental v2 wire formats.
 ///
 /// Each version owns its metadata schema and serde functions. The plugin writes v1 whenever an
 /// array has no lower parts, so such arrays stay readable by older readers, and v2 otherwise.
@@ -112,8 +112,8 @@ impl ArrayPlugin for DecimalBytePartsPlugin {
 /// Restore the logical MSP dtype from a stored signed integer width.
 ///
 /// A stored MSP that is not wider than the logical dtype goes through
-/// [`WidenArray::from_stored_integer`], which reads no values. Only a wider legacy MSP gets a copy
-/// on the host. The copy fails on a valid value outside the precision of `decimal_dtype`, and it
+/// [`WidenArray::from_stored_integer`], which reads no values. Only a wider MSP, which only v1 files
+/// of earlier releases hold, gets a copy on the host. The copy fails on a valid value outside the precision of `decimal_dtype`, and it
 /// writes zeros in null slots.
 ///
 /// # Errors
