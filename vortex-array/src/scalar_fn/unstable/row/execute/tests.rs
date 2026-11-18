@@ -35,6 +35,7 @@ use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::FixedSizeList;
+use crate::arrays::FixedSizeListArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinView;
@@ -48,6 +49,7 @@ use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::FixedSizeListSink;
 use crate::scalar_fn::unstable::row::InitializedElement;
+use crate::scalar_fn::unstable::row::InitializedRow;
 use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
@@ -426,6 +428,40 @@ fn boolean_sinks_allocate_packed_payloads_with_context_allocator() -> VortexResu
             .as_slice(),
     );
     assert_eq!(tracker.live_allocations(), 2);
+    Ok(())
+}
+
+#[test]
+fn fallible_fixed_size_list_callback() -> VortexResult<()> {
+    let absolute_pairs = |values: [i64; 2], ctx: &mut ExecutionCtx| {
+        let args = VecExecutionArgs::new(vec![PrimitiveArray::from_iter(values).into_array()], 2);
+        execute_sink::<(i64,), (), FixedSizeListSink<i64>, _>(
+            &args,
+            &2,
+            ctx,
+            |_| (),
+            |_, (value,), row| {
+                let value = value
+                    .checked_abs()
+                    .ok_or_else(|| vortex_err!("absolute value overflow"))?;
+                // SAFETY: fills the supplied row and immediately returns its token.
+                Ok(unsafe { InitializedRow::fill(row, |_| value) })
+            },
+        )
+    };
+    let mut ctx = VortexSession::empty().create_execution_ctx();
+
+    let actual = absolute_pairs([-2, 3], &mut ctx)?;
+    let expected = FixedSizeListArray::new(
+        PrimitiveArray::from_iter([2_i64, 2, 3, 3]).into_array(),
+        2,
+        Validity::NonNullable,
+        2,
+    );
+    assert_arrays_eq!(actual, expected, &mut ctx);
+
+    let error = absolute_pairs([-2, i64::MIN], &mut ctx).expect_err("i64::MIN overflows abs");
+    assert!(error.to_string().contains("absolute value overflow"));
     Ok(())
 }
 

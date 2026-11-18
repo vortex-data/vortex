@@ -12,6 +12,7 @@ mod cache;
 mod shared;
 mod sink;
 mod source;
+mod usage;
 
 #[cfg(any(test, feature = "_test-harness"))]
 mod test;
@@ -25,6 +26,7 @@ pub use sink::*;
 pub use source::*;
 #[cfg(any(test, feature = "_test-harness"))]
 pub use test::*;
+pub use usage::*;
 use vortex_error::VortexError;
 
 /// Identifier for a single physical segment referenced by a layout.

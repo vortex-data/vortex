@@ -18,13 +18,20 @@ all-features = true
 [lints]
 workspace = true
 
+[features]
+_test-harness = ["vortex-array/_test-harness", "dep:arrow-select"]
+_test-harness-hegel = ["_test-harness", "dep:hegeltest", "dep:half"]
+
 [dependencies]
 arrow-array = { workspace = true, features = ["ffi"] }
 arrow-buffer = { workspace = true }
 arrow-cast = { workspace = true }
 arrow-data = { workspace = true }
 arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
+arrow-select = { workspace = true, optional = true }
 base64 = { workspace = true }
+half = { workspace = true, optional = true }
+hegeltest = { workspace = true, optional = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 simdutf8 = { workspace = true }

@@ -199,7 +199,9 @@ impl Scheme for DeltaScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
+        let primitive = compressor
+            .with_compressed_validity(data.array(), exec_ctx)?
+            .execute::<PrimitiveArray>(exec_ctx)?;
         let len = primitive.len();
         let (bases, deltas) = vortex_fastlanes::delta_compress(&primitive, exec_ctx)?;
 

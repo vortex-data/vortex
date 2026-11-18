@@ -30,11 +30,7 @@ pub fn rle_decompress(array: &RLEArray, ctx: &mut ExecutionCtx) -> VortexResult<
         .execute::<PrimitiveArray>(ctx)?;
     let values_idx_offsets: Vec<u64> =
         match_each_unsigned_integer_ptype!(values_idx_offsets.ptype(), |O| {
-            values_idx_offsets
-                .as_slice::<O>()
-                .iter()
-                .map(|&o| o.as_())
-                .collect()
+            widen_offsets(values_idx_offsets.as_slice::<O>())
         });
 
     match_each_native_ptype!(array.values().dtype().as_ptype(), |V| {
@@ -48,6 +44,11 @@ pub fn rle_decompress(array: &RLEArray, ctx: &mut ExecutionCtx) -> VortexResult<
             ),
         }
     })
+}
+
+/// Widens each value-index offset to `u64`.
+fn widen_offsets<O: AsPrimitive<u64>>(offsets: &[O]) -> Vec<u64> {
+    offsets.iter().map(|&o| o.as_()).collect()
 }
 
 /// Decompresses an `RLEArray` into to a primitive array of unsigned integers.
@@ -192,7 +193,7 @@ fn decode_chunk_checked<V, I>(
 ) -> VortexResult<()>
 where
     V: RLE,
-    I: Copy + Into<usize>,
+    I: Copy + Into<usize> + 'static,
 {
     let max_index: usize = chunk_indices
         .iter()

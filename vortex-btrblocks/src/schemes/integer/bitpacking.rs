@@ -143,7 +143,9 @@ impl Scheme for BitPackingScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let primitive_array = data.array_as_primitive().into_owned();
+        let primitive_array = compressor
+            .with_compressed_validity(data.array(), exec_ctx)?
+            .execute::<PrimitiveArray>(exec_ctx)?;
         let packed = match self.mode {
             BitPackingSchemeMode::V1 => compress_global(&primitive_array, exec_ctx)?,
             BitPackingSchemeMode::V2 => compress_blocked(&primitive_array, exec_ctx)?,

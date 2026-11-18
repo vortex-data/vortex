@@ -14,6 +14,7 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use super::OutputSink;
 use crate::ArrayRef;
@@ -61,24 +62,42 @@ pub struct Utf8Writer<'a> {
 }
 
 impl Utf8Writer<'_> {
-    /// Write a string into this row and consume the row handle.
+    /// Write a string whose byte length is known to fit in a [`BinaryView`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the length or data buffer index exceeds [`u32::MAX`]. Use
+    /// [`try_write`](Self::try_write) when an output can exceed these limits.
     pub fn write(self, value: impl AsRef<str>) {
+        self.try_write(value)
+            .vortex_expect("UTF-8 row must fit in a BinaryView");
+    }
+
+    /// Write a string into this row, returning an error if its byte length or data buffer index
+    /// exceeds [`u32::MAX`].
+    pub fn try_write(self, value: impl AsRef<str>) -> VortexResult<()> {
         let bytes = value.as_ref().as_bytes();
         if bytes.len() <= BinaryView::MAX_INLINED_SIZE {
             *self.view = BinaryView::make_view(bytes, 0, 0);
-            return;
+            return Ok(());
         }
 
+        let length = view_length(bytes.len())?;
         let needs_buffer = self
             .buffers
             .last()
             .is_none_or(|buffer| buffer.len().saturating_add(bytes.len()) > MAX_BUFFER_LEN);
+        let index = if needs_buffer {
+            self.buffers.len()
+        } else {
+            self.buffers.len() - 1
+        };
+        let buffer_index = u32::try_from(index)
+            .map_err(|_| vortex_err!("UTF-8 data buffer index must fit in u32, got {index}"))?;
         if needs_buffer {
             self.buffers.push(self.allocator.with_capacity(bytes.len()));
         }
 
-        let buffer_index = u32::try_from(self.buffers.len() - 1)
-            .vortex_expect("Utf8Sink data buffer count must fit in u32");
         let buffer = self
             .buffers
             .last_mut()
@@ -87,8 +106,16 @@ impl Utf8Writer<'_> {
             u32::try_from(buffer.len()).vortex_expect("Utf8Sink buffer offset must fit in u32");
 
         buffer.extend_from_slice(bytes);
-        *self.view = BinaryView::make_view(bytes, buffer_index, offset);
+        let prefix = *bytes
+            .first_chunk()
+            .vortex_expect("referenced strings have at least four bytes");
+        *self.view = BinaryView::new_ref(length, prefix, buffer_index, offset);
+        Ok(())
     }
+}
+
+fn view_length(len: usize) -> VortexResult<u32> {
+    u32::try_from(len).map_err(|_| vortex_err!("UTF-8 row byte length must fit in u32, got {len}"))
 }
 
 // SAFETY: `with_capacity` initializes one distinct `BinaryView` for every row. `rows` retains the
@@ -176,6 +203,15 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn view_length_checks_the_u32_boundary() -> VortexResult<()> {
+        let max = u32::MAX as usize;
+        assert_eq!(super::view_length(max)?, u32::MAX);
+        assert!(super::view_length(max + 1).is_err());
+        Ok(())
+    }
+
     #[test]
     fn sink_writes_owned_borrowed_and_cow_values() -> VortexResult<()> {
         let expected = ["short", "a referenced string", "owned", "borrowed cow"];
@@ -192,7 +228,8 @@ mod tests {
             // SAFETY: each index is within the four-row sink and is written exactly once.
             unsafe { <Utf8Sink as OutputSink>::row_unchecked(&mut rows, 0) }.write("short");
             // SAFETY: each index is within the four-row sink and is written exactly once.
-            unsafe { <Utf8Sink as OutputSink>::row_unchecked(&mut rows, 1) }.write(referenced);
+            unsafe { <Utf8Sink as OutputSink>::row_unchecked(&mut rows, 1) }
+                .try_write(referenced)?;
             // SAFETY: each index is within the four-row sink and is written exactly once.
             unsafe { <Utf8Sink as OutputSink>::row_unchecked(&mut rows, 2) }
                 .write(Cow::Owned("owned".to_owned()));
