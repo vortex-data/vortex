@@ -102,6 +102,7 @@ mod test {
 
     use crate::Alignment;
     use crate::Buffer;
+    use crate::ByteBuffer;
     use crate::buffer;
 
     #[test]
@@ -181,5 +182,15 @@ mod test {
     #[should_panic(expected = "offsets cannot be empty")]
     fn into_arrow_offset_buffer_rejects_empty() {
         drop(Buffer::<i32>::empty().into_arrow_offset_buffer());
+    }
+
+    #[test]
+    fn sliced_arrow_backed_into_arrow_buffer() {
+        let arrow = ArrowBuffer::from_vec((0u8..16).collect::<Vec<_>>());
+        let buf = ByteBuffer::from_arrow_buffer(arrow.clone(), Alignment::of::<u8>()).slice(3..10);
+
+        let round_trip = buf.into_arrow_buffer();
+        assert_eq!(round_trip.as_slice(), &arrow[3..10]);
+        assert_eq!(round_trip.as_ptr(), arrow[3..].as_ptr());
     }
 }

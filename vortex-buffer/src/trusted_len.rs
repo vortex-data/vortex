@@ -184,3 +184,58 @@ unsafe impl<T: Clone> TrustedLen for std::iter::RepeatN<T> {}
 unsafe impl<'a> TrustedLen for crate::bit::BitIterator<'a> {}
 unsafe impl<'a> TrustedLen for crate::bit::BitChunkIterator<'a> {}
 unsafe impl<'a> TrustedLen for crate::bit::UnalignedBitChunkIterator<'a> {}
+
+#[cfg(test)]
+mod tests {
+    use super::TrustedLenExt;
+
+    /// Reports `hint` items but yields `actual`.
+    #[cfg(debug_assertions)]
+    struct MisreportedLen {
+        hint: usize,
+        actual: usize,
+    }
+
+    #[cfg(debug_assertions)]
+    impl Iterator for MisreportedLen {
+        type Item = usize;
+
+        fn next(&mut self) -> Option<usize> {
+            self.actual = self.actual.checked_sub(1)?;
+            Some(self.actual)
+        }
+
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            (self.hint, Some(self.hint))
+        }
+    }
+
+    #[test]
+    fn adapter_yields_inner_items() {
+        // SAFETY: a `Vec` iterator reports its exact length.
+        let mut iter = unsafe { vec![1, 2, 3].into_iter().trusted_len() };
+        assert_eq!(iter.size_hint(), (3, Some(3)));
+        assert_eq!(iter.by_ref().collect::<Vec<_>>(), [1, 2, 3]);
+        assert_eq!(iter.next(), None);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "TrustedLenAdapter: iterator yielded more items than promised")]
+    fn adapter_rejects_extra_items() {
+        // SAFETY: the length is misreported on purpose, and nothing relies on it beyond the
+        // adapter's own debug check.
+        let iter = unsafe { MisreportedLen { hint: 2, actual: 3 }.trusted_len() };
+        drop(iter.collect::<Vec<_>>());
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "TrustedLenAdapter: iterator ended early")]
+    fn adapter_rejects_missing_items() {
+        // SAFETY: the length is misreported on purpose, and nothing relies on it beyond the
+        // adapter's own debug check.
+        let iter = unsafe { MisreportedLen { hint: 3, actual: 2 }.trusted_len() };
+        drop(iter.collect::<Vec<_>>());
+    }
+}
