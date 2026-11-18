@@ -126,10 +126,10 @@ jobs:
   rust-publish-dry-run:
     name: "Rust publish dry-run"
     if: github.event.pull_request.draft != true
-    timeout-minutes: 30
+    timeout-minutes: 60
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-xsmall/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-publish-dry-run', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-publish-dry-run', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -149,6 +149,9 @@ jobs:
         run: |
           # This is mostly a dummy version, we don't actually publish anything but it cannot exist in crates.io
           cargo set-version --workspace 0.100000.0
+      # Verify builds each packaged crate on its own. `[patch]` sections in the workspace do not
+      # apply there, as they do not apply for crates.io users, so this catches dependencies that
+      # only resolve through a patch.
       - name: Test Release
         run: |
-          cargo publish --dry-run --no-verify --allow-dirty --workspace
+          cargo publish --dry-run --allow-dirty --workspace
