@@ -10,13 +10,18 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use super::AllNonDistinct;
 use super::all_non_distinct;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::Accumulator;
+use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::EmptyOptions;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
@@ -31,7 +36,10 @@ use crate::dtype::DecimalType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::extension::datetime::TimeUnit;
+use crate::extension::datetime::Timestamp;
 use crate::match_each_decimal_value_type;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -865,4 +873,31 @@ fn struct_with_nullable_string_field_different() -> VortexResult<()> {
     )?
     .into_array();
     assert_matches_baseline(&a, &b)
+}
+
+#[rstest]
+#[case::equal(1i64, true)]
+#[case::distinct(2i64, false)]
+fn constant_timestamp_pairs_compare_storage(
+    #[case] rhs: i64,
+    #[case] expected: bool,
+) -> VortexResult<()> {
+    let ext = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
+    let dtype = DType::Extension(ext.clone());
+    let pair_dtype = DType::struct_(
+        [("lhs", dtype.clone()), ("rhs", dtype)],
+        Nullability::NonNullable,
+    );
+    let pair = Scalar::struct_(
+        pair_dtype.clone(),
+        vec![
+            Scalar::extension_ref(ext.clone(), 1i64.into()),
+            Scalar::extension_ref(ext, rhs.into()),
+        ],
+    );
+    let batch = ConstantArray::new(pair, 3).into_array();
+    let mut acc = Accumulator::try_new(AllNonDistinct, EmptyOptions, pair_dtype)?;
+    acc.accumulate(&batch, &mut SESSION.create_execution_ctx())?;
+    assert_eq!(acc.finish()?, expected.into());
+    Ok(())
 }

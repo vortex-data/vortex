@@ -3,6 +3,8 @@
 
 use std::sync::Arc;
 
+use vortex_array::dtype::Claim;
+use vortex_array::dtype::Claims;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
@@ -62,6 +64,10 @@ impl ExtVTable for Vector {
         )
     }
 
+    fn claims(_metadata: &Self::Metadata) -> Claims {
+        Claims::none().with(Claim::Eq)
+    }
+
     fn unpack_native<'a>(
         _ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
@@ -75,10 +81,22 @@ mod tests {
     use std::sync::Arc;
 
     use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::ListArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDTypePlugin;
+    use vortex_array::scalar_fn::fns::list_contains::ListContains;
+    use vortex_array::test_harness::ExpectedOutcome;
+    use vortex_array::test_harness::assert_execution_paths;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::types::vector::Vector;
 
@@ -109,5 +127,47 @@ mod tests {
     fn read_rejects_other_storage_dtype(#[case] storage: DType, #[case] expected: &str) {
         let result = Vector.deserialize(&[], storage);
         assert!(result.is_err_and(|error| error.to_string().contains(expected)));
+    }
+
+    #[test]
+    fn list_contains_requires_eq() -> VortexResult<()> {
+        let mut ctx = VortexSession::empty().create_execution_ctx();
+        let elements = Vector::try_new_vector_array(
+            FixedSizeListArray::try_new(
+                buffer![1.0f32, 2.0, 1.0, 3.0, 4.0, 5.0].into_array(),
+                2,
+                Validity::NonNullable,
+                3,
+            )?
+            .into_array(),
+        )?;
+        let list = ListArray::try_new(
+            elements,
+            buffer![0u32, 2, 3].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+        let needle = Vector::try_new_vector_array(
+            FixedSizeListArray::try_new(
+                buffer![1.0f32, 3.0, 4.0, 6.0].into_array(),
+                2,
+                Validity::NonNullable,
+                2,
+            )?
+            .into_array(),
+        )?;
+
+        assert_execution_paths(
+            &[list, needle],
+            |inputs| {
+                ListContains::try_new(inputs[0].clone(), inputs[1].clone())
+                    .map(IntoArray::into_array)
+            },
+            ExpectedOutcome::Array(BoolArray::from_iter([true, false]).into_array()),
+            &mut ctx,
+        );
+
+        Ok(())
     }
 }

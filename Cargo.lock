@@ -11337,9 +11337,12 @@ dependencies = [
  "vortex-buffer",
  "vortex-compute",
  "vortex-error",
+ "vortex-json",
  "vortex-mask",
  "vortex-session",
+ "vortex-tensor",
  "vortex-utils",
+ "vortex-uuid",
 ]
 
 [[package]]
@@ -11813,6 +11816,7 @@ dependencies = [
  "vortex",
  "vortex-array",
  "vortex-duckdb",
+ "vortex-json",
  "vortex-sequence",
  "vortex-spatial",
  "vortex-utils",
@@ -11964,6 +11968,7 @@ dependencies = [
  "vortex-fastlanes",
  "vortex-fsst",
  "vortex-io",
+ "vortex-json",
  "vortex-layout",
  "vortex-mask",
  "vortex-metrics",
@@ -12176,6 +12181,7 @@ dependencies = [
  "vortex-expr",
  "vortex-file",
  "vortex-io",
+ "vortex-json",
  "vortex-mask",
  "vortex-metrics",
  "vortex-scan",
@@ -12344,8 +12350,10 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-json",
  "vortex-mask",
  "vortex-session",
+ "vortex-tensor",
 ]
 
 [[package]]

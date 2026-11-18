@@ -24,7 +24,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::Accumulator;
     use vortex_array::aggregate_fn::DynAccumulator;
-    use vortex_array::aggregate_fn::ExtensionStoragePushdown;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
     use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
     use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
@@ -180,7 +179,7 @@ mod tests {
                 .windows(2)
                 .all(|w| if strict { w[0] < w[1] } else { w[0] <= w[1] });
             let mut acc = Accumulator::try_new(
-                ExtensionStoragePushdown::new(IsSorted, Uuid),
+                IsSorted,
                 IsSortedOptions { strict },
                 case.array.dtype().clone(),
             )?;
@@ -189,7 +188,7 @@ mod tests {
         }
 
         let mut acc = Accumulator::try_new(
-            ExtensionStoragePushdown::new(MinMax, Uuid),
+            MinMax,
             NumericalAggregateOpts::default(),
             case.array.dtype().clone(),
         )?;
@@ -203,6 +202,7 @@ mod tests {
                     (&result.min, values.iter().min()),
                     (&result.max, values.iter().max()),
                 ] {
+                    assert_eq!(actual.dtype(), &case.array.dtype().as_nonnullable());
                     let actual = Uuid::unpack_native(
                         &case.dtype,
                         actual.value().vortex_expect("nonempty min/max has a value"),

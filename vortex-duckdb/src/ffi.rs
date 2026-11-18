@@ -87,6 +87,15 @@ unsafe extern "C-unwind" fn duckdb_table_function_pushdown_complex_filter(
 }
 
 #[unsafe(no_mangle)]
+unsafe extern "C-unwind" fn duckdb_table_function_supports_pushdown_type(
+    bind: *const c_void,
+    column_id: usize,
+) -> bool {
+    let bind = unsafe { bind.cast::<BindState>().as_ref() }.vortex_expect("null pointer");
+    bind.supports_pushdown_type(column_id)
+}
+
+#[unsafe(no_mangle)]
 unsafe extern "C-unwind" fn duckdb_table_function_pushdown_projection_expression(
     bind: *mut c_void,
     expr: cpp::duckdb_vx_expr,

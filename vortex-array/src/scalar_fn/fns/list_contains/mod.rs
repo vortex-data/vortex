@@ -38,6 +38,7 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::dtype::Claim;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
@@ -108,8 +109,7 @@ impl ListContains {
     ///
     /// # Errors
     ///
-    /// Returns an error if the children have different lengths, `list` is not a list array,
-    /// or its element dtype differs from the needle's dtype ignoring nullability.
+    /// See [`Self::try_new_opts`] for the input requirements.
     pub fn try_new(list: ArrayRef, needle: ArrayRef) -> VortexResult<ScalarFnArray> {
         Self::try_new_opts(list, needle, ListContainsOptions::default())
     }
@@ -119,8 +119,8 @@ impl ListContains {
     ///
     /// # Errors
     ///
-    /// Returns an error if the children have different lengths, `list` is not a list array,
-    /// or its element dtype differs from the needle's dtype ignoring nullability.
+    /// The arrays must have the same length. `list` must be a list array whose element dtype
+    /// matches the needle's dtype ignoring nullability and holds [`Claim::Eq`].
     pub fn try_new_opts(
         list: ArrayRef,
         needle: ArrayRef,
@@ -177,20 +177,7 @@ impl ScalarFnVTable for ListContains {
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let list_dtype = &arg_dtypes[0];
         let needle_dtype = &arg_dtypes[1];
-
-        let DType::List(element_dtype, _) = list_dtype else {
-            vortex_bail!(
-                "First argument to ListContains must be a List, got {:?}",
-                list_dtype
-            );
-        };
-        if !element_dtype.eq_ignore_nullability(needle_dtype) {
-            vortex_bail!(
-                "Element type {} of list does not match search value {}",
-                element_dtype,
-                needle_dtype,
-            );
-        }
+        validate_operand_dtypes(list_dtype, needle_dtype)?;
 
         Ok(DType::Bool(
             options.result_nullability(list_dtype, needle_dtype),
@@ -205,6 +192,7 @@ impl ScalarFnVTable for ListContains {
     ) -> VortexResult<ArrayRef> {
         let list_array = args.get(0)?;
         let value_array = args.get(1)?;
+        validate_operand_dtypes(list_array.dtype(), value_array.dtype())?;
 
         // Borrow the list: a constant list scalar owns every element, so cloning it is not free.
         if let Some(value_scalar) = value_array.as_constant()
@@ -228,6 +216,9 @@ impl ScalarFnVTable for ListContains {
         if let Some(needle) = needle.as_constant()
             && let Some(list) = constant_list_node(&list)
         {
+            if !needle.dtype().holds(Claim::Eq) {
+                return Ok(None);
+            }
             let result = compute_contains_scalar(list, needle, options)?;
             return Ok(Some(node.new_constant(result)));
         }
@@ -289,6 +280,20 @@ impl ScalarFnVTable for ListContains {
     }
 }
 
+fn validate_operand_dtypes(list_dtype: &DType, needle_dtype: &DType) -> VortexResult<()> {
+    let DType::List(element_dtype, _) = list_dtype else {
+        vortex_bail!("First argument to ListContains must be a List, got {list_dtype:?}");
+    };
+
+    if !element_dtype.eq_ignore_nullability(needle_dtype) {
+        vortex_bail!(
+            "Element type {element_dtype} of list does not match search value {needle_dtype}"
+        );
+    }
+
+    element_dtype.require_claim(Claim::Eq, "list_contains")
+}
+
 fn compute_contains_scalar(
     list: &Scalar,
     needle: &Scalar,
@@ -332,17 +337,6 @@ fn compute_list_contains(
     options: &ListContainsOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let DType::List(elem_dtype, _) = array.dtype() else {
-        vortex_bail!("Array must be of List type");
-    };
-    if !elem_dtype.as_ref().eq_ignore_nullability(value.dtype()) {
-        vortex_bail!(
-            "Element type {} of list does not match search value {}",
-            elem_dtype,
-            value.dtype(),
-        );
-    }
-
     // A null needle is null against every list only when the function is strict: otherwise an
     // empty list still answers `false`, which the paths below work out per list.
     if array.all_invalid(ctx)? || (options.sql_null_semantics && value.all_invalid(ctx)?) {
@@ -827,15 +821,18 @@ mod tests {
 
     use super::process_matches;
     use crate::ArrayRef;
+    use crate::EmptyMetadata;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::DictArray;
+    use crate::arrays::ExtensionArray;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
@@ -854,14 +851,22 @@ mod tests {
     use crate::expr::list_contains_opts;
     use crate::expr::lit;
     use crate::expr::root;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
+    use crate::extension::tests::Opaque;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::ArrayReduceNode;
+    use crate::scalar_fn::ScalarFnVTable;
+    use crate::scalar_fn::VecExecutionArgs;
     use crate::scalar_fn::fns::list_contains::ListContains;
     use crate::scalar_fn::fns::list_contains::ListContainsOptions;
     use crate::scalar_fn::fns::list_contains::PreparedSet;
     use crate::scalar_fn::fns::list_contains::PreparedSetData;
     use crate::scalar_fn::fns::literal::Literal;
+    use crate::test_harness::ExpectedOutcome;
+    use crate::test_harness::assert_execution_paths;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -1018,6 +1023,126 @@ mod tests {
 
         let expr2 = list_contains(root(), lit(42));
         assert_eq!(expr2.to_string(), "vortex.list.contains($, 42i32)");
+    }
+
+    #[test]
+    fn list_contains_rejects_types_without_eq() {
+        let needle = Scalar::extension::<Opaque>(EmptyMetadata, 1000i64.into());
+        let element_dtype = needle.dtype().clone();
+        let list = Scalar::list(
+            Arc::new(element_dtype.clone()),
+            vec![needle.clone()],
+            Nullability::NonNullable,
+        );
+        let error = ListContains::try_new(
+            ConstantArray::new(list, 1).into_array(),
+            ConstantArray::new(needle, 1).into_array(),
+        )
+        .expect_err("list_contains must reject Opaque at binding");
+        let expected =
+            format!("list_contains requires the Eq claim, but {element_dtype} does not hold it");
+
+        assert_eq!(error.to_string().lines().next(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn direct_list_contains_rejects_mismatched_constant_needle() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let needle = Scalar::from(1i64);
+        let element = Scalar::extension::<Opaque>(EmptyMetadata, needle.clone());
+        let expected = format!(
+            "Element type {} of list does not match search value {}",
+            element.dtype(),
+            needle.dtype()
+        );
+        let list = Scalar::list(
+            Arc::new(element.dtype().clone()),
+            vec![element],
+            Nullability::NonNullable,
+        );
+        let args = VecExecutionArgs::new(
+            vec![
+                ConstantArray::new(list, 1).into_array(),
+                ConstantArray::new(needle, 1).into_array(),
+            ],
+            1,
+        );
+
+        let error = ListContains
+            .execute(&ListContainsOptions::default(), &args, &mut ctx)
+            .expect_err("the needle must match the list element dtype");
+        assert_eq!(error.to_string().lines().next(), Some(expected.as_str()));
+        Ok(())
+    }
+
+    #[test]
+    fn list_contains_checks_eq_without_binding() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let needle = Scalar::extension::<Opaque>(EmptyMetadata, 1i64.into());
+        let dtype = needle.dtype().clone();
+        let expected = format!("list_contains requires the Eq claim, but {dtype} does not hold it");
+        let list = Scalar::list(
+            Arc::new(dtype),
+            vec![needle.clone()],
+            Nullability::NonNullable,
+        );
+        let options = ListContainsOptions::default();
+        let constant_list = ConstantArray::new(list.clone(), 1).into_array();
+        let needle_array = ConstantArray::new(needle.clone(), 1).into_array();
+
+        for input in [
+            constant_list.clone(),
+            constant_list
+                .clone()
+                .execute::<ListViewArray>(&mut ctx)?
+                .into_array(),
+        ] {
+            let args = VecExecutionArgs::new(vec![input, needle_array.clone()], 1);
+            let error = ListContains
+                .execute(&options, &args, &mut ctx)
+                .expect_err("list_contains requires Eq at execution");
+            assert_eq!(error.to_string().lines().next(), Some(expected.as_str()));
+        }
+
+        let operands =
+            StructArray::from_fields(&[("list", constant_list), ("needle", needle_array)])?
+                .into_array();
+        let node = ArrayReduceNode::new(&operands);
+        assert!(ListContains.reduce(&options, &node)?.is_none());
+
+        let prepared = PreparedSetData::try_new(list)?;
+        let error = prepared
+            .contains_scalar(&needle, &options, &mut ctx)
+            .expect_err("a prepared set requires Eq before materializing its haystack");
+        assert_eq!(error.to_string().lines().next(), Some(expected.as_str()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn list_contains_accepts_types_with_eq() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
+        let list = ListArray::try_new(
+            ExtensionArray::new(dtype.clone(), buffer![1000i64, 2000, 3000].into_array())
+                .into_array(),
+            buffer![0u32, 2, 3].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+        let needle = ExtensionArray::new(dtype, buffer![2000i64, 1000].into_array()).into_array();
+        assert_execution_paths(
+            &[list, needle],
+            |inputs| {
+                ListContains::try_new(inputs[0].clone(), inputs[1].clone())
+                    .map(IntoArray::into_array)
+            },
+            ExpectedOutcome::Array(BoolArray::from_iter([true, false]).into_array()),
+            &mut ctx,
+        );
+
+        Ok(())
     }
 
     #[test]

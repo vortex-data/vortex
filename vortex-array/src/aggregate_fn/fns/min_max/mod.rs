@@ -4,7 +4,6 @@
 mod bool;
 mod decimal;
 pub use decimal::valid_range;
-mod extension;
 mod fixed_size_list;
 mod primitive;
 mod varbinview;
@@ -19,7 +18,6 @@ use vortex_session::registry::CachedId;
 
 use self::bool::accumulate_bool;
 use self::decimal::accumulate_decimal;
-use self::extension::accumulate_extension;
 use self::fixed_size_list::accumulate_fixed_size_bytes;
 use self::primitive::accumulate_primitive;
 use self::varbinview::accumulate_varbinview;
@@ -34,7 +32,13 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::extension::claimed_storage_dtype;
+use crate::aggregate_fn::extension::into_storage_scalar;
+use crate::aggregate_fn::extension::wrap_storage_scalar;
 use crate::aggregate_fn::fns::fixed_size_bytes::is_fixed_size_bytes;
+use crate::arrays::Extension;
+use crate::arrays::extension::ExtensionArrayExt;
+use crate::dtype::Claim;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -66,6 +70,12 @@ pub fn min_max(
     ctx: &mut ExecutionCtx,
     options: NumericalAggregateOpts,
 ) -> VortexResult<Option<MinMaxResult>> {
+    if !array.dtype().holds(Claim::Ord)
+        || (array.dtype().is_extension() && !minmax_compute_supported_dtype(array.dtype()))
+    {
+        return Ok(None);
+    }
+
     if !options.skip_nans && has_nan_values(array.dtype()) {
         match array.statistics().get_as::<u64>(Stat::NaNCount) {
             // NaN-free: identical to the NaN-skipping path below, including its stat caching.
@@ -284,7 +294,7 @@ impl MinMaxPartial {
 
     /// Poison the partial state to `{min: NaN, max: NaN}`.
     fn poison(&mut self, args: AggregateArgs<'_, NumericalAggregateOpts>) -> VortexResult<()> {
-        let nan = nan_scalar(args.dtype)?;
+        let nan = into_storage_scalar(nan_scalar(args.dtype)?);
         self.min = Some(nan.clone());
         self.max = Some(nan);
 
@@ -317,8 +327,8 @@ fn minmax_supported_dtype(input_dtype: &DType) -> bool {
         | DType::Primitive(..)
         | DType::Decimal(..)
         | DType::Utf8(..)
-        | DType::Binary(..)
-        | DType::Extension(..) => true,
+        | DType::Binary(..) => true,
+        DType::Extension(..) => minmax_compute_supported_dtype(input_dtype),
         DType::List(element_dtype, _) => minmax_supported_dtype(element_dtype),
         DType::FixedSizeList(element_dtype, ..) => minmax_supported_dtype(element_dtype),
         _ => false,
@@ -332,6 +342,11 @@ fn minmax_supported_dtype(input_dtype: &DType) -> bool {
 /// not yet implement lexicographic list comparison. Fixed-size lists of non-nullable `u8` are the
 /// exception: they compare by byte.
 fn minmax_compute_supported_dtype(input_dtype: &DType) -> bool {
+    if input_dtype.is_extension() {
+        return claimed_storage_dtype(input_dtype, Claim::Ord)
+            .is_some_and(minmax_compute_supported_dtype);
+    }
+
     matches!(
         input_dtype,
         DType::Bool(_)
@@ -339,7 +354,6 @@ fn minmax_compute_supported_dtype(input_dtype: &DType) -> bool {
             | DType::Decimal(..)
             | DType::Utf8(..)
             | DType::Binary(..)
-            | DType::Extension(..)
     ) || is_fixed_size_bytes(input_dtype)
 }
 
@@ -379,12 +393,19 @@ impl AggregateFnVTable for MinMax {
         args: AggregateArgs<'_, Self::Options>,
         scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
+        args.dtype.require_claim(Claim::Ord, "min_max")?;
+
         let mut partial = MinMaxPartial {
             min: None,
             max: None,
         };
         // `merge` normalizes the parsed extrema: nulls stay empty and NaNs poison or drop.
-        partial.merge(args, MinMaxResult::from_scalar(scalar)?)?;
+        let result =
+            MinMaxResult::from_scalar(scalar)?.map(|MinMaxResult { min, max }| MinMaxResult {
+                min: into_storage_scalar(min),
+                max: into_storage_scalar(max),
+            });
+        partial.merge(args, result)?;
         Ok(partial)
     }
 
@@ -407,7 +428,16 @@ impl AggregateFnVTable for MinMax {
     ) -> VortexResult<Scalar> {
         let dtype = args.partial_dtype.clone();
         Ok(match (&partial.min, &partial.max) {
-            (Some(min), Some(max)) => Scalar::struct_(dtype, vec![min.clone(), max.clone()]),
+            (Some(min), Some(max)) => {
+                let element = args.dtype.as_nonnullable();
+                Scalar::struct_(
+                    dtype,
+                    vec![
+                        wrap_storage_scalar(min, &element)?,
+                        wrap_storage_scalar(max, &element)?,
+                    ],
+                )
+            }
             _ => Scalar::null(dtype),
         })
     }
@@ -427,8 +457,17 @@ impl AggregateFnVTable for MinMax {
         args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
+        if !batch.dtype().holds(Claim::Ord) {
+            return Ok(false);
+        }
+
+        if let Some(array) = batch.as_opt::<Extension>() {
+            accumulate_extension(args, partial, &array, ctx)?;
+            return Ok(true);
+        }
+
         // NaN-aware shortcircuits only apply to NaN-including float min/max; everything else
         // takes the default dispatch path.
         if args.options.skip_nans || !args.dtype.is_float() {
@@ -470,6 +509,8 @@ impl AggregateFnVTable for MinMax {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        batch.dtype().require_claim(Claim::Ord, "min_max")?;
+
         match batch {
             Columnar::Constant(c) => {
                 if c.is_empty() {
@@ -487,8 +528,8 @@ impl AggregateFnVTable for MinMax {
                     }
                     return Ok(());
                 }
-                let non_nullable_dtype = scalar.dtype().as_nonnullable();
-                let cast = scalar.cast(&non_nullable_dtype)?;
+                let scalar = into_storage_scalar(scalar.clone());
+                let cast = scalar.cast(&scalar.dtype().as_nonnullable())?;
                 partial.merge(
                     args,
                     Some(MinMaxResult {
@@ -538,8 +579,32 @@ impl AggregateFnVTable for MinMax {
     }
 }
 
+fn accumulate_extension(
+    args: AggregateArgs<'_, NumericalAggregateOpts>,
+    partial: &mut MinMaxPartial,
+    array: &impl ExtensionArrayExt,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    // The storage encoding still gets to dispatch its own kernels and use its cached extrema.
+    let Some(MinMaxResult { min, max }) = min_max(array.storage_array(), ctx, *args.options)?
+    else {
+        return Ok(());
+    };
+    let min = into_storage_scalar(min);
+    let max = into_storage_scalar(max);
+
+    // The array constructor checks the storage dtype. Validate the selected values here so
+    // accumulation reports malformed extension values before merging them.
+    let dtype = args.dtype.as_nonnullable();
+    wrap_storage_scalar(&min, &dtype)?;
+    wrap_storage_scalar(&max, &dtype)?;
+
+    partial.merge(args, Some(MinMaxResult { min, max }))
+}
+
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
     use std::sync::Arc;
     use std::sync::LazyLock;
 
@@ -558,8 +623,21 @@ mod tests {
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateDTypes;
     use crate::aggregate_fn::AggregateFnVTable;
+    use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::NumericalAggregateOpts;
+    use crate::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
+    use crate::aggregate_fn::fns::bounded_max::BoundedMax;
+    use crate::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
+    use crate::aggregate_fn::fns::bounded_min::BoundedMin;
+    use crate::aggregate_fn::fns::bounded_min::BoundedMinOptions;
+    use crate::aggregate_fn::fns::is_constant::IsConstant;
+    use crate::aggregate_fn::fns::is_sorted::IsSorted;
+    use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
+    use crate::aggregate_fn::fns::is_sorted::is_sorted;
+    use crate::aggregate_fn::fns::max::Max;
+    use crate::aggregate_fn::fns::min::Min;
     use crate::aggregate_fn::fns::min_max::MinMax;
     use crate::aggregate_fn::fns::min_max::MinMaxPartial;
     use crate::aggregate_fn::fns::min_max::MinMaxResult;
@@ -577,6 +655,8 @@ mod tests {
     use crate::arrays::TemporalArray;
     use crate::arrays::VarBinArray;
     use crate::dtype::BigCast;
+    use crate::dtype::Claim;
+    use crate::dtype::Claims;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::DecimalType;
@@ -588,7 +668,9 @@ mod tests {
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
+    use crate::expr::stats::StatsProviderExt;
     use crate::extension::datetime::TimeUnit;
+    use crate::extension::tests::Opaque;
     use crate::match_each_decimal_value_type;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
@@ -607,6 +689,152 @@ mod tests {
                 min: 1.into(),
                 max: 3.into()
             })
+        );
+        Ok(())
+    }
+
+    enum TimestampEncoding {
+        Canonical,
+        Chunked,
+        Constant,
+    }
+
+    #[rstest]
+    #[case::canonical(TimestampEncoding::Canonical, 1, 3)]
+    #[case::chunked(TimestampEncoding::Chunked, 1, 3)]
+    #[case::constant(TimestampEncoding::Constant, 2, 2)]
+    fn min_max_returns_input_dtype(
+        #[case] encoding: TimestampEncoding,
+        #[case] expected_min: i64,
+        #[case] expected_max: i64,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let timestamps = |values: &[i64]| {
+            TemporalArray::new_timestamp(
+                PrimitiveArray::from_iter(values.iter().copied()).into_array(),
+                TimeUnit::Milliseconds,
+                Some("UTC".into()),
+            )
+            .into_array()
+        };
+        let input = match encoding {
+            TimestampEncoding::Canonical => timestamps(&[2, 1, 3]),
+            TimestampEncoding::Chunked => {
+                ChunkedArray::from_iter([timestamps(&[2, 1]), timestamps(&[3])]).into_array()
+            }
+            TimestampEncoding::Constant => {
+                ConstantArray::new(timestamps(&[2]).execute_scalar(0, &mut ctx)?, 3).into_array()
+            }
+        };
+
+        let dtype = input.dtype();
+        let expected =
+            |value| Scalar::extension_ref(dtype.as_extension().clone(), Scalar::from(value));
+        let options = NumericalAggregateOpts::default();
+        let max_bytes = NonZeroUsize::MIN;
+        for (aggregate, value) in [
+            (Min.bind(options), expected_min),
+            (Max.bind(options), expected_max),
+            (
+                BoundedMin.bind(BoundedMinOptions { max_bytes }),
+                expected_min,
+            ),
+            (
+                BoundedMax.bind(BoundedMaxOptions { max_bytes }),
+                expected_max,
+            ),
+        ] {
+            let mut acc = aggregate.accumulator(dtype)?;
+            acc.accumulate(&input, &mut ctx)?;
+            let result = acc.finish()?;
+            assert_eq!(result.dtype(), &dtype.as_nullable());
+            assert_eq!(result, expected(value));
+        }
+
+        let mut acc = Accumulator::try_new(MinMax, options, dtype.clone())?;
+        acc.accumulate(&input, &mut ctx)?;
+        let MinMaxResult { min, max } =
+            MinMaxResult::from_scalar(&acc.finish()?)?.vortex_expect("timestamp input has extrema");
+        assert_eq!(min.dtype(), dtype);
+        assert_eq!(max.dtype(), dtype);
+        assert_eq!(min, expected(expected_min));
+        assert_eq!(max, expected(expected_max));
+        Ok(())
+    }
+
+    #[test]
+    fn partial_state_has_input_dtype() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = TemporalArray::new_timestamp(
+            PrimitiveArray::from_iter([3i64, 1, 2]).into_array(),
+            TimeUnit::Milliseconds,
+            None,
+        )
+        .into_array();
+        let options = NumericalAggregateOpts::default();
+        let mut producer = Accumulator::try_new(Min, options, array.dtype().clone())?;
+        let mut consumer = Accumulator::try_new(Min, options, array.dtype().clone())?;
+        producer.accumulate(&array.slice(1..3)?, &mut ctx)?;
+        consumer.accumulate(&array.slice(0..1)?, &mut ctx)?;
+
+        let partial = producer.flush()?;
+        assert_eq!(partial.dtype(), &array.dtype().as_nullable());
+        consumer.combine_partials(&partial)?;
+        assert_eq!(
+            consumer.finish()?,
+            array.execute_scalar(1, &mut ctx)?.into_nullable()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn aggregates_reject_opaque_values() -> VortexResult<()> {
+        let dtype = DType::Extension(
+            ExtDType::<Opaque>::try_new(EmptyMetadata, Nullability::NonNullable)?.erased(),
+        );
+        let numerical = NumericalAggregateOpts::default();
+        let max_bytes = NonZeroUsize::MIN;
+        let pair = DType::struct_(
+            [("lhs", dtype.clone()), ("rhs", dtype.clone())],
+            Nullability::NonNullable,
+        );
+        fn rejects<A: AggregateFnVTable>(aggregate: A, options: A::Options, dtype: &DType) {
+            assert!(
+                aggregate.return_dtype(&options, dtype).is_none(),
+                "{}",
+                aggregate.id()
+            );
+            assert!(Accumulator::try_new(aggregate, options, dtype.clone()).is_err());
+        }
+        rejects(MinMax, numerical, &dtype);
+        rejects(Min, numerical, &dtype);
+        rejects(Max, numerical, &dtype);
+        rejects(BoundedMin, BoundedMinOptions { max_bytes }, &dtype);
+        rejects(BoundedMax, BoundedMaxOptions { max_bytes }, &dtype);
+        rejects(IsSorted, IsSortedOptions { strict: false }, &dtype);
+        rejects(IsConstant, EmptyOptions, &dtype);
+        rejects(AllNonDistinct, EmptyOptions, &pair);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::sorted([1i64, 2, 3], true)]
+    #[case::unsorted([1i64, 3, 2], false)]
+    fn is_sorted_works_for_ordered_extension_types(
+        #[case] values: [i64; 3],
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = TemporalArray::new_timestamp(
+            PrimitiveArray::from_iter(values).into_array(),
+            TimeUnit::Milliseconds,
+            None,
+        )
+        .into_array();
+        assert_eq!(is_sorted(&array, &mut ctx)?, expected);
+        assert_eq!(
+            array.statistics().get_as::<bool>(Stat::IsSorted),
+            Precision::Exact(expected)
         );
         Ok(())
     }
@@ -1386,6 +1614,10 @@ mod tests {
 
         fn storage_dtype(_metadata: &Self::Metadata) -> DType {
             DType::Primitive(PType::F64, Nullability::NonNullable)
+        }
+
+        fn claims(_metadata: &Self::Metadata) -> Claims {
+            Claims::none().with(Claim::Ord)
         }
 
         fn unpack_native<'a>(

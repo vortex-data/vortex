@@ -23,6 +23,7 @@ use crate::arrays::Decimal;
 use crate::arrays::Primitive;
 use crate::arrays::ScalarFnArray;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::Claim;
 use crate::dtype::DType;
 use crate::dtype::DType::Bool;
 use crate::dtype::NativePType;
@@ -303,21 +304,7 @@ impl ScalarFnVTable for Between {
         let arr_dt = &arg_dtypes[0];
         let lower_dt = &arg_dtypes[1];
         let upper_dt = &arg_dtypes[2];
-
-        if !arr_dt.eq_ignore_nullability(lower_dt) {
-            vortex_bail!(
-                "Array dtype {} does not match lower dtype {}",
-                arr_dt,
-                lower_dt
-            );
-        }
-        if !arr_dt.eq_ignore_nullability(upper_dt) {
-            vortex_bail!(
-                "Array dtype {} does not match upper dtype {}",
-                arr_dt,
-                upper_dt
-            );
-        }
+        validate_operand_dtypes(arr_dt, lower_dt, upper_dt)?;
 
         Ok(Bool(
             arr_dt.nullability() | lower_dt.nullability() | upper_dt.nullability(),
@@ -333,6 +320,7 @@ impl ScalarFnVTable for Between {
         let arr = args.get(0)?;
         let lower = args.get(1)?;
         let upper = args.get(2)?;
+        validate_operand_dtypes(arr.dtype(), lower.dtype(), upper.dtype())?;
 
         // canonicalize the arr and we might be able to run a between kernels over that.
         if !arr.is_canonical() {
@@ -366,6 +354,21 @@ impl ScalarFnVTable for Between {
     }
 }
 
+fn validate_operand_dtypes(
+    array_dtype: &DType,
+    lower_dtype: &DType,
+    upper_dtype: &DType,
+) -> VortexResult<()> {
+    if !array_dtype.eq_ignore_nullability(lower_dtype) {
+        vortex_bail!("Array dtype {array_dtype} does not match lower dtype {lower_dtype}");
+    }
+    if !array_dtype.eq_ignore_nullability(upper_dtype) {
+        vortex_bail!("Array dtype {array_dtype} does not match upper dtype {upper_dtype}");
+    }
+
+    array_dtype.require_claim(Claim::Ord, "between")
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
@@ -374,12 +377,16 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::EmptyMetadata;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
+    use crate::arrays::Constant;
     use crate::arrays::DecimalArray;
+    use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::arrays::TemporalArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -390,12 +397,76 @@ mod tests {
     use crate::expr::get_item;
     use crate::expr::lit;
     use crate::expr::root;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::tests::Opaque;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::VecExecutionArgs;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn direct_between_rejects_empty_opaque_input() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let value = Scalar::extension::<Opaque>(EmptyMetadata, 1i64.into());
+        let empty = ExtensionArray::new(
+            value.dtype().as_extension().clone(),
+            PrimitiveArray::from_iter([] as [i64; 0]).into_array(),
+        )
+        .into_array();
+        let bound = ConstantArray::new(value, 0).into_array();
+        let expected = format!(
+            "between requires the Ord claim, but {} does not hold it",
+            empty.dtype()
+        );
+        let args = VecExecutionArgs::new(vec![empty, bound.clone(), bound], 0);
+        let error = Between
+            .execute(&NON_STRICT, &args, &mut ctx)
+            .expect_err("between requires Ord even for an empty batch");
+
+        assert_eq!(error.to_string().lines().next(), Some(expected.as_str()));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::lower([TimeUnit::Microseconds, TimeUnit::Milliseconds], "lower")]
+    #[case::upper([TimeUnit::Milliseconds, TimeUnit::Microseconds], "upper")]
+    fn direct_between_rejects_mismatched_bound_on_empty_input(
+        #[case] bound_units: [TimeUnit; 2],
+        #[case] mismatched_bound: &str,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let storage = PrimitiveArray::from_iter([] as [i64; 0]).into_array();
+        let timestamp =
+            |unit| TemporalArray::new_timestamp(storage.clone(), unit, None).into_array();
+        let input = timestamp(TimeUnit::Milliseconds);
+        let [lower, upper] = bound_units.map(timestamp);
+        let expected = format!(
+            "Array dtype {} does not match {mismatched_bound} dtype ",
+            input.dtype()
+        );
+        let args = VecExecutionArgs::new(vec![input, lower, upper], 0);
+
+        let error = Between
+            .execute(&NON_STRICT, &args, &mut ctx)
+            .expect_err("the bounds must match the input dtype even for an empty batch");
+        assert!(error.to_string().starts_with(&expected), "{error}");
+        Ok(())
+    }
+
+    #[test]
+    fn constant_between_reducer_declines_opaque() -> VortexResult<()> {
+        let constant =
+            ConstantArray::new(Scalar::extension::<Opaque>(EmptyMetadata, 1i64.into()), 1);
+        let bound = constant.clone().into_array();
+        assert!(
+            <Constant as BetweenReduce>::between(constant.as_view(), &bound, &bound, &NON_STRICT)?
+                .is_none()
+        );
+        Ok(())
+    }
 
     const NON_STRICT: BetweenOptions = BetweenOptions {
         lower_strict: StrictComparison::NonStrict,
@@ -406,6 +477,34 @@ mod tests {
     fn null_i32s(len: usize) -> ArrayRef {
         let null = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
         ConstantArray::new(null, len).into_array()
+    }
+
+    #[test]
+    fn between_accepts_timestamp() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = TemporalArray::new_timestamp(
+            buffer![0i64, 1000, 2000, 3000].into_array(),
+            TimeUnit::Milliseconds,
+            None,
+        )
+        .into_array();
+        let lower = lit(Scalar::try_new(
+            input.dtype().clone(),
+            Some(1000i64.into()),
+        )?);
+        let upper = lit(Scalar::try_new(
+            input.dtype().clone(),
+            Some(2000i64.into()),
+        )?);
+
+        let result = input.apply(&between(root(), lower, upper, NON_STRICT))?;
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, true, true, false]),
+            &mut ctx
+        );
+
+        Ok(())
     }
 
     #[test]

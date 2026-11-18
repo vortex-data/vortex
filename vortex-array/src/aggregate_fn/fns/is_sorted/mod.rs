@@ -32,10 +32,18 @@ use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::extension::accumulate_storage;
+use crate::aggregate_fn::extension::claimed_storage_dtype;
+use crate::aggregate_fn::extension::into_storage_scalar;
+use crate::aggregate_fn::extension::storage_dtype;
+use crate::aggregate_fn::extension::wrap_storage_scalar;
 use crate::aggregate_fn::fns::fixed_size_bytes::is_fixed_size_bytes;
 use crate::arrays::Constant;
+use crate::arrays::Extension;
 use crate::arrays::Null;
+use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::Claim;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -87,6 +95,10 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
     // statistics so that a stale hint cannot contradict it.
     if array.len() <= 1 {
         return Ok(true);
+    }
+
+    if !array.dtype().holds(Claim::Ord) {
+        return Ok(false);
     }
 
     // Short-circuit using cached array statistics.
@@ -269,46 +281,26 @@ impl AggregateFnVTable for IsSorted {
         }
     }
 
-    fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        match input_dtype {
-            DType::FixedSizeList(..) if is_fixed_size_bytes(input_dtype) => {
-                Some(DType::Bool(Nullability::NonNullable))
-            }
-            DType::Null
-            | DType::List(..)
-            | DType::FixedSizeList(..)
-            | DType::Map(..)
-            | DType::Struct(..)
-            | DType::Union(..)
-            | DType::Variant(..)
-            | DType::Extension(_) => None,
-            DType::Bool(_)
-            | DType::Primitive(..)
-            | DType::Decimal(..)
-            | DType::Utf8(_)
-            | DType::Binary(_) => Some(DType::Bool(Nullability::NonNullable)),
+    fn return_dtype(&self, _options: &Self::Options, mut input_dtype: &DType) -> Option<DType> {
+        while input_dtype.is_extension() {
+            input_dtype = claimed_storage_dtype(input_dtype, Claim::Ord)?;
         }
+
+        let supported = is_fixed_size_bytes(input_dtype)
+            || matches!(
+                input_dtype,
+                DType::Bool(_)
+                    | DType::Primitive(..)
+                    | DType::Decimal(..)
+                    | DType::Utf8(_)
+                    | DType::Binary(_)
+            );
+        supported.then_some(DType::Bool(Nullability::NonNullable))
     }
 
-    fn partial_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        match input_dtype {
-            DType::FixedSizeList(..) if is_fixed_size_bytes(input_dtype) => {
-                Some(make_is_sorted_partial_dtype(input_dtype))
-            }
-            DType::Null
-            | DType::List(..)
-            | DType::FixedSizeList(..)
-            | DType::Map(..)
-            | DType::Struct(..)
-            | DType::Union(..)
-            | DType::Variant(..)
-            | DType::Extension(_) => None,
-            DType::Bool(_)
-            | DType::Primitive(..)
-            | DType::Decimal(..)
-            | DType::Utf8(_)
-            | DType::Binary(_) => Some(make_is_sorted_partial_dtype(input_dtype)),
-        }
+    fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+        self.return_dtype(options, input_dtype)
+            .map(|_| make_is_sorted_partial_dtype(input_dtype))
     }
 
     fn empty_partial(
@@ -320,9 +312,11 @@ impl AggregateFnVTable for IsSorted {
 
     fn partial_from_scalar(
         &self,
-        _args: AggregateArgs<'_, Self::Options>,
+        args: AggregateArgs<'_, Self::Options>,
         scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
+        args.dtype.require_claim(Claim::Ord, "is_sorted")?;
+
         // A null struct means the producing accumulator was empty.
         if scalar.is_null() {
             return Ok(IsSortedPartial::empty());
@@ -337,8 +331,8 @@ impl AggregateFnVTable for IsSorted {
         // The scalar's own strict flag is ignored: strictness comes from the options.
         Ok(IsSortedPartial {
             is_sorted,
-            first_value: scalar.as_struct().field_by_idx(2),
-            last_value: scalar.as_struct().field_by_idx(3),
+            first_value: scalar.as_struct().field_by_idx(2).map(into_storage_scalar),
+            last_value: scalar.as_struct().field_by_idx(3).map(into_storage_scalar),
         })
     }
 
@@ -412,7 +406,7 @@ impl AggregateFnVTable for IsSorted {
         let first_value = partial
             .first_value
             .clone()
-            .unwrap_or_else(|| Scalar::null(args.dtype.as_nullable()));
+            .unwrap_or_else(|| Scalar::null(storage_dtype(args.dtype).as_nullable()));
         // A partial that saw a single value carries it as both boundaries.
         let last_value = partial
             .last_value
@@ -423,8 +417,8 @@ impl AggregateFnVTable for IsSorted {
             vec![
                 Scalar::bool(partial.is_sorted, Nullability::NonNullable),
                 Scalar::bool(args.options.strict, Nullability::NonNullable),
-                first_value,
-                last_value,
+                wrap_storage_scalar(&first_value, &args.dtype.as_nullable())?,
+                wrap_storage_scalar(&last_value, &args.dtype.as_nullable())?,
             ],
         ))
     }
@@ -438,6 +432,24 @@ impl AggregateFnVTable for IsSorted {
         !partial.is_sorted
     }
 
+    fn try_accumulate(
+        &self,
+        args: AggregateArgs<'_, IsSortedOptions>,
+        partial: &mut Self::Partial,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        if !batch.dtype().holds(Claim::Ord) {
+            return Ok(false);
+        }
+
+        let Some(array) = batch.as_opt::<Extension>() else {
+            return Ok(false);
+        };
+        accumulate_storage(self, args, partial, array.storage_array(), ctx)?;
+        Ok(true)
+    }
+
     fn accumulate(
         &self,
         args: AggregateArgs<'_, Self::Options>,
@@ -445,6 +457,8 @@ impl AggregateFnVTable for IsSorted {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        batch.dtype().require_claim(Claim::Ord, "is_sorted")?;
+
         if !partial.is_sorted {
             return Ok(());
         }
@@ -456,7 +470,7 @@ impl AggregateFnVTable for IsSorted {
                 }
 
                 // Constant arrays are sorted but not strict sorted (if len > 1).
-                let value = c.scalar().clone().into_nullable();
+                let value = into_storage_scalar(c.scalar().clone()).into_nullable();
                 if args.options.strict && c.len() > 1 {
                     partial.is_sorted = false;
                 }
@@ -488,6 +502,10 @@ impl AggregateFnVTable for IsSorted {
             Columnar::Canonical(c) => {
                 if c.is_empty() {
                     return Ok(());
+                }
+
+                if let Canonical::Extension(array) = c {
+                    return accumulate_storage(self, args, partial, array.storage_array(), ctx);
                 }
 
                 let array_ref = c.clone().into_array();

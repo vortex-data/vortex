@@ -11,6 +11,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
+use crate::dtype::Claim;
+use crate::dtype::Claims;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -105,6 +107,10 @@ impl ExtVTable for Time {
     fn storage_dtype(metadata: &Self::Metadata) -> DType {
         let ptype = time_ptype(metadata).vortex_expect("Time::validate_metadata rejects days");
         DType::Primitive(ptype, Nullability::NonNullable)
+    }
+
+    fn claims(_metadata: &Self::Metadata) -> Claims {
+        Claims::none().with(Claim::Ord)
     }
 
     fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {

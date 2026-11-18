@@ -20,9 +20,9 @@ impl BoundExpression {
     ///
     /// Non-scalar nodes carry no rules, so they never simplify.
     fn simplify_node(&self) -> VortexResult<Option<BoundExpression>> {
-        match self {
-            BoundExpression::Scalar { scalar_fn, .. } => scalar_fn.simplify(self),
-            BoundExpression::Root { .. } => Ok(None),
+        match self.as_scalar() {
+            Some(scalar_fn) => scalar_fn.simplify(self),
+            None => Ok(None),
         }
     }
 
@@ -31,9 +31,9 @@ impl BoundExpression {
         &self,
         node: &ExpressionReduceNode<'a>,
     ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
-        match self {
-            BoundExpression::Scalar { scalar_fn, .. } => scalar_fn.reduce_expression(node),
-            BoundExpression::Root { .. } => Ok(None),
+        match self.as_scalar() {
+            Some(scalar_fn) => scalar_fn.reduce_expression(node),
+            None => Ok(None),
         }
     }
 

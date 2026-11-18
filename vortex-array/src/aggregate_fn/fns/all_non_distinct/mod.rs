@@ -19,6 +19,7 @@ use std::sync::LazyLock;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
@@ -46,6 +47,7 @@ use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::fns::all_non_distinct::variant::check_variant_identical;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
+use crate::dtype::Claim;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -78,6 +80,8 @@ pub fn all_non_distinct(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> V
         );
     }
 
+    ensure_equality(a.dtype())?;
+
     if a.is_empty() {
         return Ok(true);
     }
@@ -98,6 +102,28 @@ pub fn all_non_distinct(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> V
     let result = acc.finish()?;
 
     Ok(result.as_bool().value().unwrap_or(false))
+}
+
+// Variant has its own equality implementation. Containers also support that implementation for
+// Variant children. Extension children must hold Eq, because the comparison runs on their storage.
+fn supports_equality(dtype: &DType) -> bool {
+    match dtype {
+        DType::Variant(_) => true,
+        DType::Struct(fields, _) => fields.field_dtypes().all(supports_equality),
+        DType::List(element, _) | DType::FixedSizeList(element, ..) => supports_equality(element),
+        DType::Map(map, _) => {
+            supports_equality(&map.key_dtype()) && supports_equality(&map.value_dtype())
+        }
+        _ => dtype.holds(Claim::Eq),
+    }
+}
+
+fn ensure_equality(dtype: &DType) -> VortexResult<()> {
+    vortex_ensure!(
+        supports_equality(dtype),
+        "all_non_distinct requires the Eq claim, but {dtype} does not hold it"
+    );
+    Ok(())
 }
 
 static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["lhs", "rhs"]));
@@ -138,7 +164,8 @@ impl AggregateFnVTable for AllNonDistinct {
             DType::Struct(fields, _) if fields.nfields() == 2 => {
                 let lhs = fields.fields().next()?;
                 let rhs = fields.fields().nth(1)?;
-                (lhs == rhs).then(|| DType::Bool(Nullability::NonNullable))
+                (lhs == rhs && supports_equality(&lhs))
+                    .then_some(DType::Bool(Nullability::NonNullable))
             }
             _ => None,
         }
@@ -205,13 +232,18 @@ impl AggregateFnVTable for AllNonDistinct {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        ensure_equality(batch.dtype())?;
+
         if !partial.all_non_distinct {
             return Ok(());
         }
 
         match batch {
             Columnar::Constant(c) => {
-                let _ = c;
+                if !c.is_empty() && !c.scalar().is_null() {
+                    let pair = c.scalar().as_struct();
+                    partial.all_non_distinct = pair.field_by_idx(0) == pair.field_by_idx(1);
+                }
                 Ok(())
             }
             Columnar::Canonical(c) => {

@@ -92,6 +92,9 @@ impl ScalarFnVTable for DynamicComparison {
                 lhs
             );
         }
+
+        lhs.require_claim(dynamic.operator.required_claim(), dynamic.operator)?;
+
         Ok(DType::Bool(
             lhs.nullability() | dynamic.rhs.dtype.nullability(),
         ))
@@ -103,8 +106,10 @@ impl ScalarFnVTable for DynamicComparison {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        let lhs = args.get(0)?;
+        lhs.dtype()
+            .require_claim(data.operator.required_claim(), data.operator)?;
         if let Some(scalar) = data.rhs.scalar() {
-            let lhs = args.get(0)?;
             let rhs = ConstantArray::new(scalar, args.row_count()).into_array();
 
             let delegate_args = VecExecutionArgs::new(vec![lhs, rhs], args.row_count());
@@ -112,8 +117,7 @@ impl ScalarFnVTable for DynamicComparison {
                 .bind(Operator::from(data.operator))
                 .execute(&delegate_args, ctx);
         }
-        let ret_dtype =
-            DType::Bool(args.get(0)?.dtype().nullability() | data.rhs.dtype.nullability());
+        let ret_dtype = DType::Bool(lhs.dtype().nullability() | data.rhs.dtype.nullability());
 
         Ok(ConstantArray::new(
             Scalar::try_new(ret_dtype, Some(data.default.into()))?,
@@ -333,6 +337,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::EmptyMetadata;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
@@ -340,10 +345,42 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::extension::ExtDType;
     use crate::expr::dynamic;
     use crate::expr::root;
+    use crate::extension::tests::Opaque;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn dynamic_comparison_requires_claim() -> VortexResult<()> {
+        let dtype = DType::Extension(
+            ExtDType::<Opaque>::try_new(EmptyMetadata, Nullability::NonNullable)?.erased(),
+        );
+        let expr = dynamic(CompareOperator::Lt, || None, dtype.clone(), true, root());
+        let error = expr
+            .bind(&dtype)
+            .expect_err("dynamic comparison requires a claim even without a bound");
+        let expected = format!("< requires the Ord claim, but {dtype} does not hold it");
+        assert_eq!(error.to_string().lines().next(), Some(expected.as_str()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn direct_dynamic_comparison_requires_claim_before_the_default() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let value = Scalar::extension::<Opaque>(EmptyMetadata, 1i64.into());
+        let dtype = value.dtype().clone();
+        let expected = format!("< requires the Ord claim, but {dtype} does not hold it");
+        let args = VecExecutionArgs::new(vec![ConstantArray::new(value, 1).into_array()], 1);
+        let expr = dynamic(CompareOperator::Lt, || None, dtype, true, root());
+
+        let error = DynamicComparison
+            .execute(expr.as_::<DynamicComparison>(), &args, &mut ctx)
+            .expect_err("a dynamic comparison requires Ord even without a bound");
+        assert_eq!(error.to_string().lines().next(), Some(expected.as_str()));
+    }
 
     #[test]
     fn is_not_strict() {

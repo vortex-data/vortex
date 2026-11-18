@@ -88,16 +88,16 @@ impl DisplayTreeNode for BoundExpression {
     }
 
     fn tree_child_name(&self, index: usize) -> ChildName {
-        match self {
-            BoundExpression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
-            BoundExpression::Root { .. } => unreachable!("the scope root has no children"),
+        match self.as_scalar() {
+            Some(scalar_fn) => scalar_fn.signature().child_name(index),
+            None => unreachable!("the scope root has no children"),
         }
     }
 
     fn fmt_tree_node(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            BoundExpression::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
-            BoundExpression::Root { .. } => write!(f, "{ROOT_DISPLAY}"),
+        match self.as_scalar() {
+            Some(scalar_fn) => Display::fmt(scalar_fn, f),
+            None => write!(f, "{ROOT_DISPLAY}"),
         }
     }
 }

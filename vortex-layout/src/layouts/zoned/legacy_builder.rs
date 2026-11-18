@@ -20,6 +20,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::BoolBuilder;
 use vortex_array::builders::builder_with_capacity_in;
+use vortex_array::dtype::Claim;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
@@ -63,6 +64,7 @@ impl LegacyStatsAccumulator {
 
         let builders = LEGACY_ZONE_STATS
             .iter()
+            .filter(|&&stat| !matches!(stat, Stat::Min | Stat::Max) || dtype.holds(Claim::Ord))
             .filter_map(|&stat| {
                 stat.dtype(dtype)
                     .map(|stat_dtype| legacy_stats_builder(stat, &stat_dtype.as_nullable()))
