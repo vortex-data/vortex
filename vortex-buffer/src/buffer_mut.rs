@@ -1051,14 +1051,45 @@ fn misaligned_scalar_type(alignment: Alignment, scalar_align: Alignment) -> ! {
 
 #[cfg(test)]
 mod tests {
+    use std::alloc::Layout;
     use std::cell::Cell;
+    use std::ptr::NonNull;
 
+    use allocator_api2::alloc::AllocError;
+    use allocator_api2::alloc::Allocator;
     use allocator_api2::alloc::Global;
+    use rstest::rstest;
 
     use crate::Alignment;
+    use crate::Buffer;
     use crate::BufferAllocatorRef;
     use crate::BufferMut;
     use crate::buffer_mut;
+
+    /// Hands out blocks one byte past a 64-byte boundary, so a buffer aligned within the block
+    /// always starts at a non-zero offset.
+    #[derive(Debug)]
+    struct OffByOneAllocator;
+
+    fn base_layout(layout: Layout) -> Layout {
+        Layout::from_size_align(layout.size() + 1, 64).unwrap()
+    }
+
+    // SAFETY: each block lies inside a live Global block, one byte past its start.
+    unsafe impl Allocator for OffByOneAllocator {
+        fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+            assert_eq!(layout.align(), 1, "only byte-aligned layouts are supported");
+            let base = Global.allocate(base_layout(layout))?.cast::<u8>();
+            // SAFETY: the base block is one byte larger than the requested layout.
+            let ptr = unsafe { base.add(1) };
+            Ok(NonNull::slice_from_raw_parts(ptr, layout.size()))
+        }
+
+        unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+            // SAFETY: `ptr` was returned by `allocate`, one byte past a Global block.
+            unsafe { Global.deallocate(ptr.sub(1), base_layout(layout)) }
+        }
+    }
 
     #[derive(Copy, Debug, PartialEq)]
     struct CopyWithCloneCounter<'a> {
@@ -1295,5 +1326,53 @@ mod tests {
 
         buf[3] = 7;
         assert_eq!(buf.as_slice()[3], 7);
+    }
+
+    #[rstest]
+    fn zeroed_capacity_reaches_allocation_end(
+        #[values(1, 17)] len: usize,
+        #[values(4, 64)] alignment: usize,
+    ) {
+        let alignment = Alignment::new(alignment);
+        let buf = BufferMut::<u32>::zeroed_preferred_aligned_in(
+            len,
+            alignment,
+            None,
+            BufferAllocatorRef::new(OffByOneAllocator),
+        );
+        assert_eq!(buf.as_slice(), vec![0; len]);
+        assert!(alignment.is_ptr_aligned(buf.as_ptr()));
+
+        let allocation_end = buf.allocation.ptr().addr().get() + buf.allocation.size();
+        let spare = allocation_end - buf.as_ptr().addr();
+        assert!(buf.capacity() >= len);
+        assert_eq!(buf.capacity(), spare / size_of::<u32>());
+    }
+
+    #[test]
+    fn aligned_in_place_when_already_aligned() {
+        let buf = BufferMut::<u8>::copy_from_aligned([1, 2, 3], Alignment::new(16));
+        let ptr = buf.as_ptr();
+
+        let aligned = buf.aligned(Alignment::new(8));
+        assert_eq!(aligned.alignment(), Alignment::new(8));
+        assert_eq!(aligned.as_ptr(), ptr);
+        assert_eq!(aligned.as_slice(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn aligned_copies_misaligned_data() {
+        let parent = Buffer::<u8>::copy_from_aligned([0, 1, 2, 3], Alignment::new(16));
+        let sliced = parent.slice_unaligned(1..);
+        drop(parent);
+        let Ok(buf) = sliced.try_into_mut() else {
+            panic!("sliced buffer should be uniquely owned")
+        };
+        assert!(!Alignment::new(16).is_ptr_aligned(buf.as_ptr()));
+
+        let aligned = buf.aligned(Alignment::new(16));
+        assert_eq!(aligned.alignment(), Alignment::new(16));
+        assert!(Alignment::new(16).is_ptr_aligned(aligned.as_ptr()));
+        assert_eq!(aligned.as_slice(), &[1, 2, 3]);
     }
 }

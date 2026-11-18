@@ -979,18 +979,29 @@ fn slice_start_misaligned(alignment: Alignment, begin_byte: usize) -> ! {
 #[cfg(test)]
 mod test {
     use std::mem::align_of;
+    use std::ops::Range;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
     use bytes::Buf;
     use bytes::Bytes;
+    use rstest::rstest;
 
     use crate::Alignment;
     use crate::Buffer;
     use crate::BufferBacking;
     use crate::ByteBuffer;
     use crate::buffer;
+
+    #[repr(align(8))]
+    struct Aligned([u8; 16]);
+
+    static WORDS: Aligned = Aligned([1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0]);
+
+    fn words(range: Range<usize>) -> Bytes {
+        Bytes::from_static(&WORDS.0[range])
+    }
 
     #[test]
     fn align() {
@@ -1286,5 +1297,129 @@ mod test {
         let b = Buffer::<u16>::empty();
 
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn from_bytes_aligned_is_zero_copy() {
+        let buf = Buffer::<u32>::from_bytes_aligned(words(0..16), Alignment::new(8));
+        assert_eq!(buf.len(), 4);
+        assert_eq!(buf.alignment(), Alignment::new(8));
+        assert_eq!(buf.as_ptr().cast::<u8>(), WORDS.0.as_ptr());
+        assert_eq!(buf.as_bytes(), &WORDS.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Alignment 2 must be compatible with the scalar type's alignment 4")]
+    fn from_bytes_aligned_rejects_alignment_below_type() {
+        drop(Buffer::<u32>::from_bytes_aligned(
+            words(0..16),
+            Alignment::new(2),
+        ));
+    }
+
+    #[test]
+    #[should_panic(expected = "Bytes alignment must align to the requested alignment 4")]
+    fn from_bytes_aligned_rejects_misaligned_bytes() {
+        drop(Buffer::<u32>::from_bytes_aligned(
+            words(1..13),
+            Alignment::new(4),
+        ));
+    }
+
+    #[test]
+    #[should_panic(expected = "Bytes length 6 must be a multiple of the scalar type's size 4")]
+    fn from_bytes_aligned_rejects_partial_scalar() {
+        drop(Buffer::<u32>::from_bytes_aligned(
+            words(0..6),
+            Alignment::new(4),
+        ));
+    }
+
+    #[rstest]
+    fn bytes_backed_into_bytes(
+        #[values(0..4, 0..2, 1..3, 2..4)] range: Range<usize>,
+        #[values(false, true)] shared: bool,
+    ) {
+        let parent = Buffer::<u32>::from_bytes_aligned(words(0..16), Alignment::of::<u32>());
+        let buf = parent.slice(range.clone());
+        let parent = shared.then_some(parent);
+
+        let bytes = buf.into_bytes();
+        let expected = &WORDS.0[range.start * 4..range.end * 4];
+        assert_eq!(bytes.as_ref(), expected);
+        assert_eq!(bytes.as_ptr(), expected.as_ptr());
+        if let Some(parent) = parent {
+            assert_eq!(parent.as_bytes(), &WORDS.0);
+        }
+    }
+
+    #[test]
+    fn owned_into_bytes_covers_all_elements() {
+        let buf = buffer![1u32, 2, 3];
+        let expected = buf.as_bytes().to_vec();
+        let bytes = buf.into_bytes();
+        assert_eq!(bytes.len(), 12);
+        assert_eq!(bytes.as_ref(), expected.as_slice());
+    }
+
+    #[rstest]
+    #[case::whole(0..4)]
+    #[case::first(0..1)]
+    #[case::interior(1..3)]
+    #[case::last(3..4)]
+    #[case::empty_at_end(4..4)]
+    fn slice_ref_returns_subset(#[case] range: Range<usize>) {
+        let buf = buffer![10u32, 11, 12, 13];
+        let subset = &buf[range];
+        let sliced = buf.slice_ref(subset);
+        assert_eq!(sliced.as_slice(), subset);
+        assert_eq!(sliced.as_ptr(), subset.as_ptr());
+        assert_eq!(sliced.alignment(), Alignment::of::<u32>());
+    }
+
+    #[rstest]
+    #[case(4)]
+    #[case(8)]
+    #[case(16)]
+    fn slice_ref_with_alignment_sets_alignment(#[case] alignment: usize) {
+        let buf = Buffer::<u32>::copy_from_aligned([0, 1, 2, 3, 4, 5, 6, 7], Alignment::new(16));
+        let alignment = Alignment::new(alignment);
+        let sliced = buf.slice_ref_with_alignment(&buf[4..6], alignment);
+        assert_eq!(sliced.as_slice(), &[4, 5]);
+        assert_eq!(sliced.alignment(), alignment);
+    }
+
+    #[test]
+    #[should_panic(expected = "slice_ref alignment must at least align to type T")]
+    fn slice_ref_rejects_alignment_below_type() {
+        let buf = buffer![0u32, 1, 2, 3];
+        drop(buf.slice_ref_with_alignment(&buf[..], Alignment::new(2)));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "slice_ref subset alignment must at least align to the buffer alignment"
+    )]
+    fn slice_ref_rejects_alignment_above_buffer() {
+        let buf = buffer![0u32, 1, 2, 3];
+        drop(buf.slice_ref_with_alignment(&buf[..], Alignment::new(8)));
+    }
+
+    #[test]
+    #[should_panic(expected = "slice_ref subset must be aligned to")]
+    fn slice_ref_rejects_misaligned_subset() {
+        let buf = Buffer::<u32>::copy_from_aligned([0, 1, 2, 3], Alignment::new(16));
+        drop(buf.slice_ref_with_alignment(&buf[1..3], Alignment::new(16)));
+    }
+
+    #[rstest]
+    #[case::before_start(1..3)]
+    #[case::past_end(3..5)]
+    #[case::after_end(4..5)]
+    #[should_panic(expected = "slice_ref subset must be contained in the buffer")]
+    fn slice_ref_rejects_subset_outside_buffer(#[case] range: Range<usize>) {
+        let parent = buffer![0u32, 1, 2, 3, 4, 5];
+        let buf = parent.slice(2..4);
+        drop(buf.slice_ref(&parent[range]));
     }
 }
