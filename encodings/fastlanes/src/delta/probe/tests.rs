@@ -191,12 +191,32 @@ fn every_row_matches_decode(
     let delta = Delta::try_from_primitive_array(&input, &mut ctx)?;
     let source = with_layout(delta, layout, &mut ctx)?;
     // Every layout here reads single lanes rather than falling back to decoding the chunk.
-    assert!(super::lane_value(source.as_::<Delta>(), None, 1, 517, &mut ctx)?.is_some());
+    assert!(super::lane_value(source.as_::<Delta>(), None, None, 1, 517, &mut ctx)?.is_some());
     let resolved = super::ResolvedLanes::resolve(source.as_::<Delta>());
     assert!(resolved.is_some());
     assert!(
-        super::lane_value(source.as_::<Delta>(), resolved.as_ref(), 1, 517, &mut ctx)?.is_some()
+        super::lane_value(
+            source.as_::<Delta>(),
+            resolved.as_ref(),
+            None,
+            1,
+            517,
+            &mut ctx
+        )?
+        .is_some()
     );
+
+    // A retained probe decodes chunks straight from its resolved deltas, never through the
+    // array-building fallback, and gets the same values.
+    let lanes = resolved.as_ref().expect("resolved above");
+    let bases = super::unsigned_bases(source.as_::<Delta>().bases(), &mut ctx)?;
+    for chunk in 0..source.len().div_ceil(crate::FL_CHUNK_SIZE) {
+        let fast = super::decode_resolved_chunk(source.as_::<Delta>(), lanes, &bases, chunk)
+            .expect("every layout here decodes chunks directly");
+        let slow = super::decode_chunk(source.as_::<Delta>(), chunk, &mut ctx)?;
+        assert_arrays_eq!(fast, slow, &mut ctx);
+    }
+
     let mut actual = builder_with_capacity_in(source.dtype(), source.len(), ctx.allocator());
     let mut retained = None;
     let mut probe = probe_for(&source, &mut retained, repeated);

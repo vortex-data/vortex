@@ -12,6 +12,8 @@
 
 use fastlanes::BitPacking;
 use fastlanes::Delta as FastLanesDelta;
+use fastlanes::FastLanes;
+use fearless_simd::Level;
 use num_traits::AsPrimitive;
 use num_traits::WrappingAdd;
 use num_traits::WrappingSub;
@@ -28,6 +30,8 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -40,6 +44,7 @@ use crate::delta::array::DeltaArrayExt;
 use crate::delta::array::DeltaArraySlotsExt;
 use crate::delta::array::delta_decompress::PackedDeltas;
 use crate::delta::array::lane_count;
+use crate::delta::array::transpose::TransposeKernel;
 
 /// What a repeated probe keeps between reads.
 #[derive(Default)]
@@ -51,6 +56,10 @@ pub struct DeltaProbeState {
     /// Where the probe's lane reads find the deltas and their patches, resolved on its first lane
     /// read; `Some(None)` when lane reads do not apply to the array.
     lanes: Option<Option<ResolvedLanes>>,
+    /// All bases, reinterpreted as unsigned, so that lane reads and chunk decodes index them
+    /// directly. Taken as they are when they are already plain, and otherwise executed on the
+    /// probe's first chunk decode, so a probe that only reads single lanes never executes them.
+    bases: Option<PrimitiveArray>,
 }
 
 pub(crate) fn scalar_at(
@@ -72,35 +81,60 @@ pub(crate) fn scalar_at(
             {
                 return Ok(value_at(array, decoded, within));
             }
-            if retained.lane_read != Some(chunk)
-                && let Some(lanes) = retained
-                    .lanes
-                    .get_or_insert_with(|| ResolvedLanes::resolve(array))
-                && let Some(value) = lane_value(array, Some(lanes), chunk, within, ctx)?
+
+            let DeltaProbeState {
+                chunk: cached_chunk,
+                lane_read,
+                lanes,
+                bases,
+            } = retained;
+
+            let lanes = lanes
+                .get_or_insert_with(|| ResolvedLanes::resolve(array))
+                .as_ref();
+            if bases.is_none() {
+                *bases = plain_unsigned_bases(array);
+            }
+
+            if *lane_read != Some(chunk)
+                && let Some(lanes) = lanes
+                && let Some(value) =
+                    lane_value(array, Some(lanes), bases.as_ref(), chunk, within, ctx)?
             {
-                retained.lane_read = Some(chunk);
+                *lane_read = Some(chunk);
                 return Ok(value);
             }
-            let decoded = &retained
-                .chunk
-                .insert((chunk, decode_chunk(array, chunk, ctx)?))
-                .1;
+
+            let decoded = match lanes {
+                Some(lanes) => {
+                    let bases = match bases {
+                        Some(bases) => bases,
+                        None => bases.insert(unsigned_bases(array.bases(), ctx)?),
+                    };
+                    match decode_resolved_chunk(array, lanes, bases, chunk) {
+                        Some(decoded) => decoded,
+                        None => decode_chunk(array, chunk, ctx)?,
+                    }
+                }
+                None => decode_chunk(array, chunk, ctx)?,
+            };
+            let decoded = &cached_chunk.insert((chunk, decoded)).1;
             Ok(value_at(array, decoded, within))
         }
-        None => match lane_value(array, None, chunk, within, ctx)? {
+        None => match lane_value(array, None, None, chunk, within, ctx)? {
             Some(value) => Ok(value),
             None => Ok(value_at(array, &decode_chunk(array, chunk, ctx)?, within)),
         },
     }
 }
 
-/// The value at `within` of chunk `chunk`, summed from its lane's base and the deltas of its lane
 /// The value at `within` of chunk `chunk`, read from its lane alone, or `None` when lane reads do
 /// not apply to the array's deltas. A repeated probe passes the deltas it resolved before in
-/// `resolved`; a one-off read finds them in `array`.
+/// `resolved` and its executed unsigned bases in `bases`; a one-off read finds them in `array`.
 fn lane_value(
     array: ArrayView<'_, Delta>,
     resolved: Option<&ResolvedLanes>,
+    bases: Option<&PrimitiveArray>,
     chunk: usize,
     within: usize,
     ctx: &mut ExecutionCtx,
@@ -108,7 +142,7 @@ fn lane_value(
     let ptype = array.dtype().as_ptype();
     let nullability = array.dtype().nullability();
     let Some(bits) = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| {
-        lane_value_bits::<T>(array, resolved, chunk, within, ctx)?.map(|value| value.as_())
+        lane_value_bits::<T>(array, resolved, bases, chunk, within, ctx)?.map(|value| value.as_())
     }) else {
         return Ok(None);
     };
@@ -124,6 +158,7 @@ fn lane_value(
 fn lane_value_bits<T>(
     array: ArrayView<'_, Delta>,
     resolved: Option<&ResolvedLanes>,
+    bases: Option<&PrimitiveArray>,
     chunk: usize,
     within: usize,
     ctx: &mut ExecutionCtx,
@@ -161,7 +196,11 @@ where
     // Delta works on the transposed chunk, so find where the value sits in it.
     let position = fastlanes::untranspose(within);
     let (lane, _) = fastlanes::delta_lane_row::<T>(position);
-    let base = base_bits::<T>(array.bases(), chunk * T::LANES + lane, ctx)?;
+    let base_index = chunk * T::LANES + lane;
+    let base = match bases {
+        Some(bases) => bases.as_slice::<T>()[base_index],
+        None => base_bits::<T>(array.bases(), base_index, ctx)?,
+    };
     Ok(deltas.undelta(base, position, patches))
 }
 
@@ -503,6 +542,116 @@ fn decode_chunk(
     Delta::try_new(bases, deltas, Validity::NonNullable, 0, FL_CHUNK_SIZE)?
         .into_array()
         .execute::<PrimitiveArray>(ctx)
+}
+
+/// `bases` executed and reinterpreted as the unsigned type of the same width.
+fn unsigned_bases(bases: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
+    let bases = bases.clone().execute::<PrimitiveArray>(ctx)?;
+    let unsigned = bases.ptype().to_unsigned();
+    Ok(bases.reinterpret_cast(unsigned))
+}
+
+/// The bases of `array` reinterpreted as unsigned, when they are already a plain host array.
+fn plain_unsigned_bases(array: ArrayView<'_, Delta>) -> Option<PrimitiveArray> {
+    let bases = array.bases().as_opt::<Primitive>()?;
+    if !bases.buffer_handle().is_on_host() {
+        return None;
+    }
+    let bases = bases.into_owned();
+    let unsigned = bases.ptype().to_unsigned();
+    Some(bases.reinterpret_cast(unsigned))
+}
+
+/// Decode chunk `chunk` of `array` into its 1024 values, ignoring validity, straight from the
+/// deltas a repeated probe resolved and its unsigned `bases`.
+///
+/// Unlike [`decode_chunk`], this builds no arrays: it unpacks the chunk's block, applies the
+/// block's patches, undeltas against the chunk's bases and untransposes. Returns `None` when the
+/// resolved deltas or their patches are not plain host arrays.
+fn decode_resolved_chunk(
+    array: ArrayView<'_, Delta>,
+    lanes: &ResolvedLanes,
+    bases: &PrimitiveArray,
+    chunk: usize,
+) -> Option<PrimitiveArray> {
+    let ptype = array.dtype().as_ptype();
+
+    match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| {
+        let values =
+            decode_resolved_chunk_typed::<T, { T::LANES }>(lanes, bases.as_slice::<T>(), chunk)?;
+        Some(PrimitiveArray::new(values, Validity::NonNullable).reinterpret_cast(ptype))
+    })
+}
+
+fn decode_resolved_chunk_typed<T, const LANES: usize>(
+    lanes: &ResolvedLanes,
+    bases: &[T],
+    chunk: usize,
+) -> Option<Buffer<T>>
+where
+    T: NativePType + BitPacking + FastLanesDelta,
+{
+    let base = bases.get(chunk * LANES..)?.first_chunk::<LANES>()?;
+    let mut transposed = [T::default(); FL_CHUNK_SIZE];
+
+    match lanes.deltas::<T>(chunk)? {
+        LaneDeltas::Plain(deltas) => T::undelta::<LANES>(deltas, base, &mut transposed),
+        LaneDeltas::Packed {
+            block,
+            width,
+            block_index,
+        } => {
+            let mut unpacked = [T::default(); FL_CHUNK_SIZE];
+            // SAFETY: `LaneDeltas::packed` checked the block holds 1024 values of `width` bits.
+            unsafe { BitPacking::unchecked_unpack(width, block, &mut unpacked) };
+
+            if let Some(patches) = &lanes.patches {
+                apply_block_patches(patches.as_ref(), block_index, &mut unpacked)?;
+            }
+
+            T::undelta::<LANES>(&unpacked, base, &mut transposed);
+        }
+    }
+
+    let mut logical = BufferMut::<T>::with_capacity(FL_CHUNK_SIZE);
+    let (output, _) = logical
+        .spare_capacity_mut()
+        .as_chunks_mut::<FL_CHUNK_SIZE>();
+    TransposeKernel::<T>::untranspose(Level::new()).apply_uninit(&transposed, output.first_mut()?);
+    // SAFETY: the untranspose initialized all 1024 values.
+    unsafe { logical.set_len(FL_CHUNK_SIZE) };
+    Some(logical.freeze())
+}
+
+/// Overwrite the unpacked deltas of packed block `block_index` with the patches that fall in it,
+/// or `None` when the patches are not plain host arrays.
+fn apply_block_patches<T: NativePType>(
+    patches: PatchesRef<'_>,
+    block_index: usize,
+    unpacked: &mut [T; FL_CHUNK_SIZE],
+) -> Option<()> {
+    let values = host_values::<T>(patches.values.as_opt::<Primitive>()?)?;
+    let indices = patches.indices.as_opt::<Primitive>()?;
+    if !indices.buffer_handle().is_on_host() {
+        return None;
+    }
+
+    // Patch indices count from the patches' offset and from the start of the bit-packed array,
+    // which sits `shift` into its first block; positions here count from the start of the block.
+    let shift = patches.shift;
+    let block_start = block_index * FL_CHUNK_SIZE + patches.offset;
+
+    match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
+        let indices = indices.as_slice::<P>();
+        let index_of = |index: P| AsPrimitive::<usize>::as_(index) + shift;
+        let lo = indices.partition_point(|&index| index_of(index) < block_start);
+        let hi = indices.partition_point(|&index| index_of(index) < block_start + FL_CHUNK_SIZE);
+        for (&index, &value) in indices[lo..hi].iter().zip(&values[lo..hi]) {
+            unpacked[index_of(index) - block_start] = value;
+        }
+    });
+
+    Some(())
 }
 
 /// The value at `within` of a decoded chunk, with the nullability of `array`.
