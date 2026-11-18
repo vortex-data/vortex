@@ -87,7 +87,7 @@ pub(super) struct SegmentIoSource {
     announced: Mutex<HashMap<SegmentId, VecDeque<SegmentFuture>>>,
 }
 
-/// A read started ahead of the fetch that needs it.
+/// A segment read the session shares among every request of the segment.
 type Prefetched = Shared<BoxFuture<'static, Result<BufferHandle, Arc<VortexError>>>>;
 
 impl SegmentIoSource {
@@ -101,71 +101,69 @@ impl SegmentIoSource {
             announced: Mutex::default(),
         }
     }
+
+    /// Registers a read of `segment`, taking over an announcement of it if there is one.
+    fn read(&self, segment: SegmentId) -> Prefetched {
+        self.announced
+            .lock()
+            .get_mut(&segment)
+            .and_then(VecDeque::pop_front)
+            .unwrap_or_else(|| self.segments.request(segment))
+            .map_err(Arc::new)
+            .boxed()
+            .shared()
+    }
 }
 
 impl IoSource for SegmentIoSource {
     fn submit(&self, owner: IoOwnerId, batch: IoBatch) -> VortexResult<()> {
-        let reads = self.reads.lock();
-        let mut ready = self.ready.lock();
-        let mut prefetched = self.prefetched.lock();
-        for request in batch {
-            let IoTarget::Range { offset, len, .. } = request.target else {
-                vortex_bail!(
-                    "SegmentIoSource only serves byte ranges, not {:?}",
-                    request.target
-                );
-            };
-            let segment = *self
-                .ranges
-                .get(&(offset, len))
-                .ok_or_else(|| vortex_err!("No segment at bytes {offset}+{len}"))?;
-            if request.intent == IoIntent::Announce {
-                self.announced
-                    .lock()
-                    .entry(segment)
-                    .or_default()
-                    .push_back(self.segments.request(segment));
-                continue;
-            }
-            if request.intent == IoIntent::Prefetch {
-                prefetched.entry(segment).or_insert_with(|| {
-                    let read = self
-                        .announced
-                        .lock()
-                        .get_mut(&segment)
-                        .and_then(VecDeque::pop_front)
-                        .unwrap_or_else(|| self.segments.request(segment))
-                        .map_err(Arc::new)
-                        .boxed()
-                        .shared();
-                    // Polling registers the read as wanted, so the source starts it now.
-                    drop(
-                        read.clone()
-                            .poll_unpin(&mut Context::from_waker(Waker::noop())),
+        let mut started = Vec::with_capacity(batch.len());
+        {
+            let mut prefetched = self.prefetched.lock();
+            for request in batch {
+                let IoTarget::Range { offset, len, .. } = request.target else {
+                    vortex_bail!(
+                        "SegmentIoSource only serves byte ranges, not {:?}",
+                        request.target
                     );
-                    read
-                });
-                continue;
-            }
-            // A segment stays with the session once read, so a later stage or morsel of the
-            // split that reads it again shares the read instead of starting another once the
-            // first has completed.
-            let mut bytes = prefetched
-                .entry(segment)
-                .or_insert_with(|| {
+                };
+                let segment = *self
+                    .ranges
+                    .get(&(offset, len))
+                    .ok_or_else(|| vortex_err!("No segment at bytes {offset}+{len}"))?;
+                if request.intent == IoIntent::Announce {
                     self.announced
                         .lock()
-                        .get_mut(&segment)
-                        .and_then(VecDeque::pop_front)
-                        .unwrap_or_else(|| self.segments.request(segment))
-                        .map_err(Arc::new)
-                        .boxed()
-                        .shared()
-                })
-                .clone()
+                        .entry(segment)
+                        .or_default()
+                        .push_back(self.segments.request(segment));
+                    continue;
+                }
+                // A segment stays with the session once read, so a later stage or morsel of the
+                // split that reads it again shares the read instead of starting another once the
+                // first has completed.
+                let read = prefetched
+                    .entry(segment)
+                    .or_insert_with(|| self.read(segment))
+                    .clone();
+                let fetch = (request.intent == IoIntent::Fetch).then_some(request.request);
+                started.push((segment, read, fetch));
+            }
+        }
+
+        // Every read of the batch is registered before any is polled, so a coalescing source
+        // sees the whole batch, announcements included, before it picks a read to issue.
+        let reads = self.reads.lock();
+        let mut ready = self.ready.lock();
+        for (segment, mut read, fetch) in started {
+            let Some(id) = fetch else {
+                // Polling registers the read as wanted, so the source starts it now.
+                drop(read.poll_unpin(&mut Context::from_waker(Waker::noop())));
+                continue;
+            };
+            let mut bytes = read
                 .map_err(move |err| vortex_err!("read of segment {segment} failed: {err}"))
                 .boxed();
-            let id = request.request;
             // In-memory and cached segments need no allocated asynchronous task. A pending
             // read is polled again by FuturesUnordered before the driver can go to sleep.
             if let Poll::Ready(result) = bytes.poll_unpin(&mut Context::from_waker(Waker::noop())) {
@@ -235,6 +233,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
+    use std::task::Poll;
 
     use futures::FutureExt;
     use futures::channel::oneshot;
@@ -296,6 +295,64 @@ mod tests {
             }
             .boxed()
         }
+    }
+
+    /// Logs each segment's registration and first poll; its reads never complete.
+    #[derive(Default)]
+    struct LoggingSegments(Arc<Mutex<Vec<String>>>);
+
+    impl SegmentSource for LoggingSegments {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            self.0.lock().push(format!("register {id}"));
+            let log = Arc::clone(&self.0);
+            let mut polled = false;
+            future::poll_fn(move |_| {
+                if !std::mem::replace(&mut polled, true) {
+                    log.lock().push(format!("poll {id}"));
+                }
+                Poll::Pending
+            })
+            .boxed()
+        }
+    }
+
+    /// A coalescing source sees every read of a batch, announcements included, before any of
+    /// them is polled and so made eligible to issue.
+    #[test]
+    fn batch_registers_every_read_before_polling() -> VortexResult<()> {
+        let segments = LoggingSegments::default();
+        let log = Arc::clone(&segments.0);
+        let locations = [0, 4, 8].map(|offset| SegmentLocation {
+            offset,
+            length: 4,
+            alignment: Alignment::none(),
+        });
+        let io = SegmentIoSource::new(Arc::new(segments), segment_ranges(&locations));
+        let batch = [
+            (IoIntent::Prefetch, 0),
+            (IoIntent::Fetch, 4),
+            (IoIntent::Announce, 8),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(id, (intent, offset))| IoRequest {
+            intent,
+            request: IoRequestId(u32::try_from(id).unwrap_or(u32::MAX)),
+            target: IoTarget::range(offset, 4),
+        })
+        .collect();
+        io.submit(IoOwnerId(0), batch)?;
+        assert_eq!(
+            *log.lock(),
+            [
+                "register SegmentId(0)",
+                "register SegmentId(1)",
+                "register SegmentId(2)",
+                "poll SegmentId(0)",
+                "poll SegmentId(1)",
+            ]
+        );
+        Ok(())
     }
 
     #[tokio::test]

@@ -173,8 +173,7 @@ pub(super) struct FilterPlanner {
     filter: Arc<FilterPlans>,
     remaining: BitVec,
     /// The conjunct being evaluated, its dynamic version when it has one, and its scan.
-    active: Option<(usize, Option<u64>, ScanAdaptor)>,
-    pieces: Vec<Mask>,
+    active: Option<(usize, Option<u64>, MaskScan)>,
     announced: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
     next_hint: u32,
@@ -206,7 +205,6 @@ impl FilterPlanner {
             selected: Some(selected),
             filter,
             active: None,
-            pieces: Vec::new(),
             announced: false,
             next_hint: u32::MAX,
         }
@@ -236,15 +234,72 @@ pub(super) fn hint(
 }
 
 /// Executes a scan's boolean piece to a mask, nulls as false.
-pub(super) fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<Mask> {
+fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<Mask> {
     let mut ctx = session.create_execution_ctx();
     piece.array.fill_null(false)?.execute::<Mask>(&mut ctx)
 }
 
+/// A boolean plan running over one split, its pieces gathered into one mask.
+pub(super) struct MaskScan {
+    adaptor: ScanAdaptor,
+    pieces: Vec<Mask>,
+}
+
+/// What one [`MaskScan::compute`] produced.
+pub(super) enum MaskStep {
+    /// The scan is still running: its owner's compute returns this.
+    Running(PlannerOutput),
+    /// The mask over the split's selected rows, nulls as false.
+    Finished(Mask),
+}
+
+impl MaskScan {
+    pub(super) fn new(scan: &PreparedScan, plan: PlanRef, split: Split) -> VortexResult<Self> {
+        let pipeline = Scan::try_new(scan.session.clone(), plan, vec![split])?
+            .with_row_offset(scan.row_offset)
+            .with_value_cache(scan.values.clone());
+        Ok(Self {
+            adaptor: ScanAdaptor::new(pipeline, Arc::clone(&scan.locations)),
+            pieces: Vec::new(),
+        })
+    }
+
+    /// The owner's state while the scan runs: once it has finished, its mask is ready to take.
+    pub(super) fn state(&self) -> State {
+        match self.adaptor.state() {
+            State::Done => State::NeedsCompute,
+            state => state,
+        }
+    }
+
+    pub(super) fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
+        self.adaptor.set_io_result(request, result);
+    }
+
+    pub(super) fn compute(&mut self, session: &VortexSession) -> VortexResult<MaskStep> {
+        if self.adaptor.state() == State::Done {
+            // A single piece is already the mask; concatenating would copy its bits.
+            let mask = match self.pieces.as_slice() {
+                [mask] => mask.clone(),
+                pieces => Mask::concat(pieces.iter())?,
+            };
+            return Ok(MaskStep::Finished(mask));
+        }
+        Ok(MaskStep::Running(match self.adaptor.compute()? {
+            AdaptorStep::Yield => PlannerOutput::Continue,
+            AdaptorStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
+            AdaptorStep::Piece(piece) => {
+                self.pieces.push(piece_mask(session, piece)?);
+                PlannerOutput::Continue
+            }
+        }))
+    }
+}
+
 impl IoConsumer for FilterPlanner {
     fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
-        if let Some((_, _, adaptor)) = &mut self.active {
-            adaptor.set_io_result(request, result);
+        if let Some((_, _, conjunct)) = &mut self.active {
+            conjunct.set_io_result(request, result);
         }
     }
 }
@@ -255,8 +310,8 @@ impl Planner for FilterPlanner {
             return State::Done;
         }
         match &self.active {
-            Some((_, _, adaptor)) if adaptor.state() != State::Done => adaptor.state(),
-            _ => State::NeedsCompute,
+            Some((_, _, conjunct)) => conjunct.state(),
+            None => State::NeedsCompute,
         }
     }
 
@@ -309,19 +364,12 @@ impl Planner for FilterPlanner {
                 return Ok(PlannerOutput::NeedsIO(batch));
             }
         }
-        if let Some((index, version, adaptor)) = &mut self.active {
-            if adaptor.state() != State::Done {
-                return Ok(match adaptor.compute()? {
-                    AdaptorStep::Yield => PlannerOutput::Continue,
-                    AdaptorStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
-                    AdaptorStep::Piece(piece) => {
-                        self.pieces.push(piece_mask(&self.scan.session, piece)?);
-                        PlannerOutput::Continue
-                    }
-                });
-            }
+        if let Some((index, version, conjunct)) = &mut self.active {
+            let result = match conjunct.compute(&self.scan.session)? {
+                MaskStep::Running(output) => return Ok(output),
+                MaskStep::Finished(result) => result,
+            };
             let input = selected.mask.true_count();
-            let result = Mask::concat(self.pieces.iter())?;
             vortex_ensure_eq!(result.len(), input);
             selected.mask = selected.mask.intersect_by_rank(&result);
             tracing::debug!(
@@ -342,7 +390,6 @@ impl Planner for FilterPlanner {
                     .report_dynamic_selectivity(*index, *version, selectivity);
             }
             self.active = None;
-            self.pieces.clear();
         }
         if selected.mask.all_false() {
             self.selected = None;
@@ -366,21 +413,15 @@ impl Planner for FilterPlanner {
                 );
                 continue;
             }
-            let scan = Scan::try_new(
-                self.scan.session.clone(),
+            let conjunct = MaskScan::new(
+                &self.scan,
                 self.filter.predicates[index].clone(),
-                vec![Split {
+                Split {
                     rows: selected.scope.rows.clone(),
                     mask: selected.mask.clone(),
-                }],
-            )?
-            .with_row_offset(self.scan.row_offset)
-            .with_value_cache(self.scan.values.clone());
-            self.active = Some((
-                index,
-                version,
-                ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)),
-            ));
+                },
+            )?;
+            self.active = Some((index, version, conjunct));
             return Ok(PlannerOutput::Continue);
         }
         let selected = self.selected.take().vortex_expect("selected rows exist");
