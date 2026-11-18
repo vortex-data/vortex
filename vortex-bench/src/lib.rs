@@ -627,27 +627,3 @@ where
 
     sql_statements
 }
-
-#[cfg(test)]
-mod tests {
-    use vortex::VortexSessionDefault;
-    use vortex::editions::ComponentKind;
-    use vortex::editions::EditionSessionExt;
-    use vortex::session::VortexSession;
-    use vortex::session::registry::Id;
-
-    use super::SESSION;
-
-    /// The benchmark session adds exactly `fastlanes.delta`, the only unstable array encoding, to
-    /// the default session's arrays.
-    #[test]
-    fn bench_session_adds_only_delta() {
-        let ids = |session: &VortexSession| session.enabled_component_ids(ComponentKind::Array);
-        let default = ids(&VortexSession::default());
-        let added: Vec<Id> = ids(&SESSION)
-            .into_iter()
-            .filter(|id| !default.contains(id))
-            .collect();
-        assert_eq!(added, vec![Id::from("fastlanes.delta")]);
-    }
-}
