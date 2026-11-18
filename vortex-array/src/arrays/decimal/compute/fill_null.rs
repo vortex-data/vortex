@@ -56,9 +56,7 @@ fn fill_buffer<T: NativeDecimalType>(
         .cast::<T>()
         .vortex_expect("fill scalar fits the array's decimal precision");
     let mut buffer = array.buffer::<T>().into_mut();
-    for index in is_invalid.set_indices() {
-        buffer[index] = fill;
-    }
+    buffer.fill_where::<false>(is_invalid, fill);
 
     DecimalArray::new(buffer.freeze(), array.decimal_dtype(), validity)
 }
