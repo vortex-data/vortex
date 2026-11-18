@@ -8,15 +8,19 @@ use std::f64::consts::PI;
 use std::sync::LazyLock;
 
 use rstest::rstest;
+use vortex_array::ArrayRef;
+use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::MapArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::WidenArray;
@@ -29,15 +33,22 @@ use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
-use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::extension::datetime::Timestamp;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::test_harness::ExpectedOutcome;
+use vortex_array::test_harness::assert_execution_paths;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_json::Json;
 use vortex_session::VortexSession;
+use vortex_tensor::vector::Vector;
 
+use crate::RowEncode;
 use crate::RowEncoder;
 use crate::RowEncodingOptions;
+use crate::RowSize;
 use crate::RowSortField;
 use crate::compute_row_sizes_with_options;
 use crate::convert_columns;
@@ -110,39 +121,192 @@ fn primitive_u32_sort_order() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn reject_temporal_extension_dtype_early() -> VortexResult<()> {
+#[rstest]
+#[case::ascending_nulls_first(RowSortField::ascending())]
+#[case::ascending_nulls_last(RowSortField::ascending().nulls_last())]
+#[case::descending_nulls_first(RowSortField::descending())]
+#[case::descending_nulls_last(RowSortField::descending().nulls_last())]
+fn row_encoding_orders_timestamp_by_value(#[case] field: RowSortField) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let storage = PrimitiveArray::from_iter([2i32, -1, 0, 7]).into_array();
-    let ext_dtype = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
-    let col = ExtensionArray::new(ext_dtype, storage).into_array();
+    let values = [Some(500i64), None, Some(-100), Some(0), None, Some(500)];
+    let storage = PrimitiveArray::from_option_iter(values).into_array();
+    let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
+    let timestamp = ExtensionArray::try_new(dtype, storage.clone())?.into_array();
+    let options = RowEncodingOptions::new([field]);
+    let encoder = RowEncoder::with_options(options.clone());
+    let cols = std::slice::from_ref(&timestamp);
 
-    let err = convert_columns(&[col], &[RowSortField::ascending()], &mut ctx)
-        .expect_err("temporal extensions should be rejected");
-    assert!(
-        err.to_string().contains("Extension arrays yet"),
-        "expected error mentioning unsupported Extension arrays, got: {err}"
+    let encoded = encoder.encode(cols, &mut ctx)?;
+    assert_row_order(&collect_row_bytes(&encoded), values.len(), |i, j| {
+        match (values[i], values[j]) {
+            (Some(a), Some(b)) if field.descending => b.cmp(&a),
+            (Some(a), Some(b)) => a.cmp(&b),
+            _ if field.nulls_first => values[i].cmp(&values[j]),
+            _ => values[j].cmp(&values[i]),
+        }
+    });
+
+    let storage_cols = std::slice::from_ref(&storage);
+    let expected_rows = encoder.encode(storage_cols, &mut ctx)?.into_array();
+    let expected_sizes = encoder.row_sizes(storage_cols, &mut ctx)?;
+    assert_arrays_eq!(encoded, &expected_rows, &mut ctx);
+    assert_arrays_eq!(
+        encoder.row_sizes(cols, &mut ctx)?,
+        &expected_sizes,
+        &mut ctx
     );
+
+    for (function, expected) in [
+        (RowEncode.bind(options.clone()), expected_rows),
+        (RowSize.bind(options), expected_sizes),
+    ] {
+        assert_execution_paths(
+            cols,
+            |inputs| {
+                Ok(ScalarFnArray::try_new(function.clone(), inputs.iter().cloned())?.into_array())
+            },
+            ExpectedOutcome::Array(expected),
+            &mut ctx,
+        );
+    }
+
     Ok(())
 }
 
-#[test]
-fn reject_nested_temporal_extension_dtype_early() -> VortexResult<()> {
+#[rstest]
+#[case::structure(timestamp_struct_rows())]
+#[case::list(timestamp_list_rows())]
+#[case::fixed_size_list(timestamp_fixed_list_rows(false))]
+#[case::fixed_size_list_of_lists(timestamp_fixed_list_rows(true))]
+#[case::map(timestamp_map_rows())]
+fn row_encoding_accepts_nested_ordered_extension(
+    #[case] column: VortexResult<ArrayRef>,
+) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let storage = PrimitiveArray::from_iter([2i32, -1, 0, 7]).into_array();
-    let ext_dtype = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
-    let date_col = ExtensionArray::new(ext_dtype, storage).into_array();
-    let tag_col = VarBinViewArray::from_iter_str(["d", "b", "c", "a"]).into_array();
-    let struct_col =
-        StructArray::from_fields(&[("date", date_col), ("tag", tag_col)])?.into_array();
+    let rows = RowEncoder::default().encode(&[column?], &mut ctx)?;
 
-    let err = convert_columns(&[struct_col], &[RowSortField::ascending()], &mut ctx)
-        .expect_err("nested temporal extensions should be rejected");
-    assert!(
-        err.to_string().contains("Extension arrays yet"),
-        "expected error mentioning unsupported Extension arrays, got: {err}"
-    );
+    // In each fixture rows 1 and 4 are null, then rows 3, 2, and 0 sort in ascending order.
+    let value_ranks = [3, 0, 2, 1, 0];
+    assert_row_order(&collect_row_bytes(&rows), value_ranks.len(), |i, j| {
+        value_ranks[i].cmp(&value_ranks[j])
+    });
+
     Ok(())
+}
+
+const NESTED_TIMESTAMP_VALIDITY: [bool; 5] = [true, false, true, true, false];
+
+fn timestamp_millis(values: impl IntoIterator<Item = i64>) -> VortexResult<ArrayRef> {
+    let storage = PrimitiveArray::from_iter(values).into_array();
+    let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
+    Ok(ExtensionArray::try_new(dtype, storage)?.into_array())
+}
+
+fn timestamp_struct_rows() -> VortexResult<ArrayRef> {
+    let timestamps = timestamp_millis([2, 99, 0, -1, -99])?;
+    Ok(StructArray::try_new(
+        ["ts"].into(),
+        vec![timestamps],
+        NESTED_TIMESTAMP_VALIDITY.len(),
+        Validity::from_iter(NESTED_TIMESTAMP_VALIDITY),
+    )?
+    .into_array())
+}
+
+fn timestamp_list_rows() -> VortexResult<ArrayRef> {
+    let timestamps = timestamp_millis([2, 9, 2, -3, -1])?;
+    Ok(nullable_timestamp_lists(timestamps)?.into_array())
+}
+
+fn timestamp_fixed_list_rows(variable_width: bool) -> VortexResult<ArrayRef> {
+    let timestamps = timestamp_millis([2, 9, 99, 99, 2, -3, -1, 7, -99, -99])?;
+    let elements = if variable_width {
+        // Each timestamp is in a singleton list so the fixed-size list takes its
+        // variable-width path while preserving the timestamp order.
+        ListViewArray::try_new(
+            timestamps,
+            PrimitiveArray::from_iter(0..10u32).into_array(),
+            buffer![1u32; 10].into_array(),
+            Validity::NonNullable,
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array()
+    } else {
+        timestamps
+    };
+    Ok(FixedSizeListArray::try_new(
+        elements,
+        2,
+        Validity::from_iter(NESTED_TIMESTAMP_VALIDITY),
+        NESTED_TIMESTAMP_VALIDITY.len(),
+    )?
+    .into_array())
+}
+
+fn timestamp_map_rows() -> VortexResult<ArrayRef> {
+    let keys = buffer![0i32, 1, 0, 1, 0].into_array();
+    let values = timestamp_millis([2, 9, 2, -3, -1])?;
+    let dtype = MapDType::try_new(keys.dtype().clone(), values.dtype().clone(), true)?;
+    let entries = StructArray::from_fields(&[("key", keys), ("value", values)])?.into_array();
+    Ok(MapArray::try_new(dtype, nullable_timestamp_lists(entries)?)?.into_array())
+}
+
+fn nullable_timestamp_lists(elements: ArrayRef) -> VortexResult<ListViewArray> {
+    ListViewArray::try_new(
+        elements,
+        buffer![0u32, 0, 2, 4, 0].into_array(),
+        buffer![2u32, 1, 2, 1, 2].into_array(),
+        Validity::from_iter(NESTED_TIMESTAMP_VALIDITY),
+        &mut SESSION.create_execution_ctx(),
+    )
+}
+
+#[rstest]
+#[case::json(json_array())]
+#[case::vector(Vector::try_new_vector_array(FixedSizeListArray::new(
+    buffer![1.0f32, 2.0].into_array(), 2, Validity::NonNullable, 1,
+).into_array()))]
+#[case::nested_json(StructArray::from_fields(&[
+    ("label", VarBinViewArray::from_iter_str(["a"]).into_array()),
+    ("doc", json_array()?),
+]).map(IntoArray::into_array))]
+fn row_encoding_rejects_types_without_ord(#[case] col: VortexResult<ArrayRef>) -> VortexResult<()> {
+    let col = col?;
+    let mut ctx = SESSION.create_execution_ctx();
+    let cols = std::slice::from_ref(&col);
+    let encoder = RowEncoder::default();
+    let options = RowEncodingOptions::default_for_columns(1);
+
+    for (function, direct_error) in [
+        (
+            RowEncode.bind(options.clone()),
+            encoder.encode(cols, &mut ctx).err(),
+        ),
+        (
+            RowSize.bind(options),
+            encoder.row_sizes(cols, &mut ctx).err(),
+        ),
+    ] {
+        let dtype = col.dtype();
+        let id = function.id();
+        let expected = format!("{id} requires the Ord claim, but {dtype} does not hold it");
+        let direct_error = direct_error.expect("the direct encoder must check for Ord");
+        let bound_error = ScalarFnArray::try_new(function, [col.clone()])
+            .expect_err("binding must check for Ord");
+        for error in [direct_error, bound_error] {
+            assert_eq!(error.to_string().lines().next(), Some(expected.as_str()));
+        }
+    }
+
+    Ok(())
+}
+
+fn json_array() -> VortexResult<ArrayRef> {
+    ExtensionArray::try_from_storage::<Json>(
+        EmptyMetadata,
+        VarBinViewArray::from_iter_str(["{}"]).into_array(),
+    )
+    .map(IntoArray::into_array)
 }
 
 #[test]

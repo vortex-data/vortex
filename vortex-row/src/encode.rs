@@ -15,6 +15,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::Claim;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -74,7 +75,12 @@ impl ScalarFnVTable for RowEncode {
         ChildName::from(Arc::from(format!("col_{}", child_idx)))
     }
 
-    fn return_dtype(&self, _options: &Self::Options, _args: &[DType]) -> VortexResult<DType> {
+    fn return_dtype(&self, _options: &Self::Options, args: &[DType]) -> VortexResult<DType> {
+        let function = self.id();
+        for dtype in args {
+            dtype.require_claim(Claim::Ord, function)?;
+        }
+
         Ok(DType::List(
             Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
             Nullability::NonNullable,
@@ -87,7 +93,7 @@ impl ScalarFnVTable for RowEncode {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        execute_row_encode(options, args, ctx)
+        execute_row_encode(self.id(), options, args, ctx)
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
@@ -100,6 +106,7 @@ impl ScalarFnVTable for RowEncode {
 }
 
 fn execute_row_encode(
+    function: ScalarFnId,
     options: &RowEncodingOptions,
     args: &dyn ExecutionArgs,
     ctx: &mut ExecutionCtx,
@@ -116,7 +123,7 @@ fn execute_row_encode(
         col_kinds,
         first_varlen_idx,
         columns,
-    } = compute_sizes(options, args, ctx)?;
+    } = compute_sizes(function, options, args, ctx)?;
 
     // ===== Phase 2: totals + buffer =====
     let var_total: u64 = var_lengths
