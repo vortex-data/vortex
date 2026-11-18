@@ -263,9 +263,8 @@ impl StatsRewriteRule for BloomEqRewrite {
             return Ok(None);
         };
 
-        // Nulls are not stored in Bloom filters, so it is not possible to determine
-        // if it is present or not, so the answer is inconclusive.
-        if !is_bloom_valid_dtype(column.dtype()) || literal.as_::<Literal>().is_null() {
+        // Bloom filters omit nulls, so a null literal cannot prove inequality.
+        if literal.as_::<Literal>().is_null() || !is_bloom_valid_dtype(column.dtype()) {
             return Ok(None);
         }
 
@@ -282,8 +281,11 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
+    use vortex_array::EmptyMetadata;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::AggregateDTypes;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
     use vortex_array::arrays::BoolArray;
@@ -296,9 +298,12 @@ mod tests {
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::extension::ExtDType;
     use vortex_array::expr::bound::eq;
     use vortex_array::expr::bound::lit;
     use vortex_array::expr::bound::root;
+    use vortex_array::extension::datetime::TimeUnit;
+    use vortex_array::extension::datetime::Timestamp;
     use vortex_array::scalar::DecimalValue;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::ScalarFnVTable;
@@ -310,6 +315,7 @@ mod tests {
     use vortex_expr::stats::StatsSessionExt;
     use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
     use vortex_expr::stats::rewrite::StatsRewriteRule;
+    use vortex_json::Json;
     use vortex_session::VortexSession;
 
     use super::BloomContains;
@@ -336,31 +342,49 @@ mod tests {
     }
 
     #[test]
-    fn bloom_rule_prunes_ok() -> VortexResult<()> {
+    fn bloom_rejects_extension_without_eq() -> VortexResult<()> {
+        let options = BloomOptions::default();
+        let dtype = DType::Extension(
+            ExtDType::<Json>::try_new(EmptyMetadata, Nullability::NonNullable)?.erased(),
+        );
+
+        assert!(AggregateDTypes::try_new(&BloomFilter, &options, dtype.clone()).is_err());
+        assert!(
+            BloomContains
+                .return_dtype(&options, &[DType::Binary(Nullability::NonNullable), dtype])
+                .is_err()
+        );
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::primitive(Scalar::from(42_i64))]
+    #[case::bloom_accepts_timestamp(Scalar::extension_ref(
+        Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased(),
+        Scalar::from(42_i64),
+    ))]
+    fn bloom_rule_prunes_ok(#[case] needle: Scalar) -> VortexResult<()> {
         let options = BloomOptions::default();
         let aggregate_fn = BloomFilter.bind(options.clone());
         let session = VortexSession::empty();
         register(&session, options.clone());
 
         let filters = VarBinViewArray::from_iter_nullable_bin([
-            Some(serialized_filter(
-                &options,
-                &[Scalar::primitive(42_i64, Nullability::NonNullable)],
-            )?),
+            Some(serialized_filter(&options, std::slice::from_ref(&needle))?),
             Some(serialized_filter(&options, &[])?),
         ])
         .into_array();
 
         let zone_map = ZoneMap::try_new(
-            DType::Primitive(PType::I64, Nullability::NonNullable),
+            needle.dtype().clone(),
             StructArray::from_fields(&[(aggregate_fn.to_string(), filters)])?,
             Arc::new([aggregate_fn]),
             1,
             2,
         )?;
 
-        let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
-        let proof = eq(root(dtype), lit(42i64))
+        let proof = eq(root(needle.dtype().clone()), lit(needle))
             .falsify(&session)?
             .ok_or_else(|| vortex_error::vortex_err!("equality should have a bloom falsifier"))?;
 
