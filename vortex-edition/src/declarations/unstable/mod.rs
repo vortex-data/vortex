@@ -25,9 +25,6 @@ guarantee.",
 pub const UNSTABLE: EditionId = EditionId::new("unstable", 2026, 10, 0);
 
 /// Built-in serialized components awaiting stabilization in [`UNSTABLE`].
-///
-/// Only `fastlanes.delta` is a member. The other experimental components are in no edition, so a
-/// writer that enforces editions never writes them.
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: UNSTABLE,
