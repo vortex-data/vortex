@@ -82,10 +82,10 @@ async fn an_entry_records_the_exact_footer_region() -> VortexResult<()> {
     let entry = &manifest.entries[0];
 
     assert_eq!(entry.byte_size, bytes.len() as u64);
-    let tail = bytes.slice(bytes.len() - entry.footer.len()..);
-    assert_eq!(entry.footer, tail);
-    // The region alone is enough to parse the footer: no more data is asked for.
-    let step = Footer::deserializer(entry.footer.clone(), SESSION.clone())
+    // The region from the recorded offset is enough to parse the footer: no more data is asked
+    // for.
+    let region = bytes.slice(usize::try_from(entry.footer_offset)?..);
+    let step = Footer::deserializer(region, SESSION.clone())
         .with_size(entry.byte_size)
         .deserialize()?;
     let DeserializeStep::Done(footer) = step else {
@@ -111,7 +111,10 @@ async fn a_manifest_with_the_wrong_column_types_is_an_error() -> VortexResult<()
         ("path", VarBinArray::from(vec!["a"]).into_array()),
         ("byte_size", PrimitiveArray::from_iter([1i64]).into_array()),
         ("row_count", PrimitiveArray::from_iter([1u64]).into_array()),
-        ("footer", VarBinArray::from(vec![&b"x"[..]]).into_array()),
+        (
+            "footer_offset",
+            PrimitiveArray::from_iter([0u64]).into_array(),
+        ),
     ])?;
     let mut written = ByteBufferMut::empty();
     SESSION
