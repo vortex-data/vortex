@@ -966,10 +966,6 @@ impl Patches {
         }
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "complexity is from nested match_each_* macros"
-    )]
     pub fn take_search(
         &self,
         take_indices: PrimitiveArray,
@@ -988,56 +984,20 @@ impl Patches {
             .map(|co| co.clone().execute::<PrimitiveArray>(ctx))
             .transpose()?;
 
-        let (values_indices, new_indices): (BufferMut<u64>, BufferMut<u64>) =
+        let take_validity = take_indices_validity.execute_mask(take_indices.len(), ctx)?;
+        let (values_indices, new_indices) =
             match_each_unsigned_integer_ptype!(patch_indices.ptype(), |PatchT| {
-                let patch_indices_slice = patch_indices.as_slice::<PatchT>();
                 match_each_unsigned_integer_ptype!(take_indices_unsigned.ptype(), |TakeT| {
-                    let take_slice = take_indices_unsigned.as_slice::<TakeT>();
-
-                    if let Some(chunk_offsets) = chunk_offsets {
-                        match_each_unsigned_integer_ptype!(chunk_offsets.ptype(), |OffsetT| {
-                            let chunk_offsets = chunk_offsets.as_slice::<OffsetT>();
-                            take_indices_with_search_fn(
-                                patch_indices_slice,
-                                take_slice,
-                                take_indices
-                                    .as_ref()
-                                    .validity()?
-                                    .execute_mask(take_indices.as_ref().len(), ctx)?,
-                                include_nulls,
-                                ctx.allocator(),
-                                |take_idx| {
-                                    self.search_index_chunked_batch(
-                                        patch_indices_slice,
-                                        chunk_offsets,
-                                        take_idx,
-                                    )
-                                },
-                            )?
-                        })
-                    } else {
-                        take_indices_with_search_fn(
-                            patch_indices_slice,
-                            take_slice,
-                            take_indices
-                                .as_ref()
-                                .validity()?
-                                .execute_mask(take_indices.as_ref().len(), ctx)?,
-                            include_nulls,
-                            ctx.allocator(),
-                            |take_idx| {
-                                let Some(offset) = <PatchT as NumCast>::from(self.offset) else {
-                                    // If the offset cannot be converted to T, it's larger than all values in this array.
-                                    return Ok(SearchResult::NotFound(patch_indices_slice.len()));
-                                };
-
-                                patch_indices_slice
-                                    .search_sorted(&(take_idx + offset), SearchSortedSide::Left)
-                            },
-                        )?
-                    }
+                    self.take_search_typed(
+                        patch_indices.as_slice::<PatchT>(),
+                        take_indices_unsigned.as_slice::<TakeT>(),
+                        chunk_offsets.as_ref(),
+                        take_validity,
+                        include_nulls,
+                        ctx.allocator(),
+                    )
                 })
-            });
+            })?;
 
         if new_indices.is_empty() {
             return Ok(None);
@@ -1057,6 +1017,75 @@ impl Patches {
             chunk_offsets: None,
             offset_within_chunk: Some(0), // Reset when creating new Patches.
         }))
+    }
+
+    fn take_search_typed<PatchT, TakeT>(
+        &self,
+        patch_indices: &[PatchT],
+        take_indices: &[TakeT],
+        chunk_offsets: Option<&PrimitiveArray>,
+        take_validity: Mask,
+        include_nulls: bool,
+        allocator: &BufferAllocatorRef,
+    ) -> VortexResult<(BufferMut<u64>, BufferMut<u64>)>
+    where
+        PatchT: UnsignedPType,
+        TakeT: UnsignedPType,
+        usize: TryFrom<PatchT>,
+    {
+        if let Some(chunk_offsets) = chunk_offsets {
+            return match_each_unsigned_integer_ptype!(chunk_offsets.ptype(), |OffsetT| {
+                self.take_search_chunked::<PatchT, TakeT, OffsetT>(
+                    patch_indices,
+                    take_indices,
+                    chunk_offsets.as_slice::<OffsetT>(),
+                    take_validity,
+                    include_nulls,
+                    allocator,
+                )
+            });
+        }
+
+        take_indices_with_search_fn(
+            patch_indices,
+            take_indices,
+            take_validity,
+            include_nulls,
+            allocator,
+            |take_idx| {
+                let Some(offset) = <PatchT as NumCast>::from(self.offset) else {
+                    // An offset too large for `PatchT` exceeds every patch index.
+                    return Ok(SearchResult::NotFound(patch_indices.len()));
+                };
+
+                patch_indices.search_sorted(&(take_idx + offset), SearchSortedSide::Left)
+            },
+        )
+    }
+
+    fn take_search_chunked<PatchT, TakeT, OffsetT>(
+        &self,
+        patch_indices: &[PatchT],
+        take_indices: &[TakeT],
+        chunk_offsets: &[OffsetT],
+        take_validity: Mask,
+        include_nulls: bool,
+        allocator: &BufferAllocatorRef,
+    ) -> VortexResult<(BufferMut<u64>, BufferMut<u64>)>
+    where
+        PatchT: UnsignedPType,
+        TakeT: UnsignedPType,
+        OffsetT: UnsignedPType,
+        usize: TryFrom<PatchT> + TryFrom<OffsetT>,
+    {
+        take_indices_with_search_fn(
+            patch_indices,
+            take_indices,
+            take_validity,
+            include_nulls,
+            allocator,
+            |take_idx| self.search_index_chunked_batch(patch_indices, chunk_offsets, take_idx),
+        )
     }
 
     pub fn take_map(
