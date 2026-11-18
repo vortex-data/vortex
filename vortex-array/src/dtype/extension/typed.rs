@@ -16,6 +16,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
+use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::dtype::Claims;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -247,6 +249,7 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     fn serialize_metadata(&self) -> VortexResult<Vec<u8>>;
     fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef;
     fn validate_scalar_value(&self, storage_value: &ScalarValue) -> VortexResult<()>;
+    fn validate_array(&self, storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()>;
     fn value_display(&self, f: &mut fmt::Formatter<'_>, storage_value: &ScalarValue)
     -> fmt::Result;
 }
@@ -307,6 +310,10 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
         self.validate_scalar_value(storage_value)
     }
 
+    fn validate_array(&self, storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+        V::validate_array(self, storage, ctx)
+    }
+
     fn value_display(
         &self,
         f: &mut fmt::Formatter<'_>,
@@ -326,7 +333,7 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
 
 /// Returns whether `dtype` has a non-nullable form, without which [`DType::with_nullability`]
 /// panics. [`DType::Null`] has none, and neither has an extension dtype whose storage has none.
-fn has_non_nullable_form(dtype: &DType) -> bool {
+pub(crate) fn has_non_nullable_form(dtype: &DType) -> bool {
     match dtype {
         DType::Null => false,
         DType::Extension(ext) => has_non_nullable_form(ext.storage_dtype()),

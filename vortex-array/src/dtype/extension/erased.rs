@@ -13,6 +13,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::dtype::Claims;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -111,6 +113,15 @@ impl ExtDTypeRef {
     /// Validates that the given storage scalar value is valid for this dtype.
     pub(crate) fn validate_storage_value(&self, storage_value: &ScalarValue) -> VortexResult<()> {
         self.0.validate_scalar_value(storage_value)
+    }
+
+    /// Runs the extension type's value check on its storage array.
+    pub(crate) fn validate_storage_array(
+        &self,
+        storage: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        self.0.validate_array(storage, ctx)
     }
 }
 

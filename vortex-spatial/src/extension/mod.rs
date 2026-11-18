@@ -464,7 +464,10 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::compute::conformance::extension::test_ext_vtable_conformance;
     use vortex_array::dtype::Claim;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -508,14 +511,19 @@ mod tests {
 
     #[test]
     fn wkb_claims_nothing() -> VortexResult<()> {
-        let dtype = DType::Extension(
-            ExtDType::<WellKnownBinary>::try_new(
-                SpatialMetadata::default(),
-                Nullability::NonNullable,
-            )?
-            .erased(),
+        let ext_dtype = ExtDType::<WellKnownBinary>::try_new(
+            SpatialMetadata::default(),
+            Nullability::NonNullable,
+        )?;
+        let storage = VarBinViewArray::from_iter_bin([little_endian_wkb_point()]).into_array();
+        test_ext_vtable_conformance(
+            &ext_dtype,
+            &storage,
+            None,
+            &mut SESSION.create_execution_ctx(),
         );
 
+        let dtype = DType::Extension(ext_dtype.erased());
         assert!(!dtype.holds(Claim::Eq));
         assert!(!dtype.holds(Claim::Ord));
 
@@ -599,14 +607,18 @@ mod tests {
         assert!(result.is_err_and(|error| error.to_string().contains(expected)));
     }
 
-    /// A little-endian WKB `POINT` literal decodes to the native `Point` extension scalar.
-    #[test]
-    fn decodes_wkb_point_to_native() -> VortexResult<()> {
+    fn little_endian_wkb_point() -> Vec<u8> {
         let mut wkb = vec![1u8]; // little-endian byte order
         wkb.extend_from_slice(&1u32.to_le_bytes()); // geometry type: point
         wkb.extend_from_slice(&1.0f64.to_le_bytes()); // x
         wkb.extend_from_slice(&2.0f64.to_le_bytes()); // y
+        wkb
+    }
 
+    /// A little-endian WKB `POINT` literal decodes to the native `Point` extension scalar.
+    #[test]
+    fn decodes_wkb_point_to_native() -> VortexResult<()> {
+        let wkb = little_endian_wkb_point();
         let scalar = native_geometry_scalar_from_wkb(&wkb)?.expect("a point scalar");
         let DType::Extension(ext) = scalar.dtype() else {
             panic!("expected an extension dtype, got {}", scalar.dtype());
