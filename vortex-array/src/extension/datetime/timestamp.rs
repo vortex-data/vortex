@@ -16,6 +16,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::registry::CachedId;
 
+use crate::dtype::Claim;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -239,6 +240,10 @@ impl ExtVTable for Timestamp {
 
     fn storage_dtype(_metadata: &Self::Metadata) -> DType {
         DType::Primitive(PType::I64, Nullability::NonNullable)
+    }
+
+    fn claims(_metadata: &Self::Metadata) -> &'static [Claim] {
+        &[Claim::Ord]
     }
 
     fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {

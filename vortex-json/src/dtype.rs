@@ -60,3 +60,27 @@ impl ExtVTable for Json {
         Ok(value.as_str())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::EmptyMetadata;
+    use vortex_array::dtype::Claim;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_error::VortexResult;
+
+    use super::Json;
+
+    #[test]
+    fn json_claims_nothing() -> VortexResult<()> {
+        let dtype = DType::Extension(
+            ExtDType::<Json>::try_new(EmptyMetadata, Nullability::NonNullable)?.erased(),
+        );
+
+        assert!(!dtype.holds(Claim::Eq));
+        assert!(!dtype.holds(Claim::Ord));
+
+        Ok(())
+    }
+}

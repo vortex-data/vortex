@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use vortex_array::dtype::Claim;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
@@ -71,6 +72,10 @@ impl ExtVTable for FixedShapeTensor {
             list_size,
             Nullability::NonNullable,
         )
+    }
+
+    fn claims(_metadata: &Self::Metadata) -> &'static [Claim] {
+        &[Claim::Eq]
     }
 
     fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {

@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use vortex_array::dtype::Claim;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
@@ -60,6 +61,10 @@ impl ExtVTable for Vector {
             metadata.dimensions(),
             Nullability::NonNullable,
         )
+    }
+
+    fn claims(_metadata: &Self::Metadata) -> &'static [Claim] {
+        &[Claim::Eq]
     }
 
     fn unpack_native<'a>(

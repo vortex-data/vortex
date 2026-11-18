@@ -9,6 +9,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_session::registry::CachedId;
 
+use crate::dtype::Claim;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -112,6 +113,10 @@ impl ExtVTable for Date {
         let ptype = date_ptype(metadata)
             .vortex_expect("Date::validate_metadata accepts only days and milliseconds");
         DType::Primitive(ptype, Nullability::NonNullable)
+    }
+
+    fn claims(_metadata: &Self::Metadata) -> &'static [Claim] {
+        &[Claim::Ord]
     }
 
     fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {

@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use vortex_array::dtype::Claim;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -75,6 +76,11 @@ impl ExtVTable for Uuid {
         )
     }
 
+    fn claims(_metadata: &Self::Metadata) -> &'static [Claim] {
+        // Comparing the UUID bytes gives the same order as comparing the hexadecimal text.
+        &[Claim::Ord]
+    }
+
     fn unpack_native<'a>(
         ext_dtype: &ExtDType<Self>,
         storage_value: &'a ScalarValue,
@@ -124,6 +130,7 @@ mod tests {
 
     use rstest::rstest;
     use uuid::Version;
+    use vortex_array::dtype::Claim;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -136,6 +143,18 @@ mod tests {
     use crate::Uuid;
     use crate::UuidMetadata;
     use crate::vtable::UUID_BYTE_LEN;
+
+    #[test]
+    fn uuid_claims_ord() -> VortexResult<()> {
+        let dtype = DType::Extension(
+            ExtDType::<Uuid>::try_new(UuidMetadata::default(), Nullability::NonNullable)?.erased(),
+        );
+
+        assert!(dtype.holds(Claim::Ord));
+        assert!(dtype.holds(Claim::Eq));
+
+        Ok(())
+    }
 
     #[rstest]
     #[case::no_version(None, &[])]
