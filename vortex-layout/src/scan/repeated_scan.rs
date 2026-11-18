@@ -477,6 +477,15 @@ fn intersect_ranges(left: Option<&Range<u64>>, right: Option<Range<u64>>) -> Opt
     }
 }
 
+fn can_prune_conjuncts(filter: &FilterExpr, reader: &dyn LayoutReader) -> VortexResult<bool> {
+    for conjunct in filter.conjuncts() {
+        if reader.can_prune_file(conjunct)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
@@ -558,13 +567,4 @@ mod tests {
         assert!(matches!(stream.next().now_or_never(), Some(Some(Err(_)))));
         assert!(matches!(stream.next().now_or_never(), Some(None)));
     }
-}
-
-fn can_prune_conjuncts(filter: &FilterExpr, reader: &dyn LayoutReader) -> VortexResult<bool> {
-    for conjunct in filter.conjuncts() {
-        if reader.can_prune_file(conjunct)? {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }

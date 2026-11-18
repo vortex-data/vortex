@@ -550,7 +550,7 @@ fn legacy_stats_rewrites_validate_output_shape() -> VortexResult<()> {
     let dtype = primitive(PType::I32, Nullability::NonNullable);
     let data = make_plan(flat(5, dtype.clone(), 0))?;
     for (declared_dtype, declared_rows, expected_error) in [
-        (dtype.clone(), 6, "changed row count"),
+        (dtype, 6, "changed row count"),
         (
             primitive(PType::U64, Nullability::NonNullable),
             5,

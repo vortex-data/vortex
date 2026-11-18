@@ -37,11 +37,16 @@ vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time"] }
-vortex-io = { workspace = true, features = ["tokio"] }
 insta = { workspace = true }
 rstest = { workspace = true }
+tokio = { workspace = true, features = [
+    "rt",
+    "rt-multi-thread",
+    "macros",
+    "time",
+] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-io = { workspace = true, features = ["tokio"] }
 
 [lints]
 workspace = true

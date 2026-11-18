@@ -115,13 +115,13 @@ async fn source_chunks(
                         })
                         .collect::<VortexResult<_>>()?;
                     let column_dtype = fields.field(name).expect("fixture field exists");
-                    let data = ConcatPlan::try_new(column_dtype.clone(), chunks)?.into_plan();
+                    let data = ConcatPlan::try_new(column_dtype, chunks)?.into_plan();
                     if matches!(strategy, Strategy::ZonedTable) && name.as_ref() == "ints" {
                         let max = Max.bind(NumericalAggregateOpts::skip_nans());
-                        let maxima = PrimitiveArray::from_option_iter(
-                            (0..count).map(|chunk| Some(((chunk + 1) * CHUNK_ROWS - 1) as i32)),
-                        )
-                        .into_array();
+                        let maxima = (0..count)
+                            .map(|chunk| i32::try_from((chunk + 1) * CHUNK_ROWS - 1).map(Some))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        let maxima = PrimitiveArray::from_option_iter(maxima).into_array();
                         let table =
                             StructArray::from_fields(&[(max.to_string().as_str(), maxima)])?
                                 .into_array();

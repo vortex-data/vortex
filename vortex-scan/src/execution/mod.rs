@@ -6,7 +6,7 @@
 //! A [`PreparedScan`] holds a scan's plans over one file. An engine composes the planners over it
 //! and drives them: a [`PrunePlanner`] evaluates the filter's pruning plans over the scan's rows and
 //! emits the planner it was built to continue into, with the rows they keep; a [`ChunkPlanner`]
-//! cuts those rows into chunks and spawns a [`FilterPlanner`] or a [`ProjectionPlanner`] per
+//! cuts those rows into chunks and spawns a `FilterPlanner` or a `ProjectionPlanner` per
 //! chunk; a filter planner runs its chunk's conjuncts and emits a projection planner for the rows
 //! that survive; a projection planner emits one morsel per piece of its rows. A planner only
 //! says what it needs, compute or reads; where either runs is the engine's driver's decision.
