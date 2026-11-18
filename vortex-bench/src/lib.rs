@@ -82,6 +82,7 @@ use vortex::editions::EditionFamily;
 use vortex::editions::EditionId;
 use vortex::editions::EditionMember;
 use vortex::editions::EditionSessionExt;
+use vortex::editions::UNSTABLE;
 pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
@@ -117,40 +118,14 @@ static UNSTABLE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[EditionMember::layout(&"vortex.list")],
 };
 
-const BENCH_UNSTABLE_ENCODINGS_FAMILY: EditionFamily = EditionFamily {
-    name: "bench-unstable",
-    origin: "vortex-bench",
-    doc: "Unstable array encodings that every benchmark writes.",
-};
-
-/// The unstable array encodings every benchmark may write.
+/// Enables the [`UNSTABLE`] edition on `session`, so its compressor may also choose the unstable
+/// encodings.
 ///
-/// It holds only `fastlanes.delta`; the other unstable encodings are not ready to benchmark.
-const UNSTABLE_ENCODINGS_BENCH: EditionId = EditionId::new("bench-unstable", 2026, 10, 0);
-
-static UNSTABLE_ENCODINGS_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
-    edition: Edition {
-        id: UNSTABLE_ENCODINGS_BENCH,
-        immutable: false,
-        min_library_version: None,
-    },
-    added: &[EditionMember::array(&"fastlanes.delta")],
-};
-
-/// Lets the compressor of `session` also choose the unstable `fastlanes.delta` encoding.
-///
-/// Every benchmark session calls this, so benchmarks measure Vortex files written with it.
+/// Every benchmark session calls this, so benchmarks measure Vortex files written with them.
 pub fn enable_unstable_encodings(session: &VortexSession) {
     session
-        .editions()
-        .declare_family(&BENCH_UNSTABLE_ENCODINGS_FAMILY)
-        .vortex_expect("bench unstable encodings family is valid");
-    session
-        .register_edition(&UNSTABLE_ENCODINGS_BENCH_DECLARATION)
-        .vortex_expect("bench unstable encodings declaration is valid");
-    session
-        .enable_edition(UNSTABLE_ENCODINGS_BENCH)
-        .vortex_expect("bench unstable encodings edition is registered");
+        .enable_edition(UNSTABLE)
+        .vortex_expect("unstable edition is registered");
 }
 
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -663,7 +638,8 @@ mod tests {
 
     use super::SESSION;
 
-    /// The benchmark session adds exactly `fastlanes.delta` to the default session's arrays.
+    /// The benchmark session adds exactly `fastlanes.delta`, the only unstable array encoding, to
+    /// the default session's arrays.
     #[test]
     fn bench_session_adds_only_delta() {
         let ids = |session: &VortexSession| session.enabled_component_ids(ComponentKind::Array);

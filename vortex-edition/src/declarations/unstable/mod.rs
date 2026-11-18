@@ -25,21 +25,14 @@ guarantee.",
 pub const UNSTABLE: EditionId = EditionId::new("unstable", 2026, 10, 0);
 
 /// Built-in serialized components awaiting stabilization in [`UNSTABLE`].
+///
+/// Only `fastlanes.delta` is a member. The other experimental components are in no edition, so a
+/// writer that enforces editions never writes them.
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: UNSTABLE,
         immutable: false,
         min_library_version: None,
     },
-    added: &[
-        EditionMember::array(&"fastlanes.bitpacked.v2"),
-        EditionMember::array(&"fastlanes.delta"),
-        EditionMember::array(&"fastlanes.for.v2"),
-        EditionMember::array(&"vortex.decimal_byte_parts.v2"),
-        EditionMember::array(&"vortex.patched"),
-        EditionMember::array(&"vortex.union"),
-        EditionMember::layout(&"vortex.list"),
-        EditionMember::aggregate(&"vortex.bloom_filter.sbbf"),
-        EditionMember::aggregate(&"vortex.sum_v2"),
-    ],
+    added: &[EditionMember::array(&"fastlanes.delta")],
 };
