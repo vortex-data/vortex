@@ -8,6 +8,7 @@ mod ctx;
 pub use ctx::CompressorContext;
 pub use ctx::MAX_CASCADE;
 
+mod encoded;
 pub(crate) mod estimate;
 mod exclusion;
 use std::fmt;
@@ -15,6 +16,14 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::hash::Hasher;
 
+pub use encoded::Child;
+pub use encoded::ChildDecision;
+pub use encoded::ChildKind;
+pub use encoded::ChildPolicy;
+pub use encoded::ChildRequest;
+pub use encoded::Encoded;
+pub use encoded::EncodedChildren;
+pub use encoded::EncodedCtor;
 pub use estimate::CompressionEstimate;
 pub use estimate::DeferredEstimate;
 pub use estimate::EstimateFn;
@@ -57,26 +66,24 @@ impl fmt::Display for SchemeId {
 /// A single compression encoding that the [`CascadingCompressor`] can select from.
 ///
 /// The compressor evaluates every registered scheme whose [`matches`] returns `true` for a given
-/// array, picks the one with the highest [`expected_compression_ratio`], and calls [`compress`] on
+/// array, picks the one with the highest [`expected_compression_ratio`], and calls [`encode`] on
 /// the winner.
 ///
-/// One of the key features of the compressor in this crate is that schemes may "cascade". A
-/// scheme's [`compress`] can call back into the compressor via
-/// [`CascadingCompressor::compress_child`] to compress child or transformed arrays, building up
-/// multiple encoding layers (e.g. frame-of-reference and then bit-packing).
+/// One of the key features of the compressor in this crate is that schemes may "cascade": the
+/// children of an encoding are compressed in turn, building up multiple encoding layers (e.g.
+/// frame-of-reference and then bit-packing).
 ///
-/// # Scheme IDs
+/// # Children
 ///
-/// Every scheme has a globally unique name returned by [`scheme_name`]. The [`SchemeExt::id`]
-/// method (auto-implemented, cannot be overridden) wraps that name in an opaque [`SchemeId`] used
-/// for equality, hashing, and exclusion rules (see below).
+/// A scheme does not compress its children itself. [`encode`] returns an [`Encoded`], which lists
+/// the children to compress, the children to keep as they are, and a constructor; the compressor
+/// compresses the children and calls the constructor. Every child is compressed unless the scheme
+/// explicitly keeps it, and a scheme that stores a validity registers it, so validity is
+/// compressed too. In debug builds the compressor rejects a built array that holds a canonical
+/// array the scheme did not register.
 ///
-/// # Cascading and children
-///
-/// Schemes that produce child arrays for further compression must declare [`num_children`] > 0.
-/// Each child should be identified by a stable index. Cascading schemes should use
-/// [`CascadingCompressor::compress_child`] to compress each child array, which handles cascade
-/// level / budget tracking and context management automatically.
+/// Each child compressed with [`Child::new`] gets a stable index, recorded with the scheme in the
+/// cascade history. Exclusion rules refer to children by these indices.
 ///
 /// No scheme may appear twice in a cascade (descendant) chain (enforced by the compressor). This
 /// keeps the search space a tree.
@@ -111,10 +118,9 @@ impl fmt::Display for SchemeId {
 ///
 /// [`scheme_name`]: Scheme::scheme_name
 /// [`matches`]: Scheme::matches
-/// [`compress`]: Scheme::compress
+/// [`encode`]: Scheme::encode
 /// [`expected_compression_ratio`]: Scheme::expected_compression_ratio
 /// [`stats_options`]: Scheme::stats_options
-/// [`num_children`]: Scheme::num_children
 /// [`descendant_exclusions`]: Scheme::descendant_exclusions
 /// [`ancestor_exclusions`]: Scheme::ancestor_exclusions
 pub trait Scheme: AsDynScheme + Debug + Send + Sync {
@@ -128,7 +134,7 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
     ///
     /// Every declared ID must be permitted for the scheme to be used. Cascaded children are
     /// compressed by other schemes, which declare their own IDs, so only arrays constructed
-    /// directly by [`compress`](Scheme::compress) belong here. Canonical arrays the scheme
+    /// directly by [`encode`](Scheme::encode) belong here. Canonical arrays the scheme
     /// merely rearranges do not need to be declared.
     ///
     /// For most encodings this is the in-memory encoding ID. An encoding with several wire
@@ -160,7 +166,7 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
     /// Schemes to exclude from specific children's subtrees (push direction).
     ///
     /// Each rule says: "when I cascade through child Y, do not use scheme X anywhere in that
-    /// subtree." Only meaningful when [`num_children`](Scheme::num_children) > 0.
+    /// subtree." Only meaningful for schemes that register children with [`Child::new`].
     fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
         Vec::new()
     }
@@ -206,7 +212,33 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate;
 
+    /// Encodes the array with this scheme, leaving its children for the compressor.
+    ///
+    /// Register every child of the result in [`Encoded::compress`], or in [`Encoded::keep`] to
+    /// leave it uncompressed, and register the encoding's own validity with
+    /// [`Encoded::with_validity`].
+    ///
+    /// The default falls back to [`compress`](Self::compress): the compressor calls the
+    /// scheme's `compress` instead, as it always has. A scheme migrates by implementing this and
+    /// leaving its `compress` `unimplemented!`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if encoding fails.
+    fn encode(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: &CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Encoded> {
+        Ok(Encoded::uses_compress())
+    }
+
     /// Compress the array using this scheme.
+    ///
+    /// The compressor calls this for a scheme that does not implement [`encode`](Self::encode),
+    /// which replaces it. A scheme migrated to `encode` implements this with `unimplemented!`
+    /// until it is removed.
     ///
     /// # Errors
     ///

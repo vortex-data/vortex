@@ -9,7 +9,6 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::runend::compress::runend_encode;
 use vortex_compressor::builtins::BinaryDictScheme;
@@ -28,7 +27,9 @@ use super::IntRLEScheme;
 use super::SparseScheme;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
 use crate::SchemeExt;
 
@@ -50,11 +51,6 @@ impl Scheme for RunEndScheme {
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
         vec![RunEnd.id()]
-    }
-
-    /// Children: values=0, ends=1.
-    fn num_children(&self) -> usize {
-        2
     }
 
     /// RunEnd ends (child 1) are monotonically increasing positions with all unique values.
@@ -103,6 +99,11 @@ impl Scheme for RunEndScheme {
         ]
     }
 
+    /// Children: values=0, ends=1.
+    fn num_children(&self) -> usize {
+        2
+    }
+
     fn expected_compression_ratio(
         &self,
         data: &ArrayAndStats,
@@ -117,32 +118,37 @@ impl Scheme for RunEndScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
+    /// Children: values=0, ends=1. Nulls are stored in the values.
+    fn encode(
+        &self,
+        data: &ArrayAndStats,
+        _compress_ctx: &CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Encoded> {
+        let (ends, values) = runend_encode(data.array_as_primitive(), exec_ctx);
+        let len = data.array_len();
+        Ok(Encoded::new(
+            vec![
+                Child::new(self, 0, values),
+                Child::new(self, 1, ends.into_array()),
+            ],
+            Vec::new(),
+            move |children, _| {
+                let [values, ends] = children.compressed()?;
+                // SAFETY: compression doesn't affect invariants.
+                Ok(unsafe { RunEnd::new_unchecked(ends, values, 0, len) }.into_array())
+            },
+        ))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
     fn compress(
         &self,
-        compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
-        exec_ctx: &mut ExecutionCtx,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        // Run-end encode the ends.
-        let (ends, values) = runend_encode(data.array_as_primitive(), exec_ctx);
-
-        let values_primitive = values.execute::<PrimitiveArray>(exec_ctx)?;
-        let compressed_values = compressor.compress_child(
-            &values_primitive.into_array(),
-            &compress_ctx,
-            self.id(),
-            0,
-            exec_ctx,
-        )?;
-
-        let compressed_ends =
-            compressor.compress_child(&ends.into_array(), &compress_ctx, self.id(), 1, exec_ctx)?;
-
-        // SAFETY: compression doesn't affect invariants.
-        Ok(unsafe {
-            RunEnd::new_unchecked(compressed_ends, compressed_values, 0, data.array_len())
-                .into_array()
-        })
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }

@@ -5,9 +5,12 @@
 
 mod cascade;
 mod constant;
+mod encoded;
 mod sample;
 mod select;
 mod structural;
+
+use std::sync::Arc;
 
 pub(crate) use cascade::TrialOutput;
 pub(crate) use cascade::exact_uncompressed_size;
@@ -15,6 +18,7 @@ pub(crate) use sample::estimate_compression_ratio_with_sampling;
 pub(crate) use sample::sample_slices;
 
 use crate::builtins::IntDictScheme;
+use crate::scheme::ChildPolicy;
 use crate::scheme::ChildSelection;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::Scheme;
@@ -36,7 +40,8 @@ pub(crate) const ROOT_SCHEME_ID: SchemeId = SchemeId {
 /// 1. Canonicalizing input arrays to a standard representation.
 /// 2. Pre-filtering schemes by [`Scheme::matches`] and exclusion rules.
 /// 3. Evaluating each matching scheme's compression estimate and resolving deferred work.
-/// 4. Compressing with the best scheme and verifying the result is smaller.
+/// 4. Encoding with the best scheme, compressing the children it registers, and verifying the
+///    result is smaller.
 ///
 /// No scheme may appear twice in a cascade chain. The compressor enforces this automatically
 /// along with push/pull exclusion rules declared by each scheme.
@@ -51,6 +56,9 @@ pub struct CascadingCompressor {
     /// Descendant exclusion rules for the compressor's own cascading (e.g. excluding Dict from
     /// list offsets).
     root_exclusions: Vec<DescendantExclusion>,
+
+    /// Overrides schemes' decisions about which children to compress.
+    child_policy: Option<Arc<dyn ChildPolicy>>,
 }
 
 impl CascadingCompressor {
@@ -68,7 +76,15 @@ impl CascadingCompressor {
         Self {
             schemes,
             root_exclusions,
+            child_policy: None,
         }
+    }
+
+    /// Sets a policy that decides, child by child, whether to compress what schemes register,
+    /// overriding the schemes' own decisions.
+    pub fn with_child_policy(mut self, policy: Arc<dyn ChildPolicy>) -> Self {
+        self.child_policy = Some(policy);
+        self
     }
 }
 

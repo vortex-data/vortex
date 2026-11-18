@@ -156,9 +156,9 @@ fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> 
 /// # Errors
 ///
 /// Returns an error if sample compression fails.
-pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
+pub(crate) fn estimate_compression_ratio_with_sampling(
     compressor: &CascadingCompressor,
-    scheme: &S,
+    scheme: &dyn Scheme,
     array: &ArrayRef,
     compress_ctx: CompressorContext,
     exec_ctx: &mut ExecutionCtx,
@@ -182,13 +182,14 @@ pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     let error_ctx = trace::enabled_error_context(&compress_ctx);
     let sample_ctx = compress_ctx.with_sampling();
 
-    let compressed = match scheme.compress(compressor, &sample_data, sample_ctx, exec_ctx) {
-        Ok(compressed) => compressed,
-        Err(err) => {
-            trace::sample_compress_failed(scheme.id(), error_ctx.as_ref(), &err);
-            return Err(err);
-        }
-    };
+    let compressed =
+        match compressor.compress_with_scheme(scheme, &sample_data, &sample_ctx, exec_ctx) {
+            Ok(compressed) => compressed,
+            Err(err) => {
+                trace::sample_compress_failed(scheme.id(), error_ctx.as_ref(), &err);
+                return Err(err);
+            }
+        };
 
     let after = compressed.nbytes();
     // Sampled slices still hold the full array's buffers, so measure what their rows reference.
