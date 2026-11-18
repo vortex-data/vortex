@@ -10,6 +10,7 @@ use vortex_array::aggregate_fn::fns::all_nan::AllNan;
 use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
 use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
 use vortex_array::aggregate_fn::fns::all_null::AllNull;
+use vortex_array::dtype::Claim;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::bound::and;
@@ -770,6 +771,10 @@ fn has_nans(dtype: &DType) -> bool {
 }
 
 fn stat_expr(expr: &BoundExpression, stat: Stat) -> Option<BoundExpression> {
+    if matches!(stat, Stat::Min | Stat::Max) && !expr.dtype().holds(Claim::Ord) {
+        return None;
+    }
+
     if let Some(literal) = literal_stat(expr, stat) {
         return Some(literal);
     }
@@ -894,6 +899,7 @@ mod tests {
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::Expression;
     use vortex_array::expr::and;
+    use vortex_array::expr::bound;
     use vortex_array::expr::cast;
     use vortex_array::expr::col;
     use vortex_array::expr::eq;
@@ -1016,6 +1022,15 @@ mod tests {
                 value_predicate,
             ),
         )
+    }
+
+    #[test]
+    fn pruning_skips_unclaimed_literal_bounds() {
+        let literal = bound::lit(Scalar::null(DType::Variant(Nullability::Nullable)));
+
+        assert!(super::stat_expr(&literal, Stat::Min).is_none());
+        assert!(super::stat_expr(&literal, Stat::Max).is_none());
+        assert!(super::stat_expr(&literal, Stat::NullCount).is_some());
     }
 
     #[derive(Clone, Debug, PartialEq, Eq, Hash)]

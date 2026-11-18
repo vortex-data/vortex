@@ -21,6 +21,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::arrays::varbinview::VarBinViewArrayExt;
+use vortex_array::dtype::Claim;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
@@ -99,10 +100,6 @@ impl ScalarFnVTable for BloomContains {
         Ok(DType::Bool(args[0].nullability() | args[1].nullability()))
     }
 
-    // Execution can only fail for one of the following three reasons:
-    // 1. The needle is not a constant/literal.
-    // 2. The mask is invalid.
-    // 3. A `BloomFilter` fails to deserialize.
     fn execute(
         &self,
         options: &Self::Options,
@@ -114,6 +111,9 @@ impl ScalarFnVTable for BloomContains {
         // For now, a bloom filter can execute only when the needle is a literal,
         // so anything other than a constant here is unexpected.
         let needle_array = args.get(1)?;
+        needle_array
+            .dtype()
+            .require_claim(Claim::Eq, "bloom_contains")?;
         let needle = needle_array
             .as_constant()
             .ok_or_else(|| vortex_err!("bloom filter needle must be a constant"))?;
@@ -282,10 +282,13 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::Columnar;
     use vortex_array::EmptyMetadata;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::AggregateArgs;
     use vortex_array::aggregate_fn::AggregateDTypes;
+    use vortex_array::aggregate_fn::AggregateFnVTable;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
     use vortex_array::arrays::BoolArray;
@@ -354,6 +357,40 @@ mod tests {
                 .return_dtype(&options, &[DType::Binary(Nullability::NonNullable), dtype])
                 .is_err()
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn bloom_checks_eq_without_binding() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let options = BloomOptions::default();
+        let needle = Scalar::extension::<Json>(EmptyMetadata, Scalar::from("{}"));
+        let dtype = needle.dtype().clone();
+        let data = ConstantArray::new(needle, 1);
+        let filters =
+            VarBinViewArray::from_iter_bin([serialized_filter(&options, &[])?]).into_array();
+        let args = VecExecutionArgs::new(vec![filters, data.clone().into_array()], 1);
+        let error = BloomContains
+            .execute(&options, &args, &mut ctx)
+            .expect_err("Bloom lookup requires Eq before hashing");
+        let expected =
+            format!("bloom_contains requires the Eq claim, but {dtype} does not hold it");
+        assert_eq!(error.to_string().lines().next(), Some(expected.as_str()));
+
+        let binary = DType::Binary(Nullability::NonNullable);
+        let args = AggregateArgs {
+            options: &options,
+            dtype: &dtype,
+            return_dtype: &binary,
+            partial_dtype: &binary,
+        };
+        let mut partial = BloomPartial::from(&options);
+        let error = BloomFilter
+            .accumulate(args, &mut partial, &Columnar::Constant(data), &mut ctx)
+            .expect_err("Bloom insertion requires Eq before hashing");
+        let expected = format!("bloom_filter requires the Eq claim, but {dtype} does not hold it");
+        assert_eq!(error.to_string().lines().next(), Some(expected.as_str()));
 
         Ok(())
     }

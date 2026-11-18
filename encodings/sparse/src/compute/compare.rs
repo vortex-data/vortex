@@ -31,6 +31,10 @@ impl CompareKernel for Sparse {
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if !lhs.dtype().holds(operator.required_claim()) {
+            return Ok(None);
+        }
+
         let Some(rhs_scalar) = rhs.as_constant() else {
             return Ok(None);
         };
@@ -63,9 +67,14 @@ mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::builtin::binary::CompareKernel;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_array::scalar_fn::builtin::operators::Operator;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::Sparse;
@@ -77,6 +86,30 @@ mod tests {
         initialize(&session);
         session
     });
+
+    #[test]
+    fn sparse_kernel_declines_unclaimed_fill_comparison() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let fill = Scalar::null(DType::Variant(Nullability::Nullable));
+        let array = Sparse::try_new(
+            buffer![1u64].into_array(),
+            ConstantArray::new(fill.clone(), 1).into_array(),
+            2,
+            fill.clone(),
+            &mut ctx,
+        )?;
+        let rhs = ConstantArray::new(fill, 2).into_array();
+        assert!(
+            <Sparse as CompareKernel>::compare(
+                array.as_view(),
+                &rhs,
+                CompareOperator::Eq,
+                &mut ctx
+            )?
+            .is_none()
+        );
+        Ok(())
+    }
 
     #[rstest]
     #[case::eq_fill(Scalar::from(1i32), Operator::Eq)]

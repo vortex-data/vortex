@@ -6,6 +6,7 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::dtype::Claim;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
@@ -19,6 +20,10 @@ impl BetweenReduce for Constant {
         upper: &ArrayRef,
         options: &BetweenOptions,
     ) -> VortexResult<Option<ArrayRef>> {
+        if !array.dtype().holds(Claim::Ord) {
+            return Ok(None);
+        }
+
         // Can reduce if everything is constant
         if let Some(((constant, lower), upper)) = Some(array.scalar())
             .zip(lower.as_constant())

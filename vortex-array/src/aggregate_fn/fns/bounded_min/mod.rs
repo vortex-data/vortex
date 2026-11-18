@@ -29,6 +29,7 @@ use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::columnar_min_max;
 use crate::aggregate_fn::fns::min_max::min_max;
+use crate::dtype::Claim;
 use crate::dtype::DType;
 use crate::partial_ord::partial_min;
 use crate::scalar::Scalar;
@@ -155,9 +156,11 @@ impl AggregateFnVTable for BoundedMin {
 
     fn partial_from_scalar(
         &self,
-        _args: AggregateArgs<'_, Self::Options>,
+        args: AggregateArgs<'_, Self::Options>,
         scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
+        args.dtype.require_claim(Claim::Ord, "bounded_min")?;
+
         // A null partial means the producing accumulator saw nothing valid.
         let state = if scalar.is_null() {
             BoundedMinState::Empty

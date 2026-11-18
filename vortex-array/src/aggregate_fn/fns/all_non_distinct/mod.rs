@@ -232,6 +232,8 @@ impl AggregateFnVTable for AllNonDistinct {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        ensure_equality(batch.dtype())?;
+
         if !partial.all_non_distinct {
             return Ok(());
         }
