@@ -16,6 +16,8 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Decimal;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::Widen;
+use vortex_array::arrays::widen::WidenArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::NativeDecimalType;
@@ -235,16 +237,19 @@ fn wide_decimal_parts_roundtrip(
     }
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = builder.build().compress(&array, &mut ctx)?;
-    // Every part varies, so without child compression splitting alone cannot save space.
-    assert_eq!(compressed.is::<DecimalByteParts>(), compress_children);
-    if compress_children {
-        let parts = compressed
-            .as_opt::<DecimalByteParts>()
-            .ok_or_else(|| vortex_err!("expected decimal byte parts"))?;
-        assert_eq!(parts.lower_parts().len(), lower_part_count);
-        assert!(!parts.msp().is_canonical());
-        assert!(parts.lower_parts().iter().all(|part| !part.is_canonical()));
-    }
+    let parts = compressed
+        .as_opt::<DecimalByteParts>()
+        .ok_or_else(|| vortex_err!("expected decimal byte parts"))?;
+    assert_eq!(parts.lower_parts().len(), lower_part_count);
+    let msp = parts
+        .msp()
+        .as_opt::<Widen>()
+        .ok_or_else(|| vortex_err!("expected a Widen MSP"))?;
+    assert_eq!(!msp.values().is_canonical(), compress_children);
+    assert_eq!(
+        parts.lower_parts().iter().all(|part| !part.is_canonical()),
+        compress_children
+    );
 
     assert_arrays_eq!(serde_round_trip(&compressed)?, array, &mut ctx);
 
@@ -252,15 +257,36 @@ fn wide_decimal_parts_roundtrip(
 }
 
 /// The shape of the scheme output for each storage width and value range. v1 leaves an array with
-/// lower parts canonical. Every slot, null or not, chooses the lower-part count and the MSP type.
+/// lower parts canonical. Only the valid values choose the lower-part count and the stored MSP
+/// type.
 #[rstest]
+#[case::p2_uses_i8(
+    decimal_at_precision(2, (0..99i8).cycle().take(2048), Validity::NonNullable),
+    0, PType::I8, None
+)]
+#[case::p4_narrows_to_i8(
+    decimal_at_precision(4, (0..99i16).cycle().take(2048), Validity::NonNullable),
+    0, PType::I16, Some(PType::I8)
+)]
+#[case::p9_narrows_to_i16(
+    decimal_at_precision(9, 0..2048i32, Validity::NonNullable),
+    0, PType::I32, Some(PType::I16)
+)]
+#[case::legacy_narrower_i32_at_p38(
+    decimal_at_precision(38, 0..2048i32, Validity::NonNullable),
+    0, PType::I64, Some(PType::I16)
+)]
+#[case::legacy_wider_i64_at_p4(
+    decimal_at_precision(4, (0..99i64).cycle().take(2048), Validity::NonNullable),
+    0, PType::I16, Some(PType::I8)
+)]
 #[case::p38_fits_i64(
     decimal_at_precision(38, 0..2048i128, Validity::NonNullable),
-    0, PType::I16
+    0, PType::I64, Some(PType::I16)
 )]
 #[case::p40_fits_i64(
     decimal_at_precision(40, (0..2048i128).map(i256::from_i128), Validity::NonNullable),
-    0, PType::I16
+    0, PType::I64, Some(PType::I16)
 )]
 #[case::p40_above_64_bits(
     decimal_at_precision(
@@ -268,7 +294,7 @@ fn wide_decimal_parts_roundtrip(
         (0..2048i128).map(|i| i256::from_i128((1 << 70) + i)),
         Validity::NonNullable,
     ),
-    1, PType::I64
+    1, PType::I64, Some(PType::I8)
 )]
 #[case::p38_large_null_slots(
     decimal_at_precision(
@@ -276,7 +302,7 @@ fn wide_decimal_parts_roundtrip(
         (0..2048i128).map(|i| if i % 7 == 0 { 1 << 100 } else { i }),
         Validity::from_iter((0..2048).map(|i| i % 7 != 0)),
     ),
-    1, PType::I64
+    0, PType::I64, Some(PType::I16)
 )]
 // The compressor run-end encodes this validity before the decimal scheme sees the array.
 #[case::p38_clustered_null_slots(
@@ -285,12 +311,13 @@ fn wide_decimal_parts_roundtrip(
         (0..2048i128).map(|i| if (512..1536).contains(&i) { i } else { 1 << 100 }),
         Validity::from_iter((0..2048).map(|i| (512..1536).contains(&i))),
     ),
-    1, PType::I64
+    0, PType::I64, Some(PType::I16)
 )]
 fn decimal_scheme_part_shapes(
     #[case] array: ArrayRef,
     #[case] lower_part_count: usize,
     #[case] msp_ptype: PType,
+    #[case] stored_msp_ptype: Option<PType>,
     #[values(false, true)] v2: bool,
 ) -> VortexResult<()> {
     let builder = if v2 {
@@ -313,6 +340,16 @@ fn decimal_scheme_part_shapes(
             parts.msp().dtype().nullability(),
             array.dtype().nullability()
         );
+        match stored_msp_ptype {
+            Some(stored_ptype) => {
+                let widen = parts
+                    .msp()
+                    .as_opt::<Widen>()
+                    .ok_or_else(|| vortex_err!("expected a Widen MSP"))?;
+                assert_eq!(widen.values().dtype().as_ptype(), stored_ptype);
+            }
+            None => assert!(!parts.msp().is::<Widen>()),
+        }
     }
 
     assert_arrays_eq!(serde_round_trip(&compressed)?, array, &mut ctx);

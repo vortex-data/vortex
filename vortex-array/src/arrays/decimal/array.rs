@@ -68,11 +68,10 @@ pub struct DecimalSlots {
 /// - **i256**: precision 39-76 digits
 ///
 /// Storage width is still independent of precision during the canonical decimal migration.
-/// Existing `vortex.decimal` nodes and DecimalByteParts assembly can produce noncanonical storage.
-/// For example, an array with precision 39 can currently use an `i8` buffer when all values fit,
-/// while an array with precision 2 can use a `Buffer<i256>`. [`DecimalDataParts`] preserves the
-/// actual width for conversion into canonical decimal leaves, optionally under
-/// [`Widen`](crate::arrays::Widen).
+/// Existing `vortex.decimal` nodes can produce noncanonical storage. For example, an array with
+/// precision 39 can currently use an `i8` buffer when all values fit, while an array with
+/// precision 2 can use a `Buffer<i256>`. [`DecimalDataParts`] preserves the actual width for
+/// conversion into canonical decimal leaves, optionally under [`Widen`](crate::arrays::Widen).
 ///
 /// ## Precision and Scale
 ///
@@ -133,9 +132,10 @@ pub struct DecimalDataParts {
     pub values: BufferHandle,
     /// Actual storage type, retained to interpret input before canonical conversion.
     ///
-    /// Legacy `vortex.decimal` nodes and DecimalByteParts assembly can use a different width from
+    /// Legacy `vortex.decimal` nodes can use a different width from
     /// [`DecimalDType::canonical_values_type`]. Comparing the widths identifies noncanonical
-    /// storage, not the age of the data: current [`WidenPlugin`] writes use that wire form too.
+    /// storage, not the age of the data. Current [`WidenPlugin`] writes store noncanonical widths
+    /// too.
     ///
     /// [`WidenPlugin`]: crate::arrays::widen::WidenPlugin
     pub values_type: DecimalType,
