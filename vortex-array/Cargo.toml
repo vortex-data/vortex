@@ -99,6 +99,9 @@ vortex-array = { path = ".", features = [
     "unstable_row_fns",
 ] }
 vortex-bench-support = { workspace = true }
+vortex-json = { workspace = true }
+vortex-tensor = { workspace = true }
+vortex-uuid = { workspace = true }
 
 [[bench]]
 name = "aggregate_max"

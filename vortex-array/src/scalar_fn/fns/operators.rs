@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 
 use vortex_error::VortexError;
 
+use crate::dtype::Claim;
 use crate::dtype::NativePType;
 use crate::proto::expr::binary_opts::BinaryOp;
 
@@ -176,6 +177,12 @@ impl Operator {
         self.to_compare_operator().is_some()
     }
 
+    /// Returns the claim required by a comparison. Other operators return `None`.
+    pub fn required_claim(self) -> Option<Claim> {
+        self.to_compare_operator()
+            .map(CompareOperator::required_claim)
+    }
+
     /// Return the [`CompareOperator`] for this operator, or `None` if it is not a comparison.
     ///
     /// Prefer this over [`CompareOperator::try_from`] when a non-comparison operator is an expected
@@ -218,6 +225,14 @@ pub enum CompareOperator {
 }
 
 impl CompareOperator {
+    /// Returns the claim that both operands of this comparison must hold.
+    pub fn required_claim(self) -> Claim {
+        match self {
+            Self::Eq | Self::NotEq => Claim::Eq,
+            Self::Gt | Self::Gte | Self::Lt | Self::Lte => Claim::Ord,
+        }
+    }
+
     /// Return the logical inverse of this comparison operator.
     pub fn inverse(self) -> Self {
         match self {

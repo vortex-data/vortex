@@ -68,6 +68,7 @@ impl Binary {
     ///
     /// Comparisons require matching logical dtypes, ignoring nullability, even for empty or null
     /// operands. Extension dtypes must match, including their metadata; storage dtypes are distinct.
+    /// The operand dtype must hold the [claim required by the operator](Operator::required_claim).
     ///
     /// # Errors
     ///
@@ -164,8 +165,9 @@ impl ScalarFnVTable for Binary {
             );
         }
 
-        if operator.is_comparison() {
+        if let Some(claim) = operator.required_claim() {
             validate_comparison_dtypes(lhs, rhs)?;
+            lhs.require_claim(claim, operator)?;
         }
 
         if matches!(operator, Operator::And | Operator::Or)

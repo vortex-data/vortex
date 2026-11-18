@@ -92,6 +92,9 @@ impl ScalarFnVTable for DynamicComparison {
                 lhs
             );
         }
+
+        lhs.require_claim(dynamic.operator.required_claim(), dynamic.operator)?;
+
         Ok(DType::Bool(
             lhs.nullability() | dynamic.rhs.dtype.nullability(),
         ))
@@ -333,6 +336,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::EmptyMetadata;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
@@ -340,10 +344,27 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::extension::ExtDType;
     use crate::expr::dynamic;
     use crate::expr::root;
+    use crate::extension::tests::Opaque;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn dynamic_comparison_requires_claim() -> VortexResult<()> {
+        let dtype = DType::Extension(
+            ExtDType::<Opaque>::try_new(EmptyMetadata, Nullability::NonNullable)?.erased(),
+        );
+        let expr = dynamic(CompareOperator::Lt, || None, dtype.clone(), true, root());
+        let error = expr
+            .bind(&dtype)
+            .expect_err("dynamic comparison requires a claim even without a bound");
+        let expected = format!("< requires the Ord claim, but {dtype} does not hold it");
+        assert_eq!(error.to_string().lines().next(), Some(expected.as_str()));
+
+        Ok(())
+    }
 
     #[test]
     fn is_not_strict() {

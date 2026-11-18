@@ -31,6 +31,7 @@ use arrow_schema::Schema;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
 use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
+use arrow_schema::extension::Json as ArrowJson;
 use arrow_schema::extension::Uuid as ArrowUuid;
 use datafusion::common::DFSchema;
 use datafusion::execution::context::ExecutionProps;
@@ -76,6 +77,42 @@ use vortex_tensor::vector::ARROW_VECTOR_EXTENSION_NAME;
 use super::*;
 use crate::common_tests::TestSessionContext;
 use crate::convert::TryToDataFusion;
+
+#[test]
+fn json_comparison_is_not_pushed_down() -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    vortex_json::initialize(&session);
+    let converter = DefaultExpressionConverter::new(session);
+    let mut json = Field::new("document", DataType::Utf8, false);
+    json.try_with_extension_type(ArrowJson::default())?;
+    let schema = Schema::new(vec![
+        json,
+        Field::new(
+            "timestamp",
+            DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+            false,
+        ),
+    ]);
+    let json_compare: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("document", 0)),
+        DFOperator::Eq,
+        df_expr::lit(r#"{"a":1}"#),
+    ));
+    assert!(converter.try_convert(&json_compare, &schema)?.is_none());
+
+    let timestamp_compare: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("timestamp", 1)),
+        DFOperator::Lt,
+        df_expr::lit(ScalarValue::TimestampMillisecond(Some(1500), None)),
+    ));
+    assert!(
+        converter
+            .try_convert(&timestamp_compare, &schema)?
+            .is_some()
+    );
+
+    Ok(())
+}
 
 #[rstest::fixture]
 fn test_schema() -> Schema {

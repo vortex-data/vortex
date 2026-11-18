@@ -13,6 +13,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
@@ -36,14 +37,19 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::dtype::extension::ExtDType;
+use crate::expr::root;
 use crate::extension::datetime::Time;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::extension::datetime::TimestampOptions;
+use crate::extension::tests::Opaque;
 use crate::memory::MemorySessionExt;
 use crate::memory::test_allocator::counting_allocator;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::binary::scalar_cmp;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
@@ -645,6 +651,61 @@ fn extension_timestamp_compare() {
 }
 
 #[rstest]
+#[case::opaque_eq(Operator::Eq, "Eq")]
+#[case::opaque_lt(Operator::Lt, "Ord")]
+fn compare_rejects_types_without_claim(
+    #[case] operator: Operator,
+    #[case] claim: &str,
+) -> VortexResult<()> {
+    assert_comparison_bind_error(&opaque_dtype()?, operator, claim);
+    Ok(())
+}
+
+#[test]
+fn compare_rejects_variant_when_bound() {
+    let dtype = DType::Variant(Nullability::NonNullable);
+    assert_comparison_bind_error(&dtype, Operator::Eq, "Eq");
+}
+
+#[track_caller]
+fn assert_comparison_bind_error(dtype: &DType, operator: Operator, claim: &str) {
+    let expr = Binary.new_expr(operator, [root(), root()]);
+    let error = expr.bind(dtype).expect_err("comparison requires a claim");
+    let expected = format!("{operator} requires the {claim} claim, but {dtype} does not hold it");
+    assert_eq!(error.to_string().lines().next(), Some(expected.as_str()));
+}
+
+fn opaque_dtype() -> VortexResult<DType> {
+    Ok(DType::Extension(
+        ExtDType::<Opaque>::try_new(EmptyMetadata, Nullability::NonNullable)?.erased(),
+    ))
+}
+
+#[test]
+fn compare_rejects_types_without_claim_on_every_path() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let dtype = opaque_dtype()?;
+    let input = ExtensionArray::new(dtype.as_extension().clone(), buffer![1i64, 2].into_array())
+        .into_array();
+    let expected = format!("= requires the Eq claim, but {dtype} does not hold it");
+
+    assert_execution_paths(
+        &[input.clone(), input],
+        |inputs| {
+            let error = inputs[0]
+                .binary(inputs[1].clone(), Operator::Eq)
+                .expect_err("comparison must be rejected while binding");
+            assert_eq!(error.to_string().lines().next(), Some(expected.as_str()));
+            Err(error)
+        },
+        ExpectedOutcome::Error,
+        &mut ctx,
+    );
+
+    Ok(())
+}
+
+#[rstest]
 #[case::storage(DType::Primitive(PType::I64, Nullability::Nullable))]
 #[case::different_unit(DType::Extension(
     Timestamp::new(TimeUnit::Nanoseconds, Nullability::Nullable).erased()
@@ -692,7 +753,7 @@ fn test_extension_comparison_rejects_mismatched_dtypes_at_binding(
 #[case::less_equal(Operator::Lte, [Some(false), Some(true), Some(true), None])]
 #[case::greater(Operator::Gt, [Some(true), Some(false), Some(false), None])]
 #[case::greater_equal(Operator::Gte, [Some(true), Some(true), Some(false), None])]
-fn test_extension_comparison_preserves_paths_and_nulls(
+fn compare_accepts_claimed_types_on_every_path(
     #[case] operator: Operator,
     #[case] expected: [Option<bool>; 4],
 ) -> VortexResult<()> {
@@ -721,6 +782,28 @@ fn test_extension_comparison_preserves_paths_and_nulls(
         |inputs| inputs[0].binary(inputs[1].clone(), operator),
         ExpectedOutcome::Array(BoolArray::from_iter(expected).into_array()),
         &mut ctx,
+    );
+
+    Ok(())
+}
+
+#[test]
+fn compare_accepts_mixed_nullability() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
+    let lhs =
+        ExtensionArray::new(dtype.clone(), buffer![1000i64, 2000, 3000].into_array()).into_array();
+    let rhs = ExtensionArray::new(
+        dtype.with_nullability(Nullability::Nullable),
+        PrimitiveArray::from_option_iter([Some(1500i64), None, Some(2500)]).into_array(),
+    )
+    .into_array();
+
+    let comparison = lhs.binary(rhs, Operator::Lt)?;
+    assert_arrays_eq!(
+        comparison,
+        BoolArray::from_iter([Some(true), None, Some(false)]),
+        &mut ctx
     );
 
     Ok(())
