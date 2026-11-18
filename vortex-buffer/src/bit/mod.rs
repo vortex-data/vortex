@@ -202,7 +202,11 @@ pub unsafe fn unset_bit_unchecked(buf: *mut u8, index: usize) {
 
 #[cfg(test)]
 mod tests {
+    use bitvec::order::Lsb0;
+    use bitvec::slice::BitSlice;
+
     use super::collect_bool_word;
+    use super::get_bit;
     use super::pack_bools_into_words;
     use super::read_u64_le;
 
@@ -215,6 +219,21 @@ mod tests {
     #[test]
     fn collect_bool_word_empty() {
         assert_eq!(collect_bool_word(0, |_| true), 0);
+    }
+
+    #[test]
+    fn get_bit_reads_lsb_first() {
+        let buf = [0b1010_0110u8, 0x00, 0xff, 0b1000_0001, 0x5a];
+        let expected = BitSlice::<u8, Lsb0>::from_slice(&buf);
+        for index in 0..buf.len() * 8 {
+            assert_eq!(get_bit(&buf, index), expected[index], "bit {index}");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn get_bit_past_end_panics() {
+        let _ = get_bit(&[0xff], 8);
     }
 
     #[test]
