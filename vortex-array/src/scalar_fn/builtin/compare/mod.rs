@@ -217,8 +217,11 @@ impl ScalarFnVTable for Compare {
 pub trait CompareKernel: VTable {
     /// Compares `lhs` with `rhs`, or returns `None` to use the default comparison path.
     ///
-    /// Operand dtypes must match, ignoring nullability. [`CompareExecuteAdaptor`] checks this before
-    /// dispatch; direct callers must satisfy the same requirement.
+    /// Operand dtypes must match, ignoring nullability. [`CompareExecuteAdaptor`] checks this
+    /// before dispatch. Direct callers must satisfy the same requirement.
+    ///
+    /// Before comparing extension storage, a kernel must check that the dtype holds the
+    /// operator's required claims. Return `Ok(None)` if a required claim is missing.
     fn compare(
         lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
@@ -291,8 +294,8 @@ where
 /// Execute a compare operation between two arrays.
 ///
 /// This is the entry point for compare operations from the [`Compare`] function.
-/// Handles empty, constant-null, and constant-constant directly, otherwise dispatches to a
-/// native per-dtype kernel.
+/// Checks the operator's required claims before handling empty arrays and constant operands.
+/// Other operands are compared by a dtype-specific kernel.
 pub(crate) fn execute_compare(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
@@ -300,6 +303,8 @@ pub(crate) fn execute_compare(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     validate_comparison_dtypes(lhs.dtype(), rhs.dtype())?;
+    lhs.dtype()
+        .require_claim(op.required_claim(), op)?;
 
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
 
@@ -393,9 +398,15 @@ fn extension_storage(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<A
 
 /// Compares scalars with matching dtypes, ignoring nullability.
 ///
-/// Returns null if either operand is null, and an error if the operand dtypes differ.
+/// Returns null if either operand is null.
+///
+/// # Errors
+///
+/// Returns an error when the operand dtypes differ or the comparison's required claims are missing.
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> VortexResult<Scalar> {
     validate_comparison_dtypes(lhs.dtype(), rhs.dtype())?;
+    lhs.dtype()
+        .require_claim(operator.required_claim(), operator)?;
 
     if lhs.is_null() | rhs.is_null() {
         return Ok(Scalar::null(DType::Bool(Nullability::Nullable)));

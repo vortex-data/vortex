@@ -30,8 +30,8 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::scalar_fn::ScalarFnVTableExt;
-    use vortex_array::scalar_fn::builtin::binary::Binary;
-    use vortex_array::scalar_fn::builtin::operators::Operator;
+    use vortex_array::scalar_fn::builtin::compare::Compare;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_array::test_harness::ExpectedOutcome;
     use vortex_array::test_harness::assert_execution_paths;
     use vortex_array::validity::Validity;
@@ -72,14 +72,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case::json(json_dtype, Operator::Eq, "Eq")]
-    #[case::vector(vector_dtype, Operator::Lt, "Ord")]
+    #[case::json(json_dtype, CompareOperator::Eq, "Eq")]
+    #[case::vector(vector_dtype, CompareOperator::Lt, "Ord")]
     fn compare_rejects_types_without_claim(
         #[case] dtype: fn() -> VortexResult<DType>,
-        #[case] operator: Operator,
+        #[case] operator: CompareOperator,
         #[case] claim: &str,
     ) -> VortexResult<()> {
-        let expr = Binary.new_expr(operator, [root(), root()]);
+        let expr = Compare.new_expr(operator, [root(), root()]);
         assert_missing_claim(expr, &dtype()?, &operator.to_string(), claim);
 
         Ok(())
@@ -138,7 +138,7 @@ mod tests {
 
         assert_execution_paths(
             &[lhs, rhs],
-            |inputs| inputs[0].binary(inputs[1].clone(), Operator::Eq),
+            |inputs| inputs[0].compare(inputs[1].clone(), CompareOperator::Eq),
             ExpectedOutcome::Array(BoolArray::from_iter([true, false]).into_array()),
             &mut ctx,
         );

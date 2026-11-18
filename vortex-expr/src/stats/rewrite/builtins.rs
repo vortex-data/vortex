@@ -1000,6 +1000,7 @@ mod tests {
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::Expression;
     use vortex_array::expr::and;
+    use vortex_array::expr::bound;
     use vortex_array::expr::cast;
     use vortex_array::expr::col;
     use vortex_array::expr::eq;
@@ -1123,6 +1124,15 @@ mod tests {
                 value_predicate,
             ),
         )
+    }
+
+    #[test]
+    fn pruning_skips_unclaimed_literal_bounds() {
+        let literal = bound::lit(Scalar::null(DType::Variant(Nullability::Nullable)));
+
+        assert!(super::min(&literal, &SESSION).is_none());
+        assert!(super::max(&literal, &SESSION).is_none());
+        assert!(super::null_count(&literal, &SESSION).is_some());
     }
 
     #[derive(Clone, Debug, PartialEq, Eq, Hash)]

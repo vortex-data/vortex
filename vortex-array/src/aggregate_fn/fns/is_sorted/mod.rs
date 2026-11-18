@@ -312,9 +312,11 @@ impl AggregateFnVTable for IsSorted {
 
     fn partial_from_scalar(
         &self,
-        _args: AggregateArgs<'_, Self::Options>,
+        args: AggregateArgs<'_, Self::Options>,
         scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
+        args.dtype.require_claim(Claim::Ord, "is_sorted")?;
+
         // A null struct means the producing accumulator was empty.
         if scalar.is_null() {
             return Ok(IsSortedPartial::empty());
@@ -437,6 +439,10 @@ impl AggregateFnVTable for IsSorted {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
+        if !batch.dtype().holds(Claim::Ord) {
+            return Ok(false);
+        }
+
         let Some(array) = batch.as_opt::<Extension>() else {
             return Ok(false);
         };
@@ -451,6 +457,8 @@ impl AggregateFnVTable for IsSorted {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        batch.dtype().require_claim(Claim::Ord, "is_sorted")?;
+
         if !partial.is_sorted {
             return Ok(());
         }

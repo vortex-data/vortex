@@ -374,6 +374,8 @@ impl AggregateFnVTable for BloomFilter {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        batch.dtype().require_claim(Claim::Eq, "bloom_filter")?;
+
         match batch {
             Columnar::Constant(constant) => constant::accumulate_constant(constant, partial)?,
             Columnar::Canonical(canonical) => {

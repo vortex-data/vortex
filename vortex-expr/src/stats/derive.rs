@@ -13,6 +13,9 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
+use vortex_array::dtype::Claim;
 use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_session::VortexSession;
@@ -57,6 +60,10 @@ pub fn stat_expr(
     aggregate_fn: &AggregateFnRef,
     session: &VortexSession,
 ) -> Option<BoundExpression> {
+    if (aggregate_fn.is::<Min>() || aggregate_fn.is::<Max>()) && !expr.dtype().holds(Claim::Ord) {
+        return None;
+    }
+
     if let Some(scalar_fn) = expr.as_scalar()
         && let Some(derivation) = session.stats().stat_derivation_for(scalar_fn.id())
     {

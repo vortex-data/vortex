@@ -15,6 +15,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
+use vortex_array::dtype::Claim;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnRef;
@@ -141,6 +142,8 @@ impl PreparedSetData {
 
     /// The elements and their haystack, built on the first call and shared after it.
     fn element_set<'a>(&'a self, ctx: &mut ExecutionCtx) -> VortexResult<&'a ElementSet> {
+        self.element_dtype()
+            .require_claim(Claim::Eq, "list_contains")?;
         self.0
             .set
             .get_or_init(|| ElementSet::try_new(self.list(), ctx).map_err(Arc::new))
