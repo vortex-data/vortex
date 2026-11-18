@@ -11,7 +11,11 @@ use vortex_error::vortex_ensure;
 use crate::dtype::DType;
 
 /// A promise about the relationship between values of one dtype and their storage values.
+///
+/// Storage values compare the way Vortex compute compares their dtype. Floats use a total order
+/// and bitwise equality, so `-0.0` sorts before `0.0` and NaNs with the same bits are equal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(test, derive(enum_iterator::Sequence))]
 #[non_exhaustive]
 pub enum Claim {
     /// Two values are equal exactly when their storage values are equal, so hashing can use storage.
@@ -21,7 +25,9 @@ pub enum Claim {
 }
 
 impl Claim {
-    pub(crate) const ALL: [Self; 2] = [Self::Eq, Self::Ord];
+    /// Every claim, each before the claims that it implies, so that a failed check names the claim
+    /// that a type declared.
+    pub(crate) const ALL: [Self; 2] = [Self::Ord, Self::Eq];
 }
 
 impl fmt::Display for Claim {
@@ -314,5 +320,12 @@ mod tests {
         assert_eq!(error.to_string().lines().next(), Some(expected.as_str()));
 
         Ok(())
+    }
+
+    #[test]
+    fn all_lists_every_claim() {
+        for claim in enum_iterator::all::<Claim>() {
+            assert!(Claim::ALL.contains(&claim), "Claim::ALL is missing {claim}");
+        }
     }
 }
