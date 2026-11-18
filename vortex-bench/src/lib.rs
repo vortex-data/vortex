@@ -119,11 +119,15 @@ static UNSTABLE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[EditionMember::layout(&"vortex.list")],
 };
 
-/// Enables the [`UNSTABLE`] edition on `session`, so its compressor may also choose the unstable
-/// encodings.
+/// Enables the editions holding encodings not yet in `core` on `session`: the newest `preview`
+/// edition ([`DEFAULT_PREVIEW_EDITION`]) and [`UNSTABLE`]. Its compressor may then also choose
+/// those encodings.
 ///
 /// Every benchmark session calls this, so benchmarks measure Vortex files written with them.
 pub fn enable_unstable_encodings(session: &VortexSession) {
+    session
+        .enable_edition(DEFAULT_PREVIEW_EDITION)
+        .vortex_expect("default preview edition is registered");
     session
         .enable_edition(UNSTABLE)
         .vortex_expect("unstable edition is registered");
@@ -140,9 +144,6 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .register_edition(&UNSTABLE_BENCH_DECLARATION)
         .vortex_expect("bench edition declaration is valid");
     enable_unstable_encodings(&session);
-    session
-        .enable_edition(DEFAULT_PREVIEW_EDITION)
-        .vortex_expect("default preview edition is registered");
     session
 });
 
