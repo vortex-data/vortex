@@ -261,7 +261,7 @@ fn take(bencher: Bencher, count: usize) {
 /// Binary-searches a sorted Delta array of `SIMULATION_BYTES` for scattered needles, one search
 /// at a time, as a `Patches` lookup does over Delta-encoded patch indices. Each search crosses
 /// several chunks before it narrows to one.
-#[divan::bench(args = [16])]
+#[divan::bench(args = [4])]
 fn search_sorted(bencher: Bencher, count: usize) {
     let len = SIMULATION_BYTES / size_of::<u32>();
     let array = delta_bitpacked_u32();
