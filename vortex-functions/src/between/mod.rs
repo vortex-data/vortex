@@ -24,6 +24,7 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::Widen;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::Claim;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DType::Bool;
 use vortex_array::dtype::NativePType;
@@ -346,6 +347,8 @@ impl ScalarFnVTable for Between {
             );
         }
 
+        arr_dt.require_claim(Claim::Ord, "between")?;
+
         Ok(Bool(
             arr_dt.nullability() | lower_dt.nullability() | upper_dt.nullability(),
         ))
@@ -407,6 +410,7 @@ mod tests {
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::TemporalArray;
     use vortex_array::arrays::WidenArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
@@ -419,6 +423,7 @@ mod tests {
     use vortex_array::expr::lit;
     use vortex_array::expr::proto::ExprSerializeProtoExt;
     use vortex_array::expr::root;
+    use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::scalar::DecimalValue;
     use vortex_array::scalar::Scalar;
     use vortex_array::test_harness::to_int_indices;
@@ -447,6 +452,34 @@ mod tests {
     fn null_i32s(len: usize) -> ArrayRef {
         let null = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
         ConstantArray::new(null, len).into_array()
+    }
+
+    #[test]
+    fn between_accepts_timestamp() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = TemporalArray::new_timestamp(
+            buffer![0i64, 1000, 2000, 3000].into_array(),
+            TimeUnit::Milliseconds,
+            None,
+        )
+        .into_array();
+        let lower = lit(Scalar::try_new(
+            input.dtype().clone(),
+            Some(1000i64.into()),
+        )?);
+        let upper = lit(Scalar::try_new(
+            input.dtype().clone(),
+            Some(2000i64.into()),
+        )?);
+
+        let result = input.apply(&between(root(), lower, upper, NON_STRICT))?;
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, true, true, false]),
+            &mut ctx
+        );
+
+        Ok(())
     }
 
     #[test]

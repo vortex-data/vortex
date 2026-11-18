@@ -8,6 +8,7 @@
 #include "vortex.h"
 
 #include "duckdb/execution/operator/scan/physical_table_scan.hpp"
+#include <algorithm>
 
 unique_ptr<FunctionData> VortexBindData::Copy() const {
     auto result = make_uniq<VortexBindData>();
@@ -168,6 +169,15 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
         if (!scan.projection_ids.empty() && scan.projection_ids.size() != column_ids.size()) {
             projection_ids = scan.projection_ids.data();
             projection_ids_count = scan.projection_ids.size();
+        } else if (!std::is_sorted(scan.projection_ids.begin(), scan.projection_ids.end())) {
+            // DuckDB can append a filter column to the projection when it moves the filter
+            // above the scan. MultiFileInitGlobal ignores the resulting permutation when every
+            // column is projected. Keep the permutation for DuckDB's output expressions.
+            input.projection_ids = scan.projection_ids;
+            input.scanned_types.resize(column_ids.size());
+            for (size_t i = 0; i < scan.projection_ids.size(); i++) {
+                input.scanned_types[scan.projection_ids[i]] = scan.GetTypes()[i];
+            }
         }
     }
 

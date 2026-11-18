@@ -11123,9 +11123,12 @@ dependencies = [
  "vortex-compute",
  "vortex-error",
  "vortex-functions",
+ "vortex-json",
  "vortex-mask",
  "vortex-session",
+ "vortex-tensor",
  "vortex-utils",
+ "vortex-uuid",
 ]
 
 [[package]]
@@ -11602,6 +11605,7 @@ dependencies = [
  "vortex",
  "vortex-array",
  "vortex-duckdb",
+ "vortex-json",
  "vortex-sequence",
  "vortex-spatial",
  "vortex-utils",

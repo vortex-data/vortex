@@ -346,6 +346,16 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
     fn.filter_pushdown = true;
     fn.filter_prune = true;
 
+    // DuckDB asks about the whole column without naming an operator, so require ordering.
+    fn.supports_pushdown_type = [](const FunctionData &bind_data, idx_t column_id) {
+        const auto &reader_bind = bind_data.Cast<MultiFileBindData>().reader_bind;
+        if (SkipMultiFileReaderColumn(column_id,
+                                      reader_bind.filename_idx,
+                                      reader_bind.hive_partitioning_indexes)) {
+            return true;
+        }
+        return duckdb_table_function_supports_pushdown_type(get_ffi_bind(&bind_data), column_id);
+    };
     fn.pushdown_expression = [](auto &, const auto &, Expression &expression) {
         return duckdb_table_function_pushdown_expression(reinterpret_cast<duckdb_vx_expr>(&expression));
     };
