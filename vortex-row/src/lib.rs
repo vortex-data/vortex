@@ -23,9 +23,10 @@
 //! into the per-row slots from left to right.
 //!
 //! Supported logical types are nulls, booleans, primitive integers and floats, decimals,
-//! UTF-8 and binary values, structs, fixed-size and variable-size lists, and maps. Extension,
-//! variant, and union arrays are rejected because this crate does not define a total ordering
-//! for them.
+//! UTF-8 and binary values, structs, fixed-size and variable-size lists, maps, and extension
+//! types that hold [`Ord`](vortex_array::dtype::Claim::Ord). An extension value encodes as its
+//! storage value, including when it appears inside a container. Every column must hold
+//! `Ord`, which excludes variants and unions.
 //!
 //! The byte-level format is documented in the row encoding spec:
 //! <https://docs.vortex.dev/specs/row-encoding.html>.

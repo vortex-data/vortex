@@ -27,6 +27,7 @@
 //!   null sentinel byte.
 
 use num_traits::ToPrimitive;
+use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
@@ -39,6 +40,7 @@ use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::extension::ExtensionArraySlotsExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
@@ -160,12 +162,34 @@ fn varlen_non_empty_sentinel(field: RowSortField) -> u8 {
 /// For varlen children that is the varlen null sentinel; for everything else (including
 /// nested struct/FSL when used as a variable-width child) it is the fixed-width null sentinel.
 fn child_canonical_null_byte(child_dtype: &DType, field: RowSortField) -> u8 {
-    match child_dtype {
+    match storage_dtype(child_dtype) {
         DType::Utf8(_) | DType::Binary(_) | DType::List(..) | DType::Map(..) => {
             varlen_null_sentinel(field)
         }
         _ => field.null_sentinel(),
     }
+}
+
+fn storage_dtype(mut dtype: &DType) -> &DType {
+    while let DType::Extension(extension) = dtype {
+        dtype = extension.storage_dtype();
+    }
+    dtype
+}
+
+/// Canonicalize a column whose dtype already passed the `Ord` check.
+///
+/// Container codecs call this again when they reach a child. The top-level claim check covers
+/// those children, and extension dtype construction checks every extension's storage claim.
+pub(crate) fn canonicalize_storage(
+    col: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Canonical> {
+    let mut canonical = col.execute::<Canonical>(ctx)?;
+    while let Canonical::Extension(extension) = canonical {
+        canonical = extension.storage().clone().execute::<Canonical>(ctx)?;
+    }
+    Ok(canonical)
 }
 
 /// Per-row width classification for a column.
@@ -220,7 +244,7 @@ impl PreparedField {
 /// Returns an error for dtypes that the row encoder does not support. Width arithmetic that
 /// would overflow `u32` is also reported as an error rather than silently saturating.
 pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
-    match dtype {
+    match storage_dtype(dtype) {
         DType::Null => Ok(RowWidth::Fixed(1)),
         DType::Bool(_) => Ok(RowWidth::Fixed(BOOL_ENCODED_SIZE)),
         DType::Primitive(ptype, _) => Ok(RowWidth::Fixed(encoded_size_for_fixed(byte_width_u32(
@@ -507,7 +531,7 @@ fn prepare_list(
 ) -> VortexResult<PreparedList> {
     let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
     let ranges = list_ranges(arr, ctx)?;
-    let elements = arr.elements().clone().execute::<Canonical>(ctx)?;
+    let elements = canonicalize_storage(arr.elements().clone(), ctx)?;
     let mut element_sizes = vec![0u32; elements.len()];
     field_size(&elements, field, &mut element_sizes, ctx)?;
     let mut element_offsets = Vec::with_capacity(elements.len());
@@ -623,7 +647,7 @@ fn add_size_struct(
         match row_width_for_dtype(child.dtype())? {
             RowWidth::Fixed(w) => add_size_const(sizes, w),
             RowWidth::Variable => {
-                let canonical = child.clone().execute::<Canonical>(ctx)?;
+                let canonical = canonicalize_storage(child.clone(), ctx)?;
                 let mut child_sizes = vec![0u32; n];
                 field_size(&canonical, field, &mut child_sizes, ctx)?;
                 for i in 0..n {
@@ -662,7 +686,7 @@ fn add_size_fsl(
             add_size_const(sizes, body);
         }
         RowWidth::Variable => {
-            let elements = arr.elements().clone().execute::<Canonical>(ctx)?;
+            let elements = canonicalize_storage(arr.elements().clone(), ctx)?;
             debug_assert_eq!(elements.len(), n * list_size);
             let mut elem_sizes = vec![0u32; n * list_size];
             field_size(&elements, field, &mut elem_sizes, ctx)?;
@@ -1020,7 +1044,7 @@ fn encode_struct(
     for child in arr.iter_unmasked_fields() {
         match row_width_for_dtype(child.dtype())? {
             RowWidth::Fixed(w) => {
-                let canonical = child.clone().execute::<Canonical>(ctx)?;
+                let canonical = canonicalize_storage(child.clone(), ctx)?;
                 field_encode(&canonical, field, row_offsets, col_offset, out, ctx)?;
                 // Replace null parent rows with the canonical null encoding (the same as a
                 // child-level null: null sentinel followed by zero-padded value bytes).
@@ -1072,7 +1096,7 @@ fn encode_fsl(
             // Fixed-width elements: encode the elements array directly (its length is
             // nrows * list_size) using a derived (offsets, cursors) pair. Then overwrite
             // the body of null parent rows with the canonical null encoding per element.
-            let elements = arr.elements().clone().execute::<Canonical>(ctx)?;
+            let elements = canonicalize_storage(arr.elements().clone(), ctx)?;
             debug_assert_eq!(elements.len(), nrows * list_size);
             let list_size_u32 = arr.list_size();
             let row_body_bytes = w
@@ -1114,7 +1138,7 @@ fn encode_fsl(
             // Variable-width elements: for null parent rows the canonical body is exactly
             // `list_size` null sentinel bytes (one per element). For non-null parent rows,
             // encode each element via a scratch buffer and copy into out.
-            let elements = arr.elements().clone().execute::<Canonical>(ctx)?;
+            let elements = canonicalize_storage(arr.elements().clone(), ctx)?;
             debug_assert_eq!(elements.len(), nrows * list_size);
             let mut elem_sizes = vec![0u32; nrows * list_size];
             field_size(&elements, field, &mut elem_sizes, ctx)?;
@@ -1176,7 +1200,7 @@ fn encode_fsl(
 /// natural encoding from a scratch buffer; for null parent rows, write a single
 /// `child_canonical_null_byte`.
 fn encode_variable_child(
-    child: &vortex_array::ArrayRef,
+    child: &ArrayRef,
     field: RowSortField,
     parent_mask: &vortex_mask::Mask,
     row_offsets: &[u32],
@@ -1185,7 +1209,7 @@ fn encode_variable_child(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     let n = child.len();
-    let canonical = child.clone().execute::<Canonical>(ctx)?;
+    let canonical = canonicalize_storage(child.clone(), ctx)?;
 
     // Size and encode the child into a sequential scratch buffer.
     let mut child_sizes = vec![0u32; n];

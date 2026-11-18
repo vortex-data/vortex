@@ -11,6 +11,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::dtype::Claim;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
@@ -78,6 +79,7 @@ pub(crate) struct SizePassResult {
 /// `Struct { fixed, var }`) and the [`RowEncode`](super::encode::RowEncode) pipeline
 /// (which reuses the canonicalized columns for the encode pass).
 pub(crate) fn compute_sizes(
+    function: ScalarFnId,
     options: &RowEncodingOptions,
     args: &dyn ExecutionArgs,
     ctx: &mut ExecutionCtx,
@@ -112,9 +114,11 @@ pub(crate) fn compute_sizes(
                 nrows
             );
         }
+        // RowEncoder also calls this path with raw columns, bypassing return_dtype.
+        col.dtype().require_claim(Claim::Ord, function)?;
         let width = codec::row_width_for_dtype(col.dtype())?;
         // Canonicalize once and reuse for both sizing (variable columns) and encoding.
-        let canonical = col.execute::<vortex_array::Canonical>(ctx)?;
+        let canonical = codec::canonicalize_storage(col, ctx)?;
         match width {
             RowWidth::Fixed(w) => {
                 col_kinds.push(ColKind::Fixed {
@@ -213,7 +217,12 @@ impl ScalarFnVTable for RowSize {
         ChildName::from(Arc::from(format!("col_{}", child_idx)))
     }
 
-    fn return_dtype(&self, _options: &Self::Options, _args: &[DType]) -> VortexResult<DType> {
+    fn return_dtype(&self, _options: &Self::Options, args: &[DType]) -> VortexResult<DType> {
+        let function = self.id();
+        for dtype in args {
+            dtype.require_claim(Claim::Ord, function)?;
+        }
+
         Ok(row_size_struct_dtype())
     }
 
@@ -224,7 +233,7 @@ impl ScalarFnVTable for RowSize {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let nrows = args.row_count();
-        let result = compute_sizes(options, args, ctx)?;
+        let result = compute_sizes(self.id(), options, args, ctx)?;
         let fixed_array =
             ConstantArray::new(Scalar::from(result.fixed_per_row), nrows).into_array();
         let var_array = match result.var_lengths {
