@@ -154,7 +154,7 @@ mod tests {
                 .build()?,
         );
         let field = Field::new("value", arrow_dtype, dtype.is_nullable());
-        let array = ExtensionArray::try_new(dtype, storage.array)?.into_array();
+        let array = ExtensionArray::try_new(dtype, storage.array, &mut ctx)?.into_array();
         check_arrow(array.clone(), &field, expected, &mut ctx)?;
         check_canonical_field(&array, &field, &mut ctx)?;
 

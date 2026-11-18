@@ -185,7 +185,7 @@ fn envelope_array(
         row_boxes(storage, &valid, ctx)?
     };
 
-    build_rect_array(output_dtype, corners, len, output_validity)
+    build_rect_array(output_dtype, corners, len, output_validity, ctx)
 }
 
 /// Execute `envelope` after shared constant/column and null dispatch.
@@ -384,7 +384,7 @@ mod tests {
             SpatialMetadata::default().with_dimension(Dimension::Xyz),
             Nullability::NonNullable,
         )?;
-        let rects = ExtensionArray::try_new(ext.erased(), storage)?.into_array();
+        let rects = ExtensionArray::try_new(ext.erased(), storage, &mut ctx)?.into_array();
 
         let expected = nullable_rect_column(vec![Some((0.0, 1.0, 2.0, 3.0))])?;
         assert_arrays_eq!(boxes(rects)?, expected, &mut ctx);

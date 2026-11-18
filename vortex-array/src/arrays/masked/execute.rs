@@ -184,12 +184,13 @@ fn mask_validity_extension(
     let storage = array.storage_array().clone().execute::<Canonical>(ctx)?;
     let masked_storage = mask_validity_canonical(storage, validity, ctx)?;
     let masked_storage = masked_storage.into_array();
-    Ok(ExtensionArray::new(
-        array
-            .ext_dtype()
-            .with_nullability(masked_storage.dtype().nullability()),
-        masked_storage,
-    ))
+    let dtype = array
+        .ext_dtype()
+        .with_nullability(masked_storage.dtype().nullability());
+
+    // SAFETY: masking storage from array only hides values. The extension dtype uses the
+    // masked storage's nullability.
+    Ok(unsafe { ExtensionArray::new_unchecked(dtype, masked_storage) })
 }
 
 fn mask_validity_variant(

@@ -32,7 +32,7 @@ impl RowFnExecutionArgs<'_> {
             1,
             ctx,
         )?;
-        let result = self.finalize_output(result, 1)?;
+        let result = self.finalize_output(result, 1, ctx)?;
         let scalar = result.execute_scalar(0, ctx)?;
 
         Ok(ConstantArray::new(scalar, self.batch.probe.row_count).into_array())

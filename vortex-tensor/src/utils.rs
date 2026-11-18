@@ -195,6 +195,7 @@ impl BinaryTensorOpMetadata {
 #[cfg(test)]
 pub mod test_helpers {
     use vortex_array::ArrayRef;
+    use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::ExtensionArray;
@@ -207,6 +208,7 @@ pub mod test_helpers {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::types::fixed_shape_tensor::FixedShapeTensor;
     use crate::types::fixed_shape_tensor::FixedShapeTensorStoredMetadata;
@@ -238,10 +240,12 @@ pub mod test_helpers {
         let list_size: u32 = shape.iter().product::<usize>().max(1).try_into().unwrap();
         let storage = flat_fsl(elements, list_size);
         let stored_metadata = FixedShapeTensorStoredMetadata::new(shape.to_vec());
-        Ok(
-            ExtensionArray::try_from_storage::<FixedShapeTensor>(stored_metadata, storage)?
-                .into_array(),
-        )
+        Ok(ExtensionArray::try_from_storage::<FixedShapeTensor>(
+            stored_metadata,
+            storage,
+            &mut ExecutionCtx::new(VortexSession::empty()),
+        )?
+        .into_array())
     }
 
     /// Builds a [`Vector`] extension array from flat `elements` and a vector dimension size.
@@ -270,10 +274,12 @@ pub mod test_helpers {
     ) -> VortexResult<ArrayRef> {
         let storage = ConstantArray::new(fsl_scalar(elements), len).into_array();
         let stored_metadata = FixedShapeTensorStoredMetadata::new(shape.to_vec());
-        Ok(
-            ExtensionArray::try_from_storage::<FixedShapeTensor>(stored_metadata, storage)?
-                .into_array(),
-        )
+        Ok(ExtensionArray::try_from_storage::<FixedShapeTensor>(
+            stored_metadata,
+            storage,
+            &mut ExecutionCtx::new(VortexSession::empty()),
+        )?
+        .into_array())
     }
 
     /// Builds a [`ConstantArray`] whose scalar is itself a [`Vector`] extension scalar, broadcast

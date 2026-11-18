@@ -382,6 +382,7 @@ mod tests {
             Json,
             EmptyMetadata,
             VarBinViewArray::from_iter_str(["1", "2"]).into_array(),
+            &mut session().create_execution_ctx(),
         )?
         .into_array();
 

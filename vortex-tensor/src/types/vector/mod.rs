@@ -18,6 +18,7 @@ pub use metadata::VectorMetadata;
 mod vtable;
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
@@ -27,7 +28,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
-
+use vortex_session::VortexSession;
 /// The Vector extension type.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Vector;
@@ -39,7 +40,12 @@ impl Vector {
     ///
     /// Returns an error if the storage array does not have the [`Vector`] storage dtype.
     pub fn try_new_vector_array(storage: ArrayRef) -> VortexResult<ArrayRef> {
-        ExtensionArray::try_from_storage::<Vector>((), storage).map(|ext| ext.into_array())
+        ExtensionArray::try_from_storage::<Vector>(
+            (),
+            storage,
+            &mut ExecutionCtx::new(VortexSession::empty()),
+        )
+        .map(|ext| ext.into_array())
     }
 
     /// Broadcasts `elements` as a vector across `len` rows using [`ConstantArray`] storage.

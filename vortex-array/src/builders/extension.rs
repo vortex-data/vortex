@@ -5,6 +5,7 @@ use std::any::Any;
 
 use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayRef;
@@ -60,8 +61,19 @@ impl ExtensionBuilder {
     }
 
     /// Appends an extension `value` to the builder.
+    ///
+    /// Returns an error if the extension dtypes differ apart from top-level nullability, or
+    /// if the builder is non-nullable and the value is null.
     pub fn append_value(&mut self, value: ExtScalar) -> VortexResult<()> {
-        self.storage.append_scalar(&value.to_storage_scalar())
+        vortex_ensure!(
+            self.dtype == value.dtype().with_nullability(self.dtype.nullability()),
+            "ExtensionBuilder requires a scalar of {}, got {}",
+            self.dtype,
+            value.dtype()
+        );
+        let storage_dtype = self.dtype.as_extension().storage_dtype();
+        let storage = value.to_storage_scalar().cast(storage_dtype)?;
+        self.storage.append_scalar(&storage)
     }
 
     /// Appends the values of a canonical [`ExtensionArray`] to the builder by appending its
@@ -71,14 +83,20 @@ impl ExtensionBuilder {
         array: ArrayView<'_, Extension>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        vortex_ensure_eq!(
+            array.dtype(),
+            &self.dtype,
+            "ExtensionBuilder received an array of the wrong extension dtype"
+        );
         self.storage.append_array(array.storage_array(), ctx)
     }
 
     /// Finishes the builder directly into a [`ExtensionArray`].
     pub fn finish_into_extension(&mut self) -> ExtensionArray {
         let storage = self.storage.finish();
-        // SAFETY: the storage child builder was created with this extension dtype's storage dtype
-        // and rejects an appended array of any other dtype.
+        // SAFETY: the child builder uses the declared storage dtype. Non-null values come
+        // unchanged from checked scalars or arrays of the same extension dtype, or are storage
+        // zeros whose use is subject to the contract of append_zeros.
         unsafe { ExtensionArray::new_unchecked(self.ext_dtype(), storage) }
     }
 
@@ -111,6 +129,8 @@ impl ArrayBuilder for ExtensionBuilder {
         self.storage.len()
     }
 
+    /// Appends storage zeros. These can pad rows under a null parent. Use them as visible values
+    /// only if the extension type accepts its storage zero.
     fn append_zeros(&mut self, n: usize) {
         self.storage.append_zeros(n)
     }
@@ -126,7 +146,8 @@ impl ArrayBuilder for ExtensionBuilder {
             "ExtensionBuilder received a scalar with the wrong dtype"
         );
 
-        self.append_value(scalar.as_extension())
+        self.storage
+            .append_scalar(&scalar.as_extension().to_storage_scalar())
     }
 
     fn reserve_chunks(&mut self, additional: usize) {
@@ -191,10 +212,12 @@ mod tests {
         builder.append_scalar(&null_scalar).unwrap();
 
         let array = builder.finish_into_extension();
-        let expected = ExtensionArray::new(
+        let expected = ExtensionArray::try_new(
             ext_dtype.clone(),
             PrimitiveArray::from_option_iter([Some(42i32), Some(84), None]).into_array(),
-        );
+            &mut ctx,
+        )
+        .expect("test storage is valid");
 
         assert_arrays_eq!(&array, &expected, &mut ctx);
         assert_eq!(array.len(), 3);

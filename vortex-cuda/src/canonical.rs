@@ -228,10 +228,10 @@ impl CanonicalCudaExt for Canonical {
             Canonical::Extension(ext) => {
                 // Copy the storage array to host and rewrap in ExtensionArray.
                 let host_storage = child_into_host(ext.storage_array().clone(), ctx).await?;
-                Ok(Canonical::Extension(ExtensionArray::new(
-                    ext.ext_dtype().clone(),
-                    host_storage,
-                )))
+                Ok(Canonical::Extension({
+                    // SAFETY: the host transfer preserves the storage dtype and values of ext.
+                    unsafe { ExtensionArray::new_unchecked(ext.ext_dtype().clone(), host_storage) }
+                }))
             }
             c => vortex_bail!("into_host is not implemented for {}", c.dtype()),
         }

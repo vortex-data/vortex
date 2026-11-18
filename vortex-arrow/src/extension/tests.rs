@@ -44,7 +44,12 @@ fn round_trip_field<const PRESERVE_VORTEX: bool>(tag: u8, nullable: bool) -> Vor
     } else {
         PrimitiveArray::from_iter([1i64]).into_array()
     };
-    let expected = ExtensionArray::try_new(dtype.as_extension().clone(), storage)?.into_array();
+    let expected = ExtensionArray::try_new(
+        dtype.as_extension().clone(),
+        storage,
+        &mut session.create_execution_ctx(),
+    )?
+    .into_array();
     let mut ctx = session.create_execution_ctx();
 
     let array: ArrowArrayRef = Arc::new(Int64Array::from(vec![1]));
@@ -200,7 +205,8 @@ impl<const PRESERVE_VORTEX: bool> ArrowExtVTable for Tagged<PRESERVE_VORTEX> {
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
         let storage = session.from_arrow_array(array, field.is_nullable())?;
-        let imported = ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array();
+        let imported =
+            ExtensionArray::try_new_structural(ext_dtype.clone().erased(), storage)?.into_array();
 
         Ok(ArrowImport::Imported(imported))
     }
@@ -314,8 +320,12 @@ fn declined_export_rejects_incompatible_target(
 ) -> VortexResult<()> {
     let session = tagged_session::<false>();
     let dtype = Tagged::<false>::dtype(tag, false)?.erased();
-    let array = ExtensionArray::try_new(dtype, PrimitiveArray::from_iter([1i64]).into_array())?
-        .into_array();
+    let array = ExtensionArray::try_new(
+        dtype,
+        PrimitiveArray::from_iter([1i64]).into_array(),
+        &mut session.create_execution_ctx(),
+    )?
+    .into_array();
     let mut field = Field::new("tag", data_type, false);
     set_arrow_extension_name(&mut field, Tagged::<false>.id().to_string());
     field.metadata_mut().insert(

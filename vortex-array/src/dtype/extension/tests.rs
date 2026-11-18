@@ -318,11 +318,21 @@ fn metadata_first_null_storage(#[case] declared: DType) -> VortexResult<()> {
     assert!(error.to_string().contains(&expected), "{error}");
 
     let storage = ConstantArray::new(Scalar::null(declared.clone()), 1).into_array();
-    ExtensionArray::try_new_from_vtable(vtable.clone(), declared.clone(), storage)?;
+    ExtensionArray::try_new_from_vtable(
+        vtable.clone(),
+        declared.clone(),
+        storage,
+        &mut crate::ExecutionCtx::new(vortex_session::VortexSession::empty()),
+    )?;
 
     let storage = ConstantArray::new(1i32, 1).into_array();
-    let error = ExtensionArray::try_new_from_vtable(vtable, declared, storage)
-        .expect_err("null storage cannot match non-nullable i32 storage");
+    let error = ExtensionArray::try_new_from_vtable(
+        vtable,
+        declared,
+        storage,
+        &mut crate::ExecutionCtx::new(vortex_session::VortexSession::empty()),
+    )
+    .expect_err("null storage cannot match non-nullable i32 storage");
     assert!(error.to_string().contains(&expected), "{error}");
 
     Ok(())

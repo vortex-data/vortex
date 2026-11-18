@@ -277,10 +277,15 @@ impl Canonical {
                         .vortex_expect("empty Variant core storage must be valid"),
                 )
             }
-            DType::Extension(ext_dtype) => Canonical::Extension(ExtensionArray::new(
-                ext_dtype.clone(),
-                Canonical::empty(ext_dtype.storage_dtype()).into_array(),
-            )),
+            DType::Extension(ext_dtype) => Canonical::Extension({
+                // SAFETY: the empty storage has the declared dtype and contains no values.
+                unsafe {
+                    ExtensionArray::new_unchecked(
+                        ext_dtype.clone(),
+                        Canonical::empty(ext_dtype.storage_dtype()).into_array(),
+                    )
+                }
+            }),
         }
     }
 
@@ -653,16 +658,19 @@ impl Executable for CanonicalValidity {
                     UnionArray::new_unchecked(type_ids, variants, children.iter().cloned())
                 })))
             }
-            Canonical::Extension(ext) => Ok(CanonicalValidity(Canonical::Extension(
-                ExtensionArray::new(
-                    ext.ext_dtype().clone(),
-                    ext.storage_array()
-                        .clone()
-                        .execute::<CanonicalValidity>(ctx)?
-                        .0
-                        .into_array(),
-                ),
-            ))),
+            Canonical::Extension(ext) => Ok(CanonicalValidity(Canonical::Extension({
+                // SAFETY: materializing validity keeps the storage dtype and values from ext.
+                unsafe {
+                    ExtensionArray::new_unchecked(
+                        ext.ext_dtype().clone(),
+                        ext.storage_array()
+                            .clone()
+                            .execute::<CanonicalValidity>(ctx)?
+                            .0
+                            .into_array(),
+                    )
+                }
+            }))),
             Canonical::Variant(variant) => {
                 let core_storage = recursively_canonicalize_slots(variant.core_storage(), ctx)?;
                 let shredded = variant
@@ -862,16 +870,19 @@ impl Executable for RecursiveCanonical {
                     UnionArray::new_unchecked(type_ids, variants, children)
                 })))
             }
-            Canonical::Extension(ext) => Ok(RecursiveCanonical(Canonical::Extension(
-                ExtensionArray::new(
-                    ext.ext_dtype().clone(),
-                    ext.storage_array()
-                        .clone()
-                        .execute::<RecursiveCanonical>(ctx)?
-                        .0
-                        .into_array(),
-                ),
-            ))),
+            Canonical::Extension(ext) => Ok(RecursiveCanonical(Canonical::Extension({
+                // SAFETY: recursive canonicalization keeps the storage dtype and values from ext.
+                unsafe {
+                    ExtensionArray::new_unchecked(
+                        ext.ext_dtype().clone(),
+                        ext.storage_array()
+                            .clone()
+                            .execute::<RecursiveCanonical>(ctx)?
+                            .0
+                            .into_array(),
+                    )
+                }
+            }))),
             Canonical::Variant(variant) => {
                 let core_storage = recursively_canonicalize_slots(variant.core_storage(), ctx)?;
                 let shredded = variant

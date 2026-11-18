@@ -1345,7 +1345,10 @@ fn expected_timestamps(values: Vec<i64>, validity: Validity) -> VortexResult<Arr
     let storage = PrimitiveArray::new(values, validity).into_array();
     let ext_dtype = timestamp_ext(storage.dtype().nullability());
 
-    Ok(ExtensionArray::try_new(ext_dtype, storage)?.into_array())
+    Ok(
+        ExtensionArray::try_new(ext_dtype, storage, &mut SESSION.create_execution_ctx())?
+            .into_array(),
+    )
 }
 
 /// Returns its input unchanged under the output dtype each dispatch declares.

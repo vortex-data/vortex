@@ -870,7 +870,7 @@ impl ArrowSession {
         // which the rebuild sets to the declared one.
         let field = Field::new("", array.data_type().clone(), storage_dtype.is_nullable());
         let storage = self.from_arrow_array_canonical(array, &field, None)?;
-        Ok(ExtensionArray::try_new(ext.clone(), storage)?.into_array())
+        Ok(ExtensionArray::try_new_structural(ext.clone(), storage)?.into_array())
     }
 
     /// [`Self::from_arrow_array`] with the Arrow [`Field`] already resolved. Also the recursion
@@ -900,7 +900,9 @@ impl ArrowSession {
         let imported = self.from_arrow_array_canonical(storage, field, visible)?;
 
         match self.ext_dtype_to_wrap(field, imported.dtype())? {
-            Some(ext_dtype) => Ok(ExtensionArray::try_new(ext_dtype, imported)?.into_array()),
+            Some(ext_dtype) => {
+                Ok(ExtensionArray::try_new_structural(ext_dtype, imported)?.into_array())
+            }
             None => Ok(imported),
         }
     }
@@ -1938,7 +1940,7 @@ mod tests {
             Validity::from_iter([true, false]),
             &mut ctx,
         )?;
-        let expected = ExtensionArray::try_new(ext, lists.into_array().slice(0..len)?)?;
+        let expected = ExtensionArray::try_new(ext, lists.into_array().slice(0..len)?, &mut ctx)?;
         assert_arrays_eq!(imported, expected, &mut ctx);
         Ok(())
     }

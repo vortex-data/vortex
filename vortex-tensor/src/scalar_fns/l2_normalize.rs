@@ -164,7 +164,7 @@ impl ScalarFnVTable for L2Normalize {
             .into_array();
             let normalized_dtype = ext_dtype.with_nullability(Nullability::NonNullable);
             let normalized =
-                ExtensionArray::try_new(normalized_dtype, normalized_storage)?.into_array();
+                ExtensionArray::try_new(normalized_dtype, normalized_storage, ctx)?.into_array();
             let norms = PrimitiveArray::new(norms.freeze(), Validity::NonNullable).into_array();
 
             Ok(StructArray::try_new(

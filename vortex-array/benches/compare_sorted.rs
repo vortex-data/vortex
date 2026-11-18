@@ -80,7 +80,13 @@ fn i64_lt(bencher: Bencher) {
 #[divan::bench]
 fn timestamp_gte(bencher: Bencher) {
     let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
-    let array = ExtensionArray::new(dtype.clone(), ints().into_array()).into_array();
+    let array = ExtensionArray::try_new(
+        dtype.clone(),
+        ints().into_array(),
+        &mut SESSION.create_execution_ctx(),
+    )
+    .unwrap()
+    .into_array();
     let constant = Scalar::extension_ref(dtype, needle().into());
     bench_compare(bencher, array, constant, Operator::Gte);
 }

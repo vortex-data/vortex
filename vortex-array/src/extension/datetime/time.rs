@@ -8,9 +8,18 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::Columnar;
+use crate::ExecutionCtx;
+use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::min_max::columnar_min_max;
+use crate::arrays::PrimitiveArray;
+use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -19,6 +28,7 @@ use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::extension::datetime::TimeUnit;
 use crate::scalar::ScalarValue;
+use crate::validity::Validity;
 
 /// Time DType.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
@@ -111,6 +121,52 @@ impl ExtVTable for Time {
         vortex_ensure!(
             time_ptype(metadata).is_some(),
             "Time time unit must be finer than days, got {metadata}"
+        );
+
+        Ok(())
+    }
+
+    fn validate_array(
+        ext_dtype: &ExtDType<Self>,
+        storage: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        vortex_ensure_eq!(storage.dtype(), ext_dtype.storage_dtype());
+        let mut storage = storage.clone().execute::<Columnar>(ctx)?;
+        if let Columnar::Canonical(Canonical::Primitive(array)) = &storage
+            && !array.buffer_handle().is_on_host()
+        {
+            let valid = array.validity()?.execute_mask(array.len(), ctx)?;
+            if valid.all_false() {
+                return Ok(());
+            }
+            let values = array.buffer_handle().try_to_host_sync()?;
+            storage =
+                Columnar::Canonical(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
+                    BufferHandle::new_host(values),
+                    array.ptype(),
+                    Validity::from_mask(valid, array.dtype().nullability()),
+                )));
+        }
+        let Some(extrema) = columnar_min_max(&storage, NumericalAggregateOpts::default(), ctx)?
+        else {
+            return Ok(());
+        };
+
+        let unit = ext_dtype.metadata();
+        let units_per_second = match unit {
+            TimeUnit::Seconds => 1,
+            TimeUnit::Milliseconds => 1_000,
+            TimeUnit::Microseconds => 1_000_000,
+            TimeUnit::Nanoseconds => 1_000_000_000,
+            TimeUnit::Days => vortex_bail!("Time type does not support time unit {unit}"),
+        };
+        let end = 86_400 * units_per_second;
+        let min = i64::try_from(&extrema.min)?;
+        let max = i64::try_from(&extrema.max)?;
+        vortex_ensure!(
+            min >= 0 && max < end,
+            "Invalid time scalar: Time values must be within [0, {end}) {unit}, got [{min}, {max}]"
         );
 
         Ok(())

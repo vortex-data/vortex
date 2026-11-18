@@ -85,9 +85,10 @@ impl ArrayParentReduceRule<Extension> for ExtensionFilterPushDownRule {
             .storage_array()
             .clone()
             .filter(parent.filter_mask().clone())?;
-        Ok(Some(
-            ExtensionArray::new(child.ext_dtype().clone(), filtered_storage).into_array(),
-        ))
+        // SAFETY: the filtered storage has the same dtype and selected values as child.
+        let result =
+            unsafe { ExtensionArray::new_unchecked(child.ext_dtype().clone(), filtered_storage) };
+        Ok(Some(result.into_array()))
     }
 }
 
@@ -178,7 +179,13 @@ mod tests {
     fn test_filter_pushdown() {
         let ext_dtype = test_ext_dtype();
         let storage = buffer![1i64, 2, 3, 4, 5].into_array();
-        let ext_array = ExtensionArray::new(ext_dtype.clone(), storage).into_array();
+        let ext_array = ExtensionArray::try_new(
+            ext_dtype.clone(),
+            storage,
+            &mut SESSION.create_execution_ctx(),
+        )
+        .expect("test storage is valid")
+        .into_array();
 
         // Create a filter that selects elements at indices 0, 2, 4
         let mask = Mask::from_iter([true, false, true, false, true]);
@@ -215,7 +222,10 @@ mod tests {
             .erased();
         let storage = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3), Some(4), None])
             .into_array();
-        let ext_array = ExtensionArray::new(ext_dtype, storage).into_array();
+        let ext_array =
+            ExtensionArray::try_new(ext_dtype, storage, &mut SESSION.create_execution_ctx())
+                .expect("test storage is valid")
+                .into_array();
 
         let mask = Mask::from_iter([true, true, false, false, true]);
         let filter_array = FilterArray::new(ext_array, mask).into_array();
@@ -239,10 +249,19 @@ mod tests {
         let ext_dtype = test_ext_dtype();
 
         let constant_storage = ConstantArray::new(Scalar::from(10i64), 3).into_array();
-        let constant_ext = ExtensionArray::new(ext_dtype.clone(), constant_storage).into_array();
+        let constant_ext = ExtensionArray::try_new(
+            ext_dtype.clone(),
+            constant_storage,
+            &mut SESSION.create_execution_ctx(),
+        )
+        .expect("test storage is valid")
+        .into_array();
 
         let storage = buffer![15i64, 25, 35].into_array();
-        let ext_array = ExtensionArray::new(ext_dtype, storage).into_array();
+        let ext_array =
+            ExtensionArray::try_new(ext_dtype, storage, &mut SESSION.create_execution_ctx())
+                .expect("test storage is valid")
+                .into_array();
 
         let scalar_fn_array = Binary::try_new(constant_ext, ext_array, Operator::Lt)
             .unwrap()
@@ -267,10 +286,19 @@ mod tests {
         let ext_dtype = test_ext_dtype();
 
         let storage1 = buffer![10i64, 20, 30].into_array();
-        let ext_array1 = ExtensionArray::new(ext_dtype.clone(), storage1).into_array();
+        let ext_array1 = ExtensionArray::try_new(
+            ext_dtype.clone(),
+            storage1,
+            &mut SESSION.create_execution_ctx(),
+        )
+        .expect("test storage is valid")
+        .into_array();
 
         let storage2 = buffer![15i64, 25, 35].into_array();
-        let ext_array2 = ExtensionArray::new(ext_dtype, storage2).into_array();
+        let ext_array2 =
+            ExtensionArray::try_new(ext_dtype, storage2, &mut SESSION.create_execution_ctx())
+                .expect("test storage is valid")
+                .into_array();
 
         // Both children are extension arrays (not constants)
         let scalar_fn_array = Binary::try_new(ext_array1, ext_array2, Operator::Lt)

@@ -197,8 +197,12 @@ fn test_batch_const_unwraps_filtered_masked_constant() -> VortexResult<()> {
 #[test]
 fn test_batch_const_preserves_filtered_extension() -> VortexResult<()> {
     let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
-    let extension =
-        ExtensionArray::new(ext_dtype, ConstantArray::new(7_i64, 3).into_array()).into_array();
+    let extension = ExtensionArray::try_new(
+        ext_dtype,
+        ConstantArray::new(7_i64, 3).into_array(),
+        &mut SESSION.create_execution_ctx(),
+    )?
+    .into_array();
     let filtered = extension
         .filter(Mask::from_iter([true, false, true]))?
         .optimize_ctx(&SESSION)?;

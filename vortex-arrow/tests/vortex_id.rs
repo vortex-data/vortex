@@ -144,7 +144,13 @@ fn tagged(tag: u8, storage_dtype: DType) -> VortexResult<ExtDTypeRef> {
 }
 
 fn tagged_array(tag: u8, storage: ArrayRef) -> VortexResult<ArrayRef> {
-    Ok(ExtensionArray::try_from_storage_with_vtable(Tagged, tag, storage)?.into_array())
+    Ok(ExtensionArray::try_from_storage_with_vtable(
+        Tagged,
+        tag,
+        storage,
+        &mut SESSION.create_execution_ctx(),
+    )?
+    .into_array())
 }
 
 /// A [`Tagged`] array over the nullable `i64` storage `[1, null, 3]`.
@@ -171,7 +177,12 @@ fn list_of_tagged() -> VortexResult<ArrayRef> {
 /// The millisecond timestamps `[1, 2, 3]`, whose type has a native Arrow type.
 fn timestamps() -> VortexResult<ArrayRef> {
     let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
-    Ok(ExtensionArray::try_new(ext_dtype, buffer![1i64, 2, 3].into_array())?.into_array())
+    Ok(ExtensionArray::try_new(
+        ext_dtype,
+        buffer![1i64, 2, 3].into_array(),
+        &mut SESSION.create_execution_ctx(),
+    )?
+    .into_array())
 }
 
 /// A [`Tagged`] array over [`timestamps`]. The storage field of a timestamp is a native Arrow type
@@ -496,7 +507,11 @@ fn dictionary_values_keep_the_extension_type() -> VortexResult<()> {
         DType::Extension(ext_dtype.clone())
     );
 
-    let expected = ExtensionArray::try_new(ext_dtype, buffer![10i64, 20, 10].into_array())?;
+    let expected = ExtensionArray::try_new(
+        ext_dtype,
+        buffer![10i64, 20, 10].into_array(),
+        &mut SESSION.create_execution_ctx(),
+    )?;
     assert_arrays_eq!(imported, expected, &mut SESSION.create_execution_ctx());
 
     Ok(())

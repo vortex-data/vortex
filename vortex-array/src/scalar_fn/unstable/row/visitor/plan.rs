@@ -22,6 +22,7 @@ use super::check::validate_owned_visit;
 use super::check::validate_sink_visit;
 use super::row_visitor::private;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ExtensionArray;
 use crate::dtype::DType;
@@ -211,14 +212,18 @@ impl BatchPlan {
     /// This is not a cast. [`new`](Self::new) accepted only a label that reinterprets the storage
     /// column, so this wraps rather than converts, and an extension dtype takes its nullability
     /// from the storage column it wraps.
-    pub(crate) fn relabel_output(&self, values: ArrayRef) -> VortexResult<ArrayRef> {
+    pub(crate) fn relabel_output(
+        &self,
+        values: ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         let Some(output_label) = &self.output_label else {
             return Ok(values);
         };
 
         let output_label = output_label.with_nullability(values.dtype().nullability());
 
-        Ok(ExtensionArray::try_new(output_label, values)?.into_array())
+        Ok(ExtensionArray::try_new(output_label, values, ctx)?.into_array())
     }
 
     /// Ensure an executing dispatch reproduced the planned output and policy.

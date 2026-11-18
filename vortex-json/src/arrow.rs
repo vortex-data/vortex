@@ -242,7 +242,9 @@ mod tests {
             .take(PrimitiveArray::from_iter([0u32, 48]).into_array())?;
         let ext_dtype =
             ExtDType::<Json>::try_new(EmptyMetadata, storage.dtype().nullability())?.erased();
-        let array = ExtensionArray::new(ext_dtype, storage).into_array();
+        let array =
+            ExtensionArray::try_new(ext_dtype, storage, &mut SESSION.create_execution_ctx())?
+                .into_array();
         let field = SESSION.arrow().to_arrow_field("data", array.dtype())?;
 
         let retains_backing = |options: &ArrowExportOptions,

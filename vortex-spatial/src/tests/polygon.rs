@@ -72,6 +72,7 @@ fn polygon_column(source: &[Option<f64>], ctx: &mut ExecutionCtx) -> VortexResul
         Polygon,
         SpatialMetadata::default().with_dimension(Dimension::Xym),
         storage,
+        ctx,
     )?
     .into_array())
 }

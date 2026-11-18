@@ -17,12 +17,12 @@ use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
 use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
@@ -31,8 +31,10 @@ use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::Time;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
+use vortex_array::validity::Validity;
 use vortex_arrow::test_harness::DefaultExport;
 use vortex_arrow::test_harness::check_containers;
+use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_json::Json;
 use vortex_spatial::extension::Dimension;
@@ -119,12 +121,16 @@ impl<'a> Arbitrary<'a> for ArrowRoundTrip {
         let len = u.int_in_range(0usize..=32)?;
 
         let dtype = kind.arbitrary_dtype(u, nullability)?;
-        let storage = kind.arbitrary_storage(u, dtype.storage_dtype(), len)?;
+        let storage = kind.arbitrary_storage(u, &dtype, len)?;
 
         Ok(Self {
-            array: ExtensionArray::try_new(dtype, storage)
-                .vortex_expect("storage was generated from the extension's storage dtype")
-                .into_array(),
+            array: ExtensionArray::try_new(
+                dtype,
+                storage,
+                &mut ARROW_ROUND_TRIP_SESSION.create_execution_ctx(),
+            )
+            .vortex_expect("storage was generated from the extension's storage dtype")
+            .into_array(),
             default_export: if matches!(kind, ExtensionKind::FixedShapeTensor) {
                 DefaultExport::Unsupported
             } else {
@@ -263,14 +269,54 @@ impl ExtensionKind {
         Ok(dtype)
     }
 
-    /// Generates storage with valid JSON and WKB payloads for types that constrain their bytes.
+    /// Generates storage within each extension type's value domain.
     fn arbitrary_storage(
         self,
         u: &mut Unstructured<'_>,
-        dtype: &DType,
+        ext_dtype: &ExtDTypeRef,
         len: usize,
     ) -> arbitrary::Result<ArrayRef> {
+        let dtype = ext_dtype.storage_dtype();
         let storage = match self {
+            Self::Time => {
+                let validity = if dtype.is_nullable() {
+                    (0..len)
+                        .map(|_| u.arbitrary::<bool>())
+                        .collect::<arbitrary::Result<Vec<_>>>()?
+                        .into_iter()
+                        .collect()
+                } else {
+                    Validity::NonNullable
+                };
+                let values = match ext_dtype.metadata::<Time>() {
+                    TimeUnit::Seconds => {
+                        let values = (0..len)
+                            .map(|_| u.int_in_range(0i32..=86_399))
+                            .collect::<arbitrary::Result<Buffer<_>>>()?;
+                        PrimitiveArray::new(values, validity)
+                    }
+                    TimeUnit::Milliseconds => {
+                        let values = (0..len)
+                            .map(|_| u.int_in_range(0i32..=86_399_999))
+                            .collect::<arbitrary::Result<Buffer<_>>>()?;
+                        PrimitiveArray::new(values, validity)
+                    }
+                    TimeUnit::Microseconds => {
+                        let values = (0..len)
+                            .map(|_| u.int_in_range(0i64..=86_399_999_999))
+                            .collect::<arbitrary::Result<Buffer<_>>>()?;
+                        PrimitiveArray::new(values, validity)
+                    }
+                    TimeUnit::Nanoseconds => {
+                        let values = (0..len)
+                            .map(|_| u.int_in_range(0i64..=86_399_999_999_999))
+                            .collect::<arbitrary::Result<Buffer<_>>>()?;
+                        PrimitiveArray::new(values, validity)
+                    }
+                    TimeUnit::Days => unreachable!("Time rejects days"),
+                };
+                values.into_array()
+            }
             Self::Json => {
                 let text = u.arbitrary::<i64>()?.to_string();
                 let values =

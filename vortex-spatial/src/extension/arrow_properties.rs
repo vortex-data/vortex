@@ -185,7 +185,7 @@ mod tests {
                 bytes: source,
                 ..
             } = draw_wkb_storage(tc, nullability, len)?;
-            let array = ExtensionArray::try_new(dtype, storage)?.into_array();
+            let array = ExtensionArray::try_new(dtype, storage, &mut ctx)?.into_array();
             let expected: Vec<ArrowArrayRef> = vec![
                 Arc::new(arrow_array::BinaryArray::from_iter(
                     source.iter().map(|b| b.as_deref()),
@@ -220,7 +220,7 @@ mod tests {
                 .collect::<Vec<_>>();
             let storage =
                 build_geometry(dtype.storage_dtype(), field.data_type(), &source, &mut ctx)?;
-            let array = ExtensionArray::try_new(dtype, storage.array)?.into_array();
+            let array = ExtensionArray::try_new(dtype, storage.array, &mut ctx)?.into_array();
             check_arrow(array.clone(), &field, Arc::clone(&storage.arrow), &mut ctx)?;
             let default = array.clone().execute_arrow(None, &mut ctx)?;
             assert_eq!(default.to_data(), storage.arrow.to_data());
@@ -559,7 +559,7 @@ mod tests {
             .collect::<Vec<_>>();
         source.push(None);
         let storage = build_geometry(dtype.storage_dtype(), field.data_type(), &source, &mut ctx)?;
-        let array = ExtensionArray::try_new(dtype.erased(), storage.array)?.into_array();
+        let array = ExtensionArray::try_new(dtype.erased(), storage.array, &mut ctx)?.into_array();
         check_arrow(array, &field, storage.arrow, &mut ctx)
     }
 

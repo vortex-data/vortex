@@ -19,9 +19,14 @@ use geoarrow::array::IntoArrow;
 use geoarrow::array::WkbViewArray;
 use geoarrow::datatypes::WkbType;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::Columnar;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
@@ -39,6 +44,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -176,6 +182,51 @@ impl ExtVTable for WellKnownBinary {
         Ok(())
     }
 
+    fn validate_array(
+        ext_dtype: &ExtDType<Self>,
+        storage: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        vortex_ensure_eq!(storage.dtype(), ext_dtype.storage_dtype());
+        let array = match storage.clone().execute::<Columnar>(ctx)? {
+            Columnar::Constant(array) => {
+                if !array.is_empty()
+                    && let Some(value) = array.scalar().value()
+                {
+                    Self::validate_scalar_value(ext_dtype, value)?;
+                }
+                return Ok(());
+            }
+            Columnar::Canonical(Canonical::VarBinView(array)) => array,
+            Columnar::Canonical(_) => vortex_bail!("WKB storage must be binary"),
+        };
+        let valid = array.as_ref().validity()?.execute_mask(array.len(), ctx)?;
+        if valid.all_false() {
+            return Ok(());
+        }
+        let array = if array.as_ref().is_host() {
+            array
+        } else {
+            let buffers = array
+                .as_ref()
+                .buffer_handles()
+                .into_iter()
+                .map(|buffer| buffer.try_into_host_sync().map(BufferHandle::new_host))
+                .collect::<VortexResult<Vec<_>>>()?;
+            // SAFETY: each buffer is a byte-for-byte copy of the original buffer.
+            unsafe { array.into_array().with_buffers(buffers)? }.execute::<VarBinViewArray>(ctx)?
+        };
+
+        let views = array.resolved_views();
+        for (view, valid) in views.views().iter().zip(valid.iter()) {
+            if valid {
+                Wkb::try_from_bytes(views.view_bytes(view))?;
+            }
+        }
+
+        Ok(())
+    }
+
     fn unpack_native<'a>(
         _ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
@@ -287,4 +338,50 @@ fn wkb_type(spatial_metadata: &SpatialMetadata) -> WkbType {
 
 fn spatial_metadata(wkb_type: &WkbType) -> SpatialMetadata {
     spatial_metadata_from_arrow(wkb_type.metadata())
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::compute::conformance::extension::test_ext_vtable_conformance;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtVTable;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use crate::extension::SpatialMetadata;
+    use crate::extension::WellKnownBinary;
+
+    // Little-endian WKB for POINT (0 0).
+    const POINT: &[u8] = &[
+        1, 1, 0, 0, 0, //
+        0, 0, 0, 0, 0, 0, 0, 0, //
+        0, 0, 0, 0, 0, 0, 0, 0, //
+    ];
+
+    #[rstest]
+    #[case::valid(Some(POINT), true)]
+    #[case::truncated(Some(&POINT[..5]), false)]
+    #[case::null(None, true)]
+    fn validates_wkb_array(
+        #[case] value: Option<&[u8]>,
+        #[case] accepted: bool,
+    ) -> VortexResult<()> {
+        let storage = VarBinViewArray::from_iter_nullable_bin([value]).into_array();
+        let dtype = ExtDType::<WellKnownBinary>::try_new(
+            SpatialMetadata::default(),
+            Nullability::Nullable,
+        )?;
+        let mut ctx = VortexSession::empty().create_execution_ctx();
+
+        let result = WellKnownBinary::validate_array(&dtype, &storage, &mut ctx);
+        assert_eq!(result.is_ok(), accepted, "{result:?}");
+        test_ext_vtable_conformance(&dtype, &storage, &mut ctx);
+
+        Ok(())
+    }
 }

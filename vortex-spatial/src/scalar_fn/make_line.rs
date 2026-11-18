@@ -128,6 +128,7 @@ fn build_make_lines(
         &starts,
         &ends,
         Validity::from_mask(valid, output_dtype.storage_dtype().nullability()),
+        ctx,
     )
 }
 
@@ -287,7 +288,10 @@ mod tests {
             SpatialMetadata::new(crs.map(str::to_owned)).with_dimension(dimension),
             storage.dtype().nullability(),
         )?;
-        Ok(ExtensionArray::try_new(dtype.erased(), storage)?.into_array())
+        Ok(
+            ExtensionArray::try_new(dtype.erased(), storage, &mut SESSION.create_execution_ctx())?
+                .into_array(),
+        )
     }
 
     fn point_constant(

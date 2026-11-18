@@ -94,7 +94,12 @@ fn spatial_column<V: ExtVTable<Metadata = SpatialMetadata> + Default>(
     storage: ArrayRef,
 ) -> VortexResult<ArrayRef> {
     let dtype = ExtDType::<V>::try_new(wgs84(), storage.dtype().nullability())?;
-    Ok(ExtensionArray::try_new(dtype.erased(), storage)?.into_array())
+    Ok(ExtensionArray::try_new(
+        dtype.erased(),
+        storage,
+        &mut VortexSession::empty().create_execution_ctx(),
+    )?
+    .into_array())
 }
 
 /// A `Point` column over the given x/y coordinates, stored as `Struct<x, y>`.
@@ -218,7 +223,12 @@ pub fn nullable_rect_column(boxes: Vec<Option<(f64, f64, f64, f64)>>) -> VortexR
         SpatialMetadata::default().with_dimension(Dimension::Xy),
         Nullability::Nullable,
     )?;
-    Ok(ExtensionArray::try_new(ext.erased(), storage)?.into_array())
+    Ok(ExtensionArray::try_new(
+        ext.erased(),
+        storage,
+        &mut VortexSession::empty().create_execution_ctx(),
+    )?
+    .into_array())
 }
 
 /// Decode a `Coordinate` from an extension-typed point scalar (unwrapped to its coordinate

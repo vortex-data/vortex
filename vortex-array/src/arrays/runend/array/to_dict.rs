@@ -150,7 +150,12 @@ mod tests {
             storage.dtype().nullability(),
         )?;
 
-        Ok(ExtensionArray::try_new(ext_dtype.erased(), storage)?.into_array())
+        Ok(ExtensionArray::try_new(
+            ext_dtype.erased(),
+            storage,
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array())
     }
 
     #[rstest]
