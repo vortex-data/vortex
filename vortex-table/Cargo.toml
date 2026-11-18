@@ -25,7 +25,6 @@ vortex-file = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-session = { workspace = true }
-vortex-utils = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
