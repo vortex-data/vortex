@@ -3,15 +3,16 @@
 
 //! The manifest: one row per data file, itself stored as a Vortex file.
 //!
-//! | column      | type   | meaning                                                  |
-//! |-------------|--------|----------------------------------------------------------|
-//! | `path`      | utf8   | the file, relative to the table                          |
-//! | `byte_size` | u64    | the file's length                                        |
-//! | `row_count` | u64    | rows in the file                                         |
-//! | `footer`    | binary | the file's footer region, through the end of the file    |
+//! | column          | type | meaning                                                   |
+//! |-----------------|------|-----------------------------------------------------------|
+//! | `path`          | utf8 | the file, relative to the table                           |
+//! | `byte_size`     | u64  | the file's length                                         |
+//! | `row_count`     | u64  | rows in the file                                          |
+//! | `footer_offset` | u64  | where the file's footer region starts; it runs to the end |
 //!
-//! The footer holds the file's dtype, layout, segment map, and column statistics, so a planner
-//! prunes a file on its statistics and opens it from the manifest alone, with no IO.
+//! The footer holds the file's dtype, layout, segment map, and column statistics. Knowing exactly
+//! where it is, a reader fetches it in one read instead of guessing a tail size and reading
+//! again, without the manifest growing with the footers, which are large for wide files.
 
 use std::sync::Arc;
 
@@ -24,8 +25,6 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::struct_::StructArrayExt;
-use vortex_buffer::Alignment;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -47,8 +46,9 @@ pub struct ManifestEntry {
     pub byte_size: u64,
     /// Rows in the file.
     pub row_count: u64,
-    /// The file's footer region: from the end of its segments through the end of the file.
-    pub footer: ByteBuffer,
+    /// Where the file's footer region starts: the end of its segments. It runs to the end of
+    /// the file.
+    pub footer_offset: u64,
 }
 
 impl ManifestEntry {
@@ -67,24 +67,15 @@ impl ManifestEntry {
             .with_file_size(byte_size)
             .open(Arc::clone(&read))
             .await?;
-        let offset = file
+        let footer_offset = file
             .footer()
             .segments_end()
             .ok_or_else(|| vortex_err!("the file's segment ranges overflow"))?;
-        let footer = read
-            .read_at(
-                offset,
-                usize::try_from(byte_size - offset)?,
-                Alignment::none(),
-            )
-            .await?
-            .try_into_host()?
-            .await?;
         Ok(Self {
             path: path.into(),
             byte_size,
             row_count: file.row_count(),
-            footer,
+            footer_offset,
         })
     }
 }
@@ -103,12 +94,11 @@ impl Manifest {
             PrimitiveArray::from_iter(self.entries.iter().map(f)).into_array()
         };
         let paths: Vec<&str> = self.entries.iter().map(|e| e.path.as_str()).collect();
-        let footers: Vec<&[u8]> = self.entries.iter().map(|e| e.footer.as_slice()).collect();
         Ok(StructArray::from_fields(&[
             ("path", VarBinArray::from(paths).into_array()),
             ("byte_size", u64s(|e| e.byte_size)),
             ("row_count", u64s(|e| e.row_count)),
-            ("footer", VarBinArray::from(footers).into_array()),
+            ("footer_offset", u64s(|e| e.footer_offset)),
         ])?
         .into_array())
     }
@@ -122,14 +112,14 @@ impl Manifest {
         let byte_size = field("byte_size")?.execute::<PrimitiveArray>(&mut ctx)?;
         let row_count = field("row_count")?.execute::<PrimitiveArray>(&mut ctx)?;
         let paths = field("path")?.execute::<VarBinViewArray>(&mut ctx)?;
-        let footers = field("footer")?.execute::<VarBinViewArray>(&mut ctx)?;
+        let footer_offset = field("footer_offset")?.execute::<PrimitiveArray>(&mut ctx)?;
         for i in 0..array.len() {
             self.entries.push(ManifestEntry {
                 path: String::from_utf8(paths.bytes_at(i).to_vec())
                     .map_err(|e| vortex_err!("manifest path {i} is not utf8: {e}"))?,
                 byte_size: byte_size.as_slice::<u64>()[i],
                 row_count: row_count.as_slice::<u64>()[i],
-                footer: footers.bytes_at(i),
+                footer_offset: footer_offset.as_slice::<u64>()[i],
             });
         }
         Ok(())
