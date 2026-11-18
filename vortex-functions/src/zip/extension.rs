@@ -41,8 +41,9 @@ impl ZipReduce for Extension {
             .ext_dtype()
             .with_nullability(storage.dtype().nullability());
 
+        // Zip selects values from inputs with the same extension dtype.
         Ok(Some(
-            ExtensionArray::try_new(ext_dtype, storage)?.into_array(),
+            ExtensionArray::try_new_structural(ext_dtype, storage)?.into_array(),
         ))
     }
 }
@@ -87,10 +88,12 @@ mod tests {
             ),
             Nullability::Nullable => PrimitiveArray::from_option_iter(values),
         };
-        ExtensionArray::new(
+        ExtensionArray::try_new(
             Timestamp::new(TimeUnit::Milliseconds, nullability).erased(),
             storage.into_array(),
+            &mut SESSION.create_execution_ctx(),
         )
+        .expect("timestamp storage is valid")
         .into_array()
     }
 

@@ -149,8 +149,12 @@ mod tests {
     #[test]
     fn extracts_extension_storage_array() -> VortexResult<()> {
         let storage = buffer![2i64, 4, 6].into_array();
-        let array =
-            ExtensionArray::new(ext_dtype(Nullability::NonNullable), storage.clone()).into_array();
+        let array = ExtensionArray::try_new(
+            ext_dtype(Nullability::NonNullable),
+            storage.clone(),
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
 
         let result = array.apply(&ext_storage(root()))?;
 
@@ -165,8 +169,12 @@ mod tests {
     #[test]
     fn extracts_nullable_extension_storage_array() -> VortexResult<()> {
         let storage = PrimitiveArray::from_option_iter([Some(2i64), None, Some(6)]).into_array();
-        let array =
-            ExtensionArray::new(ext_dtype(Nullability::Nullable), storage.clone()).into_array();
+        let array = ExtensionArray::try_new(
+            ext_dtype(Nullability::Nullable),
+            storage.clone(),
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
 
         let result = array.apply(&ext_storage(root()))?;
 

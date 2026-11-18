@@ -67,20 +67,49 @@ mod tests {
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builders::ArrayBuilder;
+    use vortex_array::builders::StructBuilder;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
     use vortex_array::dtype::extension::ExtDType;
     use vortex_array::scalar::Scalar;
     use vortex_array::test_harness::ExpectedOutcome;
     use vortex_array::test_harness::assert_execution_paths;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
+    use vortex_buffer::BufferAllocatorRef;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::*;
+
+    #[test]
+    fn builder_pads_null_parent_with_placeholder() -> VortexResult<()> {
+        let uuid = ExtDType::<Uuid>::try_new(
+            UuidMetadata {
+                version: Some(uuid::Version::Random),
+            },
+            Nullability::NonNullable,
+        )?;
+        let fields = StructFields::from_iter([("id", DType::Extension(uuid.erased()))]);
+        let mut builder = StructBuilder::new_in(
+            fields,
+            Nullability::Nullable,
+            BufferAllocatorRef::static_ref(),
+        );
+
+        builder.append_null();
+        let array = builder.finish();
+        assert!(
+            array
+                .execute_scalar(0, &mut uuid_session().create_execution_ctx())?
+                .is_null()
+        );
+        Ok(())
+    }
 
     fn uuid_session() -> VortexSession {
         let session = VortexSession::empty();
@@ -124,7 +153,12 @@ mod tests {
             UuidMetadata::default(),
             storage.dtype().nullability(),
         )?;
-        Ok(ExtensionArray::new(ext_dtype.erased(), storage).into_array())
+        Ok(ExtensionArray::try_new(
+            ext_dtype.erased(),
+            storage,
+            &mut uuid_session().create_execution_ctx(),
+        )?
+        .into_array())
     }
 
     #[test]

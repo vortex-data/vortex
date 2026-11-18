@@ -134,7 +134,7 @@ impl ArrowExtVTable for Uuid {
         )
         .into_array();
         Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array(),
+            ExtensionArray::try_new_structural(ext_dtype.clone().erased(), storage)?.into_array(),
         ))
     }
 }
@@ -427,6 +427,7 @@ mod tests {
         ExtensionArray::try_new(
             uuid_dtype(false).as_extension().clone(),
             storage.into_array(),
+            &mut uuid_session().create_execution_ctx(),
         )
     }
 
@@ -666,7 +667,12 @@ mod tests {
             3,
         )?;
 
-        Ok(ExtensionArray::try_new(dtype, storage.into_array())?.into_array())
+        Ok(ExtensionArray::try_new(
+            dtype,
+            storage.into_array(),
+            &mut VortexSession::empty().create_execution_ctx(),
+        )?
+        .into_array())
     }
 
     #[rstest]

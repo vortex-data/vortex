@@ -55,7 +55,13 @@ fn shred_field_as_i64(field: &str) -> VortexResult<ShreddingSpec> {
 }
 
 fn json_input(storage: ArrayRef) -> VortexResult<ArrayRef> {
-    Ok(ExtensionArray::try_new_from_vtable(Json, EmptyMetadata, storage)?.into_array())
+    Ok(ExtensionArray::try_new_from_vtable(
+        Json,
+        EmptyMetadata,
+        storage,
+        &mut SESSION.create_execution_ctx(),
+    )?
+    .into_array())
 }
 
 fn execute_json_to_variant(input: ArrayRef, shredding: ShreddingSpec) -> VortexResult<ArrayRef> {

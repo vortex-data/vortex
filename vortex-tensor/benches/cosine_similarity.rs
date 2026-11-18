@@ -126,10 +126,12 @@ fn extension_constant_vector(width: usize) -> ArrayRef {
         .map(|i| Scalar::primitive(((i % 97) as f64) - 48.0, Nullability::NonNullable))
         .collect();
     let fsl_scalar = Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-    let array = ExtensionArray::new(
+    let array = ExtensionArray::try_new(
         ext_dtype,
         ConstantArray::new(fsl_scalar, ELEMENTS / width).into_array(),
+        &mut SESSION.create_execution_ctx(),
     )
+    .unwrap()
     .into_array();
 
     // The optimizer folds this shape into a constant extension array, but a file can hold it.

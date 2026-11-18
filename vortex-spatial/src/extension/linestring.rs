@@ -150,6 +150,7 @@ pub(crate) fn linestring_array_from_point_pairs(
     starts: &StructArray,
     ends: &StructArray,
     validity: Validity,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let len = starts.len();
     vortex_ensure_eq!(
@@ -200,7 +201,7 @@ pub(crate) fn linestring_array_from_point_pairs(
     // vertex count. The validity has one entry per row.
     let storage = unsafe { ListArray::new_unchecked(vertices, offsets, validity) }.into_array();
 
-    Ok(ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array())
+    Ok(ExtensionArray::try_new(ext_dtype.clone().erased(), storage, ctx)?.into_array())
 }
 
 static ARROW_LINESTRING: CachedId = CachedId::new(LineStringType::NAME);

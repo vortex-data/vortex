@@ -169,6 +169,7 @@ pub(crate) fn build_rect_array(
     corners: Vec<ArrayRef>,
     len: usize,
     validity: Validity,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let dimension = ext_dtype.metadata().native_dimension();
     let storage = StructArray::try_new(
@@ -178,7 +179,7 @@ pub(crate) fn build_rect_array(
         validity,
     )?
     .into_array();
-    Ok(ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array())
+    Ok(ExtensionArray::try_new(ext_dtype.clone().erased(), storage, ctx)?.into_array())
 }
 
 static ARROW_BOX: CachedId = CachedId::new(BoxType::NAME);

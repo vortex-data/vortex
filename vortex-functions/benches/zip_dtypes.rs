@@ -194,7 +194,7 @@ fn extension_array(base: i32, nullable: bool) -> ArrayRef {
         Nullability::NonNullable
     };
     let ext_dtype = Date::try_new(TimeUnit::Days, nullability).unwrap().erased();
-    ExtensionArray::new(ext_dtype, storage).into_array()
+    ExtensionArray::new(ext_dtype, storage, &mut SESSION.create_execution_ctx()).into_array()
 }
 
 fn fixed_size_list_array(base: i64, nullable: bool) -> ArrayRef {

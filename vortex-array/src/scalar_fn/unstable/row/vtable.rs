@@ -199,7 +199,8 @@ fn execute_nullary_rows<F: RowFn>(
 
     // A nullary function has no input validity to propagate, so its kernel output is the finished
     // column and this path labels it directly.
-    let values = plan.relabel_output(execute_row_kernel(function, options, args, ctx)?)?;
+    let values = execute_row_kernel(function, options, args, ctx)?;
+    let values = plan.relabel_output(values, ctx)?;
 
     finalize_kernel_output(RowFn::id(function), &result_dtype, row_count, values, ctx)
 }

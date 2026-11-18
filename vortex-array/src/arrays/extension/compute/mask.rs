@@ -16,14 +16,13 @@ impl MaskReduce for Extension {
     fn mask(array: ArrayView<'_, Extension>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let masked_storage =
             MaskExpr::try_new(array.storage_array().clone(), mask.clone())?.into_array();
-        Ok(Some(
-            ExtensionArray::new(
-                array
-                    .ext_dtype()
-                    .with_nullability(masked_storage.dtype().nullability()),
-                masked_storage,
-            )
-            .into_array(),
-        ))
+        let dtype = array
+            .ext_dtype()
+            .with_nullability(masked_storage.dtype().nullability());
+
+        // SAFETY: masking storage from array only hides values. The extension dtype uses the
+        // masked storage's nullability.
+        let result = unsafe { ExtensionArray::new_unchecked(dtype, masked_storage) };
+        Ok(Some(result.into_array()))
     }
 }

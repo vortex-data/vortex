@@ -466,10 +466,12 @@ impl CudaArrayExt for ArrayRef {
         // storage decodes on the GPU.
         if let Some(ext) = array.as_opt::<Extension>() {
             let storage = ext.storage_array().clone().execute_cuda(ctx).await?;
-            return Ok(Canonical::Extension(ExtensionArray::new(
-                ext.ext_dtype().clone(),
-                storage.into_array(),
-            )));
+            return Ok(Canonical::Extension({
+                // SAFETY: executing the storage of ext preserves its dtype and values.
+                unsafe {
+                    ExtensionArray::new_unchecked(ext.ext_dtype().clone(), storage.into_array())
+                }
+            }));
         }
 
         if array.is_canonical() || array.is_empty() {

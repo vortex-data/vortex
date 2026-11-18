@@ -404,6 +404,7 @@ async fn disabling_editions_allows_uneditioned_components() -> VortexResult<()> 
     let array = ExtensionArray::try_new(
         Date::new(TimeUnit::Days, Nullability::NonNullable).erased(),
         sequential_integers().into_array(),
+        &mut SESSION.create_execution_ctx(),
     )?
     .into_array();
 

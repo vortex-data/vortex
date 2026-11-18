@@ -316,7 +316,7 @@ impl ArrowExtVTable for FixedShapeTensor {
             session.from_arrow_array(Arc::new(fsl), ext_dtype.storage_dtype().is_nullable())?;
 
         Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array(),
+            ExtensionArray::try_new_structural(ext_dtype.clone().erased(), storage)?.into_array(),
         ))
     }
 }
@@ -474,6 +474,7 @@ mod tests {
             FixedShapeTensor,
             permuted_metadata()?,
             storage.into_array(),
+            &mut ctx,
         )?
         .into_array();
 
@@ -587,6 +588,7 @@ mod tests {
             FixedShapeTensor,
             FixedShapeTensorMetadata::new(PType::F32, vec![2, 3]),
             storage.into_array(),
+            &mut ctx,
         )?
         .into_array();
 
@@ -657,6 +659,7 @@ mod tests {
             FixedShapeTensor,
             FixedShapeTensorMetadata::new(PType::F32, vec![2, 2]),
             storage.into_array(),
+            &mut ctx,
         )?
         .into_array();
         let (target, _) = arrow_tensors_with_item(r#"{"shape": [2, 2]}"#, true);

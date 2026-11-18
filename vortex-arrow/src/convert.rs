@@ -80,7 +80,6 @@ use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
-use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::decimal::check_precision;
@@ -97,6 +96,8 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
+use vortex_array::extension::datetime::Date;
+use vortex_array::extension::datetime::Time;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::validity::Validity;
@@ -321,28 +322,28 @@ where
 {
     let storage = from_arrow_primitive(value, nullable)?;
 
-    Ok(match value.data_type() {
+    let nullability = storage.dtype().nullability();
+    let dtype = match value.data_type() {
         DataType::Timestamp(time_unit, tz) => {
             let dtype = Timestamp::try_new_with_tz(
                 from_arrow_time_unit(*time_unit),
                 tz.clone(),
-                storage.dtype().nullability(),
+                nullability,
             )?;
-            ExtensionArray::try_new(dtype.erased(), storage)?.into_array()
+            dtype.erased()
         }
-        DataType::Time32(time_unit) => {
-            TemporalArray::new_time(storage, from_arrow_time_unit(*time_unit)).into()
+        DataType::Time32(time_unit) | DataType::Time64(time_unit) => {
+            Time::try_new(from_arrow_time_unit(*time_unit), nullability)?.erased()
         }
-        DataType::Time64(time_unit) => {
-            TemporalArray::new_time(storage, from_arrow_time_unit(*time_unit)).into()
-        }
-        DataType::Date32 => TemporalArray::new_date(storage, TimeUnit::Days).into(),
-        DataType::Date64 => TemporalArray::new_date(storage, TimeUnit::Milliseconds).into(),
+        DataType::Date32 => Date::try_new(TimeUnit::Days, nullability)?.erased(),
+        DataType::Date64 => Date::try_new(TimeUnit::Milliseconds, nullability)?.erased(),
         DataType::Duration(_) | DataType::Interval(_) => {
             vortex_bail!("Arrow {} arrays are not supported", value.data_type())
         }
         _ => vortex_panic!("Invalid temporal type: {}", value.data_type()),
-    })
+    };
+
+    Ok(ExtensionArray::try_new_structural(dtype, storage)?.into_array())
 }
 
 /// Rebase a (possibly sliced) Arrow offset buffer to start at zero.

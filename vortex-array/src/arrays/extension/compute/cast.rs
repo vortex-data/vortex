@@ -27,9 +27,11 @@ impl CastReduce for Extension {
             .storage_array()
             .cast(ext_dtype.storage_dtype().clone())?;
 
-        Ok(Some(
-            ExtensionArray::new(ext_dtype.clone(), new_storage).into_array(),
-        ))
+        // SAFETY: the cast produces the declared storage dtype. Known extension types fix their
+        // nested nullability in the declaration, so this keeps the visible values of array and
+        // only changes its top-level nullability. Foreign extension types accept all values.
+        let result = unsafe { ExtensionArray::new_unchecked(ext_dtype.clone(), new_storage) };
+        Ok(Some(result.into_array()))
     }
 }
 
@@ -76,7 +78,12 @@ mod tests {
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
         let storage = Buffer::<i64>::empty().into_array();
 
-        let arr = ExtensionArray::new(ext_dtype.clone(), storage);
+        let arr = ExtensionArray::try_new(
+            ext_dtype.clone(),
+            storage,
+            &mut SESSION.create_execution_ctx(),
+        )
+        .expect("test storage is valid");
 
         let output = arr
             .clone()
@@ -93,7 +100,12 @@ mod tests {
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
         let storage = Buffer::<i64>::empty().into_array();
 
-        let arr = ExtensionArray::new(ext_dtype.clone(), storage);
+        let arr = ExtensionArray::try_new(
+            ext_dtype.clone(),
+            storage,
+            &mut SESSION.create_execution_ctx(),
+        )
+        .expect("test storage is valid");
         assert!(!arr.dtype().is_nullable());
 
         let new_dtype = DType::Extension(ext_dtype).with_nullability(Nullability::Nullable);
@@ -174,10 +186,12 @@ mod tests {
     #[test]
     fn untyped_null_casts_to_nullable_timestamp_on_every_path() {
         let target = timestamp_dtype(TimeUnit::Milliseconds, Nullability::Nullable);
-        let expected = ExtensionArray::new(
+        let expected = ExtensionArray::try_new(
             target.as_extension().clone(),
             PrimitiveArray::from_option_iter([None::<i64>, None]).into_array(),
-        );
+            &mut SESSION.create_execution_ctx(),
+        )
+        .expect("test storage is valid");
 
         assert_execution_paths(
             &[NullArray::new(2).into_array()],
@@ -191,7 +205,7 @@ mod tests {
     fn cast_timestamp_nullability_on_every_path() {
         let input = create_timestamp_array(TimeUnit::Milliseconds, false);
         let target = input.dtype().as_nullable();
-        let expected = ExtensionArray::new(
+        let expected = ExtensionArray::try_new(
             target.as_extension().clone(),
             PrimitiveArray::from_option_iter([
                 Some(1_000_000i64),
@@ -201,7 +215,9 @@ mod tests {
                 Some(5_000_000),
             ])
             .into_array(),
-        );
+            &mut SESSION.create_execution_ctx(),
+        )
+        .expect("test storage is valid");
 
         assert_execution_paths(
             &[input.into_array()],
@@ -262,7 +278,12 @@ mod tests {
             buffer![1_000_000i64, 2_000_000, 3_000_000, 4_000_000, 5_000_000].into_array()
         };
 
-        ExtensionArray::new(dtype.as_extension().clone(), storage)
+        ExtensionArray::try_new(
+            dtype.as_extension().clone(),
+            storage,
+            &mut SESSION.create_execution_ctx(),
+        )
+        .expect("test storage is valid")
     }
 
     fn in_struct(field: ArrayRef) -> ArrayRef {

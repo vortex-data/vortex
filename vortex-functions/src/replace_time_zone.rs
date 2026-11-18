@@ -215,7 +215,12 @@ impl ScalarFnVTable for ReplaceTimeZone {
             Validity::from_bit_buffer(output_valid.freeze(), Nullability::Nullable),
         )
         .into_array();
-        Ok(ExtensionArray::new(ext, storage).into_array())
+        Ok({
+            // SAFETY: the result stores nullable i64 counts in the declared dtype.
+            // Every i64 count is a legal Timestamp.
+            unsafe { ExtensionArray::new_unchecked(ext, storage) }
+        }
+        .into_array())
     }
 }
 
@@ -521,7 +526,7 @@ mod tests {
         // 2024-11-03 01:30 occurs twice in New York.
         let fold = 1_730_597_400_000_000i64;
         let hour = 3_600_000_000i64;
-        let input = ExtensionArray::new(
+        let input = ExtensionArray::try_new(
             timestamp(None),
             PrimitiveArray::from_option_iter([
                 Some(fold),
@@ -531,7 +536,8 @@ mod tests {
                 None,
             ])
             .into_array(),
-        );
+            &mut SESSION.create_execution_ctx(),
+        )?;
         let policies = VarBinViewArray::from_iter_nullable_str([
             Some("earliest"),
             Some("latest"),
@@ -551,7 +557,7 @@ mod tests {
             },
         ))?;
 
-        let expected = ExtensionArray::new(
+        let expected = ExtensionArray::try_new(
             timestamp(Some("America/New_York")),
             PrimitiveArray::from_option_iter([
                 Some(fold + 4 * hour),
@@ -561,7 +567,8 @@ mod tests {
                 None,
             ])
             .into_array(),
-        );
+            &mut SESSION.create_execution_ctx(),
+        )?;
         let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
@@ -575,10 +582,11 @@ mod tests {
         #[case] value: i64,
         #[values(None, Some("America/New_York"))] target: Option<&str>,
     ) -> VortexResult<()> {
-        let input = ExtensionArray::new(
+        let input = ExtensionArray::try_new(
             Timestamp::new(unit, Nullability::Nullable).erased(),
             PrimitiveArray::from_option_iter([Some(0i64), Some(value)]).into_array(),
-        );
+            &mut SESSION.create_execution_ctx(),
+        )?;
         let expr = replace_time_zone(
             root(),
             lit("raise"),
@@ -600,10 +608,11 @@ mod tests {
                 .is_some_and(|source| source.is::<jiff::Error>())
         );
 
-        let control = ExtensionArray::new(
+        let control = ExtensionArray::try_new(
             Timestamp::new(unit, Nullability::Nullable).erased(),
             PrimitiveArray::from_option_iter([Some(0i64)]).into_array(),
-        );
+            &mut SESSION.create_execution_ctx(),
+        )?;
         control
             .into_array()
             .apply(&expr)?

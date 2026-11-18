@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::arrays::ExtensionArray;
@@ -17,6 +18,7 @@ use vortex_array::dtype::extension::ExtDType;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_layout::layouts::zoned::zone_map::ZoneMap;
+use vortex_session::VortexSession;
 
 use crate::aggregate_fn::GeometryAabb;
 use crate::extension::Rect;
@@ -40,7 +42,12 @@ pub(super) fn aabb_zone_map(point_dtype: &DType, boxes: &[[f64; 4]]) -> VortexRe
         storage.dtype().nullability(),
     )?
     .erased();
-    let aabbs = ExtensionArray::try_new(box_dtype, storage)?.into_array();
+    let aabbs = ExtensionArray::try_new(
+        box_dtype,
+        storage,
+        &mut VortexSession::empty().create_execution_ctx(),
+    )?
+    .into_array();
     let zone_array = StructArray::from_fields(&[(aabb_fn.to_string().as_str(), aabbs)])?;
     ZoneMap::try_new(
         point_dtype.clone(),

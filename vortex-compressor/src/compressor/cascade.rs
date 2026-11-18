@@ -242,9 +242,17 @@ impl CascadingCompressor {
                 // Also compress the underlying storage array. Some extension schemes can beat the
                 // extension storage but still lose to ordinary storage compression.
                 let compressed_storage = self.compress(ext_array.storage_array(), exec_ctx)?;
-                let storage_compressed =
-                    ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
-                        .into_array();
+
+                // SAFETY: compression preserves the storage dtype and values of ext_array.
+                let storage_compressed = {
+                    unsafe {
+                        ExtensionArray::new_unchecked(
+                            ext_array.ext_dtype().clone(),
+                            compressed_storage,
+                        )
+                    }
+                }
+                .into_array();
 
                 match selection {
                     Selection::Compressed(scheme_compressed)

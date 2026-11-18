@@ -7,6 +7,7 @@ use std::fmt::Debug;
 use std::sync::LazyLock;
 
 use rstest::rstest;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -26,6 +27,7 @@ use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::min_max::nan_scalar;
+use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
@@ -33,6 +35,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::extension::ExtensionSlots;
 use crate::assert_arrays_eq;
+use crate::builders::ExtensionBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -40,12 +43,69 @@ use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
+use crate::extension::datetime::Time;
+use crate::extension::datetime::TimeUnit;
+use crate::extension::datetime::Timestamp;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+#[rstest]
+#[case::primitive(Ok(buffer![86_401i32].into_array()), false)]
+#[case::constant(Ok(ConstantArray::new(86_401i32, 2).into_array()), false)]
+#[case::chunked(ChunkedArray::try_new(
+    [buffer![86_399i32].into_array(), buffer![86_401i32].into_array()],
+    DType::Primitive(PType::I32, Nullability::NonNullable),
+).map(IntoArray::into_array), false)]
+#[case::masked(Ok(PrimitiveArray::new(
+    buffer![86_399i32, 86_401],
+    Validity::from_iter([true, false]),
+).into_array()), true)]
+fn try_new_rejects_illegal_values(
+    #[case] storage: VortexResult<ArrayRef>,
+    #[case] expected: bool,
+) -> VortexResult<()> {
+    let storage = storage?;
+    let dtype = Time::try_new(TimeUnit::Seconds, storage.dtype().nullability())?.erased();
+    let result = ExtensionArray::try_new(dtype, storage, &mut SESSION.create_execution_ctx());
+    assert_eq!(result.is_ok(), expected, "{result:?}");
+    Ok(())
+}
+
+#[test]
+fn try_new_structural_checks_dtype_only() -> VortexResult<()> {
+    let dtype = Time::try_new(TimeUnit::Seconds, Nullability::NonNullable)?.erased();
+    let storage = buffer![86_401i32].into_array();
+    let array = ExtensionArray::try_new_structural(dtype.clone(), storage.clone())?;
+    assert!(ArrayRef::ptr_eq(array.storage_array(), &storage));
+    assert!(ExtensionArray::try_new_structural(dtype, buffer![1i64].into_array()).is_err());
+
+    Ok(())
+}
+
+#[test]
+fn builder_rejects_scalar_of_other_extension_type() -> VortexResult<()> {
+    let dtype = NonZero::dtype(PType::I64, Nullability::NonNullable)?;
+    let timestamp = Scalar::extension::<Timestamp>(
+        Timestamp::try_new_with_tz(TimeUnit::Seconds, None, Nullability::NonNullable)?
+            .metadata()
+            .clone(),
+        Scalar::from(0i64),
+    );
+    let mut builder = ExtensionBuilder::new_in(dtype.clone(), BufferAllocatorRef::static_ref());
+
+    let error = builder
+        .append_value(timestamp.as_extension())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains(&dtype.to_string()), "{error}");
+    assert!(error.contains(&timestamp.dtype().to_string()), "{error}");
+    Ok(())
+}
 
 #[track_caller]
 fn assert_non_zero_error(result: VortexResult<impl Debug>, value: &str) {
@@ -63,10 +123,18 @@ impl NonZero {
         Ok(ExtDType::<Self>::try_new(ptype, nullability)?.erased())
     }
 
-    fn array(storage: ArrayRef) -> VortexResult<ArrayRef> {
+    /// Builds structurally valid storage as the file reader would.
+    fn decoded_array(storage: ArrayRef) -> VortexResult<ArrayRef> {
         let dtype = Self::dtype(storage.dtype().as_ptype(), storage.dtype().nullability())?;
 
-        Ok(ExtensionArray::try_new(dtype, storage)?.into_array())
+        Ok(ExtensionArray::try_from_parts(ArrayParts::new(
+            Extension,
+            DType::Extension(dtype),
+            storage.len(),
+            EmptyArrayData,
+            ExtensionSlots { storage }.into_slots(),
+        ))?
+        .into_array())
     }
 }
 
@@ -127,7 +195,7 @@ impl ExtVTable for NonZero {
 #[case::primitive(buffer![0i64, 1].into_array())]
 #[case::constant(ConstantArray::new(0i64, 2).into_array())]
 fn test_invalid_values_return_read_errors(#[case] storage: ArrayRef) -> VortexResult<()> {
-    let array = NonZero::array(storage.clone())?;
+    let array = NonZero::decoded_array(storage.clone())?;
     let mut ctx = SESSION.create_execution_ctx();
 
     assert_non_zero_error(array.execute_scalar(0, &mut ctx), "0");
@@ -156,9 +224,14 @@ fn test_invalid_values_return_read_errors(#[case] storage: ArrayRef) -> VortexRe
 fn test_valid_values_keep_the_extension_dtype(#[case] storage: Scalar) -> VortexResult<()> {
     let ext_dtype = NonZero::dtype(PType::I64, Nullability::Nullable)?;
     let scalar = Scalar::try_extension_ref(ext_dtype.clone(), storage.clone())?;
-    let array =
-        NonZero::array(ConstantArray::new(storage, 2).into_array())?.optimize_ctx(&SESSION)?;
     let mut ctx = SESSION.create_execution_ctx();
+    let array = ExtensionArray::try_new(
+        ext_dtype.clone(),
+        ConstantArray::new(storage, 2).into_array(),
+        &mut ctx,
+    )?
+    .into_array()
+    .optimize_ctx(&SESSION)?;
 
     assert_eq!(scalar.dtype(), &DType::Extension(ext_dtype));
     assert_eq!(array.execute_scalar(0, &mut ctx)?, scalar);
@@ -200,8 +273,12 @@ fn test_extension_constructor_rejects_invalid_storage(
 /// type and both storage dtypes.
 #[test]
 fn test_array_constructor_rejects_other_storage_dtype() {
-    let result =
-        ExtensionArray::try_new_from_vtable(NonZero, PType::I64, buffer![1f64].into_array());
+    let result = ExtensionArray::try_new_from_vtable(
+        NonZero,
+        PType::I64,
+        buffer![1f64].into_array(),
+        &mut SESSION.create_execution_ctx(),
+    );
     assert!(result.is_err_and(|error| {
         error
             .to_string()
@@ -236,7 +313,7 @@ fn test_array_parts_require_the_storage_dtype(#[case] storage: ArrayRef) -> Vort
 fn test_aggregates_return_extension_validation_errors(
     #[case] aggregate: AggregateFnRef,
 ) -> VortexResult<()> {
-    let array = NonZero::array(buffer![0i64, 1].into_array())?;
+    let array = NonZero::decoded_array(buffer![0i64, 1].into_array())?;
     let mut ctx = SESSION.create_execution_ctx();
     let mut accumulator = aggregate.accumulator(array.dtype())?;
 
@@ -247,7 +324,7 @@ fn test_aggregates_return_extension_validation_errors(
 
 #[test]
 fn test_nan_extrema_return_extension_validation_errors() -> VortexResult<()> {
-    let array = NonZero::array(buffer![f64::NAN, 1.0].into_array())?;
+    let array = NonZero::decoded_array(buffer![f64::NAN, 1.0].into_array())?;
     let mut ctx = SESSION.create_execution_ctx();
 
     assert_non_zero_error(
@@ -296,7 +373,11 @@ fn storage_constructors(#[case] nullability: Nullability) -> VortexResult<()> {
     assert_eq!(scalar.dtype().nullability(), nullability);
 
     let array = ConstantArray::new(storage, 2).into_array();
-    let result = ExtensionArray::try_from_storage::<NonZero>((), array.clone())?;
+    let result = ExtensionArray::try_from_storage::<NonZero>(
+        (),
+        array.clone(),
+        &mut SESSION.create_execution_ctx(),
+    )?;
     assert_eq!(result.ext_dtype().storage_dtype(), array.dtype());
 
     assert!(

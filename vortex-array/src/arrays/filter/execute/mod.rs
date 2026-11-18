@@ -149,7 +149,10 @@ pub(super) fn execute_filter(
                 .storage_array()
                 .filter(Mask::Values(MaskValuesRef::clone(mask)))
                 .vortex_expect("ExtensionArray storage type somehow could not be filtered");
-            Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))
+            Canonical::Extension({
+                // SAFETY: filtering storage from a preserves its dtype and selected values.
+                unsafe { ExtensionArray::new_unchecked(a.ext_dtype().clone(), filtered_storage) }
+            })
         }
         Canonical::Variant(a) => {
             let filter_mask = Mask::Values(MaskValuesRef::clone(mask));

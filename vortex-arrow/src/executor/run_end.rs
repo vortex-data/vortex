@@ -277,6 +277,7 @@ mod tests {
         let values = ExtensionArray::try_new(
             dtype,
             PrimitiveArray::from_iter((0..i32::try_from(len)?).map(|i| 7 + i * 4)).into_array(),
+            &mut SESSION.create_execution_ctx(),
         )?
         .into_array();
         let source = RunEnd::try_new(
