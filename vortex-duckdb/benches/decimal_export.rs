@@ -21,6 +21,10 @@ use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::WidenArray;
+use vortex::array::dtype::DType;
+use vortex::array::dtype::Nullability;
+use vortex::array::dtype::PType;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DecimalDType;
@@ -55,10 +59,10 @@ enum Case {
     CanonicalI16P4,
     /// Copies, because DuckDB stores precision 2 as `i16`.
     CanonicalI8P2,
-    /// A DecimalByteParts array with an `i32` MSP under `Decimal(18, 2)`.
+    /// A DecimalByteParts array under `Decimal(18, 2)` whose MSP is a `Widen` of `i32` values.
     MspI32P18,
-    /// A DecimalByteParts array under `Decimal(10, 2)` whose values all fit an `i16` but need
-    /// precision 5, above the precision 4 that `i16` holds.
+    /// A DecimalByteParts array under `Decimal(10, 2)` whose MSP is a `Widen` of `i16` values that
+    /// need precision 5, above the precision 4 that `i16` holds.
     GapMspI16P10,
 }
 
@@ -141,8 +145,12 @@ fn canonical<T: NativeDecimalType>(values: Buffer<T>, decimal_dtype: DecimalDTyp
 
 fn decimal_byte_parts<T: NativePType>(msp: Buffer<T>, decimal_dtype: DecimalDType) -> ArrayRef {
     let msp = PrimitiveArray::new(msp, Validity::NonNullable).into_array();
+    let msp = WidenArray::try_new(msp, DType::Primitive(PType::I64, Nullability::NonNullable))
+        .vortex_expect("benchmark MSP is narrower than i64")
+        .into_array();
+
     DecimalByteParts::try_new(msp, decimal_dtype)
-        .vortex_expect("the MSP of every benchmark input is a signed integer array")
+        .vortex_expect("every benchmark MSP has the logical MSP dtype of its precision")
         .into_array()
 }
 

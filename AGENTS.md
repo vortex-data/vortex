@@ -274,10 +274,10 @@ one. These rules override any default PR format from your harness.
 - Give a benchmark's headline result in one line. Post a full table as a PR comment.
 - Call out breaking or behaviour changes explicitly. Add the `changelog/break` label only for
   breaking changes.
-- Before opening the PR, search the repository's issues for one that tracks this work, and link
-  it if it exists: `Closes #N` when the PR resolves it, `Part of #N` when it is one step of a
-  larger effort. If the change is complex or only makes sense in the context of other changes,
-  and no tracking issue exists, tell the user to write one. Do not create an issue just to link it.
+- Before opening the PR, search the repository for related issues. When linking one, follow
+  the [PR template](.github/pull_request_template.md).
+  For complex changes and changes that need context from other work, ask the user to create a
+  tracking issue if one is missing. Do not create an issue just to link it.
 - Link relevant design documents. If the change needs supporting documentation that does not
   exist, tell the user to create it. Put rationale that should outlive the review in doc comments
   or `docs/`, and link it from the description.

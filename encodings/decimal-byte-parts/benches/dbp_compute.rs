@@ -3,11 +3,11 @@
 
 //! Decimal compute on DecimalByteParts arrays whose MSP holds the whole value.
 //!
-//! Every case has no lower parts. Most cases store the values in an MSP narrower than the
-//! canonical width of the dtype, and `msp_i64_p18_canonical` is the control whose MSP has the
-//! canonical width. Decode and filter end at a decimal array at the canonical width of its dtype,
-//! copying only when decoding returns a narrower array. This keeps their results comparable when
-//! the decoder changes its output width. Aggregates and comparisons run on the MSP where supported.
+//! Every case has no lower parts. Most cases store the values in a child narrower than the logical
+//! `i64` MSP, under a `Widen` MSP. `msp_i64_p38` stores a plain `i64` MSP under an `i128` dtype,
+//! and `msp_i64_p18_canonical` is the control whose MSP has the canonical width. Decode and filter
+//! end at a decimal array at the canonical width of its dtype, so their cost includes any widening
+//! copy required by the dtype. Aggregates and comparisons run on the MSP where supported.
 
 use std::fmt;
 use std::sync::LazyLock;
@@ -30,13 +30,13 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::decimal::copy_to_canonical_width;
+use vortex_array::arrays::WidenArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::match_each_decimal_value_type;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
@@ -152,12 +152,12 @@ impl Case {
         }
     }
 
-    /// A constant above every value that the MSP can hold, for the cases where the DBP compare
-    /// kernel answers without reading values.
+    /// A constant above every value that the stored values can hold, for the cases where a compare
+    /// kernel answers without reading values: the `Widen` kernel for a narrow child, or the DBP
+    /// kernel for `msp_i64_p38`.
     ///
-    /// The kernel answers this way only when every row is valid, so the nullable case has no
-    /// such constant. Every `Decimal(18, _)` value fits an `i64`, so the canonical case has none
-    /// either.
+    /// The nullable case is not measured here. Every `Decimal(18, _)` value fits an `i64`, so the
+    /// canonical case has no such constant.
     fn constant_above_msp_range(self) -> Option<DecimalValue> {
         match self {
             Self::MspI32P18 => Some(DecimalValue::I64(i64::from(i32::MAX) + 1)),
@@ -219,10 +219,23 @@ impl Input {
             .msp_validity
             .clone()
             .map_or(Validity::NonNullable, Validity::from);
-        let msp =
-            PrimitiveArray::from_byte_buffer(self.msp_values.clone(), self.msp_ptype, validity);
-        let array = DecimalByteParts::try_new(msp.into_array(), self.decimal_dtype)
-            .vortex_expect("the MSP of every benchmark input is a signed integer array")
+        let msp = PrimitiveArray::from_byte_buffer(
+            self.msp_values.clone(),
+            self.msp_ptype,
+            validity.clone(),
+        );
+        let msp = if self.msp_ptype.byte_width() < PType::I64.byte_width() {
+            WidenArray::try_new(
+                msp.into_array(),
+                DType::Primitive(PType::I64, validity.nullability()),
+            )
+            .vortex_expect("benchmark MSP must be narrower than its logical dtype")
+            .into_array()
+        } else {
+            msp.into_array()
+        };
+        let array = DecimalByteParts::try_new(msp, self.decimal_dtype)
+            .vortex_expect("every benchmark MSP has the logical MSP dtype of its precision")
             .into_array();
         mark_optimized(&array, &SESSION).vortex_expect("mark the benchmark input as optimized");
 
@@ -250,32 +263,13 @@ fn bench_case<O>(
         .bench_values(|(array, mut ctx)| operation(array, &mut ctx));
 }
 
-/// Decodes to the same physical width even when the decoder returns narrow decimal storage.
-fn decode_at_canonical_width(array: ArrayRef, ctx: &mut ExecutionCtx) -> DecimalArray {
-    let decoded = array
-        .execute::<DecimalArray>(ctx)
-        .vortex_expect("decode DecimalByteParts");
-    let decimal_dtype = decoded.decimal_dtype();
-    let canonical_type = decimal_dtype.canonical_values_type();
-    if decoded.values_type() == canonical_type {
-        return decoded;
-    }
-
-    let validity = decoded.validity().vortex_expect("decimal validity");
-    let mask = validity
-        .execute_mask(decoded.len(), ctx)
-        .vortex_expect("execute decimal validity");
-    let values = match_each_decimal_value_type!(decoded.values_type(), |T| {
-        copy_to_canonical_width(decoded.buffer::<T>().as_ref(), &mask, decimal_dtype)
-            .vortex_expect("copy decoded values to the canonical width")
-    });
-    DecimalArray::try_new_handle(values, canonical_type, decimal_dtype, validity)
-        .vortex_expect("canonical-width decimal array")
-}
-
 #[divan::bench(args = CASES)]
 fn decode(bencher: Bencher, case: Case) {
-    bench_case(bencher, case, decode_at_canonical_width);
+    bench_case(bencher, case, |array, ctx| {
+        array
+            .execute::<DecimalArray>(ctx)
+            .vortex_expect("decode DecimalByteParts")
+    });
 }
 
 /// Compares a new array of `case` with `Gte` against a constant of `value` in each iteration.
@@ -319,8 +313,11 @@ fn filter(bencher: Bencher, case: Case) {
             )
         })
         .bench_values(|(array, mask, mut ctx)| {
-            let filtered = array.filter(mask).vortex_expect("filter DecimalByteParts");
-            decode_at_canonical_width(filtered, &mut ctx)
+            array
+                .filter(mask)
+                .vortex_expect("filter DecimalByteParts")
+                .execute::<DecimalArray>(&mut ctx)
+                .vortex_expect("execute the filter")
         });
 }
 
