@@ -716,7 +716,11 @@ impl NonNanProof for AllNonNanProof {
 
     fn check(expr: &BoundExpression) -> VortexResult<NanCheck> {
         non_nan_check(expr, |expr| {
-            NanCheck::Check(stat_fn(expr.clone(), AllNonNan.bind(AggregateEmptyOptions)))
+            let aggregate_fn = AllNonNan.bind(AggregateEmptyOptions);
+            if aggregate_fn.state_dtype(expr.dtype()).is_none() {
+                return NanCheck::Unavailable;
+            }
+            NanCheck::Check(stat_fn(expr.clone(), aggregate_fn))
         })
     }
 }
@@ -729,10 +733,13 @@ fn non_nan_check(
     proof: impl FnOnce(&BoundExpression) -> NanCheck,
 ) -> VortexResult<NanCheck> {
     if let Some(scalar) = expr.as_opt::<Literal>() {
-        if !scalar.dtype().is_float() {
+        if !has_nans(scalar.dtype()) {
             return Ok(NanCheck::NotNeeded);
         }
-        return Ok(if scalar.as_primitive().is_nan() {
+        let Some(primitive) = scalar.as_primitive_opt() else {
+            return Ok(NanCheck::Unavailable);
+        };
+        return Ok(if primitive.is_nan() {
             NanCheck::Check(lit(false))
         } else {
             NanCheck::NotNeeded
@@ -755,7 +762,10 @@ fn non_nan_check(
 }
 
 fn has_nans(dtype: &DType) -> bool {
-    dtype.is_float()
+    match dtype {
+        DType::Extension(ext) => has_nans(ext.storage_dtype()),
+        _ => dtype.is_float(),
+    }
 }
 
 fn stat_expr(expr: &BoundExpression, stat: Stat) -> Option<BoundExpression> {
@@ -866,14 +876,20 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
+    use vortex_array::EmptyMetadata;
     use vortex_array::aggregate_fn::AggregateFnRef;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
     use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
+    use vortex_array::dtype::Claim;
+    use vortex_array::dtype::Claims;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtId;
+    use vortex_array::dtype::extension::ExtVTable;
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::Expression;
     use vortex_array::expr::and;
@@ -894,8 +910,10 @@ mod tests {
     use vortex_array::expr::lt;
     use vortex_array::expr::lt_eq;
     use vortex_array::expr::or;
+    use vortex_array::expr::root;
     use vortex_array::expr::stats::Stat;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar::ScalarValue;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnId;
     use vortex_array::scalar_fn::ScalarFnVTable;
@@ -908,6 +926,7 @@ mod tests {
     use vortex_array::scalar_fn::internal::row_count::RowCount;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
+    use vortex_session::registry::CachedId;
 
     use crate::stats::expr::StatFn;
     use crate::stats::expr::StatOptions;
@@ -992,6 +1011,68 @@ mod tests {
                 value_predicate,
             ),
         )
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    struct OrderedFloat;
+
+    impl ExtVTable for OrderedFloat {
+        type Metadata = EmptyMetadata;
+        type StoredMetadata = EmptyMetadata;
+        type NativeValue<'a> = &'a ScalarValue;
+
+        fn id(&self) -> ExtId {
+            static ID: CachedId = CachedId::new("test.ordered_float");
+            *ID
+        }
+
+        fn serialize_metadata(&self, _metadata: &EmptyMetadata) -> VortexResult<Vec<u8>> {
+            Ok(vec![])
+        }
+
+        fn deserialize_metadata(&self, _bytes: &[u8]) -> VortexResult<EmptyMetadata> {
+            Ok(EmptyMetadata)
+        }
+
+        fn metadata_from_storage(
+            &self,
+            metadata: EmptyMetadata,
+            _storage_dtype: &DType,
+        ) -> VortexResult<EmptyMetadata> {
+            Ok(metadata)
+        }
+
+        fn storage_dtype(_metadata: &EmptyMetadata) -> DType {
+            PType::F64.into()
+        }
+
+        fn claims(_metadata: &EmptyMetadata) -> Claims {
+            Claims::none().with(Claim::Ord)
+        }
+
+        fn unpack_native<'a>(
+            _ext_dtype: &'a ExtDType<Self>,
+            storage_value: &'a ScalarValue,
+        ) -> VortexResult<Self::NativeValue<'a>> {
+            Ok(storage_value)
+        }
+    }
+
+    #[test]
+    fn bounds_skip_extensions_stored_as_floats() -> VortexResult<()> {
+        let ext_dtype =
+            ExtDType::try_with_vtable(OrderedFloat, EmptyMetadata, Nullability::NonNullable)?
+                .erased();
+        let literal = Scalar::try_extension_ref(ext_dtype.clone(), Scalar::from(5.0f64))?;
+        let dtype = DType::Extension(ext_dtype);
+        let predicate = gt(root(), lit(literal)).bind(&dtype)?;
+        assert!(predicate.falsify(&SESSION)?.is_none());
+
+        let dtype = PType::F64.into();
+        let predicate = gt(root(), lit(5.0f64)).bind(&dtype)?;
+        let guarded = nan_guarded(root(), lt_eq(stat(root(), Stat::Max), lit(5.0f64)));
+        assert_eq!(predicate.falsify(&SESSION)?, Some(guarded.bind(&dtype)?));
+        Ok(())
     }
 
     #[test]

@@ -5,14 +5,15 @@ use datafusion_common::ColumnStatistics;
 use datafusion_common::ScalarValue;
 use datafusion_common::stats::Precision;
 use vortex::array::stats::StatsSet;
+use vortex::dtype::Claim;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::expr::stats::Precision as VortexPrecision;
 use vortex::expr::stats::Stat;
-use vortex::extension::datetime::AnyTemporal;
 use vortex::scalar::Scalar;
+use vortex::scalar::ScalarValue as VortexScalarValue;
 
 use crate::PrecisionExt;
 use crate::convert::TryToDataFusion;
@@ -57,12 +58,20 @@ fn scalar_stat_to_df(
         return VortexPrecision::Absent;
     }
 
-    stats_set.get(stat).and_then(|stat_value| {
-        Scalar::try_new(stat.dtype(dtype)?, Some(stat_value))
-            .ok()?
-            .try_to_df()
-            .ok()
-    })
+    scalar_stat(stat, stats_set.get(stat), dtype).and_then(|scalar| scalar.try_to_df().ok())
+}
+
+/// Rebuilds a stored statistic in its logical dtype for export to DataFusion.
+pub(crate) fn scalar_stat(
+    stat: Stat,
+    value: VortexPrecision<VortexScalarValue>,
+    dtype: &DType,
+) -> VortexPrecision<Scalar> {
+    if matches!(stat, Stat::Min | Stat::Max) && !dtype.holds(Claim::Ord) {
+        return VortexPrecision::Absent;
+    }
+
+    value.and_then(|value| Scalar::try_new(stat.dtype(dtype)?, Some(value)).ok())
 }
 
 /// Whether `stats_set` proves the column holds no NaN.
@@ -79,6 +88,11 @@ pub(crate) fn constant_distinct_count(
     min: &Precision<ScalarValue>,
     max: &Precision<ScalarValue>,
 ) -> Precision<usize> {
+    // Old statistics may describe constant storage without a logical equality claim.
+    if !dtype.holds(Claim::Eq) {
+        return Precision::Absent;
+    }
+
     match stats_set
         .get_as::<bool>(Stat::IsConstant, &DType::Bool(Nullability::NonNullable))
         .as_exact()
@@ -89,16 +103,7 @@ pub(crate) fn constant_distinct_count(
     }
 
     // TODO: Replace this inference with IsConstant once file statistics aggregate and persist it.
-    let supports_bounds = match dtype {
-        DType::Bool(_)
-        | DType::Primitive(..)
-        | DType::Utf8(_)
-        | DType::Binary(_)
-        | DType::Decimal(..) => true,
-        DType::Extension(ext) => ext.metadata_opt::<AnyTemporal>().is_some(),
-        _ => false,
-    };
-    if !supports_bounds || *null_count != Precision::Exact(0) {
+    if *null_count != Precision::Exact(0) {
         return Precision::Absent;
     }
 
