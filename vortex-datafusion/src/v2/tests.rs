@@ -549,17 +549,24 @@ async fn test_extension_comparison_literal_pushdown(
 }
 
 #[rstest]
-#[case::uuid(ExtensionFilterType::Uuid)]
-#[case::json(ExtensionFilterType::Json)]
+#[case::uuid(ExtensionFilterType::Uuid, PushedDown::Yes)]
+#[case::json(ExtensionFilterType::Json, PushedDown::No)]
 #[tokio::test]
-async fn test_extension_membership_literals_are_pushed_down(
+async fn test_extension_membership_literal_pushdown(
     #[case] extension_type: ExtensionFilterType,
+    #[case] expected: PushedDown,
 ) -> anyhow::Result<()> {
     let fixture = ExtensionFilterFixture::new(extension_type)?;
     let pushed = fixture
         .source()
         .await?
         .try_pushdown_filters(vec![fixture.membership()?], &ConfigOptions::new())?;
+    if matches!(expected, PushedDown::No) {
+        assert!(matches!(pushed.filters.as_slice(), [PushedDown::No]));
+        assert!(pushed.updated_node.is_none());
+        return Ok(());
+    }
+
     assert!(matches!(pushed.filters.as_slice(), [PushedDown::Yes]));
     let source = pushed
         .updated_node
@@ -577,7 +584,7 @@ async fn test_extension_membership_literals_are_pushed_down(
 async fn test_dynamic_extension_literals_refresh_and_keep_residuals(
     #[case] extension_type: ExtensionFilterType,
 ) -> anyhow::Result<()> {
-    let comparison_pushdown = matches!(extension_type, ExtensionFilterType::Uuid);
+    let eq_pushdown = matches!(extension_type, ExtensionFilterType::Uuid);
     let fixture = ExtensionFilterFixture::new(extension_type)?;
     let bound = Arc::new(DynamicFilterPhysicalExpr::new(
         vec![fixture.column()],
@@ -599,22 +606,10 @@ async fn test_dynamic_extension_literals_refresh_and_keep_residuals(
 
     for (predicate, expected_scan, expected_result) in [
         (df_expr::lit(true), Some(vec![1, 2, 3, 4]), vec![1, 2, 3, 4]), //
-        (
-            fixture.comparison(0),
-            comparison_pushdown.then(|| vec![1]),
-            vec![1],
-        ), //
-        (
-            fixture.comparison(2),
-            comparison_pushdown.then(|| vec![3]),
-            vec![3],
-        ), //
-        (
-            fixture.comparison(3),
-            comparison_pushdown.then(Vec::new),
-            vec![],
-        ), //
-        (fixture.membership()?, Some(vec![2]), vec![2]),                //
+        (fixture.comparison(0), eq_pushdown.then(|| vec![1]), vec![1]), //
+        (fixture.comparison(2), eq_pushdown.then(|| vec![3]), vec![3]), //
+        (fixture.comparison(3), eq_pushdown.then(Vec::new), vec![]),    //
+        (fixture.membership()?, eq_pushdown.then(|| vec![2]), vec![2]), //
         (
             unsupported as Arc<dyn PhysicalExpr>,
             Some(vec![1, 2, 3, 4]),
