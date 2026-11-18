@@ -24,6 +24,8 @@ use crate::arrays::FixedSizeListArray;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::Struct;
+use crate::arrays::StructArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
@@ -34,6 +36,7 @@ use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::executor::Executable;
 use crate::executor::ExecutionCtx;
 use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
@@ -353,6 +356,10 @@ impl TakeExecute for Chunked {
             return Ok(Some(taken));
         }
 
+        if let Some(taken) = take_chunked_struct(array, indices, ctx)? {
+            return Ok(Some(taken));
+        }
+
         if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
             && let Some(taken) = take_piecewise_chunked(array, piecewise_indices, ctx)?
         {
@@ -376,8 +383,148 @@ fn take_chunked_fsl(
         return Ok(None);
     }
 
-    let fsl = array.as_ref().clone().execute::<FixedSizeListArray>(ctx)?;
-    fsl.into_array().take(indices.clone()).map(Some)
+    let Some((array, indices)) = touched_chunks(array, indices, ctx)? else {
+        let fsl = array.as_ref().clone().execute::<FixedSizeListArray>(ctx)?;
+        return fsl.into_array().take(indices.clone()).map(Some);
+    };
+
+    take_swizzled::<FixedSizeListArray>(array, indices, ctx).map(Some)
+}
+
+/// Rewrites take over a chunked struct array with a fixed-size-list field as take over a single
+/// [`StructArray`] whose fields are chunked. The swizzle is structural: it needs no decode when
+/// every chunk is already a struct, which is the case for the chunks of a file scan. Each
+/// fixed-size-list field then takes once with the element-run gather of [`take_chunked_fsl`],
+/// instead of a struct take and a list take for each chunk that the indices touch.
+///
+/// Structs without a fixed-size-list field keep the per-chunk take: there, each field would route
+/// the indices to the chunks again, which costs more than the struct take of each chunk.
+fn take_chunked_struct(
+    array: ArrayView<'_, Chunked>,
+    indices: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let DType::Struct(fields, _) = array.dtype() else {
+        return Ok(None);
+    };
+
+    if !fields
+        .fields()
+        .any(|field| matches!(field, DType::FixedSizeList(..)))
+    {
+        return Ok(None);
+    }
+
+    // A chunk with another encoding would have to execute to a struct, which can decode the whole
+    // chunk to take a few rows of it. Only the chunks that the swizzle visits must be structs.
+    match touched_chunks(array, indices, ctx)? {
+        Some((chunks, indices)) => {
+            if !chunks.iter().all(|chunk| chunk.is::<Struct>()) {
+                return Ok(None);
+            }
+            take_swizzled::<StructArray>(chunks, indices, ctx).map(Some)
+        }
+        None => {
+            if !array.iter_chunks().all(|chunk| chunk.is::<Struct>()) {
+                return Ok(None);
+            }
+            let structs = array.as_ref().clone().execute::<StructArray>(ctx)?;
+            structs.into_array().take(indices.clone()).map(Some)
+        }
+    }
+}
+
+/// Takes `indices` from `chunks` through one swizzled array of type `A`, or directly from the
+/// chunk when there is only one.
+fn take_swizzled<A>(
+    chunks: Vec<ArrayRef>,
+    indices: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef>
+where
+    A: Executable + IntoArray,
+{
+    if let [chunk] = chunks.as_slice() {
+        return chunk.take(indices);
+    }
+
+    let dtype = chunks[0].dtype().clone();
+    // SAFETY: the chunks are chunks of one chunked array, so they all have its dtype.
+    let swizzled = unsafe { ChunkedArray::new_unchecked(chunks, dtype) }
+        .into_array()
+        .execute::<A>(ctx)?;
+    swizzled.into_array().take(indices)
+}
+
+/// The chunks that the non-nullable `indices` touch, in chunk order, and the indices into them.
+///
+/// A swizzle of a chunked array visits every chunk, so a small take over many chunks first keeps
+/// only the chunks that it reads. Returns `None` for nullable indices and for indices that touch
+/// every chunk.
+fn touched_chunks(
+    array: ArrayView<'_, Chunked>,
+    indices: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<(Vec<ArrayRef>, ArrayRef)>> {
+    if indices.dtype().is_nullable() || indices.is_empty() {
+        return Ok(None);
+    }
+
+    let indices = indices
+        .cast(DType::Primitive(PType::U64, indices.dtype().nullability()))?
+        .execute::<PrimitiveArray>(ctx)?;
+    let indices = indices.as_slice::<u64>();
+    let chunk_offsets = array.chunk_offset_values();
+    let array_len = array.as_ref().len();
+
+    // `<=` steps past empty chunks that share the offset of the next chunk.
+    let chunk_of = |index: u64| -> VortexResult<usize> {
+        let index = usize::try_from(index)?;
+        if index >= array_len {
+            vortex_bail!("index {} out of bounds from {} to {}", index, 0, array_len);
+        }
+        Ok(chunk_offsets.partition_point(|&offset| offset <= index) - 1)
+    };
+
+    let mut touched = indices
+        .iter()
+        .map(|&index| chunk_of(index))
+        .collect::<VortexResult<Vec<_>>>()?;
+    touched.sort_unstable();
+    touched.dedup();
+
+    if touched.len() == array.nchunks() {
+        return Ok(None);
+    }
+
+    // The offset of each touched chunk in the touched chunks.
+    let mut touched_offsets = Vec::with_capacity(touched.len());
+    let mut offset = 0usize;
+    for &chunk_idx in &touched {
+        touched_offsets.push(offset);
+        offset += chunk_offsets[chunk_idx + 1] - chunk_offsets[chunk_idx];
+    }
+
+    let remapped = indices
+        .iter()
+        .map(|&index| -> VortexResult<u64> {
+            let chunk_idx = chunk_of(index)?;
+            let position = touched
+                .binary_search(&chunk_idx)
+                .map_err(|_| vortex_err!("chunk {chunk_idx} is not a touched chunk"))?;
+            let local = usize::try_from(index)? - chunk_offsets[chunk_idx];
+            Ok(u64::try_from(touched_offsets[position] + local)?)
+        })
+        .collect::<VortexResult<Buffer<u64>>>()?;
+
+    let chunks = touched
+        .iter()
+        .map(|&chunk_idx| array.chunk(chunk_idx).clone())
+        .collect();
+    Ok(Some((
+        chunks,
+        PrimitiveArray::new(remapped, Validity::NonNullable).into_array(),
+    )))
 }
 
 /// A per-chunk gather plan: chunk-local sub-piece runs to take from one chunk, in output order.
@@ -1049,6 +1196,204 @@ mod tests {
         )?;
 
         assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// A nullable struct of a fixed-size list and a primitive, in chunks of 3, 2 and 4 rows.
+    fn chunked_struct_of_fsl() -> VortexResult<(ChunkedArray, StructArray)> {
+        let lengths = [3usize, 2, 4];
+        let mut chunks = Vec::new();
+        let mut start = 0usize;
+
+        for length in lengths {
+            let rows = start..start + length;
+            let tokens = FixedSizeListArray::try_new(
+                PrimitiveArray::from_iter((rows.start * 2..rows.end * 2).map(|v| v as u64))
+                    .into_array(),
+                2,
+                Validity::NonNullable,
+                length,
+            )?;
+            let ids = PrimitiveArray::from_iter(rows.clone().map(|v| v as u64));
+            let validity = Validity::from_iter(rows.map(|row| row % 4 != 1));
+            chunks.push(
+                StructArray::try_new(
+                    ["tokens", "id"].into(),
+                    vec![tokens.into_array(), ids.into_array()],
+                    length,
+                    validity,
+                )?
+                .into_array(),
+            );
+            start += length;
+        }
+
+        let dtype = chunks[0].dtype().clone();
+        let chunked = ChunkedArray::try_new(chunks, dtype)?;
+
+        let tokens = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter((0..start * 2).map(|v| v as u64)).into_array(),
+            2,
+            Validity::NonNullable,
+            start,
+        )?;
+        let flat = StructArray::try_new(
+            ["tokens", "id"].into(),
+            vec![
+                tokens.into_array(),
+                PrimitiveArray::from_iter((0..start).map(|v| v as u64)).into_array(),
+            ],
+            start,
+            Validity::from_iter((0..start).map(|row| row % 4 != 1)),
+        )?;
+        Ok((chunked, flat))
+    }
+
+    #[test]
+    fn test_take_chunked_struct_of_fsl() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let (chunked, flat) = chunked_struct_of_fsl()?;
+
+        for indices in [
+            buffer![0u64, 2, 3, 5, 8].into_array(),
+            buffer![8u64, 1, 4, 4, 0, 6].into_array(),
+            buffer![7u64].into_array(),
+            buffer![6u64, 0, 7, 0].into_array(),
+            Buffer::<u64>::empty().into_array(),
+            PrimitiveArray::from_option_iter([Some(5u64), None, Some(2)]).into_array(),
+        ] {
+            let result = chunked.clone().into_array().take(indices.clone())?;
+            let expected = flat.clone().into_array().take(indices)?;
+            assert_arrays_eq!(result, expected, &mut ctx);
+        }
+        Ok(())
+    }
+
+    /// Takes that touch some of the chunks, around an empty chunk, read only those chunks and keep
+    /// the order and the duplicates of the indices.
+    #[test]
+    fn test_take_chunked_fsl_touched_chunks() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let lengths = [2usize, 0, 3, 1, 2];
+        let mut chunks = Vec::new();
+        let mut start = 0u64;
+
+        for length in lengths {
+            let end = start + length as u64;
+            chunks.push(
+                FixedSizeListArray::try_new(
+                    PrimitiveArray::from_iter(start * 2..end * 2).into_array(),
+                    2,
+                    Validity::NonNullable,
+                    length,
+                )?
+                .into_array(),
+            );
+            start = end;
+        }
+
+        let dtype = chunks[0].dtype().clone();
+        let chunked = ChunkedArray::try_new(chunks, dtype)?.into_array();
+        let flat = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter(0..start * 2).into_array(),
+            2,
+            Validity::NonNullable,
+            usize::try_from(start)?,
+        )?
+        .into_array();
+
+        for indices in [
+            buffer![7u64, 2, 2, 6].into_array(),
+            buffer![4u64, 3].into_array(),
+            buffer![1u64].into_array(),
+        ] {
+            let result = chunked.take(indices.clone())?;
+            assert_arrays_eq!(result, flat.take(indices)?, &mut ctx);
+        }
+
+        let out_of_bounds = chunked.take(buffer![1u64, 8].into_array())?;
+        assert!(out_of_bounds.execute::<Canonical>(&mut ctx).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_chunked_struct_conformance() -> VortexResult<()> {
+        let (chunked, _) = chunked_struct_of_fsl()?;
+        test_take_conformance(&chunked.into_array(), &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_chunked_struct_constant_chunk() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let s0 = StructArray::try_new(
+            ["a"].into(),
+            vec![buffer![0i32, 1, 2].into_array()],
+            3,
+            Validity::NonNullable,
+        )?;
+        let dtype = s0.dtype().clone();
+        // A constant chunk is only logically a struct, so the take does not swizzle the chunks.
+        let s1 = ConstantArray::new(Scalar::struct_(dtype.clone(), vec![7i32.into()]), 2);
+        let arr = ChunkedArray::try_new(vec![s0.into_array(), s1.into_array()], dtype)?;
+
+        let result = arr.take(buffer![4u64, 0, 3, 2].into_array())?;
+        let expected = StructArray::try_new(
+            ["a"].into(),
+            vec![buffer![7i32, 0, 7, 2].into_array()],
+            4,
+            Validity::NonNullable,
+        )?;
+
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// The take swizzles the struct chunks that the indices touch, also when an untouched chunk is
+    /// not a struct. When the indices touch the constant chunk, the take does not swizzle.
+    #[test]
+    fn test_take_chunked_struct_of_fsl_constant_chunk() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let struct_of_fsl = |start: i32, length: usize| -> VortexResult<ArrayRef> {
+            let end = start + i32::try_from(length)?;
+            let tokens = FixedSizeListArray::try_new(
+                PrimitiveArray::from_iter(start * 2..end * 2).into_array(),
+                2,
+                Validity::NonNullable,
+                length,
+            )?;
+
+            Ok(StructArray::try_new(
+                ["tokens"].into(),
+                vec![tokens.into_array()],
+                length,
+                Validity::NonNullable,
+            )?
+            .into_array())
+        };
+
+        let s0 = struct_of_fsl(0, 2)?;
+        let s2 = struct_of_fsl(4, 2)?;
+        let dtype = s0.dtype().clone();
+
+        let scalar = struct_of_fsl(50, 1)?.execute_scalar(0, &mut ctx)?;
+        let s1 = ConstantArray::new(scalar, 2).into_array();
+
+        let chunked = ChunkedArray::try_new(vec![s0, s1, s2], dtype)?.into_array();
+        let flat = chunked
+            .clone()
+            .execute::<StructArray>(&mut ctx)?
+            .into_array();
+
+        for indices in [
+            buffer![5u64, 0, 4, 1].into_array(),
+            buffer![3u64, 0, 5, 2].into_array(),
+        ] {
+            let result = chunked.take(indices.clone())?;
+            assert_arrays_eq!(result, flat.take(indices)?, &mut ctx);
+        }
+
         Ok(())
     }
 

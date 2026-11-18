@@ -76,6 +76,7 @@ enum ValueKind {
     Primitive,
     Struct8,
     FixedSizeList8,
+    StructOfFixedSizeList8,
 }
 
 impl Display for ValueKind {
@@ -84,6 +85,7 @@ impl Display for ValueKind {
             Self::Primitive => "primitive",
             Self::Struct8 => "struct8",
             Self::FixedSizeList8 => "fsl8",
+            Self::StructOfFixedSizeList8 => "struct_fsl8",
         })
     }
 }
@@ -178,8 +180,23 @@ fn cases() -> Vec<Case> {
             ValueKind::Primitive,
             ValueKind::Struct8,
             ValueKind::FixedSizeList8,
+            ValueKind::StructOfFixedSizeList8,
         ] {
             cases.push(Case::new("value_shape", pattern, 16, 100).with_value_kind(value_kind));
+        }
+    }
+
+    // Random rows of a file scan: few indices over many struct chunks.
+    for value_kind in [
+        ValueKind::Struct8,
+        ValueKind::FixedSizeList8,
+        ValueKind::StructOfFixedSizeList8,
+    ] {
+        for (chunks, indices) in [(256, 64), (4_096, 1), (4_096, 64)] {
+            cases.push(
+                Case::new("sparse_rows", Pattern::Sorted, chunks, indices)
+                    .with_value_kind(value_kind),
+            );
         }
     }
 
@@ -239,6 +256,17 @@ fn chunk_values(value_kind: ValueKind, start: usize, end: usize) -> ArrayRef {
             )
             .into_array()
         }
+        ValueKind::StructOfFixedSizeList8 => StructArray::try_new(
+            FieldNames::from(["tokens", "id"]),
+            vec![
+                chunk_values(ValueKind::FixedSizeList8, start, end),
+                primitive_values(start, end),
+            ],
+            end - start,
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array(),
     }
 }
 
