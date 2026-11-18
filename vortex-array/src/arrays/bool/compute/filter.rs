@@ -152,43 +152,22 @@ fn filter_pext_fallback(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize
 }
 
 // Keep the loops separate so their register allocation does not penalize the all-selected
-// word path. Inline closures also avoid an out-of-line Fn::call shim for each mixed word.
-#[allow(clippy::inline_always)]
+// word path.
 #[inline(never)]
 fn filter_pext_skip_empty(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
-    filter_inner(
-        src,
-        mask_buf,
-        true_count,
-        #[inline(always)]
-        |src, mask| pext_fallback(src, mask),
-    )
+    filter_inner(src, mask_buf, true_count, pext_fallback)
 }
 
-#[allow(clippy::inline_always)]
 #[inline(never)]
 fn filter_pext_mixed(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
-    filter_inner(
-        src,
-        mask_buf,
-        true_count,
-        #[inline(always)]
-        |src, mask| pext_byte_lut::<false>(src, mask),
-    )
+    filter_inner(src, mask_buf, true_count, pext_byte_lut::<false>)
 }
 
 // Keep byte extraction out of the nearly-full mask loop: inlining it spills the state of
 // the much more frequent full-word copy path.
-#[allow(clippy::inline_always)]
 #[inline(never)]
 fn filter_pext_dense(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
-    filter_inner(
-        src,
-        mask_buf,
-        true_count,
-        #[inline(always)]
-        |src, mask| pext_dense(src, mask),
-    )
+    filter_inner(src, mask_buf, true_count, pext_dense)
 }
 
 #[inline(never)]
