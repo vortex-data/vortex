@@ -725,6 +725,9 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use arrow_array::Array as ArrowArrayTrait;
+    use arrow_array::Time32SecondArray;
+    use arrow_array::ffi::to_ffi;
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
@@ -734,6 +737,7 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
+    use vortex::error::VortexResult;
     use vortex::expr::eq;
     use vortex::expr::lit;
     use vortex::expr::root;
@@ -1069,6 +1073,43 @@ mod tests {
             );
             vx_dtype_free(dtype_ptr);
         }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn import_rejects_time_over_one_day() -> VortexResult<()> {
+        let data = Time32SecondArray::from(vec![86_401]).into_data();
+        let (mut ffi_array, mut ffi_schema) = to_ffi(&data)?;
+        // SAFETY: The default session constructor takes no inputs.
+        let session = unsafe { vx_session_new() };
+        let mut error = ptr::null_mut();
+        // SAFETY: The session and both Arrow descriptors are valid, and error is writable.
+        let array = unsafe {
+            vx_array_from_arrow(
+                session,
+                &raw mut ffi_array,
+                &raw mut ffi_schema,
+                false,
+                &raw mut error,
+            )
+        };
+        // SAFETY: The FFI call returned these handles and transferred their ownership.
+        unsafe {
+            vx_session_free(session);
+            if !array.is_null() {
+                vx_array_free(array);
+            }
+        }
+        assert!(array.is_null());
+        assert!(!error.is_null());
+        // SAFETY: The error handle remains live until its message has been copied.
+        let message = unsafe {
+            let message = crate::vx_error_message(error).as_str().map(str::to_owned);
+            vx_error_free(error);
+            message
+        }?;
+        assert!(message.contains("Invalid time scalar"), "{message}");
+        Ok(())
     }
 
     #[test]

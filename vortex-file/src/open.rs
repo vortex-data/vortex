@@ -518,10 +518,15 @@ mod tests {
     use allocator_api2::alloc::AllocError;
     use allocator_api2::alloc::Allocator;
     use allocator_api2::alloc::Global;
+    use futures::TryStreamExt;
     use futures::future::BoxFuture;
     use parking_lot::Mutex;
     use vortex_array::IntoArray;
+    use vortex_array::arrays::ExtensionArray;
     use vortex_array::buffer::BufferHandle;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::extension::datetime::Time;
+    use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::memory::BufferAllocatorRef;
     use vortex_array::memory::MemorySessionExt;
     use vortex_buffer::Alignment;
@@ -529,7 +534,10 @@ mod tests {
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_error::vortex_bail;
+    use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_io::session::RuntimeSession;
+    use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+    use vortex_layout::scan::v2::ScanBuilder;
     use vortex_layout::session::LayoutSession;
     use vortex_session::registry::Id;
     use vortex_session::registry::ReadContext;
@@ -537,6 +545,7 @@ mod tests {
     use super::*;
     use crate::WriteOptionsSessionExt;
     use crate::footer::SegmentSpec;
+    use crate::v2::ScanDriver;
 
     fn test_session() -> VortexSession {
         let session = VortexSession::empty()
@@ -858,6 +867,57 @@ mod tests {
             "unexpected error: {err}"
         );
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn strict_read_rejects_illegal_values() -> VortexResult<()> {
+        let session = test_session();
+        let dtype = Time::try_new(TimeUnit::Seconds, Nullability::NonNullable)?.erased();
+        let storage = Buffer::from(vec![86_401i32, 42]).into_array();
+        let array = ExtensionArray::try_new_structural(dtype, storage)?.into_array();
+
+        let mut bytes = ByteBufferMut::empty();
+        // The zoned writer computes logical extrema and would reject the invalid value.
+        session
+            .write_options()
+            .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+            .with_file_statistics(vec![])
+            .write(&mut bytes, array.to_array_stream())
+            .await?;
+
+        let file = session.open_options().open_buffer(bytes)?;
+        let mut normal = file.scan()?.into_array_stream()?;
+        assert_eq!(normal.try_next().await?.expect("one chunk").len(), 2);
+
+        let mut strict = file
+            .scan()?
+            .with_validate_extension_values(true)
+            .into_array_stream()?;
+        let err = strict
+            .try_next()
+            .await
+            .expect_err("strict reads must reject the illegal time");
+        assert!(err.to_string().contains("Invalid time scalar"), "{err}");
+
+        let mut strict = file
+            .scan()?
+            .with_row_range(1..2)
+            .with_validate_extension_values(true)
+            .into_array_stream()?;
+        assert_eq!(strict.try_next().await?.expect("one selected row").len(), 1);
+
+        let scan = || ScanBuilder::new(session.clone(), file.scan_file());
+        let driver = || ScanDriver::new(TokioRuntime::current(), 1, true);
+        let mut normal = driver().run(scan());
+        assert_eq!(normal.try_next().await?.expect("one chunk").len(), 2);
+
+        let mut strict = driver().run(scan().with_validate_extension_values(true));
+        let err = strict
+            .try_next()
+            .await
+            .expect_err("strict V2 reads must reject the illegal time");
+        assert!(err.to_string().contains("Invalid time scalar"), "{err}");
         Ok(())
     }
 
