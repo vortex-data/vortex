@@ -670,10 +670,20 @@ fn decimal_compare_wide_scalar() -> VortexResult<()> {
 fn extension_timestamp_compare() {
     let mut ctx = SESSION.create_execution_ctx();
     let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
-    let lhs = ExtensionArray::new(ext_dtype.clone(), buffer![1000i64, 2000, 3000].into_array())
-        .into_array();
-    let rhs =
-        ExtensionArray::new(ext_dtype, buffer![1500i64, 2000, 2500].into_array()).into_array();
+    let lhs = ExtensionArray::try_new(
+        ext_dtype.clone(),
+        buffer![1000i64, 2000, 3000].into_array(),
+        &mut SESSION.create_execution_ctx(),
+    )
+    .expect("test storage is valid")
+    .into_array();
+    let rhs = ExtensionArray::try_new(
+        ext_dtype,
+        buffer![1500i64, 2000, 2500].into_array(),
+        &mut SESSION.create_execution_ctx(),
+    )
+    .expect("test storage is valid")
+    .into_array();
 
     let result = execute_compare_test(lhs.clone(), rhs.clone(), CompareOperator::Lt);
     assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]), &mut ctx);
@@ -698,10 +708,11 @@ fn test_extension_comparison_rejects_mismatched_dtypes_at_binding(
     #[values(false, true)] swapped: bool,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let lhs = ExtensionArray::new(
+    let lhs = ExtensionArray::try_new(
         Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased(),
         buffer![1600i64, 1400].into_array(),
-    )
+        &mut SESSION.create_execution_ctx(),
+    )?
     .into_array();
     let scalar = Scalar::try_new(rhs_dtype, Some(1500i64.into()))?;
     let rhs = ConstantArray::new(scalar, lhs.len()).into_array();
@@ -736,11 +747,12 @@ fn test_extension_comparison_preserves_paths_and_nulls(
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
-    let lhs = ExtensionArray::new(
+    let lhs = ExtensionArray::try_new(
         dtype,
         PrimitiveArray::from_option_iter([Some(1600i64), Some(1500), Some(1400), None])
             .into_array(),
-    )
+        &mut SESSION.create_execution_ctx(),
+    )?
     .into_array();
     let rhs = ConstantArray::new(
         Scalar::extension::<Timestamp>(
@@ -772,10 +784,11 @@ fn test_extension_comparison_checks_dtypes_before_fast_paths(
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
-    let lhs = ExtensionArray::new(
+    let lhs = ExtensionArray::try_new(
         dtype,
         ConstantArray::new(Scalar::primitive(1000i64, Nullability::Nullable), len).into_array(),
-    )
+        &mut SESSION.create_execution_ctx(),
+    )?
     .into_array();
     let rhs = ConstantArray::new(
         Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),

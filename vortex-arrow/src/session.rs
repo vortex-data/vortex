@@ -947,7 +947,7 @@ impl ArrowSession {
         let field = Field::new("", array.data_type().clone(), storage_dtype.is_nullable());
         let field = storage_import_field(&field, storage_dtype);
         let storage = self.from_arrow_array_canonical(array, &field)?;
-        Ok(ExtensionArray::try_new(ext.clone(), storage)?.into_array())
+        Ok(ExtensionArray::try_new_structural(ext.clone(), storage)?.into_array())
     }
 
     /// Import a nested array or root array with a resolved Arrow [`Field`].
@@ -972,7 +972,9 @@ impl ArrowSession {
         let imported = self.from_arrow_array_canonical(storage, field)?;
 
         match self.ext_dtype_to_wrap(field, imported.dtype())? {
-            Some(ext_dtype) => Ok(ExtensionArray::try_new(ext_dtype, imported)?.into_array()),
+            Some(ext_dtype) => {
+                Ok(ExtensionArray::try_new_structural(ext_dtype, imported)?.into_array())
+            }
             None => Ok(imported),
         }
     }
@@ -1863,7 +1865,7 @@ mod tests {
             validity,
             &mut ctx,
         )?;
-        let expected = ExtensionArray::try_new(ext, lists.into_array())?;
+        let expected = ExtensionArray::try_new(ext, lists.into_array(), &mut ctx)?;
         assert_arrays_eq!(imported, expected, &mut ctx);
         Ok(())
     }

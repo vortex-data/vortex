@@ -16,15 +16,14 @@ use crate::arrays::extension::ExtensionArrayExt;
 impl TakeReduce for Extension {
     fn take(array: ArrayView<'_, Extension>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let taken_storage = array.storage_array().take(indices.clone())?;
-        Ok(Some(
-            ExtensionArray::new(
-                array
-                    .ext_dtype()
-                    .with_nullability(taken_storage.dtype().nullability()),
-                taken_storage,
-            )
-            .into_array(),
-        ))
+        let dtype = array
+            .ext_dtype()
+            .with_nullability(taken_storage.dtype().nullability());
+
+        // SAFETY: taking from array preserves selected storage values or produces nulls. The
+        // extension dtype uses the result's nullability.
+        let result = unsafe { ExtensionArray::new_unchecked(dtype, taken_storage) };
+        Ok(Some(result.into_array()))
     }
 }
 
@@ -34,15 +33,6 @@ impl TakeExecute for Extension {
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let taken_storage = array.storage_array().take(indices.clone())?;
-        Ok(Some(
-            ExtensionArray::new(
-                array
-                    .ext_dtype()
-                    .with_nullability(taken_storage.dtype().nullability()),
-                taken_storage,
-            )
-            .into_array(),
-        ))
+        <Self as TakeReduce>::take(array, indices)
     }
 }

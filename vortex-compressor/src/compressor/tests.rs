@@ -1352,7 +1352,8 @@ fn extension_with_lazy_storage_is_not_passed_through() -> VortexResult<()> {
     let elements = SliceArray::new(chunked, 16..2048).into_array();
     let storage = FixedSizeListArray::new(elements, 16, Validity::NonNullable, 127).into_array();
     let dtype = ExtDType::<BytesExtension>::try_new(0, storage.dtype().nullability())?.erased();
-    let array = ExtensionArray::new(dtype, storage).into_array();
+    let array =
+        ExtensionArray::try_new(dtype, storage, &mut SESSION.create_execution_ctx())?.into_array();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
     let compressed = CascadingCompressor::new(Vec::new()).compress(&array, &mut exec_ctx)?;

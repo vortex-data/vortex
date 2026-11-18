@@ -366,7 +366,7 @@ fn test_geometry() {
         }
         let geometry = geometry.finish_into_varbin();
 
-        let geometry = ExtensionArray::new(
+        let geometry = ExtensionArray::try_new(
             ExtDType::<WellKnownBinary>::try_new(
                 SpatialMetadata::new(Some("EPSG:32600".to_string())),
                 geometry.dtype().nullability(),
@@ -374,7 +374,9 @@ fn test_geometry() {
             .expect("making extension array")
             .erased(),
             geometry.into_array(),
+            &mut SESSION.create_execution_ctx(),
         )
+        .expect("test storage is valid")
         .into_array();
 
         write_single_column_vortex_file("geometry", geometry).await

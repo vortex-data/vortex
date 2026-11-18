@@ -1109,7 +1109,12 @@ async fn test_copy_fixed_shape_tensor_column() -> anyhow::Result<()> {
     let storage = FixedSizeListArray::try_new(elements, 4, Validity::NonNullable, 2)?.into_array();
     let metadata = FixedShapeTensorMetadata::new(PType::F32, vec![2, 2]);
     let ext_dtype = ExtDType::<FixedShapeTensor>::try_new(metadata, storage.dtype().nullability())?;
-    let tensors = ExtensionArray::try_new(ext_dtype.erased(), storage)?.into_array();
+    let tensors = ExtensionArray::try_new(
+        ext_dtype.erased(),
+        storage,
+        &mut session.create_execution_ctx(),
+    )?
+    .into_array();
     let table = StructArray::from_fields(&[("tensor", tensors)])?.into_array();
 
     let mut writer = ObjectStoreWrite::new(Arc::clone(&ctx.store), &"src.vortex".into()).await?;
@@ -1149,7 +1154,8 @@ async fn json_table_with_other_file(other: ArrayRef) -> anyhow::Result<TestSessi
     let strings = VarBinArray::from(vec![r#"{"x":1}"#]).into_array();
     let json_dtype =
         ExtDType::<Json>::try_new(EmptyMetadata, strings.dtype().nullability())?.erased();
-    let json = ExtensionArray::new(json_dtype, strings).into_array();
+    let json = ExtensionArray::try_new(json_dtype, strings, &mut session.create_execution_ctx())?
+        .into_array();
 
     for (path, column) in [("table/json.vortex", json), ("table/other.vortex", other)] {
         let array = StructArray::from_fields(&[("value", column)])?.into_array();

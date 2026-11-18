@@ -198,7 +198,11 @@ pub(crate) fn constant_canonicalize(
                 .execute::<Canonical>(ctx)?
                 .into_array();
 
-            Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage_self))
+            Canonical::Extension({
+                // SAFETY: storage_self has the declared storage dtype and repeats the
+                // checked scalar's storage value.
+                unsafe { ExtensionArray::new_unchecked(ext_dtype.clone(), storage_self) }
+            })
         }
     })
 }
@@ -394,10 +398,16 @@ fn flat_elements(
             builder.finish()
         }
         // An extension value is its storage value.
-        DType::Extension(ext_dtype) => ExtensionArray::new(
-            ext_dtype.clone(),
-            flat_elements(ext_dtype.storage_dtype(), elements, allocator),
-        )
+        DType::Extension(ext_dtype) => {
+            // SAFETY: elements are the validated scalar value's extension elements.
+            // The storage is built directly from those values with the declared dtype.
+            unsafe {
+                ExtensionArray::new_unchecked(
+                    ext_dtype.clone(),
+                    flat_elements(ext_dtype.storage_dtype(), elements, allocator),
+                )
+            }
+        }
         .into_array(),
         _ => {
             let mut builder = builder_with_capacity_in(element_dtype, elements.len(), allocator);
@@ -1212,10 +1222,12 @@ mod tests {
         let DType::Extension(ext_dtype) = date.dtype().clone() else {
             vortex_panic!("a date is an extension value");
         };
-        ExtensionArray::new(
+        ExtensionArray::try_new(
             ext_dtype,
             PrimitiveArray::from_option_iter([Some(42i32), None]).into_array(),
+            &mut SESSION.create_execution_ctx(),
         )
+        .expect("test storage is valid")
         .into_array()
     }
 }

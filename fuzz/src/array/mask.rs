@@ -167,7 +167,12 @@ pub fn mask_canonical_array(
             let ext_dtype = array
                 .ext_dtype()
                 .with_nullability(masked_storage.dtype().nullability());
-            ExtensionArray::new(ext_dtype, masked_storage).into_array()
+            {
+                // SAFETY: masking retains the visible storage values of the original extension
+                // array and the extension dtype tracks the storage nullability.
+                unsafe { ExtensionArray::new_unchecked(ext_dtype, masked_storage) }
+            }
+            .into_array()
         }
         Canonical::Union(_) => {
             vortex_bail!("TODO(connor)[Union]: support Union arrays in the mask fuzzer")

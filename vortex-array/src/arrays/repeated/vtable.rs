@@ -234,8 +234,12 @@ fn repeat_nested(child: Canonical, len: usize) -> VortexResult<Option<ArrayRef>>
             .into_array()
         }
         Canonical::Extension(array) => {
-            ExtensionArray::try_new(array.ext_dtype().clone(), repeat(array.storage_array())?)?
-                .into_array()
+            let storage = repeat(array.storage_array())?;
+
+            // SAFETY: repeating storage from array preserves its dtype and copies its values.
+            let result =
+                unsafe { ExtensionArray::new_unchecked(array.ext_dtype().clone(), storage) };
+            result.into_array()
         }
         Canonical::Variant(array) => VariantArray::try_new(
             repeat(array.core_storage())?,

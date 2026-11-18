@@ -40,7 +40,12 @@ pub(super) fn aabb_zone_map(point_dtype: &DType, boxes: &[[f64; 4]]) -> VortexRe
         storage.dtype().nullability(),
     )?
     .erased();
-    let aabbs = ExtensionArray::try_new(box_dtype, storage)?.into_array();
+    let aabbs = ExtensionArray::try_new(
+        box_dtype,
+        storage,
+        &mut vortex_array::ExecutionCtx::new(vortex_session::VortexSession::empty()),
+    )?
+    .into_array();
     let zone_array = StructArray::from_fields(&[(aabb_fn.to_string().as_str(), aabbs)])?;
     ZoneMap::try_new(
         point_dtype.clone(),

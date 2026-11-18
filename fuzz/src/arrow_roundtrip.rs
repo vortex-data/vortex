@@ -134,9 +134,13 @@ impl<'a> Arbitrary<'a> for ArrowRoundTrip {
         let storage = kind.arbitrary_storage(u, &dtype, len)?;
 
         Ok(Self {
-            array: ExtensionArray::try_new(dtype, storage)
-                .vortex_expect("storage was generated from the extension's storage dtype")
-                .into_array(),
+            array: ExtensionArray::try_new(
+                dtype,
+                storage,
+                &mut ARROW_ROUND_TRIP_SESSION.create_execution_ctx(),
+            )
+            .vortex_expect("storage was generated from the extension's storage dtype")
+            .into_array(),
         })
     }
 }
@@ -360,8 +364,7 @@ impl LogicalKind {
         Ok(dtype)
     }
 
-    /// Generates storage with valid JSON and WKB payloads for types that constrain their bytes,
-    /// and Time values within one day.
+    /// Generates storage within each extension type's value domain.
     fn arbitrary_storage(
         self,
         u: &mut Unstructured<'_>,

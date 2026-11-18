@@ -9,10 +9,13 @@
 use std::sync::Arc;
 
 use vortex_error::VortexError;
+use vortex_error::VortexExpect;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
@@ -52,8 +55,7 @@ pub struct TemporalData {
 pub type TemporalArray = TemporalData;
 
 impl TemporalData {
-    /// Create a new `TemporalData` holding either i32 day offsets, or i64 millisecond offsets
-    /// that are evenly divisible by the number of 86,400,000.
+    /// Creates a date array holding day offsets as `i32` or millisecond offsets as `i64`.
     ///
     /// This is equivalent to the data described by either of the `Date32` or `Date64` data types
     /// from Arrow.
@@ -66,11 +68,12 @@ impl TemporalData {
     ///
     /// If any other time unit is provided, it panics.
     pub fn new_date(array: ArrayRef, time_unit: TimeUnit) -> Self {
+        let dtype = Date::new(time_unit, array.dtype().nullability()).erased();
+        assert_eq!(array.dtype(), dtype.storage_dtype());
+
+        // SAFETY: the declared integer dtype matches, and Date accepts every value it holds.
         Self {
-            ext: ExtensionArray::new(
-                Date::new(time_unit, array.dtype().nullability()).erased(),
-                array,
-            ),
+            ext: unsafe { ExtensionArray::new_unchecked(dtype, array) },
         }
     }
 
@@ -93,12 +96,16 @@ impl TemporalData {
     /// If the time unit is microseconds, and the array is not of primitive I64 type, it panics.
     ///
     /// If the time unit is nanoseconds, and the array is not of primitive I64 type, it panics.
+    ///
+    /// Panics if a non-null value is outside the time of day.
     pub fn new_time(array: ArrayRef, time_unit: TimeUnit) -> Self {
         Self {
-            ext: ExtensionArray::new(
+            ext: ExtensionArray::try_new(
                 Time::new(time_unit, array.dtype().nullability()).erased(),
                 array,
-            ),
+                &mut ExecutionCtx::new(VortexSession::empty()),
+            )
+            .vortex_expect("time storage must match the declared dtype and value range"),
         }
     }
 
@@ -113,11 +120,13 @@ impl TemporalData {
         time_unit: TimeUnit,
         time_zone: Option<Arc<str>>,
     ) -> Self {
+        let dtype =
+            Timestamp::new_with_tz(time_unit, time_zone, array.dtype().nullability()).erased();
+        assert_eq!(array.dtype(), dtype.storage_dtype());
+
+        // SAFETY: the declared i64 dtype matches, and Timestamp accepts every i64 count.
         Self {
-            ext: ExtensionArray::new(
-                Timestamp::new_with_tz(time_unit, time_zone, array.dtype().nullability()).erased(),
-                array,
-            ),
+            ext: unsafe { ExtensionArray::new_unchecked(dtype, array) },
         }
     }
 }

@@ -1370,7 +1370,12 @@ mod tests {
     fn f64_ext_array(values: Buffer<f64>) -> VortexResult<ArrayRef> {
         let ext_dtype =
             ExtDType::<F64Ext>::try_new(EmptyMetadata, Nullability::NonNullable)?.erased();
-        Ok(ExtensionArray::new(ext_dtype, values.into_array()).into_array())
+        Ok(ExtensionArray::try_new(
+            ext_dtype,
+            values.into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array())
     }
 
     fn ext_storage_f64(scalar: &Scalar) -> VortexResult<f64> {

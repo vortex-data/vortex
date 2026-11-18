@@ -69,7 +69,7 @@ impl RowFnExecutionArgs<'_> {
         // it attached that validity. The all-valid kernel check would now execute the validity and
         // reject propagated input nulls. Only length, dtype, and logical nullability need checking.
         if has_array_validity && validity.is_none() && values.dtype().is_nullable() {
-            return self.finalize_output(values, self.batch.probe.row_count);
+            return self.finalize_output(values, self.batch.probe.row_count, ctx);
         }
 
         self.finalize_dense_output(values, ctx)
@@ -160,7 +160,7 @@ impl RowFnExecutionArgs<'_> {
 
         match self.batch.probe.validity.clone() {
             Validity::NonNullable | Validity::AllValid => {
-                self.finalize_output(values, self.batch.probe.row_count)
+                self.finalize_output(values, self.batch.probe.row_count, ctx)
             }
             Validity::Array(valid) => {
                 // `values.mask(valid)` builds and optimizes a scalar-function expression before
@@ -179,7 +179,7 @@ impl RowFnExecutionArgs<'_> {
                     .into_array(),
                     None => values.mask(valid)?,
                 };
-                self.finalize_output(values, self.batch.probe.row_count)
+                self.finalize_output(values, self.batch.probe.row_count, ctx)
             }
             Validity::AllInvalid => {
                 unreachable!("all-invalid validity is handled before dense row execution")

@@ -14,12 +14,10 @@ use crate::arrays::filter::FilterReduce;
 
 impl FilterReduce for Extension {
     fn filter(array: ArrayView<'_, Extension>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            ExtensionArray::new(
-                array.ext_dtype().clone(),
-                array.storage_array().filter(mask.clone())?,
-            )
-            .into_array(),
-        ))
+        let storage = array.storage_array().filter(mask.clone())?;
+
+        // SAFETY: filter preserves the storage dtype and selected values from array.
+        let result = unsafe { ExtensionArray::new_unchecked(array.ext_dtype().clone(), storage) };
+        Ok(Some(result.into_array()))
     }
 }

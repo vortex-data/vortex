@@ -768,7 +768,9 @@ mod tests {
     fn extension_matches_materialized_size() -> VortexResult<()> {
         let storage = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
         let ext_dtype = Date::new(TimeUnit::Days, Nullability::Nullable).erased();
-        let array = ExtensionArray::new(ext_dtype, storage).into_array();
+        let array =
+            ExtensionArray::try_new(ext_dtype, storage, &mut SESSION.create_execution_ctx())?
+                .into_array();
 
         assert_eq!(
             aggregate(&array)?,

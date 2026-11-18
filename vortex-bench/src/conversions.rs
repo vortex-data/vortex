@@ -542,7 +542,7 @@ fn tag_spatial_array(chunk: ArrayRef, spatial_columns: &HashSet<String>) -> Vort
         if spatial_columns.contains(name.as_ref()) && field.dtype().is_binary() {
             let ext = wkb_ext_dtype(field.dtype().nullability())?;
             let little_endian = wkb_field_to_little_endian(field, &mut ctx)?;
-            tagged.push(ExtensionArray::try_new(ext, little_endian)?.into_array());
+            tagged.push(ExtensionArray::try_new_structural(ext, little_endian)?.into_array());
         } else {
             tagged.push(field.clone());
         }

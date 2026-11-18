@@ -182,7 +182,7 @@ mod tests {
                 bytes: source,
                 ..
             } = draw_wkb_storage(tc, nullability, len)?;
-            let array = ExtensionArray::try_new(dtype, storage)?.into_array();
+            let array = ExtensionArray::try_new(dtype, storage, &mut ctx)?.into_array();
             let bytes = source.iter().map(|row| row.as_deref());
             let alternate_layouts: [ArrowArrayRef; 2] = [
                 Arc::new(arrow_array::BinaryArray::from_iter(bytes.clone())),
@@ -206,7 +206,7 @@ mod tests {
                 .collect::<Vec<_>>();
             let storage =
                 build_geometry(dtype.storage_dtype(), field.data_type(), &source, &mut ctx)?;
-            let array = ExtensionArray::try_new(dtype, storage.array)?.into_array();
+            let array = ExtensionArray::try_new(dtype, storage.array, &mut ctx)?.into_array();
             check_generated(tc, array, &field, storage.arrow, &mut ctx)
         }
     }
@@ -541,7 +541,7 @@ mod tests {
             .collect::<Vec<_>>();
         source.push(None);
         let storage = build_geometry(dtype.storage_dtype(), field.data_type(), &source, &mut ctx)?;
-        let array = ExtensionArray::try_new(dtype.erased(), storage.array)?.into_array();
+        let array = ExtensionArray::try_new(dtype.erased(), storage.array, &mut ctx)?.into_array();
         check_arrow(array, &field, storage.arrow, &mut ctx)
     }
 

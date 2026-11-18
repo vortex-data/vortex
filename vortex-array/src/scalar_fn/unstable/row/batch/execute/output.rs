@@ -30,11 +30,12 @@ impl RowFnExecutionArgs<'_> {
         &self,
         values: ArrayRef,
         expected_len: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         // Label before validation so the checks below see the dtype this function returns. Every
         // batch strategy reaches this method after masking, so an empty, all-null, constant, or
         // partially valid batch carries the same metadata as a dense one.
-        let values = self.plan.relabel_output(values)?;
+        let values = self.plan.relabel_output(values, ctx)?;
 
         validate_output(self.batch.id, &self.result_dtype, expected_len, &values)?;
 

@@ -390,7 +390,8 @@ fn nullable_float_bit_patterns(
     .into_array();
     let array = if extension {
         let dtype = ExtDType::<FloatExtension>::try_new(0, storage.dtype().nullability())?;
-        ExtensionArray::new(dtype.erased(), storage).into_array()
+        ExtensionArray::try_new(dtype.erased(), storage, &mut SESSION.create_execution_ctx())?
+            .into_array()
     } else {
         storage
     };
@@ -413,7 +414,9 @@ fn nullable_float_bit_patterns(
 fn extension_with_constant_storage() -> VortexResult<()> {
     let storage = ConstantArray::new(Scalar::from(f64::NAN), 100).into_array();
     let dtype = ExtDType::<FloatExtension>::try_new(0, storage.dtype().nullability())?;
-    let array = ExtensionArray::new(dtype.erased(), storage).into_array();
+    let array =
+        ExtensionArray::try_new(dtype.erased(), storage, &mut SESSION.create_execution_ctx())?
+            .into_array();
     let mut ctx = SESSION.create_execution_ctx();
 
     assert!(is_constant_for_compression(&array, &mut ctx)?);
@@ -445,7 +448,8 @@ fn encoded_storage_constant_detection(
     let storage = DictArray::try_new(codes, values)?.into_array();
     let array = if storage.dtype().is_float() {
         let dtype = ExtDType::<FloatExtension>::try_new(0, storage.dtype().nullability())?;
-        ExtensionArray::new(dtype.erased(), storage).into_array()
+        ExtensionArray::try_new(dtype.erased(), storage, &mut SESSION.create_execution_ctx())?
+            .into_array()
     } else {
         storage
     };

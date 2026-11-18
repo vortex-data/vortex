@@ -40,10 +40,11 @@ mod tests {
         let ctx = setup()?;
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
         let bloom_filter = build_filter(
-            ExtensionArray::new(
+            ExtensionArray::try_new(
                 ext_dtype.clone(),
                 PrimitiveArray::from_iter([1_000i64, 2_000, 3_000]).into_array(),
-            )
+                &mut vortex_array::ExecutionCtx::new(vortex_session::VortexSession::empty()),
+            )?
             .into_array(),
             DType::Extension(ext_dtype.clone()),
             ctx,
@@ -70,10 +71,11 @@ mod tests {
         let ctx = setup()?;
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
         let bloom_filter = build_filter(
-            ExtensionArray::new(
+            ExtensionArray::try_new(
                 ext_dtype.clone(),
                 PrimitiveArray::from_option_iter([Some(1_000i64), None, Some(3_000)]).into_array(),
-            )
+                &mut vortex_array::ExecutionCtx::new(vortex_session::VortexSession::empty()),
+            )?
             .into_array(),
             DType::Extension(ext_dtype.clone()),
             ctx,

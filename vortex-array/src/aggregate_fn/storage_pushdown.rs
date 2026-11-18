@@ -92,10 +92,11 @@ use crate::scalar::Scalar;
 ///
 /// // Aggregate a timestamp column through its storage.
 /// let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
-/// let column = ExtensionArray::new(
+/// let column = ExtensionArray::try_new(
 ///     ext_dtype.clone(),
 ///     PrimitiveArray::from_iter([1_000i64, 2_000, 3_000]).into_array(),
-/// )
+///     &mut session.create_execution_ctx(),
+/// )?
 /// .into_array();
 ///
 /// let mut acc = Accumulator::try_new(
@@ -319,6 +320,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -361,7 +363,12 @@ mod tests {
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
         let storage =
             PrimitiveArray::from_option_iter([Some(3_000i64), None, Some(1_000)]).into_array();
-        let array = ExtensionArray::new(ext_dtype.clone(), storage.clone()).into_array();
+        let array = ExtensionArray::try_new(
+            ext_dtype.clone(),
+            storage.clone(),
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
 
         let mut ctx = session.create_execution_ctx();
         let mut acc = Accumulator::try_new(
@@ -387,10 +394,12 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
         let batch = |values: [Option<i64>; 2]| {
-            ExtensionArray::new(
+            ExtensionArray::try_new(
                 ext_dtype.clone(),
                 PrimitiveArray::from_option_iter(values).into_array(),
+                &mut SESSION.create_execution_ctx(),
             )
+            .vortex_expect("test storage is valid")
             .into_array()
         };
         let accumulator = || {
@@ -493,10 +502,11 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
-        let array = ExtensionArray::new(
+        let array = ExtensionArray::try_new(
             ext_dtype.clone(),
             PrimitiveArray::from_option_iter(values).into_array(),
-        )
+            &mut SESSION.create_execution_ctx(),
+        )?
         .into_array();
 
         let mut acc = Accumulator::try_new(
@@ -516,7 +526,12 @@ mod tests {
         let ext_dtype = Date::new(TimeUnit::Days, Nullability::Nullable).erased();
         let storage =
             PrimitiveArray::from_option_iter([Some(20i32), None, Some(-3), Some(7)]).into_array();
-        let array = ExtensionArray::new(ext_dtype.clone(), storage.clone()).into_array();
+        let array = ExtensionArray::try_new(
+            ext_dtype.clone(),
+            storage.clone(),
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
 
         let mut acc = Accumulator::try_new(
             ExtensionStoragePushdown::new(MinMax, Date),

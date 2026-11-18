@@ -223,7 +223,12 @@ impl VTable for Constant {
                 // Call the Extension vtable directly: `ArrayRef::append_to_builder` would optimize
                 // the array back into this constant and recurse.
                 let storage = ConstantArray::new(scalar.as_extension().to_storage_scalar(), n);
-                let extension = ExtensionArray::new(ext_dtype.clone(), storage.into_array());
+                let extension = {
+                    // SAFETY: the constant has the dtype and storage value of the checked scalar.
+                    unsafe {
+                        ExtensionArray::new_unchecked(ext_dtype.clone(), storage.into_array())
+                    }
+                };
                 Extension::append_to_builder(extension.as_view(), builder, ctx)?
             }
             DType::FixedSizeList(..) => {

@@ -321,10 +321,12 @@ fn list_view_child() -> ArrayRef {
 
 /// Three timestamps.
 fn extension_child() -> ArrayRef {
-    ExtensionArray::new(
+    ExtensionArray::try_new(
         Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased(),
         buffer![1i64, 2, 3].into_array(),
+        &mut SESSION.create_execution_ctx(),
     )
+    .expect("test storage is valid")
     .into_array()
 }
 

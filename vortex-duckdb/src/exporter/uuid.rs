@@ -125,7 +125,12 @@ mod tests {
             ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage.dtype().nullability())
                 .expect("valid uuid storage")
                 .erased();
-        ExtensionArray::new(ext_dtype, storage)
+        ExtensionArray::try_new(
+            ext_dtype,
+            storage,
+            &mut ExecutionCtx::new(vortex::session::VortexSession::empty()),
+        )
+        .expect("test storage is valid")
     }
 
     #[test]

@@ -402,22 +402,28 @@ mod tests {
     /// compressed storage on the GPU instead of being treated as already
     /// canonical (#8143).
     #[rstest]
-    #[case::date(ExtensionArray::new(
+    #[case::date(ExtensionArray::try_new(
         Date::new(TimeUnit::Days, Nullability::NonNullable).erased(),
         for_bp((0..2048i32).map(|i| i % 128).collect(), 10_000i32),
-    ))]
-    #[case::timestamp(ExtensionArray::new(
+        &mut SESSION.create_execution_ctx(),
+    ).expect("test storage is valid"))]
+    #[case::timestamp(ExtensionArray::try_new(
         Timestamp::new(TimeUnit::Microseconds, Nullability::NonNullable).erased(),
         for_bp((0..2048i64).map(|i| i % 128).collect(), 1_000_000i64),
-    ))]
+        &mut SESSION.create_execution_ctx(),
+    ).expect("test storage is valid"))]
     #[crate::test]
     async fn test_ext_storage_gpu_decode(#[case] ext: ExtensionArray) -> VortexResult<()> {
         let mut cpu_ctx = SESSION.create_execution_ctx();
         let mut ctx =
             CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
 
-        let expected =
-            ExtensionArray::new(ext.ext_dtype().clone(), ext.storage_array().clone()).into_array();
+        let expected = ExtensionArray::try_new(
+            ext.ext_dtype().clone(),
+            ext.storage_array().clone(),
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
 
         let actual = ext.into_array().execute_cuda(&mut ctx).await?;
         let storage = actual.as_extension().storage_array();
@@ -440,11 +446,12 @@ mod tests {
         let mut ctx =
             CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
 
-        let ext = ExtensionArray::new(
+        let ext = ExtensionArray::try_new(
             Date::new(TimeUnit::Days, Nullability::NonNullable).erased(),
             PrimitiveArray::new(Buffer::from((0..128i32).collect::<Vec<_>>()), NonNullable)
                 .into_array(),
-        );
+            &mut SESSION.create_execution_ctx(),
+        )?;
 
         let actual = ext
             .clone()

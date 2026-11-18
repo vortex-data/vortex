@@ -15,12 +15,10 @@ use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for Extension {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            ExtensionArray::new(
-                array.ext_dtype().clone(),
-                array.storage_array().slice(range)?,
-            )
-            .into_array(),
-        ))
+        let storage = array.storage_array().slice(range)?;
+
+        // SAFETY: slice preserves the storage dtype and selected values from array.
+        let result = unsafe { ExtensionArray::new_unchecked(array.ext_dtype().clone(), storage) };
+        Ok(Some(result.into_array()))
     }
 }
