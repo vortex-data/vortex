@@ -120,6 +120,8 @@ mod tests {
     use crate::dtype::extension::ExtDTypeRef;
     use crate::dtype::extension::ExtId;
     use crate::dtype::extension::ExtVTable;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
@@ -236,13 +238,13 @@ mod tests {
 
     #[test]
     fn test_extension_constant_child_normalizes_under_scalar_fn() {
-        let ext_dtype = test_ext_dtype();
+        let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
 
         let constant_storage = ConstantArray::new(Scalar::from(10i64), 3).into_array();
         let constant_ext = ExtensionArray::new(ext_dtype.clone(), constant_storage).into_array();
 
         let storage = buffer![15i64, 25, 35].into_array();
-        let ext_array = ExtensionArray::new(ext_dtype, storage).into_array();
+        let ext_array = ExtensionArray::new(ext_dtype.clone(), storage).into_array();
 
         let scalar_fn_array = Compare::try_new(constant_ext, ext_array, CompareOperator::Lt)
             .unwrap()
@@ -257,14 +259,14 @@ mod tests {
 
         assert_eq!(
             constant.scalar(),
-            &Scalar::extension_ref(test_ext_dtype(), Scalar::from(10i64))
+            &Scalar::extension_ref(ext_dtype, Scalar::from(10i64))
         );
         assert_eq!(constant.len(), 3);
     }
 
     #[test]
     fn test_scalar_fn_no_pushdown_non_constant_sibling() {
-        let ext_dtype = test_ext_dtype();
+        let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
 
         let storage1 = buffer![10i64, 20, 30].into_array();
         let ext_array1 = ExtensionArray::new(ext_dtype.clone(), storage1).into_array();

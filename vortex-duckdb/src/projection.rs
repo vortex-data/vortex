@@ -30,6 +30,7 @@ use crate::duckdb::LogicalType;
 use crate::duckdb::TableFilterClass;
 use crate::duckdb::TableFilterRef;
 use crate::duckdb::TableFilterSetRef;
+use crate::table_function::BindState;
 use crate::table_function::ColumnAggregate;
 
 // See MultiFileReader for constants
@@ -215,34 +216,43 @@ pub(crate) fn is_optional_table_filter(filter: &TableFilterRef) -> bool {
 
 impl Filter {
     /// Creates a table filter expression, row selection, and row range from the table filter set,
-    /// column metadata, additional filter expressions, and the top-level DType.
+    /// scan columns, and bind state.
     pub fn new(
         table_filter_set: Option<&TableFilterSetRef>,
         column_ids: &[u64],
-        column_fields: &[DuckdbField],
-        additional_filters: &[Expression],
-        dtype: &DType,
+        bind_data: &BindState,
     ) -> VortexResult<Self> {
         let mut has_non_optional_filter = false;
 
         let mut table_filter_exprs = Vec::new();
         if let Some(filter) = table_filter_set {
-            for (idx, ex) in filter.into_iter().filter(|(idx, _)| {
+            for (idx, ex) in filter {
                 let idx_u: usize = idx.as_();
-                !is_virtual_column(column_ids[idx_u])
-            }) {
-                has_non_optional_filter |= !is_optional_table_filter(ex);
+                let column_id = column_ids[idx_u];
+                if is_virtual_column(column_id) {
+                    continue;
+                }
 
-                let idx_u: usize = idx.as_();
-                let col_idx: usize = column_ids[idx_u].as_();
-                let name = &column_fields.get(col_idx).vortex_expect("exists").name;
-                if let Some(expr) = try_from_table_filter(ex, &col(name.as_str()), dtype)? {
+                let col_idx: usize = column_id.as_();
+                // The planner moved declined table filters above the scan. Runtime filters added
+                // after that veto only speed up DuckDB's join or Top-N and can be skipped here,
+                // even a join filter that DuckDB does not mark optional, because the join applies
+                // the same condition.
+                if !bind_data.supports_pushdown_type(col_idx) {
+                    continue;
+                }
+
+                has_non_optional_filter |= !is_optional_table_filter(ex);
+                let name = &bind_data.columns.get(col_idx).vortex_expect("exists").name;
+                if let Some(expr) =
+                    try_from_table_filter(ex, &col(name.as_str()), &bind_data.dtype)?
+                {
                     push_filter_expr(&mut table_filter_exprs, &expr);
                 }
             }
         }
 
-        for expr in additional_filters {
+        for expr in &bind_data.filters {
             push_filter_expr(&mut table_filter_exprs, expr);
         }
 
@@ -258,7 +268,7 @@ impl Filter {
         };
 
         let filter = and_collect(table_filter_exprs)
-            .map(|expr| expr.bind(dtype)?.optimize_recursive())
+            .map(|expr| expr.bind(&bind_data.dtype)?.optimize_recursive())
             .transpose()?;
 
         let out = Self {

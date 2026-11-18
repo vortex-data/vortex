@@ -5,6 +5,7 @@ use core::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use crate::dtype::Claim;
 use crate::dtype::NativePType;
 use crate::proto::expr::boolean_opts::BooleanOp;
 use crate::proto::expr::compare_opts::CompareOp;
@@ -71,6 +72,14 @@ pub enum CompareOperator {
 }
 
 impl CompareOperator {
+    /// Returns the claim that both operands of this comparison must hold.
+    pub fn required_claim(self) -> Claim {
+        match self {
+            Self::Eq | Self::NotEq => Claim::Eq,
+            Self::Gt | Self::Gte | Self::Lt | Self::Lte => Claim::Ord,
+        }
+    }
+
     /// Return the logical inverse of this comparison operator.
     pub fn inverse(self) -> Self {
         match self {

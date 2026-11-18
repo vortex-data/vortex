@@ -24,6 +24,7 @@ use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
+use vortex::dtype::Claim;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -114,6 +115,14 @@ impl BindState {
             aggregates: vec![],
             no_footer_caches: true,
         }
+    }
+
+    pub(crate) fn supports_pushdown_type(&self, column_id: usize) -> bool {
+        // Columns absent from the file dtype include virtual columns with dedicated filters.
+        self.dtype
+            .as_struct_fields()
+            .field_by_index(column_id)
+            .is_none_or(|dtype| dtype.holds(Claim::Ord))
     }
 }
 
@@ -329,13 +338,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         Projection::new_aggregate(&bind_data.aggregates, &bind_data.columns)
     };
 
-    let filter = Filter::new(
-        init_input.filters(),
-        column_ids,
-        &bind_data.columns,
-        &bind_data.filters,
-        &bind_data.dtype,
-    )?;
+    let filter = Filter::new(init_input.filters(), column_ids, bind_data)?;
     if filter.has_non_optional_filter {
         bind_data
             .has_non_optional_filter
@@ -482,8 +485,7 @@ pub fn pushdown_complex_filter(
 ) -> VortexResult<bool> {
     debug!(%expr, "pushing down expression");
 
-    let Some(expr) = try_from_bound_expression(expr, &bind_data.columns)? else {
-        debug!(%expr, "failed to push down expression");
+    let Some(expr) = bindable_filter(bind_data, expr)? else {
         return Ok(false);
     };
 
@@ -496,6 +498,27 @@ pub fn pushdown_complex_filter(
     debug!(%expr, "pushed down expression");
     bind_data.filters.push(expr);
     Ok(true)
+}
+
+/// Converts a DuckDB filter to a Vortex expression that binds against the scan schema.
+///
+/// DuckDB removes a filter from its own plan once the scan accepts it. A filter that cannot bind,
+/// such as a comparison of values without the claim it needs, must therefore stay in DuckDB.
+fn bindable_filter(
+    bind_data: &BindState,
+    expr: &ExpressionRef,
+) -> VortexResult<Option<Expression>> {
+    let Some(filter) = try_from_bound_expression(expr, &bind_data.columns)? else {
+        debug!(%expr, "failed to push down expression");
+        return Ok(None);
+    };
+
+    if let Err(error) = filter.bind(&bind_data.dtype) {
+        debug!(%filter, %error, "failed to bind pushed filter");
+        return Ok(None);
+    }
+
+    Ok(Some(filter))
 }
 
 pub fn pushdown_projection_expression(
@@ -632,6 +655,11 @@ fn aggregate_table_filters(
     let mut has_non_optional_filter = false;
     for (scan_index, filter) in input.table_filters() {
         let column_id: usize = input.column_id(scan_index).as_();
+        // The aggregate rewrite takes ownership of the table filters before the physical scan
+        // can decline them.
+        if !bind_data.supports_pushdown_type(column_id) {
+            return None;
+        }
         let field = bind_data.columns.get(column_id)?;
         let column = col(field.name.as_str());
         let expr = try_from_table_filter(filter, &column, &bind_data.dtype)
@@ -823,4 +851,51 @@ pub fn deserialize(
         field.projection_expr = Some(expr);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex::dtype::extension::ExtDType;
+    use vortex_array::EmptyMetadata;
+    use vortex_array::extension::datetime::TimeUnit;
+    use vortex_array::extension::datetime::Timestamp;
+    use vortex_json::Json;
+    use vortex_spatial::extension::SpatialMetadata;
+    use vortex_spatial::extension::WellKnownBinary;
+
+    use super::*;
+
+    #[test]
+    fn table_filter_pushdown_requires_ord() -> VortexResult<()> {
+        let nullability = Nullability::NonNullable;
+        let json =
+            DType::Extension(ExtDType::<Json>::try_new(EmptyMetadata, nullability)?.erased());
+        let geometry = DType::Extension(
+            ExtDType::<WellKnownBinary>::try_new(SpatialMetadata::default(), nullability)?.erased(),
+        );
+        let timestamp =
+            DType::Extension(Timestamp::new(TimeUnit::Milliseconds, nullability).erased());
+        let nested_json = DType::struct_(
+            [("timestamp", timestamp.clone()), ("json", json)],
+            nullability,
+        );
+        let bind = BindState {
+            dtype: DType::struct_(
+                [
+                    ("geometry", geometry),
+                    ("timestamp", timestamp),
+                    ("nested_json", nested_json),
+                ],
+                nullability,
+            ),
+            ..BindState::empty()
+        };
+
+        assert_eq!(
+            [0, 1, 2].map(|column_id| bind.supports_pushdown_type(column_id)),
+            [false, true, false],
+        );
+
+        Ok(())
+    }
 }

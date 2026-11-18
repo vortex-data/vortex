@@ -88,7 +88,8 @@ impl Compare {
     ///
     /// The operands must have the same logical dtype, ignoring nullability, even when they are
     /// empty or null. Extension dtypes must match, including their metadata; storage dtypes are
-    /// distinct.
+    /// distinct. The operand dtype must hold the
+    /// [claim required by the operator](CompareOperator::required_claim).
     ///
     /// # Errors
     ///
@@ -148,12 +149,13 @@ impl ScalarFnVTable for Compare {
 
     fn return_dtype(
         &self,
-        _operator: &CompareOperator,
+        operator: &CompareOperator,
         arg_dtypes: &[DType],
     ) -> VortexResult<DType> {
         let lhs = &arg_dtypes[0];
         let rhs = &arg_dtypes[1];
         validate_comparison_dtypes(lhs, rhs)?;
+        lhs.require_claim(operator.required_claim(), *operator)?;
 
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }

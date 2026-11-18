@@ -4,12 +4,15 @@
 //! Pushdown tests for the spatial scalar functions: every lowered filter must reach the Vortex
 //! scan on a direct file scan and through a view.
 
+use geo_types::Point as GeoPoint;
 use num_traits::AsPrimitive;
 use rstest::rstest;
 use tempfile::NamedTempFile;
+use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::VarBinViewArray;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex_array::arrays::ExtensionArray;
@@ -17,6 +20,9 @@ use vortex_array::dtype::extension::ExtDType;
 use vortex_spatial::extension::Dimension;
 use vortex_spatial::extension::Point;
 use vortex_spatial::extension::SpatialMetadata;
+use vortex_spatial::extension::WellKnownBinary;
+use wkb::writer::WriteOptions;
+use wkb::writer::write_point;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -161,4 +167,73 @@ fn spatial_filter_pushes_through_view(#[case] filter: &str, #[case] expected: i6
     ))
     .unwrap();
     assert_pushed(&conn, "points_v", filter, expected);
+}
+
+fn wkb_points(points: [(f64, f64); 3]) -> anyhow::Result<ArrayRef> {
+    let mut values = Vec::with_capacity(points.len());
+    for (x, y) in points {
+        let mut bytes = Vec::new();
+        write_point(&mut bytes, &GeoPoint::new(x, y), &WriteOptions::default())?;
+        values.push(bytes);
+    }
+    let storage = VarBinViewArray::from_iter_bin(values).into_array();
+    let dtype = ExtDType::<WellKnownBinary>::try_new(
+        SpatialMetadata::default(),
+        storage.dtype().nullability(),
+    )?;
+    Ok(ExtensionArray::new(dtype.erased(), storage).into_array())
+}
+
+#[test]
+fn geometry_comparisons_remain_in_duckdb() -> anyhow::Result<()> {
+    let file = RUNTIME.block_on(async {
+        let left = wkb_points([(1.0, 1.0), (4.0, 4.0), (1.0, 1.0)])?;
+        let right = wkb_points([(1.0, 1.0), (1.0, 1.0), (4.0, 4.0)])?;
+        let ids = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+        let table = StructArray::from_fields(&[("id", ids), ("a", left), ("b", right)])?;
+        let file = NamedTempFile::with_suffix(".vortex")?;
+        let mut writer = async_fs::File::create(&file).await?;
+        SESSION
+            .write_options()
+            .write(&mut writer, table.into_array().to_array_stream())
+            .await?;
+
+        Ok::<_, anyhow::Error>(file)
+    })?;
+    let (_db, conn) = spatial_database();
+    conn.query(
+        "CREATE TEMP TABLE duckdb_points AS
+         SELECT id, ST_GeomFromText(a) AS a, ST_GeomFromText(b) AS b
+         FROM (VALUES (1, 'POINT (1 1)', 'POINT (1 1)'),
+                      (2, 'POINT (4 4)', 'POINT (1 1)'),
+                      (3, 'POINT (1 1)', 'POINT (4 4)')) AS points(id, a, b)",
+    )?;
+
+    let path = file.path().to_string_lossy();
+    for (projection, predicate) in [
+        ("count(*)", "a = b"),
+        ("count(*)", "a = ST_GeomFromText('POINT (1 1)')"),
+        ("sum(id)::BIGINT", "a = ST_GeomFromText('POINT (1 1)')"),
+    ] {
+        let reference = format!("SELECT {projection} FROM duckdb_points WHERE {predicate}");
+        let scan = format!("SELECT {projection} FROM read_vortex('{path}') WHERE {predicate}");
+        assert_eq!(
+            query_i64(&conn, &scan),
+            query_i64(&conn, &reference),
+            "{scan}"
+        );
+        let plan = explain_plan(&conn, &scan);
+        assert!(
+            plan.split_whitespace()
+                .any(|word| word.eq_ignore_ascii_case("filter")),
+            "expected a DuckDB filter in {scan}:\n{plan}"
+        );
+    }
+
+    let join = "JOIN duckdb_points AS build ON probe.a = build.a WHERE build.id = 1";
+    let reference = format!("SELECT count(*) FROM duckdb_points AS probe {join}");
+    let scan = format!("SELECT count(*) FROM read_vortex('{path}') AS probe {join}");
+    assert_eq!(query_i64(&conn, &scan), query_i64(&conn, &reference));
+
+    Ok(())
 }

@@ -98,6 +98,9 @@ vortex-array = { path = ".", features = [
 vortex-bench-support = { workspace = true }
 # Path-only to avoid a publish cycle with vortex-functions -> vortex-array.
 vortex-functions = { path = "../vortex-functions" }
+vortex-json = { workspace = true }
+vortex-tensor = { workspace = true }
+vortex-uuid = { workspace = true }
 
 [[bench]]
 name = "aggregate_max"

@@ -318,6 +318,7 @@ mod tests {
     use vortex_array::ExecutionCtx;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::sum::sum;
+    use vortex_array::arrays::Bool;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -567,7 +568,10 @@ mod tests {
 
         let comparison = lhs.into_array().compare(rhs, CompareOperator::Eq)?;
 
-        assert_eq!(true_count(&comparison, &mut ctx), 0);
+        // The kernel answers in one step. The generic path needs a step to decode the timestamp.
+        let result = comparison.execute::<ArrayRef>(&mut ctx)?;
+        assert!(result.is::<Bool>());
+        assert_arrays_eq!(result, BoolArray::from_iter([false]), &mut ctx);
         Ok(())
     }
 
