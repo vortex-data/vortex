@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The block program a [`Fused`](super::Fused) array holds, and the loops that run it.
+//! The block program a [`FusedChain`](super::FusedChain) builds, and the loops that run it.
 
 use std::marker::PhantomData;
 use std::ops::Range;

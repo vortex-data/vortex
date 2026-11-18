@@ -161,22 +161,14 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
     /// Access first chunk of the array if the last chunk has fewer than 1024 due to slicing
     pub fn initial(&mut self) -> Option<&mut [T]> {
         (self.first_chunk_is_sliced() || self.num_chunks == 1).then(|| {
-            let chunk: &[T::Physical] = &self.packed[..self.elems_per_chunk()];
-            let dst: &mut [MaybeUninit<T>] = self.scratch;
-            let dst: &mut [T::Physical] = unsafe { mem::transmute(dst) };
-
             let header_end_slice = if self.num_chunks == 1 {
                 self.len
             } else {
                 CHUNK_SIZE - self.offset
             };
-            // SAFETY:
-            // 1. chunk is elems_per_chunk.
-            // 2. buffer is exactly CHUNK_SIZE.
-            unsafe {
-                self.strategy.unpack_chunk(self.bit_width, chunk, dst);
-                mem::transmute(&mut self.scratch[self.offset..][..header_end_slice])
-            }
+            let values =
+                unpack_chunk_into(&self.strategy, self.packed, self.bit_width, 0, self.scratch);
+            &mut values[self.offset..][..header_end_slice]
         })
     }
 
@@ -228,16 +220,10 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
         }
 
         if self.num_chunks > 1 {
-            let packed_slice = self.packed;
-            let elems_per_chunk = self.elems_per_chunk();
             for i in self.full_chunks_range() {
-                let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
-                unsafe {
-                    let dst: &mut [T::Physical] = mem::transmute(&mut self.scratch[..]);
-                    self.strategy.unpack_chunk(self.bit_width, chunk, dst);
-                    let unpacked: &mut [T] = mem::transmute(&mut self.scratch[..]);
-                    f(unpacked, local_idx..local_idx + CHUNK_SIZE);
-                }
+                let unpacked =
+                    unpack_chunk_into(&self.strategy, self.packed, self.bit_width, i, self.scratch);
+                f(unpacked, local_idx..local_idx + CHUNK_SIZE);
                 local_idx += CHUNK_SIZE;
             }
         }
@@ -287,17 +273,14 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
     /// Access last chunk of the array if the last chunk has fewer than 1024 due to slicing
     pub fn trailer(&mut self) -> Option<&mut [T]> {
         (self.last_chunk_is_sliced() && self.num_chunks > 1).then(|| {
-            let chunk: &[T::Physical] = &self.packed
-                [(self.num_chunks - 1) * self.elems_per_chunk()..][..self.elems_per_chunk()];
-            let dst: &mut [MaybeUninit<T>] = self.scratch;
-            let dst: &mut [T::Physical] = unsafe { mem::transmute(dst) };
-            // SAFETY:
-            // 1. chunk is elems_per_chunk.
-            // 2. buffer is exactly CHUNK_SIZE.
-            unsafe {
-                self.strategy.unpack_chunk(self.bit_width, chunk, dst);
-                mem::transmute(&mut self.scratch[..self.last_chunk_length])
-            }
+            let values = unpack_chunk_into(
+                &self.strategy,
+                self.packed,
+                self.bit_width,
+                self.num_chunks - 1,
+                self.scratch,
+            );
+            &mut values[..self.last_chunk_length]
         })
     }
 
@@ -334,7 +317,38 @@ where
     Ok(())
 }
 
-fn validate_packed<T: PhysicalPType>(
+/// Unpack chunk `chunk` of `packed`, at `bit_width` bits per value, into `dst` with `strategy`,
+/// and return its values.
+///
+/// # Panics
+///
+/// Panics if `packed` does not hold chunk `chunk`.
+#[inline]
+pub(crate) fn unpack_chunk_into<'o, T: PhysicalPType, S: UnpackStrategy<T>>(
+    strategy: &S,
+    packed: &[T::Physical],
+    bit_width: usize,
+    chunk: usize,
+    dst: &'o mut [MaybeUninit<T>; CHUNK_SIZE],
+) -> &'o mut [T] {
+    let elems_per_chunk = 128 * bit_width / size_of::<T>();
+    let packed = &packed[chunk * elems_per_chunk..][..elems_per_chunk];
+    let dst = dst.as_mut_ptr();
+    // SAFETY: `T` and `T::Physical` share a layout, `packed` holds exactly one chunk at
+    // `bit_width`, and `dst` holds exactly one chunk, every value of which the unpack writes.
+    unsafe {
+        strategy.unpack_chunk(
+            bit_width,
+            packed,
+            std::slice::from_raw_parts_mut(dst.cast::<T::Physical>(), CHUNK_SIZE),
+        );
+        std::slice::from_raw_parts_mut(dst.cast::<T>(), CHUNK_SIZE)
+    }
+}
+
+/// The number of chunks `packed` holds for `len` values from `offset`, and the length of its last
+/// chunk, or 0 if that is full. Errors if `packed` does not hold exactly those chunks.
+pub(crate) fn validate_packed<T: PhysicalPType>(
     packed_len: usize,
     bit_width: usize,
     offset: usize,

@@ -28,13 +28,11 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_buffer::Buffer;
-use vortex_buffer::ByteBuffer;
 use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure_eq;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
@@ -47,6 +45,8 @@ use crate::FoRReferences;
 use crate::FoRSlots;
 use crate::unpack_iter::BitPackingStrategy;
 use crate::unpack_iter::UnpackStrategy;
+use crate::unpack_iter::unpack_chunk_into;
+use crate::unpack_iter::validate_packed;
 
 /// BitPacked's block source, for arrays with one global bit width.
 pub(crate) fn packed_source(
@@ -115,13 +115,8 @@ where
     };
     let bit_width = usize::from(bit_width);
     let offset = usize::from(bp.offset());
-    let elems_per_chunk = 128 * bit_width / size_of::<T>();
-    let packed = bp.packed().as_host().clone();
-    vortex_ensure_eq!(
-        packed.len(),
-        (offset + bp.len()).div_ceil(FL_CHUNK_SIZE) * elems_per_chunk * size_of::<T>(),
-        "packed buffer does not hold every chunk"
-    );
+    let packed = Buffer::<T::Physical>::from_byte_buffer(bp.packed().as_host().clone());
+    validate_packed::<T>(packed.len(), bit_width, offset, bp.len())?;
     let patches = match bp.patches() {
         Some(patches) => match BlockPatches::try_new(&patches, ctx, |_, value: T| patch(value))? {
             Some(patches) => Some(patches),
@@ -133,7 +128,6 @@ where
         strategy,
         packed,
         bit_width,
-        elems_per_chunk,
         offset,
         patches,
         straddle: None,
@@ -141,11 +135,10 @@ where
 }
 
 /// Unpacks the FastLanes chunks under each requested range with its strategy.
-struct PackedSource<T, S> {
+struct PackedSource<T: PhysicalPType, S> {
     strategy: S,
-    packed: ByteBuffer,
+    packed: Buffer<T::Physical>,
     bit_width: usize,
-    elems_per_chunk: usize,
     /// The position of the first row within the first chunk.
     offset: usize,
     patches: Option<BlockPatches<T>>,
@@ -154,28 +147,12 @@ struct PackedSource<T, S> {
 }
 
 impl<T: PhysicalPType, S: UnpackStrategy<T>> PackedSource<T, S> {
-    /// Unpack chunk `chunk` into `out` and return its values.
-    fn unpack<'o>(&self, chunk: usize, out: &'o mut [MaybeUninit<T::Physical>]) -> &'o mut [T] {
-        // SAFETY: `ByteBuffer` is aligned for the packed integers it was built from, and the
-        // constructor checked it holds `elems_per_chunk` integers for every chunk.
-        let packed = unsafe {
-            std::slice::from_raw_parts(
-                self.packed
-                    .as_ptr()
-                    .cast::<T::Physical>()
-                    .add(chunk * self.elems_per_chunk),
-                self.elems_per_chunk,
-            )
-        };
-        // SAFETY: the unpack writes all `FL_CHUNK_SIZE` values of `out`, which holds one chunk,
-        // from `packed`, which holds one chunk at `bit_width`. `T` and `T::Physical` have the same
-        // size and alignment.
-        unsafe {
-            let out =
-                std::mem::transmute::<&mut [MaybeUninit<T::Physical>], &mut [T::Physical]>(out);
-            self.strategy.unpack_chunk(self.bit_width, packed, out);
-            std::mem::transmute::<&mut [T::Physical], &mut [T]>(out)
-        }
+    /// Unpack chunk `chunk` into `buf` and return its values.
+    fn unpack<'o>(&self, chunk: usize, buf: &'o mut BlockBuf) -> &'o mut [T] {
+        let out = <&mut [MaybeUninit<T>; FL_CHUNK_SIZE]>::try_from(buf.out::<T>(FL_CHUNK_SIZE))
+            .ok()
+            .vortex_expect("a block holds one FastLanes chunk");
+        unpack_chunk_into(&self.strategy, &self.packed, self.bit_width, chunk, out)
     }
 }
 
@@ -191,7 +168,7 @@ impl<T: PhysicalPType, S: UnpackStrategy<T> + Send> BlockSource for PackedSource
         let (block, offset): (&mut [T], usize) = if end <= chunk_start + FL_CHUNK_SIZE {
             // On the source's own grid every range lies in one chunk: unpack it and point at the
             // range's part of it.
-            let values = self.unpack(chunk, scratch.out::<T::Physical>(FL_CHUNK_SIZE));
+            let values = self.unpack(chunk, scratch);
             (
                 &mut values[first - chunk_start..end - chunk_start],
                 first - chunk_start,
@@ -203,7 +180,7 @@ impl<T: PhysicalPType, S: UnpackStrategy<T> + Send> BlockSource for PackedSource
             let mut written = 0;
             for chunk in chunk..=(end - 1) / FL_CHUNK_SIZE {
                 let chunk_start = chunk * FL_CHUNK_SIZE;
-                let values = self.unpack(chunk, straddle.out::<T::Physical>(FL_CHUNK_SIZE));
+                let values = self.unpack(chunk, &mut straddle);
                 let part = &values[first.max(chunk_start) - chunk_start
                     ..end.min(chunk_start + FL_CHUNK_SIZE) - chunk_start];
                 out[written..written + part.len()].write_copy_of_slice(part);
