@@ -46,18 +46,33 @@ pub(crate) fn accumulate_decimal(
         .vortex_expect("decimal sum result dtype");
 
     let values_type = dtype.canonical_values_type();
-    match_each_decimal_value_type!(d.values_type(), |T| {
+    Ok(match_each_decimal_value_type!(d.values_type(), |T| {
         match_each_decimal_value_type!(values_type, |I| {
-            let initial: I = value
-                .cast()
-                .vortex_expect("cannot fail to cast initial value");
-            match sum_decimal_value(initial, d.buffer::<T>(), validity, *dtype) {
-                Some(v) => *value = v,
-                None => return Ok(true),
-            }
-            Ok(false)
+            accumulate_decimal_typed::<T, I>(value, d, validity, *dtype)
         })
-    })
+    }))
+}
+
+fn accumulate_decimal_typed<T, I>(
+    value: &mut DecimalValue,
+    array: &DecimalArray,
+    validity: Option<&BitBuffer>,
+    output_dtype: DecimalDType,
+) -> bool
+where
+    T: NativeDecimalType + AsPrimitive<I>,
+    I: NativeDecimalType + NumOps + CheckedAdd,
+    bool: AsPrimitive<I>,
+    DecimalValue: From<I>,
+{
+    let initial: I = value
+        .cast()
+        .vortex_expect("cannot fail to cast initial value");
+    match sum_decimal_value(initial, array.buffer::<T>(), validity, output_dtype) {
+        Some(v) => *value = v,
+        None => return true,
+    }
+    false
 }
 
 fn sum_decimal_value<T, I>(
