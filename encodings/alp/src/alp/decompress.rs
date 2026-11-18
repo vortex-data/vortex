@@ -8,7 +8,6 @@ use fearless_simd::Simd;
 use fearless_simd::dispatch;
 use fearless_simd_macros::simd;
 use vortex_array::ArrayRef;
-use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
@@ -41,7 +40,9 @@ use crate::match_each_alp_float_ptype;
 pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     let ptype = array.dtype().as_ptype();
     let (encoded, exponents, patches) = ALPArrayOwnedExt::into_parts(array);
-    let encoded = into_primitive(encoded, "encoded")?;
+    let encoded = encoded
+        .try_downcast::<Primitive>()
+        .map_err(|array| not_primitive(&array, "encoded"))?;
 
     let Some(patches) = patches else {
         return decode(encoded, ptype, exponents);
@@ -52,20 +53,6 @@ pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResu
     } else {
         decode(encoded, ptype, exponents)?.patch(&patches, ctx)
     }
-}
-
-/// Downcasts an owned child to a `PrimitiveArray`.
-fn into_primitive(array: ArrayRef, name: &str) -> VortexResult<PrimitiveArray> {
-    array
-        .try_downcast::<Primitive>()
-        .map_err(|array| not_primitive(&array, name))
-}
-
-/// Downcasts a borrowed child to a `PrimitiveArray` view.
-fn as_primitive<'a>(array: &'a ArrayRef, name: &str) -> VortexResult<ArrayView<'a, Primitive>> {
-    array
-        .as_opt::<Primitive>()
-        .ok_or_else(|| not_primitive(array, name))
 }
 
 fn not_primitive(array: &ArrayRef, name: &str) -> VortexError {
@@ -109,9 +96,17 @@ fn decompress_chunked(
         .as_ref()
         .ok_or_else(|| vortex_err!("ALP chunked decompression requires patch chunk offsets"))?;
 
-    let patches_chunk_offsets = as_primitive(patches_chunk_offsets, "patch chunk offsets")?;
-    let patches_indices = as_primitive(patches.indices(), "patch indices")?;
-    let patches_values = as_primitive(patches.values(), "patch values")?;
+    let patches_chunk_offsets = patches_chunk_offsets
+        .as_opt::<Primitive>()
+        .ok_or_else(|| not_primitive(patches_chunk_offsets, "patch chunk offsets"))?;
+    let patches_indices = patches
+        .indices()
+        .as_opt::<Primitive>()
+        .ok_or_else(|| not_primitive(patches.indices(), "patch indices"))?;
+    let patches_values = patches
+        .values()
+        .as_opt::<Primitive>()
+        .ok_or_else(|| not_primitive(patches.values(), "patch values"))?;
 
     Ok(match_each_alp_float_ptype!(ptype, |T| {
         let mut alp_buffer = encoded.into_buffer_mut();
