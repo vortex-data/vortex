@@ -6,6 +6,7 @@ pub mod all_non_distinct;
 pub mod all_non_nan;
 pub mod all_non_null;
 pub mod all_null;
+pub mod approx_distinct_count;
 pub mod bounded_max;
 pub mod bounded_min;
 pub mod count;

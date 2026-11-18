@@ -4,6 +4,10 @@
 use datafusion_common::ColumnStatistics;
 use datafusion_common::ScalarValue;
 use datafusion_common::stats::Precision;
+use vortex::aggregate_fn::AggregateFnVTableExt;
+use vortex::aggregate_fn::EmptyOptions;
+use vortex::aggregate_fn::fns::approx_distinct_count::ApproxDistinctCount;
+use vortex::aggregate_fn::fns::approx_distinct_count::ApproxDistinctCountHll;
 use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
@@ -12,6 +16,7 @@ use vortex::error::VortexResult;
 use vortex::expr::stats::Precision as VortexPrecision;
 use vortex::expr::stats::Stat;
 use vortex::extension::datetime::AnyTemporal;
+use vortex::layout::layouts::file_stats::AggregateStats;
 use vortex::scalar::Scalar;
 
 use crate::PrecisionExt;
@@ -69,6 +74,30 @@ fn scalar_stat_to_df(
 pub(crate) fn is_nan_free(stats_set: &StatsSet, dtype: &DType) -> bool {
     !dtype.is_float()
         || stats_set.get_as::<u64>(Stat::NaNCount, &PType::U64.into()) == VortexPrecision::Exact(0)
+}
+
+/// The approximate distinct count recorded in `aggregates`, from either the hash-set or the
+/// HyperLogLog aggregate.
+pub(crate) fn approx_distinct_count(aggregates: &AggregateStats) -> VortexPrecision<Scalar> {
+    match aggregates.get(&ApproxDistinctCount.bind(EmptyOptions)) {
+        VortexPrecision::Absent => aggregates.get(&ApproxDistinctCountHll.bind(EmptyOptions)),
+        count => count,
+    }
+}
+
+/// Fall back to `approx_distinct_count`, an upper bound on the distinct non-null values, when
+/// `distinct_count` is unknown.
+pub(crate) fn or_approx_distinct_count(
+    distinct_count: Precision<usize>,
+    approx_distinct_count: VortexPrecision<Scalar>,
+) -> Precision<usize> {
+    if distinct_count != Precision::Absent {
+        return distinct_count;
+    }
+    approx_distinct_count
+        .into_inner()
+        .and_then(|count| count.as_primitive().as_::<usize>())
+        .map_or(Precision::Absent, Precision::Inexact)
 }
 
 /// Infer a singleton from exact bounds, excluding nulls and, for floats, NaNs.

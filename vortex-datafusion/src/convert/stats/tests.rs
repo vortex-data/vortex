@@ -237,3 +237,23 @@ fn test_extension_statistics_do_not_export_storage_values() -> VortexResult<()> 
 
     Ok(())
 }
+
+#[rstest]
+#[case::absent_uses_approx(
+    Precision::Absent,
+    VortexPrecision::exact(Scalar::from(42u64)),
+    Precision::Inexact(42)
+)]
+#[case::known_wins(
+    Precision::Exact(1),
+    VortexPrecision::exact(Scalar::from(42u64)),
+    Precision::Exact(1)
+)]
+#[case::both_absent(Precision::Absent, VortexPrecision::Absent, Precision::Absent)]
+fn test_or_approx_distinct_count(
+    #[case] distinct_count: Precision<usize>,
+    #[case] approx: VortexPrecision<Scalar>,
+    #[case] expected: Precision<usize>,
+) {
+    assert_eq!(or_approx_distinct_count(distinct_count, approx), expected);
+}

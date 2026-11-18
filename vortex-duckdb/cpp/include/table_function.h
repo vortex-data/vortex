@@ -68,6 +68,8 @@ typedef struct {
     // set only for strings
     uint64_t max_string_length;
     bool has_null;
+    // An upper bound on the distinct non-null values, or 0 if unknown.
+    uint64_t distinct_count;
     // owned column type
     duckdb_logical_type type;
     // TODO(myrrc) remove after https://github.com/duckdb/duckdb/pull/28099

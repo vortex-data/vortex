@@ -76,6 +76,7 @@ pub use datasets::BenchmarkDataset;
 pub use output::BenchmarkOutput;
 pub use output::create_output_writer;
 use vortex::VortexSessionDefault;
+use vortex::editions::DEFAULT_PREVIEW_EDITION;
 use vortex::editions::Edition;
 use vortex::editions::EditionDeclaration;
 use vortex::editions::EditionFamily;
@@ -117,6 +118,9 @@ static UNSTABLE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[EditionMember::layout(&"vortex.list")],
 };
 
+/// The benchmark session. It writes the newest `preview` edition alongside the default `core`
+/// edition, so benchmark files carry the preview footer statistics (such as the approximate
+/// distinct count) that query engines read for planning.
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
@@ -127,6 +131,9 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
         .register_edition(&UNSTABLE_BENCH_DECLARATION)
         .vortex_expect("bench edition declaration is valid");
+    session
+        .enable_edition(DEFAULT_PREVIEW_EDITION)
+        .vortex_expect("preview edition is registered");
     session
 });
 
@@ -310,7 +317,12 @@ pub enum CompactionStrategy {
 }
 
 impl CompactionStrategy {
+    /// Applies this compaction strategy to `options`.
+    ///
+    /// Benchmark files also record the nested file statistics, which carry footer-only aggregates
+    /// such as the approximate distinct count that the legacy statistics have no slot for.
     pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
+        let options = options.include_nested_statistics();
         match self {
             CompactionStrategy::Compact => options.with_strategy(
                 WriteStrategyBuilder::from_session(&SESSION)
