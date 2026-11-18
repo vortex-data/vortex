@@ -10,18 +10,23 @@ This plan tracks [canonical decimals](https://github.com/vortex-data/vortex/issu
 [implementation briefs](agents/briefs/) describe the work behind each plan ID.
 [`decisions.md`](../decisions.md) records the design and how it changed.
 
-## Progress on 2026-11-17
+## Progress on 2026-11-18
 
-On [`develop` at `3ebf68d239`](https://github.com/vortex-data/vortex/tree/3ebf68d239da461c7bdd4ac6bcda0220727d8d44),
-precision determines the canonical width used by Arrow and DuckDB imports. Decimal `Widen` can
-keep a narrower child in memory, and the host reader converts legacy `vortex.decimal` nodes.
-`DecimalArray` still accepts other widths.
+On [`develop` at `ac62d8d918`](https://github.com/vortex-data/vortex/tree/ac62d8d918),
+the in-memory change is complete. Every `DecimalArray` has the canonical width of its precision
+([#11571]), checked constructors reject a valid host value outside the precision ([#11572]), and
+kernels read same-dtype operands at that one width ([#11573]). A narrower physical form is a
+`Widen`, and the host reader still converts legacy `vortex.decimal` nodes.
 
-DecimalByteParts now decodes to the canonical width on the CPU and, for arrays with no lower
-parts, on the GPU. [#11459] also changed the compressor to keep a narrow most significant part
-(MSP) as an integer `Widen`. The writer stores its integer child in the existing wire form.
-[#11459] retries an overflowing integer MSP sum in `i128` when the decimal sum state is wider than
-`i64`, so an eligible sum can finish without decoding the decimal array.
+DecimalByteParts decodes to the canonical width on the CPU and, for arrays with no lower parts, on
+the GPU. The compressor keeps a narrow most significant part (MSP) as an integer `Widen` and
+writes its integer child in the existing wire form ([#11459]).
+
+The wire change has started. [#11597] adds the `vortex.widen` wire format (WR1), and [#11596]
+tightens the DecimalByteParts v2 reader before v2 joins an edition. On 2026-11-18, [#11595]
+removed every member except `fastlanes.delta` from the `unstable` edition, so no edition permits
+DecimalByteParts v2 today. Its audit found that `between` and aggregates decode the canonical
+array when lower parts exist.
 
 🟢 **Done** means the change merged into `develop`. 🔵 **Open** means its implementation PR is open.
 🟡 **In progress** means some pieces merged and others are open. ⚪ **Not started** means no
@@ -54,11 +59,12 @@ implementation PR was found. 🟠 **Parked** marks an experiment that closed wit
 | CUDA `Widen` | 🟢 Done | Execute integer and decimal `Widen` on the device. [#11303] | WD1, CD4 | Unestimated |
 | CD5 | 🟢 Done | CPU decoding and the GPU MSP-only decoder produce canonical widths. Lower parts are non-nullable `u64`. [#11456], [#11457], [#11458], [#11510], [#11459], [#11460] | WD1, LT3, CD1, CD3, CD3b, CUDA `Widen`, release 0.91.0 | Large |
 | CD7 | 🟢 Done | [#11459] removes `narrowed_decimal`. The scheme narrows the integer MSP, including next to lower parts, and ignores null payloads when choosing parts. | Shares the CPU implementation with CD5 | Medium |
-| CD8a | 🔵 Open | Require canonical-width storage for every `DecimalArray`. [#11571] | CD3, CD5 (CPU and GPU), CD6, CD7, [#11574] | Large |
-| CD8b | 🔵 Open | Check valid host values against their precision at construction. [#11572] | CD8a | Large |
-| CD8c | 🔵 Open | Remove mixed-width decimal code. [#11573] | CD8a | Medium |
-| WR1 | ⚪ Not started | Read and write `vortex.widen` for integers and decimals. | WD1, CD3, CD4, CD8a | Medium |
-| WR2 | ⚪ Not started | Admit `vortex.widen` and DecimalByteParts v2 to a preview edition. DecimalByteParts v2 is in `unstable` today. | WR1, CD5, CD7 | Small |
+| CD8a | 🟢 Done | Require canonical-width storage for every `DecimalArray`. [#11571] | CD3, CD5 (CPU and GPU), CD6, CD7, [#11574] | Large |
+| CD8b | 🟢 Done | Check valid host values against their precision at construction. Device buffers keep only the layout check. [#11572] | CD8a | Large |
+| CD8c | 🟢 Done | Remove mixed-width decimal code for operands of the same dtype. [#11573] | CD8a | Medium |
+| WR1 | 🔵 Open | Read and write `vortex.widen` for integers and decimals. [#11597] keeps `vortex.decimal` for a decimal leaf. Unlike the brief, a write whose editions do not permit `vortex.widen` returns an error instead of writing the canonical array. | WD1, CD3, CD4, CD8a | Medium |
+| WR2p | 🔵 Open | Reject node buffers in the DecimalByteParts v2 reader, so it accepts only what the writer emits before the contract freezes. [#11596] | None | Small |
+| WR2 | ⚪ Not started | Admit `vortex.widen` and DecimalByteParts v2 to a preview edition. [#11595] removed v2 from `unstable` because `between` and aggregates decode when lower parts exist. Open question: does WR2 wait for those kernels? | WR1, WR2p, CD5, CD7 | Small |
 | WR3 | ⚪ Not started | Design and implement the integer `Narrow` compressor scheme. DecimalByteParts owns decimal narrowing (D33). | WR1, WR2, WD1, WD5 | Large |
 | LT1 | ⚪ Not started | Admit both wire formats to `core` and decide how writers targeting older editions handle `Widen`. | WR2 | Unestimated |
 | LT2 | ➖ Dropped | Decoding a narrow MSP to a decimal `Widen` required a range scan. CD5 keeps it as an integer child instead (D16). | None | Unestimated |
@@ -105,7 +111,8 @@ flowchart TD
         CD8c["CD8c Same-dtype kernel cleanup #11573"]
     end
     subgraph WR["Wire change"]
-        WR1["WR1 Wire format"]
+        WR1["WR1 Wire format #11597"]
+        WR2p["WR2p v2 reader check #11596"]
         WR2["WR2 Preview edition"]
         WR3["WR3 Integer Narrow scheme"]
         LT1["LT1 Core edition"]
@@ -152,6 +159,7 @@ flowchart TD
     CD8a --> WR1
     CD4 --> WR1
     WR1 --> WR2
+    WR2p --> WR2
     CPU --> WR2
     WR2 --> WR3
     WD5 --> WR3
@@ -162,23 +170,21 @@ flowchart TD
     classDef planned fill:#f6f8fa,stroke:#768390,color:#24292f
     classDef parked fill:#ffedce,stroke:#97651c,color:#362709
     class FX1,FX3,WD1,WD2,WD3,WD4,CD1,CD2,REL,CD3,CD3b,CD3c,CD4p,CD4,CD4b,CD6,LT3,CUDA,BASE done
-    class CPU,GPU,MUT done
-    class CD8a,CD8b,CD8c openPR
-    class WD5,WR1,WR2,WR3,LT1 planned
+    class CPU,GPU,MUT,CD8a,CD8b,CD8c done
+    class WR1,WR2p openPR
+    class WD5,WR2,WR3,LT1 planned
     class WD6 parked
 ```
 
 ## Order of work
 
-1. [#11459] and [#11460] merged. The CPU decoder and the GPU decoder for MSP-only arrays now
-   have the same canonical output width.
-2. [#11574] removed the public `Array::data_mut` accessor. A caller could use it to replace the
-   payload while leaving the dtype, length, and cached statistics intact. [#11571] and [#11572]
-   are ready for review. [#11573] is still a draft. They are stacked in that order because they
-   touch the same builders, kernels, and tests.
-3. WR1 can use the checked constructors once CD8b lands. It introduces the dedicated wire ID.
-4. WR2 admits the wire forms to preview. WR3 also needs WD5 and a decision about which integers
-   the compressor narrows and at which cascade level. LT1 tracks promotion to `core`.
+1. The in-memory change is done: CD5 and CD7 ([#11459], [#11460]), then [#11574], then CD8a to
+   CD8c ([#11571], [#11572], [#11573]).
+2. WR1 ([#11597]) and WR2p ([#11596]) are open and independent of each other.
+3. WR2 admits both wire forms to preview. Before it, decide whether DecimalByteParts v2 first
+   needs `between` and aggregate kernels for lower parts, the gaps that [#11595] names.
+4. WR3 also needs WD5 and a decision about which integers the compressor narrows and at which
+   cascade level. LT1 tracks promotion to `core`.
 
 ## How to use the briefs
 
@@ -327,5 +333,8 @@ flowchart TD
 [#11572]: https://github.com/vortex-data/vortex/pull/11572
 [#11573]: https://github.com/vortex-data/vortex/pull/11573
 [#11574]: https://github.com/vortex-data/vortex/pull/11574
+[#11595]: https://github.com/vortex-data/vortex/pull/11595
+[#11596]: https://github.com/vortex-data/vortex/pull/11596
+[#11597]: https://github.com/vortex-data/vortex/pull/11597
 [release 0.91.0]: https://github.com/vortex-data/vortex/releases/tag/0.91.0
 [Reader on develop]: https://github.com/vortex-data/vortex/blob/3ebf68d239da461c7bdd4ac6bcda0220727d8d44/vortex-array/src/arrays/decimal/vtable/plugin/mod.rs#L10-L17

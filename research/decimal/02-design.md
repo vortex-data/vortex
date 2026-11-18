@@ -306,8 +306,8 @@ child, which the canonical leaf is not (decided, D2 and D16):
 - Each part can use any integer encoding. The parts are integers, so they promise only a width,
   never a number of digits.
 - One in-memory array has two wire forms. `vortex.decimal_byte_parts` (v1) has only the MSP.
-  `vortex.decimal_byte_parts.v2` adds lower parts. Only the `unstable` edition permits it, so it
-  can change with no compatibility cost. The writer picks v1 when there are no lower parts. The
+  `vortex.decimal_byte_parts.v2` adds lower parts. No edition permits it since #11595, so it can
+  change with no compatibility cost. The writer picks v1 when there are no lower parts. The
   plugin writes the child of a `Widen` MSP as the MSP, with the narrow `msp_ptype`, so the wire
   form does not change. The reader wraps a narrower MSP in a `Widen` without a scan.
 
