@@ -28,6 +28,7 @@ use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
+use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
@@ -49,6 +50,7 @@ use vortex_edition::EditionSessionExt;
 #[cfg(feature = "zstd")]
 use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
+use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::Delta;
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
@@ -56,7 +58,9 @@ use vortex_sparse::Sparse;
 use crate::BtrBlocksCompressor;
 use crate::BtrBlocksCompressorBuilder;
 use crate::SESSION;
+use crate::schemes::binary::VarBinScheme;
 use crate::schemes::boolean::BoolRunEndScheme;
+use crate::schemes::integer::BitPackingScheme;
 
 #[track_caller]
 fn assert_roundtrip(compressor: &BtrBlocksCompressor, input: &ArrayRef) -> VortexResult<ArrayRef> {
@@ -353,5 +357,46 @@ fn test_cuda_binary_zstd_follows_editions(
     let compressed = assert_roundtrip(&compressor, &input)?;
     assert_eq!(compressed.encoding_id(), expected);
 
+    Ok(())
+}
+
+static BITPACKING_V1: BitPackingScheme = BitPackingScheme::v1();
+
+/// A scheme that stores its input's validity compresses it before encoding.
+#[test]
+fn test_bitpacking_compresses_its_validity() -> VortexResult<()> {
+    let input = PrimitiveArray::from_option_iter(
+        (0..100_000i32).map(|i| (!(1000..2000).contains(&i)).then_some(i % 100)),
+    )
+    .into_array();
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&BITPACKING_V1)
+        .with_new_scheme(&BoolRunEndScheme)
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    assert!(compressed.is::<BitPacked>(), "{}", compressed.encoding_id());
+    assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
+    Ok(())
+}
+
+/// The VarBin scheme rebuilds the validity bitmap, which it compresses rather than writing out
+/// raw.
+#[test]
+fn test_varbin_validity_is_compressed() -> VortexResult<()> {
+    let input = VarBinViewArray::from_iter(
+        (0..100_000)
+            .map(|i| (!(1000..2000).contains(&i)).then(|| format!("value-{i}").into_bytes())),
+        DType::Binary(Nullability::Nullable),
+    )
+    .into_array();
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&VarBinScheme)
+        .with_new_scheme(&BoolRunEndScheme)
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    assert!(compressed.is::<VarBin>(), "{}", compressed.encoding_id());
+    assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
     Ok(())
 }
