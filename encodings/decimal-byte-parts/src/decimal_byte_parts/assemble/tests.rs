@@ -235,9 +235,10 @@ fn test_msp_assembly_is_canonical(
     let mut ctx = SESSION.create_execution_ctx();
     let decimal_dtype = DecimalDType::new(precision, 0);
     let child_ptype = if narrow { PType::I8 } else { logical_ptype };
-    let msp = PrimitiveArray::new(buffer![-99i64, 0, 99], validity.clone())
-        .into_array()
-        .cast(DType::Primitive(child_ptype, validity.nullability()))?
+    let nullability = validity.nullability();
+    let values = PrimitiveArray::new(buffer![-99i64, 0, 99], validity).into_array();
+    let msp = values
+        .cast(DType::Primitive(child_ptype, nullability))?
         .execute::<PrimitiveArray>(&mut ctx)?;
     let ptr = msp.buffer_handle().as_host().as_ptr();
     let msp = if child_ptype.byte_width() < logical_ptype.byte_width() {
@@ -254,7 +255,7 @@ fn test_msp_assembly_is_canonical(
     }
     assert_arrays_eq!(
         decoded,
-        DecimalArray::new(buffer![-99i64, 0, 99], decimal_dtype, validity),
+        values.cast(DType::Decimal(decimal_dtype, nullability))?,
         &mut ctx
     );
 

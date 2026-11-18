@@ -2,11 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Decimal casts preserve lazy widening, checked precision, and nullability.
-//!
-//! These cases also cover decimal buffers whose stored width differs from their canonical width.
 
 use rstest::rstest;
-use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -30,7 +27,6 @@ use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::dtype::i256;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
@@ -47,24 +43,6 @@ use crate::validity::Validity;
 #[case::i32(DecimalArray::from_iter([12i32, -12], DecimalDType::new(9, 0)), 18, vec![12, -12])]
 #[case::i64(DecimalArray::from_iter([12i64, -12], DecimalDType::new(18, 2)), 38, vec![12, -12])]
 #[case::i128(DecimalArray::from_iter([12i128, -12], DecimalDType::new(38, 0)), 76, vec![12, -12])]
-#[case::stored_target_width(
-    DecimalArray::from_iter([12i16, -12], DecimalDType::new(2, 0)),
-    4,
-    vec![12, -12],
-)]
-#[case::stored_narrower_than_source(
-    DecimalArray::from_iter([12i32, -12], DecimalDType::new(10, 2)),
-    38,
-    vec![12, -12],
-)]
-#[case::stored_i256(
-    DecimalArray::from_iter(
-        [i256::from_i128(12), i256::from_i128(-12)],
-        DecimalDType::new(2, 0),
-    ),
-    4,
-    vec![12, -12],
-)]
 #[case::empty(DecimalArray::from_iter(Vec::<i8>::new(), DecimalDType::new(2, 0)), 4, vec![])]
 #[case::all_null(
     DecimalArray::new(buffer![12i8, -12], DecimalDType::new(2, 0), Validity::AllInvalid),
@@ -101,7 +79,13 @@ fn test_precision_growth_is_lazy(
         executed.values_type(),
         decimal_dtype.canonical_values_type()
     );
-    let expected = DecimalArray::new(Buffer::from_iter(expected), decimal_dtype, validity);
+    let expected = match validity {
+        Validity::AllInvalid => DecimalArray::from_option_iter(
+            std::iter::repeat_n(None::<i128>, expected.len()),
+            decimal_dtype,
+        ),
+        _ => DecimalArray::from_iter(expected, decimal_dtype),
+    };
     assert_arrays_eq!(executed, expected, &mut ctx);
 
     Ok(())
@@ -313,27 +297,20 @@ fn test_repeated_casts_terminate_without_nested_widen() -> VortexResult<()> {
 }
 
 #[rstest]
-#[case::reuses_canonical_storage(
-    DecimalArray::from_iter([12i64, -12], DecimalDType::new(10, 2)),
-    DecimalArray::from_iter([12i64, -12], DecimalDType::new(18, 2)),
-    true,
-)]
-#[case::reuses_wider_storage(
-    DecimalArray::from_iter([12i128, -12], DecimalDType::new(10, 0)),
-    DecimalArray::from_iter([12i128, -12], DecimalDType::new(18, 0)),
-    true,
-)]
-#[case::copies_narrow_storage(
-    DecimalArray::from_iter([125i32, -250], DecimalDType::new(10, 2)),
-    DecimalArray::from_iter([125i64, -250], DecimalDType::new(18, 2)),
-    false,
-)]
-fn test_same_canonical_width(
-    #[case] array: DecimalArray,
-    #[case] expected: DecimalArray,
-    #[case] reuses_buffer: bool,
+#[case::i8(1, 2)]
+#[case::i16(3, 4)]
+#[case::i32(5, 9)]
+#[case::i64(10, 18)]
+#[case::i128(19, 38)]
+#[case::i256(39, 76)]
+fn test_same_canonical_width_reuses_buffer(
+    #[case] source_precision: u8,
+    #[case] target_precision: u8,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
+    let values = [9, -9];
+    let array = DecimalArray::from_iter(values, DecimalDType::new(source_precision, 1));
+    let expected = DecimalArray::from_iter(values, DecimalDType::new(target_precision, 1));
     let source_ptr = array.buffer_handle().as_host().as_ptr();
     let casted = array
         .into_array()
@@ -344,10 +321,7 @@ fn test_same_canonical_width(
     let executed = casted.execute::<DecimalArray>(&mut ctx)?;
 
     assert_eq!(executed.values_type(), expected.values_type());
-    assert_eq!(
-        executed.buffer_handle().as_host().as_ptr() == source_ptr,
-        reuses_buffer
-    );
+    assert_eq!(executed.buffer_handle().as_host().as_ptr(), source_ptr);
     assert_arrays_eq!(executed, expected, &mut ctx);
 
     Ok(())

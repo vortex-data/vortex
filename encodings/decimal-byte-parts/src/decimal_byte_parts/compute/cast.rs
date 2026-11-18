@@ -88,7 +88,7 @@ mod tests {
         assert_arrays_eq!(
             casted,
             DecimalArray::new(
-                buffer![100i32, 200, 300, 400],
+                buffer![100i64, 200, 300, 400],
                 decimal_dtype,
                 Validity::AllValid
             ),

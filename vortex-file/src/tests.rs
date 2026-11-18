@@ -94,6 +94,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_decimal_byte_parts::DecimalBytePartsArraySlotsExt;
+use vortex_edition::ComponentKind;
 use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
@@ -122,6 +123,7 @@ use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::session::LayoutSession;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
+use vortex_session::registry::Id;
 use vortex_zigzag::ZigZag;
 
 use crate::MAX_POSTSCRIPT_SIZE;
@@ -376,7 +378,11 @@ async fn decimal_writer_uses_default_or_session_restrictions(
                 .as_opt::<DecimalByteParts>()
                 .is_some_and(|parts| !parts.lower_parts().is_empty())
         });
-        assert_eq!(uses_v2, (disable_editions || unstable) && !custom_strategy);
+        let v2_permitted = disable_editions
+            || session
+                .enabled_component_ids(ComponentKind::Array)
+                .contains(&Id::from("vortex.decimal_byte_parts.v2"));
+        assert_eq!(uses_v2, v2_permitted && !custom_strategy);
         assert_arrays_eq!(array, actual, &mut session.create_execution_ctx());
     }
     Ok(())

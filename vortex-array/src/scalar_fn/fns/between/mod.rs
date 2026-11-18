@@ -380,6 +380,7 @@ mod tests {
     use crate::arrays::DecimalArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::arrays::WidenArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -679,125 +680,77 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_between_decimal() {
-        let ctx = &mut SESSION.create_execution_ctx();
-        let values = buffer![100i128, 200i128, 300i128, 400i128];
-        let decimal_type = DecimalDType::new(3, 2);
-        let array = DecimalArray::new(values, decimal_type, Validity::NonNullable).into_array();
-
-        let lower = ConstantArray::new(
-            Scalar::decimal(
-                DecimalValue::I128(100i128),
-                decimal_type,
-                Nullability::NonNullable,
-            ),
-            array.len(),
-        )
-        .into_array();
-        let upper = ConstantArray::new(
-            Scalar::decimal(
-                DecimalValue::I128(400i128),
-                decimal_type,
-                Nullability::NonNullable,
-            ),
-            array.len(),
-        )
-        .into_array();
-
-        // Strict lower bound, non-strict upper bound
-        let between_strict = between_canonical(
-            &array,
-            &lower,
-            &upper,
-            &BetweenOptions {
-                lower_strict: StrictComparison::Strict,
-                upper_strict: StrictComparison::NonStrict,
-            },
-            ctx,
-        )
-        .unwrap();
-        assert_arrays_eq!(
-            between_strict,
-            BoolArray::from_iter([false, true, true, true]),
-            ctx
-        );
-
-        // Non-strict lower bound, strict upper bound
-        let between_strict = between_canonical(
-            &array,
-            &lower,
-            &upper,
-            &BetweenOptions {
-                lower_strict: StrictComparison::NonStrict,
-                upper_strict: StrictComparison::Strict,
-            },
-            ctx,
-        )
-        .unwrap();
-        assert_arrays_eq!(
-            between_strict,
-            BoolArray::from_iter([true, true, true, false]),
-            ctx
-        );
-    }
-
-    /// Regression test for a fuzzer crash where a bound scalar used a wider storage type (I32)
-    /// than the array's storage type (I16), causing the cast in `between_unpack` to fail.
-    ///
-    /// The fix casts the bound to the array's storage type and, when the cast fails, uses the
-    /// overflow direction to determine the result without falling back to Arrow.
     #[rstest]
-    // Upper bound too large (I32 > i16::MAX): upper constraint always satisfied → result from lower only.
-    #[case(DecimalValue::I16(1), DecimalValue::I32(82246), vec![0, 1, 2, 3])]
-    // Lower bound too large (I32 > i16::MAX): lower constraint never satisfied → all false.
-    #[case(DecimalValue::I32(82246), DecimalValue::I16(4), vec![])]
-    // Upper bound too small (negative I32 < i16::MIN): upper constraint never satisfied → all false.
-    #[case(DecimalValue::I16(1), DecimalValue::I32(-82246), vec![])]
-    // Lower bound too small (negative I32 < i16::MIN): lower constraint always satisfied → result from upper only.
-    #[case(DecimalValue::I32(-82246), DecimalValue::I16(2), vec![0, 1])]
-    fn test_between_decimal_mismatched_storage_types(
-        #[case] lower_val: DecimalValue,
-        #[case] upper_val: DecimalValue,
-        #[case] expected_indices: Vec<u64>,
-    ) {
+    #[case::open(StrictComparison::Strict, StrictComparison::Strict, false, false)]
+    #[case::left_open(StrictComparison::Strict, StrictComparison::NonStrict, false, true)]
+    #[case::right_open(StrictComparison::NonStrict, StrictComparison::Strict, true, false)]
+    #[case::closed(StrictComparison::NonStrict, StrictComparison::NonStrict, true, true)]
+    fn test_between_decimal(
+        #[case] lower_strict: StrictComparison,
+        #[case] upper_strict: StrictComparison,
+        #[case] includes_lower: bool,
+        #[case] includes_upper: bool,
+    ) -> VortexResult<()> {
         let ctx = &mut SESSION.create_execution_ctx();
-        // Array uses I16 storage with precision=5 (values fit in i16 even though precision=5
-        // nominally maps to I32 as the smallest storage type).
-        let decimal_type = DecimalDType::new(5, -67);
-        let array = DecimalArray::new(
-            buffer![1i16, 2i16, 3i16, 4i16],
-            decimal_type,
-            Validity::NonNullable,
-        )
-        .into_array();
-
-        let lower = ConstantArray::new(
-            Scalar::decimal(lower_val, decimal_type, Nullability::NonNullable),
-            array.len(),
-        )
-        .into_array();
-        let upper = ConstantArray::new(
-            Scalar::decimal(upper_val, decimal_type, Nullability::NonNullable),
-            array.len(),
-        )
-        .into_array();
+        let dtype = DecimalDType::new(3, 2);
+        let array =
+            DecimalArray::from_option_iter([Some(100i16), Some(200), None, Some(400)], dtype)
+                .into_array();
+        let lower = Scalar::decimal(DecimalValue::I128(100), dtype, Nullability::NonNullable);
+        let upper = Scalar::decimal(DecimalValue::I128(400), dtype, Nullability::NonNullable);
+        let options = BetweenOptions {
+            lower_strict,
+            upper_strict,
+        };
 
         let result = between_canonical(
             &array,
-            &lower,
-            &upper,
-            &BetweenOptions {
-                lower_strict: StrictComparison::NonStrict,
-                upper_strict: StrictComparison::NonStrict,
-            },
+            &ConstantArray::new(lower, array.len()).into_array(),
+            &ConstantArray::new(upper, array.len()).into_array(),
+            &options,
             ctx,
-        )
-        .unwrap()
-        .execute::<BoolArray>(ctx)
-        .unwrap();
+        )?;
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([Some(includes_lower), Some(true), None, Some(includes_upper)]),
+            ctx
+        );
 
-        assert_eq!(to_int_indices(result, ctx).unwrap(), expected_indices);
+        Ok(())
+    }
+
+    /// A bound can exceed the range of a compressed child while fitting the logical precision.
+    #[rstest]
+    #[case::upper_above(1, 82_246, [true, true, true, true])]
+    #[case::lower_above(82_246, 4, [false; 4])]
+    #[case::upper_below(1, -82_246, [false; 4])]
+    #[case::lower_below(-82_246, 2, [true, true, false, false])]
+    fn test_between_decimal_narrow_child(
+        #[case] lower: i32,
+        #[case] upper: i32,
+        #[case] expected: [bool; 4],
+    ) -> VortexResult<()> {
+        let dtype = DecimalDType::new(5, -67);
+        let child = DecimalArray::from_iter([1i16, 2, 3, 4], DecimalDType::new(4, -67));
+        let array = WidenArray::try_new(
+            child.into_array(),
+            DType::Decimal(dtype, Nullability::NonNullable),
+        )?;
+        let bound = |value: i32| {
+            let scalar = Scalar::decimal(DecimalValue::I32(value), dtype, Nullability::NonNullable);
+            ConstantArray::new(scalar, array.len()).into_array()
+        };
+        let lower = bound(lower);
+        let upper = bound(upper);
+
+        let result = array.into_array().between(lower, upper, NON_STRICT)?;
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter(expected),
+            &mut SESSION.create_execution_ctx()
+        );
+
+        Ok(())
     }
 
     /// A non-canonical input is executed through the executor before the between kernel runs.

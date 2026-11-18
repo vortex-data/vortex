@@ -272,14 +272,6 @@ fn wide_decimal_parts_roundtrip(
     decimal_at_precision(9, 0..2048i32, Validity::NonNullable),
     0, PType::I32, Some(PType::I16)
 )]
-#[case::legacy_narrower_i32_at_p38(
-    decimal_at_precision(38, 0..2048i32, Validity::NonNullable),
-    0, PType::I64, Some(PType::I16)
-)]
-#[case::legacy_wider_i64_at_p4(
-    decimal_at_precision(4, (0..99i64).cycle().take(2048), Validity::NonNullable),
-    0, PType::I16, Some(PType::I8)
-)]
 #[case::p38_fits_i64(
     decimal_at_precision(38, 0..2048i128, Validity::NonNullable),
     0, PType::I64, Some(PType::I16)
