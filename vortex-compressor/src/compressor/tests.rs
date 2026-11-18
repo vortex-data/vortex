@@ -929,6 +929,102 @@ fn sampling_uses_scheme_stats_options() -> VortexResult<()> {
     Ok(())
 }
 
+/// Compresses every `i32` row to one byte, after a table of [`FixedTableScheme::TABLE_NBYTES`]
+/// bytes that stays the same size however many rows there are.
+#[derive(Debug)]
+struct FixedTableScheme;
+
+impl FixedTableScheme {
+    const TABLE_NBYTES: usize = 4096;
+}
+
+impl Scheme for FixedTableScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.fixed_table"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn fixed_nbytes(&self, _compressed: &ArrayRef) -> u64 {
+        Self::TABLE_NBYTES as u64
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let nbytes = Self::TABLE_NBYTES + data.array().len();
+        Ok(PrimitiveArray::new(
+            Buffer::from_iter(std::iter::repeat_n(0u8, nbytes)),
+            Validity::NonNullable,
+        )
+        .into_array())
+    }
+}
+
+/// A sample pays for a fixed-size table in full, which would rank [`FixedTableScheme`] below the
+/// canonical encoding (4096 bytes in, 5120 out) although it shrinks the full array almost 4x.
+#[test]
+fn sampling_amortizes_fixed_nbytes_over_the_full_array() -> VortexResult<()> {
+    let array =
+        PrimitiveArray::new(Buffer::from_iter(0..102_400i32), Validity::NonNullable).into_array();
+    let compressor = CascadingCompressor::new(vec![&FixedTableScheme]);
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let score = estimate_compression_ratio_with_sampling(
+        &compressor,
+        &FixedTableScheme,
+        &array,
+        CompressorContext::new(),
+        &mut exec_ctx,
+    )?;
+
+    // The 1024 sampled rows are 1% of the array, so they carry 1% of the table, rounded up.
+    assert_eq!(score, EstimateScore::from_sample_sizes(4 * 1024, 1024 + 41));
+    Ok(())
+}
+
+/// An array that is compressed whole has nothing to amortize the table over.
+#[test]
+fn sampling_charges_fixed_nbytes_in_full_without_subsampling() -> VortexResult<()> {
+    let array =
+        PrimitiveArray::new(Buffer::from_iter(0..8192i32), Validity::NonNullable).into_array();
+    let compressor = CascadingCompressor::new(vec![&FixedTableScheme]);
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let score = estimate_compression_ratio_with_sampling(
+        &compressor,
+        &FixedTableScheme,
+        &array,
+        CompressorContext::new().with_sampling(),
+        &mut exec_ctx,
+    )?;
+
+    assert_eq!(
+        score,
+        EstimateScore::from_sample_sizes(4 * 8192, 4096 + 8192)
+    );
+    Ok(())
+}
+
 type MapEntryFixture<'a> = (i32, Option<&'a str>);
 type MapRowFixture<'a> = Option<Vec<MapEntryFixture<'a>>>;
 

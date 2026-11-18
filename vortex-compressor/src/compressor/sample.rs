@@ -148,7 +148,26 @@ fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> 
         .collect()
 }
 
+/// Returns the compressed size of a sample once the `fixed` bytes of its `total` are charged at
+/// the share that the sample's `sample_len` rows make up of the full array's `full_len` rows.
+///
+/// A sample pays in full for bytes that do not grow with the input, such as a symbol table, which
+/// makes a scheme look worse than it is at full size. The amortized share rounds up, so a
+/// non-empty output never becomes a zero-byte one.
+fn amortize_fixed_nbytes(total: u64, fixed: u64, sample_len: usize, full_len: usize) -> u64 {
+    if sample_len >= full_len {
+        return total;
+    }
+
+    let fixed = fixed.min(total);
+    let amortized = (u128::from(fixed) * sample_len as u128).div_ceil(full_len as u128);
+    // The share is at most `fixed` because `sample_len < full_len`.
+    (total - fixed) + u64::try_from(amortized).unwrap_or(fixed)
+}
+
 /// Estimates compression ratio by compressing a ~1% sample of the data.
+///
+/// The bytes a scheme reports through [`Scheme::fixed_nbytes`] are amortized over the full array.
 ///
 /// Creates a new [`ArrayAndStats`] for the sample so that stats are generated from the sample, not
 /// the full array.
@@ -190,7 +209,12 @@ pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
         }
     };
 
-    let after = compressed.nbytes();
+    let after = amortize_fixed_nbytes(
+        compressed.nbytes(),
+        scheme.fixed_nbytes(&compressed),
+        sample_data.array().len(),
+        array.len(),
+    );
     // Sampled slices still hold the full array's buffers, so measure what their rows reference.
     let before = exact_uncompressed_size(sample_data.array(), exec_ctx)?;
 

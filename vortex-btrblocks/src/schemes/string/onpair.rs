@@ -21,6 +21,7 @@ use vortex_onpair::MaxDictBits;
 use vortex_onpair::OnPair;
 use vortex_onpair::OnPairArrayExt;
 use vortex_onpair::OnPairArraySlotsExt;
+use vortex_onpair::Threshold;
 use vortex_onpair::onpair_compress;
 
 use crate::ArrayAndStats;
@@ -28,6 +29,18 @@ use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
+
+/// The fraction of a sample's bytes that the trainer scans when estimating a compression ratio.
+///
+/// The default 15% suits a full chunk, but leaves a sample of about a thousand rows with some
+/// 150 rows to learn from, far fewer than the full chunk trains on. The dictionary that comes
+/// out is too poor to rank OnPair against FSST. Half of the sample trains a usable dictionary
+/// and still leaves the other half unseen, as most rows of a full chunk are, so that the
+/// estimate does not reward a dictionary fitted to the very rows it is measured on.
+const SAMPLE_TRAINING_FRACTION: Threshold = match Threshold::new(0.5) {
+    Ok(threshold) => threshold,
+    Err(_) => unreachable!(),
+};
 
 /// OnPair short-string compression (dict-12 by default).
 ///
@@ -94,6 +107,16 @@ impl Scheme for OnPairScheme {
         4
     }
 
+    /// The token dictionary: its bytes and the offsets into them.
+    ///
+    /// The dictionary is capped at `2^max_dict_bits` tokens however many rows it serves, yet on a
+    /// sample it is a large part of the output.
+    fn fixed_nbytes(&self, compressed: &ArrayRef) -> u64 {
+        compressed.as_opt::<OnPair>().map_or(0, |onpair| {
+            onpair.dict_bytes().len() as u64 + onpair.dict_offsets().nbytes()
+        })
+    }
+
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,
@@ -111,7 +134,11 @@ impl Scheme for OnPairScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let utf8 = data.array_as_varbinview().into_owned();
-        let encoded = onpair_compress(utf8.as_array(), self.config(), exec_ctx)?;
+        let mut config = self.config();
+        if compress_ctx.is_sample() {
+            config.threshold = SAMPLE_TRAINING_FRACTION;
+        }
+        let encoded = onpair_compress(utf8.as_array(), config, exec_ctx)?;
         let Some(onpair_array) = encoded.as_opt::<OnPair>() else {
             return Ok(encoded);
         };
