@@ -4,6 +4,7 @@
 pub mod binary_numeric;
 pub mod cast;
 pub mod consistency;
+pub mod extension;
 pub mod filter;
 pub mod mask;
 pub mod search_sorted;
