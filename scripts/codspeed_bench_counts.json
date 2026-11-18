@@ -30,7 +30,7 @@
     "expr_case_when": 28,
     "expr_large_struct_pack": 4,
     "expr_optimize": 1,
-    "filter_bool": 47,
+    "filter_bool": 51,
     "filter_fixed_width": 30,
     "filter_fsl": 4,
     "filter_list": 12,
