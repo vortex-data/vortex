@@ -12361,6 +12361,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-edition",
  "vortex-error",
+ "vortex-functions",
  "vortex-mask",
  "vortex-session",
  "vortex-uuid",
