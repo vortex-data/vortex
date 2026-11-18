@@ -16,7 +16,6 @@ import pyarrow.dataset
 from typing_extensions import override
 
 from ._lib import dataset as _dataset
-from ._lib import file as _file
 from ._lib.runtime import set_worker_threads as _set_worker_threads
 from ._lib.runtime import worker_threads as _worker_threads
 from .arrays import Array, array
@@ -77,11 +76,13 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
     @staticmethod
     def from_url(url: str) -> VortexDataset:
-        return VortexDataset(_dataset.dataset_from_url(url))
+        """Open the Vortex files that ``url`` names. See :func:`open_dataset`."""
+        return open_dataset(url)
 
     @staticmethod
     def from_path(path: str) -> VortexDataset:
-        return VortexDataset(_file.open(path).to_dataset())
+        """Open the Vortex files that ``path`` names. See :func:`open_dataset`."""
+        return open_dataset(path)
 
     @property
     @override
@@ -672,7 +673,8 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
 
 def from_url(url: str) -> VortexDataset:
-    return VortexDataset(_dataset.dataset_from_url(url))
+    """Open the Vortex files that ``url`` names. See :func:`open_dataset`."""
+    return open_dataset(url)
 
 
 def open_dataset(

@@ -78,7 +78,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
     m.add_class::<PyVortexDataset>()?;
 
-    m.add_function(wrap_pyfunction!(dataset_from_url, &m)?)?;
     m.add_function(wrap_pyfunction!(dataset_from_sources, &m)?)?;
 
     Ok(())
@@ -166,20 +165,6 @@ impl PyVortexDataset {
             schema,
             concurrency,
         })
-    }
-
-    pub async fn from_url(url: &str, store: Option<Arc<dyn ObjectStore>>) -> VortexResult<Self> {
-        let session = session();
-        let vxf = match resolve_store(url, store)? {
-            ResolvedStore::ObjectStore(store, path) => {
-                session
-                    .open_options()
-                    .open_object_store(&store, path)
-                    .await?
-            }
-            ResolvedStore::Path(path) => session.open_options().open_path(path).await?,
-        };
-        PyVortexDataset::try_new(vec![vxf], None)
     }
 
     fn dtype(&self) -> &DType {
@@ -478,23 +463,6 @@ impl PyVortexDataset {
     }
 }
 
-#[pyfunction]
-#[pyo3(signature = (url, *, store = None))]
-pub fn dataset_from_url(
-    py: Python,
-    url: &str,
-    store: Option<Bound<PyAny>>,
-) -> PyVortexResult<PyVortexDataset> {
-    let store_arc = if let Some(store_obj) = store {
-        let py_store: pyo3_object_store::PyObjectStore = store_obj.extract()?;
-        Some(py_store.into_inner())
-    } else {
-        None
-    };
-
-    Ok(py.detach(move || current_runtime().block_on(PyVortexDataset::from_url(url, store_arc)))?)
-}
-
 /// Open the Vortex files that `sources` name as one dataset, in the order the sources name them.
 #[pyfunction]
 #[pyo3(signature = (sources, *, store = None, concurrency = None))]
@@ -504,9 +472,23 @@ pub fn dataset_from_sources(
     store: Option<AnyVortexStore>,
     concurrency: Option<usize>,
 ) -> PyVortexResult<PyVortexDataset> {
+    open_dataset(py, sources, store, concurrency)
+}
+
+/// Open the Vortex files that `sources` name as one dataset.
+///
+/// Every Python entry point that reads from paths or URLs opens its files here, so all of them
+/// expand directories, prefixes and glob patterns the same way.
+pub(crate) fn open_dataset(
+    py: Python,
+    sources: Vec<String>,
+    store: Option<AnyVortexStore>,
+    concurrency: Option<usize>,
+) -> PyVortexResult<PyVortexDataset> {
     let concurrency = check_concurrency(concurrency)?;
     let store = store.map(AnyVortexStore::into_inner);
     let files = py.detach(move || current_runtime().block_on(open_sources(sources, store)))?;
+
     Ok(PyVortexDataset::try_new(files, concurrency)?)
 }
 
