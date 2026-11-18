@@ -376,7 +376,6 @@ async fn decimal_writer_uses_default_or_session_restrictions(
                 .as_opt::<DecimalByteParts>()
                 .is_some_and(|parts| !parts.lower_parts().is_empty())
         });
-        // No edition, including `UNSTABLE`, permits the v2 wire ID.
         assert_eq!(uses_v2, disable_editions && !custom_strategy);
         assert_arrays_eq!(array, actual, &mut session.create_execution_ctx());
     }
