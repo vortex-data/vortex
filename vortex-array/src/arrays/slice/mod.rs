@@ -11,6 +11,7 @@
 mod array;
 mod rules;
 mod slice_;
+mod take;
 mod vtable;
 
 use std::ops::Range;
