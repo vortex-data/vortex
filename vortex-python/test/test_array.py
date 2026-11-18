@@ -9,6 +9,12 @@ import pytest
 import vortex
 
 
+def test_import_rejects_time_over_one_day() -> None:
+    data = pa.array([86_401], type=pa.int32()).view(pa.time32("s"))
+    with pytest.raises(RuntimeError, match="Invalid time scalar"):
+        vortex.array(data)
+
+
 def test_primitive_array_round_trip() -> None:
     a = pa.array([0, 1, 2, 3])
     arr = vortex.array(a)

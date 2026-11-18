@@ -102,6 +102,8 @@ pub struct PreparedScan {
     pub(super) values: ValueCache,
     /// The rows of one chunk, the unit of work a chunk planner emits.
     pub(super) chunk_rows: usize,
+    /// Whether to check visible extension values before yielding a batch.
+    pub(super) validate_extension_values: bool,
 }
 
 impl PreparedScan {

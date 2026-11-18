@@ -187,6 +187,7 @@ mod tests {
     use arrow_array::StructArray as ArrowStructArray;
     use arrow_array::ffi_stream;
     use arrow_array::types::Int32Type;
+    use arrow_buffer::NullBuffer;
     use arrow_buffer::OffsetBuffer;
     use arrow_buffer::ScalarBuffer;
     use arrow_schema::Fields;
@@ -460,6 +461,50 @@ mod tests {
             let exported = imported.execute_arrow(None, &mut ctx)?;
             assert_eq!(exported.to_data(), arrow_struct.to_data());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn import_accepts_placeholder_under_null_parent() -> VortexResult<()> {
+        let session = uuid_session();
+        let dtype = ExtDType::<Uuid>::try_new(
+            UuidMetadata {
+                version: Some(Version::Random),
+            },
+            Nullability::NonNullable,
+        )?;
+        let field = session
+            .arrow()
+            .to_arrow_storage_field("id", &dtype.erased())?;
+        let mut valid_uuid = [0; 16];
+        valid_uuid[6] = 0x40;
+        valid_uuid[8] = 0x80;
+        let bytes = PrimitiveArray::new(
+            Buffer::from_iter([valid_uuid, [0; 16]].into_iter().flatten()),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let storage = FixedSizeListArray::new(bytes, 16, Validity::NonNullable, 2);
+        let child_field = field.clone().with_metadata(Default::default());
+        let child = storage
+            .into_array()
+            .execute_arrow(Some(&child_field), &mut session.create_execution_ctx())?;
+
+        let err = session
+            .arrow()
+            .from_arrow_array(Arc::clone(&child), &field)
+            .expect_err("the zero UUID must fail validation when visible");
+        assert!(err.to_string().contains("version"), "{err}");
+
+        let parent = ArrowStructArray::try_new(
+            Fields::from(vec![field]),
+            vec![child],
+            Some(NullBuffer::from(vec![true, false])),
+        )?;
+        let imported = session.arrow().from_arrow_array(Arc::new(parent), true)?;
+        let mut ctx = session.create_execution_ctx();
+        assert!(!imported.execute_scalar(0, &mut ctx)?.is_null());
+        assert!(imported.execute_scalar(1, &mut ctx)?.is_null());
         Ok(())
     }
 

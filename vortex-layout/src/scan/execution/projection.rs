@@ -5,7 +5,9 @@ use std::sync::Arc;
 use std::vec::IntoIter;
 
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::extension::validate_extension_values;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -134,6 +136,9 @@ impl ProjectionMorsel {
             1 => arrays.remove(0),
             _ => ChunkedArray::try_new(arrays, self.dtype.clone())?.into_array(),
         };
+        if self.scan.validate_extension_values {
+            validate_extension_values(&array, &mut self.scan.session.create_execution_ctx())?;
+        }
         Ok(MorselOutput::Batch(array))
     }
 }

@@ -100,6 +100,7 @@ pub struct ScanBuilder {
     selection: Selection,
     row_offset: u64,
     skip_unselective_dynamic: bool,
+    validate_extension_values: bool,
 }
 
 impl ScanBuilder {
@@ -114,6 +115,7 @@ impl ScanBuilder {
             selection: Selection::default(),
             row_offset: 0,
             skip_unselective_dynamic: false,
+            validate_extension_values: false,
         }
     }
 
@@ -148,6 +150,14 @@ impl ScanBuilder {
     /// TopK and hash-join dynamic filters. Off by default.
     pub fn with_skip_unselective_dynamic(mut self, skip: bool) -> Self {
         self.skip_unselective_dynamic = skip;
+        self
+    }
+
+    /// Checks visible extension values in each output batch when enabled. Off by default.
+    ///
+    /// Validation applies to the selected rows and projected columns.
+    pub fn with_validate_extension_values(mut self, validate: bool) -> Self {
+        self.validate_extension_values = validate;
         self
     }
 
@@ -253,6 +263,7 @@ impl ScanBuilder {
             row_offset: self.row_offset,
             values,
             chunk_rows,
+            validate_extension_values: self.validate_extension_values,
         })
     }
 }
