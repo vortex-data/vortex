@@ -115,10 +115,10 @@ def test_concurrency_does_not_change_the_rows(root: Path, concurrency: int):
 
 
 def test_duckdb_reads_every_file(root: Path):
-    failures = vx.open_dataset(root / "data", concurrency=4)
-    _ = failures  # DuckDB resolves the dataset from the SQL query below.
+    conn = duckdb.connect()
+    _ = conn.register("failures", vx.open_dataset(root / "data", concurrency=4))
 
-    rows = duckdb.sql("SELECT even, count(*) FROM failures WHERE x >= 5 GROUP BY even ORDER BY even").fetchall()
+    rows = conn.sql("SELECT even, count(*) FROM failures WHERE x >= 5 GROUP BY even ORDER BY even").fetchall()
 
     assert rows == [(False, 13), (True, 12)]
 

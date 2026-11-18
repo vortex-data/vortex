@@ -41,7 +41,6 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::file::VortexFile;
 use vortex::io::filesystem::FileListing;
-use vortex::io::filesystem::FileSystem;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::object_store::object_path_from_literal;
@@ -169,10 +168,7 @@ impl PyVortexDataset {
         })
     }
 
-    pub async fn from_url(
-        url: &str,
-        store: Option<Arc<dyn object_store::ObjectStore>>,
-    ) -> VortexResult<Self> {
+    pub async fn from_url(url: &str, store: Option<Arc<dyn ObjectStore>>) -> VortexResult<Self> {
         let session = session();
         let vxf = match resolve_store(url, store)? {
             ResolvedStore::ObjectStore(store, path) => {
@@ -201,12 +197,8 @@ impl PyVortexDataset {
             .filter_map(|(idx, (&file_start, &file_end))| {
                 let first = start.max(file_start);
                 let last = end.min(file_end);
-                // `last` is below `file_start` when the range ends before the file starts.
-                if first < last {
-                    Some((idx, first - file_start..last - file_start))
-                } else {
-                    None
-                }
+                // Lazy: `last` is below `file_start` when the range ends before the file starts.
+                (first < last).then(|| (idx, first - file_start..last - file_start))
             })
             .collect()
     }
@@ -565,7 +557,11 @@ async fn open_sources(
         .await?;
 
     let dtype = opened[0].dtype();
-    if let Some((name, file)) = names.iter().zip(&opened).find(|(_, file)| file.dtype() != dtype) {
+    if let Some((name, file)) = names
+        .iter()
+        .zip(&opened)
+        .find(|(_, file)| file.dtype() != dtype)
+    {
         vortex_bail!(
             "{name} has dtype {}, but {} has dtype {dtype}; every file of a dataset needs the same dtype",
             file.dtype(),
@@ -624,11 +620,11 @@ fn expand_local(path: PathBuf) -> VortexResult<Vec<PathBuf>> {
     };
 
     let mut files = Vec::new();
-    for entry in glob::glob(&pattern)
-        .map_err(|e| vortex_err!("invalid glob pattern {pattern:?}: {e}"))?
+    for entry in
+        glob::glob(&pattern).map_err(|e| vortex_err!("invalid glob pattern {pattern:?}: {e}"))?
     {
-        let file = entry
-            .map_err(|e| vortex_err!("cannot read {}: {}", e.path().display(), e.error()))?;
+        let file =
+            entry.map_err(|e| vortex_err!("cannot read {}: {}", e.path().display(), e.error()))?;
         if file.is_file() {
             files.push(file);
         }

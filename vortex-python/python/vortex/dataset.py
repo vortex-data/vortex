@@ -724,9 +724,7 @@ def open_dataset(
     """
     sources = [source] if isinstance(source, (str, os.PathLike)) else list(source)
     return VortexDataset(
-        _dataset.dataset_from_sources(
-            [os.fspath(source) for source in sources], store=store, concurrency=concurrency
-        )
+        _dataset.dataset_from_sources([os.fspath(source) for source in sources], store=store, concurrency=concurrency)
     )
 
 

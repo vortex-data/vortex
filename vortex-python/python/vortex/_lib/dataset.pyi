@@ -3,6 +3,7 @@
 
 import pyarrow
 
+from . import CosStore, HfStore
 from .arrays import Array
 from .expr import Expr
 from .store import ObjectStore
@@ -44,6 +45,6 @@ def dataset_from_url(url: str) -> VortexDataset: ...
 def dataset_from_sources(
     sources: list[str],
     *,
-    store: ObjectStore | None = None,
+    store: ObjectStore | CosStore | HfStore | None = None,
     concurrency: int | None = None,
 ) -> VortexDataset: ...
