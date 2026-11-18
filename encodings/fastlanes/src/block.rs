@@ -301,6 +301,7 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::block::BLOCK_LEN;
@@ -573,6 +574,45 @@ fuse start input=source array=fastlanes.bitpacked.v2(u32, len=3072)
 fuse extend parent=fastlanes.for.v2(u32, len=3072) ops=1
 drive input=source ops=1 len=3072
 block_op 0 copy u32->u32 scratch0 -> output"
+        );
+        Ok(())
+    }
+
+    /// A chunked array of FoR stacks appends each chunk to one builder, and each chunk's chain is
+    /// driven straight into it: nulls, patches and a sliced chunk included. The slice pushes below
+    /// the innermost FoR, so that chunk's source is BitPacked and all four levels are ops.
+    #[test]
+    fn chunks_drive_into_the_builder() -> VortexResult<()> {
+        let chunks = [
+            for_stack(3000, 2, true)?,
+            for_stack(5000, 4, true)?.slice(517..4013)?,
+            for_stack(1024, 2, true)?,
+        ];
+        let dtype = chunks[0].dtype().clone();
+        let array = ChunkedArray::try_new(chunks, dtype)?.into_array();
+        let expected = array.clone().execute::<PrimitiveArray>(
+            &mut SESSION.create_execution_ctx().with_block_fusion(false),
+        )?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let before = fused_chain_count();
+        let traced = trace_op(|| array.execute::<PrimitiveArray>(&mut ctx))?;
+        assert_eq!(fused_chain_count() - before, 3);
+        assert_arrays_eq!(traced.output, expected, &mut ctx);
+        let drives = traced
+            .trace
+            .to_string()
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with("drive "))
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            drives,
+            [
+                "drive input=source ops=1 len=3000 into=builder",
+                "drive input=source ops=4 len=3496 into=builder",
+                "drive input=source ops=1 len=1024 into=builder",
+            ]
         );
         Ok(())
     }

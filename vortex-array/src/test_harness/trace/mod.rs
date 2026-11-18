@@ -680,7 +680,22 @@ pub(crate) fn record_fuse_extend(parent: &ArrayRef, ops: usize) {
 }
 
 pub(crate) fn record_block_drive(input: &'static str, ops: usize, len: usize) {
-    record(TraceEvent::BlockDrive { input, ops, len });
+    record(TraceEvent::BlockDrive {
+        input,
+        ops,
+        len,
+        into_builder: false,
+    });
+}
+
+/// Record that the executor drove a fused chain straight into the builder it was appending to.
+pub(crate) fn record_block_drive_into_builder(input: &'static str, ops: usize, len: usize) {
+    record(TraceEvent::BlockDrive {
+        input,
+        ops,
+        len,
+        into_builder: true,
+    });
 }
 
 /// Record how the executor ran one op of a fused chain, for the chain's first block only: every
@@ -965,6 +980,7 @@ enum TraceEvent {
         input: &'static str,
         ops: usize,
         len: usize,
+        into_builder: bool,
     },
     BlockOp {
         op_idx: usize,
@@ -1220,8 +1236,17 @@ impl TraceEvent {
             TraceEvent::FuseExtend { parent, ops } => {
                 write!(f, "fuse extend parent={parent} ops={ops}")
             }
-            TraceEvent::BlockDrive { input, ops, len } => {
-                write!(f, "drive input={input} ops={ops} len={len}")
+            TraceEvent::BlockDrive {
+                input,
+                ops,
+                len,
+                into_builder,
+            } => {
+                write!(f, "drive input={input} ops={ops} len={len}")?;
+                if *into_builder {
+                    write!(f, " into=builder")?;
+                }
+                Ok(())
             }
             TraceEvent::BlockOp {
                 op_idx,

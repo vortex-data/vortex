@@ -30,7 +30,6 @@ use vortex_error::vortex_panic;
 use crate::Array;
 use crate::ArrayRef;
 use crate::ArrayView;
-use crate::Canonical;
 use crate::EqMode;
 use crate::ExecutionResult;
 use crate::IntoArray;
@@ -119,19 +118,16 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
 
     /// Writes the array's logical values into a canonical builder.
     ///
-    /// The default implementation executes the full array to [`Canonical`] and appends that result.
+    /// The default implementation executes the full array to [`Canonical`](crate::Canonical) and
+    /// appends that result, except that a fused block chain standing for the array is driven
+    /// straight into `builder`.
     /// Encodings may override this to avoid materializing an intermediate canonical array.
     fn append_to_builder(
         array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let canonical = array
-            .array()
-            .clone()
-            .execute::<Canonical>(ctx)?
-            .into_array();
-        canonical.append_to_builder(builder, ctx)
+        array.array().clone().execute_into_builder(builder, ctx)
     }
 
     /// Returns the name of the slot at the given index.

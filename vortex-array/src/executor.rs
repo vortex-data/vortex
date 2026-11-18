@@ -189,6 +189,32 @@ impl ArrayRef {
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        Ok(self
+            .execute_loop::<M>(ctx, None)?
+            .vortex_expect("execution without a sink returns its result"))
+    }
+
+    /// Execute this array to canonical and append it to `builder`. A fused chain that reaches
+    /// the root is driven straight into `builder`, so its values need no buffer of their own.
+    pub(crate) fn execute_into_builder(
+        self,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        match self.execute_loop::<AnyCanonical>(ctx, Some(&mut *builder))? {
+            None => Ok(()),
+            Some(canonical) => canonical.append_to_builder(builder, ctx),
+        }
+    }
+
+    /// The loop of [`ArrayRef::execute_until`]. With a `sink`, a fused chain that stands for the
+    /// root is driven into it, and the loop returns `None`.
+    #[allow(clippy::cognitive_complexity)]
+    fn execute_loop<M: Matcher + 'static>(
+        self,
+        ctx: &mut ExecutionCtx,
+        mut sink: Option<&mut dyn ArrayBuilder>,
+    ) -> VortexResult<Option<ArrayRef>> {
         // Cloning the context's kernels releases the borrow of `ctx`, which the kernels need.
         let ctx_kernels = Arc::clone(&ctx.kernels);
 
@@ -237,8 +263,9 @@ impl ArrayRef {
                 // instead of being put back, and the chain is driven in place of the parents
                 // that extend it.
                 if done_canonical && ctx.block_fusion && current_builder.is_none() {
-                    match try_fuse(&mut stack, current_array, kernels, ctx)? {
-                        Ok(driven) => {
+                    match try_fuse(&mut stack, current_array, kernels, sink.as_deref_mut(), ctx)? {
+                        Ok(Driven::IntoBuilder) => return Ok(None),
+                        Ok(Driven::Array(driven)) => {
                             current_array = driven;
                             child_rewritten = false;
                             continue;
@@ -257,7 +284,7 @@ impl ArrayRef {
                         // free when the array is already marked as optimized.
                         current_array = optimizer.optimize_array(&current_array)?;
                         trace_op!(record_execute_until_return(&current_array));
-                        return Ok(current_array);
+                        return Ok(Some(current_array));
                     }
                     Some(frame) => {
                         let _slot_idx = frame.slot_idx;
@@ -378,8 +405,9 @@ impl ArrayRef {
             // it in their place. This edge had its execute_parent probes in 2a and 2b, so fusing
             // skips no kernel.
             if ctx.block_fusion && current_builder.is_none() {
-                match try_fuse(&mut stack, current_array, kernels, ctx)? {
-                    Ok(driven) => {
+                match try_fuse(&mut stack, current_array, kernels, sink.as_deref_mut(), ctx)? {
+                    Ok(Driven::IntoBuilder) => return Ok(None),
+                    Ok(Driven::Array(driven)) => {
                         current_array = driven;
                         child_rewritten = false;
                         continue;
@@ -388,8 +416,9 @@ impl ArrayRef {
                 }
                 // An array that combines blocks of its children fuses with them where it stands,
                 // even with no parent above to extend it: that saves each child's buffer.
-                match try_combine(&mut stack, current_array, kernels, ctx)? {
-                    Ok(driven) => {
+                match try_combine(&mut stack, current_array, kernels, sink.as_deref_mut(), ctx)? {
+                    Ok(Driven::IntoBuilder) => return Ok(None),
+                    Ok(Driven::Array(driven)) => {
                         current_array = driven;
                         child_rewritten = false;
                         continue;
@@ -509,8 +538,9 @@ fn try_fuse(
     stack: &mut Vec<StackFrame>,
     child: ArrayRef,
     kernels: &ParentExecutionKernels,
+    sink: Option<&mut (dyn ArrayBuilder + '_)>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Result<ArrayRef, ArrayRef>> {
+) -> VortexResult<Result<Driven, ArrayRef>> {
     let Some((frame, validity)) = fusable_frame(stack, kernels) else {
         return Ok(Err(child));
     };
@@ -520,7 +550,15 @@ fn try_fuse(
         Err(child) => return Ok(Err(child)),
     };
     stack.pop();
-    extend_and_drive(stack, chain, kernels, ctx).map(Ok)
+    extend_and_drive(stack, chain, kernels, sink, ctx).map(Ok)
+}
+
+/// Where the executor drove a fused chain.
+enum Driven {
+    /// Into a buffer of its own: the values of the last parent it reached.
+    Array(ArrayRef),
+    /// Into the sink the root's values go to, so execution is complete.
+    IntoBuilder,
 }
 
 /// Extend `chain` with each spine parent up the stack that transforms blocks, popping their
@@ -529,18 +567,28 @@ fn extend_and_drive(
     stack: &mut Vec<StackFrame>,
     mut chain: FusedChain,
     kernels: &ParentExecutionKernels,
+    sink: Option<&mut (dyn ArrayBuilder + '_)>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
+) -> VortexResult<Driven> {
     while let Some((frame, validity)) = fusable_frame(stack, kernels) {
         match chain.extend(&frame.parent_array, frame.slot_idx, validity, ctx)? {
             Ok(extended) => {
                 chain = extended;
                 stack.pop();
             }
-            Err(chain) => return chain.drive(ctx),
+            Err(chain) => return chain.drive(ctx).map(Driven::Array),
         }
     }
-    chain.drive(ctx)
+    // The chain stands for the root, whose values are the sink's.
+    if stack.is_empty()
+        && let Some(builder) = sink
+    {
+        match chain.drive_into(builder, ctx)? {
+            Ok(()) => return Ok(Driven::IntoBuilder),
+            Err(back) => chain = back,
+        }
+    }
+    chain.drive(ctx).map(Driven::Array)
 }
 
 /// The frame on the top of the stack, with its parent's validity, if the executor may fuse its
@@ -576,8 +624,9 @@ fn try_combine(
     stack: &mut Vec<StackFrame>,
     array: ArrayRef,
     kernels: &ParentExecutionKernels,
+    sink: Option<&mut (dyn ArrayBuilder + '_)>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Result<ArrayRef, ArrayRef>> {
+) -> VortexResult<Result<Driven, ArrayRef>> {
     // The cheap refusals first: most arrays have no combine.
     if fusable_ptype(&array).is_none() {
         return Ok(Err(array));
@@ -602,7 +651,7 @@ fn try_combine(
         |child| !has_execute_parent_kernels(kernels, child),
         ctx,
     )? {
-        Ok(chain) => extend_and_drive(stack, chain, kernels, ctx).map(Ok),
+        Ok(chain) => extend_and_drive(stack, chain, kernels, sink, ctx).map(Ok),
         Err(array) => Ok(Err(array)),
     }
 }
