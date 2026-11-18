@@ -9,7 +9,6 @@ mod mask;
 pub mod rules;
 mod slice;
 mod take;
-mod zip;
 
 #[cfg(test)]
 mod tests {

@@ -15,7 +15,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::Widen;
@@ -30,8 +29,7 @@ use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::conformance::take::test_take_conformance;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::Nullability;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::Operator;
 use crate::validity::Validity;
 
 fn decimal_widen(validity: Validity) -> VortexResult<ArrayRef> {
@@ -82,49 +80,6 @@ fn test_decimal_arithmetic_falls_back_to_canonical(
         .execute::<Canonical>(&mut ctx)?;
 
     let actual = lhs.binary(rhs, operator)?.execute::<Canonical>(&mut ctx)?;
-
-    assert_arrays_eq!(actual, expected, &mut ctx);
-
-    Ok(())
-}
-
-#[rstest]
-#[case::true_branch(true, false)]
-#[case::false_branch(false, true)]
-#[case::both_branches(true, true)]
-fn test_decimal_zip_falls_back_to_canonical(
-    #[case] widen_if_true: bool,
-    #[case] widen_if_false: bool,
-) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let if_true = decimal_widen(Validity::from_iter([true, false, true, true, false]))?;
-    let if_false = WidenArray::try_new(
-        DecimalArray::from_iter([500i16, -600, 700, -800, 900], DecimalDType::new(4, 2))
-            .into_array(),
-        DType::Decimal(DecimalDType::new(18, 2), Nullability::NonNullable),
-    )?
-    .into_array();
-    let canonical_true = canonical(&if_true, &mut ctx)?;
-    let canonical_false = canonical(&if_false, &mut ctx)?;
-    let mask =
-        BoolArray::from_iter([Some(true), Some(true), None, Some(false), Some(true)]).into_array();
-    let expected = mask
-        .zip(canonical_true.clone(), canonical_false.clone())?
-        .execute::<Canonical>(&mut ctx)?;
-    let if_true = if widen_if_true {
-        if_true
-    } else {
-        canonical_true
-    };
-    let if_false = if widen_if_false {
-        if_false
-    } else {
-        canonical_false
-    };
-
-    let actual = mask
-        .zip(if_true, if_false)?
-        .execute::<Canonical>(&mut ctx)?;
 
     assert_arrays_eq!(actual, expected, &mut ctx);
 

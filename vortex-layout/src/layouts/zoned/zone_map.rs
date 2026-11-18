@@ -426,7 +426,6 @@ mod tests {
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::Expression;
     use vortex_array::expr::cast;
-    use vortex_array::expr::dynamic;
     use vortex_array::expr::gt;
     use vortex_array::expr::gt_eq;
     use vortex_array::expr::is_not_null;
@@ -437,7 +436,7 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Stat;
     use vortex_array::scalar::ScalarValue;
-    use vortex_array::scalar_fn::fns::operators::CompareOperator;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -447,6 +446,7 @@ mod tests {
     use vortex_expr::stats::all_non_null;
     use vortex_expr::stats::all_null;
     use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
+    use vortex_functions::expr::dynamic;
     use vortex_mask::Mask;
 
     use crate::layouts::zoned::zone_map::ZoneMap;

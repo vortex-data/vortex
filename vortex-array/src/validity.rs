@@ -32,8 +32,8 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::patches::Patches;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::operators::Operator;
 
 /// Validity information for an array.
 #[derive(Clone)]
@@ -430,8 +430,8 @@ impl Validity {
     /// Returns `Err` when nullability cannot be cast (for example, casting to non-nullable while
     /// invalid values are present).
     ///
-    /// [`CastKernel`]: crate::scalar_fn::fns::cast::CastKernel
-    /// [`CastReduce`]: crate::scalar_fn::fns::cast::CastReduce
+    /// [`CastKernel`]: crate::scalar_fn::builtin::cast::CastKernel
+    /// [`CastReduce`]: crate::scalar_fn::builtin::cast::CastReduce
     #[inline]
     pub fn cast_nullability(
         self,
@@ -469,7 +469,7 @@ impl Validity {
     /// };
     /// ```
     ///
-    /// [`CastReduce`]: crate::scalar_fn::fns::cast::CastReduce
+    /// [`CastReduce`]: crate::scalar_fn::builtin::cast::CastReduce
     #[inline]
     pub fn trivially_cast_nullability(
         self,
