@@ -333,7 +333,7 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
 
 /// Returns whether `dtype` has a non-nullable form, without which [`DType::with_nullability`]
 /// panics. [`DType::Null`] has none, and neither has an extension dtype whose storage has none.
-fn has_non_nullable_form(dtype: &DType) -> bool {
+pub(crate) fn has_non_nullable_form(dtype: &DType) -> bool {
     match dtype {
         DType::Null => false,
         DType::Extension(ext) => has_non_nullable_form(ext.storage_dtype()),
