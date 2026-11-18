@@ -13,7 +13,6 @@ use arrow_schema::SchemaRef;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
-use datafusion_common::arrow::array::AsArray;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::exec_datafusion_err;
 use datafusion_datasource::PartitionedFile;
@@ -46,8 +45,6 @@ use futures::TryStreamExt;
 use futures::stream;
 use object_store::path::Path;
 use tracing::Instrument;
-use vortex::array::ArrayRef;
-use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::expr::Expression;
@@ -71,7 +68,6 @@ use vortex::scan::prepare::ScanCache;
 use vortex::scan::prepare::WeakScanCache;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::ExecuteArrowExt;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -81,6 +77,7 @@ use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::raw_projection;
 use crate::convert::schema::calculate_physical_schema;
+use crate::convert::to_record_batch;
 use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
@@ -490,11 +487,7 @@ impl FileOpener for VortexOpener {
             let native_limit = limit
                 .filter(|_| scan_v2 && residual_filter.is_none())
                 .map(|limit| (limit, Arc::clone(&output_schema)));
-            let map_batch = move |chunk: ArrayRef| {
-                let mut ctx = session.create_execution_ctx();
-                let arrow = chunk.execute_arrow(Some(&stream_target_field), &mut ctx)?;
-                Ok(RecordBatch::from(arrow.as_struct().clone()))
-            };
+            let map_batch = move |chunk| to_record_batch(chunk, &stream_target_field, &session);
             let stream = if scan_v2 {
                 let mut scan_file = vxf.scan_file();
                 scan_file.segments = shared_segment_source(
