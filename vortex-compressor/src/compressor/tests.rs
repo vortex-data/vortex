@@ -1175,6 +1175,8 @@ static KEEPING_DICT: TestDictScheme = TestDictScheme {
     keep_values: true,
 };
 
+/// Only the debug-only check of registered children uses it.
+#[cfg(debug_assertions)]
 static LEAKY_DICT: TestDictScheme = TestDictScheme {
     name: "test.leaky_dict",
     keep_values: false,
