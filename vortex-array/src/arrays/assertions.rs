@@ -11,6 +11,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
 use crate::aggregate_fn::fns::all_non_distinct::all_non_distinct;
+use crate::dtype::Claim;
 
 fn format_indices<I: IntoIterator<Item = usize>>(indices: I) -> impl Display {
     indices.into_iter().format(",")
@@ -113,6 +114,15 @@ macro_rules! assert_arrays_eq {
     }};
 }
 
+/// Test equality also covers opaque values, whose scalar payloads still have identity.
+fn arrays_match(left: &ArrayRef, right: &ArrayRef, ctx: &mut ExecutionCtx) -> bool {
+    if !left.dtype().holds(Claim::Eq) {
+        return find_mismatched_indices(left, right, ctx).is_empty();
+    }
+
+    all_non_distinct(left, right, ctx).vortex_expect("failed to compare array values")
+}
+
 /// Implementation of `assert_arrays_eq!` — called by the macro after converting inputs to
 /// `ArrayRef`.
 #[track_caller]
@@ -120,10 +130,8 @@ macro_rules! assert_arrays_eq {
 pub fn assert_arrays_eq_impl(left: &ArrayRef, right: &ArrayRef, ctx: &mut ExecutionCtx) {
     let executed = execute_to_canonical(left.clone(), ctx);
 
-    let left_right_the_same =
-        all_non_distinct(left, right, ctx).vortex_expect("failed to compare left and right");
-    let executed_right_the_same = all_non_distinct(&executed, right, ctx)
-        .vortex_expect("failed to compare executed left and right");
+    let left_right_the_same = arrays_match(left, right, ctx);
+    let executed_right_the_same = arrays_match(&executed, right, ctx);
 
     if !left_right_the_same || !executed_right_the_same {
         let left_right = find_mismatched_indices(left, right, ctx);

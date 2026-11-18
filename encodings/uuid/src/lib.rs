@@ -14,8 +14,8 @@
 //! [canonical UUID extension].
 //!
 //! [`initialize`] registers the extension dtype, the Arrow import/export plugins that map it to
-//! Arrow's `arrow.uuid` extension type over `FixedSizeBinary[16]` storage, and `is_sorted` and
-//! `min_max` over its storage, since big-endian bytes order like the UUIDs they encode.
+//! Arrow's `arrow.uuid` extension type over `FixedSizeBinary[16]` storage. The UUID dtype claims
+//! that its storage order matches the order of its values.
 //!
 //! [RFC 4122]: https://www.rfc-editor.org/rfc/rfc4122
 //! [canonical UUID extension]: https://arrow.apache.org/docs/format/CanonicalExtensions.html#uuid
@@ -25,7 +25,6 @@ mod metadata;
 mod vtable;
 
 pub use metadata::UuidMetadata;
-use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_session::VortexSession;
@@ -37,11 +36,9 @@ pub struct Uuid;
 /// Register UUID extension support with a session.
 ///
 /// This registers the `vortex.uuid` extension dtype along with the Arrow exporter and importer
-/// for Arrow's canonical `arrow.uuid` extension type. UUIDs are stored big-endian, so they compare
-/// like their storage bytes, and `is_sorted` and `min_max` are pushed down into the storage.
+/// for Arrow's canonical `arrow.uuid` extension type.
 pub fn initialize(session: &VortexSession) {
     session.dtypes().register(Uuid);
-    session.aggregate_fns().register_storage_ordered(Uuid);
     session.arrow().register_extension(Uuid);
 }
 
@@ -55,15 +52,13 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::Accumulator;
-    use vortex_array::aggregate_fn::AggregateFnVTable;
     use vortex_array::aggregate_fn::DynAccumulator;
-    use vortex_array::aggregate_fn::ExtensionStoragePushdown;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
     use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
     use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
+    use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::aggregate_fn::fns::min_max::MinMax;
     use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
-    use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -127,20 +122,6 @@ mod tests {
         Ok(ExtensionArray::new(ext_dtype.erased(), storage).into_array())
     }
 
-    #[test]
-    fn initialize_registers_order_aggregates() {
-        let session = uuid_session();
-        for id in [
-            ExtensionStoragePushdown::new(IsSorted, Uuid).id(),
-            ExtensionStoragePushdown::new(MinMax, Uuid).id(),
-        ] {
-            assert!(
-                session.aggregate_fns().find_plugin(&id).is_some(),
-                "{id} is not registered"
-            );
-        }
-    }
-
     #[rstest]
     // Nulls sort first.
     #[case::sorted(&[None, Some(1), Some(2), Some(2)], false, true)]
@@ -154,39 +135,46 @@ mod tests {
     ) -> VortexResult<()> {
         let session = uuid_session();
         let column = uuid_column(leading_bytes)?;
-        let mut acc = Accumulator::try_new(
-            ExtensionStoragePushdown::new(IsSorted, Uuid),
-            IsSortedOptions { strict },
-            column.dtype().clone(),
-        )?;
+        let mut acc =
+            Accumulator::try_new(IsSorted, IsSortedOptions { strict }, column.dtype().clone())?;
         acc.accumulate(&column, &mut session.create_execution_ctx())?;
         assert_eq!(bool::try_from(&acc.finish()?)?, expected);
         Ok(())
     }
 
     #[test]
-    fn min_max_orders_by_bytes() -> VortexResult<()> {
-        let session = uuid_session();
+    fn min_and_min_max_preserve_logical_uuid_values() -> VortexResult<()> {
+        let mut ctx = uuid_session().create_execution_ctx();
         let column = uuid_column(&[Some(7), None, Some(0xff), Some(3)])?;
         let mut acc = Accumulator::try_new(
-            ExtensionStoragePushdown::new(MinMax, Uuid),
+            MinMax,
             NumericalAggregateOpts::default(),
             column.dtype().clone(),
         )?;
-        acc.accumulate(&column, &mut session.create_execution_ctx())?;
+        acc.accumulate(&column, &mut ctx)?;
 
         let uuid = |leading_byte: u8| {
             let mut bytes = [0u8; 16];
             bytes[0] = leading_byte;
-            Scalar::fixed_size_list(
-                DType::Primitive(PType::U8, Nullability::NonNullable),
-                bytes
-                    .into_iter()
-                    .map(|byte| Scalar::primitive(byte, Nullability::NonNullable))
-                    .collect(),
-                Nullability::NonNullable,
+            Scalar::extension_ref(
+                column.dtype().as_nonnullable().as_extension().clone(),
+                Scalar::fixed_size_list(
+                    DType::Primitive(PType::U8, Nullability::NonNullable),
+                    bytes
+                        .into_iter()
+                        .map(|byte| Scalar::primitive(byte, Nullability::NonNullable))
+                        .collect(),
+                    Nullability::NonNullable,
+                ),
             )
         };
+        let mut min = Accumulator::try_new(
+            Min,
+            NumericalAggregateOpts::default(),
+            column.dtype().clone(),
+        )?;
+        min.accumulate(&column, &mut ctx)?;
+        assert_eq!(min.finish()?, uuid(3).into_nullable());
         assert_eq!(
             MinMaxResult::from_scalar(&acc.finish()?)?,
             Some(MinMaxResult {

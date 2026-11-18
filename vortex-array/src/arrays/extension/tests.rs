@@ -33,6 +33,8 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::extension::ExtensionSlots;
 use crate::assert_arrays_eq;
+use crate::dtype::Claim;
+use crate::dtype::Claims;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -107,6 +109,10 @@ impl ExtVTable for NonZero {
         );
 
         Ok(())
+    }
+
+    fn claims(_metadata: &Self::Metadata) -> Claims {
+        Claims::none().with(Claim::Ord)
     }
 
     fn unpack_native<'a>(
