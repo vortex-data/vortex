@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Vtable and wire adapter for the in-memory `Widen` encoding.
+//! Array operations for the `Widen` encoding.
 //!
-//! Execution restores the logical width. The writer plugin uses an existing wire form because
-//! `Widen` has no wire form of its own.
+//! Execution produces values at the logical dtype's width. [`WidenPlugin`] handles storage at the
+//! child's width.
 
 mod operations;
 

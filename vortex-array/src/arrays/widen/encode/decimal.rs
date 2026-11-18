@@ -1,19 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Decimal encoding and conversion of legacy storage into canonical decimal leaves.
+//! Chooses a narrower [`DecimalArray`] child when encoding or reading stored decimals.
 //!
-//! The legacy `vortex.decimal` format stores integer width independently of logical precision,
-//! but we now require canonical `vortex.decimal` leaves to have a width determined and fixed by
-//! their precision.
+//! In memory, a decimal array's precision determines its buffer width. The `vortex.decimal` wire
+//! format records those two properties separately. If a stored buffer is narrower than the logical
+//! dtype requires, the reader can give the child a lower precision and keep the original dtype on
+//! a [`WidenArray`]. [`WidenPlugin`] still writes this format for decimal leaves.
 //!
-//! In this new world, we can retain narrow storage as a [`WidenArray`] over a canonical child.
-//! Current [`WidenPlugin`] writes still use the legacy format, so this conversion can also apply
-//! to newly written data (which will happen until `Widen` is added to the `core` edition).
-//!
-//! We unify child selection in both encoding and legacy conversion because it has non-trivial
-//! logic: width alone does not determine a valid child dtype. For example, unscaled 127 fits `i8`
-//! but needs precision 3, whose canonical width is `i16`.
+//! The encoder and reader use the same rule to choose the child dtype. They use the range of
+//! valid values and the decimal scale to pick a precision, then derive the width from that
+//! precision. For example, an unscaled value of 127 needs precision 3, which uses an `i16` buffer
+//! even though 127 fits in `i8`.
 //!
 //! [`WidenPlugin`]: crate::arrays::widen::WidenPlugin
 
