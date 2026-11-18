@@ -24,10 +24,9 @@ use crate::analysis::AnnotationFn;
 ///
 /// # Annotation Rules
 ///
-/// - **[`Select`]**: Returns the included field names if the child is [`BoundExpression::Root`].
-/// - **[`GetItem`] on the root**: Returns `[field_name]` if the child is [`BoundExpression::Root`].
-/// - **[`BoundExpression::Root`]**: Returns all field names from `scope` (conservative
-///   over-approximation).
+/// - [`Select`] on the scope root returns the included field names.
+/// - [`GetItem`] on the scope root returns `[field_name]`.
+/// - The scope root returns all field names from `scope` (conservative over-approximation).
 /// - **Everything else**: Returns empty (annotations aggregate from children automatically).
 ///
 /// # Example
