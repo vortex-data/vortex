@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::EmptyMetadata;
@@ -10,14 +11,20 @@ use vortex_array::dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
+use crate::layouts::list::ElementSamples;
 use crate::plan::physical::Plan;
 use crate::plan::physical::PlanId;
 use crate::plan::physical::PlanParts;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::PlanSlots;
 use crate::plan::physical::PlanVTable;
+use crate::plan::physical::operators::ListSource;
+use crate::plan::physical::pipeline::Chain;
+use crate::plan::physical::pipeline::Compiler;
 
 const ELEMENTS: usize = 0;
 const OFFSETS: usize = 1;
@@ -30,7 +37,11 @@ pub struct ListPack;
 
 /// Operator-specific list assembly data.
 #[derive(Clone, Debug)]
-pub struct ListPackData;
+pub struct ListPackData {
+    /// The list holding every so many elements, when the writer recorded them: they map a
+    /// selection of lists to the elements it reads without reading the offsets first.
+    samples: Option<ElementSamples>,
+}
 
 /// A plan that assembles a list from its children.
 pub type ListPackPlan = Plan<ListPack>;
@@ -49,12 +60,29 @@ impl ListPackPlan {
         row_count: u64,
         slots: PlanSlots,
     ) -> Self {
+        // SAFETY: the caller upholds the same contract.
+        unsafe { Self::from_slots_with_samples_unchecked(dtype, row_count, slots, None) }
+    }
+
+    /// [`Self::from_slots_unchecked`], reading the elements of a selection of lists by the
+    /// `samples` the writer recorded.
+    ///
+    /// # Safety
+    ///
+    /// As for [`Self::from_slots_unchecked`], and `samples` must sample the elements and offsets
+    /// slots.
+    pub(crate) unsafe fn from_slots_with_samples_unchecked(
+        dtype: DType,
+        row_count: u64,
+        slots: PlanSlots,
+        samples: Option<ElementSamples>,
+    ) -> Self {
         PlanParts {
             vtable: ListPack,
             dtype,
             row_count,
             slots,
-            data: ListPackData,
+            data: ListPackData { samples },
         }
         .into_typed()
     }
@@ -94,6 +122,45 @@ impl ListPackPlan {
     pub fn validity(&self) -> VortexResult<Option<PlanRef>> {
         self.slot(VALIDITY)
     }
+
+    /// The element ranges holding the lists `mask` selects of `rows`, merged and in order. The
+    /// samples bound them to within a stride; without samples, every element is read.
+    fn element_ranges(
+        &self,
+        rows: &Range<u64>,
+        mask: &Mask,
+        element_rows: u64,
+    ) -> VortexResult<Vec<Range<u64>>> {
+        let Some(samples) = &self.data().samples else {
+            return Ok((element_rows > 0)
+                .then_some(0..element_rows)
+                .into_iter()
+                .collect());
+        };
+        let mut ranges: Vec<Range<u64>> = Vec::new();
+        let mut add = |lists: Range<u64>| {
+            let range = samples.element_range(lists, element_rows);
+            if range.is_empty() {
+                return;
+            }
+            match ranges.last_mut() {
+                Some(previous) if previous.end >= range.start => {
+                    previous.end = previous.end.max(range.end)
+                }
+                _ => ranges.push(range),
+            }
+        };
+        match mask.slices() {
+            AllOr::All => add(rows.clone()),
+            AllOr::None => {}
+            AllOr::Some(slices) => {
+                for &(start, end) in slices {
+                    add(rows.start + u64::try_from(start)?..rows.start + u64::try_from(end)?);
+                }
+            }
+        }
+        Ok(ranges)
+    }
 }
 
 impl PlanVTable for ListPack {
@@ -125,6 +192,78 @@ impl PlanVTable for ListPack {
             VALIDITY => Cow::Borrowed("validity"),
             _ => Cow::Owned(format!("slot[{slot}]")),
         }
+    }
+
+    /// Reads the offsets from the first selected list to the last, the validity of the selected
+    /// lists, and the elements the samples place them in, all compiled now, so they are read
+    /// together. The source drops the elements of lists the mask leaves out.
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
+        let (Some(first), Some(last)) = (mask.first(), mask.last()) else {
+            return Ok(None);
+        };
+        let mask = mask.slice(first..last + 1);
+        let rows = rows.start + u64::try_from(first)?..rows.start + u64::try_from(last + 1)?;
+        let offsets_plan = plan.offsets()?;
+        let offsets = compiler
+            .compile(
+                &offsets_plan,
+                rows.start..rows.end + 1,
+                &Mask::new_true(mask.len() + 1),
+            )?
+            .ok_or_else(|| vortex_err!("List offsets compiled to no rows"))?;
+        let mut chains = vec![offsets];
+        if let Some(validity) = plan.validity()? {
+            chains.push(
+                compiler
+                    .compile(&validity, rows.clone(), &mask)?
+                    .ok_or_else(|| vortex_err!("List validity compiled to no rows"))?,
+            );
+        }
+        let elements_plan = plan.elements()?;
+        let ranges = plan.element_ranges(&rows, &mask, elements_plan.row_count())?;
+        let elements = match (ranges.first(), ranges.last()) {
+            (Some(first), Some(last)) => {
+                let (start, end) = (first.start, last.end);
+                let len = usize::try_from(end - start)?;
+                let element_mask = if ranges.len() == 1 {
+                    Mask::new_true(len)
+                } else {
+                    Mask::from_slices(
+                        len,
+                        ranges
+                            .iter()
+                            .map(|range| -> VortexResult<_> {
+                                Ok((
+                                    usize::try_from(range.start - start)?,
+                                    usize::try_from(range.end - start)?,
+                                ))
+                            })
+                            .collect::<VortexResult<Vec<_>>>()?,
+                    )
+                };
+                compiler.compile(&elements_plan, start..end, &element_mask)?
+            }
+            _ => None,
+        };
+        let has_elements = elements.is_some();
+        chains.extend(elements);
+        let source = ListSource::new(
+            elements_plan.dtype().clone(),
+            offsets_plan.dtype().clone(),
+            plan.dtype().nullability(),
+            mask,
+            has_elements.then_some(ranges),
+        );
+        Ok(Some(compiler.join_with(
+            chains,
+            ListSource::capacity,
+            source,
+        )))
     }
 }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::num::NonZeroU64;
 use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
@@ -69,6 +70,9 @@ use crate::LayoutStrategy;
 use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
 use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
+use crate::layouts::list::writer::ListLayoutStrategy;
+use crate::layouts::repartition::RepartitionStrategy;
+use crate::layouts::repartition::RepartitionWriterOptions;
 use crate::layouts::row_idx::row_idx;
 use crate::layouts::table::TableStrategy;
 use crate::layouts::zoned::writer::ZonedLayoutOptions;
@@ -91,8 +95,8 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 const CHUNK_ROWS: usize = 1000;
 const CHUNKS: usize = 4;
 
-/// A table chunk of `CHUNK_ROWS` rows starting at row `start`: an integer, a nullable string and a
-/// list column.
+/// A table chunk of `CHUNK_ROWS` rows starting at row `start`: an integer, a nullable string, a
+/// list and a list of lists column.
 fn table_chunk(start: usize) -> VortexResult<ArrayRef> {
     let mut ctx = SESSION.create_execution_ctx();
     let rows = start..start + CHUNK_ROWS;
@@ -101,14 +105,43 @@ fn table_chunk(start: usize) -> VortexResult<ArrayRef> {
             .map(|row| i32::try_from(row).unwrap_or(i32::MAX)),
     );
     let strings = VarBinArray::from_iter(
-        rows.map(|row| (row % 3 != 0).then(|| format!("row {row}"))),
+        rows.clone()
+            .map(|row| (row % 3 != 0).then(|| format!("row {row}"))),
         DType::Utf8(true.into()),
     );
-    let elements = Buffer::from_iter((0..2 * CHUNK_ROWS).map(|i| i64::try_from(i).unwrap_or(0)));
-    let offsets = Buffer::from_iter((0..=CHUNK_ROWS).map(|i| u32::try_from(2 * i).unwrap_or(0)));
+    // Lists of 0 to 4 elements, every seventh null.
+    let mut offsets = vec![0u32];
+    for row in rows.clone() {
+        offsets.push(offsets[offsets.len() - 1] + u32::try_from(row % 5).unwrap_or(0));
+    }
+    let elements = Buffer::from_iter((0..offsets[offsets.len() - 1]).map(|i| i64::from(i) * 3));
     let lists = ListArray::try_new(
         elements.into_array(),
-        offsets.into_array(),
+        Buffer::from_iter(offsets).into_array(),
+        Validity::from_iter(rows.clone().map(|row| row % 7 != 0)),
+        &mut ctx,
+    )?;
+    // Lists of 0 to 2 nullable lists of 0 to 3 elements.
+    let mut outer = vec![0u32];
+    let mut inner = vec![0u32];
+    let mut inner_valid = Vec::new();
+    for row in rows {
+        let count = u32::try_from(row % 3).unwrap_or(0);
+        for j in 0..count as usize {
+            inner.push(inner[inner.len() - 1] + u32::try_from((row + j) % 4).unwrap_or(0));
+            inner_valid.push((row + j) % 5 != 0);
+        }
+        outer.push(outer[outer.len() - 1] + count);
+    }
+    let inner = ListArray::try_new(
+        Buffer::from_iter((0..inner[inner.len() - 1]).map(i64::from)).into_array(),
+        Buffer::from_iter(inner).into_array(),
+        Validity::from_iter(inner_valid),
+        &mut ctx,
+    )?;
+    let nested = ListArray::try_new(
+        inner.into_array(),
+        Buffer::from_iter(outer).into_array(),
         Validity::NonNullable,
         &mut ctx,
     )?;
@@ -116,6 +149,7 @@ fn table_chunk(start: usize) -> VortexResult<ArrayRef> {
         ("ints", ints.into_array()),
         ("strings", strings.into_array()),
         ("lists", lists.into_array()),
+        ("nested", nested.into_array()),
     ])?
     .into_array())
 }
@@ -662,17 +696,115 @@ async fn chunks_sharing_a_segment_read_it_once(
     Ok(())
 }
 
-/// V2 rejects list layouts: their element ranges are only known once their offsets are read.
+/// Leaves repartitioned into zoned blocks of `block_len` rows, so a filter prunes to a block and
+/// a list's elements span many segments.
+fn small_zoned_leaves(block_len: usize) -> Arc<dyn LayoutStrategy> {
+    Arc::new(RepartitionStrategy::new(
+        ZonedStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ZonedLayoutOptions {
+                block_size: NonZeroUsize::new(block_len).unwrap_or(NonZeroUsize::MIN),
+                ..Default::default()
+            },
+        ),
+        RepartitionWriterOptions {
+            block_size_minimum: 0,
+            block_len_multiple: block_len,
+            block_size_target: None,
+            canonicalize: false,
+        },
+    ))
+}
+
+/// A table writing its lists as list layouts, recording element samples every `stride` elements
+/// when given one.
+fn list_table(leaves: Arc<dyn LayoutStrategy>, stride: Option<u64>) -> TableStrategy {
+    TableStrategy::new(chunked_flat(), leaves).with_list_layout_factory(
+        move |list: ListLayoutStrategy| -> Arc<dyn LayoutStrategy> {
+            match stride.and_then(NonZeroU64::new) {
+                Some(stride) => Arc::new(list.with_element_samples(stride)),
+                None => Arc::new(list),
+            }
+        },
+    )
+}
+
+/// A list whose writer recorded element samples compiles its elements from them: a sparse filter
+/// reads the element segments near a selected list, not all of them.
 #[tokio::test]
-async fn list_layouts_return_an_error() -> VortexResult<()> {
+async fn list_elements_are_read_by_element_samples() -> VortexResult<()> {
     let session = new_session().with_tokio();
-    let strategy = TableStrategy::new(chunked_flat(), chunked_flat()).with_list_layout();
+    let strategy = list_table(small_zoned_leaves(64), Some(16));
     let (segments, layout) = write(&session, &strategy).await?;
-    let error = run_scan(builder(&session, &segments, &layout)?)
-        .await
-        .expect_err("V2 must reject an unsupported layout");
-    assert!(error.to_string().contains("vortex.plan.list_pack"));
+    let projection = get_item("lists", root()).bind(layout.dtype())?;
+
+    let mut reads = Vec::new();
+    for filter in [None, Some(eq(get_item("ints", root()), lit(1001i32)))] {
+        let counted = Arc::new(CountingSegmentSource::new(Arc::clone(&segments)));
+        let source = Arc::clone(&counted) as Arc<dyn SegmentSource>;
+        let scan = Arc::new(
+            builder(&session, &source, &layout)?
+                .with_projection(projection.clone())
+                .with_some_filter(filter.map(|f| f.bind(layout.dtype())).transpose()?)
+                .prepare()?,
+        );
+        let rows = scan.rows().clone();
+        run_rows(&scan, rows).await?;
+        reads.push(counted.requests());
+    }
+    assert!(
+        reads[1] * 10 < reads[0],
+        "a one-row filter read {} segments, the whole scan {}",
+        reads[1],
+        reads[0]
+    );
     Ok(())
+}
+
+#[rstest]
+#[case::whole(None, None, None)]
+#[case::row_range(Some(250..3_100), None, None)]
+#[case::row_indices(None, Some(&[0, 1, 4, 999, 1000, 2500, 3999][..]), None)]
+#[case::range_filter(
+    None,
+    None,
+    Some(and(
+        gt(get_item("ints", root()), lit(995i32)),
+        lt(get_item("ints", root()), lit(2050i32))
+    ))
+)]
+#[case::sparse_filter(None, None, Some(eq(get_item("ints", root()), lit(1001i32))))]
+#[case::list_filter(None, None, Some(is_null(get_item("lists", root()))))]
+#[case::no_matches(None, None, Some(gt(get_item("ints", root()), lit(10_000i32))))]
+#[tokio::test]
+async fn list_layout_matches_v1(
+    #[values(None, Some("lists"), Some("nested"))] column: Option<&str>,
+    #[values(None, Some(64))] block_len: Option<usize>,
+    #[values(None, Some(1), Some(16))] element_stride: Option<u64>,
+    #[case] row_range: Option<Range<u64>>,
+    #[case] rows: Option<&'static [u64]>,
+    #[case] filter: Option<Expression>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let leaves = block_len.map_or_else(chunked_flat, small_zoned_leaves);
+    let (segments, layout) = write(&session, &list_table(leaves, element_stride)).await?;
+    assert_same_as_v1(&session, || {
+        let mut builder = builder(&session, &segments, &layout)?
+            .with_some_filter(filter.clone().map(|f| f.bind(layout.dtype())).transpose()?);
+        if let Some(column) = column {
+            builder = builder.with_projection(get_item(column, root()).bind(layout.dtype())?);
+        }
+        if let Some(row_range) = row_range.clone() {
+            builder = builder.with_row_range(row_range);
+        }
+        if let Some(rows) = rows {
+            builder =
+                builder.with_row_indices(StrictSortedBuffer::try_new(Buffer::copy_from(rows))?);
+        }
+        Ok(builder)
+    })
+    .await
 }
 
 #[tokio::test]

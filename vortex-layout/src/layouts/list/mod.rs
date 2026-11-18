@@ -253,13 +253,14 @@ impl VTable for List {
 
     fn new_plan(layout: &Layout<Self>) -> VortexResult<PlanRef> {
         // SAFETY: List layout construction validates its element, offsets, and optional validity
-        // child shapes. Its slots are `[elements, offsets, validity]`, which are the ListPack
-        // slots.
+        // child shapes, and deserialization validates its samples against them. Its slots are
+        // `[elements, offsets, validity]`, which are the ListPack slots.
         let plan = unsafe {
-            ListPackPlan::from_slots_unchecked(
+            ListPackPlan::from_slots_with_samples_unchecked(
                 layout.dtype().clone(),
                 layout.row_count(),
                 PlanSlots::from_layout(&layout.to_layout()),
+                layout.element_samples().cloned(),
             )
         };
         Ok(plan.into_plan())
