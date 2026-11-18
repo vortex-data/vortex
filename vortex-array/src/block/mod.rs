@@ -11,11 +11,12 @@
 //! On the way back up, instead of executing a child into a full-length buffer and then the
 //! parent's kernel into another, the executor builds a block program: the first child that can
 //! emit blocks ([`VTable::block_source`](crate::vtable::VTable::block_source), or a canonical
-//! primitive array) starts it, and each spine parent above extends it with its [`BlockOp`]. The
-//! parent becomes a `Fused` array that carries the program up the stack. When the next parent
-//! cannot extend it, or at the root, executing the fused array drives the program: blocks of at
-//! most [`BLOCK_LEN`] rows flow through every op in L1, and only the last op writes full-length
-//! output. Execution then carries on as before.
+//! primitive array) starts it, and each spine parent above extends it with its [`BlockOp`],
+//! popping the parent's frame. When the next parent cannot extend it, or at the root, the executor
+//! drives the program right away, in place of the parents it reached: blocks of at most
+//! [`BLOCK_LEN`] rows flow through every op in L1, and only the last op writes full-length
+//! output. Execution then carries on as before. A chain is never left waiting, so it is a value of
+//! the executor's loop rather than an array.
 
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
@@ -532,13 +533,12 @@ fn apply_patches<I: AsPrimitive<usize>, T: Copy>(
     cursor
 }
 
-mod fused;
+mod chain;
 mod program;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use fused::Fused;
-pub(crate) use fused::fuse_into_parent;
+pub(crate) use chain::FusedChain;
 pub(crate) use program::BlockProgram;
 pub(crate) use program::ProgramInput;
 pub(crate) use program::fusable_ptype;

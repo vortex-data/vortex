@@ -267,9 +267,10 @@ FoR over FoR over BitPacked. Block fusion builds those levels into one pass over
 The loop trampolines down as usual. On the way back up, a child that can emit blocks
 (`VTable::block_source`, or a canonical primitive array) starts a block program when the parent
 waiting for it asked for it with `ExecuteSpine` and transforms it block by block
-(`VTable::block_op`). The parent becomes a `Fused` array carrying the program, and each spine
-parent above extends it with its op. When the next parent cannot extend it, or at the root,
-executing the fused array drives the whole program, and execution carries on from there.
+(`VTable::block_op`). Each spine parent above extends the program with its op, and its frame is
+popped. When the next parent cannot extend it, or at the root, the executor drives the whole
+program right away, in place of the parents it reached, and execution carries on from there with
+the result. A program never waits, so the executor holds it as a value, not as an array.
 
 Fusion happens after an edge's `execute_parent` probes, so no parent kernel is skipped. An
 encoding opts in by requesting its spine with `require_spine!` once every other child it needs is
