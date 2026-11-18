@@ -102,20 +102,25 @@ pub enum Claim {
     Ord,
 }
 
-impl Claim {
-    /// Whether holding `self` means holding `other`. Each claim implies itself, and `Ord` implies
-    /// `Eq`.
-    pub fn implies(self, other: Claim) -> bool;
+/// The claims that an extension type declares for one metadata value. The fields are private.
+pub struct Claims { /* ... */ }
+
+impl Claims {
+    /// Declares no claims.
+    pub fn none() -> Self;
+
+    /// Adds `claim` and every claim that it implies. Adding `Ord` also adds `Eq`.
+    pub fn with(self, claim: Claim) -> Self;
 }
 
 pub trait ExtVTable {
     // The existing methods stay.
 
-    /// The claims that values of `dtype` make about their storage.
+    /// The claims that values of this type make about their storage.
     ///
     /// The default is no claims, so every semantic operation on this dtype is rejected.
-    fn claims(dtype: &ExtDType<Self>) -> &'static [Claim] {
-        &[]
+    fn claims(metadata: &Self::Metadata) -> Claims {
+        Claims::none()
     }
 }
 
@@ -125,10 +130,10 @@ impl DType {
 }
 ```
 
-`ExtDTypeRef` gets an erased forwarder: `fn claims(&self) -> &'static [Claim]`. `DType::holds`
-answers for every dtype:
+`ExtDTypeRef` gets an erased forwarder: `fn claims(&self) -> Claims`. `DType::holds` answers for
+every dtype:
 
-- An extension dtype holds a claim when one of its listed claims implies it.
+- An extension dtype holds the claims that it declares. Declaring `Ord` also declares `Eq`.
 - `Null`, `Bool`, `Primitive`, `Decimal`, `Utf8` and `Binary` hold both claims.
 - `Struct`, `List`, `FixedSizeList` and `Map` hold a claim when their children hold it.
 - `Union` and `Variant` hold neither.

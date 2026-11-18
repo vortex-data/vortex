@@ -111,17 +111,18 @@ pub trait ExtVTable {
     /// The claims that values of this type make about their storage.
     ///
     /// The default is no claims, so the type is opaque.
-    fn claims(metadata: &Self::Metadata) -> &'static [Claim] {
-        &[]
+    fn claims(metadata: &Self::Metadata) -> Claims {
+        Claims::none()
     }
 }
 ```
 
 The method takes the metadata, like `storage_dtype` (X27), so the claims cannot depend on the
-top-level nullability. XQ9 records this recommendation.
+top-level nullability. XQ9 records this recommendation. `Claims` is an opaque value: a type writes
+`Claims::none().with(Claim::Ord)`, and adding `Ord` also adds `Eq` (X14).
 
-`DType::holds(claim)` answers for any dtype. An extension dtype holds the claims in its list, and
-the claims that they imply. Built-in dtypes follow a fixed table, which matches what compare
+`DType::holds(claim)` answers for any dtype. An extension dtype holds the claims that it declares,
+and the claims that they imply. Built-in dtypes follow a fixed table, which matches what compare
 supports today: `Null`, `Bool`, `Primitive`, `Decimal`, `Utf8` and `Binary` hold both claims.
 `Struct`, `List`, `FixedSizeList` and `Map` hold a claim when their children hold it. `Union` and
 `Variant` hold neither.

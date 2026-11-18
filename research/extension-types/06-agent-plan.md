@@ -149,16 +149,20 @@ Branch `ct/ext-claims` from `origin/develop`. Check `vortex-array`.
   #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
   #[non_exhaustive]
   pub enum Claim { Eq, Ord }
-  impl Claim { pub fn implies(self, other: Claim) -> bool }   // Ord implies Eq, each implies itself
   impl fmt::Display for Claim                                 // "Eq", "Ord"
+  pub struct Claims { /* private fields */ }
+  impl Claims {
+      pub fn none() -> Self;
+      pub fn with(self, claim: Claim) -> Self;                // adding Ord also adds Eq
+  }
   impl DType {
       pub fn holds(&self, claim: Claim) -> bool;
       pub fn require_claim(&self, claim: Claim, function: impl fmt::Display) -> VortexResult<()>;
   }
   // ExtVTable, with this default:
-  fn claims(metadata: &Self::Metadata) -> &'static [Claim] { &[] }
+  fn claims(metadata: &Self::Metadata) -> Claims { Claims::none() }
   // ExtDTypeRef
-  pub fn claims(&self) -> &'static [Claim];
+  pub(crate) fn claims(&self) -> Claims;
   // Test type, for later tasks: vortex_array::extension::tests::Opaque, over i64, no claims
   ```
 
@@ -166,7 +170,7 @@ Branch `ct/ext-claims` from `origin/develop`. Check `vortex-array`.
   - `builtin_dtypes_hold_claims`, an `rstest` over `(dtype, claim, expected)`: `i64`, `f64`,
     `Bool`, `Utf8`, `Binary`, `Decimal` and `Null` hold `Eq` and `Ord`. `Variant` holds neither.
     `struct{a: i64}` and `List<i64>` hold `Ord`. `struct{a: Variant}` holds neither.
-  - `ord_implies_eq`: `Ord.implies(Eq)`, `Eq.implies(Eq)`, and not `Eq.implies(Ord)`.
+  - `claims_builder`: `with(Ord)` holds `Eq` and `Ord`, and `with(Eq)` holds only `Eq`.
   - `extension_holds_declared_and_implied_claims`: `DivisibleInt` holds `Ord` and `Eq`. `Opaque`
     holds neither. `List<Opaque>` holds neither. `struct{a: DivisibleInt}` holds `Ord`.
   - `claims_ignore_top_level_nullability`: each extension dtype above gives the same answers when
@@ -180,7 +184,7 @@ Branch `ct/ext-claims` from `origin/develop`. Check `vortex-array`.
   `cargo nextest run -p vortex-array claim`.
 - [ ] **Step 3: Implement.**
   - `holds` follows X13. For an extension dtype it returns
-    `ext.claims().iter().any(|c| c.implies(claim))` and does not look into the storage, which was
+    `ext.claims().holds(claim)` and does not look into the storage, which was
     checked when the dtype was built (X15).
   - `ExtDType::try_new` checks every claim of `V::claims(&metadata)` against the declared storage
     dtype, once. Make sure every constructor of `ExtDType` and the read path
@@ -205,8 +209,8 @@ Branch `ct/ext-claims-types` from `ct/ext-claims`. Check `vortex-array`, `vortex
 
 **Interfaces:**
 - Consumes: `Claim`, `ExtVTable::claims` (CL1).
-- Produces: `Date`, `Time`, `Timestamp` and `Uuid` claim `&[Claim::Ord]`. `Vector` and
-  `FixedShapeTensor` claim `&[Claim::Eq]`. Every other type keeps the default (X16).
+- Produces: `Date`, `Time`, `Timestamp` and `Uuid` claim `Ord`. `Vector` and `FixedShapeTensor`
+  claim `Eq`. Every other type keeps the default (X16).
 
 - [ ] **Step 1: Write the tests:** `temporal_types_claim_ord` (an `rstest` over the three types,
   several units and time zones, and both nullabilities: each holds `Eq` and `Ord`),

@@ -371,11 +371,11 @@ records the state of `new_unchecked`.
 [#11115](https://github.com/vortex-data/vortex/issues/11115) tracks this work. Nothing reads the
 claims until phase 3, so this phase changes no behavior.
 
-- CL1: add `#[non_exhaustive] pub enum Claim { Eq, Ord }` with `Claim::implies` (X13, X14), and
-  `DType::holds(Claim)`. Built-in dtypes follow the fixed table of X13. An extension dtype holds
+- CL1: add `#[non_exhaustive] pub enum Claim { Eq, Ord }`, the opaque `Claims` value (X13, X14),
+  and `DType::holds(Claim)`. Built-in dtypes follow the fixed table of X13. An extension dtype holds
   the claims of its type and the claims that they imply. Add
-  `fn claims(metadata: &Self::Metadata) -> &'static [Claim]` to `ExtVTable`, with the default
-  `&[]` (XQ9), and an erased forwarder on `ExtDTypeRef`. `ExtDType::try_new` checks that the
+  `fn claims(metadata: &Self::Metadata) -> Claims` to `ExtVTable`, with the default
+  `Claims::none()` (XQ9), and an erased forwarder on `ExtDTypeRef`. `ExtDType::try_new` checks that the
   declared storage dtype holds every claim (X15). Add the shared helper `require_claim`, which
   returns an error that names the function, the dtype and the missing claim. Add the `Opaque` test
   type over `i64`, which claims nothing, so the PRs of phase 3 can test rejection.
