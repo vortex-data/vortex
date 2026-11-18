@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Drives a prepared scan for callers without an engine of their own.
+//! Drives a prepared scan on the session's runtime.
 //!
 //! A planner says what it needs: compute, or reads. This driver decides where each runs. It
 //! composes the planners over a [`PreparedScan`], the pruning plans first when the scan has a
 //! filter and the chunks of the rows they keep after, and runs them on planning runs it owns:
 //! the root run stepped on `spawn_cpu` tasks as the stream is polled, each spawned chunk on a
-//! task of its own, up to the concurrency, or on the root run at a concurrency of one. Every
-//! read is served by the source's IO session. Per-batch output mapping runs on the task that
+//! task of its own, up to the concurrency, or on the root run when driving chunks inline. Each
+//! root reads through its own IO session. Per-batch output mapping runs on the task that
 //! produced the batch, beside the scan's other chunks.
 
 use std::future;
@@ -24,7 +24,7 @@ use futures::stream::BoxStream;
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_io::request::IoSource;
+use vortex_io::request::IoService;
 use vortex_io::runtime::Handle;
 use vortex_mask::Mask;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -46,11 +46,11 @@ pub struct ScanDriver {
 }
 
 impl ScanDriver {
-    /// A driver spawning on `handle`, running `concurrency` chunks beside each other per worker
-    /// thread, or every chunk on the scan's own run at one, and yielding batches in row order
-    /// when `ordered`, which holds them until the scan is done.
+    /// A driver spawning on `handle`, with a limit of `concurrency` chunks per available worker
+    /// thread. If `concurrency` is zero or the total limit is one, chunks run inline on the root
+    /// run. When `ordered`, the driver holds batches until the scan is done and yields them in
+    /// row order.
     pub fn new(handle: Handle, concurrency: usize, ordered: bool) -> Self {
-        assert!(concurrency > 0);
         Self {
             handle,
             concurrency,
@@ -77,21 +77,13 @@ impl ScanDriver {
         builder: impl Into<ScanBuilder>,
         map_fn: impl Fn(ArrayRef) -> VortexResult<A> + Send + Sync + 'static,
     ) -> BoxStream<'static, VortexResult<A>> {
-        self.drive(builder.into(), Arc::new(map_fn))
-    }
-
-    /// Runs the scan, applying `map_fn` to each batch on the task that produced it.
-    fn drive<A: Send + 'static>(
-        self,
-        builder: ScanBuilder,
-        map_fn: MapFn<A>,
-    ) -> BoxStream<'static, VortexResult<A>> {
+        let builder = builder.into();
         let handle = self.handle.clone();
         stream::once(async move {
             handle
                 .spawn_cpu(move || {
-                    let scan = Arc::new(builder.prepare()?);
-                    VortexResult::Ok(self.execute(scan, map_fn))
+                    let scan = builder.prepare()?;
+                    VortexResult::Ok(self.run_prepared_mapped(scan, map_fn))
                 })
                 .await
         })
@@ -99,11 +91,15 @@ impl ScanDriver {
         .boxed()
     }
 
-    fn execute<A: Send + 'static>(
+    /// Runs an already prepared scan, applying `map_fn` on the task that produced each batch.
+    /// Use this when preparation errors must be reported before returning the stream.
+    pub fn run_prepared_mapped<A: Send + 'static>(
         self,
-        scan: Arc<PreparedScan>,
-        map_fn: MapFn<A>,
+        scan: PreparedScan,
+        map_fn: impl Fn(ArrayRef) -> VortexResult<A> + Send + Sync + 'static,
     ) -> BoxStream<'static, VortexResult<A>> {
+        let scan = Arc::new(scan);
+        let map_fn: MapFn<A> = Arc::new(map_fn);
         let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
         let inline = in_flight <= 1;
         let scope = WorkScope {
@@ -114,7 +110,7 @@ impl ScanDriver {
         let root = compose(&scan);
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map_fn));
-        let batches = run_stream(self.handle, root, scope, io.session(), map_fn, inline)
+        let batches = run_stream(self.handle, root, scope, io, map_fn, inline)
             .map_ok(move |yielded| match yielded {
                 Yielded::Batch(start, batch) => {
                     stream::once(future::ready(Ok((start, batch)))).boxed()
@@ -123,7 +119,7 @@ impl ScanDriver {
                     &chunk_handle,
                     chunk,
                     scope,
-                    chunk_io.session(),
+                    Arc::clone(&chunk_io),
                     Arc::clone(&chunk_map),
                 ),
             })
@@ -191,7 +187,8 @@ struct RunState<A> {
     handle: Handle,
     /// Taken while a CPU step runs on its task and put back with its result.
     run: Option<Run>,
-    io: Arc<dyn IoSource>,
+    /// Each root owns a session that the run clears when the root retires.
+    io: Arc<dyn IoService>,
     map_fn: MapFn<A>,
     /// Whether a spawned chunk runs on this run, as another root, instead of being yielded.
     inline: bool,
@@ -204,12 +201,12 @@ fn run_stream<A: Send + 'static>(
     handle: Handle,
     root: Box<dyn Planner>,
     scope: WorkScope,
-    io: Arc<dyn IoSource>,
+    io: Arc<dyn IoService>,
     map_fn: MapFn<A>,
     inline: bool,
 ) -> BoxStream<'static, VortexResult<Yielded<A>>> {
     let mut run = Run::new();
-    run.admit(root, scope, Arc::clone(&io));
+    run.admit(root, scope, io.session());
     let state = RunState {
         handle,
         run: Some(run),
@@ -248,7 +245,7 @@ fn run_stream<A: Send + 'static>(
                     return Ok(Some((Yielded::Batch(start, batch), state)));
                 }
                 Step::Spawn(scope, child) if state.inline => {
-                    run.admit(child, scope, Arc::clone(&state.io));
+                    run.admit(child, scope, state.io.session());
                 }
                 Step::Spawn(scope, child) => {
                     return Ok(Some((Yielded::Spawn(scope, child), state)));
@@ -269,13 +266,13 @@ fn chunk_stream<A: Send + 'static>(
     handle: &Handle,
     root: Box<dyn Planner>,
     scope: WorkScope,
-    io: Arc<dyn IoSource>,
+    io: Arc<dyn IoService>,
     map_fn: MapFn<A>,
 ) -> BoxStream<'static, VortexResult<(u64, A)>> {
     let (mut send, recv) = mpsc::channel(1);
     let task = handle.spawn(async move {
         let mut run = Run::new();
-        run.admit(root, scope, Arc::clone(&io));
+        run.admit(root, scope, io.session());
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => {
@@ -287,7 +284,7 @@ fn chunk_stream<A: Send + 'static>(
                     }
                 }
                 Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, Arc::clone(&io));
+                    run.admit(child, scope, io.session());
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(()),
