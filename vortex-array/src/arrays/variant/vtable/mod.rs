@@ -8,6 +8,7 @@ mod validity;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
@@ -27,6 +28,8 @@ use crate::array::VTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::variant::VariantSlots;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::VariantBuilder;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
@@ -132,6 +135,17 @@ impl VTable for Variant {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let Some(builder) = builder.as_any_mut().downcast_mut::<VariantBuilder>() else {
+            vortex_bail!("append_to_builder for a Variant requires a VariantBuilder");
+        };
+        builder.append_variant_array(&array.into_owned(), ctx)
     }
 }
 

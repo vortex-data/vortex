@@ -7,13 +7,13 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::filter::FILTER_CHUNK_LEN;
 use vortex_array::arrays::filter::FilterKernel;
-use vortex_array::arrays::filter::filter_chunked;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::filter::FILTER_CHUNK_LEN;
+use vortex_buffer::filter::filter_chunked;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
@@ -80,7 +80,13 @@ fn filter_values<T: NativePType + BitPacking>(
     allocator: &BufferAllocatorRef,
 ) -> Buffer<T> {
     let chunks = PackedChunks::new(array.packed_slice::<T>(), usize::from(bit_width));
-    filter_chunked(&chunks, array.offset() as usize, mask, allocator)
+
+    filter_chunked(
+        &chunks,
+        array.offset() as usize,
+        mask.selection(),
+        allocator,
+    )
 }
 
 #[cfg(test)]

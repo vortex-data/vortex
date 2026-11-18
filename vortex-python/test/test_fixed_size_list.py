@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+from pathlib import Path
+
 import pyarrow as pa
 
 import vortex
@@ -48,6 +50,22 @@ def test_create_nullable_fixed_size_list_array() -> None:
     result = vx_array.to_arrow_array()
 
     assert result == pa_array
+
+
+def test_fixed_size_list_null_row_with_non_nullable_items(tmp_path: Path) -> None:
+    """A null row of a FixedSizeList column survives when the item field is non-nullable."""
+    item = pa.field("item", pa.float32(), nullable=False)
+    embeddings = pa.array([[1.0, 2.0], None, [5.0, 6.0]], pa.list_(item, 2))
+    table = pa.table({"embedding": embeddings})
+
+    path = str(tmp_path / "embeddings.vortex")
+    vortex.io.write(vortex.array(table), path)
+
+    assert vortex.open(path).scan().read_all().to_arrow_table().column("embedding").to_pylist() == [
+        [1.0, 2.0],
+        None,
+        [5.0, 6.0],
+    ]
 
 
 def test_fixed_size_list_with_string_elements() -> None:

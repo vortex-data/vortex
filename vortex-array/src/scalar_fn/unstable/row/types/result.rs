@@ -91,6 +91,17 @@ impl SinkResult for VortexResult<InitializedElement> {
     }
 }
 
+impl private::Sealed for VortexResult<InitializedRow> {}
+
+impl SinkResult for VortexResult<InitializedRow> {
+    type WriteToken = InitializedRow;
+    const INFALLIBLE: bool = false;
+
+    fn into_result(self) -> VortexResult<()> {
+        self.map(|_| ())
+    }
+}
+
 mod private {
     pub trait Sealed {}
 }

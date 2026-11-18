@@ -379,9 +379,9 @@ impl<'a, T: BitPacked> BitUnpackIterator<'a, T> {
         }
     }
 
-    /// Unpacks the next full chunk into the shared scratch buffer and returns it.
+    /// Unpack the next full chunk into the scratch buffer and return it.
     ///
-    /// The chunk borrows the iterator, so it must be dropped before the next call.
+    /// The returned slice borrows the iterator, so it must be dropped before the next call.
     pub fn next_chunk(&mut self) -> Option<&mut [T; CHUNK_SIZE]> {
         if self.idx >= self.num_chunks {
             return None;
@@ -396,7 +396,7 @@ impl<'a, T: BitPacked> BitUnpackIterator<'a, T> {
             BitPacking::unchecked_unpack(self.bit_width, chunk, dst);
         }
         self.idx += 1;
-        // SAFETY: `unchecked_unpack` initialized all `CHUNK_SIZE` elements of the buffer.
+        // SAFETY: The buffer was fully initialized by the unpack above.
         Some(unsafe { mem::transmute::<&mut [MaybeUninit<T>; 1024], &mut [T; 1024]>(self.buffer) })
     }
 }

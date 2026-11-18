@@ -16,22 +16,26 @@ use fearless_simd::prelude::*;
 use fearless_simd::u8x16;
 use fearless_simd_macros::simd;
 
-use super::super::slice::MaskBits;
-use super::super::slice::for_each_mask_word;
-use super::super::slice::low_bits_mask;
+use super::super::bits::MaskBits;
+use super::super::bits::for_each_mask_word;
+use super::super::bits::low_bits_mask;
 use super::bulk_copy;
 use super::compress_lut;
 use super::compress_tail;
 
-static IDX_LUT_8: [[u8; 16]; 256] = compress_lut::<256, 16>(8, 1);
-static IDX_LUT_16: [[u8; 16]; 256] = compress_lut::<256, 16>(8, 2);
+// Align each shuffle row to its SIMD load width.
+#[repr(C, align(16))]
+struct ShuffleTable([[u8; 16]; 256]);
+
+static IDX_LUT_8: ShuffleTable = ShuffleTable(compress_lut::<256, 16>(8, 1));
+static IDX_LUT_16: ShuffleTable = ShuffleTable(compress_lut::<256, 16>(8, 2));
 
 /// Compact one mask word of `ELEM`-byte elements, `LANES` elements per shuffle.
 ///
 /// # Safety
 ///
-/// The pointer contract of [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
-/// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
+/// The pointer contract of [`compress`](super::compress) /
+/// [`compress_in_place`](super::compress_in_place) must hold.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "deliberate submask narrowing"
@@ -102,8 +106,8 @@ macro_rules! generic_compress_kernel {
     ($walk_fn:ident,elem_size: $elem_size:literal,lanes: $lanes:literal,idx_lut: $idx_lut:ident) => {
         /// # Safety
         ///
-        /// The pointer contract of [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
-        /// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
+        /// The pointer contract of [`compress`](super::compress) /
+        /// [`compress_in_place`](super::compress_in_place) must hold.
         pub(super) unsafe fn $walk_fn<const IN_PLACE: bool>(
             src: *const u8,
             dst: *mut u8,
@@ -115,7 +119,7 @@ macro_rules! generic_compress_kernel {
                     // SAFETY: forwarded from the caller contract.
                     write_pos = unsafe {
                         compress_word::<_, IN_PLACE, $elem_size, $lanes>(
-                            simd, &$idx_lut, src, dst, word, word_start, word_len, write_pos,
+                            simd, &$idx_lut.0, src, dst, word, word_start, word_len, write_pos,
                         )
                     };
                 });

@@ -12,9 +12,9 @@ use core::arch::aarch64::vst1_u8;
 use core::arch::aarch64::vst1q_u8;
 use core::arch::aarch64::vtbl1_u8;
 
-use super::super::slice::MaskBits;
-use super::super::slice::for_each_mask_word;
-use super::super::slice::low_bits_mask;
+use super::super::bits::MaskBits;
+use super::super::bits::for_each_mask_word;
+use super::super::bits::low_bits_mask;
 use super::Kernel;
 use super::bulk_copy;
 use super::compress_lut;
@@ -45,10 +45,14 @@ pub(super) fn select_kernel<T, const IN_PLACE: bool>(density: f64) -> Option<Ker
     }
 }
 
-static IDX_LUT_8: [[u8; 8]; 256] = compress_lut::<256, 8>(8, 1);
-static IDX_LUT_16: [[u8; 16]; 256] = compress_lut::<256, 16>(8, 2);
-static IDX_LUT_32: [[u8; 16]; 16] = compress_lut::<16, 16>(4, 4);
-static IDX_LUT_64: [[u8; 16]; 4] = compress_lut::<4, 16>(2, 8);
+// Keep each SIMD lookup load aligned so it cannot straddle a memory page.
+#[repr(C, align(16))]
+struct ShuffleTable<const ROWS: usize, const BYTES: usize>([[u8; BYTES]; ROWS]);
+
+static IDX_LUT_8: ShuffleTable<256, 8> = ShuffleTable(compress_lut::<256, 8>(8, 1));
+static IDX_LUT_16: ShuffleTable<256, 16> = ShuffleTable(compress_lut::<256, 16>(8, 2));
+static IDX_LUT_32: ShuffleTable<16, 16> = ShuffleTable(compress_lut::<16, 16>(4, 4));
+static IDX_LUT_64: ShuffleTable<4, 16> = ShuffleTable(compress_lut::<4, 16>(2, 8));
 
 /// Generate a NEON `tbl` kernel for one element width.
 macro_rules! neon_compress_kernel {
@@ -64,8 +68,8 @@ macro_rules! neon_compress_kernel {
     ) => {
         /// # Safety
         ///
-        /// The pointer contract of [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
-        /// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
+        /// The pointer contract of [`compress`](super::compress) /
+        /// [`compress_in_place`](super::compress_in_place) must hold.
         #[expect(
             clippy::cast_possible_truncation,
             reason = "deliberate submask narrowing"
@@ -99,7 +103,7 @@ macro_rules! neon_compress_kernel {
                 // the table width.
                 let chunk = unsafe { $load(src.add((word_start + sub) * $elem_size)) };
                 // SAFETY: every LUT row is one table wide.
-                let idx = unsafe { $load($idx_lut[m].as_ptr()) };
+                let idx = unsafe { $load($idx_lut.0[m].as_ptr()) };
                 // SAFETY: out-of-place output has vector slack. In-place, the store ends within
                 // the source chunk already loaded, and later stores overwrite trailing garbage.
                 unsafe { $store(dst.add(write_pos * $elem_size), $tbl(chunk, idx)) };
@@ -127,8 +131,8 @@ macro_rules! neon_compress_kernel {
 
         /// # Safety
         ///
-        /// The pointer contract of [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
-        /// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
+        /// The pointer contract of [`compress`](super::compress) /
+        /// [`compress_in_place`](super::compress_in_place) must hold.
         pub(super) unsafe fn $walk_fn<const IN_PLACE: bool>(
             src: *const u8,
             dst: *mut u8,

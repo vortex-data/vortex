@@ -34,9 +34,9 @@ use std::arch::x86_64::_mm512_storeu_epi16;
 use std::arch::x86_64::_mm512_storeu_epi32;
 use std::arch::x86_64::_mm512_storeu_epi64;
 
-use super::super::slice::MaskBits;
-use super::super::slice::for_each_mask_word;
-use super::super::slice::low_bits_mask;
+use super::super::bits::MaskBits;
+use super::super::bits::for_each_mask_word;
+use super::super::bits::low_bits_mask;
 use super::Kernel;
 use super::bulk_copy;
 use super::generic::compress_generic_8;
@@ -44,8 +44,8 @@ use super::generic::compress_generic_16;
 
 /// Choose the widest available kernel above its benchmarked density crossover.
 ///
-/// Sparse masks stay on the scalar set-bit walk. See `benches/filter_fixed_width.rs` when
-/// changing these thresholds.
+/// Sparse masks stay on the scalar set-bit walk. See
+/// `vortex-array/benches/filter_fixed_width.rs` when changing these thresholds.
 pub(super) fn select_kernel<T, const IN_PLACE: bool>(density: f64) -> Option<Kernel> {
     let (kernel, min_density) = match size_of::<T>() {
         1 if avx512_vbmi2() => (compress_avx512_epi8::<IN_PLACE> as Kernel, 0.0),
@@ -96,8 +96,8 @@ macro_rules! avx512_compress_kernel {
         /// # Safety
         ///
         /// The CPU must support the enabled target features and the pointer contract of
-        /// [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
-        /// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
+        /// [`compress`](super::compress) /
+        /// [`compress_in_place`](super::compress_in_place) must hold.
         // `allow` rather than `expect`: the cast is only lossy for sub-`u64` k-masks.
         #[allow(clippy::cast_possible_truncation)]
         #[target_feature(enable = $features)]
@@ -165,8 +165,8 @@ macro_rules! avx512_compress_kernel {
         /// # Safety
         ///
         /// The CPU must support the enabled target features and the pointer contract of
-        /// [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
-        /// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
+        /// [`compress`](super::compress) /
+        /// [`compress_in_place`](super::compress_in_place) must hold.
         #[target_feature(enable = $features)]
         pub(super) unsafe fn $walk_fn<const IN_PLACE: bool>(
             src: *const u8,
@@ -237,9 +237,13 @@ avx512_compress_kernel!(
     mask_storeu: _mm512_mask_storeu_epi64
 );
 
+// Align each lookup row to its AVX2 load width.
+#[repr(C, align(32))]
+struct LookupTable<T>(T);
+
 /// For each mask byte, `vpermd` lane indices compacting the selected 4-byte lanes to the front
 /// (trailing lanes are don't-care).
-static PERM_LUT_32: [[u32; 8]; 256] = {
+static PERM_LUT_32: LookupTable<[[u32; 8]; 256]> = LookupTable({
     let mut lut = [[0u32; 8]; 256];
     let mut m = 0;
     while m < 256 {
@@ -255,11 +259,11 @@ static PERM_LUT_32: [[u32; 8]; 256] = {
         m += 1;
     }
     lut
-};
+});
 
 /// For each mask nibble, `vpermd` lane indices compacting the selected 8-byte lanes (as pairs
 /// of 4-byte lanes) to the front.
-static PERM_LUT_64: [[u32; 8]; 16] = {
+static PERM_LUT_64: LookupTable<[[u32; 8]; 16]> = LookupTable({
     let mut lut = [[0u32; 8]; 16];
     let mut m = 0;
     while m < 16 {
@@ -276,10 +280,10 @@ static PERM_LUT_64: [[u32; 8]; 16] = {
         m += 1;
     }
     lut
-};
+});
 
 /// Lane-enable vectors for `vpmaskmov` loads/stores of the first `count` 4-byte lanes.
-static LANE_MASK_32: [[i32; 8]; 9] = {
+static LANE_MASK_32: LookupTable<[[i32; 8]; 9]> = LookupTable({
     let mut lut = [[0i32; 8]; 9];
     let mut count = 0;
     while count <= 8 {
@@ -291,10 +295,10 @@ static LANE_MASK_32: [[i32; 8]; 9] = {
         count += 1;
     }
     lut
-};
+});
 
 /// Lane-enable vectors for `vpmaskmov` loads/stores of the first `count` 8-byte lanes.
-static LANE_MASK_64: [[i64; 4]; 5] = {
+static LANE_MASK_64: LookupTable<[[i64; 4]; 5]> = LookupTable({
     let mut lut = [[0i64; 4]; 5];
     let mut count = 0;
     while count <= 4 {
@@ -306,7 +310,7 @@ static LANE_MASK_64: [[i64; 4]; 5] = {
         count += 1;
     }
     lut
-};
+});
 
 /// Generate an AVX2 permutation-LUT kernel for one element width.
 macro_rules! avx2_compress_kernel {
@@ -323,8 +327,8 @@ macro_rules! avx2_compress_kernel {
         /// # Safety
         ///
         /// The CPU must support AVX2 and the pointer contract of
-        /// [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
-        /// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
+        /// [`compress`](super::compress) /
+        /// [`compress_in_place`](super::compress_in_place) must hold.
         #[expect(
             clippy::cast_possible_truncation,
             reason = "deliberate submask narrowing"
@@ -372,12 +376,12 @@ macro_rules! avx2_compress_kernel {
                         unsafe {
                             $maskload(
                                 src_ptr,
-                                _mm256_loadu_si256($lane_masks[count].as_ptr().cast()),
+                                _mm256_loadu_si256($lane_masks.0[count].as_ptr().cast()),
                             )
                         }
                     };
                     // SAFETY: LUT rows are 32 bytes.
-                    let perm = unsafe { _mm256_loadu_si256($perm_lut[m].as_ptr().cast()) };
+                    let perm = unsafe { _mm256_loadu_si256($perm_lut.0[m].as_ptr().cast()) };
                     let packed = _mm256_permutevar8x32_epi32(chunk, perm);
                     let selected = m.count_ones() as usize;
                     let dst_ptr = unsafe { dst.cast::<$elem>().add(write_pos) };
@@ -392,7 +396,7 @@ macro_rules! avx2_compress_kernel {
                         unsafe {
                             $maskstore(
                                 dst_ptr,
-                                _mm256_loadu_si256($lane_masks[selected].as_ptr().cast()),
+                                _mm256_loadu_si256($lane_masks.0[selected].as_ptr().cast()),
                                 packed,
                             )
                         };
@@ -407,8 +411,8 @@ macro_rules! avx2_compress_kernel {
         /// # Safety
         ///
         /// The CPU must support AVX2 and the pointer contract of
-        /// [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
-        /// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
+        /// [`compress`](super::compress) /
+        /// [`compress_in_place`](super::compress_in_place) must hold.
         #[target_feature(enable = "avx2,popcnt")]
         pub(super) unsafe fn $walk_fn<const IN_PLACE: bool>(
             src: *const u8,

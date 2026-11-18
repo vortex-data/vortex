@@ -8,6 +8,8 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_buffer::buffer;
+use vortex_compute::lane_kernels::for_each_mask_word;
+use vortex_compute::lane_kernels::low_bits_mask;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -248,8 +250,8 @@ pub fn bool_run_count(bits: &BitBuffer) -> usize {
     transitions + 1
 }
 
-/// Calls `f(base, transitions)` for each 64-bit word of `bits`, where bit `j` of `transitions` is
-/// set when bit `base + j` differs from bit `base + j - 1`.
+/// Calls `f(base, transitions)` for each word of `bits`, of at most 64 bits, where bit `j` of
+/// `transitions` is set when bit `base + j` differs from bit `base + j - 1`.
 ///
 /// Bit 0 of the bitmap never counts as a transition.
 fn for_each_transition_word(bits: &BitBuffer, mut f: impl FnMut(usize, u64)) {
@@ -257,24 +259,14 @@ fn for_each_transition_word(bits: &BitBuffer, mut f: impl FnMut(usize, u64)) {
         return;
     }
 
-    let chunks = bits.chunks();
-
     // Seed the carry with the first bit, so that bit 0 compares equal to its predecessor.
     let mut carry = u64::from(bits.value(0));
-    let mut base = 0;
 
-    for word in chunks.iter() {
-        f(base, word ^ ((word << 1) | carry));
-        carry = word >> 63;
-        base += 64;
-    }
-
-    let remainder_len = chunks.remainder_len();
-    if remainder_len > 0 {
-        let word = chunks.remainder_bits();
-        let mask = u64::MAX >> (64 - remainder_len);
-        f(base, (word ^ ((word << 1) | carry)) & mask);
-    }
+    for_each_mask_word(bits, |word, base, len| {
+        // The shift moves the last bit of a full word out, so only a short word needs the mask.
+        f(base, (word ^ ((word << 1) | carry)) & low_bits_mask(len));
+        carry = word >> (len - 1);
+    });
 }
 
 pub fn runend_decode_primitive(

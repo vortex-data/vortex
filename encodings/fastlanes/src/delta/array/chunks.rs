@@ -16,12 +16,12 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::filter::ChunkDecoder;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::filter::ChunkDecoder;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -322,24 +322,41 @@ fn chunk_patches<T: NativePType>(
         .execute::<PrimitiveArray>(ctx)?
         .reinterpret_cast(T::PTYPE);
     let values = values.as_slice::<T>();
-    let start = blocks.start * FL_CHUNK_SIZE;
-    let positions = start..blocks.end * FL_CHUNK_SIZE;
+    let positions = blocks.start * FL_CHUNK_SIZE..blocks.end * FL_CHUNK_SIZE;
     // Patch indices count from the start of `bp`, which sits `offset` into its first block.
     let shift = usize::from(bp.offset());
     let mut chunk_patches: Vec<(usize, T)> =
         match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
-            indices
-                .as_slice::<P>()
-                .iter()
-                .zip_eq(values)
-                .filter_map(|(&index, &value)| {
-                    let position = AsPrimitive::<usize>::as_(index) - patches.offset() + shift;
-                    positions
-                        .contains(&position)
-                        .then(|| (position - start, value))
-                })
-                .collect()
+            patches_in_positions(
+                indices.as_slice::<P>(),
+                values,
+                patches.offset(),
+                shift,
+                positions,
+            )
         });
     chunk_patches.sort_unstable_by_key(|&(position, _)| position);
     Ok(chunk_patches)
+}
+
+/// The patches whose index, less `patch_offset` plus `shift`, falls within `positions`, as
+/// (position counted from `positions.start`, value), in the order of `indices`.
+fn patches_in_positions<P: AsPrimitive<usize>, T: Copy>(
+    indices: &[P],
+    values: &[T],
+    patch_offset: usize,
+    shift: usize,
+    positions: Range<usize>,
+) -> Vec<(usize, T)> {
+    let start = positions.start;
+    indices
+        .iter()
+        .zip_eq(values)
+        .filter_map(|(&index, &value)| {
+            let position = AsPrimitive::<usize>::as_(index) - patch_offset + shift;
+            positions
+                .contains(&position)
+                .then(|| (position - start, value))
+        })
+        .collect()
 }

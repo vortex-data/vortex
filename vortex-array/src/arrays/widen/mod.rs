@@ -8,7 +8,9 @@
 //!
 //! An integer child has a narrower integer type of the same signedness. For example, an `i64` array
 //! whose values are all between 0 and 200 can store `i16` values, but not `u8` values.
-//! [`WidenArray::encode`] picks the narrowest such type for a [`PrimitiveArray`].
+//! [`WidenArray::encode`] picks the narrowest such type for a [`PrimitiveArray`]. An encoding that
+//! fixes the dtype of an integer child and stores it narrower uses
+//! [`WidenArray::from_stored_integer`] on read and [`WidenArray::to_stored_integer`] on write.
 //!
 //! A decimal child has the logical scale and a lower precision, and **must** be valid for its dtype.
 //! Comparisons, bounds checks, and fills use the child dtype to bound its valid values.
@@ -43,6 +45,7 @@ pub use array::WidenSlotsView;
 
 pub(crate) mod compute;
 mod encode;
+mod stored;
 
 mod vtable;
 pub use vtable::Widen;
