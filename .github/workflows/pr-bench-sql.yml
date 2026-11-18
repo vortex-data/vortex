@@ -6,8 +6,8 @@ name: PR SQL Benchmarks
 concurrency:
   group: >-
     ${{ github.workflow }}-${{ inputs.matrix_preset || 'pr' }}-${{
-      github.head_ref || github.run_id
-    }}
+      inputs.benchmarks || 'all'
+    }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 on:
@@ -17,6 +17,10 @@ on:
         required: false
         type: string
         default: "pr"
+      benchmarks:
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       matrix_preset:
@@ -29,6 +33,11 @@ on:
           - "pr-compact"
           - "pr-all"
           - "pr-full"
+      benchmarks:
+        description: "Comma-separated benchmark IDs from the preset, e.g. polarsignals,tpch-nvme; empty runs all"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -42,3 +51,4 @@ jobs:
     with:
       mode: "pr"
       matrix_preset: ${{ inputs.matrix_preset }}
+      benchmarks: ${{ inputs.benchmarks }}
