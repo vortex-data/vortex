@@ -680,6 +680,31 @@ mod tests {
         Ok(())
     }
 
+    fn decimal_bound(value: i16, precision: u8, scale: i8) -> ArrayRef {
+        let dtype = DecimalDType::new(precision, scale);
+        let scalar = Scalar::decimal(DecimalValue::I16(value), dtype, Nullability::NonNullable);
+        ConstantArray::new(scalar, 1).into_array()
+    }
+
+    #[rstest]
+    #[case::lower_outside_native_width(decimal_bound(500, 4, 0), decimal_bound(1, 2, 0))]
+    #[case::upper_at_another_scale(decimal_bound(0, 2, 0), decimal_bound(10, 2, 1))]
+    fn kernel_declines_mismatched_decimal_bound(
+        #[case] lower: ArrayRef,
+        #[case] upper: ArrayRef,
+    ) -> VortexResult<()> {
+        let array = DecimalArray::from_iter([1i8], DecimalDType::new(2, 0));
+        let result = <Decimal as BetweenKernel>::between(
+            array.as_view(),
+            &lower,
+            &upper,
+            &NON_STRICT,
+            &mut SESSION.create_execution_ctx(),
+        )?;
+        assert!(result.is_none());
+        Ok(())
+    }
+
     #[rstest]
     #[case::open(StrictComparison::Strict, StrictComparison::Strict, false, false)]
     #[case::left_open(StrictComparison::Strict, StrictComparison::NonStrict, false, true)]

@@ -14,6 +14,7 @@ mod tests {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
@@ -23,9 +24,30 @@ mod tests {
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::dtype::DecimalDType;
     use crate::dtype::NativeDecimalType;
+    use crate::patches::Patches;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn patch_rejects_mismatched_decimal_dtype() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = DecimalArray::from_iter([1i8], DecimalDType::new(2, 0));
+        let values = DecimalArray::from_iter([500i16], DecimalDType::new(4, 0));
+        let patches = Patches::new(
+            1,
+            0,
+            buffer![0u32].into_array(),
+            values.into_array(),
+            None,
+            &mut ctx,
+        )?;
+
+        let error = array.patch(&patches, &mut ctx).unwrap_err().to_string();
+        assert!(error.contains("decimal(4,0)"), "{error}");
+        assert!(error.contains("decimal(2,0)"), "{error}");
+        Ok(())
+    }
 
     #[rstest]
     // From test_all_consistency

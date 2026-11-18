@@ -4,8 +4,7 @@
 //! Restores the logical width of integer and decimal [`Widen`] arrays on the device.
 //!
 //! Children execute at their own width before widening, so compressed signed values retain their
-//! sign. Execution keeps the child's validity and allocates a wider values buffer, unless decimal
-//! storage already has the output width.
+//! sign. Execution keeps the child's validity and allocates a wider values buffer.
 
 use std::sync::Arc;
 
@@ -23,7 +22,6 @@ use vortex::dtype::DType;
 use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::PushKernelArg;
@@ -76,18 +74,9 @@ impl CudaExecute for WidenExecutor {
                 let len = child.len();
                 let parts = child.into_data_parts();
                 let target_type = decimal_dtype.canonical_values_type();
-                vortex_ensure!(
-                    parts.values_type <= target_type,
-                    "CUDA Widen requires decimal storage no wider than {target_type}, got {}",
-                    parts.values_type
-                );
-
-                let values = if parts.values_type == target_type {
-                    ctx.ensure_on_device(parts.values).await?
-                } else {
+                let values =
                     widen_decimal_values(parts.values, parts.values_type, target_type, len, ctx)
-                        .await?
-                };
+                        .await?;
 
                 Ok(Canonical::Decimal(
                     DecimalArray::try_new_handle_from_trusted_values(

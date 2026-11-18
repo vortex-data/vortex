@@ -171,16 +171,17 @@ impl DecimalBuilder {
         self.nulls.append_n_non_nulls(n);
     }
 
-    /// Appends the values of a canonical [`DecimalArray`] to the builder, coercing the physical
-    /// storage type to the builder's type as needed.
+    /// Appends a canonical [`DecimalArray`] of the builder's dtype.
     pub(crate) fn append_decimal_array(
         &mut self,
         array: ArrayView<'_, Decimal>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        vortex_ensure_eq!(array.dtype(), self.dtype());
+
         let mask = array.validity()?.execute_mask(array.len(), ctx)?;
-        match_each_decimal_value_type!(array.values_type(), |D| {
-            self.values.extend(array.buffer::<D>().iter().copied());
+        delegate_fn!(&mut self.values, |T, values| {
+            values.buffer.extend_from_slice(&array.buffer::<T>());
         });
         self.nulls.append_validity_mask(&mask);
         Ok(())
@@ -296,17 +297,6 @@ impl DecimalBuffer {
     fn len(&self) -> usize {
         delegate_fn!(self, |T, values| { values.buffer.len() })
     }
-
-    fn extend<I, V: NativeDecimalType>(&mut self, iter: I)
-    where
-        I: Iterator<Item = V>,
-    {
-        delegate_fn!(self, |T, values| {
-            values.buffer.extend(
-                iter.map(|x| <T as BigCast>::from(x).vortex_expect("decimal conversion failure")),
-            )
-        })
-    }
 }
 
 macro_rules! impl_from_values {
@@ -338,6 +328,8 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::VortexSessionExecute;
+    use crate::array::VTable;
+    use crate::arrays::Decimal;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::DecimalBuilder;
@@ -392,6 +384,20 @@ mod tests {
             &mut ctx
         );
         Ok(())
+    }
+
+    #[test]
+    fn append_array_rejects_mismatched_dtype() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = DecimalArray::from_iter([1i8], DecimalDType::new(2, 0));
+        let mut builder = DecimalBuilder::new_in(
+            DecimalDType::new(4, 0),
+            Nullability::NonNullable,
+            BufferAllocatorRef::static_ref(),
+        );
+
+        assert!(Decimal::append_to_builder(array.as_view(), &mut builder, &mut ctx).is_err());
+        assert!(builder.is_empty());
     }
 
     #[test]
