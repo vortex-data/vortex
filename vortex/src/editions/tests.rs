@@ -226,28 +226,30 @@ fn default_session_enables_the_write_editions() {
     assert!(!enabled.contains(&UNSTABLE));
 }
 
+/// `UNSTABLE` adds exactly `fastlanes.delta` to the default session's components.
 #[test]
-fn enabling_unstable_permits_only_persisted_aggregates() -> VortexResult<()> {
+fn enabling_unstable_adds_only_delta() -> VortexResult<()> {
+    let kinds = [
+        ComponentKind::Array,
+        ComponentKind::Layout,
+        ComponentKind::DType,
+        ComponentKind::Aggregate,
+    ];
     let session = VortexSession::default();
-    let core_aggregates = session.enabled_component_ids(ComponentKind::Aggregate);
+    let default = kinds.map(|kind| session.enabled_component_ids(kind));
     session.enable_edition(UNSTABLE)?;
-    let enabled = session.enabled_component_ids(ComponentKind::Aggregate);
-    assert!(
-        enabled
-            .iter()
-            .all(|id| !id.as_str().starts_with("vortex.all_"))
-    );
-    let newly_enabled: Vec<Id> = enabled
-        .into_iter()
-        .filter(|id| !core_aggregates.contains(id))
-        .collect();
-    assert_eq!(
-        newly_enabled,
-        [
-            Id::from("vortex.bloom_filter.sbbf"),
-            Id::from("vortex.sum_v2")
-        ]
-    );
+    for (kind, default) in kinds.into_iter().zip(default) {
+        let newly_enabled: Vec<Id> = session
+            .enabled_component_ids(kind)
+            .into_iter()
+            .filter(|id| !default.contains(id))
+            .collect();
+        let expected = match kind {
+            ComponentKind::Array => vec![Id::from("fastlanes.delta")],
+            _ => vec![],
+        };
+        assert_eq!(newly_enabled, expected, "{kind:?}");
+    }
     Ok(())
 }
 
