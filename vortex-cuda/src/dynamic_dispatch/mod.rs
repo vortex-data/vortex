@@ -150,20 +150,14 @@ impl MaterializedStage {
     }
 }
 
-/// Plans whose input stages decode at least this many elements use the kernel that loops each
-/// block over several output ranges. Below it, decoding the input stages in every block costs
-/// less than the dynamic scheduling of one block per range saves: 4- and 8-value dictionaries
-/// are 3-7% slower when looping, while 64-value dictionaries and 100 runs are 2-4% faster.
+/// Input stages smaller than this are cheap to decode in every block, and looping only slows
+/// them down.
 const LOOP_RANGES_MIN_INPUT_LEN: u64 = 64;
 
-/// The dynamic dispatch kernel and number of blocks to launch for a plan producing `len`
-/// elements of `ptype`, an unsigned type of the output width.
+/// The kernel and number of blocks for a plan producing `len` elements of `ptype`.
 ///
-/// Every block decodes the plan's input stages, such as dictionary values or run ends, into its
-/// own shared memory before it produces output. Plans with small or no input stages launch one
-/// block per `ELEMENTS_PER_BLOCK` range. Plans with larger input stages launch the
-/// `loop_ranges` kernel with only as many blocks as are resident at once, each producing several
-/// ranges, so the input stages are decoded once per resident block rather than once per range.
+/// Plans with large input stages use the `loop_ranges` kernel with one wave of resident blocks,
+/// so each block decodes its input stages once for several ranges.
 pub fn dispatch_kernel(
     ctx: &CudaExecutionCtx,
     ptype: PType,
@@ -3004,9 +2998,7 @@ mod tests {
         Ok(())
     }
 
-    /// The `loop_ranges` kernel launches fewer blocks than output ranges, and each block decodes
-    /// the input stages once and then produces several ranges. Three blocks over 7.05 ranges
-    /// make every block loop, with BITUNPACK, LOAD, and RUNEND output sources.
+    /// Three `loop_ranges` blocks over eight ranges, so every block loops.
     #[rstest]
     #[case::dict_bitpacked_codes_for_values(dict_bp_codes_for_values())]
     #[case::dict_primitive_codes(dict_primitive_codes())]

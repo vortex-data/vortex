@@ -631,13 +631,9 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
 /// Kernel entry point. Parses the packed plan, runs all input stages to
 /// populate shared memory, then runs the output stage to produce results.
 ///
-/// Every block decodes the input stages into its own shared memory. Without
-/// `LOOP_RANGES`, the grid has one block per ELEMENTS_PER_BLOCK range. With
-/// `LOOP_RANGES`, the grid has only as many blocks as are resident at once and
-/// each block produces every range at a grid stride, so that large input stages
-/// are decoded once per resident block rather than once per range. The two are
-/// separate kernels because the loop changes register allocation, and with it
-/// the speed, of plans that do not need it.
+/// With `LOOP_RANGES`, each block loops over several ranges so that it decodes
+/// the input stages once for all of them. It is a separate kernel because the
+/// loop slows down plans that don't need it.
 template <typename T, bool LOOP_RANGES>
 __device__ void
 dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__restrict packed_plan) {
