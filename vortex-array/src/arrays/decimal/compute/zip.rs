@@ -33,11 +33,6 @@ impl ZipKernel for Decimal {
             if_false.dtype()
         );
 
-        // One decimal type can be stored at different widths. The generic zip widens them.
-        if if_true.values_type() != if_false.values_type() {
-            return Ok(None);
-        }
-
         zip_fixed_width(if_true, if_false, mask, ctx)
     }
 }
@@ -71,11 +66,14 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
+    /// Builds a decimal array whose precision makes `T` its canonical storage width.
     fn decimal<T: NativeDecimalType>(values: Vec<T>, validity: Validity) -> ArrayRef {
+        let mut ctx = SESSION.create_execution_ctx();
         DecimalArray::new(
             values.into_iter().collect::<Buffer<T>>(),
-            DecimalDType::new(38, 2),
+            DecimalDType::new(T::MAX_PRECISION, 2),
             validity,
+            &mut ctx,
         )
         .into_array()
     }
@@ -149,22 +147,6 @@ mod tests {
             .zip(if_true, if_false)?;
 
         let expected = decimal(vec![1i64, 20, 30, 4], Validity::from(nullability));
-        assert_arrays_eq!(result, expected, &mut ctx);
-        Ok(())
-    }
-
-    /// Equal decimal types stored at different widths take the generic path.
-    #[test]
-    fn zip_mixed_storage_widths() -> VortexResult<()> {
-        let if_true = decimal(vec![1i32, 2, 3, 4], Validity::NonNullable);
-        let if_false = decimal(vec![10i64, 20, 30, 40], Validity::NonNullable);
-
-        let mut ctx = SESSION.create_execution_ctx();
-        let result = Mask::from_iter([true, false, true, false])
-            .into_array()
-            .zip(if_true, if_false)?;
-
-        let expected = decimal(vec![1i64, 20, 3, 40], Validity::NonNullable);
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }

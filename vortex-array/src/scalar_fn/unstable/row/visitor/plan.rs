@@ -285,16 +285,30 @@ fn validate_output_label(
 }
 
 /// The nullable execution policy derived from one concrete dispatch.
+///
+/// Dense traversal avoids scanning validity and filtering inputs, but masking output can hide only
+/// values, not decode errors or immediate kernel errors. The input capabilities and the visit's
+/// failure handling determine whether execution can defer that work until it encounters an error.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RowPolicy {
-    /// Evaluate all rows and mask the result.
+    /// Evaluate every payload and attach input validity without inspecting its mask.
+    ///
+    /// Null-row decoding and computation are safe and semantically infallible, so a contiguous
+    /// loop needs no validity checks or input filtering.
     Dense,
 
     /// Evaluate all rows, then retry a partially valid batch if reduced failure evidence reports an
     /// error.
+    ///
+    /// The success path keeps validity lazy and reduces failure flags without per-row error
+    /// branches. A failed reduction loses which row failed, so only that case pays to resolve
+    /// validity and recompute observable rows.
     DenseWithRetry,
 
     /// Execute only valid rows, filtering inputs if direct execution is unavailable.
+    ///
+    /// Null-row payloads can fail decoding or raise an immediate kernel error. Validity must be
+    /// resolved before execution because neither failure can be suppressed by masking afterward.
     ValidOnly,
 }
 

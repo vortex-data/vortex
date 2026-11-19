@@ -3,6 +3,8 @@
 
 #include "vortex/session.hpp"
 
+#include "vortex/error.hpp"
+
 #include <vortex.h>
 
 namespace vortex {
@@ -22,6 +24,12 @@ Session &Session::operator=(const Session &other) {
         handle_.reset(vx_session_clone(other.handle_.get()));
     }
     return *this;
+}
+
+void Session::enable_edition(std::string_view name) {
+    vx_error *error = nullptr;
+    vx_session_enable_edition(handle_.get(), detail::to_view(name), &error);
+    detail::throw_on_error(error);
 }
 
 } // namespace vortex

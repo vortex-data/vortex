@@ -17,6 +17,7 @@ use vortex_error::vortex_err;
 
 use super::DecimalMetadata;
 use crate::ArrayParts;
+use crate::array::Array;
 use crate::arrays::Decimal;
 use crate::arrays::decimal::DecimalData;
 use crate::arrays::fixed_width::vtable as fixed_width;
@@ -35,8 +36,6 @@ pub(super) struct StoredDecimal {
     pub(super) decimal_dtype: DecimalDType,
     /// The stored width of `values`.
     pub(super) values_type: DecimalType,
-    /// The row count supplied by the containing format, which `values` and `validity` match.
-    len: usize,
     /// One `values_type` integer per row, aligned to its width, in host or device memory.
     pub(super) values: BufferHandle,
     /// The validity, with one entry per row and the nullability of the dtype.
@@ -87,7 +86,6 @@ impl StoredDecimal {
         Ok(Self {
             decimal_dtype,
             values_type,
-            len,
             values,
             validity,
         })
@@ -105,13 +103,15 @@ impl StoredDecimal {
         self.values_type != self.decimal_dtype.canonical_values_type()
     }
 
-    /// Returns the parts of a [`DecimalArray`](crate::arrays::DecimalArray) at the stored width,
-    /// with the same buffer.
-    pub(super) fn into_array_parts(self) -> VortexResult<ArrayParts<Decimal>> {
-        let dtype = DType::Decimal(self.decimal_dtype, self.validity.nullability());
-        let slots = DecimalData::make_slots(&self.validity, self.len);
-        let data = DecimalData::try_new_handle(self.values, self.values_type, self.decimal_dtype)?;
+    /// Returns the parts of a [`DecimalArray`](crate::arrays::DecimalArray) with the same buffer.
+    ///
+    /// The parts read the buffer at the canonical width, so [`Self::is_legacy`] **must** be false.
+    pub(super) fn into_array_parts(self) -> ArrayParts<Decimal> {
+        debug_assert!(
+            !self.is_legacy(),
+            "Decimal array parts require the canonical width, got a legacy node"
+        );
 
-        Ok(ArrayParts::new(Decimal, dtype, self.len, data, slots))
+        Array::<Decimal>::decimal_parts(self.values, self.decimal_dtype, self.validity)
     }
 }

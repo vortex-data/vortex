@@ -161,11 +161,7 @@ fn null_index_skips_out_of_bounds_primitive_value() -> VortexResult<()> {
 fn null_index_skips_out_of_bounds_decimal_value() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let decimal_dtype = DecimalDType::new(19, 1);
-    let values = DecimalArray::new(
-        buffer![10i128, 20, 30],
-        decimal_dtype,
-        Validity::NonNullable,
-    );
+    let values = DecimalArray::from_iter([10i128, 20, 30], decimal_dtype);
     let indices = PrimitiveArray::new(
         buffer![1u64, 3],
         Validity::Array(BoolArray::from_iter([true, false]).into_array()),
@@ -185,8 +181,8 @@ fn null_index_skips_out_of_bounds_decimal_value() -> VortexResult<()> {
 fn decimal_i256_take_consumes_piecewise_indices() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let decimal_dtype = DecimalDType::new(76, 2);
-    let values = DecimalArray::new(
-        buffer![
+    let values = DecimalArray::from_iter(
+        [
             i256::from_i128(100),
             i256::from_i128(200),
             i256::from_i128(300),
@@ -194,7 +190,6 @@ fn decimal_i256_take_consumes_piecewise_indices() -> VortexResult<()> {
             i256::from_i128(500),
         ],
         decimal_dtype,
-        Validity::NonNullable,
     );
     let starts = PrimitiveArray::from_iter([1u64, 3]).into_array();
     let lengths = PrimitiveArray::from_iter([2u64, 1]).into_array();
@@ -203,14 +198,13 @@ fn decimal_i256_take_consumes_piecewise_indices() -> VortexResult<()> {
 
     let taken = values.take(indices)?;
 
-    let expected = DecimalArray::new(
-        buffer![
+    let expected = DecimalArray::from_iter(
+        [
             i256::from_i128(200),
             i256::from_i128(300),
             i256::from_i128(400),
         ],
         decimal_dtype,
-        Validity::NonNullable,
     );
     assert_arrays_eq!(taken, expected, &mut ctx);
     Ok(())
@@ -224,32 +218,21 @@ fn decimal_i256_take_consumes_piecewise_indices() -> VortexResult<()> {
 #[case::primitive_nullable(PrimitiveArray::from_option_iter(
     [Some(1i64), None, Some(3), Some(4), None],
 ).into_array())]
-#[case::decimal_i32(DecimalArray::new(
-    buffer![1i32, 2, 3, 4, 5],
-    DecimalDType::new(5, 0),
-    Validity::NonNullable,
-).into_array())]
-#[case::decimal_i64(DecimalArray::new(
-    buffer![10i64, 20, 30, 40, 50],
-    DecimalDType::new(10, 1),
-    Validity::NonNullable,
-).into_array())]
+#[case::decimal_i32(DecimalArray::from_iter([1i32, 2, 3, 4, 5], DecimalDType::new(5, 0)).into_array())]
+#[case::decimal_i64(DecimalArray::from_iter([10i64, 20, 30, 40, 50], DecimalDType::new(10, 1)).into_array())]
 #[case::decimal_i128(DecimalArray::new(
     buffer![100i128, 200, 300, 400, 500],
     DecimalDType::new(19, 2),
     Validity::from_iter([true, false, true, true, false]),
+    &mut SESSION.create_execution_ctx(),
 ).into_array())]
-#[case::decimal_i256(DecimalArray::new(
-    buffer![
+#[case::decimal_i256(DecimalArray::from_iter([
         i256::from_i128(100),
         i256::from_i128(200),
         i256::from_i128(300),
         i256::from_i128(400),
         i256::from_i128(500),
-    ],
-    DecimalDType::new(76, 2),
-    Validity::NonNullable,
-).into_array())]
+    ], DecimalDType::new(76, 2)).into_array())]
 fn fixed_width_take_conformance(#[case] array: ArrayRef) {
     test_take_conformance(&array, &mut SESSION.create_execution_ctx());
 }

@@ -214,6 +214,13 @@ impl<'a> BitBufferView<'a> {
     }
 }
 
+impl<'a> From<&'a BitBuffer> for BitBufferView<'a> {
+    #[inline]
+    fn from(buffer: &'a BitBuffer) -> Self {
+        buffer.as_view()
+    }
+}
+
 impl<'a> IntoIterator for BitBufferView<'a> {
     type Item = bool;
     type IntoIter = BitIterator<'a>;

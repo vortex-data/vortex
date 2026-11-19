@@ -272,6 +272,11 @@ pub mod encodings {
         pub use vortex_decimal_byte_parts::*;
     }
 
+    /// Elias-Fano and unary integer encodings.
+    pub mod elias_fano {
+        pub use vortex_elias_fano::*;
+    }
+
     /// FastLanes integer encodings: bit-packing, delta, frame-of-reference, and RLE.
     pub mod fastlanes {
         pub use vortex_fastlanes::*;
@@ -349,6 +354,7 @@ impl VortexSessionDefault for VortexSession {
         #[cfg(feature = "parquet-variant")]
         vortex_parquet_variant::initialize(&session);
         vortex_uuid::initialize(&session);
+        vortex_elias_fano::initialize(&session);
         editions::register_default_editions(&session);
         editions::enable_default_editions(&session);
 

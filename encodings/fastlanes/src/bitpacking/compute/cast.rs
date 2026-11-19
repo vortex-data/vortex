@@ -292,7 +292,7 @@ mod tests {
                     let mut ctx = SESSION.create_execution_ctx();
 
                     // Reference: plain primitive cast of the same values.
-                    let reference = source_ref.clone().cast(target.clone())?;
+                    let reference = source_ref.cast(target.clone())?;
 
                     // Candidate: bit-pack, then cast through the real engine. This dispatches to
                     // `BitPacked`'s `CastKernel` widening pushdown.
@@ -306,7 +306,7 @@ mod tests {
                         let hi = len - len / 4;
                         let sliced = bp(&source_ref, 3).into_array().slice(lo..hi)?;
                         let casted = sliced.cast(target.clone())?;
-                        let reference = source_ref.clone().slice(lo..hi)?.cast(target.clone())?;
+                        let reference = source_ref.slice(lo..hi)?.cast(target)?;
                         assert_arrays_eq!(casted, reference, &mut ctx);
                     }
                 }
