@@ -285,15 +285,24 @@ impl VortexFile {
     ///
     /// Scans run on the planner-driven executor, as with
     /// [`plan_data_source`](Self::plan_data_source), unless the file has a layout that
-    /// executor cannot read yet. Such files are scanned by a [`LayoutReaderDataSource`] over the
-    /// file's [layout reader](Self::layout_reader) instead. Either way, a scan whose filter the
-    /// file-level statistics prove false reads nothing, and stored footer aggregates are available
-    /// through the source statistics methods without reading payloads.
+    /// executor cannot read yet. Such files are scanned on the layout reader instead, as with
+    /// [`layout_reader_data_source`](Self::layout_reader_data_source). Either way, a scan whose
+    /// filter the file-level statistics prove false reads nothing, and stored footer aggregates
+    /// are available through the source statistics methods without reading payloads.
     pub fn data_source(&self) -> VortexResult<DataSourceRef> {
         if self.planned_scan_supported()? {
             return Ok(self.plan_data_source());
         }
+        self.layout_reader_data_source()
+    }
 
+    /// Create a [`DataSource`](vortex_scan::DataSource) that scans this file with its
+    /// [layout reader](Self::layout_reader), whatever its layouts.
+    ///
+    /// Use [`data_source`](Self::data_source) unless the layout reader is required, for example
+    /// to compare it with [`plan_data_source`](Self::plan_data_source). Stored footer aggregates
+    /// are available through the source statistics methods without reading payloads.
+    pub fn layout_reader_data_source(&self) -> VortexResult<DataSourceRef> {
         let reader = self.layout_reader()?;
         Ok(Arc::new(FileDataSource::new(
             LayoutReaderDataSource::new(reader, self.session.clone()),
