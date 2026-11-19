@@ -4,9 +4,8 @@
 //! The work that the workers of an opened layout scan share.
 //!
 //! A pool's units are the splits of one or more files, and the files not yet opened. A worker
-//! takes units and keeps up to `splits_in_flight` of them running on its own thread: it
-//! builds a split's task only when it takes the split, and never spawns. Opening a deferred file
-//! is a unit like any other.
+//! takes units and keeps up to `splits_in_flight` of them in flight, each spawned onto the
+//! session's runtime when the worker takes it. Opening a deferred file is a unit like any other.
 //!
 //! - An unordered pool hands units out through a channel. The worker that opens a deferred file
 //!   sends the file's splits back into the channel, where any worker can take them. The channel
@@ -36,6 +35,7 @@ use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_scan::DataSourceScanRef;
 use vortex_scan::Partition;
 use vortex_scan::PartitionRef;
@@ -251,7 +251,7 @@ impl Shared {
         .boxed()
     }
 
-    /// Takes a split: reserves its rows from a reserved limit and builds its task.
+    /// Takes a split: reserves its rows from a reserved limit and spawns its task.
     fn admit(&self, (file, range, progress): FileSplit) -> SplitFuture {
         *self.progress.lock() += progress;
         let Some(mask) = file.scan.split_mask(&range) else {
@@ -267,10 +267,12 @@ impl Shared {
             }
             PoolLimit::Unlimited | PoolLimit::Trim(_) => mask,
         };
-        match file.scan.split_task(&file.ctx, mask) {
-            Ok(task) => task,
-            Err(err) => future::ready(Err(err)).boxed(),
-        }
+        // Spawned onto the session's runtime, as V1 scans do: another runtime thread may decode
+        // it while this worker drives its other splits, and its I/O starts right away.
+        let handle = file.ctx.session.handle();
+        handle
+            .spawn(async move { file.scan.split_task(&file.ctx, mask)?.await })
+            .boxed()
     }
 
     fn progress(&self) -> f64 {
