@@ -1296,7 +1296,8 @@ mod pool_tests {
         assert!(poll_worker(&mut waiter, &mut flagged).is_pending());
 
         gates[0].release();
-        let Poll::Ready(Some(first)) = poll_worker(&mut opener, &mut noop) else {
+        // The opener's split runs on the session runtime, so wait for it rather than polling once.
+        let Some(first) = futures::executor::block_on(opener.next()) else {
             panic!("the opener reads a split of the file it opened");
         };
         assert!(flag.0.load(Ordering::SeqCst), "the waiter is woken");
