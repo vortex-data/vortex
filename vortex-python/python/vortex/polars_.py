@@ -373,7 +373,7 @@ def _cast_datetime_literal(node: dict[str, Any]) -> ve.Expr:
     return _arrow_literal(array)
 
 
-def _datetime_type(unit: str, tz: str | dict[str, str] | None) -> pa.TimestampType:
+def _datetime_type(unit: str, tz: str | dict[str, str] | None) -> pa.DataType:
     units: dict[str, Literal["s", "ms", "us", "ns"]] = {
         "Nanoseconds": "ns",
         "Microseconds": "us",
@@ -384,6 +384,8 @@ def _datetime_type(unit: str, tz: str | dict[str, str] | None) -> pa.TimestampTy
         raise NotImplementedError(f"Unsupported Polars date time unit: {unit}")
     if isinstance(tz, dict):
         tz = tz["inner"]
+    if tz is None:
+        return pa.timestamp(units[unit])
     return pa.timestamp(units[unit], tz=tz)
 
 

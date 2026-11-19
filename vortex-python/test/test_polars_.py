@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import math
 import os
-from datetime import UTC, date, datetime, time
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any, cast
 from zoneinfo import ZoneInfo
