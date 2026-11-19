@@ -40,17 +40,17 @@ canonical decimal encoding.
   decoding needs no scan. Operations run on its parts where they can, and it decodes to the
   canonical array of its own dtype. One compressor scheme builds it from the canonical array, so v1
   file contents stay the same.
-- Decided: `vortex.widen` stays in memory until the maintainer decides to write it. Then it
-  enters one preview edition together with DecimalByteParts with lower parts. DecimalByteParts is
-  the only scheme that narrows decimals (D33). Default writers use `core`, so until both
-  formats enter `core`, they write wide decimals with values above 64 bits as plain `i256` arrays.
+- `vortex.widen` and DecimalByteParts v2 are in `unstable` ([#11615](https://github.com/vortex-data/vortex/pull/11615)). The plan
+  still puts both into preview before `core` (D18). DecimalByteParts is the only scheme that
+  narrows decimals (D33). The default writer uses `core`, where the DecimalByteParts scheme
+  leaves values wider than 64 bits in their canonical array.
 - Decided: the bar of no compute regression applies to the final state. A DecimalByteParts array
   keeps its narrow MSP in memory, and sum, min, and max run on the MSP.
 - Decided: the work lands as 22 PRs in four tracks. Each PR has a brief that a coding agent can
   implement alone. The integer `Widen` PRs are written from scratch, with a local rewrite as a
-  reference. Generic structural encodings always sit above `Widen`. A writer that cannot
-  write `vortex.widen` writes the canonical array, as a documented workaround. Which arrays the
-  compressor narrows is deferred.
+  reference. Generic structural lifting (WD5) and integer compressor narrowing (WR3) remain
+  open. A concrete decimal child still writes as `vortex.decimal`. Writers need an edition
+  that permits `vortex.widen` for all other children ([#11597](https://github.com/vortex-data/vortex/pull/11597)).
 - Arrow has the same decimal model and the same gap at the top of each width. Its width is part
   of the type, and from precision 5 the Vortex widths match the smallest Arrow types.
 - Decided: `vortex.decimal` keeps its wire ID, and the decimal file format does not change.

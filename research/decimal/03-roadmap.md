@@ -268,7 +268,7 @@ are not reviewed.
 | An old reader reads a protobuf wide `PType` as `U8` | A new protobuf `oneof` variant, and strict readers early |
 | Rewritten arithmetic makes several passes over the data | Fused scaled-integer kernels, checked with the existing decimal and compare benchmarks |
 | D3 without `Widen` forces the full width on every column | `Widen` for decimals lands in the in-memory change, before `try_new` rejects other widths |
-| An in-memory `Widen` reaches a writer that cannot write `vortex.widen` | The serializer writes the canonical array (D26). The code documents this as a workaround until `vortex.widen` is in `core` |
+| An in-memory `Widen` reaches a writer that cannot write `vortex.widen` | A concrete decimal child still writes `vortex.decimal`. The writer returns an error for other children when the edition forbids `vortex.widen` (D26, [#11597](https://github.com/vortex-data/vortex/pull/11597)) |
 | Moving the narrowing call sites to `encode_values` changes the signedness of internal children in new files | Readers on `develop` accept any integer type there, and the PR checks that the latest release reads its files (D28) |
 | A narrow buffer does not give a precision | Every producer finds the precision from the values. Readers convert old nodes by their range (D9). A DecimalByteParts MSP is an integer, so it needs no precision (D16) |
 | Compute on DecimalByteParts regresses when its decoding stops returning narrow leaves | DecimalByteParts is itself the narrow form, and operations run on its parts (D16). Sum, min, and max get a kernel on the MSP before the new decoding (LT3), and benchmarks measure the cost (D19 and D42) |

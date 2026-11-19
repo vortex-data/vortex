@@ -10,9 +10,9 @@ This plan tracks [canonical decimals](https://github.com/vortex-data/vortex/issu
 [implementation briefs](agents/briefs/) describe the work behind each plan ID.
 [`decisions.md`](../decisions.md) records the design and how it changed.
 
-## Progress on 2026-11-18
+## Progress on 2026-11-19
 
-On [`develop` at `ac62d8d918`](https://github.com/vortex-data/vortex/tree/ac62d8d918),
+On [`develop` at `42b2a8c011`](https://github.com/vortex-data/vortex/tree/42b2a8c011),
 the in-memory change is complete. Every `DecimalArray` has the canonical width of its precision
 ([#11571]), checked constructors reject a valid host value outside the precision ([#11572]), and
 kernels read same-dtype operands at that one width ([#11573]). A narrower physical form is a
@@ -22,11 +22,10 @@ DecimalByteParts decodes to the canonical width on the CPU and, for arrays with 
 the GPU. The compressor keeps a narrow most significant part (MSP) as an integer `Widen` and
 writes its integer child in the existing wire form ([#11459]).
 
-The wire change has started. [#11597] adds the `vortex.widen` wire format (WR1), and [#11596]
-tightens the DecimalByteParts v2 reader before v2 joins an edition. On 2026-11-18, [#11595]
-removed every member except `fastlanes.delta` from the `unstable` edition, so no edition permits
-DecimalByteParts v2 today. Its audit found that `between` and aggregates decode the canonical
-array when lower parts exist.
+The `vortex.widen` wire format ([#11597]) and the stricter DecimalByteParts v2 reader ([#11596])
+have merged. Both IDs are in the experimental `unstable` edition ([#11615]), which has no wire
+compatibility guarantee. The preview and `core` steps remain open. DecimalByteParts v2 still
+decodes to canonical form for `between` and aggregates when lower parts exist ([#11595]).
 
 🟢 **Done** means the change merged into `develop`. 🔵 **Open** means its implementation PR is open.
 🟡 **In progress** means some pieces merged and others are open. ⚪ **Not started** means no
@@ -62,9 +61,9 @@ implementation PR was found. 🟠 **Parked** marks an experiment that closed wit
 | CD8a | 🟢 Done | Require canonical-width storage for every `DecimalArray`. [#11571] | CD3, CD5 (CPU and GPU), CD6, CD7, [#11574] | Large |
 | CD8b | 🟢 Done | Check valid host values against their precision at construction. Device buffers keep only the layout check. [#11572] | CD8a | Large |
 | CD8c | 🟢 Done | Remove mixed-width decimal code for operands of the same dtype. [#11573] | CD8a | Medium |
-| WR1 | 🔵 Open | Read and write `vortex.widen` for integers and decimals. [#11597] keeps `vortex.decimal` for a decimal leaf. Unlike the brief, a write whose editions do not permit `vortex.widen` returns an error instead of writing the canonical array. | WD1, CD3, CD4, CD8a | Medium |
-| WR2p | 🔵 Open | Make the DecimalByteParts v2 reader accept only what the writer emits before the contract freezes: no node buffers, and at least one lower part. A v2 MSP then can never be wider than its logical dtype. [#11596] | None | Small |
-| WR2 | ⚪ Not started | Admit `vortex.widen` and DecimalByteParts v2 to a preview edition. [#11595] removed v2 from `unstable` because `between` and aggregates decode when lower parts exist. Open question: does WR2 wait for those kernels? | WR1, WR2p, CD5, CD7 | Small |
+| WR1 | 🟢 Done | Read and write `vortex.widen` for integers and decimals. A concrete decimal child still writes `vortex.decimal`. Integer and encoded decimal children require `vortex.widen`. [#11597] | WD1, CD3, CD4, CD8a | Medium |
+| WR2p | 🟢 Done | Reject node buffers and require at least one lower part in a DecimalByteParts v2 node. Its MSP therefore has logical dtype `i64`. [#11596] | None | Small |
+| WR2 | ⚪ Not started | Move both wire formats into a preview edition. [#11615] admits them to `unstable` in the meantime. | WR1, WR2p, CD5, CD7 | Small |
 | WR3 | ⚪ Not started | Design and implement the integer `Narrow` compressor scheme. DecimalByteParts owns decimal narrowing (D33). | WR1, WR2, WD1, WD5 | Large |
 | LT1 | ⚪ Not started | Admit both wire formats to `core` and decide how writers targeting older editions handle `Widen`. | WR2 | Unestimated |
 | LT2 | ➖ Dropped | Decoding a narrow MSP to a decimal `Widen` required a range scan. CD5 keeps it as an integer child instead (D16). | None | Unestimated |
@@ -113,6 +112,7 @@ flowchart TD
     subgraph WR["Wire change"]
         WR1["WR1 Wire format #11597"]
         WR2p["WR2p v2 reader check #11596"]
+        UNSTABLE["Experimental edition #11615"]
         WR2["WR2 Preview edition"]
         WR3["WR3 Integer Narrow scheme"]
         LT1["LT1 Core edition"]
@@ -158,6 +158,9 @@ flowchart TD
     CD8a --> CD8c
     CD8a --> WR1
     CD4 --> WR1
+    WR1 --> UNSTABLE
+    WR2p --> UNSTABLE
+    UNSTABLE -.-> WR2
     WR1 --> WR2
     WR2p --> WR2
     CPU --> WR2
@@ -171,7 +174,7 @@ flowchart TD
     classDef parked fill:#ffedce,stroke:#97651c,color:#362709
     class FX1,FX3,WD1,WD2,WD3,WD4,CD1,CD2,REL,CD3,CD3b,CD3c,CD4p,CD4,CD4b,CD6,LT3,CUDA,BASE done
     class CPU,GPU,MUT,CD8a,CD8b,CD8c done
-    class WR1,WR2p openPR
+    class WR1,WR2p,UNSTABLE done
     class WD5,WR2,WR3,LT1 planned
     class WD6 parked
 ```
@@ -180,9 +183,9 @@ flowchart TD
 
 1. The in-memory change is done: CD5 and CD7 ([#11459], [#11460]), then [#11574], then CD8a to
    CD8c ([#11571], [#11572], [#11573]).
-2. WR1 ([#11597]) and WR2p ([#11596]) are open and independent of each other.
-3. WR2 admits both wire forms to preview. Before it, decide whether DecimalByteParts v2 first
-   needs `between` and aggregate kernels for lower parts, the gaps that [#11595] names.
+2. WR1 ([#11597]) and WR2p ([#11596]) merged. [#11615] enabled both IDs in `unstable`.
+3. WR2 admits both wire formats to preview. Fast `between` and aggregate kernels for v2 with
+   lower parts can follow the `unstable` change. Whether preview waits for them remains open.
 4. WR3 also needs WD5 and a decision about which integers the compressor narrows and at which
    cascade level. LT1 tracks promotion to `core`.
 
@@ -228,7 +231,8 @@ flowchart TD
 - Avoid temporary code between PRs (D11).
 - The writer-only plugin shipped in CD4 writes a decimal `Widen` over a concrete decimal leaf
   as a narrow `vortex.decimal` node under the parent dtype. It does not execute values or
-  validity. WR1 adds the dedicated wire form. LT1 decides the fate of the old writing path.
+  validity. WR1 added the dedicated wire form for integer and encoded decimal children.
+  LT1 decides the fate of the old writing path.
 - Stored decimal values at any width become the canonical array or a `Widen` only through
   `WidenArray::from_stored_decimal` (D40). No PR adds its own choice of child. DecimalByteParts
   decoding does not go through it, because its MSP is an integer (D16).
@@ -336,5 +340,6 @@ flowchart TD
 [#11595]: https://github.com/vortex-data/vortex/pull/11595
 [#11596]: https://github.com/vortex-data/vortex/pull/11596
 [#11597]: https://github.com/vortex-data/vortex/pull/11597
+[#11615]: https://github.com/vortex-data/vortex/pull/11615
 [release 0.91.0]: https://github.com/vortex-data/vortex/releases/tag/0.91.0
 [Reader on develop]: https://github.com/vortex-data/vortex/blob/3ebf68d239da461c7bdd4ac6bcda0220727d8d44/vortex-array/src/arrays/decimal/vtable/plugin/mod.rs#L10-L17
