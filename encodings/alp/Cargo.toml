@@ -47,3 +47,7 @@ harness = false
 [[bench]]
 name = "alp_slice_take"
 harness = false
+
+[[bench]]
+name = "alp_fsl_take"
+harness = false
