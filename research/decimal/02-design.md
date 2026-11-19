@@ -379,16 +379,27 @@ Generic structural encodings sit above the type layer (decided, X5). These notes
 list for them: `Constant`, `Dict`, `RunEnd`, `Sparse`, `Chunked`, `Masked` and `Interleave`
 (XQ1). Decimal storage encodings, DBP and `Widen`, sit below them.
 
-For `Widen`, reduce rules enforce this (decided, D25). They move `Dict`, `RunEnd`, `Sparse`,
-`Constant`, `Masked`, `Chunked` and `Interleave` above a `Widen`, for example
-`Widen(Dict(codes, values))` becomes `Dict(codes, Widen(values))`. No rule moves `Widen` above
-them, so the rules cannot loop. The Arrow and DuckDB exporters and the dict layout then find these
-encodings at the root. A follow-up issue covers the same rule for every encoding.
+The intended shape is `Dict(codes, Widen(values))` (D25). Apply `Widen` to the distinct
+values so the codes still index the same table and consumers can see the dictionary at the root.
+A widening cast that goes through the dictionary cast rule already produces this shape when the
+rule can cast the value table. Direct construction and the wire reader still accept
+`Widen(Dict(codes, values))`.
 
-The decimal wire forms already follow this rule. A constant decimal column is a `vortex.constant`
-node with a decimal scalar, or `vortex.masked` over that node when some rows are null. Run-end and
-dictionary arrays already hold decimal values. So `Decimal` needs no plugin that translates an
-in-memory form back to the legacy wire forms.
+A focused decimal reduce rule can move `Widen` inside `Dict` without executing the codes or
+values. Give the new `Widen` the original logical precision and scale with the value table's
+nullability. Keep the codes, value order, and reference metadata. Nullable codes still make the
+whole dictionary nullable.
+
+When the dictionary value table wraps a concrete decimal leaf, the writer can emit
+`vortex.dict` with a legacy `vortex.decimal` values child. The enclosing dictionary supplies
+the logical decimal dtype and the leaf stores the narrow width. Test the rewrite with nullable
+codes and test a write using the legacy wire IDs. The reader still supports previously written
+`Widen(Dict(...))` nodes ([#11597](https://github.com/vortex-data/vortex/pull/11597)).
+
+The decimal dictionary compressor in [#11332](https://github.com/vortex-data/vortex/pull/11332) delegates compression of the value table
+to its child compressor. If the producer chooses to narrow the entries with `Widen`, call
+`WidenArray::encode_decimal` on the value table. The dictionary's codes have their own dtype and
+compression path.
 
 ## Decimal operations as rules over the view
 

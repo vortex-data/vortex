@@ -30,6 +30,9 @@ decodes to canonical form for `between` and aggregates when lower parts exist ([
 The Decimal rollout keeps integer `Widen` for the narrow MSP (D16). Existing integer paths keep
 their current representations. Structural and dictionary rules (WD5), internal call-site
 migration (WD6), and an integer compressor scheme (WR3) are follow-ups (D43).
+The decimal dictionary case is a focused follow-up under D25. Normalize
+`Widen(Dict(codes, values))` to `Dict(codes, Widen(values))`, and coordinate value-table
+compression with [#11332]. See [Where structural encodings sit](02-design.md#where-structural-encodings-sit).
 
 🟢 **Done** means the change merged into `develop`. 🔵 **Open** means its implementation PR is open.
 🟡 **In progress** means some pieces merged and others are open. ⚪ **Not started** means no
@@ -246,7 +249,7 @@ flowchart TD
   CD4, CD5 and CD7. The dependency table lists these as hard dependencies.
 - Every call of the deprecated `encode_values` carries `#[expect(deprecated)]` with a
   `TODO(connor)` reason (D28).
-- WD5 records the planned structural normalization rule for future integer adoption (D25, D43).
+- Decimal dictionaries keep `Dict` at the root when their value table uses `Widen` (D25).
 - A narrowing copy writes zeros in null slots and fails on a valid value outside the precision
   (D21). Reads without a copy trust the precision and never panic (D14).
 
@@ -331,6 +334,7 @@ flowchart TD
 [#11302]: https://github.com/vortex-data/vortex/pull/11302
 [#11303]: https://github.com/vortex-data/vortex/pull/11303
 [#11354]: https://github.com/vortex-data/vortex/pull/11354
+[#11332]: https://github.com/vortex-data/vortex/pull/11332
 [#11442]: https://github.com/vortex-data/vortex/pull/11442
 [#11456]: https://github.com/vortex-data/vortex/pull/11456
 [#11457]: https://github.com/vortex-data/vortex/pull/11457
