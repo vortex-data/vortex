@@ -10,6 +10,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::ArrayView;
 use crate::arrays::Dict;
 use crate::arrays::Filter;
 use crate::arrays::RunEnd;
@@ -22,9 +23,11 @@ use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::runend::RunEndArraySlotsExt;
 use crate::arrays::runend::RunEndSlots;
 use crate::arrays::slice::SliceReduceAdaptor;
-use crate::arrays::widen::WidenArraySlotsExt;
+use crate::arrays::widen::WidenSlots;
 use crate::dtype::DType;
+use crate::optimizer::kernels::ArrayKernels;
 use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar_fn::builtin::cast::Cast;
 use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
 use crate::scalar_fn::builtin::fill_null::FillNull;
@@ -41,19 +44,28 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     kernels.register_reduce_parent_rule(Slice, Widen, const { &SliceReduceAdaptor(Widen) });
 }
 
-/// Push decimal widening into the values of a dictionary or run-end array.
-///
-/// Write normalization can then lower the stored values without expanding the logical rows.
-pub(crate) fn push_decimal_widen_into_values(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-    let Some(widen) = array.as_opt::<Widen>() else {
-        return Ok(None);
-    };
+/// Let the writer lower stored values before expanding dictionary codes or runs.
+pub(crate) fn register_write_parent_rules(kernels: &ArrayKernels) {
+    kernels.register_reduce_parent_rule(Widen, Dict, const { &WidenDictionaryValues });
+    kernels.register_reduce_parent_rule(Widen, RunEnd, const { &WidenRunEndValues });
+}
 
-    if !matches!(widen.dtype(), DType::Decimal(..)) {
-        return Ok(None);
-    }
+#[derive(Debug)]
+struct WidenDictionaryValues;
 
-    if let Some(dict) = widen.values().as_opt::<Dict>() {
+impl ArrayParentReduceRule<Dict> for WidenDictionaryValues {
+    type Parent = Widen;
+
+    fn reduce_parent(
+        &self,
+        dict: ArrayView<'_, Dict>,
+        widen: ArrayView<'_, Widen>,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if child_idx != WidenSlots::VALUES || !matches!(widen.dtype(), DType::Decimal(..)) {
+            return Ok(None);
+        }
+
         // Nullable codes can make the dictionary nullable even when its values are non-nullable.
         let values_dtype = widen
             .dtype()
@@ -71,10 +83,26 @@ pub(crate) fn push_decimal_widen_into_values(array: &ArrayRef) -> VortexResult<O
             dict.data().clone(),
             slots.into_slots(),
         ))?;
-        return Ok(Some(dict.into_array()));
+        Ok(Some(dict.into_array()))
     }
+}
 
-    if let Some(run_end) = widen.values().as_opt::<RunEnd>() {
+#[derive(Debug)]
+struct WidenRunEndValues;
+
+impl ArrayParentReduceRule<RunEnd> for WidenRunEndValues {
+    type Parent = Widen;
+
+    fn reduce_parent(
+        &self,
+        run_end: ArrayView<'_, RunEnd>,
+        widen: ArrayView<'_, Widen>,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if child_idx != WidenSlots::VALUES || !matches!(widen.dtype(), DType::Decimal(..)) {
+            return Ok(None);
+        }
+
         let values = WidenArray::try_new(run_end.values().clone(), widen.dtype().clone())?
             .into_array();
         let slots = RunEndSlots {
@@ -89,8 +117,6 @@ pub(crate) fn push_decimal_widen_into_values(array: &ArrayRef) -> VortexResult<O
             run_end.data().clone(),
             slots.into_slots(),
         ))?;
-        return Ok(Some(run_end.into_array()));
+        Ok(Some(run_end.into_array()))
     }
-
-    Ok(None)
 }
