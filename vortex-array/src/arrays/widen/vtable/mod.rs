@@ -37,7 +37,6 @@ use crate::arrays::decimal::widened_buffer;
 use crate::arrays::widen::WidenArraySlotsExt;
 use crate::arrays::widen::WidenSlots;
 use crate::arrays::widen::array::validate_dtypes;
-use crate::arrays::widen::compute::rules::DECIMAL_STRUCTURAL_RULES;
 use crate::buffer::BufferHandle;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -130,12 +129,6 @@ impl VTable for Widen {
     }
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
-        if matches!(array.dtype(), DType::Decimal(..))
-            && let Some(reduced) = DECIMAL_STRUCTURAL_RULES.evaluate(array)?
-        {
-            return Ok(Some(reduced));
-        }
-
         // A physical rewrite keeps only the dtype of each child, so it can put a `Widen` here.
         if !array.values().is::<Widen>() {
             return Ok(None);

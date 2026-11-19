@@ -131,12 +131,12 @@ A serializer must choose the oldest supported writable format that preserves the
 representation without recompression. A plugin can adapt metadata, buffers, or children to fit an
 older format. Formats retained only for reading, however, are not candidates for writing.
 
-The serializer makes that choice before the writer checks edition permissions. If the chosen
-wire ID is forbidden, the file writer first tries structural rewrites. If the target still
-disallows the ID, the writer executes the array or child into canonical form and tries its
-serializer. For example, if the target allows dictionaries but disallows the format of their
-value table, the writer can keep the codes and execute just the value table. If the canonical
-form still chooses a forbidden ID, the write fails.
+The serializer makes that choice before the writer checks edition permissions. If a wire ID is
+forbidden, the flat file writer normalizes the source array and tries serialization again.
+Normalization tries structural rewrites and executes encodings until a permitted form is available.
+For example, if the target allows a dictionary but disallows the encoding of its value table,
+the writer can keep the codes and execute just the table. Serializers choose their wire children
+again after normalization. If a plugin still emits a forbidden wire ID, the write fails.
 
 ## Write and read checks
 
