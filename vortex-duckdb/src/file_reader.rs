@@ -7,6 +7,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
+use futures::TryStreamExt;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::array::ArrayRef;
@@ -18,6 +19,7 @@ use vortex::array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex::dtype::FieldPath;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::file::Footer;
@@ -32,9 +34,11 @@ use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
-use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
-use vortex::layout::scan::v2::ScanFile;
 use vortex::mask::Mask;
+use vortex::scan::DataSourceRef;
+use vortex::scan::PartitionPlan;
+use vortex::scan::PartitionRef;
+use vortex::scan::prepare::ScanBuilder as V2ScanBuilder;
 use vortex::session::SessionExt as _;
 
 use crate::REGISTRY;
@@ -128,7 +132,7 @@ pub struct OpenFileReader {
 pub struct FileScanState {
     reader: LayoutReaderRef,
     /// The file as the V2 executor reads it.
-    scan_file: ScanFile,
+    source: DataSourceRef,
     /// The file's V2 scan, which every thread scanning the file drives. Set when the file is
     /// initialized for a V2 scan.
     v2: OnceLock<FileScan>,
@@ -140,12 +144,10 @@ impl OpenFileReader {
         let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(&path)?)?;
         let source = fs.open_read(&fs_path).await?;
         let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
-        let mut scan_file = file.scan_file();
-        scan_file.cache.get_or_insert_default();
         Ok(OpenFileReader {
             scan_state: Some(Arc::new(FileScanState {
                 reader: file.layout_reader()?,
-                scan_file,
+                source: file.planned_data_source(),
                 v2: OnceLock::new(),
                 cache: ConversionCache::default(),
             })),
@@ -233,7 +235,12 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
             .filter
             .as_ref()
             .is_some_and(|filter| DynamicExprUpdates::new(filter).is_some());
-        let scan = FileScan::try_new(v2_builder(state, global), &splits, dynamic)?;
+        let Some(builder) = v2_builder(state, global)? else {
+            // The scan's row range holds none of the file's rows.
+            file.scan_state = None;
+            return Ok(true);
+        };
+        let scan = FileScan::try_new(builder, &splits, dynamic)?;
         if state.v2.set(scan).is_err() {
             vortex_panic!("file initialized twice");
         }
@@ -260,18 +267,28 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     Ok(false)
 }
 
-/// The V2 scan of the file's rows that the scan's row range and selection keep.
-fn v2_builder(state: &FileScanState, global: &GlobalState) -> V2ScanBuilder {
-    let filter = &global.filter;
-    let row_count = state.reader.row_count();
-    let rows = filter.row_range.as_ref().map_or(0..row_count, |range| {
-        range.start.min(row_count)..range.end.min(row_count)
-    });
-    V2ScanBuilder::new(SESSION.clone(), state.scan_file.clone())
-        .with_projection(global.projection.clone())
-        .with_some_filter(filter.filter.clone())
-        .with_selection(filter.row_selection.clone())
-        .with_row_range(rows)
+/// The V2 scan of the file's rows that the scan's row range and selection keep, planned by the
+/// file's data source, or `None` when the source has no rows to scan.
+fn v2_builder(state: &FileScanState, global: &GlobalState) -> VortexResult<Option<V2ScanBuilder>> {
+    let partitions: Vec<PartitionRef> = RUNTIME.block_on(async {
+        state
+            .source
+            .scan(global.scan_request.clone())
+            .await?
+            .partitions()
+            .try_collect()
+            .await
+    })?;
+    let mut partitions = partitions.into_iter();
+    let partition = match (partitions.next(), partitions.next()) {
+        (None, _) => return Ok(None),
+        (Some(partition), None) => partition,
+        (Some(_), Some(_)) => vortex_bail!("a Vortex file's V2 scan must have one partition"),
+    };
+    match partition.plan()? {
+        PartitionPlan::Scan(builder) => Ok(Some(*builder)),
+        PartitionPlan::Arrays(_) => vortex_bail!("a Vortex file's V2 scan must be planned"),
+    }
 }
 
 /// What a thread's split yields next.

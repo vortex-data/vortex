@@ -37,10 +37,8 @@ use vortex::expr::Expression;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::metrics::ScanMetrics;
-use vortex::layout::segments::SegmentSource;
 use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
-use vortex::scan::prepare::WeakScanCache;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -206,9 +204,8 @@ pub struct VortexSource {
     ///
     /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
-    /// Shared V2 segment sources, keyed by path and alive only while a scan reads the file.
-    segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
-    scan_caches: Arc<DashMap<Path, WeakScanCache>>,
+    /// Shared V2 data sources, keyed by path and alive only while a scan reads the file.
+    data_sources: Arc<DashMap<Path, Weak<dyn vortex::scan::DataSource>>>,
     /// Shared full-file natural splits keyed by path.
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by path.
@@ -251,8 +248,7 @@ impl VortexSource {
             vortex_predicate: None,
             df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
-            segment_sources: Arc::new(DashMap::default()),
-            scan_caches: Arc::new(DashMap::default()),
+            data_sources: Arc::new(DashMap::default()),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
             dynamic_filters: Arc::new(DashMap::default()),
@@ -391,8 +387,7 @@ impl VortexSource {
             scan_metrics: self.scan_metrics.clone(),
             df_metrics: self.df_metrics.clone(),
             layout_readers: Arc::clone(&self.layout_readers),
-            segment_sources: Arc::clone(&self.segment_sources),
-            scan_caches: Arc::clone(&self.scan_caches),
+            data_sources: Arc::clone(&self.data_sources),
             natural_splits: Arc::clone(&self.natural_splits),
             file_schemas: Arc::clone(&self.file_schemas),
             dynamic_filters: Arc::clone(&self.dynamic_filters),

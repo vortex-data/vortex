@@ -19,6 +19,11 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::expr::get_item;
+use vortex_array::expr::gt;
+use vortex_array::expr::lit;
+use vortex_array::expr::root;
+use vortex_array::expr::stats::Precision;
 use vortex_arrow::ArrowScanExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
@@ -26,13 +31,18 @@ use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_io::VortexReadAt;
 use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::scan::v2::ScanBuilder;
 use vortex_layout::scan::v2::SegmentReader;
 use vortex_layout::session::LayoutSession;
+use vortex_scan::PartitionPlan;
+use vortex_scan::PartitionRef;
+use vortex_scan::ScanRequest;
 use vortex_session::VortexSession;
 
 use super::ScanDriver;
@@ -160,5 +170,61 @@ async fn placed_files_scan_like_buffered_ones() -> VortexResult<()> {
     assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
     // The footer read covered the whole small file, so the scan reads nothing more.
     assert_eq!(reads.load(Ordering::Relaxed), opened);
+    Ok(())
+}
+
+/// A file's planned data source scans the rows the request asks for, as a V2 scan built from
+/// the file directly does, and plans the same scan for engines that drive it themselves.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn planned_data_source_scans_like_the_file() -> VortexResult<()> {
+    let file = file().await?;
+    let source = file.planned_data_source();
+    assert_eq!(source.row_count(), Precision::exact(file.row_count()));
+
+    let request = || ScanRequest {
+        projection: get_item("numbers", root()),
+        filter: Some(gt(get_item("numbers", root()), lit(4))),
+        row_range: Some(4..28),
+        ordered: true,
+        ..Default::default()
+    };
+    let dtype = file.dtype().clone();
+    let expected = ScanBuilder::new(SESSION.clone(), file.scan_file())
+        .with_projection(request().projection.bind(&dtype)?)
+        .with_some_filter(request().filter.map(|f| f.bind(&dtype)).transpose()?)
+        .with_row_range(4..28);
+    let scan_dtype = expected.dtype().clone();
+    let collect = |arrays: Vec<ArrayRef>| ChunkedArray::try_new(arrays, scan_dtype.clone());
+    let expected = collect(driver().run(expected).try_collect().await?)?;
+
+    let partitions: Vec<PartitionRef> = source
+        .scan(request())
+        .await?
+        .partitions()
+        .try_collect()
+        .await?;
+    assert_eq!(partitions.len(), 1);
+    let executed = collect(
+        partitions
+            .into_iter()
+            .next()
+            .vortex_expect("one partition")
+            .execute()?
+            .try_collect()
+            .await?,
+    )?;
+    assert_arrays_eq!(executed, expected, &mut SESSION.create_execution_ctx());
+
+    let mut partitions: Vec<PartitionRef> = source
+        .scan(request())
+        .await?
+        .partitions()
+        .try_collect()
+        .await?;
+    let PartitionPlan::Scan(builder) = partitions.remove(0).plan()? else {
+        vortex_bail!("a file's partition must hand back its scan");
+    };
+    let planned = collect(driver().run(*builder).try_collect().await?)?;
+    assert_arrays_eq!(planned, expected, &mut SESSION.create_execution_ctx());
     Ok(())
 }

@@ -29,6 +29,7 @@ use vortex_layout::segments::UsageSegmentSource;
 use vortex_scan::DataSourceRef;
 use vortex_scan::prepare::ScanCache;
 use vortex_scan::prepare::SegmentLocation;
+use vortex_scan::source::PlannedDataSource;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -267,6 +268,22 @@ impl VortexFile {
             LayoutReaderDataSource::new(reader, self.session.clone()),
             self.file_stats().cloned(),
         )))
+    }
+
+    /// Create a [`DataSource`](vortex_scan::DataSource) from this file whose scans run on the
+    /// planner-driven executor.
+    ///
+    /// Each scan's partition hands back its [`vortex_scan::prepare::ScanBuilder`] from
+    /// [`Partition::plan`](vortex_scan::Partition::plan), for engines that drive the executor
+    /// themselves, or runs it with [`ScanDriver`](crate::v2::ScanDriver) from
+    /// [`Partition::execute`](vortex_scan::Partition::execute). Every scan of the source shares
+    /// one [`ScanCache`]: the file's, with [caching](Self::with_caching), or else one of its own.
+    /// Stored footer aggregates are available through the source statistics methods. Opening the
+    /// source reads nothing and builds no layout reader.
+    pub fn planned_data_source(&self) -> DataSourceRef {
+        let source = PlannedDataSource::new(self.session.clone(), self.scan_file().into())
+            .with_row_count(self.row_count());
+        Arc::new(FileDataSource::new(source, self.file_stats().cloned()))
     }
 
     /// Initiate a scan of the file, returning a builder for projection, filtering, selection, and

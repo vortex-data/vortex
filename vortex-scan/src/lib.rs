@@ -240,6 +240,19 @@ pub trait Partition: 'static + Send {
         Ok(None)
     }
 
+    /// Returns the partition as work for the caller to run.
+    ///
+    /// A partition whose source names its segments returns [`PartitionPlan::Scan`]: the
+    /// planner-driven scan of its rows, which the caller prepares and drives itself, for example
+    /// with [`ScanDriver`](execution::driver::ScanDriver) or its own threads. Other partitions
+    /// return the stream of [`execute`](Self::execute), which is the default.
+    ///
+    /// Engines that drive scans themselves call this instead of `execute`. Engines that only
+    /// consume arrays keep calling `execute`, which runs the same scan on the session's runtime.
+    fn plan(self: Box<Self>) -> VortexResult<PartitionPlan> {
+        Ok(PartitionPlan::Arrays(self.execute()?))
+    }
+
     /// Executes the partition, returning an array stream.
     ///
     /// This method must be fast. The returned stream should be lazy — all non-trivial work
@@ -247,6 +260,18 @@ pub trait Partition: 'static + Send {
     /// operations should be spawned onto the runtime to enable parallel execution across
     /// threads.
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream>;
+}
+
+/// The work a [`Partition`] hands to the engine that runs it.
+pub enum PartitionPlan {
+    /// A planner-driven scan of the partition's rows, with the request's projection, filter, row
+    /// range and selection applied. Preparing it touches no segment.
+    ///
+    /// The caller drives it, so the caller applies what the builder cannot express: the request's
+    /// `limit`, and its `ordered` flag when choosing how to drive the scan.
+    Scan(Box<prepare::ScanBuilder>),
+    /// The partition's arrays, produced by the partition itself.
+    Arrays(SendableArrayStream),
 }
 
 /// Expressions referring to the global scan row index.

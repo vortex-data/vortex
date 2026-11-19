@@ -42,6 +42,7 @@ use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::proto::expr as expr_pb;
 use vortex::scalar::Scalar;
+use vortex::scan::ScanRequest;
 use vortex::scan::planning::driver::Run;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -183,6 +184,8 @@ impl<'a> TableInitInput<'a> {
 
 pub struct GlobalState {
     pub projection: BoundExpression,
+    /// The request each file's V2 data source is scanned with.
+    pub scan_request: ScanRequest,
     pub filter: Filter,
     pub file_row_number_column_pos: Option<usize>,
     /// Whether the scan runs on the planner-driven V2 executor.
@@ -352,9 +355,17 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         "table function scan input"
     );
 
+    let scan_request = ScanRequest {
+        projection: projection.clone(),
+        filter: filter.filter_expr.clone(),
+        row_range: filter.row_range.clone(),
+        selection: filter.row_selection.clone(),
+        ..Default::default()
+    };
     let projection = optimize_and_bind(projection, &bind_data.dtype)?;
     Ok(GlobalState {
         projection,
+        scan_request,
         filter,
         aggregates: bind_data.aggregates.clone(),
         has_count_star,
