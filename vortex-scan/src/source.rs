@@ -75,8 +75,8 @@ pub struct ScanInput {
 /// of near-equal length, one partition each, so engines that parallelise by partition spread a
 /// single input across their workers. The split count is the request's
 /// [`target_partitions`](ScanRequest::target_partitions), or else the available parallelism,
-/// bounded so that no partition covers fewer than 65,536 rows. Ordered and limited scans, and
-/// scans whose row range is unknown, have one partition covering the request's row range.
+/// capped at one partition per 65,536 rows, rounded up. Ordered and limited scans, and scans
+/// whose row range is unknown, have one partition covering the request's row range.
 ///
 /// The source is one selectable unit: every partition has [`index`](Partition::index) 0, so a
 /// request's `partition_range` and `partition_selection` either select all of a scan's partitions
