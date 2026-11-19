@@ -14,6 +14,8 @@ immutable = false
 [added]
 arrays = [
     "fastlanes.delta",
+    "vortex.decimal_byte_parts.v2",
+    "vortex.widen",
 ]
 layouts = []
 dtypes = []
@@ -24,6 +26,8 @@ aggregates = []
 [components]
 arrays = [
     "fastlanes.delta",
+    "vortex.decimal_byte_parts.v2",
+    "vortex.widen",
 ]
 layouts = []
 dtypes = []
