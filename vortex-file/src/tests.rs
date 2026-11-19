@@ -2619,6 +2619,45 @@ async fn scan_source(
     ))
 }
 
+/// Both of a file's executors are reachable through the Scan API and read the same rows.
+#[rstest]
+#[case::plan(false)]
+#[case::layout_reader(true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[cfg_attr(miri, ignore)]
+async fn file_sources_scan_with_either_executor(#[case] layout_reader: bool) -> VortexResult<()> {
+    let array = StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3, 4, 5].into_array())])?
+        .into_array();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let source = if layout_reader {
+        file.layout_reader_data_source()?
+    } else {
+        file.plan_data_source()
+    };
+
+    let (_, actual) = scan_source(
+        &source,
+        ScanRequest {
+            projection: get_item("numbers", root()),
+            filter: Some(gt(get_item("numbers", root()), lit(3u32))),
+            ordered: true,
+            ..Default::default()
+        },
+    )
+    .await?;
+    assert_arrays_eq!(
+        actual,
+        buffer![4u32, 5].into_array(),
+        &mut SESSION.create_execution_ctx()
+    );
+    Ok(())
+}
+
 /// A file whose statistics rule out a filter is scanned with no partitions, which the layout
 /// reader's source never returns, so this also shows the file is scanned on the planner-driven
 /// executor.
