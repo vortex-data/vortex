@@ -17,15 +17,20 @@ use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 use vortex_utils::iter::ReduceBalancedIterExt;
 
+use crate::stats::rewrite::cache::is_cacheable;
+use crate::stats::session::RewriteLookup;
 use crate::stats::session::StatsSessionExt;
 
 mod builtins;
+mod cache;
 mod dynamic_expression;
 #[cfg(test)]
 mod fn_tests;
 mod like_variant;
 
 pub(crate) use builtins::register_builtins;
+pub(crate) use cache::RewriteCache;
+pub(crate) use dynamic_expression::StatsProof;
 
 /// Shared reference to a stats rewrite rule.
 pub type StatsRewriteRuleRef = Arc<dyn StatsRewriteRule>;
@@ -46,6 +51,10 @@ pub type StatsRewriteRuleRef = Arc<dyn StatsRewriteRule>;
 ///
 /// `expr` is the full predicate expression whose root scalar function id is
 /// [`Self::scalar_fn_id`].
+///
+/// The session caches the proof of each predicate while the predicate is alive, until a new rule
+/// is registered. Thus a proof must only depend on `expr` and on the registered rules. A proof
+/// must not hold the session or `expr` itself, because the session cache would then keep them.
 pub trait StatsRewriteRule: Debug + Send + Sync + 'static {
     /// Returns the scalar function id handled by this rule.
     fn scalar_fn_id(&self) -> ScalarFnId;
@@ -103,7 +112,7 @@ pub fn falsify(
     session: &VortexSession,
 ) -> VortexResult<Option<BoundExpression>> {
     ensure_predicate(expr)?;
-    rewrite(expr, session, StatsRewriteRule::falsify)
+    rewrite(expr, session, StatsProof::Falsify)
 }
 
 /// Rewrite `expr` into a stats-backed satisfier.
@@ -112,7 +121,7 @@ pub fn satisfy(
     session: &VortexSession,
 ) -> VortexResult<Option<BoundExpression>> {
     ensure_predicate(expr)?;
-    rewrite(expr, session, StatsRewriteRule::satisfy)
+    rewrite(expr, session, StatsProof::Satisfy)
 }
 
 /// Statistics-based pruning methods on [`BoundExpression`] predicates.
@@ -134,29 +143,50 @@ impl BoundExpressionPruneExt for BoundExpression {
     }
 }
 
+/// Rewrites `expr` with the rules of the session, and keeps the result in the session cache.
 fn rewrite(
     expr: &BoundExpression,
     session: &VortexSession,
-    apply: fn(
-        &dyn StatsRewriteRule,
-        &BoundExpression,
-        &VortexSession,
-    ) -> VortexResult<Option<BoundExpression>>,
+    proof: StatsProof,
 ) -> VortexResult<Option<BoundExpression>> {
     // The scope alone proves nothing about the rows it contains.
     let Some(scalar_fn) = expr.as_scalar() else {
         return Ok(None);
     };
-    let rules = session.stats().rewrite_rules_for(scalar_fn.id());
-    let Some(rules) = rules else {
-        return Ok(None);
-    };
 
+    let stats = session.stats();
+    if !is_cacheable(expr) {
+        let rules = stats.rewrite_rules_for(scalar_fn.id());
+        drop(stats);
+        return apply_rules(expr, session, proof, rules.as_deref().unwrap_or_default());
+    }
+
+    let (revision, rules) = match stats.lookup_rewrite(proof, expr, scalar_fn.id()) {
+        RewriteLookup::Cached(rewrite) => return Ok(rewrite),
+        RewriteLookup::Uncached { revision, rules } => (revision, rules),
+    };
+    drop(stats);
+
+    let rewrite = apply_rules(expr, session, proof, rules.as_deref().unwrap_or_default())?;
+    session
+        .stats()
+        .cache_rewrite(proof, revision, expr, rewrite.clone());
+    Ok(rewrite)
+}
+
+fn apply_rules(
+    expr: &BoundExpression,
+    session: &VortexSession,
+    proof: StatsProof,
+    rules: &[StatsRewriteRuleRef],
+) -> VortexResult<Option<BoundExpression>> {
     let mut rewrites = Vec::new();
-    for rule in rules.iter() {
-        if let Some(rewrite) = apply(rule.as_ref(), expr, session)? {
-            rewrites.push(rewrite);
-        }
+    for rule in rules {
+        let rewrite = match proof {
+            StatsProof::Falsify => rule.falsify(expr, session)?,
+            StatsProof::Satisfy => rule.satisfy(expr, session)?,
+        };
+        rewrites.extend(rewrite);
     }
 
     rewrites
@@ -166,7 +196,10 @@ fn rewrite(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::LazyLock;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -175,6 +208,7 @@ mod tests {
     use vortex_array::expr::lit;
     use vortex_array::expr::not;
     use vortex_array::expr::or;
+    use vortex_array::expr::root;
     use vortex_array::scalar_fn::ScalarFnId;
     use vortex_array::scalar_fn::ScalarFnVTable;
     use vortex_array::scalar_fn::fns::not::Not;
@@ -252,6 +286,75 @@ mod tests {
             not(lit(true)).bind(&dtype)?.satisfy(&session)?,
             Some(or(lit(false), lit(true)).bind(&dtype)?)
         );
+        Ok(())
+    }
+
+    /// Counts the calls to the rule, and proves nothing.
+    #[derive(Debug, Default)]
+    struct CountingNotRule {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl StatsRewriteRule for CountingNotRule {
+        fn scalar_fn_id(&self) -> ScalarFnId {
+            Not.id()
+        }
+
+        fn falsify(
+            &self,
+            _expr: &BoundExpression,
+            _session: &VortexSession,
+        ) -> VortexResult<Option<BoundExpression>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        }
+
+        fn satisfy(
+            &self,
+            _expr: &BoundExpression,
+            _session: &VortexSession,
+        ) -> VortexResult<Option<BoundExpression>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        }
+    }
+
+    #[test]
+    fn session_caches_rewrites_of_the_same_tree() -> VortexResult<()> {
+        let session = VortexSession::empty();
+        let calls = Arc::new(AtomicUsize::new(0));
+        session.stats().register_rewrite(CountingNotRule {
+            calls: Arc::clone(&calls),
+        });
+
+        // A scan binds its filter once, and proves the same tree for each file.
+        let dtype = DType::Bool(Nullability::NonNullable);
+        let expr = not(root()).bind(&dtype)?;
+        for _ in 0..3 {
+            let session = session.clone();
+            assert_eq!(expr.falsify(&session)?, None);
+            assert_eq!(expr.satisfy(&session)?, None);
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+        // A new bind is a new tree, thus a new key.
+        assert_eq!(not(root()).bind(&dtype)?.falsify(&session)?, None);
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        Ok(())
+    }
+
+    #[test]
+    fn registering_a_rule_clears_cached_rewrites() -> VortexResult<()> {
+        let session = VortexSession::empty();
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let expr = not(lit(true)).bind(&dtype)?;
+        assert_eq!(expr.falsify(&session)?, None);
+
+        session.stats().register_rewrite(StaticNotRule {
+            falsifier: Some(lit(true).bind(&dtype)?),
+            satisfier: None,
+        });
+        assert_eq!(expr.falsify(&session)?, Some(lit(true).bind(&dtype)?));
         Ok(())
     }
 
