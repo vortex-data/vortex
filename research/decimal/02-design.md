@@ -401,6 +401,31 @@ to its child compressor. If the producer chooses to narrow the entries with `Wid
 `WidenArray::encode_decimal` on the value table. The dictionary's codes have their own dtype and
 compression path.
 
+## Writing to restricted editions
+
+Resolve the plugin's chosen wire ID before deciding whether the writer needs to execute an
+array. A `Widen` over a plain decimal leaf already writes `vortex.decimal`. Checking the
+in-memory ID would execute that array and lose its narrow storage.
+
+When a wire ID is disallowed, try structural reduce rules before executing values. For
+`Widen(Dict(codes, values))`, move `Widen` into the value table. For
+`Widen(RunEnd(ends, values))`, move it into the run values and keep the ends, offset, and
+length. Resolve the resulting wire IDs again. If the wrapper still needs a disallowed ID,
+execute that subtree and check its new wire form. This keeps codes and run ends when the target
+allows them and can prepare just the distinct values or run values. The same fallback can execute
+an entire `RunEnd` when the target disallows its wire ID.
+
+Apply the fallback while building the serialization tree, before interning any IDs. Recurse
+into the children the plugin actually returns. Preserve dtype, length, and logical values
+while executing a subtree. Return the underlying error if execution fails, and report an
+edition error if execution reaches a canonical form that the target still cannot write.
+Existing decoded nodes can carry the optimizer's completion mark, so write preparation needs
+to handle those shapes as well.
+
+[`ArrayRef::normalize`](https://github.com/vortex-data/vortex/blob/3da99e99a6e7fc42a2f48e6ae6b72a216db23f10/vortex-array/src/normalize.rs)
+already executes disallowed in-memory encodings. The writer needs the same policy over the
+concrete wire IDs returned by serializers.
+
 ## Decimal operations as rules over the view
 
 This section is future work outside the canonical decimal fix (decided, D20). Its

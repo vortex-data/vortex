@@ -72,7 +72,7 @@ implementation PR was found. 🟠 **Deferred** marks later work, including exper
 | WR2p | 🟢 Done | Reject node buffers and require at least one lower part in a DecimalByteParts v2 node. Its MSP therefore has logical dtype `i64`. [#11596] | None | Small |
 | WR2 | 🔵 Open | Draft [#11635] moves both wire formats from `unstable` to `preview2026.11.0`. | WR1, WR2p, CD5, CD7 | Small |
 | WR3 | 🟠 Deferred | Design and implement the integer `Narrow` compressor scheme. DecimalByteParts owns decimal narrowing (D33). | WR1, WR2, WD1, WD5 | Large |
-| LT1 | ⚪ Not started | Admit both wire formats to `core` and decide how writers targeting older editions handle `Widen`. | WR2 | Unestimated |
+| LT1 | ⚪ Not started | Admit both wire formats to `core` and add compatibility fixtures. | WR2 | Unestimated |
 | LT2 | ➖ Dropped | Decoding a narrow MSP to a decimal `Widen` required a range scan. CD5 keeps it as an integer child instead (D16). | None | Unestimated |
 
 ## Graph
@@ -195,8 +195,10 @@ flowchart TD
 3. Draft [#11635] moves both wire formats to `preview2026.11.0`. Whether preview waits for fast `between` and
    aggregate kernels for arrays with lower parts remains open. Coordinate with the v2 reader
    changes in [#11442] before fixing the preview contract.
-4. LT1 promotes both formats to `core`, adds compatibility fixtures, and settles how writers
-   targeting older editions handle `Widen`.
+4. LT1 promotes both formats to `core` and adds compatibility fixtures.
+
+[Restricted-edition writes](02-design.md#writing-to-restricted-editions) use wire IDs to decide
+which subtrees need rewriting or execution.
 
 ## How to use the briefs
 
@@ -241,7 +243,7 @@ flowchart TD
 - The writer-only plugin shipped in CD4 writes a decimal `Widen` over a concrete decimal leaf
   as a narrow `vortex.decimal` node under the parent dtype. It does not execute values or
   validity. WR1 added the dedicated wire form for integer and encoded decimal children.
-  LT1 decides the fate of the old writing path.
+  Restricted-edition writes can execute a subtree if its selected wire ID is disallowed.
 - Stored decimal values at any width become the canonical array or a `Widen` only through
   `WidenArray::from_stored_decimal` (D40). No PR adds its own choice of child. DecimalByteParts
   decoding does not go through it, because its MSP is an integer (D16).
