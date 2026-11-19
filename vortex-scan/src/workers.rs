@@ -30,12 +30,12 @@ use crate::ScanRef;
 /// The fewest pieces an ordered scan is cut into for each worker.
 const ORDERED_PIECES_PER_WORKER: usize = 4;
 
-/// The most bytes of source data an ordered piece covers.
+/// The most rows an ordered piece covers.
 ///
 /// Pieces behind the one being emitted run ahead and buffer their whole output, so the memory held
-/// for ordering is about `workers` pieces. Cutting by size keeps that bound fixed however large
-/// the scan is.
-const ORDERED_PIECE_BYTES: u64 = 64 << 20;
+/// for ordering is about `workers` pieces. Cutting by rows keeps that bound fixed however large the
+/// scan is; rows are used because every source knows them exactly, unlike bytes.
+const ORDERED_PIECE_ROWS: u64 = 1 << 20;
 
 /// Runs `scan` on `workers` tasks spawned onto `handle` and returns their output as one stream.
 ///
@@ -57,7 +57,7 @@ pub fn execute_with_workers(
 ) -> VortexResult<SendableArrayStream> {
     let dtype = scan.dtype().clone();
     if scan.ordered() {
-        let pieces = ordered_piece_count(scan.byte_size(), workers);
+        let pieces = ordered_piece_count(scan.row_count(), workers);
         let pieces = scan.split(pieces)?;
         let stream = OrderedPieces {
             pending: pieces.into(),
@@ -81,12 +81,12 @@ pub fn execute_with_workers(
     )))
 }
 
-/// How many pieces to cut an ordered scan of `byte_size` into for `workers` workers.
-fn ordered_piece_count(byte_size: Precision<u64>, workers: NonZeroUsize) -> NonZeroUsize {
+/// How many pieces to cut an ordered scan of `row_count` rows into for `workers` workers.
+fn ordered_piece_count(row_count: Precision<u64>, workers: NonZeroUsize) -> NonZeroUsize {
     let by_workers = workers.get().saturating_mul(ORDERED_PIECES_PER_WORKER);
-    let by_size = byte_size
+    let by_size = row_count
         .into_inner()
-        .map_or(0, |bytes| bytes.div_ceil(ORDERED_PIECE_BYTES))
+        .map_or(0, |rows| rows.div_ceil(ORDERED_PIECE_ROWS))
         .try_into()
         .unwrap_or(usize::MAX);
     NonZeroUsize::new(by_workers.max(by_size)).unwrap_or(workers)
