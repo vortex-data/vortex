@@ -63,6 +63,7 @@ use vortex_cuda::cuda_session;
 use vortex_cuda::dynamic_dispatch::CudaDispatchPlan;
 use vortex_cuda::dynamic_dispatch::DispatchPlan;
 use vortex_cuda::dynamic_dispatch::MaterializedPlan;
+use vortex_cuda::dynamic_dispatch::dispatch_kernel;
 use vortex_cuda_driver::CudaFunction;
 use vortex_cuda_driver::CudaSlice;
 use vortex_cuda_driver::DevicePtr;
@@ -99,10 +100,12 @@ fn run_timed<T: DeviceRepr + NativePType>(
     cuda_ctx: &mut CudaExecutionCtx,
     array_len: usize,
     output_buf: &mut CudaSlice<T>,
+    plan: &CudaDispatchPlan,
     device_plan: &Arc<CudaSlice<u8>>,
     shared_mem_bytes: u32,
 ) -> VortexResult<Duration> {
-    let cuda_function = cuda_ctx.load_function("dynamic_dispatch", &[T::PTYPE])?;
+    let (cuda_function, num_blocks) =
+        dispatch_kernel(cuda_ctx, T::PTYPE, plan, array_len, shared_mem_bytes)?;
     let array_len_u64 = array_len as u64;
     let (plan_ptr, record_plan) = device_plan
         .device_ptr(cuda_ctx.stream())
@@ -122,7 +125,6 @@ fn run_timed<T: DeviceRepr + NativePType>(
     launch_builder.arg(&array_len_u64);
     launch_builder.arg(&plan_ptr);
 
-    let num_blocks = array_len.div_ceil(2048) as u32;
     let config = LaunchConfig {
         grid_dim: (num_blocks, 1, 1),
         block_dim: (64, 1, 1),
@@ -159,7 +161,7 @@ fn run_timed<T: DeviceRepr + NativePType>(
 /// `T` is the unsigned integer type matching the output element width
 /// (e.g. `u32` for f32/i32/u32, `u64` for f64/i64/u64).
 struct BenchRunner<T> {
-    _plan: CudaDispatchPlan,
+    plan: CudaDispatchPlan,
     smem_bytes: u32,
     len: usize,
     device_plan: Arc<CudaSlice<u8>>,
@@ -190,7 +192,7 @@ impl<T: DeviceRepr + NativePType> BenchRunner<T> {
         );
 
         Self {
-            _plan: dispatch_plan,
+            plan: dispatch_plan,
             smem_bytes: shared_mem_bytes,
             len,
             device_plan,
@@ -207,6 +209,7 @@ impl<T: DeviceRepr + NativePType> BenchRunner<T> {
             cuda_ctx,
             self.len,
             &mut self.output_buf,
+            &self.plan,
             &self.device_plan,
             self.smem_bytes,
         )
