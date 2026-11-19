@@ -67,7 +67,7 @@
     "take_chunked": 0,
     "take_filter": 32,
     "take_fsl": 12,
-    "take_patches": 36,
+    "take_patches": 39,
     "take_primitive": 25,
     "take_struct": 3,
     "take_varbin": 1,
