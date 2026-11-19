@@ -69,12 +69,13 @@ mod test {
     #[case(768, &[3u32, 200, 41, 170, 9])]
     #[case(64, &[1000u32, 3, 2000, 512, 77, 1500, 9, 30])]
     fn test_take_chunked_fsl_of_alp_with_patches(#[case] list_size: u32, #[case] rows: &[u32]) {
-        use crate::ALPArrayExt;
         use vortex_array::arrays::ChunkedArray;
         use vortex_array::arrays::FixedSizeListArray;
         use vortex_array::assert_arrays_eq;
         use vortex_array::validity::Validity;
         use vortex_buffer::Buffer;
+
+        use crate::ALPArrayExt;
 
         let mut ctx = SESSION.create_execution_ctx();
         let chunk_rows = 16_384 / list_size;

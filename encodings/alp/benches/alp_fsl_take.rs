@@ -9,12 +9,13 @@
 
 #![expect(clippy::cast_possible_truncation)]
 #![expect(clippy::unwrap_used)]
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng as _;
 use rand::rngs::StdRng;
-use std::sync::LazyLock;
 use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
