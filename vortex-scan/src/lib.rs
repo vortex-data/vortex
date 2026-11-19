@@ -87,13 +87,16 @@ pub type DataSourceRef = Arc<dyn DataSource>;
 /// The DataSource may be used multiple times to create multiple scans, whereas each scan and each
 /// partition of a scan can only be consumed once.
 ///
-/// Partitions have indices. Partition index is stable throughout DataSource's
-/// lifetime. For every scan requested on the DataSource, the index will stay
-/// the same.
-/// However, this means you should create another instance of a DataSource if
-/// your environment changes e.g. you have a glob and another file is added to
-/// the filesystem this glob references.
-/// See MultiFileDataSource in vortex-file/src/multi/mod.rs
+/// Every partition has an [`index`](Partition::index) naming the unit of the source it reads,
+/// which is what [`ScanRequest::partition_range`] and [`ScanRequest::partition_selection`]
+/// select. A [`PlanDataSource`](source::PlanDataSource) is one unit with index 0, and a source
+/// with several units, such as one over several files, gives each its own index. The index is
+/// stable for the lifetime of the DataSource, so every scan of it gives a unit the same index. It
+/// is not unique within a scan: a unit may be split into several partitions that share its index.
+///
+/// Because indices are stable, create another DataSource when the data it covers changes, for
+/// example when a file is added to the directory that a glob names. See `MultiFileDataSource` in
+/// `vortex-file`.
 #[async_trait]
 pub trait DataSource: 'static + Send + Sync {
     /// Returns the dtype of the source.
@@ -156,15 +159,22 @@ pub struct ScanRequest {
     pub projection: Expression,
     /// Filter expression, `None` implies no filter.
     pub filter: Option<Expression>,
-    /// The per-partition row range to read. Row range will be applied
-    /// over every partition you scan.
+    /// The range of rows to read from each selected unit, in that unit's own row numbering.
+    ///
+    /// Units are what [`Partition::index`] names: for a source over several files, each file is a
+    /// unit and the range applies to each file's rows. A unit that a scan splits into several
+    /// partitions applies the range once across them, so each row is read by one partition.
     pub row_range: Option<Range<u64>>,
-    /// The per-partition row selection to read. Row selection will be applied
-    /// over every partition you scan.
+    /// The rows to read from each selected unit, by row index in that unit's own row numbering.
+    ///
+    /// The indices are not relative to [`row_range`](Self::row_range): a scan reads the rows that
+    /// are both in the row range and selected. Like the row range, the selection applies to every
+    /// selected unit, and once across the partitions of a unit that a scan splits.
     pub selection: Selection,
-    /// Partition selection to scan, which allows readers to skip unwanted partitions.
+    /// The units to scan, by [`Partition::index`], which allows readers to skip unwanted units.
     pub partition_selection: Selection,
-    /// Partition range to scan, which allows readers to skip unwanted partitions.
+    /// The range of units to scan, by [`Partition::index`], which allows readers to skip unwanted
+    /// units.
     pub partition_range: Option<Range<u64>>,
     /// Whether the scan should preserve row order. If false, the scan may produce rows in any
     /// order, for example to enable parallel execution across partitions.
@@ -183,6 +193,14 @@ pub struct ScanRequest {
     /// others, such as one task of several on a machine, can set this to bound its memory. It does
     /// not bound I/O: segment reads for later splits may still be coalesced ahead of them.
     pub split_concurrency: Option<NonZeroUsize>,
+    /// The number of partitions the caller would like the scan to produce, as a hint.
+    ///
+    /// A source may return more or fewer partitions than this, for example because it has more
+    /// units than the hint or because a unit is too small to be worth splitting. `None` lets the
+    /// source choose: a [`PlanDataSource`](source::PlanDataSource) then uses the machine's
+    /// available parallelism. The hint only affects scans that a source is free to split, which
+    /// are unordered and have no limit. Defaults to `None`.
+    pub target_partitions: Option<NonZeroUsize>,
 }
 
 impl Default for ScanRequest {
@@ -197,6 +215,7 @@ impl Default for ScanRequest {
             limit: None,
             partition_range: None,
             split_concurrency: None,
+            target_partitions: None,
         }
     }
 }
@@ -224,9 +243,13 @@ pub trait Partition: 'static + Send {
     /// Downcast the partition to a concrete type.
     fn as_any(&self) -> &dyn Any;
 
-    /// Some unique identifier for partition.
-    /// If you have an instance of a DataSource, the indices of emitted
-    /// partitions will stay stable for every scan in this DataSource.
+    /// The index of the unit of the source this partition reads, which
+    /// [`ScanRequest::partition_range`] and [`ScanRequest::partition_selection`] select.
+    ///
+    /// For a [`PlanDataSource`](source::PlanDataSource) it is 0, since the source is one unit; a
+    /// source with several units gives each its own index. The index is stable for the lifetime of
+    /// the [`DataSource`], but not unique within a scan: a unit may be split into several
+    /// partitions that share its index.
     fn index(&self) -> usize;
 
     /// Returns an estimate of the row count for this partition.

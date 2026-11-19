@@ -210,6 +210,7 @@ fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
         partition_selection: Selection::All,
         partition_range: None,
         split_concurrency: None,
+        target_partitions: None,
     })
 }
 

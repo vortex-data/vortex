@@ -322,8 +322,7 @@ impl VortexFile {
     /// Create a [`DataSource`](vortex_scan::DataSource) from this file whose scans run on the
     /// planner-driven executor.
     ///
-    /// A scan has one partition covering the requested rows, which runs it with
-    /// [`ScanDriver`](crate::v2::ScanDriver) from
+    /// Each partition of a scan, a range of the file's rows, runs it with [`ScanDriver`](crate::v2::ScanDriver) from
     /// [`Partition::execute`](vortex_scan::Partition::execute). Every scan of the source shares
     /// one [`ScanCache`]: the file's, with [caching](Self::with_caching), or else one of its own.
     /// A scan whose filter the file-level statistics prove false has no partitions. Stored footer
