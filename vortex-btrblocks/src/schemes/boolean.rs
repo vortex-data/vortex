@@ -32,6 +32,7 @@ use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
+use crate::schemes::patches::compress_sparse_chunk_offsets;
 
 /// Run-end encoding for boolean arrays with long runs.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -105,9 +106,9 @@ impl Scheme for BoolSparseScheme {
         vec![Sparse.id()]
     }
 
-    /// Children: indices=0.
+    /// Children: indices=0, chunk_offsets=1.
     fn num_children(&self) -> usize {
-        1
+        2
     }
 
     fn expected_compression_ratio(
@@ -151,11 +152,20 @@ impl Scheme for BoolSparseScheme {
             0,
             exec_ctx,
         )?;
-        Sparse::try_new(
+        let chunk_offsets = compress_sparse_chunk_offsets(
+            compressor,
+            sparse.patches().chunk_offsets().as_ref(),
+            &compress_ctx,
+            self.id(),
+            1,
+            exec_ctx,
+        )?;
+        Sparse::try_new_with_chunk_offsets(
             indices,
             ConstantArray::new(!fill, sparse.patches().values().len()).into_array(),
             sparse.len(),
             sparse.fill_scalar().clone(),
+            chunk_offsets,
             exec_ctx,
         )
         .map(IntoArray::into_array)

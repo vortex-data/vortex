@@ -25,6 +25,7 @@ use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::schemes::integer::SparseScheme as IntSparseScheme;
+use crate::schemes::patches::compress_sparse_chunk_offsets;
 
 /// Sparse encoding for null-dominated float arrays.
 ///
@@ -45,9 +46,9 @@ impl Scheme for NullDominatedSparseScheme {
         vec![Sparse.id()]
     }
 
-    /// Children: indices=0.
+    /// Children: indices=0, chunk_offsets=1.
     fn num_children(&self) -> usize {
-        1
+        2
     }
 
     /// The indices of a null-dominated sparse array should not be sparse-encoded again.
@@ -107,11 +108,21 @@ impl Scheme for NullDominatedSparseScheme {
                 exec_ctx,
             )?;
 
-            Sparse::try_new(
+            let chunk_offsets = compress_sparse_chunk_offsets(
+                compressor,
+                sparse.patches().chunk_offsets().as_ref(),
+                &compress_ctx,
+                self.id(),
+                1,
+                exec_ctx,
+            )?;
+
+            Sparse::try_new_with_chunk_offsets(
                 compressed_indices,
                 sparse.patches().values().clone(),
                 sparse.len(),
                 sparse.fill_scalar().clone(),
+                chunk_offsets,
                 exec_ctx,
             )
             .map(|a| a.into_array())

@@ -11,6 +11,10 @@ use vortex_array::patches::Patches;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
+use crate::CascadingCompressor;
+use crate::CompressorContext;
+use crate::SchemeId;
+
 /// Compresses the given patches by downscaling integers and checking for constant values.
 pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResult<Patches> {
     // Downscale the patch indices.
@@ -53,4 +57,29 @@ pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResul
         chunk_offsets,
         ctx,
     )
+}
+
+/// Narrows and compresses the patch chunk offsets of a sparse array as child `child_index` of
+/// `scheme`.
+///
+/// Sparse arrays are often tiny, so the offsets, one per 1024 rows, can dominate their size
+/// unless they are compressed like the indices.
+pub(crate) fn compress_sparse_chunk_offsets(
+    compressor: &CascadingCompressor,
+    chunk_offsets: Option<&ArrayRef>,
+    compress_ctx: &CompressorContext,
+    scheme: SchemeId,
+    child_index: usize,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    chunk_offsets
+        .map(|offsets| {
+            let narrowed = offsets
+                .clone()
+                .execute::<PrimitiveArray>(exec_ctx)?
+                .narrow(exec_ctx)?
+                .into_array();
+            compressor.compress_child(&narrowed, compress_ctx, scheme, child_index, exec_ctx)
+        })
+        .transpose()
 }

@@ -27,6 +27,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::primitive::PrimitiveArrayExt as _;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
@@ -34,6 +35,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_varbin_builder;
+use vortex_array::patches::PATCH_CHUNK_SIZE;
 use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
@@ -148,21 +150,8 @@ pub(crate) trait SparseOwnedExt {
 
 impl SparseOwnedExt for Array<Sparse> {
     fn into_parts(self) -> VortexResult<SparseParts> {
-        let chunk_offsets = self.patch_chunk_offsets().cloned();
-        let offset_within_chunk = chunk_offsets.as_ref().map(|_| 0);
-        // SAFETY: the patch slots come from a valid sparse array.
-        let patches = unsafe {
-            Patches::new_unchecked(
-                self.len(),
-                self.patches().offset(),
-                self.patch_indices().clone(),
-                self.patch_values().clone(),
-                chunk_offsets,
-                offset_within_chunk,
-            )
-        };
         Ok(SparseParts {
-            patches,
+            patches: self.patches(),
             fill_value: self.fill_scalar().clone(),
             dtype: self.dtype().clone(),
             len: self.len(),
@@ -360,13 +349,33 @@ impl Sparse {
         fill_value: Scalar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<SparseArray> {
+        Self::try_new_with_chunk_offsets(indices, values, len, fill_value, None, ctx)
+    }
+
+    /// Construct a new [`SparseArray`] whose patches carry `chunk_offsets`, the index of the
+    /// first patch in each [`PATCH_CHUNK_SIZE`]-row chunk, as built by [`patch_chunk_offsets`].
+    pub fn try_new_with_chunk_offsets(
+        indices: ArrayRef,
+        values: ArrayRef,
+        len: usize,
+        fill_value: Scalar,
+        chunk_offsets: Option<ArrayRef>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<SparseArray> {
         let dtype = fill_value.dtype().clone();
         vortex_ensure_eq!(
             values.dtype(),
             &dtype,
             "sparse values dtype must match fill value dtype"
         );
-        let patches = Patches::new(len, 0, indices, values, None, ctx)?;
+        if let Some(chunk_offsets) = &chunk_offsets {
+            vortex_ensure_eq!(
+                chunk_offsets.len(),
+                len.div_ceil(PATCH_CHUNK_SIZE),
+                "sparse patch chunk offsets must have one entry per chunk"
+            );
+        }
+        let patches = Patches::new(len, 0, indices, values, chunk_offsets, ctx)?;
         let slots = SparseData::make_slots(&patches);
         let data = SparseData::from_patches(&patches, fill_value)?;
         Ok(
@@ -516,7 +525,7 @@ impl SparseData {
                 .execute::<CanonicalValidity>(ctx)?
                 .0
                 .into_array();
-            let non_null_indices = match mask.indices() {
+            let non_null_indices: Buffer<u32> = match mask.indices() {
                 AllOr::All => {
                     // We already know that the mask is 90%+ false
                     unreachable!("Mask is mostly null")
@@ -525,21 +534,19 @@ impl SparseData {
                     // we know there are some non-NULL values
                     unreachable!("Mask is mostly null but not all null")
                 }
-                AllOr::Some(values) => {
-                    let buffer: Buffer<u32> = values
-                        .iter()
-                        .map(|&v| v.try_into().vortex_expect("indices must fit in u32"))
-                        .collect();
-
-                    buffer.into_array()
-                }
+                AllOr::Some(values) => values
+                    .iter()
+                    .map(|&v| v.try_into().vortex_expect("indices must fit in u32"))
+                    .collect(),
             };
+            let chunk_offsets = patch_chunk_offsets(&non_null_indices, array.len(), ctx)?;
 
-            return Sparse::try_new(
-                non_null_indices,
+            return Sparse::try_new_with_chunk_offsets(
+                non_null_indices.into_array(),
                 non_null_values,
                 array.len(),
                 Scalar::null(array.dtype().clone()),
+                Some(chunk_offsets),
                 ctx,
             )
             .map(IntoArray::into_array);
@@ -582,9 +589,38 @@ impl SparseData {
             Mask::Values(values) => values.indices().iter().map(|v| *v as u64).collect(),
         };
 
-        Sparse::try_new(indices.into_array(), non_top_values, array.len(), fill, ctx)
-            .map(IntoArray::into_array)
+        let chunk_offsets = patch_chunk_offsets(&indices, array.len(), ctx)?;
+        Sparse::try_new_with_chunk_offsets(
+            indices.into_array(),
+            non_top_values,
+            array.len(),
+            fill,
+            Some(chunk_offsets),
+            ctx,
+        )
+        .map(IntoArray::into_array)
     }
+}
+
+/// Returns the index of the first patch in each [`PATCH_CHUNK_SIZE`]-row chunk of a `len`-row
+/// array, narrowed to the smallest unsigned type, so a reader can find one chunk's patches
+/// without scanning the others.
+///
+/// `indices` must be sorted.
+pub fn patch_chunk_offsets<T: Copy + Into<u64>>(
+    indices: &[T],
+    len: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let offsets: Buffer<u64> = (0..len.div_ceil(PATCH_CHUNK_SIZE))
+        .map(|chunk| {
+            let chunk_start = (chunk * PATCH_CHUNK_SIZE) as u64;
+            indices.partition_point(|&index| index.into() < chunk_start) as u64
+        })
+        .collect();
+    Ok(PrimitiveArray::new(offsets, Validity::NonNullable)
+        .narrow(ctx)?
+        .into_array())
 }
 
 /// Extension trait for accessing patches on [`SparseArray`] and [`ArrayView<'_, Sparse>`].
@@ -660,11 +696,14 @@ mod test {
     use std::sync::LazyLock;
 
     use itertools::Itertools;
+    use rstest::rstest;
+    use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::slice::SliceKernel;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::VarBinBuilder;
     use vortex_array::builtins::ArrayBuiltins;
@@ -672,9 +711,13 @@ mod test {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
+    use vortex_array::serde::SerializeOptions;
+    use vortex_array::serde::SerializedArray;
     use vortex_array::validity::Validity;
+    use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_session::registry::ReadContext;
 
     use super::*;
     use crate::Sparse;
@@ -972,5 +1015,117 @@ mod test {
         ]);
 
         assert_eq!(actual, expected);
+    }
+
+    /// `len` copies of 7 with a 9 at each of `outliers`.
+    fn with_outliers(len: usize, outliers: &[usize]) -> ArrayRef {
+        PrimitiveArray::from_iter(
+            (0..len).map(|row| if outliers.contains(&row) { 9i32 } else { 7 }),
+        )
+        .into_array()
+    }
+
+    /// Reads the patch chunk offsets of a sparse array.
+    fn chunk_offsets(array: &ArrayRef) -> VortexResult<Vec<u64>> {
+        let offsets = array
+            .as_::<Sparse>()
+            .patches()
+            .chunk_offsets()
+            .clone()
+            .vortex_expect("the encoder writes chunk offsets")
+            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
+        Ok(offsets.as_slice::<u64>().to_vec())
+    }
+
+    #[rstest]
+    #[case::several_chunks(3000, &[5, 1500, 1600, 2999], &[0, 1, 3])]
+    #[case::only_the_last_chunk(3000, &[2500], &[0, 0, 0])]
+    #[case::first_and_last_row_of_one_chunk(1024, &[0, 1023], &[0])]
+    #[case::first_row_of_the_second_chunk(1025, &[1024], &[0, 0])]
+    #[case::either_side_of_a_boundary(2048, &[1023, 1024], &[0, 1])]
+    fn test_encode_writes_patch_chunk_offsets(
+        #[case] len: usize,
+        #[case] outliers: &[usize],
+        #[case] expected: &[u64],
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = with_outliers(len, outliers);
+        let encoded = Sparse::encode(&array, Some(Scalar::from(7i32)), &mut ctx)?;
+        assert_eq!(chunk_offsets(&encoded)?, expected);
+        assert_arrays_eq!(encoded, array, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_encode_mostly_null_writes_patch_chunk_offsets() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = PrimitiveArray::from_option_iter(
+            (0..3000).map(|row| [5, 1500, 1600, 2999].contains(&row).then_some(row)),
+        )
+        .into_array();
+        let encoded = Sparse::encode(&array, None, &mut ctx)?;
+        assert_eq!(chunk_offsets(&encoded)?, [0, 1, 3]);
+        assert_arrays_eq!(encoded, array, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::whole(0..3000)]
+    #[case::inside_one_chunk(5..1000)]
+    #[case::across_a_boundary(1023..1025)]
+    #[case::from_a_chunk_start(1024..2048)]
+    #[case::middle(1500..1601)]
+    #[case::tail(2000..3000)]
+    fn test_slice_with_patch_chunk_offsets(
+        #[case] range: std::ops::Range<usize>,
+    ) -> VortexResult<()> {
+        // Slicing and single-value lookups both use the chunk offsets to find patches.
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = with_outliers(3000, &[5, 1023, 1024, 1500, 1600, 2999]);
+        let encoded = Sparse::encode(&array, Some(Scalar::from(7i32)), &mut ctx)?;
+        let sliced = encoded.slice(range.clone())?;
+        let expected = array.slice(range)?;
+        assert_arrays_eq!(sliced, expected, &mut ctx);
+        for index in 0..sliced.len() {
+            assert_eq!(
+                sliced.execute_scalar(index, &mut ctx)?,
+                expected.execute_scalar(index, &mut ctx)?
+            );
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::unsliced(0..3000)]
+    #[case::sliced_past_a_patch_mid_chunk(1550..3000)]
+    fn test_serde_roundtrip_keeps_patch_chunk_offsets(
+        #[case] range: std::ops::Range<usize>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = with_outliers(3000, &[5, 1500, 1600, 2999]);
+        let encoded = Sparse::encode(&array, Some(Scalar::from(7i32)), &mut ctx)?;
+        // Run the slice kernel directly: a lazy slice would serialize as a different encoding.
+        let encoded =
+            <Sparse as SliceKernel>::slice(encoded.as_::<Sparse>(), range.clone(), &mut ctx)?
+                .vortex_expect("sparse slice kernel always returns an array");
+        let expected_offsets = chunk_offsets(&encoded)?;
+
+        let context = ArrayContext::empty();
+        let serialized = encoded.serialize(&context, &SESSION, &SerializeOptions::default())?;
+        let mut bytes = ByteBufferMut::empty();
+        for buffer in serialized {
+            bytes.extend_from_slice(buffer.as_ref());
+        }
+        let decoded = SerializedArray::try_from(bytes.freeze())?.decode(
+            encoded.dtype(),
+            encoded.len(),
+            &ReadContext::new(context.to_ids()),
+            &SESSION,
+        )?;
+
+        assert_eq!(chunk_offsets(&decoded)?, expected_offsets);
+        assert_arrays_eq!(decoded, array.slice(range)?, &mut ctx);
+        Ok(())
     }
 }

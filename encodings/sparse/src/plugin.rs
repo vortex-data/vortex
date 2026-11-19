@@ -84,7 +84,14 @@ impl ArrayPlugin for Sparse {
         let scalar_value = ScalarValue::from_proto_bytes(scalar_bytes, dtype, session)?;
         let fill_value = Scalar::try_new(dtype.clone(), scalar_value)?;
 
-        vortex_ensure_eq!(children.len(), 2, "SparseArray expects 2 children");
+        // Files written before sparse arrays stored chunk offsets have no third child.
+        let chunk_offsets_dtype = metadata.patches.chunk_offsets_dtype()?;
+        let expected_children = if chunk_offsets_dtype.is_some() { 3 } else { 2 };
+        vortex_ensure_eq!(
+            children.len(),
+            expected_children,
+            "SparseArray children do not match its patch metadata"
+        );
 
         let patch_indices = children.get(
             0,
@@ -93,12 +100,22 @@ impl ArrayPlugin for Sparse {
         )?;
         let patch_values = children.get(1, dtype, metadata.patches.len()?)?;
 
-        let patches = Patches::new(
+        let patch_chunk_offsets = chunk_offsets_dtype
+            .map(|dtype| {
+                children.get(
+                    2,
+                    &dtype,
+                    usize::try_from(metadata.patches.chunk_offsets_len())?,
+                )
+            })
+            .transpose()?;
+
+        let patches = Patches::from_metadata(
             len,
-            metadata.patches.offset()?,
+            &metadata.patches,
             patch_indices,
             patch_values,
-            None,
+            patch_chunk_offsets,
             &mut session.create_execution_ctx(),
         )?;
         let slots = SparseData::make_slots(&patches);

@@ -22,6 +22,7 @@ use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_sparse::Sparse;
+use vortex_sparse::patch_chunk_offsets;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -32,6 +33,7 @@ use crate::schemes::integer::IntDictScheme;
 use crate::schemes::integer::IntRLEScheme;
 use crate::schemes::integer::RunEndScheme;
 use crate::schemes::integer::SparseScheme as IntSparseScheme;
+use crate::schemes::patches::compress_sparse_chunk_offsets;
 
 /// The smallest estimated ratio of the dense list's size to the sparse one's worth encoding for.
 const MIN_ESTIMATED_RATIO: f64 = 1.1;
@@ -53,9 +55,9 @@ impl Scheme for FixedSizeListSparseScheme {
         vec![Sparse.id()]
     }
 
-    /// Children: values=0, indices=1.
+    /// Children: values=0, indices=1, chunk_offsets=2.
     fn num_children(&self) -> usize {
-        2
+        3
     }
 
     /// Sparse indices (child 1) are monotonically increasing positions with all unique values.
@@ -127,14 +129,12 @@ impl Scheme for FixedSizeListSparseScheme {
         let compressed_values =
             compressor.compress_child(&values, &compress_ctx, self.id(), 0, exec_ctx)?;
 
-        let indices = PrimitiveArray::new(
-            valid_indices
-                .iter()
-                .map(|&idx| idx as u64)
-                .collect::<Buffer<u64>>(),
-            Validity::NonNullable,
-        )
-        .narrow(exec_ctx)?;
+        let indices = valid_indices
+            .iter()
+            .map(|&idx| idx as u64)
+            .collect::<Buffer<u64>>();
+        let chunk_offsets = patch_chunk_offsets(&indices, array.len(), exec_ctx)?;
+        let indices = PrimitiveArray::new(indices, Validity::NonNullable).narrow(exec_ctx)?;
         let compressed_indices = compressor.compress_child(
             &indices.into_array(),
             &compress_ctx,
@@ -143,11 +143,21 @@ impl Scheme for FixedSizeListSparseScheme {
             exec_ctx,
         )?;
 
-        Ok(Sparse::try_new(
+        let chunk_offsets = compress_sparse_chunk_offsets(
+            compressor,
+            Some(&chunk_offsets),
+            &compress_ctx,
+            self.id(),
+            2,
+            exec_ctx,
+        )?;
+
+        Ok(Sparse::try_new_with_chunk_offsets(
             compressed_indices,
             compressed_values,
             array.len(),
             Scalar::null(array.dtype().clone()),
+            chunk_offsets,
             exec_ctx,
         )?
         .into_array())

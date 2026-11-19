@@ -32,6 +32,7 @@ use crate::CompressorContext;
 use crate::GenerateStatsOptions;
 use crate::Scheme;
 use crate::SchemeExt;
+use crate::schemes::patches::compress_sparse_chunk_offsets;
 
 /// Sparse encoding for single-value-dominated arrays.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -56,9 +57,9 @@ impl Scheme for SparseScheme {
         }
     }
 
-    /// Children: values=0, indices=1.
+    /// Children: values=0, indices=1, chunk_offsets=2.
     fn num_children(&self) -> usize {
-        2
+        3
     }
 
     /// Sparse indices (child 1) are monotonically increasing positions with all unique values.
@@ -199,11 +200,21 @@ impl Scheme for SparseScheme {
                 exec_ctx,
             )?;
 
-            Sparse::try_new(
+            let chunk_offsets = compress_sparse_chunk_offsets(
+                compressor,
+                sparse.patches().chunk_offsets().as_ref(),
+                &compress_ctx,
+                self.id(),
+                2,
+                exec_ctx,
+            )?;
+
+            Sparse::try_new_with_chunk_offsets(
                 compressed_indices,
                 compressed_values,
                 sparse.len(),
                 sparse.fill_scalar().clone(),
+                chunk_offsets,
                 exec_ctx,
             )
             .map(|a| a.into_array())
