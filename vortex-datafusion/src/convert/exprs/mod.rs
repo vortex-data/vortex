@@ -82,6 +82,12 @@ use vortex::scalar_fn::fns::operators::Operator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
+use self::fallback::compatible as native_compatible;
+use self::fallback::eager as evaluates_children_eagerly;
+use self::fallback::lower as lower_df_expression;
+use crate::df_expression::contains_higher_order_function;
+use crate::df_expression::eligible;
+
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
     /// Projection evaluated by the Vortex scan.
@@ -358,7 +364,7 @@ impl DefaultExpressionConverter {
         schema: &Schema,
     ) -> Conversion<Expression> {
         let mut column_indices = validate_columns(expr, schema)?;
-        if crate::df_expression::contains_higher_order_function(expr) {
+        if contains_higher_order_function(expr) {
             column_indices = (0..schema.fields().len()).collect();
         }
         let input_dtype = self
@@ -430,9 +436,9 @@ impl DefaultExpressionConverter {
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
-        let mut result = if !fallback::compatible(expr, schema)? {
+        let mut result = if !native_compatible(expr, schema)? {
             Err(Unconverted::Unsupported)
-        } else if self.df_fallback && !fallback::eager(expr) {
+        } else if self.df_fallback && !evaluates_children_eagerly(expr) {
             self.native_only()
                 .convert_native_expr(expr, schema, input_dtype)
         } else {
@@ -448,7 +454,7 @@ impl DefaultExpressionConverter {
             Err(Unconverted::Unsupported)
                 if self.df_fallback && matches!(self.scope, Scope::Global) =>
             {
-                fallback::lower(self, expr, schema, false)
+                lower_df_expression(self, expr, schema, false)
             }
             other => other,
         }
@@ -992,7 +998,7 @@ impl ExpressionConverter for DefaultExpressionConverter {
         if DynamicFilterTracking::classify(expr).contains_dynamic_filter() {
             return Ok(None);
         }
-        if !crate::df_expression::eligible(expr) {
+        if !eligible(expr) {
             return Ok(None);
         }
         match self.conversion_context().convert_checked(expr, schema) {
@@ -1006,7 +1012,7 @@ impl ExpressionConverter for DefaultExpressionConverter {
         expr: &Arc<dyn PhysicalExpr>,
         schema: &Schema,
     ) -> DFResult<Option<Expression>> {
-        if !crate::df_expression::eligible(expr) || expr.data_type(schema)? != DataType::Boolean {
+        if !eligible(expr) || expr.data_type(schema)? != DataType::Boolean {
             return Ok(None);
         }
         let converter = self.conversion_context();
@@ -1015,7 +1021,7 @@ impl ExpressionConverter for DefaultExpressionConverter {
             Err(Unconverted::Failed(error)) => return Err(error),
             _ => {}
         }
-        match fallback::lower(&converter, expr, schema, true) {
+        match lower_df_expression(&converter, expr, schema, true) {
             Ok(value) => Ok(Some(value)),
             Err(Unconverted::Unsupported) => Ok(None),
             Err(Unconverted::Failed(error)) => Err(error),

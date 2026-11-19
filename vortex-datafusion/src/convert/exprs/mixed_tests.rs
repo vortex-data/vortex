@@ -3,8 +3,10 @@
 
 use std::sync::Arc;
 
+use anyhow::Result;
 use arrow_array::ArrayRef;
 use arrow_array::BooleanArray;
+use arrow_array::Float32Array;
 use arrow_array::Float64Array;
 use arrow_array::Int64Array;
 use arrow_array::ListArray;
@@ -14,10 +16,17 @@ use arrow_array::types::Int64Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
+use datafusion_common::Result as DFResult;
+use datafusion_common::ScalarValue;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::hash_utils::create_hashes;
+use datafusion_expr::ColumnarValue;
 use datafusion_expr::Operator as DFOperator;
+use datafusion_expr::ScalarFunctionArgs;
 use datafusion_expr::ScalarUDF;
+use datafusion_expr::ScalarUDFImpl;
+use datafusion_expr::Signature;
+use datafusion_expr::Volatility;
 use datafusion_functions::core::named_struct::NamedStructFunc;
 use datafusion_functions::string::lower::LowerFunc;
 use datafusion_physical_expr::PhysicalExpr;
@@ -26,6 +35,7 @@ use datafusion_physical_plan::expressions::BinaryExpr;
 use datafusion_physical_plan::expressions::CaseExpr;
 use datafusion_physical_plan::expressions::CastExpr;
 use datafusion_physical_plan::expressions::Column;
+use datafusion_physical_plan::expressions::IsNotNullExpr;
 use datafusion_physical_plan::expressions::NotExpr;
 use datafusion_physical_plan::expressions::lit;
 use datafusion_physical_plan::joins::HashExpr;
@@ -46,11 +56,13 @@ use vortex_arrow::ExecuteArrowExt;
 use super::DefaultExpressionConverter;
 use super::ExpressionConverter;
 use super::is_infallible;
+use super::tests::array_transform_expr;
+use crate::df_expression::df_expression;
 
 pub(crate) fn lookup(
     values: ArrayRef,
     key: Arc<dyn PhysicalExpr>,
-) -> anyhow::Result<Arc<dyn PhysicalExpr>> {
+) -> Result<Arc<dyn PhysicalExpr>> {
     let state = SeededRandomState::with_seed(17);
     let mut hashes = vec![0; values.len()];
     create_hashes(&[values], state.random_state(), &mut hashes)?;
@@ -68,7 +80,7 @@ fn evaluate(
     batch: &RecordBatch,
     output: &Field,
     session: &VortexSession,
-) -> anyhow::Result<ArrayRef> {
+) -> Result<ArrayRef> {
     let input = session
         .arrow()
         .from_arrow_record_batch(batch.clone(), &batch.schema())?;
@@ -78,7 +90,7 @@ fn evaluate(
 }
 
 #[test]
-fn df_expression_keeps_native_outer_and_inner_sums() -> anyhow::Result<()> {
+fn df_expression_keeps_native_outer_and_inner_sums() -> Result<()> {
     let batch = RecordBatch::try_from_iter(vec![
         (
             "x",
@@ -130,7 +142,7 @@ fn df_expression_keeps_native_outer_and_inner_sums() -> anyhow::Result<()> {
 }
 
 #[test]
-fn df_expression_groups_wrapping_operators_and_preserves_lazy_errors() -> anyhow::Result<()> {
+fn df_expression_groups_wrapping_operators_and_preserves_lazy_errors() -> Result<()> {
     let batch = RecordBatch::try_from_iter(vec![(
         "id",
         Arc::new(Int64Array::from(vec![0, 1])) as ArrayRef,
@@ -198,7 +210,7 @@ fn df_expression_groups_wrapping_operators_and_preserves_lazy_errors() -> anyhow
     Ok(())
 }
 
-pub(crate) fn routed(key: Arc<dyn PhysicalExpr>) -> anyhow::Result<Arc<dyn PhysicalExpr>> {
+pub(crate) fn routed(key: Arc<dyn PhysicalExpr>) -> Result<Arc<dyn PhysicalExpr>> {
     let route: Arc<dyn PhysicalExpr> = Arc::new(BinaryExpr::new(
         Arc::new(HashExpr::new(
             vec![Arc::clone(&key)],
@@ -217,7 +229,7 @@ pub(crate) fn routed(key: Arc<dyn PhysicalExpr>) -> anyhow::Result<Arc<dyn Physi
     )?))
 }
 #[test]
-fn df_expression_accepts_partition_routing_case_as_a_whole_hint() -> anyhow::Result<()> {
+fn df_expression_accepts_partition_routing_case_as_a_whole_hint() -> Result<()> {
     let batch = RecordBatch::try_from_iter(vec![(
         "id",
         Arc::new(Int64Array::from(vec![
@@ -250,42 +262,36 @@ fn df_expression_accepts_partition_routing_case_as_a_whole_hint() -> anyhow::Res
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct ObserveArgument {
-    signature: datafusion_expr::Signature,
+    signature: Signature,
     name: String,
     nullable: bool,
     scalar: bool,
 }
-impl datafusion_expr::ScalarUDFImpl for ObserveArgument {
+impl ScalarUDFImpl for ObserveArgument {
     fn name(&self) -> &str {
         "observe_argument"
     }
-    fn signature(&self) -> &datafusion_expr::Signature {
+    fn signature(&self) -> &Signature {
         &self.signature
     }
-    fn return_type(&self, _: &[DataType]) -> datafusion_common::Result<DataType> {
+    fn return_type(&self, _: &[DataType]) -> DFResult<DataType> {
         Ok(DataType::Boolean)
     }
-    fn invoke_with_args(
-        &self,
-        args: datafusion_expr::ScalarFunctionArgs,
-    ) -> datafusion_common::Result<datafusion_expr::ColumnarValue> {
-        Ok(datafusion_expr::ColumnarValue::Scalar(
-            datafusion_common::ScalarValue::Boolean(Some(
-                args.arg_fields[0].name() == &self.name
-                    && args.arg_fields[0].is_nullable() == self.nullable
-                    && matches!(args.args[0], datafusion_expr::ColumnarValue::Scalar(_))
-                        == self.scalar,
-            )),
-        ))
+    fn invoke_with_args(&self, args: ScalarFunctionArgs) -> DFResult<ColumnarValue> {
+        Ok(ColumnarValue::Scalar(ScalarValue::Boolean(Some(
+            args.arg_fields[0].name() == &self.name
+                && args.arg_fields[0].is_nullable() == self.nullable
+                && matches!(args.args[0], ColumnarValue::Scalar(_)) == self.scalar,
+        ))))
     }
 }
 #[test]
-fn df_expression_preserves_udf_argument_fields_and_scalar_shape() -> anyhow::Result<()> {
+fn df_expression_preserves_udf_argument_fields_and_scalar_shape() -> Result<()> {
     let batch = RecordBatch::try_from_iter(vec![
         ("unused", Arc::new(Int64Array::from(vec![0, 0])) as ArrayRef),
         (
             "x",
-            Arc::new(arrow_array::Float32Array::from(vec![Some(1.), None])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![Some(1.), None])) as ArrayRef,
         ),
     ])?;
     let cast: Arc<dyn PhysicalExpr> = Arc::new(CastExpr::new_with_target_field(
@@ -304,14 +310,12 @@ fn df_expression_preserves_udf_argument_fields_and_scalar_shape() -> anyhow::Res
     let short_circuit: Arc<dyn PhysicalExpr> = Arc::new(BinaryExpr::new(
         lit(false),
         DFOperator::And,
-        Arc::new(datafusion_physical_plan::expressions::IsNotNullExpr::new(
-            Arc::new(Column::new("x", 1)),
-        )),
+        Arc::new(IsNotNullExpr::new(Arc::new(Column::new("x", 1)))),
     ));
     for (child, scalar) in [(cast, false), (lower, true), (short_circuit, true)] {
         let field = child.return_field(&batch.schema())?;
         let fun = ScalarUDF::from(ObserveArgument {
-            signature: datafusion_expr::Signature::any(1, datafusion_expr::Volatility::Immutable),
+            signature: Signature::any(1, Volatility::Immutable),
             name: field.name().clone(),
             nullable: field.is_nullable(),
             scalar,
@@ -325,8 +329,7 @@ fn df_expression_preserves_udf_argument_fields_and_scalar_shape() -> anyhow::Res
         let mixed = converter
             .try_convert(&expression, &batch.schema())?
             .unwrap();
-        let raw =
-            crate::df_expression(Arc::clone(&expression), &batch.schema(), &session)?.unwrap();
+        let raw = df_expression(Arc::clone(&expression), &batch.schema(), &session)?.unwrap();
         let expected = expression
             .evaluate(&batch)?
             .into_array_of_size(batch.num_rows())?;
@@ -348,7 +351,7 @@ fn df_expression_preserves_udf_argument_fields_and_scalar_shape() -> anyhow::Res
 }
 
 #[test]
-fn df_expression_advisory_rejects_invalid_original_column_bindings() -> anyhow::Result<()> {
+fn df_expression_advisory_rejects_invalid_original_column_bindings() -> Result<()> {
     let converter = DefaultExpressionConverter::default();
     let duplicate = Schema::new(vec![
         Field::new("id", DataType::Int64, false),
@@ -380,7 +383,7 @@ fn df_expression_advisory_rejects_invalid_original_column_bindings() -> anyhow::
 }
 
 #[test]
-fn df_expression_preserves_lambda_input_positions() -> anyhow::Result<()> {
+fn df_expression_preserves_lambda_input_positions() -> Result<()> {
     let batch = RecordBatch::try_from_iter(vec![
         (
             "x",
@@ -394,7 +397,7 @@ fn df_expression_preserves_lambda_input_positions() -> anyhow::Result<()> {
             ])) as ArrayRef,
         ),
     ])?;
-    let transform = super::tests::array_transform_expr(
+    let transform = array_transform_expr(
         Arc::new(Column::new("list", 1)),
         "u",
         2,
@@ -430,8 +433,7 @@ fn df_expression_preserves_lambda_input_positions() -> anyhow::Result<()> {
         let mixed = converter
             .try_convert(&expression, &batch.schema())?
             .unwrap();
-        let raw =
-            crate::df_expression(Arc::clone(&expression), &batch.schema(), &session)?.unwrap();
+        let raw = df_expression(Arc::clone(&expression), &batch.schema(), &session)?.unwrap();
         let expected = expression
             .evaluate(&batch)?
             .into_array_of_size(batch.num_rows())?;
@@ -449,7 +451,7 @@ fn df_expression_preserves_lambda_input_positions() -> anyhow::Result<()> {
 }
 
 #[test]
-fn df_expression_preserves_fields_through_datafusion_case_projection() -> anyhow::Result<()> {
+fn df_expression_preserves_fields_through_datafusion_case_projection() -> Result<()> {
     let batch = RecordBatch::try_from_iter(vec![
         ("s", Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef),
         (
@@ -476,7 +478,7 @@ fn df_expression_preserves_fields_through_datafusion_case_projection() -> anyhow
     let mixed = DefaultExpressionConverter::new(session.clone())
         .try_convert(&expression, &batch.schema())?
         .unwrap();
-    let raw = crate::df_expression(Arc::clone(&expression), &batch.schema(), &session)?.unwrap();
+    let raw = df_expression(Arc::clone(&expression), &batch.schema(), &session)?.unwrap();
     let expected = expression
         .evaluate(&batch)?
         .into_array_of_size(batch.num_rows())?;
