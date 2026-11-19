@@ -44,11 +44,14 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     kernels.register_reduce_parent_rule(Slice, Widen, const { &SliceReduceAdaptor(Widen) });
 }
 
-/// Preserve structural encodings when the target cannot write a decimal widening wrapper.
+/// Push decimal widening into the values of a dictionary or run-end array.
+///
+/// Write normalization can then lower the stored values without expanding the logical rows.
 pub(crate) fn push_decimal_widen_into_values(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
     let Some(widen) = array.as_opt::<Widen>() else {
         return Ok(None);
     };
+
     if !matches!(widen.dtype(), DType::Decimal(..)) {
         return Ok(None);
     }
@@ -63,14 +66,15 @@ pub(crate) fn push_decimal_widen_into_values(array: &ArrayRef) -> VortexResult<O
             codes: dict.codes().clone(),
             values,
         };
-        let rebuilt = Array::try_from_parts(ArrayParts::new(
+        // The codes and value count stay the same, so the reference guarantee still holds.
+        let dict = Array::try_from_parts(ArrayParts::new(
             Dict,
             widen.dtype().clone(),
             widen.len(),
             dict.data().clone(),
             slots.into_slots(),
         ))?;
-        return Ok(Some(rebuilt.into_array()));
+        return Ok(Some(dict.into_array()));
     }
 
     if let Some(run_end) = widen.values().as_opt::<RunEnd>() {
@@ -81,14 +85,14 @@ pub(crate) fn push_decimal_widen_into_values(array: &ArrayRef) -> VortexResult<O
             values,
         };
         // The view's offset is relative to the unchanged run ends.
-        let rebuilt = Array::try_from_parts(ArrayParts::new(
+        let run_end = Array::try_from_parts(ArrayParts::new(
             RunEnd,
             widen.dtype().clone(),
             widen.len(),
             run_end.data().clone(),
             slots.into_slots(),
         ))?;
-        return Ok(Some(rebuilt.into_array()));
+        return Ok(Some(run_end.into_array()));
     }
 
     Ok(None)

@@ -133,10 +133,10 @@ older format. Formats retained only for reading, however, are not candidates for
 
 The serializer makes that choice before the writer checks edition permissions. If a wire ID is
 forbidden, the flat file writer normalizes the source array and tries serialization again.
-Normalization tries structural rewrites and executes encodings until a permitted form is available.
-For example, if the target allows a dictionary but disallows the encoding of its value table,
-the writer can keep the codes and execute just the table. Serializers choose their wire children
-again after normalization. If a plugin still emits a forbidden wire ID, the write fails.
+Normalization can rewrite or execute source arrays. For example, if the target allows a dictionary
+but disallows the encoding of its value table, the writer can keep the codes and execute just the
+table. Each serializer regenerates its metadata and children from the normalized array. The write
+fails if a serializer still emits a forbidden wire ID, including one for a child it synthesizes.
 
 ## Write and read checks
 
@@ -146,7 +146,7 @@ edition selection does not restrict the input. Instead, the reader needs registe
 for the stored IDs, and those implementations must validate the corresponding contracts.
 
 ```{figure} ../../_static/versioning-checks.svg
-:alt: Writers select plugins by in-memory IDs and check the wire IDs those plugins choose. Readers select plugins by wire ID and validate the stored data.
+:alt: Writers select plugins by in-memory IDs, serialize arrays and children, and check all returned IDs against edition permissions. Readers select plugins by stored wire IDs, validate each contract, and construct in-memory arrays. Forbidden IDs, unknown IDs, and invalid data cause errors.
 :target: ../../_static/versioning-checks.svg
 :figclass: versioning-diagram
 

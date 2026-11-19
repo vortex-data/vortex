@@ -55,10 +55,6 @@ use crate::serde::SerializedArray;
 use crate::session::ArraySessionExt;
 use crate::validity::Validity;
 
-fn narrow_decimal_values() -> ArrayRef {
-    DecimalArray::from_iter([-123_456i32, 456_789], DecimalDType::new(9, 2)).into_array()
-}
-
 fn serialize_blob(
     array: &ArrayRef,
     ctx: &ArrayContext,
@@ -268,10 +264,18 @@ fn test_widen_wire_round_trip(
     Ok(())
 }
 
+fn narrow_decimal_values() -> ArrayRef {
+    DecimalArray::from_iter([-123_456i32, 456_789], DecimalDType::new(9, 2)).into_array()
+}
+
 #[rstest]
 #[case::dict(
     DictArray::try_new(
-        PrimitiveArray::from_option_iter([Some(1u8), None, Some(0)]).into_array(),
+        PrimitiveArray::from_option_iter([
+            Some(1u8), // Select the second dictionary value.
+            None,      // Make the dictionary nullable while its values stay non-nullable.
+            Some(0),   // Select the first dictionary value.
+        ]).into_array(),
         narrow_decimal_values(),
     )?.into_array(),
 )]
@@ -286,14 +290,14 @@ fn test_widen_wire_round_trip(
 )]
 fn restricted_write_preserves_widen_structure(
     #[case] structured: ArrayRef,
-    #[values(false, true)] from_wire: bool,
+    #[values(false, true)] round_trip_first: bool,
 ) -> VortexResult<()> {
     let structure_id = structured.encoding_id();
     let widened = widen_over(
         structured,
         DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable),
     )?;
-    let input = if from_wire {
+    let input = if round_trip_first {
         let (decoded, _) = serialize_round_trip(&widened, &SESSION)?;
         assert!(decoded.is::<Widen>());
         decoded
@@ -317,13 +321,18 @@ fn restricted_write_preserves_widen_structure(
     }
     let serialized = SerializedArray::try_from(bytes.freeze())?;
     let read_ctx = ReadContext::new(ctx.to_ids());
-    assert_eq!(read_ctx.resolve(serialized.encoding_id()), Some(structure_id));
+    assert_eq!(
+        read_ctx.resolve(serialized.encoding_id()),
+        Some(structure_id)
+    );
+
     let values_node = serialized.child(1);
     assert_eq!(
         read_ctx.resolve(values_node.encoding_id()),
         Some(ArrayVTable::id(&Decimal))
     );
     assert_eq!(values_node.buffer(0)?.len(), 2 * size_of::<i32>());
+
     let actual = serialized.decode(widened.dtype(), widened.len(), &read_ctx, &SESSION)?;
     assert_arrays_eq!(actual, widened, &mut SESSION.create_execution_ctx());
     Ok(())

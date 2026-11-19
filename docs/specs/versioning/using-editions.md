@@ -110,9 +110,9 @@ plugin available.
 
 ## Write errors
 
-If a flat layout contains a wire format that the selected editions disallow, the writer tries to
-rewrite or execute the source arrays before retrying serialization. This can expand compressed data.
-The write fails if a serializer still emits a disallowed wire ID.
+If serialization for a flat layout chooses a wire ID outside the selected editions, the writer
+tries to rewrite or execute the source arrays and then serializes them again. This can expand
+compressed data. The write fails if a serializer still emits a disallowed wire ID.
 
 The writer also checks layout, nested extension dtype, and stored aggregate IDs. Custom strategies
 and compressors keep their own configuration, so they can still produce layouts the target edition

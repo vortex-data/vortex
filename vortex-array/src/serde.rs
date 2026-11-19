@@ -57,6 +57,7 @@ pub struct SerializeOptions {
 impl ArrayRef {
     /// Serialize the array into a sequence of byte buffers that should be written contiguously.
     /// This function returns a vec to avoid copying data buffers.
+    /// Every wire ID chosen by the serializers must be permitted by `ctx`.
     ///
     /// Optionally, padding can be included to guarantee buffer alignment and ensure zero-copy
     /// reads within the context of an external file or stream. In this case, the alignment of
@@ -161,28 +162,33 @@ impl ArrayRef {
         Ok(buffers)
     }
 
-    /// Serialize an array for a restricted writer.
+    /// Serialize an array, retrying with normalization if a wire ID is disallowed.
     ///
-    /// If the selected wire representation is disallowed, normalize the source array and retry.
-    /// Serialization plugins are responsible for any children they synthesize.
+    /// Normalization may execute an encoding and expand compressed data. It rewrites source
+    /// slots so the parent serializer can regenerate its metadata and children. If a serializer
+    /// still emits a disallowed wire ID, the write fails.
+    ///
+    /// See [`Self::serialize`] for the output format.
     pub fn serialize_with_fallback(
         &self,
         ctx: &ArrayContext,
         session: &VortexSession,
         options: &SerializeOptions,
     ) -> VortexResult<Vec<ByteBuffer>> {
-        match self.serialize(ctx, session, options) {
-            Err(error)
-                if error
-                    .source()
-                    .is_some_and(|source| source.is::<DisallowedWireId>()) =>
-            {
-                self.clone()
-                    .normalize_for_write(ctx, session)?
-                    .serialize(ctx, session, options)
-            }
-            result => result,
+        let error = match self.serialize(ctx, session, options) {
+            Ok(buffers) => return Ok(buffers),
+            Err(error) => error,
+        };
+
+        if !error
+            .source()
+            .is_some_and(|source| source.is::<DisallowedWireId>())
+        {
+            return Err(error);
         }
+
+        let normalized = self.clone().normalize_for_write(ctx, session)?;
+        normalized.serialize(ctx, session, options)
     }
 }
 
@@ -955,9 +961,9 @@ mod tests {
     }
 
     #[derive(Debug)]
-    struct ProjectingStructPlugin(ArrayRef);
+    struct StructWithSynthesizedChild(ArrayRef);
 
-    impl ArrayPlugin for ProjectingStructPlugin {
+    impl ArrayPlugin for StructWithSynthesizedChild {
         fn id(&self) -> ArrayId {
             ArrayVTable::id(&Struct)
         }
@@ -993,16 +999,13 @@ mod tests {
         ArrayContext::new(ids.to_vec()).with_allowed_ids(ids.iter().copied().collect())
     }
 
-    fn serialize_blob(
-        array: &ArrayRef,
-        ctx: &ArrayContext,
-        session: &VortexSession,
-    ) -> VortexResult<ByteBuffer> {
-        let mut blob = ByteBufferMut::empty();
-        for buffer in array.serialize(ctx, session, &SerializeOptions::default())? {
-            blob.extend_from_slice(buffer.as_ref());
+    fn read_serialized_array(buffers: Vec<ByteBuffer>) -> VortexResult<SerializedArray> {
+        let mut bytes = ByteBufferMut::empty();
+        for buffer in buffers {
+            bytes.extend_from_slice(buffer.as_ref());
         }
-        Ok(blob.freeze())
+
+        SerializedArray::try_from(bytes.freeze())
     }
 
     #[test]
@@ -1013,11 +1016,8 @@ mod tests {
         let array = PrimitiveArray::from_iter([1i32, 2, 3, 4]).into_array();
 
         SERIALIZER_CALLS.store(0, Ordering::Relaxed);
-        let mut bytes = ByteBufferMut::empty();
-        for buffer in array.serialize_with_fallback(&ctx, &session, &SerializeOptions::default())? {
-            bytes.extend_from_slice(buffer.as_ref());
-        }
-        let serialized = SerializedArray::try_from(bytes.freeze())?;
+        let buffers = array.serialize_with_fallback(&ctx, &session, &SerializeOptions::default())?;
+        let serialized = read_serialized_array(buffers)?;
         assert_eq!(SERIALIZER_CALLS.load(Ordering::Relaxed), 1);
         assert_eq!(
             ReadContext::new(ctx.to_ids()).resolve(serialized.encoding_id()),
@@ -1042,7 +1042,8 @@ mod tests {
         let session = versioned_primitive_session();
         let ctx = restricted_context(&[old_primitive_id(), new_primitive_id()]);
         let array = PrimitiveArray::from_iter(0..8i32).into_array();
-        let serialized = SerializedArray::try_from(serialize_blob(&array, &ctx, &session)?)?;
+        let buffers = array.serialize(&ctx, &session, &SerializeOptions::default())?;
+        let serialized = read_serialized_array(buffers)?;
         let read_ctx = ReadContext::new(ctx.to_ids());
 
         assert_eq!(
@@ -1089,12 +1090,8 @@ mod tests {
         let struct_id = ArrayVTable::id(&Struct);
         let primitive_id = ArrayVTable::id(&Primitive);
         let ctx = restricted_context(&[struct_id, primitive_id]);
-        let mut bytes = ByteBufferMut::empty();
-        for buffer in array.serialize_with_fallback(&ctx, &SESSION, &SerializeOptions::default())? {
-            bytes.extend_from_slice(buffer.as_ref());
-        }
-
-        let serialized = SerializedArray::try_from(bytes.freeze())?;
+        let buffers = array.serialize_with_fallback(&ctx, &SESSION, &SerializeOptions::default())?;
+        let serialized = read_serialized_array(buffers)?;
         let read_ctx = ReadContext::new(ctx.to_ids());
         assert_eq!(read_ctx.resolve(serialized.encoding_id()), Some(struct_id));
         assert_eq!(
@@ -1107,23 +1104,27 @@ mod tests {
     }
 
     #[test]
-    fn serialization_fallback_does_not_replace_plugin_projected_children() -> VortexResult<()> {
+    fn serialization_fallback_rejects_disallowed_synthesized_child() -> VortexResult<()> {
         let session = VortexSession::empty();
         let runs = RunEnd::try_new(
             PrimitiveArray::from_iter([2u32, 5]).into_array(),
             PrimitiveArray::from_iter([10i32, 20]).into_array(),
             &mut session.create_execution_ctx(),
         )?;
-        session.arrays().register(ProjectingStructPlugin(runs.into_array()));
+        session
+            .arrays()
+            .register(StructWithSynthesizedChild(runs.into_array()));
 
         let values = PrimitiveArray::from_iter([10i32, 10, 20, 20, 20]).into_array();
         let array = StructArray::from_fields(&[("x", values)])?.into_array();
         let ctx = restricted_context(&[ArrayVTable::id(&Struct), old_primitive_id()]);
         let error = array
             .serialize_with_fallback(&ctx, &session, &SerializeOptions::default())
-            .expect_err("a plugin's projected child must be written as selected");
+            .expect_err("the Struct serializer always emits a disallowed RunEnd child");
         assert!(
-            error.to_string().contains("Serialized array ID vortex.runend not permitted by ctx"),
+            error
+                .to_string()
+                .contains("Serialized array ID vortex.runend not permitted by ctx"),
             "unexpected error: {error}"
         );
         Ok(())
@@ -1134,7 +1135,8 @@ mod tests {
         let writer_session = versioned_primitive_session();
         let ctx = restricted_context(&[new_primitive_id()]);
         let array = PrimitiveArray::from_iter(0..8i32).into_array();
-        let serialized = SerializedArray::try_from(serialize_blob(&array, &ctx, &writer_session)?)?;
+        let buffers = array.serialize(&ctx, &writer_session, &SerializeOptions::default())?;
+        let serialized = read_serialized_array(buffers)?;
         let read_ctx = ReadContext::new(ctx.to_ids());
 
         let error = serialized
@@ -1149,7 +1151,8 @@ mod tests {
         let session = versioned_primitive_session();
         let write_ctx = restricted_context(&[new_primitive_id()]);
         let array = PrimitiveArray::from_iter(0..8i32).into_array();
-        let serialized = SerializedArray::try_from(serialize_blob(&array, &write_ctx, &session)?)?;
+        let buffers = array.serialize(&write_ctx, &session, &SerializeOptions::default())?;
+        let serialized = read_serialized_array(buffers)?;
 
         // Interpret the encoded index as the old ID to simulate a file that uses the old tag for
         // a representation outside that tag's frozen contract.
