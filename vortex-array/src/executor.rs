@@ -197,6 +197,10 @@ impl ArrayRef {
         // root here, with the nodes below it that were never optimized, and a child when execution
         // focuses it.
         let mut current_array = optimizer.optimize_array(&self)?;
+
+        // Release the caller's handle, so that the root is not shared for the whole execution.
+        // Encodings that decode a uniquely owned child buffer in place would otherwise copy it.
+        drop(self);
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
         // Whether `current_array` was rewritten since its parent was suspended, so its

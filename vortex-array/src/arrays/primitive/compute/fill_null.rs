@@ -46,10 +46,7 @@ impl FillNullKernel for Primitive {
                             Buffer::<[u8; W]>::from_byte_buffer_aligned(values, alignment).into_mut();
                         let mut fill_bytes = [0u8; W];
                         fill_bytes.copy_from_slice(fill_value.to_le_bytes());
-
-                        for invalid_index in is_invalid.set_indices() {
-                            buffer[invalid_index] = fill_bytes;
-                        }
+                        buffer.fill_where::<false>(&is_invalid, fill_bytes);
 
                         PrimitiveArray::from_byte_buffer(
                             buffer.freeze().into_byte_buffer(),

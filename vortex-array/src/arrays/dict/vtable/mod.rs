@@ -169,12 +169,13 @@ impl VTable for Dict {
             let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
             if !codes.validity()?.definitely_all_null() {
                 let values = array.values();
-                if array.len() <= values.len() / 4
-                    && matches!(array.dtype(), DType::Utf8(_) | DType::Binary(_))
+                if array.len() <= values.len() / sparse_take_ratio(array.dtype())
                     && !values.is::<AnyCanonical>()
                 {
-                    // A sparse selection reaches the take kernel of the values, such as the OnPair
-                    // token-run gather, before the whole dictionary is decoded.
+                    // A Dict with few codes over encoded values is usually a lazy `take`. Execute
+                    // it so the take kernel of the values (ALP-RD, BitPacked, the OnPair token-run
+                    // gather, ...) decodes only the selected rows, rather than decoding every value
+                    // and then gathering.
                     // SAFETY: executing the codes keeps their values, dtype and length.
                     let taken =
                         unsafe { DictArray::new_unchecked(codes.into_array(), values.clone()) };
@@ -226,6 +227,20 @@ impl VTable for Dict {
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array)
+    }
+}
+
+/// The values-to-codes ratio at or above which `Dict::append_to_builder` runs the take kernel of
+/// encoded values instead of decoding all of them.
+///
+/// Fixed-width encodings decode in bulk for under a nanosecond per value, while their take kernels
+/// cost over ten times that per row: taking rows of an ALP-RD `f32` segment breaks even at about
+/// one row in eleven (see the `alp_rd_take_chunked` benchmark in `vortex-alp`). The ratio for
+/// variable-width values was chosen for their take kernels, such as the OnPair token-run gather.
+fn sparse_take_ratio(dtype: &DType) -> usize {
+    match dtype {
+        DType::Utf8(_) | DType::Binary(_) => 4,
+        _ => 16,
     }
 }
 
@@ -328,11 +343,15 @@ mod tests {
 
     use super::*;
     use crate::VortexSessionExecute;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::dict::DictArray;
     use crate::assert_arrays_eq;
+    use crate::builders::builder_with_capacity_in;
+    use crate::dtype::Nullability::NonNullable;
     use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -406,6 +425,33 @@ mod tests {
             DType::Utf8(Nullable),
         );
         assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
+        Ok(())
+    }
+
+    /// A few codes over encoded values are appended through the take of the values, which must
+    /// match the gather through the decoded values, including null codes.
+    #[test]
+    fn append_to_builder_takes_few_rows_of_encoded_values() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = ChunkedArray::try_new(
+            [
+                PrimitiveArray::from_iter(0i32..32).into_array(),
+                PrimitiveArray::from_iter(32i32..64).into_array(),
+            ],
+            DType::Primitive(PType::I32, NonNullable),
+        )?;
+        let dict = DictArray::try_new(
+            PrimitiveArray::from_option_iter([Some(40u32), None, Some(3)]).into_array(),
+            values.into_array(),
+        )?;
+        assert!(dict.len() <= dict.values().len() / sparse_take_ratio(dict.dtype()));
+
+        let mut builder = builder_with_capacity_in(dict.dtype(), 4, ctx.allocator());
+        builder.append_scalar(&Scalar::primitive(-1i32, Nullable))?;
+        dict.append_to_builder(builder.as_mut(), &mut ctx)?;
+
+        let expected = PrimitiveArray::from_option_iter([Some(-1i32), Some(40), None, Some(3)]);
+        assert_arrays_eq!(builder.finish(), expected, &mut ctx);
         Ok(())
     }
 

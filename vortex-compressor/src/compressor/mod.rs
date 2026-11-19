@@ -12,6 +12,7 @@ mod structural;
 pub(crate) use cascade::TrialOutput;
 pub(crate) use cascade::exact_uncompressed_size;
 pub(crate) use sample::estimate_compression_ratio_with_sampling;
+pub use sample::sample_aligned_chunks;
 pub(crate) use sample::sample_slices;
 
 use crate::builtins::IntDictScheme;

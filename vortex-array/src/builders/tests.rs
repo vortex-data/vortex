@@ -92,10 +92,9 @@ fn deprecated_builder_constructors_keep_their_signatures() {
     let _: fn(Nullability) -> super::PrimitiveBuilder<i32> = super::PrimitiveBuilder::<i32>::new;
     let _: fn(Nullability, usize) -> super::PrimitiveBuilder<i32> =
         super::PrimitiveBuilder::<i32>::with_capacity;
-    let _: fn(DecimalDType, Nullability) -> super::DecimalBuilder =
-        super::DecimalBuilder::new::<i128>;
+    let _: fn(DecimalDType, Nullability) -> super::DecimalBuilder = super::DecimalBuilder::new;
     let _: fn(usize, DecimalDType, Nullability) -> super::DecimalBuilder =
-        super::DecimalBuilder::with_capacity::<i128>;
+        super::DecimalBuilder::with_capacity;
     let _: fn(ExtDTypeRef) -> super::ExtensionBuilder = super::ExtensionBuilder::new;
     let _: fn(ExtDTypeRef, usize) -> super::ExtensionBuilder =
         super::ExtensionBuilder::with_capacity;

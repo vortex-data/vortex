@@ -30,8 +30,8 @@ use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::VTable;
 use crate::children::OwnedLayoutChildren;
+use crate::lowering::slots_from_layout_slots;
 use crate::plan::physical::PlanRef;
-use crate::plan::physical::PlanSlots;
 use crate::plan::physical::TakePlan;
 use crate::segments::SegmentSource;
 
@@ -140,7 +140,7 @@ impl VTable for Dict {
             TakePlan::from_slots_unchecked(
                 layout.dtype().clone(),
                 layout.row_count(),
-                PlanSlots::from_layout_slots(&layout.to_layout(), [1, 0]),
+                slots_from_layout_slots(&layout.to_layout(), [1, 0]),
             )
         };
         Ok(plan.into_plan())

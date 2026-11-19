@@ -24,6 +24,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::decimal::first_outside_precision;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::BigCast;
 use crate::dtype::DType;
@@ -188,8 +189,9 @@ where
     let target_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
     if !cached_values_fit_in(array, &target_dtype).unwrap_or(false) {
         let valid_values = source_validity.execute_mask(array.len(), ctx)?;
-        validate_unscaled_signed_integer_values_to_decimal(values, decimal_dtype, &valid_values)
-            .map_err(|idx| primitive_to_decimal_cast_error(values[idx], decimal_dtype))?;
+        if let Some(idx) = first_outside_precision(values, &valid_values, decimal_dtype) {
+            return Err(primitive_to_decimal_cast_error(values[idx], decimal_dtype));
+        }
     }
 
     // SAFETY: `S::DECIMAL_TYPE` has the same physical representation as the source ptype, and
@@ -203,33 +205,6 @@ where
         )
         .into_array()
     })
-}
-
-fn validate_unscaled_signed_integer_values_to_decimal<S>(
-    values: &[S],
-    decimal_dtype: DecimalDType,
-    valid_values: &Mask,
-) -> Result<(), usize>
-where
-    S: NativeDecimalType,
-{
-    let fits = |value| decimal_value_fits_precision(value, decimal_dtype);
-    match valid_values {
-        Mask::AllTrue(_) => values
-            .iter()
-            .position(|&value| !fits(value))
-            .map_or(Ok(()), Err),
-        Mask::AllFalse(_) => Ok(()),
-        Mask::Values(mask) => {
-            let mut first_failure = None;
-            mask.bit_buffer().for_each_set_index(|idx| {
-                if first_failure.is_none() && !fits(values[idx]) {
-                    first_failure = Some(idx);
-                }
-            });
-            first_failure.map_or(Ok(()), Err)
-        }
-    }
 }
 
 fn cast_integer_values_to_decimal<S, T>(
@@ -251,7 +226,8 @@ where
         cast_scaled_down_integer_values_to_decimal::<S, T>(array, decimal_dtype, valid_values)?
     };
 
-    Ok(DecimalArray::new(buffer, decimal_dtype, validity).into_array())
+    // SAFETY: Each cast checks the target precision and preserves the input length and validity.
+    Ok(unsafe { DecimalArray::new_unchecked(buffer, decimal_dtype, validity) }.into_array())
 }
 
 fn cast_unscaled_integer_values_to_decimal<S, T>(
@@ -803,11 +779,7 @@ mod test {
         assert_eq!(casted.buffer::<i32>().as_ref(), &[42, -7]);
         assert_arrays_eq!(
             &casted,
-            DecimalArray::new(
-                buffer![42i32, -7],
-                DecimalDType::new(9, 0),
-                Validity::NonNullable
-            ),
+            DecimalArray::from_iter([42i32, -7], DecimalDType::new(9, 0)),
             &mut ctx
         );
         Ok(())
@@ -833,11 +805,7 @@ mod test {
         assert_eq!(casted.buffer::<i32>().as_ptr(), source_ptr);
         assert_arrays_eq!(
             &casted,
-            DecimalArray::new(
-                buffer![42i32, -7],
-                DecimalDType::new(9, 0),
-                Validity::NonNullable
-            ),
+            DecimalArray::from_iter([42i32, -7], DecimalDType::new(9, 0)),
             &mut ctx
         );
         Ok(())

@@ -1115,42 +1115,28 @@ mod test {
     }
 
     #[test]
-    fn test_sparse_decimal() {
+    fn test_sparse_decimal() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let indices = buffer![0u32, 1u32, 7u32, 8u32].into_array();
+        let indices = buffer![0u32, 1, 7, 8].into_array();
         let decimal_dtype = DecimalDType::new(3, 2);
         let patch_values = DecimalArray::new(
-            buffer![100i128, 200i128, 300i128, 4000i128],
+            buffer![100i16, 200, 300, 4000],
             decimal_dtype,
             Validity::from_iter([true, true, true, false]),
+            &mut ctx,
         )
         .into_array();
-        let len = 10;
         let fill_scalar = Scalar::decimal(DecimalValue::I32(123), decimal_dtype, Nullable);
-        let sparse_struct =
-            Sparse::try_new(indices, patch_values, len, fill_scalar, &mut ctx).unwrap();
-
+        let sparse = Sparse::try_new(indices, patch_values, 10, fill_scalar, &mut ctx)?;
         let expected = DecimalArray::new(
-            buffer![100i128, 200, 123, 123, 123, 123, 123, 300, 4000, 123],
+            buffer![100i16, 200, 123, 123, 123, 123, 123, 300, 0, 123],
             decimal_dtype,
-            // NB: patch indices: [0, 1, 7, 8]; patch validity: [Valid, Valid, Valid, Invalid]; ergo 0, 1, 7 are valid.
             Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),
-        )
-        .into_array()
-        .execute_arrow(None, &mut ctx)
-        .unwrap();
+            &mut ctx,
+        );
+        assert_arrays_eq!(sparse, expected, &mut ctx);
 
-        let actual = sparse_struct
-            .as_array()
-            .clone()
-            .execute::<DecimalArray>(&mut ctx)
-            .unwrap()
-            .into_array()
-            .execute_arrow(None, &mut ctx)
-            .unwrap();
-
-        assert_eq!(expected.data_type(), actual.data_type());
-        assert_eq!(&expected, &actual);
+        Ok(())
     }
 
     #[test]

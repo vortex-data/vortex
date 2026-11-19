@@ -90,8 +90,13 @@ pub fn mask_canonical_array(
         Canonical::Decimal(array) => {
             let new_validity = mask_validity(&array.validity()?, mask, ctx);
             match_each_decimal_value_type!(array.values_type(), |D| {
-                DecimalArray::new(array.buffer::<D>(), array.decimal_dtype(), new_validity)
-                    .into_array()
+                DecimalArray::new(
+                    array.buffer::<D>(),
+                    array.decimal_dtype(),
+                    new_validity,
+                    ctx,
+                )
+                .into_array()
             })
         }
         Canonical::VarBinView(array) => {

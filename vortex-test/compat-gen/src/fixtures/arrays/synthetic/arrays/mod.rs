@@ -21,9 +21,6 @@ mod struct_nested;
 mod varbin;
 mod varbinview;
 
-#[cfg(test)]
-pub(super) use decimal_legacy::fixtures as legacy_decimal_fixtures;
-
 use crate::fixtures::FlatLayoutFixture;
 
 /// All per-array-type fixtures.

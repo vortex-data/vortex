@@ -159,19 +159,44 @@ fn test_lower_parts_decline(#[case] array: ArrayRef) -> VortexResult<()> {
 }
 
 #[rstest]
-#[case::positive(vec![i64::MAX, 1])]
-#[case::negative(vec![i64::MIN, -1])]
-#[case::cancellation(vec![i64::MAX, 1, -1])]
+#[case::positive(vec![i64::MAX, 1], Validity::NonNullable)]
+#[case::negative(vec![i64::MIN, -1], Validity::NonNullable)]
+#[case::cancellation(vec![i64::MAX, 1, -1], Validity::NonNullable)]
+#[case::null_payload(vec![i64::MAX, i64::MIN, 1], Validity::from_iter([true, false, true]))]
 fn test_integer_sum_overflow(
     #[case] values: Vec<i64>,
+    #[case] validity: Validity,
     #[values(0, 2)] scale: i8,
 ) -> VortexResult<()> {
     let array = DecimalByteParts::try_new(
-        PrimitiveArray::from_iter(values).into_array(),
+        PrimitiveArray::new(values, validity).into_array(),
         DecimalDType::new(19, scale),
     )?
     .into_array();
-    check(&array, Sum.bind(NumericalAggregateOpts::default()), false)
+    check(&array, Sum.bind(NumericalAggregateOpts::default()), true)
+}
+
+#[rstest]
+#[case::null_rows(vec![i32::MAX, i32::MIN, 1], Validity::from_iter([true, false, true]))]
+#[case::empty(vec![], Validity::NonNullable)]
+#[case::all_null(vec![i32::MAX, i32::MIN], Validity::AllInvalid)]
+fn test_sum_validity(
+    #[case] values: Vec<i32>,
+    #[case] validity: Validity,
+    #[values(false, true)] widen: bool,
+) -> VortexResult<()> {
+    let msp = if widen {
+        let dtype = DType::Primitive(PType::I64, validity.nullability());
+        WidenArray::try_new(PrimitiveArray::new(values, validity).into_array(), dtype)?.into_array()
+    } else {
+        PrimitiveArray::new(
+            values.into_iter().map(i64::from).collect::<Buffer<_>>(),
+            validity,
+        )
+        .into_array()
+    };
+    let array = DecimalByteParts::try_new(msp, DecimalDType::new(38, 2))?.into_array();
+    check(&array, Sum.bind(NumericalAggregateOpts::default()), true)
 }
 
 #[rstest]
