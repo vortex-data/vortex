@@ -16,6 +16,7 @@ mod macros;
 mod meta;
 mod ops;
 mod pack;
+mod rank;
 mod select;
 mod take;
 mod view;
@@ -31,6 +32,7 @@ pub use buf_mut::*;
 pub use index_iterator::BitIndexIterator;
 pub use meta::*;
 pub use pack::*;
+pub use rank::*;
 pub use take::*;
 pub use view::*;
 
