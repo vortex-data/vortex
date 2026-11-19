@@ -31,6 +31,7 @@ fn pack_readiness_tracks_changes_and_consumption(
     ];
     let mut bytes = VecDeque::new();
     let mut reads = Default::default();
+    let mut compiles = Vec::new();
     let mut exec = SESSION.create_execution_ctx();
     let mut touched = InletSet::new(2);
     let mut changed = InletSet::all(2);
@@ -39,6 +40,7 @@ fn pack_readiness_tracks_changes_and_consumption(
         inlets: &inlets,
         bytes: &mut bytes,
         reads: &mut reads,
+        compiles: &mut compiles,
         session: &SESSION,
         exec: &mut exec,
         touched: &mut touched,

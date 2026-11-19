@@ -23,7 +23,7 @@ pub(crate) type PipelineId = usize;
 /// The source end of a port: who takes its batches.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SourceEnd {
-    /// Nobody yet: a share's port waiting for the pipeline it was made for, or a port whose
+    /// Nobody yet: a port whose reading chain is not yet a pipeline, or a port whose
     /// source has gone.
     Unclaimed,
     /// The source of this pipeline, which reads the port as one of its inlets.
