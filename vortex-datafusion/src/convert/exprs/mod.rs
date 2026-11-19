@@ -7,6 +7,7 @@
 //! extension metadata, or inherit missing metadata from the operand they are compared with. This
 //! supplies the logical dtype that Vortex requires without adding implicit casts.
 
+mod projection_fields;
 use std::sync::Arc;
 
 use arrow_schema::DataType;
@@ -40,6 +41,7 @@ use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
+pub(crate) use projection_fields::push_down_projection_fields;
 use vortex::VortexSessionDefault;
 use vortex::aggregate_fn::NumericalAggregateOpts;
 use vortex::array::VortexSessionExecute;
@@ -171,6 +173,14 @@ pub trait ExpressionConverter: Send + Sync {
             scan_reference_schema: output_schema.clone(),
             leftover_projection: ProjectionExprs::from_indices(&output_indices, output_schema),
         })
+    }
+
+    /// Allow scans to refine the raw fallback returned by [`Self::split_projection`].
+    ///
+    /// Defaults to `false`. Opt in if scans may replace whole struct inputs with the plain fields
+    /// the remaining DataFusion projection needs.
+    fn allows_projection_field_pushdown(&self) -> bool {
+        false
     }
 
     /// Create a projection that reads only the required columns without pushing down
@@ -913,6 +923,10 @@ impl ExpressionConverter for DefaultExpressionConverter {
             Err(Unconverted::Unsupported) => Ok(None),
             Err(Unconverted::Failed(error)) => Err(error),
         }
+    }
+
+    fn allows_projection_field_pushdown(&self) -> bool {
+        true
     }
 }
 
