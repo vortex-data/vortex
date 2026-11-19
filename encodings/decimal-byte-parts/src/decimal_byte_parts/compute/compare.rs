@@ -563,6 +563,7 @@ mod tests {
             Buffer::from(values),
             DecimalDType::new(38, 2),
             Validity::NonNullable,
+            &mut SESSION.create_execution_ctx(),
         );
         assert_matches_decimal(&array, &baseline, constants)
     }
@@ -572,7 +573,12 @@ mod tests {
         let (values, constants) = i128_cases();
         let validity = Validity::from_iter((0..values.len()).map(|i| i % 3 != 1));
         let array = i128_parts(values.clone(), validity.clone());
-        let baseline = DecimalArray::new(Buffer::from(values), DecimalDType::new(38, 2), validity);
+        let baseline = DecimalArray::new(
+            Buffer::from(values),
+            DecimalDType::new(38, 2),
+            validity,
+            &mut SESSION.create_execution_ctx(),
+        );
         assert_matches_decimal(&array, &baseline, constants)
     }
 
@@ -600,7 +606,12 @@ mod tests {
         ]);
         let validity = Validity::from_iter((0..values.len()).map(|i| i % 4 != 2));
         let array = i256_parts(values.clone(), validity.clone());
-        let baseline = DecimalArray::new(Buffer::from(values), DecimalDType::new(76, 2), validity);
+        let baseline = DecimalArray::new(
+            Buffer::from(values),
+            DecimalDType::new(76, 2),
+            validity,
+            &mut SESSION.create_execution_ctx(),
+        );
         assert_matches_decimal(
             &array,
             &baseline,
@@ -654,7 +665,12 @@ mod tests {
             .iter()
             .map(|&(msp, upper, middle, lower)| value(msp, upper, middle, lower))
             .collect();
-        let baseline = DecimalArray::new(Buffer::from(values.clone()), dtype, validity);
+        let baseline = DecimalArray::new(
+            Buffer::from(values.clone()),
+            dtype,
+            validity,
+            &mut SESSION.create_execution_ctx(),
+        );
 
         let mut constants = values;
         constants.extend([

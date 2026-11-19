@@ -36,7 +36,7 @@ use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowMetadataPolicy;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ExecuteArrowExt;
-use vortex_arrow::nulls;
+use vortex_arrow::level_validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -123,7 +123,8 @@ impl ArrowExtVTable for Uuid {
             PType::U8,
             Validity::NonNullable,
         );
-        let validity = nulls(fsb.nulls(), ext_dtype.storage_dtype().is_nullable())?;
+        // The Arrow bitmap belongs to UUID rows. The Vortex storage uses those rows as lists.
+        let validity = level_validity(fsb.nulls(), ext_dtype.storage_dtype().is_nullable())?;
 
         let storage = FixedSizeListArray::new(
             u8_array.into_array(),
@@ -186,7 +187,10 @@ mod tests {
     use arrow_array::RecordBatchIterator;
     use arrow_array::StructArray as ArrowStructArray;
     use arrow_array::ffi_stream;
+    use arrow_array::new_null_array;
     use arrow_array::types::Int32Type;
+    use arrow_buffer::Buffer as ArrowBuffer;
+    use arrow_buffer::NullBuffer;
     use arrow_buffer::OffsetBuffer;
     use arrow_buffer::ScalarBuffer;
     use arrow_schema::Fields;
@@ -412,6 +416,68 @@ mod tests {
         let expected =
             FixedSizeBinaryArray::try_from_iter([[2u8; 16], [1u8; 16], [2u8; 16]].into_iter())?;
         assert_eq!(exported.to_data(), expected.to_data());
+        Ok(())
+    }
+
+    fn expected_uuids(bytes: [[u8; 16]; 2]) -> VortexResult<ExtensionArray> {
+        let storage = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter(bytes.into_iter().flatten()).into_array(),
+            16,
+            Validity::NonNullable,
+            2,
+        )?;
+        ExtensionArray::try_new(
+            uuid_dtype(false).as_extension().clone(),
+            storage.into_array(),
+        )
+    }
+
+    #[test]
+    fn test_import_non_nullable_uuid_dictionary_without_values() -> VortexResult<()> {
+        let vortex_session = uuid_session();
+        let field = Field::new("id", DataType::FixedSizeBinary(16), false)
+            .with_extension_type(ArrowUuid)
+            .with_data_type(DataType::Dictionary(
+                Box::new(DataType::Int32),
+                Box::new(DataType::FixedSizeBinary(16)),
+            ));
+        let array = new_null_array(field.data_type(), 2);
+
+        let expected = expected_uuids([[0u8; 16]; 2])?;
+        let imported = vortex_session.arrow().from_arrow_array(array, &field)?;
+        assert_arrays_eq!(
+            imported,
+            expected,
+            &mut vortex_session.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_import_non_nullable_uuid_field_under_null_struct_row() -> VortexResult<()> {
+        let vortex_session = uuid_session();
+        let field =
+            Field::new("id", DataType::FixedSizeBinary(16), false).with_extension_type(ArrowUuid);
+        let nulls = NullBuffer::from(vec![true, false]);
+        let bytes = [[1u8; 16], [7u8; 16]];
+        let uuids = FixedSizeBinaryArray::try_new(
+            16,
+            ArrowBuffer::from_iter(bytes.into_iter().flatten()),
+            Some(nulls.clone()),
+        )?;
+        let rows =
+            ArrowStructArray::try_new(vec![field].into(), vec![Arc::new(uuids)], Some(nulls))?;
+
+        let expected = expected_uuids(bytes)?;
+        let imported = vortex_session
+            .arrow()
+            .from_arrow_array(Arc::new(rows), true)?;
+        let imported = imported.as_::<Struct>();
+        assert_arrays_eq!(
+            imported.unmasked_field(0),
+            expected,
+            &mut vortex_session.create_execution_ctx()
+        );
         Ok(())
     }
 

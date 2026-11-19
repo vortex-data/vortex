@@ -24,6 +24,7 @@ use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdArray;
+use vortex::encodings::zstd::ZstdArraySlotsExt;
 use vortex::encodings::zstd::ZstdDataParts;
 use vortex::encodings::zstd::ZstdMetadata;
 use vortex::encodings::zstd::reconstruct_views;
@@ -213,7 +214,7 @@ impl CudaExecute for ZstdExecutor {
 
 async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
     let dtype = array.dtype().clone();
-    let validity = child_to_validity(array.as_ref().slots()[0].as_ref(), dtype.nullability());
+    let validity = child_to_validity(array.validity_child(), dtype.nullability());
     let ZstdDataParts {
         frames,
         metadata,

@@ -362,10 +362,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     }
 
     fn listview_validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[ListViewSlots::VALIDITY_CHILD].as_ref(),
-            self.nullability(),
-        )
+        child_to_validity(self.validity_child(), self.nullability())
     }
 
     fn offset_at(&self, index: usize, ctx: &mut ExecutionCtx) -> usize {
@@ -648,15 +645,9 @@ impl Array<ListView> {
     }
 
     pub fn into_data_parts(self) -> ListViewDataParts {
-        let elements = self.slots()[ListViewSlots::ELEMENTS]
-            .clone()
-            .vortex_expect("ListViewArray elements slot");
-        let offsets = self.slots()[ListViewSlots::OFFSETS]
-            .clone()
-            .vortex_expect("ListViewArray offsets slot");
-        let sizes = self.slots()[ListViewSlots::SIZES]
-            .clone()
-            .vortex_expect("ListViewArray sizes slot");
+        let elements = self.elements().clone();
+        let offsets = self.offsets().clone();
+        let sizes = self.sizes().clone();
         let validity = self.listview_validity();
         ListViewDataParts {
             elements_dtype: Arc::new(elements.dtype().clone()),

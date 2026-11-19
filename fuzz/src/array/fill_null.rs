@@ -170,6 +170,7 @@ fn fill_decimal_array(
                 array.buffer::<D>(),
                 decimal_dtype,
                 result_nullability.into(),
+                ctx,
             )
             .into_array(),
             Validity::AllInvalid => {
@@ -191,9 +192,14 @@ fn fill_decimal_array(
                     }
                 }
 
-                DecimalArray::try_new(new_data.freeze(), decimal_dtype, result_nullability.into())
-                    .vortex_expect("DecimalArray creation should succeed in fuzz test")
-                    .into_array()
+                DecimalArray::try_new(
+                    new_data.freeze(),
+                    decimal_dtype,
+                    result_nullability.into(),
+                    ctx,
+                )
+                .vortex_expect("DecimalArray creation should succeed in fuzz test")
+                .into_array()
             }
         }
     })

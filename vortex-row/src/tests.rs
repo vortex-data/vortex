@@ -811,6 +811,7 @@ fn decimal_null_slot_garbage_does_not_error() -> VortexResult<()> {
         buffer![484i32, i32::MAX, 91, i32::MIN],
         dtype,
         Validity::from_iter([true, false, true, false]),
+        &mut ctx,
     )
     .into_array();
 
@@ -841,6 +842,7 @@ fn decimal256_keys_preserve_order_and_physical_width_independence() -> VortexRes
                 values.into_iter().chain([i256::MIN]).collect(),
                 dtype,
                 Validity::from_iter([true, true, true, true, true, false]),
+                &mut ctx,
             )
             .into_array();
             let keys = collect_row_bytes(&convert_columns(&[array], &[field], &mut ctx)?);

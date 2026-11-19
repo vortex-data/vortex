@@ -15,23 +15,38 @@ version = { workspace = true }
 all-features = true
 
 [dependencies]
+async-lock = { workspace = true }
+async-trait = { workspace = true }
+bit-vec = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+once_cell = { workspace = true }
+parking_lot = { workspace = true }
+roaring = { workspace = true }
+rustc-hash = { workspace = true }
+sketches-ddsketch = { workspace = true }
+smallvec = { workspace = true }
+tracing = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
+vortex-expr = { workspace = true }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
-async-trait = { workspace = true }
-futures = { workspace = true }
-roaring = { workspace = true }
-tracing = { workspace = true }
-
 [dev-dependencies]
-parking_lot = { workspace = true }
+insta = { workspace = true }
 rstest = { workspace = true }
+tokio = { workspace = true, features = [
+    "rt",
+    "rt-multi-thread",
+    "macros",
+    "time",
+] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-io = { workspace = true, features = ["tokio"] }
 
 [lints]
 workspace = true

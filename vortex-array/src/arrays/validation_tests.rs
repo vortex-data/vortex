@@ -54,7 +54,12 @@ mod tests {
         let buffer = Buffer::from_iter([100i64, 200, 300]);
         let validity = Validity::from_iter([true, false]); // Length 2, buffer is length 3.
         let decimal_dtype = crate::dtype::DecimalDType::new(10, 2);
-        let result = DecimalArray::try_new(buffer, decimal_dtype, validity);
+        let result = DecimalArray::try_new(
+            buffer,
+            decimal_dtype,
+            validity,
+            &mut SESSION.create_execution_ctx(),
+        );
 
         let err = result.unwrap_err().to_string();
         assert!(

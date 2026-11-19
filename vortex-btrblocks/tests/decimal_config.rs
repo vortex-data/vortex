@@ -99,6 +99,7 @@ fn decimal_array(wide: bool) -> ArrayRef {
         (0..128i128).map(|i| base + i).collect::<Buffer<i128>>(),
         DecimalDType::new(38, 2),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     )
     .into_array()
 }
@@ -133,7 +134,13 @@ fn decimal_at_precision<T: NativeDecimalType>(
     validity: Validity,
 ) -> ArrayRef {
     let values = values.into_iter().collect::<Buffer<T>>();
-    DecimalArray::new(values, DecimalDType::new(precision, 2), validity).into_array()
+    DecimalArray::new(
+        values,
+        DecimalDType::new(precision, 2),
+        validity,
+        &mut SESSION.create_execution_ctx(),
+    )
+    .into_array()
 }
 
 /// Serializes `array` and decodes it again.
@@ -199,6 +206,7 @@ fn wide_decimal_parts_roundtrip(
     #[values(false, true)] nullable: bool,
     #[values(false, true)] compress_children: bool,
 ) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let validity = if nullable {
         Validity::from_iter((0..2048).map(|i| i % 7 != 0))
     } else {
@@ -218,7 +226,7 @@ fn wide_decimal_parts_roundtrip(
                 )
             })
             .collect::<Buffer<i256>>();
-        DecimalArray::new(values, DecimalDType::new(76, 2), validity)
+        DecimalArray::new(values, DecimalDType::new(76, 2), validity, &mut ctx)
     } else {
         let values = (1..=2048i128)
             .map(|i| {
@@ -226,7 +234,7 @@ fn wide_decimal_parts_roundtrip(
                 (msp << 70) + i * 131 + 17
             })
             .collect::<Buffer<i128>>();
-        DecimalArray::new(values, DecimalDType::new(38, 2), validity)
+        DecimalArray::new(values, DecimalDType::new(38, 2), validity, &mut ctx)
     }
     .into_array();
     let mut builder = BtrBlocksCompressorBuilder::empty().with_new_scheme(&DECIMAL_V2);
@@ -235,7 +243,6 @@ fn wide_decimal_parts_roundtrip(
             .with_new_scheme(&FOR_V1)
             .with_new_scheme(&BITPACKING_V1);
     }
-    let mut ctx = SESSION.create_execution_ctx();
     let compressed = builder.build().compress(&array, &mut ctx)?;
     let parts = compressed
         .as_opt::<DecimalByteParts>()

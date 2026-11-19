@@ -22,12 +22,12 @@ use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::metrics::ScanUsage;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::SplitBy;
-use vortex_layout::scan::v2::ScanCache;
 use vortex_layout::scan::v2::ScanFile;
-use vortex_layout::scan::v2::SegmentLocation;
 use vortex_layout::segments::SegmentSource;
 use vortex_layout::segments::UsageSegmentSource;
 use vortex_scan::DataSourceRef;
+use vortex_scan::prepare::ScanCache;
+use vortex_scan::prepare::SegmentLocation;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -66,18 +66,6 @@ pub struct VortexFile {
 struct FileScanCache {
     locations: Arc<[SegmentLocation]>,
     plans: ScanCache,
-}
-
-fn segment_locations(footer: &Footer) -> Arc<[SegmentLocation]> {
-    footer
-        .segment_specs_with_metadata()
-        .iter()
-        .map(|spec| SegmentLocation {
-            offset: spec.offset,
-            length: spec.length,
-            alignment: spec.alignment,
-        })
-        .collect()
 }
 
 fn layout_reader(
@@ -131,7 +119,7 @@ impl VortexFile {
     /// [`scan_file`](Self::scan_file) will share its segment locations and a [`ScanCache`].
     pub fn with_caching(self) -> Self {
         let scan_cache = FileScanCache {
-            locations: segment_locations(&self.footer),
+            locations: self.footer.segment_locations(),
             plans: ScanCache::default(),
         };
         Self {
@@ -286,7 +274,7 @@ impl VortexFile {
     pub fn scan_file(&self) -> ScanFile {
         let (locations, cache) = match &self.scan_cache {
             Some(cache) => (Arc::clone(&cache.locations), Some(cache.plans.clone())),
-            None => (segment_locations(&self.footer), None),
+            None => (self.footer.segment_locations(), None),
         };
         ScanFile {
             layout: Arc::clone(self.footer.layout()),

@@ -28,12 +28,14 @@ pub(super) async fn filter_decimal<D: NativeDecimalType + DeviceRepr + CubFilter
     let filtered_validity = validity.filter(&mask)?;
     let filtered_values = filter_sized::<D>(values, mask, ctx).await?;
 
-    Ok(Canonical::Decimal(DecimalArray::new_handle(
-        filtered_values,
-        D::DECIMAL_TYPE,
-        decimal_dtype,
-        filtered_validity,
-    )))
+    Ok(Canonical::Decimal(
+        DecimalArray::try_new_handle_from_trusted_values(
+            filtered_values,
+            D::DECIMAL_TYPE,
+            decimal_dtype,
+            filtered_validity,
+        )?,
+    ))
 }
 
 #[cfg(test)]

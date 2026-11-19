@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! An in-memory encoding that stores integer and decimal arrays at a narrower canonical width.
+//! Stores integer and decimal values in a narrower child array.
 //!
-//! A [`WidenArray`] keeps the logical dtype of an integer or decimal array, and stores its values
-//! and their validity in a child with the same nullability and a strictly narrower canonical width.
+//! A [`WidenArray`] exposes the original dtype. Its child stores the same values at a strictly
+//! narrower canonical width and supplies their validity. The wrapper and child have the same
+//! nullability.
 //!
 //! An integer child has a narrower integer type of the same signedness. For example, an `i64` array
 //! whose values are all between 0 and 200 can store `i16` values, but not `u8` values.
@@ -26,11 +27,12 @@
 //! Take executes its gather instead of leaving a lazy [`Dict`] under a `Widen`, because code such
 //! as the DuckDB exporter and the dict layout writer looks for a `Dict` at the root of an array.
 //!
-//! `Widen` has no wire form yet. The default [`ArraySession`] registers [`WidenPlugin`], which
-//! writes a decimal `Widen` with a [`Decimal`](crate::arrays::Decimal) leaf using the legacy
-//! `vortex.decimal` wire form. The leaf supplies the stored width and the containing format supplies
-//! the parent dtype. Serialization keeps the parent statistics and never executes the array.
-//! Integer arrays and non-decimal leaves require explicit preparation by the caller.
+//! The default [`ArraySession`] registers [`WidenPlugin`]. For a [`Decimal`](crate::arrays::Decimal)
+//! child, the plugin writes a legacy `vortex.decimal` node so older readers can read it. The node
+//! stores the child's buffer width, and the enclosing format supplies the parent's logical dtype.
+//! [`WidenArray::from_stored_decimal`] handles these nodes in both old and newly written files.
+//! Integer children and decimals stored in another encoding use `vortex.widen`. When edition checks
+//! are enabled, the target edition must allow the chosen wire ID.
 //!
 //! [`ArraySession`]: crate::session::ArraySession
 //! [`Dict`]: crate::arrays::Dict

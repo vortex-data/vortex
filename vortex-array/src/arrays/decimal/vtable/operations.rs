@@ -67,12 +67,8 @@ mod tests {
 
     #[test]
     fn test_slice() {
-        let array = DecimalArray::new(
-            buffer![100i16, 200, 300, 400],
-            DecimalDType::new(3, 2),
-            Validity::NonNullable,
-        )
-        .into_array();
+        let array =
+            DecimalArray::from_iter([100i16, 200, 300, 400], DecimalDType::new(3, 2)).into_array();
 
         let sliced = array.slice(1..3).unwrap().optimize_ctx(&SESSION).unwrap();
         assert_eq!(sliced.len(), 2);
@@ -87,6 +83,7 @@ mod tests {
             buffer![100i16, 200, 300, 400],
             DecimalDType::new(3, 2),
             Validity::from_iter([false, true, false, true]),
+            &mut SESSION.create_execution_ctx(),
         )
         .into_array();
 
@@ -101,11 +98,7 @@ mod tests {
 
     #[test]
     fn test_scalar_at() {
-        let array = DecimalArray::new(
-            buffer![100i16],
-            DecimalDType::new(3, 2),
-            Validity::NonNullable,
-        );
+        let array = DecimalArray::from_iter([100i16], DecimalDType::new(3, 2));
 
         assert_eq!(
             array
@@ -121,12 +114,13 @@ mod tests {
 
     #[test]
     fn test_scalar_at_ignores_value_outside_precision_in_null_slot() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let array = DecimalArray::new(
             buffer![5i8, 100i8],
             DecimalDType::new(2, 0),
             Validity::from_iter([true, false]),
+            &mut ctx,
         );
-        let mut ctx = SESSION.create_execution_ctx();
 
         assert_eq!(
             array.execute_scalar(0, &mut ctx)?,

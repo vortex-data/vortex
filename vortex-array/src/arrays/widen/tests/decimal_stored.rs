@@ -84,6 +84,7 @@ fn canonical_reference(values: &[Option<i128>], decimal_dtype: DecimalDType) -> 
         values_type,
         decimal_dtype,
         validity_of(values),
+        &mut SESSION.create_execution_ctx(),
     )
 }
 

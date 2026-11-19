@@ -328,12 +328,14 @@ mod tests {
                 Buffer::from_iter([min, garbage, max, min, garbage]),
                 decimal_dtype,
                 Validity::from_iter([true, false, true, true, false]),
+                &mut SESSION.create_execution_ctx(),
             )
         } else {
             DecimalArray::new(
                 Buffer::from_iter([min, max, max, min, max]),
                 decimal_dtype,
                 Validity::NonNullable,
+                &mut SESSION.create_execution_ctx(),
             )
         }
     }
@@ -345,6 +347,7 @@ mod tests {
             buffer![1i128, 2i128, 3i128, 4i128, 5i128],
             DecimalDType::new(19, 2),
             Validity::NonNullable,
+            &mut ctx,
         );
         let arrow = decimal_vortex.into_array().execute_arrow(
             Some(&Field::new("", DataType::Decimal128(19, 2), false)),
@@ -436,6 +439,7 @@ mod tests {
             buffer![-99i8, 0, 99],
             DecimalDType::new(2, 1),
             Validity::NonNullable,
+            &mut ctx,
         );
 
         let arrow = widen(values, 4)?.execute_arrow(None, &mut ctx)?;
@@ -454,6 +458,7 @@ mod tests {
             buffer![10i32, i32::MAX, 30, 40, 50],
             DecimalDType::new(9, 2),
             Validity::from_iter([true, false, true, true, true]),
+            &mut ctx,
         );
 
         let sliced = widen(values, 18)?.slice(1..4)?;
@@ -475,6 +480,7 @@ mod tests {
             buffer![1i32, 2, 3],
             DecimalDType::new(9, 2),
             Validity::NonNullable,
+            &mut ctx,
         );
         let array = StructArray::from_fields(&[("price", widen(values, 18)?)])?.into_array();
 
@@ -515,6 +521,7 @@ mod tests {
             buffer![i128::from(i64::MAX) + 1, 0],
             DecimalDType::new(19, 2),
             validity,
+            &mut ctx,
         );
         let field = Field::new("", DataType::Decimal64(18, 2), values.dtype().is_nullable());
 

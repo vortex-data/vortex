@@ -72,7 +72,13 @@ pub fn assemble_decimal(
     };
 
     let canonical_type = decimal_dtype.canonical_values_type();
-    Ok(DecimalArray::try_new_handle(values, canonical_type, decimal_dtype, validity)?.into_array())
+    Ok(DecimalArray::try_new_handle_from_trusted_values(
+        values,
+        canonical_type,
+        decimal_dtype,
+        validity,
+    )?
+    .into_array())
 }
 
 /// Return the values of a lone MSP at the canonical width of `decimal_dtype`.
