@@ -4,22 +4,33 @@
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+use futures::TryStreamExt;
 use vortex::VortexSessionDefault;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
+use vortex_array::assert_arrays_eq;
+use vortex_array::expr::col;
+use vortex_array::expr::gt_eq;
+use vortex_array::expr::lit;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_file::DeserializeStep;
 use vortex_file::Footer;
 use vortex_file::WriteOptionsSessionExt;
+use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
 use crate::Manifest;
 use crate::ManifestEntry;
+use crate::TableScan;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| VortexSession::default().with_tokio());
 
@@ -29,7 +40,7 @@ async fn data_file(rows: std::ops::Range<u64>) -> VortexResult<ByteBuffer> {
         .write_options()
         .write(
             &mut buf,
-            PrimitiveArray::from_iter(rows)
+            StructArray::from_fields(&[("x", PrimitiveArray::from_iter(rows).into_array())])?
                 .into_array()
                 .to_array_stream(),
         )
@@ -115,5 +126,64 @@ async fn a_manifest_with_the_wrong_column_types_is_an_error() -> VortexResult<()
             .await
             .is_err()
     );
+    Ok(())
+}
+
+/// Three files holding `x` = 0..1000, 1000..1500 and 1500..4000, and a way to open them.
+async fn table() -> VortexResult<(
+    Manifest,
+    impl Fn(&str) -> VortexResult<Arc<dyn VortexReadAt>>,
+)> {
+    let files = [
+        data_file(0..1000).await?,
+        data_file(1000..1500).await?,
+        data_file(1500..4000).await?,
+    ];
+    let manifest = manifest(&files).await?;
+    let open = move |path: &str| -> VortexResult<Arc<dyn VortexReadAt>> {
+        let i: usize = path
+            .trim_start_matches("data/part-")
+            .trim_end_matches(".vortex")
+            .parse()
+            .map_err(|_| vortex_err!("no file at {path}"))?;
+        Ok(Arc::new(files[i].clone()))
+    };
+    Ok((manifest, open))
+}
+
+async fn collect(scan: &TableScan, files: Vec<crate::PlannedFile>) -> VortexResult<ArrayRef> {
+    let dtype = files[0].file.dtype().clone();
+    let chunks: Vec<ArrayRef> = scan.run(files)?.try_collect().await?;
+    Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
+}
+
+fn xs(rows: std::ops::Range<u64>) -> VortexResult<ArrayRef> {
+    Ok(
+        StructArray::from_fields(&[("x", PrimitiveArray::from_iter(rows).into_array())])?
+            .into_array(),
+    )
+}
+
+#[tokio::test]
+async fn a_scan_returns_every_row_in_table_order() -> VortexResult<()> {
+    let (manifest, open) = table().await?;
+    let scan = TableScan::new(SESSION.clone());
+    let files = scan.plan(&manifest, open).await?;
+    assert_eq!(files.len(), 3);
+    let actual = collect(&scan, files).await?;
+    assert_arrays_eq!(actual, xs(0..4000)?, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_filter_prunes_files_on_their_statistics() -> VortexResult<()> {
+    let (manifest, open) = table().await?;
+    let scan = TableScan::new(SESSION.clone()).with_filter(gt_eq(col("x"), lit(1600u64)));
+    let files = scan.plan(&manifest, open).await?;
+    // Only the third file can hold x >= 1600; it starts at table row 1500.
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].row_offset, 1500);
+    let actual = collect(&scan, files).await?;
+    assert_arrays_eq!(actual, xs(1600..4000)?, &mut SESSION.create_execution_ctx());
     Ok(())
 }
