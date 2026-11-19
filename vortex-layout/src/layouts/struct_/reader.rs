@@ -55,7 +55,7 @@ use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-enum Item {
+pub(crate) enum Item {
     Field(FieldName),
     Validity,
 }
@@ -399,7 +399,7 @@ fn make_struct_item_annotator(
     }
 }
 
-fn step_into_struct_field(
+pub(crate) fn step_into_struct_field(
     expr: BoundExpression,
     item: &Item,
     field_dtype: DType,
