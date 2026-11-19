@@ -643,7 +643,11 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
 
 /// Kernel entry point. Parses the packed plan, runs all input stages to
 /// populate shared memory, then runs the output stage to produce results.
-template <typename T>
+///
+/// With `LOOP_RANGES`, each block loops over several ranges so that it decodes
+/// the input stages once for all of them. It is a separate kernel because the
+/// loop slows down plans that don't need it.
+template <typename T, bool LOOP_RANGES>
 __device__ void
 dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__restrict packed_plan) {
     extern __shared__ char smem[];
@@ -658,13 +662,28 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
     }
 
     Stage output_stage = parse_stage(cursor);
-    const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * ELEMENTS_PER_BLOCK;
-    const uint64_t block_end = min(block_start + ELEMENTS_PER_BLOCK, array_len);
-    execute_output_stage<T>(output,
-                            output_stage,
-                            smem,
-                            block_start,
-                            static_cast<uint32_t>(block_end - block_start));
+    if constexpr (!LOOP_RANGES) {
+        const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * ELEMENTS_PER_BLOCK;
+        const uint64_t block_end = min(block_start + ELEMENTS_PER_BLOCK, array_len);
+        execute_output_stage<T>(output,
+                                output_stage,
+                                smem,
+                                block_start,
+                                static_cast<uint32_t>(block_end - block_start));
+    } else {
+        const uint64_t grid_stride = static_cast<uint64_t>(gridDim.x) * ELEMENTS_PER_BLOCK;
+        // The loop bounds are uniform across the block, so every thread reaches the same barriers.
+        for (uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * ELEMENTS_PER_BLOCK;
+             block_start < array_len;
+             block_start += grid_stride) {
+            const uint64_t block_end = min(block_start + ELEMENTS_PER_BLOCK, array_len);
+            execute_output_stage<T>(output,
+                                    output_stage,
+                                    smem,
+                                    block_start,
+                                    static_cast<uint32_t>(block_end - block_start));
+        }
+    }
 }
 
 // Kernels are instantiated only for unsigned integer types. Signed and
@@ -679,7 +698,13 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
         dynamic_dispatch_##suffix(Type *__restrict output,                                                   \
                                   uint64_t array_len,                                                        \
                                   const uint8_t *__restrict packed_plan) {                                   \
-        dynamic_dispatch<Type>(output, array_len, packed_plan);                                              \
+        dynamic_dispatch<Type, false>(output, array_len, packed_plan);                                       \
+    }                                                                                                        \
+    extern "C" __global__ void __launch_bounds__(BLOCK_SIZE, 32)                                             \
+        dynamic_dispatch_##suffix##_loop_ranges(Type *__restrict output,                                     \
+                                                uint64_t array_len,                                          \
+                                                const uint8_t *__restrict packed_plan) {                     \
+        dynamic_dispatch<Type, true>(output, array_len, packed_plan);                                        \
     }
 
 FOR_EACH_UNSIGNED_INT(GENERATE_KERNEL)
