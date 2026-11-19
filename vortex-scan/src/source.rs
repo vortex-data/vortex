@@ -29,6 +29,7 @@ pub use vortex_io::segments::SegmentId;
 pub use vortex_io::segments::SegmentSource;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::DataSource;
 use crate::DataSourceScan;
@@ -70,16 +71,31 @@ pub struct ScanInput {
 /// lower its data to plans. Every scan of the source shares the input's [`ScanCache`], so scans
 /// that overlap in time plan the input and register its reader once.
 ///
-/// A scan has one partition covering the request's row range. Its
-/// [`execute`](Partition::execute) runs the planner-driven scan with a [`ScanDriver`] on the
-/// session's runtime and applies the request's limit.
+/// An unordered scan without a limit over a known row range is split into contiguous row ranges
+/// of near-equal length, one partition each, so engines that parallelise by partition spread a
+/// single input across their workers. The split count is the available parallelism, or
+/// [`with_max_partitions`](Self::with_max_partitions), bounded so that no partition covers fewer
+/// than 65,536 rows. Ordered and limited scans, and scans whose row range is
+/// unknown, have one partition covering the request's row range. Partition `i` has
+/// [`index`](Partition::index) `i`, which the request's `partition_range` and
+/// `partition_selection` select by.
+///
+/// A partition's [`execute`](Partition::execute) runs the planner-driven scan of its rows with a
+/// [`ScanDriver`] on the session's runtime and applies the request's limit.
 #[derive(Clone)]
 pub struct PlannedDataSource {
     session: VortexSession,
     input: ScanInput,
     row_count: Precision<u64>,
     byte_size: Precision<u64>,
+    max_partitions: Option<NonZeroUsize>,
 }
+
+/// The fewest rows a split partition covers.
+///
+/// Each partition prepares, plans and drives its own scan, so splitting a small range costs more
+/// in per-partition setup than it gains in parallelism.
+const MIN_PARTITION_ROWS: u64 = 65_536;
 
 impl PlannedDataSource {
     /// A source scanning `input` with `session`. Without a cache, the input gets a fresh one that
@@ -91,7 +107,14 @@ impl PlannedDataSource {
             input,
             row_count: Precision::Absent,
             byte_size: Precision::Absent,
+            max_partitions: None,
         }
+    }
+
+    /// Caps the number of partitions a scan is split into, in place of the available parallelism.
+    pub fn with_max_partitions(mut self, max_partitions: NonZeroUsize) -> Self {
+        self.max_partitions = Some(max_partitions);
+        self
     }
 
     /// Sets the exact row count of the input, which scans and partitions report.
@@ -114,6 +137,37 @@ impl PlannedDataSource {
     /// The session scans of this source run with.
     pub fn session(&self) -> &VortexSession {
         &self.session
+    }
+
+    /// The row ranges an unordered, unlimited scan of `row_range` splits into, or `None` when the
+    /// scan keeps one partition.
+    fn split_range(
+        &self,
+        row_range: Option<&Range<u64>>,
+        ordered: bool,
+        limit: Option<u64>,
+    ) -> Option<Vec<Range<u64>>> {
+        if ordered || limit.is_some() {
+            return None;
+        }
+        let rows = row_range
+            .cloned()
+            .or_else(|| self.row_count.as_exact().map(|count| 0..count))?;
+        let max_partitions = self.max_partitions.map_or_else(
+            || get_available_parallelism().unwrap_or(1),
+            NonZeroUsize::get,
+        );
+        let len = rows.end - rows.start;
+        let count = len
+            .div_ceil(MIN_PARTITION_ROWS)
+            .min(max_partitions as u64)
+            .max(1);
+        Some(
+            (0..count)
+                .map(|i| rows.start + len * i / count..rows.start + len * (i + 1) / count)
+                .filter(|range| !range.is_empty())
+                .collect(),
+        )
     }
 }
 
@@ -145,26 +199,45 @@ impl DataSource for PlannedDataSource {
             (Some(rows), Some(count)) => Some(rows.start.min(count)..rows.end.min(count)),
             (rows, _) => rows,
         };
-        // The scan's one partition has index 0.
-        let selected = request
-            .partition_range
-            .as_ref()
-            .is_none_or(|range| range.contains(&0))
-            && request.partition_selection.row_count_in_range(&(0..1)) == 1;
-        let empty = request.limit == Some(0) || row_range.as_ref().is_some_and(Range::is_empty);
-        let partition = (selected && !empty).then(|| PlannedPartition {
-            session: self.session.clone(),
-            input: self.input.clone(),
-            row_count: self.row_count,
-            projection,
-            filter,
-            row_range,
-            selection: request.selection,
-            ordered: request.ordered,
-            limit: request.limit,
-            split_concurrency: request.split_concurrency,
-        });
-        Ok(Box::new(PlannedScan { dtype, partition }))
+        if request.limit == Some(0) || row_range.as_ref().is_some_and(Range::is_empty) {
+            return Ok(Box::new(PlannedScan {
+                dtype,
+                partitions: Vec::new(),
+            }));
+        }
+        let ranges = match self.split_range(row_range.as_ref(), request.ordered, request.limit) {
+            Some(ranges) => ranges.into_iter().map(Some).collect(),
+            None => vec![row_range],
+        };
+        let partitions = ranges
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| {
+                let index = *index as u64;
+                request
+                    .partition_range
+                    .as_ref()
+                    .is_none_or(|range| range.contains(&index))
+                    && request
+                        .partition_selection
+                        .row_count_in_range(&(index..index + 1))
+                        == 1
+            })
+            .map(|(index, row_range)| PlannedPartition {
+                session: self.session.clone(),
+                input: self.input.clone(),
+                index,
+                row_count: self.row_count,
+                projection: projection.clone(),
+                filter: filter.clone(),
+                row_range,
+                selection: request.selection.clone(),
+                ordered: request.ordered,
+                limit: request.limit,
+                split_concurrency: request.split_concurrency,
+            })
+            .collect();
+        Ok(Box::new(PlannedScan { dtype, partitions }))
     }
 
     async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
@@ -174,7 +247,7 @@ impl DataSource for PlannedDataSource {
 
 struct PlannedScan {
     dtype: DType,
-    partition: Option<PlannedPartition>,
+    partitions: Vec<PlannedPartition>,
 }
 
 impl DataSourceScan for PlannedScan {
@@ -183,22 +256,24 @@ impl DataSourceScan for PlannedScan {
     }
 
     fn partition_count(&self) -> Precision<usize> {
-        Precision::exact(usize::from(self.partition.is_some()))
+        Precision::exact(self.partitions.len())
     }
 
     fn partitions(self: Box<Self>) -> PartitionStream {
         stream::iter(
-            self.partition
+            self.partitions
+                .into_iter()
                 .map(|partition| Ok(Box::new(partition) as PartitionRef)),
         )
         .boxed()
     }
 }
 
-/// The rows of a [`PlannedDataSource`] that one scan reads.
+/// The rows of a [`PlannedDataSource`] that one partition of a scan reads.
 struct PlannedPartition {
     session: VortexSession,
     input: ScanInput,
+    index: usize,
     row_count: Precision<u64>,
     projection: BoundExpression,
     filter: Option<BoundExpression>,
@@ -228,7 +303,7 @@ impl Partition for PlannedPartition {
     }
 
     fn index(&self) -> usize {
-        0
+        self.index
     }
 
     fn row_count(&self) -> Precision<u64> {
