@@ -350,16 +350,19 @@ fn restricted_write_preserves_widen_structure(
     Ok(())
 }
 
-#[test]
-fn restricted_write_executes_original_when_rewritten_root_is_forbidden() -> VortexResult<()> {
+#[rstest]
+#[case::run_end_forbidden(ArrayVTable::id(&Primitive))]
+#[case::ends_forbidden(ArrayVTable::id(&RunEnd))]
+fn restricted_write_executes_original_when_rewrite_is_forbidden(
+    #[case] allowed_id: ArrayId,
+) -> VortexResult<()> {
     let widened = widen_over(
         narrow_decimal_runs()?,
         DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable),
     )?;
 
     let decimal_id = ArrayVTable::id(&Decimal);
-    let (serialized, read_ctx) =
-        serialize_restricted(&widened, [decimal_id, ArrayVTable::id(&Primitive)])?;
+    let (serialized, read_ctx) = serialize_restricted(&widened, [decimal_id, allowed_id])?;
 
     assert_eq!(
         read_ctx.resolve(serialized.encoding_id()),
@@ -368,6 +371,26 @@ fn restricted_write_executes_original_when_rewritten_root_is_forbidden() -> Vort
     // Executing the original expands the narrow runs first, so Widen can write the narrow leaf.
     assert_eq!(serialized.buffer(0)?.len(), widened.len() * size_of::<i32>());
 
+    let actual = serialized.decode(widened.dtype(), widened.len(), &read_ctx, &SESSION)?;
+    assert_arrays_eq!(actual, widened, &mut SESSION.create_execution_ctx());
+
+    Ok(())
+}
+
+#[test]
+fn restricted_write_executes_lazy_child_of_rejected_widen() -> VortexResult<()> {
+    let values = DecimalArray::from_iter([1i32, 2, 3, 4], DecimalDType::new(9, 2)).into_array();
+    let slice = SliceArray::new(values, 1..3).into_array();
+    let widened = widen_over(
+        slice,
+        DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable),
+    )?;
+
+    let decimal_id = ArrayVTable::id(&Decimal);
+    let (serialized, read_ctx) = serialize_restricted(&widened, [decimal_id])?;
+
+    assert_eq!(read_ctx.resolve(serialized.encoding_id()), Some(decimal_id));
+    assert_eq!(serialized.buffer(0)?.len(), 2 * size_of::<i32>());
     let actual = serialized.decode(widened.dtype(), widened.len(), &read_ctx, &SESSION)?;
     assert_arrays_eq!(actual, widened, &mut SESSION.create_execution_ctx());
 
