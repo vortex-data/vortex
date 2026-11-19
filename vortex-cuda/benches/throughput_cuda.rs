@@ -7,6 +7,7 @@
 //! Cases: 100% input only, 100% output only, and 50/50 mixed.
 
 #![expect(clippy::unwrap_used)]
+#![expect(clippy::expect_used)]
 
 mod bench_config;
 // Unused here but suppresses dead_code warning for the shared module.
@@ -22,6 +23,7 @@ use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
 use vortex_cuda_driver::DevicePtr;
 use vortex_cuda_driver::DevicePtrMut;
+use vortex_cuda_driver::SyncOnDrop;
 use vortex_cuda_driver::sys;
 use vortex_cuda_driver::sys::CUevent_flags;
 use vortex_cuda_macros::cuda_available;
@@ -57,9 +59,13 @@ fn transfer_mix_timed(
         .device_alloc::<u32>((output_bytes / size_of::<u32>()).max(1))
         .unwrap();
 
-    let (src_ptr, record_src) = dtod_src.device_ptr(&in_stream);
-    let (dst_ptr, record_dst) = dtod_dst.device_ptr_mut(&in_stream);
-    let (memset_ptr, record_memset) = memset_dst.device_ptr_mut(&out_stream);
+    let (src_ptr, record_src) = dtod_src.device_ptr(&in_stream).expect("access copy source");
+    let (dst_ptr, record_dst) = dtod_dst
+        .device_ptr_mut(&in_stream)
+        .expect("access copy destination");
+    let (memset_ptr, record_memset) = memset_dst
+        .device_ptr_mut(&out_stream)
+        .expect("access memset destination");
 
     in_stream.synchronize().unwrap();
     out_stream.synchronize().unwrap();
@@ -69,20 +75,35 @@ fn transfer_mix_timed(
         .unwrap();
     out_stream.wait(&start).unwrap();
 
-    unsafe {
-        if input_bytes > 0 {
-            sys::cuMemcpyDtoDAsync_v2(dst_ptr, src_ptr, input_bytes, cu_in)
-                .result()
-                .unwrap();
+    let copy = if input_bytes > 0 {
+        unsafe { sys::cuMemcpyDtoDAsync_v2(dst_ptr, src_ptr, input_bytes, cu_in) }.result()
+    } else {
+        Ok(())
+    };
+    let memset = if output_bytes > 0 {
+        let output_u32s = output_bytes / size_of::<u32>();
+        unsafe { sys::cuMemsetD32Async(memset_ptr, 0xA5A5_A5A5_u32, output_u32s, cu_out) }.result()
+    } else {
+        Ok(())
+    };
+    let completion = SyncOnDrop::finish_all([record_src, record_dst, record_memset]);
+    copy.inspect_err(|_| {
+        if let Err(error) = &memset {
+            tracing::error!(%error, "Failed to enqueue device memset after copy failure");
         }
-        if output_bytes > 0 {
-            let output_u32s = output_bytes / size_of::<u32>();
-            sys::cuMemsetD32Async(memset_ptr, 0xA5A5_A5A5_u32, output_u32s, cu_out)
-                .result()
-                .unwrap();
+        if let Err(error) = &completion {
+            tracing::error!(%error, "Failed to track transfer buffer access after copy failure");
         }
-    }
-    drop((record_src, record_dst, record_memset));
+    })
+    .expect("enqueue device copy");
+    memset
+        .inspect_err(|_| {
+            if let Err(error) = &completion {
+                tracing::error!(%error, "Failed to track transfer buffer access after memset failure");
+            }
+        })
+        .expect("enqueue device memset");
+    completion.expect("track transfer buffer access");
 
     let end_in = in_stream
         .record_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))

@@ -2,8 +2,17 @@
    tokens, and the system's docs rules for the frame and Sphinx's markup. Spacing, colour, radii,
    and motion come from the tokens. */
 
-/* Geist Mono, the tokens' first mono face: Google Fonts' Latin subset, one variable file for every
-   weight (23 KB). layout.html preloads it. Body text keeps the platform's sans. */
+/* Geist and Geist Mono, the tokens' first faces: Google Fonts' Latin subsets, as vortex.dev ships
+   them, each one variable file for every weight (29 KB and 23 KB). layout.html preloads both, as
+   the site does, so the docs and the site draw the same text. */
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/geist-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 @font-face {
   font-family: "Geist Mono";
   font-style: normal;
@@ -13,15 +22,10 @@
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
-/* Images for one theme: the theme the reader chose (ThemeSwitch), else the OS's. */
+/* Images for one theme: the theme on the root, which the bootstrap resolves from the reader's
+   choice (ThemeSwitch). */
 [data-theme="dark"] .only-light,
 [data-theme="light"] .only-dark { display: none !important; }
-@media (prefers-color-scheme: dark) {
-  [data-theme="system"] .only-light { display: none !important; }
-}
-@media (prefers-color-scheme: light) {
-  [data-theme="system"] .only-dark { display: none !important; }
-}
 
 /* The landing page: the wordmark in place of the title, then cards. */
 .page-index .vx-docs-main > section > h1 {
@@ -70,6 +74,3 @@ body.page-404 { display: flex; flex-direction: column; min-height: 100dvh; }
 :root[data-theme-choice] [data-mark-mode="static"] > .vx-ascii-mark-still,
 :root[data-theme-choice] [data-mark-mode="error"] > .vx-ascii-mark-still { visibility: visible; }
 [data-theme="light"] .vx-ascii-mark-still { filter: invert(1); }
-@media (prefers-color-scheme: light) {
-  [data-theme="system"] .vx-ascii-mark-still { filter: invert(1); }
-}

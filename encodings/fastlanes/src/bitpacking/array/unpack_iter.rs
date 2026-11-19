@@ -6,10 +6,6 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use fastlanes::BitPacking;
-use lending_iterator::gat;
-use lending_iterator::prelude::Item;
-#[gat(Item)]
-use lending_iterator::prelude::LendingIterator;
 use vortex_array::dtype::PhysicalPType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -56,10 +52,6 @@ impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStr
 /// ```
 /// use std::mem::MaybeUninit;
 ///
-/// use lending_iterator::gat;
-/// use lending_iterator::prelude::Item;
-/// #[gat(Item)]
-/// use lending_iterator::prelude::LendingIterator;
 /// use vortex_array::IntoArray;
 /// use vortex_session::VortexSession;
 /// use vortex_array::VortexSessionExecute;
@@ -80,7 +72,7 @@ impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStr
 ///
 /// {
 ///     let mut chunks_iter = unpacked_chunks.full_chunks();
-///     while let Some(chunk) = chunks_iter.next() {
+///     while let Some(chunk) = chunks_iter.next_chunk() {
 ///         // handle full bitpacked chunks of 1024 elements
 ///     }
 /// }
@@ -386,16 +378,11 @@ impl<'a, T: BitPacked> BitUnpackIterator<'a, T> {
             idx: if first_chunk_is_sliced { 1 } else { 0 },
         }
     }
-}
 
-#[gat]
-impl<'a, T: BitPacked + 'a> LendingIterator for BitUnpackIterator<'a, T> {
-    type Item<'next>
-    where
-        Self: 'next,
-    = &'next mut [T; CHUNK_SIZE];
-
-    fn next(&'_ mut self) -> Option<Item<'_, Self>> {
+    /// Unpack the next full chunk into the scratch buffer and return it.
+    ///
+    /// The returned slice borrows the iterator, so it must be dropped before the next call.
+    pub fn next_chunk(&mut self) -> Option<&mut [T; CHUNK_SIZE]> {
         if self.idx >= self.num_chunks {
             return None;
         }
@@ -409,7 +396,7 @@ impl<'a, T: BitPacked + 'a> LendingIterator for BitUnpackIterator<'a, T> {
             BitPacking::unchecked_unpack(self.bit_width, chunk, dst);
         }
         self.idx += 1;
-        // SAFETY: The buffer has the appropriate lifetime, the iterator signature doesn't account for it
+        // SAFETY: The buffer was fully initialized by the unpack above.
         Some(unsafe { mem::transmute::<&mut [MaybeUninit<T>; 1024], &mut [T; 1024]>(self.buffer) })
     }
 }

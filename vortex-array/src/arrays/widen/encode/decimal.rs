@@ -1,19 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Decimal encoding and conversion of legacy storage into canonical decimal leaves.
+//! Chooses a narrower [`DecimalArray`] child when encoding or reading stored decimals.
 //!
-//! The legacy `vortex.decimal` format stores integer width independently of logical precision.
-//! DecimalByteParts assembly can also produce such buffers, but we now require canonical
-//! `vortex.decimal` leaves to have a width determined and fixed by their precision.
+//! In memory, a decimal array's precision determines its buffer width. The `vortex.decimal` wire
+//! format records those two properties separately. If a stored buffer is narrower than the logical
+//! dtype requires, the reader can give the child a lower precision and keep the original dtype on
+//! a [`WidenArray`]. [`WidenPlugin`] still writes this format for decimal leaves.
 //!
-//! In this new world, we can retain narrow storage as a [`WidenArray`] over a canonical child.
-//! Current [`WidenPlugin`] writes still use the legacy format, so this conversion can also apply
-//! to newly written data (which will happen until `Widen` is added to the `core` edition).
-//!
-//! We unify child selection in both encoding and legacy conversion because it has non-trivial
-//! logic: width alone does not determine a valid child dtype. For example, unscaled 127 fits `i8`
-//! but needs precision 3, whose canonical width is `i16`.
+//! The encoder and reader use the same rule to choose the child dtype. They use the range of
+//! valid values and the decimal scale to pick a precision, then derive the width from that
+//! precision. For example, an unscaled value of 127 needs precision 3, which uses an `i16` buffer
+//! even though 127 fits in `i8`.
 //!
 //! [`WidenPlugin`]: crate::arrays::widen::WidenPlugin
 
@@ -89,9 +87,9 @@ impl WidenArray {
 
     /// Converts stored decimals into a canonical leaf or a [`WidenArray`] over one.
     ///
-    /// Legacy decimal readers and DecimalByteParts assembly can give us a buffer whose width does
-    /// not match the logical precision. We need a canonical leaf without changing the logical
-    /// dtype or widening narrow storage unnecessarily.
+    /// Legacy decimal readers can give us a buffer whose width does not match the logical
+    /// precision. We need a canonical leaf without changing the logical dtype or widening narrow
+    /// storage unnecessarily.
     ///
     /// If the width is already canonical, we trust the declared precision and reuse the buffer
     /// without reading its values. This also lets device buffers stay on the device. Otherwise,
@@ -99,9 +97,8 @@ impl WidenArray {
     /// We reuse buffers at the selected width and convert other widths without rescaling.
     /// A narrowing copy writes zeros in null slots. A reused buffer keeps its null slots.
     ///
-    /// Scanning and conversion use CPU kernels, so noncanonical buffers are brought to the host.
-    /// Their validity **must** already be executable on the host because these kernels need a mask
-    /// to exclude null payloads.
+    /// The scan and the conversion run on the CPU, so noncanonical values and their validity
+    /// **must** be in host memory. This function does not copy device memory to the host.
     ///
     /// Readers and decoders may already know the range. For noncanonical storage, `known_range`
     /// lets us reuse it:
@@ -119,8 +116,8 @@ impl WidenArray {
     /// # Errors
     ///
     /// Rejects malformed buffer layout or validity length. For noncanonical storage, also rejects
-    /// failed host copies, reversed ranges, and range bounds outside the logical precision. A
-    /// narrowing copy rejects valid values outside the selected precision.
+    /// values or validity in device memory, reversed ranges, and range bounds outside the logical
+    /// precision. A narrowing copy rejects valid values outside the selected precision.
     pub fn from_stored_decimal(
         parts: DecimalDataParts,
         known_range: Precision<RangeInclusive<i256>>,
@@ -145,12 +142,23 @@ impl WidenArray {
         }
 
         if values_type == decimal_dtype.canonical_values_type() {
-            let array = DecimalArray::try_new_handle(values, values_type, decimal_dtype, validity)?;
+            // A canonical wire node can reuse its buffer without reading the values.
+            let array = DecimalArray::try_new_handle_from_trusted_values(
+                values,
+                values_type,
+                decimal_dtype,
+                validity,
+            )?;
 
             return Ok(array.into_array());
         }
 
-        let values = values.try_into_host_sync()?;
+        // The scan below reads host memory, so device memory would panic there.
+        vortex_ensure!(
+            values.is_on_host() && validity.as_array().is_none_or(ArrayRef::is_host),
+            "Decimal storage at a noncanonical width must be in host memory, got device memory"
+        );
+        let values = values.unwrap_host();
         let mask = validity.execute_mask(len, ctx)?;
         match_each_decimal_value_type!(values_type, |T| {
             let values = Buffer::<T>::from_byte_buffer(values);
@@ -323,7 +331,12 @@ fn build_canonical_decimal<F: NativeDecimalType>(
         copy_to_canonical_width(values.as_slice(), mask, decimal_dtype)?
     };
 
-    DecimalArray::try_new_handle(buffer, values_type, decimal_dtype, validity.clone())
+    DecimalArray::try_new_handle_from_trusted_values(
+        buffer,
+        values_type,
+        decimal_dtype,
+        validity.clone(),
+    )
 }
 
 /// Represents a cached bound using the child dtype.

@@ -185,6 +185,18 @@ public final class TestMinimal {
     }
 
     @Test
+    public void testScanWithSplitConcurrencyReadsEveryRow() throws Exception {
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        DataSource ds = DataSource.open(session, writePath);
+
+        ScanOptions options =
+                ScanOptions.builder().splitConcurrency(1).ordered(true).build();
+        List<Person> people = readAll(ds, options, allocator, TestMinimal::readFullBatch);
+        assertEquals(MINIMAL_DATA, people);
+    }
+
+    @Test
     public void testSelectionIncludesRows() throws Exception {
         BufferAllocator allocator = ArrowAllocation.rootAllocator();
         Session session = Session.create();

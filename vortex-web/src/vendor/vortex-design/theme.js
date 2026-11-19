@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 // A copy of the Vortex design system's components/lib/theme.js. Edit the system, then copy it again.
-
-// The theme choice every surface shares (DECISIONS 37, 43): light, dark or system. The default is Dark.
+// The theme choice every surface shares: light, dark or system. The default is Dark.
 // It lives in a vx-theme cookie on vortex.dev, so a choice made on the blog holds on docs, bench and
 // the Explorer too, and in localStorage["vx-theme"] as a fallback for hosts outside vortex.dev. It
 // lands on <html data-theme>. The choice itself also lands on <html data-theme-choice>, so the switch
@@ -14,6 +13,7 @@
 const KEY = "vx-theme";
 const CHOICES = ["light", "dark", "system"];
 const PLAIN_PATH = /^\/[\w.~\/-]*$/;
+const PLAIN_KEY = /^[\w.-]+$/;
 const DEFAULT = "dark";
 const YEAR = 31536000;
 const COOKIE = /(?:^|;\s*)vx-theme=([^;]*)/;
@@ -31,20 +31,34 @@ export function isThemeable(path, themeable) {
  * The no-flash snippet for a site where only `themeable` paths follow the choice (every path when
  * it is left out). Paste it into an inline classic <script> in <head>, before the stylesheets, so
  * the theme lands on <html> before first paint. A module script runs too late for this. It repeats
- * readChoice, isThemeable and resolveTheme in plain ES5, because it cannot import them. The paths
- * go in as JSON, and only plain paths are allowed, so no value becomes code.
+ * readChoice, isThemeable, resolveTheme and themeCookie in plain ES5, because it cannot import them.
+ * The paths and keys go in as JSON, and only plain paths and key names are allowed, so no value
+ * becomes code.
+ *
+ * A choice found only in storage, saved before the cookie existed, is copied into the cookie once,
+ * so the other surfaces see it. `legacy` names older storage keys (bench's "bench-theme"): a valid
+ * value there is the choice when vx-theme holds none, even if storage then refuses to copy it to
+ * vx-theme, and the old key goes.
  */
-export function themeBootstrap({ themeable } = {}) {
+export function themeBootstrap({ themeable, legacy } = {}) {
   let list = "null";
+  let old = "null";
   if (themeable) {
     for (const p of themeable) if (typeof p !== "string" || !PLAIN_PATH.test(p)) throw new Error(`themeable takes a plain path such as "/blog", not ${JSON.stringify(p)}`);
     list = JSON.stringify(themeable.map(trim));
   }
+  if (legacy) {
+    for (const k of legacy) if (typeof k !== "string" || !PLAIN_KEY.test(k)) throw new Error(`legacy takes a plain key such as "bench-theme", not ${JSON.stringify(k)}`);
+    old = JSON.stringify(legacy);
+  }
   return (
-    `(function(){var r=document.documentElement,c="${DEFAULT}",v=null,t=${list},ok=!t;` +
+    `(function(){var r=document.documentElement,c="${DEFAULT}",v=null,f=false,t=${list},L=${old},ok=!t;` +
+    'function q(x){return x==="light"||x==="dark"||x==="system"}' +
     'if(t){var p=location.pathname;for(var i=0;i<t.length;i++)if(p===t[i]||p.indexOf(t[i]==="/"?"/":t[i]+"/")===0)ok=true;}' +
-    'try{var k=/(?:^|;\\s*)vx-theme=(light|dark|system)(?:;|$)/.exec(document.cookie);if(k)v=k[1];}catch(e){}' +
-    'if(!v)try{var s=localStorage.getItem("vx-theme");if(s==="light"||s==="dark"||s==="system")v=s;}catch(e){}' +
+    'try{var k=/(?:^|;\\s*)vx-theme=(light|dark|system)(?:;|$)/.exec(document.cookie);if(k){v=k[1];f=true;}}catch(e){}' +
+    'if(!v)try{var s=localStorage.getItem("vx-theme");if(q(s))v=s;}catch(e){}' +
+    'if(L)for(var j=0;j<L.length;j++)try{var o=localStorage.getItem(L[j]);if(o!==null){if(!v&&q(o)){v=o;try{localStorage.setItem("vx-theme",o)}catch(e){}}localStorage.removeItem(L[j]);}}catch(e){}' +
+    `if(v&&!f)try{var h=location.hostname;document.cookie="vx-theme="+v+"; path=/; max-age=${YEAR}; samesite=lax"+(h==="vortex.dev"||/\\.vortex\\.dev$/.test(h)?"; domain=vortex.dev":"")+(location.protocol==="https:"?"; secure":"");}catch(e){}` +
     'if(v)c=v;' +
     'r.dataset.themeChoice=c;var m=c;if(m==="system")m=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";' +
     'r.dataset.theme=ok?m:"dark";})();'

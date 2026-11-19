@@ -104,16 +104,33 @@ pub(super) fn apply_patch_predicate<F: NativePType>(
     let offset = patches.offset();
 
     match_each_integer_ptype!(indices.ptype(), |I| {
-        for (&index, &value) in indices.as_slice::<I>().iter().zip(values) {
-            let index: usize = index.as_();
-            // Patch indices are absolute; a slice keeps only those within its range.
-            if let Some(local) = index.checked_sub(offset)
-                && local < bits.len()
-            {
-                bits.set_to(local, predicate(value));
-            }
-        }
+        set_patched_bits(
+            &mut bits,
+            indices.as_slice::<I>(),
+            values,
+            offset,
+            predicate,
+        )
     });
 
     Ok(BoolArray::new(bits.freeze(), validity).into_array())
+}
+
+/// Sets each patched row of `bits` that lies within its range to `predicate` of its patch value.
+fn set_patched_bits<I: AsPrimitive<usize>, F: NativePType>(
+    bits: &mut BitBufferMut,
+    indices: &[I],
+    values: &[F],
+    offset: usize,
+    predicate: impl Fn(F) -> bool,
+) {
+    for (&index, &value) in indices.iter().zip(values) {
+        let index: usize = index.as_();
+        // Patch indices are absolute; a slice keeps only those within its range.
+        if let Some(local) = index.checked_sub(offset)
+            && local < bits.len()
+        {
+            bits.set_to(local, predicate(value));
+        }
+    }
 }

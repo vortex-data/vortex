@@ -4,6 +4,8 @@
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::task::Poll;
 
 use parking_lot::Mutex;
@@ -64,8 +66,23 @@ pub struct TestLayoutReader {
     fail_first_filter: bool,
     fail_first_projection: bool,
     fail_projection: bool,
+    pruning_rejection: Option<(bool, bool)>,
     projection_masks: Option<Arc<Mutex<Vec<usize>>>>,
     filter_exprs: Option<Arc<Mutex<Vec<BoundExpression>>>>,
+    in_flight: Option<Arc<InFlight>>,
+}
+
+/// Counts projections running at once, and the most that ever were.
+#[derive(Debug, Default)]
+pub struct InFlight {
+    now: AtomicUsize,
+    peak: AtomicUsize,
+}
+
+impl InFlight {
+    pub fn peak(&self) -> usize {
+        self.peak.load(Ordering::SeqCst)
+    }
 }
 
 impl TestLayoutReader {
@@ -80,8 +97,10 @@ impl TestLayoutReader {
             fail_first_filter: false,
             fail_first_projection: false,
             fail_projection: false,
+            pruning_rejection: None,
             projection_masks: None,
             filter_exprs: None,
+            in_flight: None,
         }
     }
 
@@ -111,6 +130,13 @@ impl TestLayoutReader {
         self
     }
 
+    /// Records into `in_flight` how many projections are running at once. Each projection yields
+    /// once before finishing, so others that the scan has started get to run alongside it.
+    pub fn with_in_flight(mut self, in_flight: Arc<InFlight>) -> Self {
+        self.in_flight = Some(in_flight);
+        self
+    }
+
     pub fn with_filter_exprs(mut self, filter_exprs: Arc<Mutex<Vec<BoundExpression>>>) -> Self {
         self.filter_exprs = Some(filter_exprs);
         self
@@ -123,6 +149,11 @@ impl TestLayoutReader {
 
     pub fn with_fail_first_projection(mut self) -> Self {
         self.fail_first_projection = true;
+        self
+    }
+
+    pub fn with_pruning_rejection(mut self, whole_file: bool, statistics: bool) -> Self {
+        self.pruning_rejection = Some((whole_file, statistics));
         self
     }
 
@@ -169,7 +200,23 @@ impl LayoutReader for TestLayoutReader {
         _expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        Ok(MaskFuture::ready(mask))
+        Ok(MaskFuture::ready(if self.pruning_rejection.is_some() {
+            Mask::new_false(mask.len())
+        } else {
+            mask
+        }))
+    }
+
+    fn can_prune_file(&self, _expr: &BoundExpression) -> VortexResult<bool> {
+        Ok(self
+            .pruning_rejection
+            .is_some_and(|(whole_file, _)| whole_file))
+    }
+
+    fn split_pruning_is_statistics(&self, _expr: &BoundExpression) -> VortexResult<bool> {
+        Ok(self
+            .pruning_rejection
+            .is_none_or(|(_, statistics)| statistics))
     }
 
     fn filter_evaluation(
@@ -213,8 +260,15 @@ impl LayoutReader for TestLayoutReader {
         let base = self.base;
         let projection_masks = self.projection_masks.clone();
         let fail = self.fail_projection || (self.fail_first_projection && row_range.start == 0);
+        let in_flight = self.in_flight.clone();
 
         Ok(Box::pin(async move {
+            if let Some(in_flight) = &in_flight {
+                let now = in_flight.now.fetch_add(1, Ordering::SeqCst) + 1;
+                in_flight.peak.fetch_max(now, Ordering::SeqCst);
+                tokio::task::yield_now().await;
+                in_flight.now.fetch_sub(1, Ordering::SeqCst);
+            }
             let mask = mask.await?;
             if let Some(projection_masks) = projection_masks {
                 projection_masks.lock().push(mask.true_count());

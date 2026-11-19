@@ -93,8 +93,11 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
 
   return (
     <div className="x-app is-page">
+      <a className="vx-skip-link" href="#main">
+        Skip to content
+      </a>
       <Header />
-      <main className="x-open has-dot-field">
+      <main id="main" tabIndex={-1} className="x-open has-dot-field">
         <div className="vx-dot-field" aria-hidden="true" />
         <div className="x-open-body">
           <div className="x-open-head">

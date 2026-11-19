@@ -11,13 +11,13 @@
 //!   read never takes a lock, it can never deadlock, and because it never holds a lock across the
 //!   returned reference there is no reader/writer contention.
 //!
-//! * **Writes** ([`VortexSession::with_some`], [`SessionExt::get`] on a missing default) are
-//!   copy-on-write: the map is cloned, the change applied to the private copy, and the new map
-//!   atomically published. The value is constructed *before* the map is updated, so no user code
-//!   (in particular, no `Default::default` implementation) ever runs while a lock is held. This is
-//!   the key difference from the previous `DashMap`-backed session, where
-//!   `entry().or_insert_with(f)` ran `f` while holding the shard's write lock and could deadlock if
-//!   `f` re-entered the session.
+//! * **Writes** ([`VortexSession::with_some`], and [`SessionExt::get`] or
+//!   [`SessionExt::get_or_insert_with`] on a missing variable) are copy-on-write: the map is cloned,
+//!   the change applied to the private copy, and the new map atomically published. The value is
+//!   constructed *before* the map is updated, so no user code (in particular, no `Default::default`
+//!   implementation or initializer closure) ever runs while a lock is held. This is the key
+//!   difference from the previous `DashMap`-backed session, where `entry().or_insert_with(f)` ran
+//!   `f` while holding the shard's write lock and could deadlock if `f` re-entered the session.
 //!
 //! A modified session is produced by mutating it **in place**: [`VortexSession::with_some`] — and
 //! the configuration `with_*` helpers built on it — apply their change copy-on-write to the shared
@@ -176,23 +176,13 @@ impl VortexSession {
         Self(SharedSessionVars::default())
     }
 
-    /// Inserts `V::default()` if no variable of type `V` is present yet, copy-on-write.
-    ///
-    /// The default is constructed *before* the map is updated, so `V::default()` never runs under a
-    /// lock and is never run more than once — it may therefore freely re-enter the session (read or
-    /// even register other variables) without risk of deadlock. If a concurrent writer published a
-    /// value first, that value is kept and the prebuilt default is simply dropped.
-    fn insert_default<V: VortexSessionVar + Default>(&self) {
-        let default: Arc<dyn VortexSessionVar> = Arc::new(V::default());
-        self.0.insert_if_absent(TypeId::of::<V>(), default);
-    }
-
     /// Inserts a session variable of type `V`, replacing any existing variable of that type.
     ///
     /// This is the copy-on-write insert primitive behind [`with_some`](Self::with_some) and
     /// [`get_mut`](SessionExt::get_mut); it is not public, so a variable can only enter the type-map
-    /// through those (or through a default inserted by [`get`](SessionExt::get)). The mutation is
-    /// applied in place to the shared backing store, so it is visible through every clone.
+    /// through those (or through a value inserted by [`get`](SessionExt::get) or
+    /// [`get_or_insert_with`](SessionExt::get_or_insert_with)). The mutation is applied in place to
+    /// the shared backing store, so it is visible through every clone.
     pub fn register<V: VortexSessionVar>(&self, var: V) {
         self.0.insert(TypeId::of::<V>(), Arc::new(var));
     }
@@ -250,11 +240,24 @@ impl SessionExt for VortexSession {
     }
 
     fn get<V: VortexSessionVar + Default>(&self) -> SessionGuard<'_, V> {
-        if self.get_opt::<V>().is_none() {
-            self.insert_default::<V>();
+        self.get_or_insert_with(V::default)
+    }
+
+    fn get_or_insert_with<V: VortexSessionVar>(
+        &self,
+        init: impl FnOnce() -> V,
+    ) -> SessionGuard<'_, V> {
+        if let Some(var) = self.get_opt::<V>() {
+            return var;
         }
+
+        // NB: `init` runs before the map is updated, never inside it, because it may re-enter the
+        // session. If a concurrent writer published a value first, that value is kept.
+        let var: Arc<dyn VortexSessionVar> = Arc::new(init());
+        self.0.insert_if_absent(TypeId::of::<V>(), var);
+
         self.get_opt::<V>()
-            .vortex_expect("variable was just inserted")
+            .vortex_expect("a variable of type `V` is present after `insert_if_absent`")
     }
 
     fn get_opt<V: VortexSessionVar>(&self) -> Option<SessionGuard<'_, V>> {
@@ -365,6 +368,19 @@ mod tests {
         assert_eq!(session.get::<Counter>().count, 0);
         // The default was published, so it is now observable.
         assert!(session.get_opt::<Counter>().is_some());
+    }
+
+    #[test]
+    fn get_or_insert_with_inserts_only_when_absent() {
+        let session = VortexSession::empty();
+
+        assert_eq!(session.get_or_insert_with(|| Counter { count: 3 }).count, 3);
+        assert_eq!(
+            session
+                .get_or_insert_with::<Counter>(|| panic!("the variable is already present"))
+                .count,
+            3
+        );
     }
 
     #[test]

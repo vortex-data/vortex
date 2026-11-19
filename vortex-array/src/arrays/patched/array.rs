@@ -98,7 +98,7 @@ impl PatchedData {
     }
 }
 
-pub trait PatchedArrayExt: PatchedArraySlotsExt {
+pub trait PatchedArrayExt: TypedArrayRef<Patched> {
     #[inline]
     fn n_lanes(&self) -> usize {
         self.n_lanes

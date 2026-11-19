@@ -2,28 +2,34 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
+use crate::arrays::Filter;
 use crate::arrays::Masked;
+use crate::arrays::Slice;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
-pub(crate) const RULES: ParentRuleSet<Bool> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&BoolMaskedValidityRule),
-    ParentRuleSet::lift(&CastReduceAdaptor(Bool)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Bool)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Bool)),
-    ParentRuleSet::lift(&FilterReduceAdaptor(Bool)),
-]);
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Masked, Bool, const { &BoolMaskedValidityRule });
+    kernels.register_reduce_parent_rule(Cast, Bool, const { &CastReduceAdaptor(Bool) });
+    kernels.register_reduce_parent_rule(MaskFn, Bool, const { &MaskReduceAdaptor(Bool) });
+    kernels.register_reduce_parent_rule(Slice, Bool, const { &SliceReduceAdaptor(Bool) });
+    kernels.register_reduce_parent_rule(Filter, Bool, const { &FilterReduceAdaptor(Bool) });
+}
 
 /// Rule to push down validity masking from MaskedArray parent into BoolArray child.
 ///

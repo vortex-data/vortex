@@ -1,35 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Buffer-level filter dispatch across cached, SIMD, and scalar strategies.
+//! Buffer-level filtering by a [`MaskValues`].
 //!
-//! Selection is an ordered ladder, not a set of independent choices. The first matching row wins:
-//!
-//! | Priority | Condition                                           | Out-of-place   | In-place      |
-//! | -------- | --------------------------------------------------- | -------------- | ------------- |
-//! | 1        | cached slices: one run, or average run length >= 8  | copy runs      | move runs     |
-//! | 2        | cached indices and density <= 0.50                  | gather indices | move indices  |
-//! | 3        | an eligible architecture kernel                     | SIMD compress  | SIMD compress |
-//! | 4        | density reaches [`byte_compress_density_threshold`] | byte compress  | bitmap walk   |
-//! | 5        | otherwise                                           | bitmap walk    | bitmap walk   |
-//!
-//! In-place dispatch is attempted only for a uniquely owned buffer with density >= 0.50. SIMD
-//! eligibility is summarized in [`simd_compress`]. All-true, all-false, and contiguous masks are
-//! handled before buffer dispatch.
-
-use std::mem::size_of;
+//! The strategies live in [`vortex_buffer::filter`], and [`MaskValues::selection`] chooses the
+//! mask representation that they use. All-true, all-false, and contiguous masks are handled
+//! before buffer filtering.
 
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::BufferMut;
+use vortex_buffer::filter;
 use vortex_mask::MaskValues;
 
-use crate::arrays::filter::execute::byte_compress;
-use crate::arrays::filter::execute::simd_compress;
-use crate::arrays::filter::execute::slice;
-
-const CACHED_INDICES_MAX_DENSITY: f64 = 0.5;
-const IN_PLACE_MIN_DENSITY: f64 = 0.5;
-const MIN_SLICES_AVERAGE_RUN_LENGTH: usize = 8;
+use crate::arrays::filter::execute::contiguous_values_range;
 
 /// Filter a [`Buffer<T>`] by [`MaskValues`], returning a new buffer.
 ///
@@ -39,102 +23,26 @@ pub(crate) fn filter_buffer<T: Copy>(
     mask: &MaskValues,
     allocator: &BufferAllocatorRef,
 ) -> Buffer<T> {
-    assert_eq!(buffer.len(), mask.len());
-
-    let buffer = if mask.density() >= IN_PLACE_MIN_DENSITY {
-        match buffer.try_into_mut() {
-            Ok(mut buffer_mut) => {
-                let new_len = filter_slice_in_place(buffer_mut.as_mut_slice(), mask);
-                buffer_mut.truncate(new_len);
-                return buffer_mut.freeze();
-            }
-            Err(buffer) => buffer,
-        }
-    } else {
-        buffer
-    };
-
-    filter_slice(buffer.as_slice(), mask, allocator)
+    filter::filter_buffer(buffer, mask.selection(), allocator)
 }
 
-fn filter_slice<T: Copy>(
+/// Appends the values of `values` that `mask` keeps to the end of `out`.
+///
+/// A contiguous selection is copied as one slice. Other selections use
+/// [`filter::append_filtered`].
+pub(crate) fn append_filtered_slice<T: Copy>(
     values: &[T],
     mask: &MaskValues,
-    allocator: &BufferAllocatorRef,
-) -> Buffer<T> {
-    if let Some(slices) = useful_cached_slices(mask) {
-        return slice::filter_slice_by_slices(values, slices, mask.true_count(), allocator);
+    out: &mut BufferMut<T>,
+) {
+    assert_eq!(values.len(), mask.len());
+
+    if let Some(range) = contiguous_values_range(mask) {
+        out.extend_from_slice(&values[range]);
+        return;
     }
 
-    if let Some(indices) = useful_cached_indices(mask) {
-        return slice::filter_slice_by_indices(values, indices, allocator);
-    }
-
-    if let Some(filtered) = simd_compress::filter_slice_by_bitmap(values, mask, allocator) {
-        return filtered;
-    }
-
-    if mask.density() >= byte_compress_density_threshold::<T>() {
-        byte_compress::filter_buffer(values, mask, allocator)
-    } else {
-        slice::filter_slice_by_bitmap(values, mask, allocator)
-    }
-}
-
-fn filter_slice_in_place<T: Copy>(values: &mut [T], mask: &MaskValues) -> usize {
-    if let Some(slices) = useful_cached_slices(mask) {
-        return slice::filter_slice_mut_by_slices(values, slices);
-    }
-
-    if let Some(indices) = useful_cached_indices(mask) {
-        return slice::filter_slice_mut_by_indices(values, indices);
-    }
-
-    if let Some(new_len) = simd_compress::filter_slice_mut_by_bitmap(values, mask) {
-        return new_len;
-    }
-
-    slice::filter_slice_mut_by_bitmap(values, mask)
-}
-
-pub(super) fn useful_cached_indices(mask: &MaskValues) -> Option<&[usize]> {
-    if mask.density() <= CACHED_INDICES_MAX_DENSITY {
-        mask.cached_indices()
-    } else {
-        None
-    }
-}
-
-pub(super) fn useful_cached_slices(mask: &MaskValues) -> Option<&[(usize, usize)]> {
-    mask.cached_slices().filter(|slices| {
-        slices.len() == 1 || mask.true_count() / slices.len() >= MIN_SLICES_AVERAGE_RUN_LENGTH
-    })
-}
-
-pub(super) fn byte_compress_density_threshold<T>() -> f64 {
-    let width = size_of::<T>();
-
-    // A density at or above the table entry selects byte compress after the higher-priority
-    // strategies have declined the mask. These crossovers are benchmarked in
-    // `benches/filter_fixed_width.rs`.
-    //
-    // | Target  | 1 byte | 2 bytes | 4 bytes | 8 bytes | other |
-    // | ------- | -----: | ------: | ------: | ------: | ----: |
-    // | aarch64 |   0.90 |    0.90 |    0.90 |    0.75 |  0.90 |
-    // | other   |   0.00 |    0.50 |    0.50 |    0.75 | 0.875 |
-    if cfg!(target_arch = "aarch64") {
-        return match width {
-            8 => 0.75,
-            _ => 0.9,
-        };
-    }
-
-    match width {
-        1 => 0.0,
-        2 | 4 => 0.5,
-        8 => 0.75,
-        _ => 0.875,
-    }
+    filter::append_filtered(values, mask.selection(), out);
 }
 
 /// Materialize sparse indices when enough sibling arrays will reuse the same mask.
@@ -148,7 +56,7 @@ pub(crate) fn prepare_mask_for_reuse(mask: &MaskValues, consumers: usize) {
         return;
     }
 
-    if super::contiguous_values_range(mask).is_some() {
+    if contiguous_values_range(mask).is_some() {
         return;
     }
 
@@ -173,6 +81,39 @@ mod tests {
             Mask::Values(v) => v,
             _ => panic!("expected Mask::Values"),
         }
+    }
+
+    #[test]
+    fn test_append_filtered_slice_preserves_prefix() {
+        let values = buffer![10u32, 20, 30, 40, 50];
+        let mask = Mask::from_iter([true, false, true, false, true]);
+        let mut output = BufferMut::from_iter([99u32]);
+        append_filtered_slice(&values, mask_values(&mask), &mut output);
+        assert_eq!(output.as_slice(), &[99, 10, 30, 50]);
+    }
+
+    #[test]
+    fn test_append_filtered_slice_unaligned_dense_mask() {
+        let values = buffer![0u128, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let bits = BitBuffer::from_iter([
+            false, false, false, true, true, true, true, false, true, true, true, true, true,
+        ]);
+        let mask = Mask::from_buffer(bits.slice(3..13));
+        let mut output = BufferMut::from_iter([99u128]);
+        append_filtered_slice(&values, mask_values(&mask), &mut output);
+        assert_eq!(output.as_slice(), &[99, 0, 1, 2, 3, 5, 6, 7, 8, 9]);
+    }
+
+    #[test]
+    fn test_append_filtered_slice_wide_values_keep_slack() {
+        let values = (0u128..10).map(|value| [value; 5]).collect::<Vec<_>>();
+        let mask = Mask::from_iter([
+            true, true, false, true, true, true, false, true, true, false,
+        ]);
+        let mut output = BufferMut::with_capacity(0);
+        append_filtered_slice(&values, mask_values(&mask), &mut output);
+        let expected = [0u128, 1, 3, 4, 5, 7, 8].map(|value| [value; 5]);
+        assert_eq!(output.as_slice(), &expected);
     }
 
     #[test]

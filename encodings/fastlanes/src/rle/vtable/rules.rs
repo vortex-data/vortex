@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::optimizer::kernels::ArrayKernelsExt;
+use vortex_array::scalar_fn::fns::cast::Cast;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
+use vortex_session::VortexSession;
 
 use crate::RLE;
 
-pub(crate) const RULES: ParentRuleSet<RLE> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&CastReduceAdaptor(RLE))]);
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Cast, RLE, const { &CastReduceAdaptor(RLE) });
+}

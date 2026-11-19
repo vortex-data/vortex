@@ -11,12 +11,21 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ExecutionCtx;
+use crate::array::TypedArrayRef;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::Ref;
 use crate::builders::VarBinViewBuilder;
 
 const DEFAULT_COMPACTION_THRESHOLD: f64 = 0.5;
 const MIN_RETAINED_BYTES_PER_ROW_TO_CHECK_COMPACTION: u64 = 128;
+
+/// The maximum number of data buffers that compaction keeps as they are, well below the
+/// `u16::MAX` buffers that the serializer accepts for an array and all its descendants.
+const MAX_RETAINED_DATA_BUFFERS: usize = u16::MAX as usize / 2;
+
+/// A utilization threshold that no buffer can reach, thus compaction rewrites every buffer.
+const REWRITE_ALL_THRESHOLD: f64 = f64::INFINITY;
 
 impl VarBinViewArray {
     /// Returns a compacted copy of the input array, where all wasted space has been cleaned up. This
@@ -33,6 +42,12 @@ impl VarBinViewArray {
             return Ok(self.clone());
         }
 
+        // Many buffers fail to serialize even when each one is well used. Copy all referenced
+        // bytes into new buffers, which the builder fills before it starts the next one.
+        if self.data_buffers().len() > MAX_RETAINED_DATA_BUFFERS {
+            return self.compact_with_threshold(REWRITE_ALL_THRESHOLD, ctx);
+        }
+
         self.compact_with_threshold(DEFAULT_COMPACTION_THRESHOLD, ctx)
     }
 
@@ -45,7 +60,7 @@ impl VarBinViewArray {
         }
 
         // These will fail to write, so in most cases we want to compact this.
-        if nbuffers > u16::MAX as usize {
+        if nbuffers > MAX_RETAINED_DATA_BUFFERS {
             return Ok(true);
         }
 
@@ -63,6 +78,41 @@ impl VarBinViewArray {
         Ok((bytes_referenced as f64 / buffer_total_bytes as f64) < DEFAULT_COMPACTION_THRESHOLD)
     }
 
+    /// Returns a compacted copy of the input array using selective buffer compaction.
+    ///
+    /// This method analyzes each buffer's utilization and applies one of three strategies:
+    /// - **KeepFull** (zero-copy): Well-utilized buffers are kept unchanged
+    /// - **Slice** (zero-copy): Buffers with contiguous ranges of used data are sliced to that range
+    /// - **Rewrite**: Poorly-utilized buffers have their data copied to new compact buffers
+    ///
+    /// By preserving or slicing well-utilized buffers, compaction becomes zero-copy in many cases.
+    ///
+    /// # Arguments
+    ///
+    /// * `buffer_utilization_threshold` - Threshold in range [0, 1]. Buffers with utilization
+    ///   below this value will be compacted. Use 0.0 for no compaction, 1.0 for aggressive
+    ///   compaction of any buffer with wasted space.
+    pub fn compact_with_threshold(
+        &self,
+        buffer_utilization_threshold: f64, // [0, 1]
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<VarBinViewArray> {
+        let mut builder = VarBinViewBuilder::with_compaction_in(
+            self.dtype().clone(),
+            self.len(),
+            buffer_utilization_threshold,
+            ctx.allocator().clone(),
+        );
+        builder.append_varbinview_array(self.as_view(), ctx)?;
+        Ok(builder.finish_into_varbinview())
+    }
+}
+
+/// Read-only compaction statistics over a `VarBinView` array.
+///
+/// These live on a trait rather than on [`VarBinViewArray`] so that a borrowed
+/// [`ArrayView`](crate::array::ArrayView) can ask for them without cloning the array behind it.
+pub(crate) trait VarBinViewCompactExt: TypedArrayRef<VarBinView> {
     /// Iterates over all valid, non-inlined views, calling the provided
     /// closure for each one.
     #[allow(clippy::inline_always)]
@@ -99,10 +149,7 @@ impl VarBinViewArray {
         Ok(total)
     }
 
-    pub(crate) fn buffer_utilizations(
-        &self,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Vec<BufferUtilization>> {
+    fn buffer_utilizations(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vec<BufferUtilization>> {
         let mut utilizations: Vec<BufferUtilization> = self
             .data_buffers()
             .iter()
@@ -118,36 +165,9 @@ impl VarBinViewArray {
 
         Ok(utilizations)
     }
-
-    /// Returns a compacted copy of the input array using selective buffer compaction.
-    ///
-    /// This method analyzes each buffer's utilization and applies one of three strategies:
-    /// - **KeepFull** (zero-copy): Well-utilized buffers are kept unchanged
-    /// - **Slice** (zero-copy): Buffers with contiguous ranges of used data are sliced to that range
-    /// - **Rewrite**: Poorly-utilized buffers have their data copied to new compact buffers
-    ///
-    /// By preserving or slicing well-utilized buffers, compaction becomes zero-copy in many cases.
-    ///
-    /// # Arguments
-    ///
-    /// * `buffer_utilization_threshold` - Threshold in range [0, 1]. Buffers with utilization
-    ///   below this value will be compacted. Use 0.0 for no compaction, 1.0 for aggressive
-    ///   compaction of any buffer with wasted space.
-    pub fn compact_with_threshold(
-        &self,
-        buffer_utilization_threshold: f64, // [0, 1]
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<VarBinViewArray> {
-        let mut builder = VarBinViewBuilder::with_compaction_in(
-            self.dtype().clone(),
-            self.len(),
-            buffer_utilization_threshold,
-            ctx.allocator().clone(),
-        );
-        builder.append_varbinview_array(self, ctx)?;
-        Ok(builder.finish_into_varbinview())
-    }
 }
+
+impl<T: TypedArrayRef<VarBinView>> VarBinViewCompactExt for T {}
 
 pub(crate) struct BufferUtilization {
     len: u32,
@@ -170,6 +190,10 @@ impl BufferUtilization {
         self.used += size;
         self.min_offset = self.min_offset.min(offset);
         self.max_offset_end = self.max_offset_end.max(offset + size);
+    }
+
+    pub(crate) fn used(&self) -> u32 {
+        self.used
     }
 
     pub fn overall_utilization(&self) -> f64 {
@@ -200,16 +224,22 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::MAX_RETAINED_DATA_BUFFERS;
+    use super::VarBinViewCompactExt;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
+    use crate::arrays::varbinview::BinaryView;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
     #[test]
@@ -522,5 +552,56 @@ mod tests {
             .map(|u| u.overall_utilization())
             .collect();
         assert_eq!(utils, expected_utils);
+    }
+
+    /// Each 16-byte value sits in its own fully referenced data buffer.
+    fn one_buffer_per_value(nbuffers: usize) -> VortexResult<VarBinViewArray> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values: Vec<[u8; 16]> = (0u32..)
+            .take(nbuffers)
+            .map(|i| {
+                let mut value = [b'a'; 16];
+                value[..4].copy_from_slice(&i.to_le_bytes());
+                value
+            })
+            .collect();
+
+        VarBinViewArray::try_new(
+            values
+                .iter()
+                .zip(0u32..)
+                .map(|(value, i)| BinaryView::make_view(value, i, 0))
+                .collect(),
+            values.iter().map(ByteBuffer::copy_from).collect(),
+            DType::Binary(Nullability::NonNullable),
+            Validity::NonNullable,
+            &mut ctx,
+        )
+    }
+
+    #[test]
+    fn test_compact_keeps_full_buffers_at_limit() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let original = one_buffer_per_value(MAX_RETAINED_DATA_BUFFERS)?;
+
+        let compacted = original.compact_buffers(&mut ctx)?;
+
+        assert_eq!(compacted.data_buffers().len(), MAX_RETAINED_DATA_BUFFERS);
+        assert_arrays_eq!(compacted, original, &mut ctx);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_compact_too_many_buffers_fits_serializer_limit() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let original = one_buffer_per_value(u16::MAX as usize + 1)?;
+
+        let compacted = original.compact_buffers(&mut ctx)?;
+
+        assert!(compacted.data_buffers().len() < u16::MAX as usize);
+        assert_arrays_eq!(compacted, original, &mut ctx);
+
+        Ok(())
     }
 }

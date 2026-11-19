@@ -245,40 +245,32 @@ impl ArrayRef {
             return Ok(Canonical::empty(self.dtype()).into_array());
         }
 
-        let sliced = SliceArray::try_new(self.clone(), range)?
-            .into_array()
-            .optimize()?;
+        let sliced = SliceArray::try_new(self.clone(), range)?.into_array();
 
         // Propagate some stats from the original array to the sliced array.
-        if !sliced.is::<Constant>() {
-            self.statistics().with_iter(|iter| {
-                sliced.statistics().inherit(iter.filter(|(stat, value)| {
-                    matches!(
-                        stat,
-                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-                    ) && value
-                        .as_ref()
-                        .as_exact()
-                        .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
-                }));
-            });
-        }
+        self.statistics().with_iter(|iter| {
+            sliced.statistics().inherit(iter.filter(|(stat, value)| {
+                matches!(
+                    stat,
+                    Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
+                ) && value
+                    .as_ref()
+                    .as_exact()
+                    .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
+            }));
+        });
 
         Ok(sliced)
     }
 
     /// Wraps the array in a [`FilterArray`] such that it is logically filtered by the given mask.
     pub fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        FilterArray::try_new(self.clone(), mask)?
-            .into_array()
-            .optimize()
+        Ok(FilterArray::try_new(self.clone(), mask)?.into_array())
     }
 
     /// Wraps the array in a [`DictArray`] such that it is logically taken by the given indices.
     pub fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
-        DictArray::try_new(indices, self.clone())?
-            .into_array()
-            .optimize()
+        Ok(DictArray::try_new(indices, self.clone())?.into_array())
     }
 
     /// Execute the array to extract a scalar at the given index.
@@ -412,7 +404,9 @@ impl ArrayRef {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        self.0.data.append_to_builder(self, builder, ctx)
+        let array = self.optimize_ctx(ctx)?;
+
+        array.0.data.append_to_builder(&array, builder, ctx)
     }
 
     /// Returns the statistics of the array.
@@ -682,14 +676,6 @@ impl ArrayRef {
 
     pub fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
         self.0.data.reduce(self)
-    }
-
-    pub fn reduce_parent(
-        &self,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        self.0.data.reduce_parent(self, parent, child_idx)
     }
 
     pub(crate) fn execute_encoding(self, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

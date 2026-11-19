@@ -84,6 +84,7 @@ fn canonical_reference(values: &[Option<i128>], decimal_dtype: DecimalDType) -> 
         values_type,
         decimal_dtype,
         validity_of(values),
+        &mut SESSION.create_execution_ctx(),
     )
 }
 
@@ -140,6 +141,10 @@ fn validity_array(valid: &[bool]) -> Validity {
 #[case::negative_boundary(
     vec![Some(-128)],
     DecimalType::I8, DecimalDType::new(10, 0), Some(3), false,
+)]
+#[case::negative_scale(
+    vec![Some(-99), Some(99)],
+    DecimalType::I32, DecimalDType::new(18, -3), Some(2), false,
 )]
 #[case::i128_narrowing_copy(
     vec![Some(-99), Some(99)],
@@ -217,6 +222,26 @@ fn test_from_stored_decimal_trusts_canonical_width() -> VortexResult<()> {
     let decimal = result.as_::<Decimal>();
     assert_eq!(decimal.buffer_handle().as_host().as_ptr(), input_ptr);
     assert_eq!(decimal.buffer::<i8>().as_slice(), [100]);
+
+    Ok(())
+}
+
+#[test]
+fn test_encode_decimal_rejects_value_outside_precision() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let parts = stored_parts(
+        &[Some(1_000_000_000_000_000_000)],
+        DecimalType::I64,
+        DecimalDType::new(18, 0),
+    );
+    let input = WidenArray::from_stored_decimal(parts, Precision::Absent, &mut ctx)?;
+
+    let error = WidenArray::encode_decimal(input.downcast::<Decimal>(), &mut ctx)
+        .expect_err("the stored value exceeds the input precision");
+    assert!(
+        error.to_string().contains("Decimal range must fit"),
+        "{error}"
+    );
 
     Ok(())
 }

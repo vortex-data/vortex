@@ -252,6 +252,13 @@ uv run --project bench-orchestrator vx-bench prepare-data <benchmark> --format p
 The data generator creates base Parquet data and converts it to each requested format. Scale
 factors are configurable per suite (e.g. `--opt scale-factor=10.0` for TPC-H SF=10).
 
+### Unstable Encodings
+
+Benchmark sessions enable the `unstable` edition, so every benchmark measures Vortex files whose
+compressor may also choose its encodings. It currently holds `fastlanes.delta`,
+`vortex.decimal_byte_parts.v2` and `vortex.widen`.
+`vortex_bench::enable_unstable_encodings` enables it on a session.
+
 ### Running SQL Benchmarks
 
 SQL benchmarks can be run directly via their per-engine binaries:
@@ -297,7 +304,7 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
   cases on a GPU runner.
 - **SQL** -- `action/bench-sql` runs the `pr` preset, a quick core subset of the SQL benchmarks
   that includes TPC-DS SF=10 on NVMe and excludes `vortex-compact`, Clickbench Sorted, Appian,
-  JOB, statpopgen, FineWeb on S3, TPC-H SF=10 on S3, and Vortex queries.
+  JOB, nested TPC-H, statpopgen, FineWeb on S3, TPC-H SF=10 on S3, and Vortex queries.
 - **SQL Extended** -- `action/bench-sql-extended` runs the `pr-full` preset: every regular SQL
   benchmark, including `vortex-compact` and DuckDB-format targets.
 - **SQL Compact** -- `action/bench-sql-compact` runs the `pr-compact` preset, which benchmarks

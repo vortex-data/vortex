@@ -9,8 +9,11 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::varbinview::BinaryView;
+use vortex_array::dtype::PType;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
@@ -71,22 +74,29 @@ impl Scheme for NullDominatedSparseScheme {
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        let len = data.array_len() as f64;
+        let len = data.array_len();
         let stats = data.varbinview_stats(exec_ctx);
-        let value_count = stats.value_count();
+        let value_count = stats.value_count() as usize;
 
         // All-null arrays should be compressed as constant instead anyways.
         if value_count == 0 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // If the majority (90%) of values is null, this will compress well.
-        if stats.null_count() as f64 / len > 0.9 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Ratio(len / value_count as f64));
+        // Only null-dominated arrays (90% null) go this route.
+        if stats.null_count() as f64 / len as f64 <= 0.9 {
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // Otherwise we don't go this route.
-        CompressionEstimate::Verdict(EstimateVerdict::Skip)
+        // Sparse drops the views of null rows and adds an index per value. It keeps every value's
+        // bytes, so long values bound the ratio well below the fraction of rows that are null.
+        let Ok(before) = uncompressed_size_in_bytes(data.array(), exec_ctx) else {
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+        };
+        let null_views = (len - value_count) * size_of::<BinaryView>();
+        let indices = value_count * PType::min_unsigned_ptype_for_value(len as u64).byte_width();
+        let after = before.saturating_sub(null_views) + indices;
+        CompressionEstimate::Verdict(EstimateVerdict::Ratio(before as f64 / after as f64))
     }
 
     fn compress(

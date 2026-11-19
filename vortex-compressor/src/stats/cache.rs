@@ -31,6 +31,7 @@ type StatsEntry = (TypeId, Arc<dyn Any + Send + Sync>);
 /// The cache is interior-mutable: entries can be inserted through a shared [`StatsCache`]
 /// borrow. Values are stored as [`Arc<dyn Any + Send + Sync>`] so that cached entries can be
 /// cloned out of the lock cheaply and handed back to callers as [`Arc<T>`].
+#[derive(Clone)]
 struct StatsCache {
     // TODO(connor): We could further optimize this with a `SmallVec` here.
     /// The cache entries, keyed by [`TypeId`].
@@ -67,6 +68,19 @@ impl StatsCache {
             new_arc
         }
     }
+
+    /// Returns a cached value when one exists.
+    fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        let type_id = TypeId::of::<T>();
+        let guard = self.entries.lock();
+        let position = guard.iter().position(|(id, _)| *id == type_id)?;
+        Some(
+            Arc::clone(&guard[position].1)
+                .downcast::<T>()
+                .ok()
+                .vortex_expect("we just checked the TypeID"),
+        )
+    }
 }
 
 /// An array bundled with its lazily-computed statistics cache.
@@ -81,10 +95,13 @@ impl StatsCache {
 ///
 /// Extension schemes can use [`get_or_insert_with`] for custom stats types.
 ///
+/// Clones share the stats cache, so stats generated through one are visible through the others.
+///
 /// [`integer_stats`]: ArrayAndStats::integer_stats
 /// [`float_stats`]: ArrayAndStats::float_stats
 /// [`varbinview_stats`]: ArrayAndStats::varbinview_stats
 /// [`get_or_insert_with`]: ArrayAndStats::get_or_insert_with
+#[derive(Clone)]
 pub struct ArrayAndStats {
     /// The array. This is always in canonical form.
     array: ArrayRef,
@@ -147,6 +164,11 @@ impl ArrayAndStats {
         self.array
     }
 
+    /// Returns the options stats are generated with.
+    pub(crate) fn stats_options(&self) -> GenerateStatsOptions {
+        self.opts
+    }
+
     /// Returns the length of the array.
     pub fn array_len(&self) -> usize {
         self.array.len()
@@ -206,5 +228,10 @@ impl ArrayAndStats {
     /// For extension schemes with custom stats types.
     pub fn get_or_insert_with<T: Send + Sync + 'static>(&self, f: impl FnOnce() -> T) -> Arc<T> {
         self.cache.get_or_insert_with::<T>(f)
+    }
+
+    /// Returns a custom cached value when one exists.
+    pub(crate) fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        self.cache.get::<T>()
     }
 }

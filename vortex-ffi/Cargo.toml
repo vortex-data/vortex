@@ -42,6 +42,7 @@ vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [build-dependencies]
 cbindgen = { workspace = true }
+vortex-edition = { workspace = true }
 
 [features]
 mimalloc = ["dep:mimalloc"]

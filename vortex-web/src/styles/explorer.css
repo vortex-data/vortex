@@ -8,16 +8,15 @@
 
 /* ------------------------------------------------------------------ the frame
    With a file open, one screen: the header, the work area, and the status line. The panes scroll,
-   the page does not. A tool wants its room for data, so the page's side gutter steps down from
-   48px to 24px, and to the token's 16px on a phone. The start page (is-page) is a page
-   like the site's: the system's gutter, the shared footer, and the page scrolls. */
+   the page does not. The header, the panes, and the status line keep the system's page gutter,
+   so the wordmark lines up with the first pane. The start page (is-page) is a page like the
+   site's: the shared footer, and the page scrolls. */
 .x-app {
   display: flex;
   flex-direction: column;
   position: relative;
 }
 .x-app:not(.is-page) {
-  --page-pad: var(--space-24);
   height: 100dvh;
   overflow: hidden;
 }
@@ -769,9 +768,6 @@
 /* Below 640px the view switch leaves the row, and its twin rows in the Menu's panel take over. The
    current view reads as the current page does. */
 @media (max-width: 640px) {
-  .x-app:not(.is-page) {
-    --page-pad: var(--space-16);
-  }
   .x-app .vx-header-tools {
     display: none;
   }

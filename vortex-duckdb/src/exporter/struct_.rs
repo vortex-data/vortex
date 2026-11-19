@@ -7,6 +7,7 @@ use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::validity::Validity;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
@@ -49,8 +50,11 @@ pub(crate) fn new_exporter(
 
     let iter = fields.into_iter();
     let children = if let Some(validity) = validity.as_ref() {
-        iter.map(|child| new_array_exporter(child.mask(validity.clone())?, cache, ctx))
-            .collect::<VortexResult<Vec<_>>>()
+        iter.map(|child| {
+            let child = child.mask(validity.clone())?.optimize_ctx(ctx)?;
+            new_array_exporter(child, cache, ctx)
+        })
+        .collect::<VortexResult<Vec<_>>>()
     } else {
         iter.map(|child| new_array_exporter(child.into_array(), cache, ctx))
             .collect::<VortexResult<Vec<_>>>()
@@ -61,12 +65,6 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for StructExporter {
-    fn preferred_batch_len(&self, offset: usize, max_len: usize) -> usize {
-        self.children
-            .iter()
-            .fold(max_len, |len, child| child.preferred_batch_len(offset, len))
-    }
-
     fn export(
         &self,
         offset: usize,

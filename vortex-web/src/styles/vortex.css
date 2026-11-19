@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: base, chrome, site, tables, app, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
-   Made by: node tools/site-styles.mjs <site> --sections base,chrome,site,tables,app,focus --base
-   sha256 dbc7af41ba8de3e8c22cfbf9d82485f4dd352e23b1d379d17d530a971edfc906 */
+   Made by: node tools/site-styles.mjs <site> --sections base,chrome,site,tables,app,focus --base --reads ..,../../index.html,../../.storybook
+   sha256 663807cbc1a74ce35a018210fb62633a05ccdf1e7bb5ebd1a3815ace34c58928 */
 
 /* ------------------------------------------------------------------ base */
 /* Every component sizes with border-box, so it draws the same under a site's reset or none. */
@@ -21,15 +21,19 @@
 }
 /* The skip link, a page's first tab stop (WCAG 2.4.1): "Skip to content", to #main. Hidden as
    vx-sr-only until it has focus, then at the top left above a sticky header, on ground in ink in
-   the label voice, with the shared focus ring. No script: the fragment moves focus to main, which
-   takes it (tabindex="-1"), so the next Tab starts in the content. Main draws no ring, the system's
-   or the browser's: around the whole page, it marks nothing a reader can use. */
+   the label voice, with the shared focus ring. It is a control's height, centred on the 64px
+   header row like the header's controls, so it covers the 24px mark. No script: the fragment moves
+   focus to main, which takes it (tabindex="-1"), so the next Tab starts in the content. Main draws
+   no ring, the system's or the browser's: around the whole page, it marks nothing a reader can use. */
 .vx-skip-link {
   position: fixed;
-  top: var(--space-8);
+  top: calc((var(--space-64) - var(--control-md)) / 2);
   left: var(--space-8);
   z-index: 1200;
-  padding: var(--space-8) var(--space-12);
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-md);
+  padding: 0 var(--space-12);
   border-radius: var(--radius-control);
   background: var(--ground);
   color: var(--ink);
@@ -93,16 +97,15 @@ main[tabindex="-1"]:focus {
 :where(.vx-display, .vx-display-mono, .vx-h1, .vx-h2, .vx-h3, .vx-h4, .vx-h5) { color: var(--ink); }
 
 
-/* An encoding chain: mono steps on raised, joined by arrows. A post and the Explorer
-   both draw it, so it sits in base, which every site copies. */
-.vx-chain { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); font: 400 12.5px/1 var(--font-mono); color: var(--ink-body); }
-.vx-chain-step { padding: var(--space-4) var(--space-8); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); }
-.vx-chain-arrow { color: var(--ink-muted); }
 
 /* ------------------------------------------------------------------ chrome */
 /* What every surface shares, so home, the blog, the docs, the Explorer and bench read as one site:
    the quiet links, the buttons, the header, the footer, the theme switch, and the 404. Every
    surface copies this section. */
+/* What changes with the theme, set on each theme's element so the nearest data-theme wins: which
+   wordmark shows, the LF mark's ink, and the dot field's ink. */
+:root, [data-theme="dark"] { --vx-mark-dark: block; --vx-mark-light: none; --vx-lf-mark-filter: none; --dot-field-ink: var(--grey-700); }
+[data-theme="light"] { --vx-mark-dark: none; --vx-mark-light: block; --vx-lf-mark-filter: invert(1); --dot-field-ink: var(--grey-300); }
 /* A quiet link in mono: header and footer navigation, feeds, source lines. */
 .vx-nav-link {
   display: inline-flex;
@@ -122,15 +125,6 @@ main[tabindex="-1"]:focus {
   width: 16px;
   height: 16px;
   fill: currentColor;
-}
-/* A source line: what a figure was read from, and when. It is often also a nav link, so it comes
-   after that rule and wins the tie. */
-.vx-source {
-  display: inline-flex;
-  flex-wrap: wrap;
-  white-space: normal;
-  align-items: center;
-  gap: var(--space-4);
 }
 .vx-btn {
   display: inline-flex;
@@ -161,15 +155,15 @@ main[tabindex="-1"]:focus {
 .vx-btn-ghost:active:not([disabled], [aria-disabled="true"]) { background: var(--edge); }
 .vx-btn.is-mono { padding: 0 var(--space-12); font: 400 13px/1 var(--font-mono); }
 .vx-btn-count { display: inline-flex; align-items: center; gap: var(--space-4); padding-left: var(--space-12); border-left: 1px solid var(--edge); color: var(--ink-muted); }
-/* Buttons side by side, primary first, wrapping onto a second row on a phone. */
-.vx-btn-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-12); }
 
-/* The header: one row, the same on every surface (DECISIONS 35). The wordmark, the site's links,
-   a surface's own tools (.vx-header-tools, which may be absent), then the end group: the theme
-   switch, the GitHub button and, on a narrow screen, the Menu. No breakpoint depends on the tools,
-   so at a given width the shared items look the same and sit in the same place on every surface;
-   the tools fit themselves into the room between. One solid line rule below it, sticky at the top
-   of the window. */
+/* The header: one row, the same on every surface. The wordmark, the site's links,
+   a surface's own tools (.vx-header-tools, which may be absent), then the end group: the socials
+   (X, Slack, and the GitHub button) and, on a narrow screen, the Menu. The theme switch is in the
+   footer. No
+   breakpoint depends on the tools, so at a given width the shared items look the same and sit in
+   the same place on every surface; the tools fit themselves into the room between. One solid line rule below it, sticky at the top
+   of the window. It takes the --page-max column, centred, with its rule, on every surface: the
+   site and bench draw it inside their page frame, and the docs and the Explorer have none. */
 .vx-header {
   position: sticky;
   top: 0;
@@ -177,7 +171,10 @@ main[tabindex="-1"]:focus {
   display: flex;
   align-items: center;
   gap: var(--space-24);
+  width: 100%;
+  max-width: var(--page-max);
   height: 64px;
+  margin-inline: auto;
   padding: 0 var(--page-pad);
   background: var(--ground);
   border-bottom: 1px solid var(--line);
@@ -187,31 +184,26 @@ main[tabindex="-1"]:focus {
 html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)); }
 .vx-header-start { display: flex; flex-shrink: 0; align-items: center; }
 .vx-header-mark { height: 24px; width: auto; display: block; }
-.vx-header-mark.is-light, [data-theme="light"] .vx-header-mark.is-dark { display: none; }
-[data-theme="light"] .vx-header-mark.is-light { display: block; }
-/* A page set to System follows the OS: under its light, the marks swap as in Light. */
-@media (prefers-color-scheme: light) {
-  [data-theme="system"] .vx-header-mark.is-dark { display: none; }
-  [data-theme="system"] .vx-header-mark.is-light { display: block; }
-}
+.vx-header-mark.is-dark { display: var(--vx-mark-dark); }
+.vx-header-mark.is-light { display: var(--vx-mark-light); }
 .vx-header-nav { display: flex; gap: var(--space-24); }
 /* A surface's tools take the room between the links and the end group, at its right end. */
 .vx-header-tools { display: flex; align-items: center; gap: var(--space-12); min-width: 0; margin-left: auto; }
 .vx-header-end { display: flex; flex-shrink: 0; align-items: center; gap: var(--space-16); margin-left: auto; }
 .vx-header-tools + .vx-header-end { margin-left: 0; }
+/* The socials: the project's places, together at the row's end. X and Slack are icon links in the
+   nav links' muted ink, ink on hover, each a 32px square, so the hit target passes 24px (WCAG
+   2.5.8). Slack sits next to the GitHub button. */
+.vx-header-social { display: flex; align-items: center; gap: var(--space-4); }
+.vx-header-social-link { justify-content: center; width: var(--control-md); height: var(--control-md); border-radius: var(--radius-control); }
+/* The GitHub button is the mark and the star count; the repository's name is in its label. 12px on
+   each side of the count's rule. */
+.vx-header-github { gap: var(--space-12); }
 /* On one row, 32px set the wordmark and the end group apart from the links and the tools. */
 @media (min-width: 961px) {
   .vx-header-start { padding-right: var(--space-32); }
   .vx-header-end { padding-left: var(--space-32); }
 }
-/* A search field for the tools, as the docs use it, at control-md on raised. Below 960px its twin,
-   a search button (.vx-header-search-link) that opens the search page, takes its place. */
-.vx-header-search { position: relative; display: flex; align-items: center; flex: 0 1 320px; min-width: 160px; margin: 0; color: var(--ink-muted); }
-.vx-header-search svg { position: absolute; left: var(--space-12); width: 16px; height: 16px; fill: currentColor; pointer-events: none; }
-.vx-header-search input { box-sizing: border-box; width: 100%; height: var(--control-md); margin: 0; padding: 0 var(--space-12) 0 calc(var(--space-12) + 16px + var(--space-8)); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); color: var(--ink); font: 400 14px/1 var(--font-sans); transition: border-color var(--vx-motion); }
-.vx-header-search input:hover { border-color: var(--ink); }
-.vx-header-search input::placeholder { color: var(--ink-muted); opacity: 1; }
-.vx-header-search-link { display: none; }
 /* The menu: on a narrow screen the site's links go behind a Menu button at the end of the row, a
    <details>, so it opens without scripts. Its panel is a popover under the button, on the ground with
    the buttons' solid edge, so it covers what is under it. */
@@ -235,56 +227,72 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 }
 .vx-header-menu-panel .vx-nav-link { display: flex; min-height: 44px; padding: 0 var(--space-16); }
 .vx-header-menu-panel .vx-nav-link:hover { background: var(--wash); }
-/* The end group's switch and GitHub button have twin rows in the panel (.vx-header-menu-spill),
-   which show only when the end group hands them over, below 640px. */
-.vx-header-menu-spill { display: none; }
-/* Below 1180px the GitHub button keeps only its mark. Its aria-label still names the repository. */
-@media (max-width: 1180px) {
-  .vx-header-repo, .vx-header .vx-btn-count { display: none; }
-}
-/* Below 960px the links go into the Menu, and a search field gives way to its button. */
+/* The socials have twin rows in the panel (.vx-header-menu-spill), which show only when the end
+   group hands them over: X and Slack (is-icon) below 960px, GitHub below 640px. The first social
+   row has a solid line rule above it. The hide names the panel, so it outranks the panel's link
+   rule above. */
+.vx-header-menu-panel .vx-header-menu-spill { display: none; align-items: center; justify-content: space-between; gap: var(--space-8); padding: var(--space-8) var(--space-16); border-top: 1px solid var(--line); }
+.vx-header-menu-panel a.vx-header-menu-spill { padding-block: 0; }
+.vx-header-menu-spill.is-icon + .vx-header-menu-spill.is-icon { border-top: 0; }
+/* Below 960px the links go into the Menu, and a search field gives way to its button. X and Slack
+   go into the Menu too, so the row keeps the room the tools need. The GitHub button drops its count
+   (the count stays in its name), and it and the Menu button are 32px squares that hold an icon
+   alone, as a surface's icon-only tools should be. */
 @media (max-width: 960px) {
   .vx-header-nav, .vx-header-search { display: none; }
   .vx-header-menu { display: block; }
-  .vx-header-search-link { display: inline-flex; }
-}
-/* On a phone the row is the wordmark, the tools, and the Menu, whose button keeps its icon: the
-   switch and the GitHub button move into the Menu's panel, under the links, each on a row with a
-   solid line rule above it. So the row fits 320px with a surface's tools. */
-@media (max-width: 640px) {
-  .vx-header { gap: var(--space-12); }
-  .vx-header-end, .vx-header-tools { gap: var(--space-8); }
-  .vx-header-end > .vx-theme-switch, .vx-header-end > .vx-header-github { display: none; }
-  .vx-header-menu-spill { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); padding: var(--space-8) var(--space-16); border-top: 1px solid var(--line); }
-  a.vx-header-menu-spill { padding-block: 0; }
+  .vx-header-social > .vx-header-social-link { display: none; }
+  .vx-header-menu-panel .vx-header-menu-spill.is-icon { display: flex; }
+  .vx-header-github .vx-btn-count { display: none; }
+  .vx-header .vx-header-github, .vx-header .vx-header-menu > summary { justify-content: center; width: var(--control-md); padding: 0; }
   .vx-header-menu-text {
     position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
   }
 }
+/* On a phone the row is the wordmark, the tools, and the Menu: GitHub follows X and Slack into the
+   Menu's panel, under the links, and the socials' rows share one rule. So the row fits 320px with a
+   surface's tools. */
+@media (max-width: 640px) {
+  .vx-header { gap: var(--space-12); }
+  .vx-header-end, .vx-header-tools { gap: var(--space-8); }
+  .vx-header-end > .vx-header-social { display: none; }
+  .vx-header-menu-panel .vx-header-menu-spill { display: flex; }
+  .vx-header-menu-spill.is-social + .vx-header-menu-spill.is-social { border-top: 0; }
+}
 
-/* The footer: the same on every surface. The LF mark, the small print, and the project's links,
-   over one solid line rule. */
+/* The footer: the same on every surface. The LF mark, the small print, the project's links, and the
+   theme switch, over one solid line rule. It takes the header's column: --page-max, centred, with
+   its rule. The site and bench draw it inside their page frame; the docs and the Explorer have
+   none, so the column alone keeps the footer as wide as the header. */
 .vx-footer {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-16) var(--space-24);
+  width: 100%;
+  max-width: var(--page-max);
+  margin-inline: auto;
   padding: var(--space-16) var(--page-pad);
   border-top: 1px solid var(--line);
   font: 400 11px/1.5 var(--font-mono);
   letter-spacing: 0.02em; /* the one tracked style: small print */
   color: var(--ink-muted);
 }
-.vx-footer-mark { height: 12px; width: auto; opacity: 0.85; }
-[data-theme="light"] .vx-footer-mark { filter: invert(1); }
-@media (prefers-color-scheme: light) {
-  [data-theme="system"] .vx-footer-mark { filter: invert(1); }
-}
+.vx-footer-mark { height: 12px; width: auto; opacity: 0.85; filter: var(--vx-lf-mark-filter); }
 /* 96ch: on a wide screen the line and the credit fit two balanced lines. */
 .vx-footer-text { flex: 1 1 420px; min-width: 0; max-width: 96ch; margin: 0; text-wrap: balance; }
 .vx-footer-credit { white-space: nowrap; }
 .vx-footer-nav { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-16); margin-left: auto; }
-@media (max-width: 640px) { .vx-footer-nav { margin-left: 0; } }
+/* The theme switch follows the links, at the row's end. On a phone it moves up to the mark's line,
+   at its right end, and the links wrap at the start under the text. */
+@media (max-width: 640px) {
+  .vx-footer { column-gap: var(--space-16); }
+  .vx-footer-nav { margin-left: 0; }
+  .vx-footer-mark { order: -2; }
+  .vx-footer > .vx-theme-switch { order: -1; margin-left: auto; }
+}
+/* At 320px the mark and the switch share a line only with a smaller mark. */
+@media (max-width: 360px) { .vx-footer-mark { height: 10px; } }
 
 /* A fieldset, so its margin and minimum width are cleared. Until a script presses a button, the
    choice THEME_BOOTSTRAP wrote to data-theme-choice on the root shows pressed. */
@@ -336,28 +344,6 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 .vx-switch button:active { background: var(--edge); }
 .vx-theme-switch svg { width: 16px; height: 16px; fill: currentColor; }
 
-/* A 404 or error page: the hero with no bands under it. It takes the height its parent (a flex
-   column between the header and the footer) leaves, and centres its text in it. With the mark it
-   takes the homepage hero's two columns, and stacks below 1100px as the hero does. */
-.vx-status { flex: 1 0 auto; display: grid; grid-template-columns: minmax(0, 760px); align-content: center; gap: var(--space-48); padding: var(--space-32) var(--page-pad); }
-.vx-status.has-mark { grid-template-columns: minmax(0, 760px) minmax(320px, 1fr); align-content: normal; }
-.vx-status-text { display: grid; align-content: center; justify-items: start; gap: var(--space-24); }
-.vx-status-text > * { margin: 0; }
-/* The homepage's voice: a mono headline (vx-display-mono) and a mono sentence at the standfirst's size. */
-.vx-status-sentence { font: 400 16px/1.6 var(--font-mono); color: var(--ink-body); }
-/* The 404's headline is its code: mono at the display size, so the page has one large thing to read. */
-.vx-status-code { font: 500 64px/0.98 var(--font-mono); letter-spacing: -0.04em; color: var(--ink); }
-/* The mark's cell has a height to fill. Its host is never taller than 9/10 of the cell's width. */
-.vx-status-mark { position: relative; min-height: 0; container-type: size; }
-.vx-status-mark > * { position: absolute; inset: 0; height: min(100cqh, 90cqw); margin: auto 0; }
-@media (max-width: 1099px) {
-  .vx-status.has-mark { grid-template-columns: minmax(0, 1fr); align-content: center; gap: var(--space-24); }
-  .vx-status-mark { height: 320px; }
-}
-@media (max-width: 640px) {
-  .vx-status-mark { height: 240px; }
-}
-@media (max-width: 640px) { .vx-status-code { font-size: 48px; } }
 
 /* DotField: the ASCII mark's dot field, still, behind a page whose mark leaves its field to it
    (the 404, with the mark's field: false) or that has open ground of its own. The dots sit on the
@@ -365,12 +351,11 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
    mark's field grey. It covers the top of its host and fades out toward every edge and corner, as
    the mark's field does, so no hard edge shows. The host takes .has-dot-field, so the field sits
    under the host's content and over its background. Keep it out from behind running text: around
-   a text column the dots read as noise (Will, 4 Nov 2026, on the blog: "kind of awkward").
+   a text column the dots read as noise.
    Decoration only: keep the field aria-hidden. It lives in chrome, with Status, because every
    surface copies chrome. */
 .has-dot-field { position: relative; isolation: isolate; }
 .vx-dot-field {
-  --dot-field-ink: var(--grey-700);
   position: absolute;
   inset: 0 0 auto;
   height: min(100%, 1400px);
@@ -381,10 +366,6 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
   background-size: 2ch 28px;
   -webkit-mask-image: radial-gradient(closest-side, #000 40%, transparent 100%);
   mask-image: radial-gradient(closest-side, #000 40%, transparent 100%);
-}
-[data-theme="light"] .vx-dot-field { --dot-field-ink: var(--grey-300); }
-@media (prefers-color-scheme: light) {
-  [data-theme="system"] .vx-dot-field { --dot-field-ink: var(--grey-300); }
 }
 @media (forced-colors: active), print {
   .vx-dot-field { display: none; }
@@ -399,14 +380,6 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
   --vx-dash-x: linear-gradient(90deg, var(--ink-body) 12px, transparent 12px);
   --vx-dash-y: linear-gradient(180deg, var(--ink-body) 12px, transparent 12px);
 }
-.vx-frame {
-  background-color: var(--ground);
-  background-image: var(--vx-dash-x), var(--vx-dash-x), var(--vx-dash-y), var(--vx-dash-y);
-  background-size: 16px 1px, 16px 1px, 1px 16px, 1px 16px;
-  background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
-  background-position: left top, left bottom, left top, right top;
-}
-.vx-frame .vx-tabs-list { border-bottom: 0; background: var(--vx-dash-x) left bottom / 16px 1px repeat-x; }
 
 /* A text field: raised, at control-md, with an edge that turns ink on hover, like the docs' search.
    A row holds a field and its button. */
@@ -432,12 +405,6 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 .vx-field-row > .vx-field { flex: 1 1 auto; min-width: 0; }
 .vx-field-error { margin: var(--space-8) 0 0; color: var(--error-ink); }
 
-/* A display line never strands one word on its last line, and on phones its lines balance. */
-.vx-display { text-wrap: pretty; }
-/* On phones it sets at the h1 size, where 64px would take four lines. */
-@media (max-width: 640px) {
-  .vx-display { font-size: 48px; text-wrap: balance; }
-}
 
 /* The mono headline: tight, as the old terminal set it, and at the h3 size on phones. */
 .vx-display-mono { text-wrap: pretty; }
@@ -445,45 +412,8 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
   .vx-display-mono { font-size: 28px; }
 }
 
-/* The results table: every system's figure for each benchmark, in a frame. Vortex's column is Blue,
-   the best figure in each row is underlined, as a model card marks its best score, and the last
-   column says how Vortex does against Parquet. Below 760px only Vortex and the verdict show. */
-.vx-results { padding: var(--space-18) var(--space-24); font: 400 13px/1.6 var(--font-mono); color: var(--ink-body); }
-.vx-results-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-4) var(--space-16); margin: 0 0 var(--space-12); color: var(--ink); }
-/* The source line: bench's link and the read date, which wrap as one line each. */
-.vx-results-src { display: inline-flex; flex-wrap: wrap; gap: 0 var(--space-8); color: var(--ink-muted); }
-.vx-results-src > * { white-space: nowrap; }
-/* The foot: the key, then a note for each panel with a range, one per line. */
-.vx-results-foot { display: grid; gap: var(--space-4); margin: var(--space-12) 0 0; color: var(--ink-muted); }
-.vx-results-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-/* The cells do not wrap, so a table wider than its frame scrolls inside it, not off the page. */
-.vx-results-wrap { overflow-x: auto; }
-.vx-results-table th,
-.vx-results-table td { padding: var(--space-4) 0 var(--space-4) var(--space-16); text-align: right; white-space: nowrap; font-weight: 400; }
-.vx-results-table th:first-child { padding-left: 0; text-align: left; }
-.vx-results-table thead th { padding-bottom: var(--space-8); color: var(--ink-muted); }
-.vx-results-table tbody th { color: var(--ink-body); }
-.vx-results-table .is-ours { color: var(--accent-ink); }
-.vx-results-table .is-missing { color: var(--ink-muted); }
-/* The underline is ink on every column: it names the result, and Blue names Vortex. */
-.vx-results-table .is-best { color: var(--ink); font-weight: 600; text-decoration: underline 2px var(--ink); text-underline-offset: 5px; }
-.vx-results-table .is-best.is-ours { color: var(--accent-ink); }
-.vx-results-table .is-verdict { padding-left: var(--space-24); color: var(--ink); }
-@media (max-width: 760px) {
-  .vx-results { padding: var(--space-16); }
-  .vx-results-table :is(th, td):not(:first-child, .is-ours, .is-verdict) { display: none; }
-}
-/* The narrowest phones, 320px: the three columns fit inside the frame with 12px of padding, 12px between them, and headings that wrap. */
-@media (max-width: 400px) {
-  .vx-results { padding: var(--space-12); }
-  .vx-results-table :is(th, td):not(:first-child) { padding-left: var(--space-12); }
-  .vx-results-table th { white-space: normal; }
-}
 
-.vx-eyebrow { display: inline-flex; align-items: center; gap: var(--space-8); }
-.vx-eyebrow::before { content: ""; width: 6px; height: 6px; background: var(--ink-muted); flex: none; }
 
-.vx-tabs { overflow: hidden; }
 .vx-tabs-list { display: flex; padding: 0 var(--space-4); border-bottom: 1px solid var(--line); overflow-x: auto; }
 .vx-tabs-list button {
   appearance: none;
@@ -508,54 +438,11 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 .vx-tabs-list button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
 /* After the selected rule, so a press shows on the selected tab too. */
 .vx-tabs-list button:active { background: var(--wash); }
-.vx-tabs-code { display: flex; align-items: flex-start; gap: var(--space-12); padding: var(--space-12) var(--space-16); }
-/* Every panel shares one grid cell and only the selected one shows, so the block is always the
-   tallest panel's height and switching tabs never moves the page. */
-.vx-tabs-panels { display: grid; flex: 1; min-width: 0; }
-.vx-tabs-panels > .vx-tabs-pre { grid-area: 1 / 1; }
-.vx-tabs-pre { margin: 0; flex: 1; min-width: 0; font: 400 13px/1.6 var(--font-mono); color: var(--ink-body); white-space: pre-wrap; overflow-wrap: anywhere; }
-.vx-tabs-pre.is-idle { visibility: hidden; }
-.vx-prompt { color: var(--ink-muted); user-select: none; }
-.vx-copy { all: unset; cursor: pointer; color: var(--ink-muted); padding: 2px; }
-.vx-copy:hover { color: var(--ink); }
-.vx-copy:active { background: var(--wash); }
-.vx-copy svg { width: 16px; height: 16px; fill: currentColor; display: block; }
-.vx-copy .is-check, .vx-copy.is-done .is-copy { display: none; }
-.vx-copy.is-done .is-check { display: block; }
 
-/* A bar chart's rows: name, a bar on its track, the value. Vortex is the one Blue row. renderBars
-   sets --bar-value to fit the longest value, so every track has one length and the bars share a scale. */
-.vx-bars { display: grid; gap: var(--space-8); }
-.vx-bar {
-  display: grid;
-  grid-template-columns: var(--bar-name, 56px) minmax(0, 1fr) var(--bar-value, auto);
-  gap: var(--space-8);
-  align-items: center;
-  font: 400 12px/1 var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-muted);
-}
-.vx-bar-value { text-align: right; }
-.vx-bar-missing { grid-column: 2 / -1; }
-.vx-bar-extra { margin-left: var(--space-8); }
-.vx-bar-track { height: 6px; background: var(--chart-track); }
-.vx-bar-fill { display: block; height: 100%; background: var(--chart-muted); }
-.vx-bar.is-ours { color: var(--accent-ink); }
-.vx-bar.is-ours .vx-bar-fill { background: var(--chart-vortex); }
-/* Parquet, Lance and Arrow take muted tints of their colours, so the bars are not grey on grey,
-   drawn at 42% so that Vortex's Blue is the one solid bar and leads even where the others are
-   longer. Every bar prints its value, so the bar is never the only way to read it. */
-.vx-bar.is-parquet .vx-bar-fill { background: var(--chart-parquet); }
-.vx-bar.is-lance .vx-bar-fill { background: var(--chart-lance); }
-.vx-bar.is-arrow .vx-bar-fill { background: var(--chart-arrow); }
-.vx-bar:is(.is-parquet, .is-lance, .is-arrow) .vx-bar-fill { opacity: 0.42; }
-.vx-bars.is-lg .vx-bar { gap: var(--space-12); font-size: 12.5px; }
-.vx-bars.is-lg .vx-bar-track { height: 10px; }
 
 
 /* ------------------------------------------------------------------ tables
    A post's tables, which Markdown writes, and data tables. The blog and the Explorer both copy it. */
-.vx-table-wrap { overflow-x: auto; }
 .vx-prose table,
 .vx-table { width: 100%; border-collapse: collapse; font: 400 14px/1.4 var(--font-sans); font-variant-numeric: tabular-nums; }
 .vx-prose th,

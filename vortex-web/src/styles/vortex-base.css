@@ -1,6 +1,6 @@
 /* Vortex design system base, copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
-   Made by: node tools/site-styles.mjs <site> --sections base,chrome,site,tables,app,focus --base
+   Made by: node tools/site-styles.mjs <site> --sections base,chrome,site,tables,app,focus --base --reads ..,../../index.html,../../.storybook
    sha256 7f7de2b97b16099662cddb9f80a900a2d8b4fdb967eef65bc47b8e773b540bf6 */
 
 /* Vortex base: a small reset for a site drawn with the system, such as vortex.dev after Tailwind

@@ -13,10 +13,10 @@ precedence = "override"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "Apache-2.0"
 
-# The docs theme's Geist Mono is Google Fonts' Latin subset of the font, under the SIL Open Font
-# License.
+# The docs theme's Geist and Geist Mono are Google Fonts' Latin subsets of the fonts, under the SIL
+# Open Font License.
 [[annotations]]
-path = "docs/_static/fonts/geist-mono-latin.woff2"
+path = ["docs/_static/fonts/geist-latin.woff2", "docs/_static/fonts/geist-mono-latin.woff2"]
 precedence = "override"
 SPDX-FileCopyrightText = "2024 The Geist Project Authors (https://github.com/vercel/geist-font.git)"
 SPDX-License-Identifier = "OFL-1.1"
@@ -29,12 +29,29 @@ precedence = "override"
 SPDX-FileCopyrightText = "The Linux Foundation"
 SPDX-License-Identifier = "LicenseRef-Third-Party"
 
+# The Slack mark and the X logo in the shared header, as the design system keeps them (one colour,
+# currentColor). Each belongs to its owner, is not relicensed, and links only to the project's
+# Slack and X account.
+[[annotations]]
+path = ["docs/_theme/vortex/mark-slack.svg", "vortex-web/src/components/MarkSlack.tsx"]
+precedence = "override"
+SPDX-FileCopyrightText = "Slack Technologies, LLC"
+SPDX-License-Identifier = "LicenseRef-Third-Party"
+
+[[annotations]]
+path = ["docs/_theme/vortex/mark-x.svg", "vortex-web/src/components/MarkX.tsx"]
+precedence = "override"
+SPDX-FileCopyrightText = "X Corp."
+SPDX-License-Identifier = "LicenseRef-Third-Party"
+
 # three.js, which the docs serve for the 404's mark, because their CSP allows scripts from their
-# own origin only. A copy of three@0.170.0's build/three.module.min.js.
+# own origin only. three@0.187.0 no longer ships a minified build, so this is its
+# build/three.module.js bundled with `bun build --minify --format=esm --target=browser`, with the
+# license header put back.
 [[annotations]]
 path = "docs/_static/vortex-mark/three.module.min.js"
 precedence = "override"
-SPDX-FileCopyrightText = "2010-2024 Three.js Authors"
+SPDX-FileCopyrightText = "2010-2026 Three.js Authors"
 SPDX-License-Identifier = "MIT"
 
 # BtrBlocks diagram is licensed under CC-BY-4.0.
