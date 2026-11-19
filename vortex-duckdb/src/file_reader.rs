@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
@@ -266,7 +267,7 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     let request = ScanRequest {
         projection: global.projection_expr.clone(),
         filter: filter.expr.clone(),
-        row_range: filter.row_range.clone(),
+        row_range: Some(file_rows(state, filter)),
         selection: filter.row_selection.clone(),
         ordered: false,
         ..ScanRequest::default()
@@ -279,13 +280,20 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     Ok(false)
 }
 
+/// The rows of the file that the scan's row range keeps. A `file_row_number` filter can bound
+/// the range past the end of the file, up to `u64::MAX`.
+fn file_rows(state: &FileScanState, filter: &Filter) -> Range<u64> {
+    let row_count = state.reader.row_count();
+    filter.row_range.as_ref().map_or(0..row_count, |range| {
+        let end = range.end.min(row_count);
+        range.start.min(end)..end
+    })
+}
+
 /// The V2 scan of the file's rows that the scan's row range and selection keep.
 fn v2_builder(state: &FileScanState, global: &GlobalState) -> V2ScanBuilder {
     let filter = &global.filter;
-    let row_count = state.reader.row_count();
-    let rows = filter.row_range.as_ref().map_or(0..row_count, |range| {
-        range.start.min(row_count)..range.end.min(row_count)
-    });
+    let rows = file_rows(state, filter);
     V2ScanBuilder::new(SESSION.clone(), state.scan_file.clone())
         .with_projection(global.projection.clone())
         .with_some_filter(filter.filter.clone())
@@ -501,12 +509,10 @@ pub fn reader_get_progress_in_file(file: &OpenFileReader) -> f64 {
     if let Some(scan) = file.scan_state.as_ref().and_then(|state| state.v2.get()) {
         return scan.progress();
     }
-    let progress = file
-        .scan_state
-        .as_ref()
-        .and_then(|state| state.pool.get())
-        .map_or(1.0, |pool| pool.progress());
-    100.0 * progress
+    let Some(state) = &file.scan_state else {
+        return 100.0;
+    };
+    100.0 * state.pool.get().map_or(0.0, |pool| pool.progress())
 }
 
 /// Called by one thread in planning phase
