@@ -8,7 +8,7 @@
   "vortex-alp": {
     "alp_compress": 36,
     "alp_rd_take_chunked": 4,
-    "alp_slice_take": 4
+    "alp_slice_take": 2
   },
   "vortex-array": {
     "aggregate_grouped": 18,

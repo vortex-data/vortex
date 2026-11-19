@@ -54,7 +54,7 @@ const SEGMENT_ROWS: usize = 1 << 18;
 const SLICE_ROWS: usize = SEGMENT_ROWS / 4;
 
 /// Rows taken from the slice.
-const TAKEN_ROWS: &[usize] = &[1, 4, 64, 1024];
+const TAKEN_ROWS: &[usize] = &[1, 1024];
 
 /// An ALP segment of decimal values, with about 8% of outliers that become patches.
 fn alp_segment() -> ArrayRef {
