@@ -373,6 +373,9 @@ fn is_complete(core: &ArrayRef, shredded: &ArrayRef, ctx: &mut ExecutionCtx) -> 
             }
             Ok(true)
         }
+        // A union is the whole Variant in the rows it holds, so a row that it does not hold must
+        // have no value at all.
+        DType::Union(..) => has_no_value(VariantPath::root(), None),
         DType::Variant(_) | DType::List(..) | DType::FixedSizeList(..) => Ok(false),
         // A row that is not in a shredded leaf must not hold a value of the leaf's dtype.
         leaf => has_no_value(VariantPath::root(), Some(leaf.clone())),

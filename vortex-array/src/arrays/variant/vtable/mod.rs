@@ -150,6 +150,7 @@ pub fn merge_typed_scalar_as_variant(
     fallback_scalar: Option<Scalar>,
     dtype: &DType,
 ) -> VortexResult<Scalar> {
+    let typed_scalar = without_unions(typed_scalar)?;
     let scalar = if typed_scalar.is_null() {
         fallback_scalar.unwrap_or_else(|| Scalar::null(dtype.clone()))
     } else if matches!(
@@ -169,6 +170,94 @@ pub fn merge_typed_scalar_as_variant(
         Ok(scalar)
     } else {
         scalar.cast(dtype)
+    }
+}
+
+/// Replaces each union in the typed value `scalar` by the value of its member.
+///
+/// A struct or list that holds a union becomes one of Variants, as the members of the union
+/// differ in dtype. A null union is a value that is missing, as a null field is.
+fn without_unions(scalar: Scalar) -> VortexResult<Scalar> {
+    if !has_union(scalar.dtype()) {
+        return Ok(scalar);
+    }
+
+    if let Some(union) = scalar.as_union_opt() {
+        return match union.child() {
+            Some(member) => without_unions(member),
+            None => Ok(Scalar::null(scalar.dtype().clone())),
+        };
+    }
+
+    if scalar.is_null() {
+        return Ok(Scalar::null(DType::Variant(Nullability::Nullable)));
+    }
+
+    let as_variant = |value: Scalar| -> VortexResult<Option<Scalar>> {
+        let value = without_unions(value)?;
+        Ok((!value.is_null()).then(|| {
+            if value.dtype().is_variant() {
+                value
+            } else {
+                Scalar::variant(value)
+            }
+        }))
+    };
+
+    match scalar.dtype() {
+        DType::Struct(..) => {
+            let fields = scalar.as_struct();
+            let mut names = Vec::new();
+            let mut values = Vec::new();
+            for name in fields.names().iter() {
+                if let Some(value) = fields
+                    .field(name.as_ref())
+                    .map(as_variant)
+                    .transpose()?
+                    .flatten()
+                {
+                    names.push(FieldName::from(name.as_ref()));
+                    values.push(value.into_value());
+                }
+            }
+
+            let fields = StructFields::new(
+                FieldNames::from(names),
+                vec![DType::Variant(Nullability::NonNullable); values.len()],
+            );
+            Scalar::try_new(
+                DType::Struct(fields, Nullability::NonNullable),
+                Some(ScalarValue::Tuple(values)),
+            )
+        }
+        DType::List(..) | DType::FixedSizeList(..) => {
+            let elements = scalar
+                .as_list()
+                .elements()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|element| {
+                    Ok(as_variant(element)?
+                        .unwrap_or_else(|| Scalar::variant(Scalar::null(DType::Null))))
+                })
+                .collect::<VortexResult<Vec<_>>>()?;
+            Ok(Scalar::list(
+                DType::Variant(Nullability::NonNullable),
+                elements,
+                Nullability::NonNullable,
+            ))
+        }
+        _ => Ok(scalar),
+    }
+}
+
+/// Whether `dtype` is or holds a union.
+fn has_union(dtype: &DType) -> bool {
+    match dtype {
+        DType::Union(..) => true,
+        DType::Struct(fields, _) => fields.fields().any(|field| has_union(&field)),
+        DType::List(element, _) | DType::FixedSizeList(element, ..) => has_union(element),
+        _ => false,
     }
 }
 

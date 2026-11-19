@@ -50,6 +50,38 @@ use vortex_session::registry::CachedId;
 use vortex_utils::aliases::StringEscape;
 
 use crate::variant_pack::VariantPack;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::Chunked;
+use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::ScalarFn;
+use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::Variant;
+use vortex_array::arrays::VariantArray;
+use vortex_array::arrays::chunked::ChunkedArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::builders::VariantBuilder;
+use vortex_array::builders::builder_with_capacity_in;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::Nullability;
+use vortex_array::expr::display::ExprDisplay;
+use vortex_array::proto::expr as pb;
+use vortex_array::proto::expr::variant_path_element;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::Arity;
+use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ReduceNode;
+use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::builtin::cast::Cast;
+use vortex_array::scalar_fn::builtin::get_item::GetItem;
+use vortex_array::scalar_fn::builtin::mask::Mask;
+use crate::variant_pack::VariantPackOptions;
 
 /// How many lazy layers `variant_get` unwraps from its input before it extracts row by row.
 const MAX_CANONICALIZE_DEPTH: usize = 8;
@@ -283,6 +315,31 @@ impl ScalarFnVTable for VariantGet {
                         .new_node(Cast.bind(node.node_dtype()?), &[current])
                         .map(Some);
                 }
+
+                // A union holds the rest of the path in its members. It is the whole Variant
+                // here, so the Variant reads it over a core storage that holds no value. A core
+                // storage that is constant already holds no value, and stops the rewrite.
+                //
+                // That core storage holds a Variant null, where the union does not hold the
+                // row. An untyped request would read it as a Variant null and not as a value
+                // that is missing, so only a request of a typed value is rewritten.
+                (DType::Union(..), _)
+                    if options.dtype().is_some_and(|dtype| !dtype.is_variant())
+                        && (descended || (pack.complete() && core.as_constant().is_none())) =>
+                {
+                    let empty =
+                        Scalar::variant(Scalar::null(DType::Null)).cast(&core.node_dtype()?)?;
+                    let variant = node.new_node(
+                        VariantPack.bind(VariantPackOptions::new(true)),
+                        &[node.new_constant(empty), current],
+                    )?;
+                    let rest = VariantGetOptions::new(
+                        VariantPath::new(path.iter().cloned()),
+                        options.dtype().cloned(),
+                    );
+                    return node.new_node(VariantGet.bind(rest), &[variant]).map(Some);
+                }
+
                 _ => return Ok(None),
             }
         }
@@ -707,6 +764,38 @@ mod tests {
     use crate::variant_get::VariantPath;
     use crate::variant_get::VariantPathElement;
     use crate::variant_pack::VariantPack;
+    use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::Chunked;
+    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::UnionArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::VariantArray;
+    use vortex_array::arrays::variant::VariantArraySlotsExt;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::assert_nth_scalar_is_null;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::dtype::UnionVariants;
+    use vortex_array::expr::Expression;
+    use vortex_array::expr::get_item;
+    use vortex_array::expr::proto::ExprSerializeProtoExt;
+    use vortex_array::expr::root;
+    use crate::expr::variant_pack;
+    use vortex_array::optimizer::ArrayOptimizer;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar::ScalarValue;
+    use vortex_array::scalar_fn::ScalarFnVTable;
+    use vortex_array::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -835,6 +924,96 @@ mod tests {
             .apply(&expr)?
             .optimize_ctx(&SESSION)?
             .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())
+    }
+
+    /// A shredded union holds the whole Variant in its rows, so a complete pack reads the path
+    /// from the union and not from the core storage.
+    #[test]
+    fn variant_get_reads_a_shredded_union_without_the_core() -> VortexResult<()> {
+        let union = UnionVariants::new(
+            ["int", "str"].into(),
+            vec![
+                DType::Primitive(PType::I64, Nullability::NonNullable),
+                DType::Utf8(Nullability::NonNullable),
+            ],
+        )?;
+        let shredded = DType::struct_(
+            [("a", DType::Union(union, Nullability::Nullable))],
+            Nullability::NonNullable,
+        );
+        let scope = DType::struct_(
+            [
+                ("core", DType::Variant(Nullability::Nullable)),
+                ("shredded", shredded),
+            ],
+            Nullability::NonNullable,
+        );
+        let expr = variant_get(
+            variant_pack(get_item("core", root()), get_item("shredded", root()), true),
+            parse_path("$.a")?,
+            Some(DType::Primitive(PType::I64, Nullability::Nullable)),
+        )
+        .bind(&scope)?;
+
+        let optimized = expr.optimize_recursive()?;
+
+        assert_eq!(optimized.dtype(), expr.dtype());
+        assert!(!optimized.to_string().contains("core"), "got {optimized}");
+        Ok(())
+    }
+
+    /// The rewrite of a `variant_get` over a shredded union reads the values of the union.
+    #[test]
+    fn variant_get_over_a_shredded_union_reads_its_values() -> VortexResult<()> {
+        let variants = UnionVariants::new(
+            ["int", "str"].into(),
+            vec![
+                DType::Primitive(PType::I64, Nullability::NonNullable),
+                DType::Utf8(Nullability::NonNullable),
+            ],
+        )?;
+        let type_ids = PrimitiveArray::from_option_iter([Some(0u8), Some(1), None]).into_array();
+        let ints = PrimitiveArray::from_iter([1i64, 0, 0]).into_array();
+        let strs = VarBinViewArray::from_iter_str(["", "x", ""]).into_array();
+        let union = UnionArray::try_new(type_ids, variants, [ints, strs])?.into_array();
+        let shredded = StructArray::try_new(
+            FieldNames::from_iter(["a"]),
+            vec![union],
+            3,
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let core = ConstantArray::new(
+            Scalar::variant(Scalar::null(DType::Null))
+                .cast(&DType::Variant(Nullability::Nullable))?,
+            3,
+        )
+        .into_array();
+        let array = StructArray::try_new(
+            FieldNames::from_iter(["core", "shredded"]),
+            vec![core, shredded],
+            3,
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        let expr = variant_get(
+            variant_pack(get_item("core", root()), get_item("shredded", root()), true),
+            parse_path("$.a")?,
+            Some(DType::Primitive(PType::I64, Nullability::Nullable)),
+        );
+        let actual = array
+            .apply(&expr)?
+            .optimize_ctx(&SESSION)?
+            .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(
+            actual,
+            PrimitiveArray::from_option_iter([Some(1i64), None, None]),
+            &mut ctx
+        );
+        Ok(())
     }
 
     #[test]
