@@ -15,7 +15,6 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
 use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
@@ -119,11 +118,11 @@ impl LayoutStrategy for ZonedStrategy {
             .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype(), session));
         // Fields of a nullable struct are written unmasked: a field holds values in rows where the
         // struct is null, which reads through the struct return as nulls. A bound over them, such
-        // as a max, still bounds the field as read, only less tightly, and so does whether no value
-        // is NaN. A count does not: the null count misses the rows where only the struct is null,
-        // so a zone it shows without nulls can still hold rows where `is_null(s.a)` is true. Such a
-        // field records only the statistics that hold under masking, with whether a zone holds no
-        // NaN in place of its NaN count, and no legacy zone map, whose statistics are fixed.
+        // as a max, still bounds the field as read, only less tightly. A count does not: the null
+        // count misses the rows where only the struct is null, so a zone it shows without nulls can
+        // still hold rows where `is_null(s.a)` is true. Such a field records only the statistics
+        // that hold under masking and its NaN count, which scans read through the struct only as a
+        // proof that a zone holds no NaN, and no legacy zone map, whose statistics are fixed.
         //
         // TODO(joe): record every aggregate for fields under a nullable struct. The struct
         //  validity has to travel with each chunk, since repartitioning below the struct writer
@@ -131,7 +130,7 @@ impl LayoutStrategy for ZonedStrategy {
         //  data child still receives the unmasked chunk.
         let nullable_ancestor = ctx.has_nullable_ancestor();
         if nullable_ancestor {
-            aggregate_fns = aggregates_under_masking(&aggregate_fns, &ctx);
+            aggregate_fns = aggregates_under_masking(&aggregate_fns);
         }
 
         // Readers before `vortex.zoned` only know the legacy `vortex.stats` layout. If the write
@@ -323,29 +322,18 @@ impl ZonedStrategy {
 }
 
 /// Returns the aggregates of `aggregate_fns` that a field beneath a nullable struct records: those
-/// whose statistics [hold under masking](holds_under_masking), and whether a zone holds no NaN in
-/// place of a NaN count, where `ctx` allows it.
+/// whose statistics [hold under masking](holds_under_masking), and the NaN count.
 ///
-/// Float bounds prune only with a proof that the zone holds no NaN, so without it no comparison of
-/// a float field beneath a nullable struct would prune.
-fn aggregates_under_masking(
-    aggregate_fns: &[AggregateFnRef],
-    ctx: &LayoutWriterContext,
-) -> Arc<[AggregateFnRef]> {
-    let all_non_nan = AllNonNan.bind(EmptyOptions);
-    let replaces_nan_count = ctx.allows_aggregate(&all_non_nan.id());
-    let mut kept = Vec::with_capacity(aggregate_fns.len());
-    for aggregate_fn in aggregate_fns {
-        let aggregate_fn = if replaces_nan_count && aggregate_fn.is::<NanCount>() {
-            &all_non_nan
-        } else {
-            aggregate_fn
-        };
-        if holds_under_masking(aggregate_fn) && !kept.contains(aggregate_fn) {
-            kept.push(aggregate_fn.clone());
-        }
-    }
-    kept.into()
+/// Float bounds prune only with a proof that the zone holds no NaN, which readers derive from a
+/// NaN count of zero. The NaN count of a field also counts the NaNs in the rows the struct hides,
+/// so a zone where it is zero holds no NaN as read through the struct either. Through the struct,
+/// scans read it only as that proof, and never as a count.
+fn aggregates_under_masking(aggregate_fns: &[AggregateFnRef]) -> Arc<[AggregateFnRef]> {
+    aggregate_fns
+        .iter()
+        .filter(|aggregate_fn| holds_under_masking(aggregate_fn) || aggregate_fn.is::<NanCount>())
+        .cloned()
+        .collect()
 }
 
 fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[AggregateFnRef]> {
@@ -389,6 +377,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
+    use vortex_array::aggregate_fn::AggregateFnId;
     use vortex_array::aggregate_fn::AggregateFnVTable;
     use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
     use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
@@ -508,7 +497,7 @@ mod tests {
     }
 
     /// A field of a nullable struct holds values in rows the struct nulls out. They loosen its
-    /// bounds but falsify its counts, so its zone map records only the bounds.
+    /// bounds but falsify its counts, so the zone map of an integer field records only the bounds.
     #[test]
     fn a_nullable_ancestor_records_only_bounds() -> VortexResult<()> {
         let written =
@@ -546,39 +535,24 @@ mod tests {
         Ok(())
     }
 
-    /// Beneath a nullable struct, a float field records whether each zone holds no NaN in place
-    /// of its NaN count, which float bounds need to prune, where the context permits it. An
-    /// integer field holds no NaN, so it records only its bounds.
+    /// Beneath a nullable struct, a float field records its NaN count with its bounds, since float
+    /// bounds prune only with a proof that the zone holds no NaN. Every core edition permits all
+    /// three. An integer field holds no NaN, so it records only its bounds.
     #[rstest]
-    #[case::float(PType::F64, true, true)]
-    #[case::float_not_permitted(PType::F64, false, false)]
-    #[case::integer(PType::I32, true, false)]
-    fn a_nullable_ancestor_records_whether_floats_hold_no_nan(
+    #[case::float(PType::F64, &[Max.id(), Min.id(), NanCount.id()])]
+    #[case::integer(PType::I32, &[Max.id(), Min.id()])]
+    fn a_nullable_ancestor_records_the_nan_count_of_floats(
         #[case] ptype: PType,
-        #[case] permitted: bool,
-        #[case] records: bool,
+        #[case] expected: &[AggregateFnId],
     ) {
         let dtype = DType::from(ptype);
-        let mut ctx = LayoutWriterContext::new(ArrayContext::empty()).with_nullable_ancestor();
-        if !permitted {
-            ctx = ctx.with_allowed_aggregates(HashSet::from_iter([
-                Min.id(),
-                Max.id(),
-                NanCount.id(),
-                NullCount.id(),
-            ]));
-        }
         let aggregate_fns =
-            aggregates_under_masking(&default_zoned_aggregate_fns(&dtype, &SESSION), &ctx);
+            aggregates_under_masking(&default_zoned_aggregate_fns(&dtype, &SESSION));
         let recorded = AggregateStatsAccumulator::new(&dtype, &aggregate_fns)
             .aggregate_fns()
             .iter()
-            .map(|aggregate_fn| aggregate_fn.id().to_string())
+            .map(|aggregate_fn| aggregate_fn.id())
             .collect::<Vec<_>>();
-        let mut expected = vec![Max.id().to_string(), Min.id().to_string()];
-        if records {
-            expected.push(AllNonNan.id().to_string());
-        }
         assert_eq!(recorded, expected);
     }
 

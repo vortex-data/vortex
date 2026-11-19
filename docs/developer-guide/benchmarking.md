@@ -255,8 +255,9 @@ factors are configurable per suite (e.g. `--opt scale-factor=10.0` for TPC-H SF=
 ### Unstable Encodings
 
 Benchmark sessions enable the `unstable` edition, so every benchmark measures Vortex files whose
-compressor may also choose its encodings. It currently holds only `fastlanes.delta`.
-`vortex_bench::enable_unstable_encodings` enables it on a session.
+compressor may also choose its encodings. It currently holds the `fastlanes.delta` encoding and the
+`vortex.ext` layout, which splits only the extension types that a session opts into, so benchmark
+files do not use it. `vortex_bench::enable_unstable_encodings` enables it on a session.
 
 ### Running SQL Benchmarks
 
