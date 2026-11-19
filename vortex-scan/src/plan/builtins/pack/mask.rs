@@ -16,7 +16,7 @@ use vortex_error::VortexResult;
 
 use crate::plan::builtins::zoned::holds_under_masking;
 
-/// Moves field reads and statistics of `expr` below the masks over their input.
+/// Moves field reads, statistics and strict functions of `expr` below the masks over their input.
 ///
 /// The partition rules read a field of a nullable struct as `mask(field, validity)`. An expression
 /// over that mask stays above the struct, so this moves what it can below the mask, where the next
@@ -24,6 +24,10 @@ use crate::plan::builtins::zoned::holds_under_masking;
 ///
 /// - `mask(s, v).name` becomes `mask(s.name, v)`: a field of a masked struct is null wherever the
 ///   struct is. Reading a nested field then reads only that field.
+/// - `f(mask(x, v))` becomes `mask(f(x), v)` for a function `f` of one argument that is strict and
+///   cannot fail, such as `list_transform(mask(l, v), x -> x.sku)`. A strict function is null
+///   wherever its argument is, and one that cannot fail may run on the values that `v` hides. The
+///   field's plan can then push the function down, as a list reads only the column of `sku`.
 /// - `stat(mask(x, v), agg)` becomes `stat(x, agg)` when `agg` [holds under
 ///   masking](holds_under_masking), such as a bound, and every function above the statistic is
 ///   infallible. Masking only replaces values with nulls, so the statistic of `x` still holds for
@@ -66,24 +70,43 @@ impl NodeRewriter for MaskLifter {
             return Ok(Transformed::yes(bound::mask(field, validity)));
         }
 
-        let Some(options) = node.as_opt::<StatFn>() else {
-            return Ok(Transformed::no(node));
-        };
-        if holds_under_masking(options.aggregate_fn()) && !self.fallible.contains(&true) {
-            let unmasked = node.clone().with_children([input])?;
-            // A statistic's dtype is nullable, so the unmasked input rarely changes it. Should it,
-            // the expressions above it would change type, so the statistic is left unknown.
-            if unmasked.dtype() == node.dtype() {
-                return Ok(Transformed::yes(unmasked));
+        if let Some(options) = node.as_opt::<StatFn>() {
+            if holds_under_masking(options.aggregate_fn()) && !self.fallible.contains(&true) {
+                let unmasked = node.clone().with_children([input])?;
+                // A statistic's dtype is nullable, so the unmasked input rarely changes it. Should
+                // it, the expressions above it would change type, so the statistic is left unknown.
+                if unmasked.dtype() == node.dtype() {
+                    return Ok(Transformed::yes(unmasked));
+                }
+            }
+            let unknown = Scalar::null(node.dtype().clone());
+            return Ok(Transformed::yes(bound::lit(unknown)));
+        }
+
+        if node.children().len() == 1 && is_strict_and_infallible(&node) {
+            let lifted = bound::mask(node.clone().with_children([input])?, validity);
+            // Masking makes the result nullable, which the result of a nullable input usually
+            // already is. Should it not be, the expressions above it would change type.
+            if lifted.dtype() == node.dtype() {
+                return Ok(Transformed::yes(lifted));
             }
         }
-        let unknown = Scalar::null(node.dtype().clone());
-        Ok(Transformed::yes(bound::lit(unknown)))
+        Ok(Transformed::no(node))
     }
+}
+
+/// Whether `node` is a function that is null wherever an argument is, and cannot fail.
+fn is_strict_and_infallible(node: &BoundExpression) -> bool {
+    node.as_scalar().is_some_and(|scalar_fn| {
+        let signature = scalar_fn.signature();
+        signature.is_strict() && signature.is_infallible()
+    })
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use rstest::rstest;
     use vortex_array::aggregate_fn::AggregateFnRef;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
@@ -97,15 +120,22 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::Lambda;
     use vortex_array::expr::and;
     use vortex_array::expr::cast;
+    use vortex_array::expr::checked_add;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
     use vortex_array::expr::is_not_null;
+    use vortex_array::expr::is_null;
+    use vortex_array::expr::list_length;
+    use vortex_array::expr::list_transform;
     use vortex_array::expr::lit;
     use vortex_array::expr::lt_eq;
     use vortex_array::expr::mask;
+    use vortex_array::expr::not;
     use vortex_array::expr::root;
+    use vortex_array::expr::var;
     use vortex_array::scalar_fn::ScalarFnVTableExt;
     use vortex_array::scalar_fn::fns::stat::StatFn;
     use vortex_array::scalar_fn::fns::stat::StatOptions;
@@ -166,6 +196,50 @@ mod tests {
         #[case] expected: &str,
     ) -> VortexResult<()> {
         assert_eq!(lifted(expr)?, expected);
+        Ok(())
+    }
+
+    /// The list `l` of a nullable `{l: list(i64)}`, read through the struct's validity.
+    fn masked_list() -> Expression {
+        mask(get_item("l", root()), is_not_null(root()))
+    }
+
+    /// A strict function of one argument that cannot fail moves below the mask, so the list's plan
+    /// can push it into the elements. A function that can fail, such as a lambda that can overflow,
+    /// would run on the lists that the mask hides, and one that is not strict, such as `is_null`,
+    /// is not null where the struct is, so both stay above it.
+    #[rstest]
+    #[case::transform(
+        list_transform(masked_list(), Lambda::new(["x"], not(eq(var("x"), lit(0i64))))?),
+        "vortex.mask(vortex.list.transform($.l, (x) -> vortex.not(($.x = 0i64))), is_not_null($))"
+    )]
+    #[case::length(
+        not(eq(list_length(masked_list()), lit(0u64))),
+        "vortex.not((vortex.mask(vortex.list.length($.l), is_not_null($)) = 0u64))"
+    )]
+    #[case::fallible(
+        list_transform(masked_list(), Lambda::new(["x"], checked_add(var("x"), lit(1i64)))?),
+        "vortex.list.transform(vortex.mask($.l, is_not_null($)), (x) -> ($.x + 1i64))"
+    )]
+    #[case::not_strict(
+        is_null(masked_list()),
+        "vortex.is_null(vortex.mask($.l, is_not_null($)))"
+    )]
+    fn lifts_strict_functions_that_cannot_fail(
+        #[case] expr: Expression,
+        #[case] expected: &str,
+    ) -> VortexResult<()> {
+        let dtype = DType::Struct(
+            StructFields::from_iter([(
+                "l",
+                DType::List(
+                    Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+                    Nullability::NonNullable,
+                ),
+            )]),
+            Nullability::Nullable,
+        );
+        assert_eq!(lift_masks(expr.bind(&dtype)?)?.to_string(), expected);
         Ok(())
     }
 }
