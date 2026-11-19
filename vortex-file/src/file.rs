@@ -17,6 +17,7 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_io::request::SegmentReader;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::metrics::ScanUsage;
@@ -58,6 +59,9 @@ pub struct VortexFile {
     scan_cache: Option<FileScanCache>,
     /// Resource usage that segment reads and scans of this handle add to.
     usage: Option<Arc<ScanUsage>>,
+    /// How V2 scans read the file's segments when the session's I/O scheduler can read them
+    /// directly, or `None` to read through [`Self::segment_source`].
+    scan_reader: Option<SegmentReader>,
 }
 
 /// What repeated V2 scans of a file share: its segment locations, read from the footer once, and
@@ -104,7 +108,13 @@ impl VortexFile {
             layout_reader_cache: None,
             scan_cache: None,
             usage: None,
+            scan_reader: None,
         }
+    }
+
+    pub(crate) fn with_scan_reader(mut self, scan_reader: Option<SegmentReader>) -> Self {
+        self.scan_reader = scan_reader;
+        self
     }
 
     pub(crate) fn with_metadata(mut self, metadata: Arc<HashMap<String, ByteBuffer>>) -> Self {
@@ -130,6 +140,7 @@ impl VortexFile {
             layout_reader_cache: Some(OnceLock::new()),
             scan_cache: Some(scan_cache),
             usage: self.usage,
+            scan_reader: self.scan_reader,
         }
     }
 
@@ -187,6 +198,7 @@ impl VortexFile {
     pub fn with_segment_source(mut self, segment_source: Arc<dyn SegmentSource>) -> Self {
         self.segment_source = segment_source;
         self.usage = None;
+        self.scan_reader = None;
         if self.layout_reader_cache.is_some() {
             self.layout_reader_cache = Some(OnceLock::new());
         }
@@ -276,10 +288,14 @@ impl VortexFile {
             Some(cache) => (Arc::clone(&cache.locations), Some(cache.plans.clone())),
             None => (self.footer.segment_locations(), None),
         };
+        let reader = self
+            .scan_reader
+            .clone()
+            .unwrap_or_else(|| SegmentReader::Opaque(Arc::clone(&self.segment_source)));
         ScanFile {
             layout: Arc::clone(self.footer.layout()),
             locations,
-            segments: Arc::clone(&self.segment_source),
+            reader,
             cache,
         }
     }

@@ -9,6 +9,7 @@ use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_session::VortexSession;
 
+use crate::request::IoScheduler;
 use crate::runtime::Handle;
 
 /// Session state for Vortex async runtimes.
@@ -68,3 +69,33 @@ pub trait RuntimeSessionExt: SessionExt {
     }
 }
 impl<S: SessionExt> RuntimeSessionExt for S {}
+
+/// The session's I/O scheduler, shared by every scan that reads through the session.
+#[derive(Clone, Default)]
+pub struct IoSchedulerSession(IoScheduler);
+
+impl SessionVar for IoSchedulerSession {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+impl Debug for IoSchedulerSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IoSchedulerSession").finish_non_exhaustive()
+    }
+}
+
+/// Extension trait for the session's I/O scheduler.
+pub trait IoSchedulerSessionExt: SessionExt {
+    /// The scheduler every scan of this session registers its sources with and reads through.
+    fn io_scheduler(&self) -> IoScheduler {
+        self.get::<IoSchedulerSession>().0.clone()
+    }
+}
+
+impl<S: SessionExt> IoSchedulerSessionExt for S {}

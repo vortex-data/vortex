@@ -40,6 +40,7 @@ use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_scan::execution::SegmentLocation;
@@ -57,6 +58,7 @@ use super::PrunePlanner;
 use super::ROW_BLOCK_SIZE;
 use super::ScanBuilder;
 use super::ScanFile;
+use super::SegmentReader;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -181,7 +183,7 @@ fn scan_file(segments: &Arc<dyn SegmentSource>, layout: &LayoutRef) -> VortexRes
     Ok(ScanFile {
         layout: Arc::clone(layout),
         locations,
-        segments: Arc::clone(segments),
+        reader: SegmentReader::Opaque(Arc::clone(segments)),
         cache: None,
     })
 }
@@ -280,9 +282,12 @@ async fn assert_same_as_v1(
 ) -> VortexResult<()> {
     let builder = make()?;
     let dtype = builder.dtype().clone();
+    let SegmentReader::Opaque(segments) = &builder.file.reader else {
+        vortex_bail!("test files read through an opaque source");
+    };
     let reader = builder.file.layout.new_reader(
         "".into(),
-        Arc::clone(&builder.file.segments),
+        Arc::clone(segments),
         session,
         &Default::default(),
     )?;

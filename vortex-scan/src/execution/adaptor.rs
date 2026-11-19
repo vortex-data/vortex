@@ -17,12 +17,13 @@ use vortex_io::request;
 use vortex_io::request::IoBatch;
 use vortex_io::request::IoIntent;
 use vortex_io::request::IoResult;
+use vortex_io::request::IoTarget;
+use vortex_io::request::SourceId;
 
 use crate::execution::SegmentLocation;
 use crate::execution::pipeline::ReadId;
 use crate::execution::pipeline::Scan;
 use crate::execution::pipeline::Turn;
-use crate::execution::segment_target;
 use crate::planning::planner::State;
 use crate::source::SegmentId;
 
@@ -48,7 +49,7 @@ pub(super) enum AdaptorStep {
 /// Adapts a pipeline [`Scan`] to the planner I/O and compute protocol.
 ///
 /// The scan names segments by id; the protocol names byte ranges. Each scan read becomes a
-/// `Fetch` of the segment's range at the segment's alignment, and each delivery is handed back to
+/// `Fetch` of the whole segment from the scan's source, and each delivery is handed back to
 /// the scan under its own id.
 pub(super) struct ScanAdaptor {
     scan: Scan,
@@ -58,6 +59,8 @@ pub(super) struct ScanAdaptor {
     /// Orders the pieces handed out.
     next_piece: u64,
     locations: Arc<[SegmentLocation]>,
+    /// The scheduler's id for the file the scan reads.
+    source: SourceId,
     /// Published and undelivered requests, with the scan read and segment each one answers.
     outstanding: FxHashMap<u32, (ReadId, SegmentId)>,
     /// A delivery the scan could not take, reported by the next compute.
@@ -68,13 +71,14 @@ pub(super) struct ScanAdaptor {
 
 impl ScanAdaptor {
     /// Wraps a scan, numbering requests uniquely within this adaptor's lifetime.
-    pub(super) fn new(scan: Scan, locations: Arc<[SegmentLocation]>) -> Self {
+    pub(super) fn new(scan: Scan, locations: Arc<[SegmentLocation]>, source: SourceId) -> Self {
         Self {
             scan,
             pending: None,
             done: false,
             next_piece: 0,
             locations,
+            source,
             outstanding: FxHashMap::default(),
             failed: None,
             next_id: 0,
@@ -141,7 +145,7 @@ impl ScanAdaptor {
     }
 
     fn request(&mut self, read: ReadId, segment_id: SegmentId) -> VortexResult<request::IoRequest> {
-        let location = self.location(segment_id)?;
+        self.location(segment_id)?;
         let id = self.next_id;
         self.next_id = self
             .next_id
@@ -151,7 +155,8 @@ impl ScanAdaptor {
         Ok(request::IoRequest {
             intent: IoIntent::Fetch,
             request: request::IoRequestId(id),
-            target: segment_target(&location),
+            source: self.source,
+            target: IoTarget::segment(segment_id),
         })
     }
 

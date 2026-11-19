@@ -11,14 +11,16 @@ use std::sync::Weak;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::expr::BoundExpression;
+use vortex_error::VortexResult;
+use vortex_io::request::DEFAULT_RETAINED_BYTES;
+use vortex_io::request::IoScheduler;
+use vortex_io::request::RegisteredSource;
+use vortex_io::request::SegmentReader;
+use vortex_io::segments::SegmentLocation;
 
-use super::io::SegmentRanges;
-use super::retain::RetainedSegments;
-use super::retain::RetainingSegmentSource;
 use crate::execution::FilterPlans;
 use crate::execution::pipeline::ValueCache;
 use crate::plan::PlanRef;
-use crate::source::SegmentSource;
 
 /// Reusable state for repeated scans of one source.
 ///
@@ -28,8 +30,9 @@ use crate::source::SegmentSource;
 /// scans. The lowered plan keeps the children it has initialized, each distinct projection keeps
 /// its optimized plan, each distinct filter keeps its conjunct and pruning plans along with the
 /// zones those plans have already excluded, and dictionary values stay keyed by the cached plan
-/// that produced them. Recently read segments are retained up to a byte budget, so the chunks of
-/// the file's scans that share a stored segment read it once.
+/// that produced them. The source stays registered with the session's I/O scheduler, which
+/// retains its recently read segments up to a byte budget, so the chunks of the file's scans that
+/// share a stored segment read it once.
 ///
 /// A cache describes one root plan, segment locations, and segment source. Use a new cache
 /// when any of them changes. Cached plans and values live as long as the cache, one set per
@@ -43,13 +46,14 @@ struct Inner {
     /// Optimized plans of non-identity projections. Values are cached by the plan that produced
     /// them, so a projection must reuse its plan for its values to be found again.
     projections: Mutex<FxHashMap<ExprKey, PlanRef>>,
-    ranges: Mutex<Option<SegmentRanges>>,
     /// Plans of filters, keyed by the filter expression. A pruning plan remembers the zones it
     /// excluded, so sharing the plans prunes a file's zones once for every scan of that filter.
     filters: Mutex<FxHashMap<ExprKey, Arc<FilterPlans>>>,
     values: ValueCache,
-    /// Recently read segments, shared by the chunks of every scan of the file.
-    retained: Arc<RetainedSegments>,
+    /// The scheduler's budget for the source's recently read segments, or `None` for the default.
+    retained_bytes: Option<u64>,
+    /// The source's registration, shared by every scan of the file.
+    source: Mutex<Option<Arc<RegisteredSource>>>,
 }
 
 impl ScanCache {
@@ -57,7 +61,7 @@ impl ScanCache {
     /// a stored segment read it once. The default retains 64 MiB; zero retains nothing.
     pub fn with_retained_bytes(bytes: u64) -> Self {
         Self(Arc::new(Inner {
-            retained: Arc::new(RetainedSegments::new(bytes)),
+            retained_bytes: Some(bytes),
             ..Inner::default()
         }))
     }
@@ -92,16 +96,6 @@ impl ScanCache {
             .clone()
     }
 
-    /// The segment byte-range index an earlier scan kept.
-    pub(crate) fn ranges(&self) -> Option<SegmentRanges> {
-        self.0.ranges.lock().clone()
-    }
-
-    /// Keeps `ranges`, returning the index already kept if another scan got there first.
-    pub(crate) fn insert_ranges(&self, ranges: SegmentRanges) -> SegmentRanges {
-        Arc::clone(self.0.ranges.lock().get_or_insert(ranges))
-    }
-
     /// The plans of `filter` an earlier scan kept.
     pub(crate) fn filter_plans(&self, filter: &BoundExpression) -> Option<Arc<FilterPlans>> {
         self.0.filters.lock().get(&ExprKey(filter.clone())).cloned()
@@ -123,12 +117,21 @@ impl ScanCache {
         )
     }
 
-    /// Serves `segments` through the segments the file's scans retain.
-    pub(crate) fn retaining(&self, segments: Arc<dyn SegmentSource>) -> Arc<dyn SegmentSource> {
-        Arc::new(RetainingSegmentSource {
-            inner: segments,
-            retained: Arc::clone(&self.0.retained),
-        })
+    /// The source's registration with `scheduler`, registering it on the first scan.
+    pub(crate) fn register(
+        &self,
+        scheduler: &IoScheduler,
+        locations: Arc<[SegmentLocation]>,
+        reader: SegmentReader,
+    ) -> VortexResult<Arc<RegisteredSource>> {
+        let mut source = self.0.source.lock();
+        if let Some(source) = source.as_ref().filter(|s| s.is_registered_with(scheduler)) {
+            return Ok(Arc::clone(source));
+        }
+        let retained_bytes = self.0.retained_bytes.unwrap_or(DEFAULT_RETAINED_BYTES);
+        let registered = scheduler.register(locations, reader, retained_bytes)?;
+        *source = Some(Arc::clone(&registered));
+        Ok(registered)
     }
 
     pub(crate) fn values(&self) -> ValueCache {
