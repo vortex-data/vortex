@@ -2965,6 +2965,55 @@ mod tests {
         Ok(())
     }
 
+    /// Dict whose BitPacked values span several FastLanes chunks and carry patches.
+    ///
+    /// The values decode in an input stage, where the block splits each 32- and 64-bit lane
+    /// into slices and spreads the slices of every chunk across its threads, then scatters
+    /// the patches of all chunks. Codes reach every value so a misplaced slice or patch shows.
+    async fn dict_with_patched_multi_chunk_values<T: NativePType + From<u32>>() -> VortexResult<()>
+    {
+        let mut ctx = SESSION.create_execution_ctx();
+        let bit_width: u8 = 4;
+        let values_len = 2500u32;
+        let dict_values: Vec<T> = (0..values_len)
+            .map(|i| <T as From<u32>>::from(if i % 300 == 0 { 100_000 } else { i % 16 }))
+            .collect();
+        let codes: Vec<u16> = (0..5000u32)
+            .map(|i| ((i * 7) % values_len) as u16)
+            .collect();
+        let expected: Vec<T> = codes.iter().map(|&c| dict_values[c as usize]).collect();
+
+        let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
+        let values_bp = BitPacked::encode(&values_prim.into_array(), bit_width, &mut ctx)?;
+        assert!(values_bp.patches().is_some(), "expected patches on values");
+        let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+        let dict =
+            DictArray::try_new(codes_prim.into_array(), values_bp.into_array())?.into_array();
+        assert!(matches!(
+            DispatchPlan::new(&dict, CudaDispatchMode::DynDispatchOnly)?,
+            DispatchPlan::Fused(_)
+        ));
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let canonical = try_gpu_dispatch(&dict, &mut cuda_ctx).await?;
+        let result = CanonicalCudaExt::into_host(canonical, cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
+        let expected = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_dict_with_patched_multi_chunk_values_u32() -> VortexResult<()> {
+        dict_with_patched_multi_chunk_values::<u32>().await
+    }
+
+    #[crate::test]
+    async fn test_dict_with_patched_multi_chunk_values_u64() -> VortexResult<()> {
+        dict_with_patched_multi_chunk_values::<u64>().await
+    }
+
     /// Patches placed exactly at FastLanes chunk boundaries (1024-element chunks).
     #[crate::test]
     async fn test_bitpacked_patches_at_chunk_boundaries() -> VortexResult<()> {
