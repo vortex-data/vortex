@@ -3,14 +3,10 @@
 
 //! A configurable writer strategy for tabular data.
 //!
-//! [`TableStrategy`] is a *dispatcher*: it inspects the dtype of the stream it is handed and
-//! routes struct columns to [`StructStrategy`], list columns to [`ListLayoutStrategy`], and
-//! everything else to the configured leaf strategy. Because it hands *itself* (suitably descended)
-//! to those structural writers as the strategy for their children, arbitrarily nested struct/list
-//! trees are written with no manual wiring.
+//! [`TableStrategy`] selects a writer for each column. Structural writers use the dispatcher
+//! for their children so that nested columns follow the same policy.
 //!
-//! The dispatcher also owns field-path overrides, letting callers force a specific leaf field —
-//! at any depth — onto a custom strategy.
+//! A field-path override selects a custom writer for a column at any depth.
 
 use std::sync::Arc;
 
@@ -18,6 +14,7 @@ use async_trait::async_trait;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldPath;
+use vortex_array::dtype::extension::ExtId;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -26,6 +23,9 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
+use crate::VTable;
+use crate::layouts::extension::Extension;
+use crate::layouts::extension::writer::ExtensionStrategy;
 use crate::layouts::list::writer::ListLayoutStrategy;
 use crate::layouts::struct_::StructStrategy;
 use crate::segments::SegmentSinkRef;
@@ -45,6 +45,8 @@ type ListLayoutFactory = Arc<dyn Fn(ListLayoutStrategy) -> Arc<dyn LayoutStrateg
 ///   strategies. Gated: only when list decomposition is enabled via
 ///   [`with_list_layout`][Self::with_list_layout] (off by default); otherwise a list falls through
 ///   to the leaf strategy.
+/// - A struct-backed extension uses the [extension layout](crate::layouts::extension) when
+///   its type opts in and the write context allows it.
 /// - **anything else** → the leaf strategy.
 ///
 /// [`write_stream`]: LayoutStrategy::write_stream
@@ -61,6 +63,8 @@ pub struct TableStrategy {
     ///
     /// [`ListLayoutStrategy`]: ListLayoutStrategy
     list_layout_factory: Option<ListLayoutFactory>,
+    /// Extension IDs whose struct storage can be split into fields.
+    extension_layouts: Arc<HashSet<ExtId>>,
 }
 
 impl TableStrategy {
@@ -88,6 +92,7 @@ impl TableStrategy {
             validity,
             leaf: fallback,
             list_layout_factory: None,
+            extension_layouts: Arc::default(),
         }
     }
 
@@ -175,6 +180,16 @@ impl TableStrategy {
         self.list_layout_factory = Some(Arc::new(factory));
         self
     }
+
+    /// Enable writing the given extension types with the experimental extension layout.
+    ///
+    /// Opted-in types with struct storage use the struct writer when the write context allows
+    /// the layout, and a field override below such an extension applies to its storage field.
+    /// Any other extension column goes to the leaf writer, so overrides below it have no effect.
+    pub fn with_extension_layout(mut self, ids: impl IntoIterator<Item = ExtId>) -> Self {
+        Arc::make_mut(&mut self.extension_layouts).extend(ids);
+        self
+    }
 }
 
 impl TableStrategy {
@@ -244,6 +259,7 @@ impl TableStrategy {
             validity: Arc::clone(&self.validity),
             leaf: Arc::clone(&self.leaf),
             list_layout_factory: self.list_layout_factory.clone(),
+            extension_layouts: Arc::clone(&self.extension_layouts),
         }
     }
 
@@ -255,6 +271,7 @@ impl TableStrategy {
             validity: Arc::clone(&self.validity),
             leaf: Arc::clone(&self.leaf),
             list_layout_factory: self.list_layout_factory.clone(),
+            extension_layouts: Arc::clone(&self.extension_layouts),
         }
     }
 
@@ -301,6 +318,16 @@ impl LayoutStrategy for TableStrategy {
             && let Some(list_strategy) = self.list_strategy()
         {
             return list_strategy
+                .write_stream(ctx, segment_sink, stream, eof, session)
+                .await;
+        }
+
+        if let Some(ext_dtype) = dtype.as_extension_opt()
+            && self.extension_layouts.contains(&ext_dtype.id())
+            && ext_dtype.storage_dtype().is_struct()
+            && ctx.allows_layout(&Extension.id())
+        {
+            return ExtensionStrategy::new(self.struct_strategy())
                 .write_stream(ctx, segment_sink, stream, eof, session)
                 .await;
         }
