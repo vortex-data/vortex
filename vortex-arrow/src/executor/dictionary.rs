@@ -88,8 +88,9 @@ pub(super) fn to_arrow_dictionary(
 /// A single dictionary hands over its codes and values whenever its valid codes fit `K`, even if
 /// it has more values than `K` can index.
 ///
-/// Any other array, joined leaves with more values than `K` can index, and joined values that do
-/// not convert to the values field are decoded and hashed into a dictionary by Arrow.
+/// Any other array, joined leaves with more values than `K` can index, sparse joined leaves whose
+/// values Arrow can hash, and joined values that do not convert to the values field are decoded
+/// and hashed into a dictionary by Arrow.
 fn to_dictionary<K: ArrowDictionaryKeyType>(
     array: ArrayRef,
     values_field: &Field,
@@ -109,6 +110,12 @@ where
     let mut pending = vec![array];
     let mut leaves = Vec::new();
     let mut num_values = 0usize;
+    // Sparse leaves, such as small slices of a large dictionary, decode their rows when Arrow can
+    // hash them, rather than export every value of every leaf.
+    let max_joined_values = arrow_packs_dictionary(values_field.data_type()).then(|| {
+        len.saturating_mul(SPARSE_VALUES_PER_ROW)
+            .max(SPARSE_MIN_VALUES)
+    });
     while let Some(leaf) = pending.pop() {
         // Keep an existing empty dictionary: canonicalization can discard its codes, and Arrow
         // cannot repack every extension's storage type into a dictionary.
@@ -130,11 +137,17 @@ where
                 .map(|constant| usize::from(!constant.scalar().is_null()))
         };
         leaves.push(leaf);
-        // A single dictionary may have more values than `K` can index, so the count only rules
-        // out a join once a second leaf arrives.
+        // A single dictionary may have more values than `K` can index, and is not sparse
+        // relative to itself, so the count only rules out a join once a second leaf arrives.
+        // Dictionaries over huge constant values can overflow the count while having few rows.
         let joinable = leaf_values.is_some_and(|leaf_values| {
-            num_values += leaf_values;
-            leaves.len() == 1 || keys_index::<K>(num_values)
+            let Some(joined) = num_values.checked_add(leaf_values) else {
+                return false;
+            };
+            num_values = joined;
+            leaves.len() == 1
+                || (keys_index::<K>(num_values)
+                    && max_joined_values.is_none_or(|max| num_values <= max))
         });
         if !joinable {
             leaves.extend(pending.into_iter().rev());
@@ -277,6 +290,54 @@ fn export_values(
     }
 }
 
+/// Joined leaves with more than this many values per row decode their rows instead, when Arrow
+/// can hash them.
+///
+/// The join copies every value of every leaf, while decoding gathers and hashes each row once, and
+/// hashing a row costs a few value copies. Joined values also stay allocated for as long as the
+/// consumer holds the Arrow dictionary.
+const SPARSE_VALUES_PER_ROW: usize = 4;
+
+/// Joined leaves with at most this many values always join, however few rows they have: copying
+/// them is cheap, and the dictionary keeps the values and the codes of its leaves as they are.
+const SPARSE_MIN_VALUES: usize = 1 << 16;
+
+/// Whether Arrow can hash decoded values of `data_type` into a dictionary, as listed by
+/// `arrow_cast`'s dictionary packing.
+fn arrow_packs_dictionary(data_type: &DataType) -> bool {
+    matches!(
+        data_type,
+        DataType::Int8
+            | DataType::Int16
+            | DataType::Int32
+            | DataType::Int64
+            | DataType::UInt8
+            | DataType::UInt16
+            | DataType::UInt32
+            | DataType::UInt64
+            | DataType::Float16
+            | DataType::Float32
+            | DataType::Float64
+            | DataType::Decimal32(..)
+            | DataType::Decimal64(..)
+            | DataType::Decimal128(..)
+            | DataType::Decimal256(..)
+            | DataType::Date32
+            | DataType::Date64
+            | DataType::Time32(_)
+            | DataType::Time64(_)
+            | DataType::Timestamp(..)
+            | DataType::Utf8
+            | DataType::LargeUtf8
+            | DataType::Utf8View
+            | DataType::Binary
+            | DataType::LargeBinary
+            | DataType::BinaryView
+            | DataType::FixedSizeBinary(_)
+            | DataType::Struct(_)
+    )
+}
+
 /// Whether keys of type `K` can index `num_values` values.
 fn keys_index<K: ArrowDictionaryKeyType>(num_values: usize) -> bool {
     num_values == 0 || K::Native::from_usize(num_values - 1).is_some()
@@ -346,6 +407,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use arrow_array::DictionaryArray as ArrowDictArray;
+    use arrow_array::Int32Array;
     use arrow_array::StringArray;
     use arrow_array::UInt8Array;
     use arrow_array::cast::AsArray;
@@ -729,6 +791,95 @@ mod tests {
         let flat = arrow_cast::cast(&actual, &DataType::Utf8)?;
         let expected = StringArray::from(vec![Some("a"), None, Some("b"), Some("a"), Some("b")]);
         assert_eq!(flat.as_ref(), &expected as &dyn arrow_array::Array);
+        Ok(())
+    }
+
+    /// Slices of a dictionary keep all of its values. Joining sparse slices would export far more
+    /// values than rows, so their rows are decoded and hashed instead.
+    #[test]
+    fn sparse_dict_slices_hash_rows() -> VortexResult<()> {
+        let dict = DictArray::try_new(
+            PrimitiveArray::from_iter(0..70_000u32).into_array(),
+            PrimitiveArray::from_iter((0..70_000i32).map(|i| i % 3)).into_array(),
+        )?
+        .into_array();
+        let chunked = ChunkedArray::try_new(
+            vec![dict.slice(0..2)?, dict.slice(69_998..70_000)?],
+            dict.dtype().clone(),
+        )?
+        .into_array();
+
+        let actual = execute(chunked, &dict_type(DataType::Int32, DataType::Int32))?;
+
+        assert_eq!(actual.as_any_dictionary().values().len(), 3);
+        let flat = arrow_cast::cast(&actual, &DataType::Int32)?;
+        assert_eq!(
+            flat.as_ref(),
+            &Int32Array::from(vec![0, 1, 2, 0]) as &dyn arrow_array::Array
+        );
+        Ok(())
+    }
+
+    /// Sparse slices still join when Arrow cannot hash their values.
+    #[test]
+    fn sparse_dict_slices_join_unhashable_values() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter(0..140_000i32).into_array(),
+            2,
+            Validity::NonNullable,
+            70_000,
+        )?
+        .into_array();
+        let dict =
+            DictArray::try_new(PrimitiveArray::from_iter(0..70_000u32).into_array(), values)?
+                .into_array();
+        let source = ChunkedArray::try_new(
+            vec![dict.slice(0..2)?, dict.slice(69_998..70_000)?],
+            dict.dtype().clone(),
+        )?
+        .into_array();
+        let arrow = SESSION.arrow();
+        let values_field = arrow.to_arrow_field("item", source.dtype())?;
+        let field = Field::new(
+            "dict",
+            dict_type(DataType::Int32, values_field.data_type().clone()),
+            false,
+        );
+
+        let exported = source.clone().execute_arrow(Some(&field), &mut ctx)?;
+
+        assert_eq!(exported.as_any_dictionary().values().len(), 140_000);
+        let imported = arrow.from_arrow_array(exported, &field)?;
+        vortex_array::assert_arrays_eq!(imported, source, &mut ctx);
+        Ok(())
+    }
+
+    /// Dictionaries over huge constant values can have more values together than `usize` counts,
+    /// even when they have few rows. Their rows are decoded and hashed.
+    #[test]
+    fn value_count_overflow_hashes_rows() -> VortexResult<()> {
+        let dict = || -> VortexResult<vortex_array::ArrayRef> {
+            Ok(DictArray::try_new(
+                PrimitiveArray::from_iter([0u64, 1]).into_array(),
+                ConstantArray::new(7i32, usize::MAX / 2 + 1).into_array(),
+            )?
+            .into_array())
+        };
+        let chunked = ChunkedArray::try_new(
+            vec![dict()?, dict()?],
+            DType::Primitive(PType::I32, NonNullable),
+        )?
+        .into_array();
+
+        let actual = execute(chunked, &dict_type(DataType::UInt64, DataType::Int32))?;
+
+        assert_eq!(actual.as_any_dictionary().values().len(), 1);
+        let flat = arrow_cast::cast(&actual, &DataType::Int32)?;
+        assert_eq!(
+            flat.as_ref(),
+            &Int32Array::from(vec![7; 4]) as &dyn arrow_array::Array
+        );
         Ok(())
     }
 
