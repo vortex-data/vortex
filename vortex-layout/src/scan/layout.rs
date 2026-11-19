@@ -910,6 +910,30 @@ mod pool_tests {
         Ok(())
     }
 
+    /// A pool reports work left until a worker has taken every split, and its progress reaches
+    /// one once it has.
+    #[rstest]
+    #[case::ordered(true)]
+    #[case::unordered(false)]
+    fn pool_is_exhausted_once_drained(#[case] ordered: bool) -> VortexResult<()> {
+        let source = source(TestLayoutReader::new(8).with_split_size(2));
+        let pool = plan(
+            &source,
+            ScanRequest {
+                ordered,
+                ..Default::default()
+            },
+        )?
+        .open()?;
+        assert!(!pool.is_exhausted());
+        assert_eq!(pool.progress(), 0.0);
+
+        assert_eq!(read_with_one_worker(Arc::clone(&pool))?.len(), 8);
+        assert!(pool.is_exhausted());
+        assert_eq!(pool.progress(), 1.0);
+        Ok(())
+    }
+
     /// N workers on one pool read every split exactly once.
     #[rstest]
     #[case::ordered(true)]
