@@ -40,6 +40,7 @@ use vortex_scan::DataSourceScanRef;
 use vortex_scan::Partition;
 use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
+use vortex_scan::pool::SPLITS_IN_FLIGHT_PER_WORKER;
 use vortex_scan::pool::ScanPool;
 use vortex_scan::pool::ScanPoolRef;
 use vortex_scan::row_mask::RowMask;
@@ -56,10 +57,6 @@ pub(crate) type PreparedScan = RepeatedScan<ArrayRef>;
 
 /// A prepared scan and the row ranges of its splits, in row order.
 pub(crate) type PlannedSplits = (Arc<PreparedScan>, Vec<Range<u64>>);
-
-/// The most splits each worker keeps in flight when the request does not say; stands in for the
-/// scan engine's memory budget.
-const SPLITS_IN_FLIGHT_PER_WORKER: usize = 4;
 
 /// One execution of one file's prepared scan.
 pub(crate) struct FileScan {

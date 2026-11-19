@@ -26,11 +26,20 @@ use vortex_layout::LayoutReaderRef;
 use vortex_layout::scan::multi::LayoutReaderFactory;
 use vortex_layout::scan::multi::MultiLayoutDataSource;
 use vortex_scan::DataSource;
+use vortex_scan::DataSourceRef;
+use vortex_scan::source::DeferredPlanFile;
+use vortex_scan::source::PlanDataSource;
+use vortex_scan::source::PlanFile;
+use vortex_scan::source::PlanSourceFile;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
 use crate::VortexFile;
 use crate::VortexOpenOptions;
+use crate::file::may_contain_list_layout;
+
+/// Adjusts the options each file of a [`MultiFileDataSource`] is opened with.
+type OpenOptionsFn = Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>;
 
 /// A builder that discovers multiple Vortex files from glob patterns and constructs a
 /// [`MultiLayoutDataSource`] to scan them as a single data source.
@@ -122,6 +131,52 @@ impl MultiFileDataSource {
     /// Discovers files via glob, opens the first file eagerly to determine the schema,
     /// and creates lazy factories for the remaining files.
     pub async fn build(self) -> VortexResult<MultiLayoutDataSource> {
+        let session = self.session.clone();
+        let open_options_fn = Arc::clone(&self.open_options_fn);
+        let (first_file, all_files) = self.discover().await?;
+        layout_source(&session, &open_options_fn, &first_file, &all_files)
+    }
+
+    /// Build a [`DataSource`] whose scans run on the planner-driven executor.
+    ///
+    /// Discovers files as [`build`](Self::build) does and opens the first file for the schema.
+    /// The source is a [`PlanDataSource`] whose remaining files are opened when a scan reaches
+    /// them, as units of the scan's work. The planner-driven executor cannot read list layouts
+    /// yet, so when the schema could hold one, this returns [`build`](Self::build)'s layout
+    /// reader source instead.
+    pub async fn build_plan(self) -> VortexResult<DataSourceRef> {
+        let session = self.session.clone();
+        let open_options_fn = Arc::clone(&self.open_options_fn);
+        let (first_file, all_files) = self.discover().await?;
+        if may_contain_list_layout(first_file.dtype()) {
+            return Ok(Arc::new(layout_source(
+                &session,
+                &open_options_fn,
+                &first_file,
+                &all_files,
+            )?));
+        }
+        let mut files = vec![PlanSourceFile::Opened(first_file.plan_file())];
+        files.extend(
+            all_files[1..]
+                .iter()
+                .map(|(file, fs)| PlanSourceFile::Deferred {
+                    file: Arc::new(DeferredVortexPlanFile {
+                        fs: Arc::clone(fs),
+                        file: file.clone(),
+                        session: session.clone(),
+                        open_options_fn: Arc::clone(&open_options_fn),
+                    }),
+                    byte_size: file.size,
+                }),
+        );
+        let source = PlanDataSource::from_files(session, first_file.dtype().clone(), files);
+        debug!(file_count = all_files.len(), dtype = %source.dtype(), "built a plan MultiFileDataSource");
+        Ok(Arc::new(source))
+    }
+
+    /// Discovers the files of the globs, in order, and opens the first.
+    async fn discover(self) -> VortexResult<(VortexFile, Vec<(FileListing, FileSystemRef)>)> {
         if self.glob_sources.is_empty() {
             vortex_bail!("MultiFileDataSource requires at least one glob pattern");
         }
@@ -173,33 +228,33 @@ impl MultiFileDataSource {
         let (first_file_listing, first_fs) = &all_files[0];
         let open_fn = self.open_options_fn.as_ref();
         let first_file = open_file(first_fs, first_file_listing, &self.session, open_fn).await?;
-        let first_reader = first_file.layout_reader()?;
-
-        let byte_sizes: Vec<Option<u64>> = all_files.iter().map(|(file, _)| file.size).collect();
-
-        let factories: Vec<Arc<dyn LayoutReaderFactory>> = all_files[1..]
-            .iter()
-            .map(|(file, fs)| {
-                Arc::new(VortexFileReaderFactory {
-                    fs: Arc::clone(fs),
-                    file: file.clone(),
-                    session: self.session.clone(),
-                    open_options_fn: Arc::clone(&self.open_options_fn),
-                }) as Arc<dyn LayoutReaderFactory>
-            })
-            .collect();
-
-        let inner = MultiLayoutDataSource::new_with_first(
-            first_reader,
-            factories,
-            byte_sizes,
-            &self.session,
-        );
-
-        debug!(file_count, dtype = %inner.dtype(), "built MultiFileDataSource");
-
-        Ok(inner)
+        Ok((first_file, all_files))
     }
+}
+
+/// The layout reader source over `all_files`, whose first is open as `first_file`.
+fn layout_source(
+    session: &VortexSession,
+    open_options_fn: &OpenOptionsFn,
+    first_file: &VortexFile,
+    all_files: &[(FileListing, FileSystemRef)],
+) -> VortexResult<MultiLayoutDataSource> {
+    let first_reader = first_file.layout_reader()?;
+    let byte_sizes: Vec<Option<u64>> = all_files.iter().map(|(file, _)| file.size).collect();
+    let factories: Vec<Arc<dyn LayoutReaderFactory>> = all_files[1..]
+        .iter()
+        .map(|(file, fs)| {
+            Arc::new(VortexFileReaderFactory {
+                fs: Arc::clone(fs),
+                file: file.clone(),
+                session: session.clone(),
+                open_options_fn: Arc::clone(open_options_fn),
+            }) as Arc<dyn LayoutReaderFactory>
+        })
+        .collect();
+    let inner = MultiLayoutDataSource::new_with_first(first_reader, factories, byte_sizes, session);
+    debug!(file_count = all_files.len(), dtype = %inner.dtype(), "built MultiFileDataSource");
+    Ok(inner)
 }
 
 /// Creates a local filesystem backed by `object_store::local::LocalFileSystem`.
@@ -294,6 +349,28 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
         .await?;
 
         Ok(Some(file.layout_reader()?))
+    }
+}
+
+/// A [`DeferredPlanFile`] that opens a single Vortex file when a scan reaches it.
+struct DeferredVortexPlanFile {
+    fs: FileSystemRef,
+    file: FileListing,
+    session: VortexSession,
+    open_options_fn: OpenOptionsFn,
+}
+
+#[async_trait]
+impl DeferredPlanFile for DeferredVortexPlanFile {
+    async fn open(&self) -> VortexResult<Option<PlanFile>> {
+        let file = open_file(
+            &self.fs,
+            &self.file,
+            &self.session,
+            self.open_options_fn.as_ref(),
+        )
+        .await?;
+        Ok(Some(file.plan_file()))
     }
 }
 

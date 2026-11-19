@@ -30,6 +30,7 @@ use vortex_scan::DataSourceRef;
 use vortex_scan::prepare::ScanCache;
 use vortex_scan::prepare::SegmentLocation;
 use vortex_scan::source::PlanDataSource;
+use vortex_scan::source::PlanFile;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -75,7 +76,7 @@ struct FileScanCache {
 /// A list layout only ever holds a [`DType::List`], and the writer only decomposes the lists it
 /// reaches through struct fields and list elements. Maps and variants are conservatively assumed
 /// to contain one too, since their storage may be laid out as lists.
-fn may_contain_list_layout(dtype: &DType) -> bool {
+pub(crate) fn may_contain_list_layout(dtype: &DType) -> bool {
     match dtype {
         DType::List(..) | DType::Map(..) | DType::Variant(_) => true,
         DType::Null
@@ -319,20 +320,30 @@ impl VortexFile {
     /// Create a [`DataSource`](vortex_scan::DataSource) from this file whose scans run on the
     /// planner-driven executor.
     ///
-    /// A scan has one partition covering the requested rows, which runs it with
-    /// [`ScanDriver`](crate::v2::ScanDriver) from
+    /// The source is a [`PlanDataSource`] over [`plan_file`](Self::plan_file): hosts read its
+    /// scans through native `split` and `open`, or through one partition covering the requested
+    /// rows, which runs it with [`ScanDriver`](crate::v2::ScanDriver) from
     /// [`Partition::execute`](vortex_scan::Partition::execute). Every scan of the source shares
     /// one [`ScanCache`]: the file's, with [caching](Self::with_caching), or else one of its own.
-    /// A scan whose filter the file-level statistics prove false has no partitions. Stored footer
+    /// A scan whose filter the file-level statistics prove false reads nothing. Stored footer
     /// aggregates are available through the source statistics methods. Opening the source reads
     /// nothing and builds no layout reader.
     pub fn plan_data_source(&self) -> DataSourceRef {
-        let source = PlanDataSource::new(self.session.clone(), self.scan_file().into())
-            .with_row_count(self.row_count());
-        Arc::new(
-            FileDataSource::new(source, self.file_stats().cloned())
-                .with_file_pruning(self.row_count(), self.session.clone()),
-        )
+        let source = PlanDataSource::from_file(self.session.clone(), self.plan_file());
+        Arc::new(FileDataSource::new(source, self.file_stats().cloned()))
+    }
+
+    /// This file as a file of a [`PlanDataSource`]: its V2 scan input, row count, and a pruner
+    /// that skips scans whose filter the file-level statistics prove false.
+    pub fn plan_file(&self) -> PlanFile {
+        let file = PlanFile::new(self.scan_file().into()).with_row_count(self.row_count());
+        let Some(statistics) = self.file_stats().cloned() else {
+            return file;
+        };
+        let (row_count, session) = (self.row_count(), self.session.clone());
+        file.with_pruner(Arc::new(move |filter| {
+            is_falsified_by_file_stats(filter, row_count, &statistics, &session)
+        }))
     }
 
     /// Initiate a scan of the file, returning a builder for projection, filtering, selection, and

@@ -438,27 +438,7 @@ impl DataSourceScan for LayoutSplitScan {
 ///
 /// Never cuts a range: each range lands whole in one group.
 pub(crate) fn group_contiguous(ranges: Vec<Range<u64>>, n: NonZeroUsize) -> Vec<Vec<Range<u64>>> {
-    let total = ranges
-        .iter()
-        .map(|range| u128::from(range.end - range.start))
-        .sum::<u128>()
-        .max(1);
-    let n_groups = n.get() as u128;
-    let mut groups: Vec<Vec<Range<u64>>> = Vec::new();
-    let mut current_group = None;
-    let mut before = 0u128;
-    for range in ranges {
-        let group = (before * n_groups / total).min(n_groups - 1);
-        before += u128::from(range.end - range.start);
-        if current_group != Some(group) {
-            current_group = Some(group);
-            groups.push(Vec::new());
-        }
-        if let Some(last) = groups.last_mut() {
-            last.push(range);
-        }
-    }
-    groups
+    vortex_scan::pool::group_contiguous(ranges, n, |range| range.end - range.start)
 }
 
 impl Stream for LayoutReaderScan {

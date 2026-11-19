@@ -1,0 +1,361 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! The work that the workers of an opened [`PlanDataSource`](super::PlanDataSource) scan share.
+//!
+//! This is the V1 layout pool's pattern (`vortex-layout/src/scan/pool.rs`) over the V2 executor.
+//! A pool's units are the parts of its files, and the files not yet opened. Opening the scan
+//! prepares each open file once, which plans without reading, and cuts its rows into parts: the
+//! file's splits when it has them, else the scan's chunks. A worker takes parts and keeps up to
+//! `split_concurrency` of them running on its own thread, each on a planning run of its own that
+//! awaits only its reads: with a filter, the part's pruning plans first, continuing into the
+//! chunks of the rows pruning kept; without, the chunks directly. A worker never spawns. Opening
+//! a deferred file is a unit like any other.
+//!
+//! - An unordered pool hands units out through a channel. The worker that opens a deferred file
+//!   sends the file's parts back into the channel, where any worker can take them. The channel
+//!   closes once every open has finished, which ends the workers.
+//! - An ordered pool gives all of its units, in row order, to its first worker; later workers
+//!   get nothing. Parallel ordered reads cut the scan with `split` first.
+//!
+//! A limit is a [`RowLimit`] the workers take rows from as they yield them; workers stop taking
+//! units once it is spent.
+
+use std::future;
+use std::num::NonZeroUsize;
+use std::ops::Range;
+use std::sync::Arc;
+
+use async_channel::Receiver;
+use async_channel::Sender;
+use futures::FutureExt;
+use futures::StreamExt;
+use futures::future::BoxFuture;
+use futures::stream;
+use futures::stream::BoxStream;
+use parking_lot::Mutex;
+use vortex_array::ArrayRef;
+use vortex_array::dtype::DType;
+use vortex_array::stream::ArrayStreamAdapter;
+use vortex_array::stream::ArrayStreamExt;
+use vortex_array::stream::SendableArrayStream;
+use vortex_error::VortexResult;
+use vortex_io::request::IoService;
+
+use super::plan::PlanFile;
+use super::plan::ScanState;
+use super::plan::Unit;
+use crate::execution::driver::compose;
+use crate::execution::planning::driver::Progress;
+use crate::execution::planning::driver::Run;
+use crate::execution::planning::planner::WorkScope;
+use crate::execution::scan_chunks;
+use crate::pool::RowLimit;
+use crate::pool::SPLITS_IN_FLIGHT_PER_WORKER;
+use crate::pool::ScanPool;
+use crate::pool::ScanPoolRef;
+use crate::pool::trim_to_limit;
+use crate::prepare::PreparedScan;
+
+/// One file's prepared scan, shared by the workers running its parts.
+struct PreparedFile {
+    scan: Arc<PreparedScan>,
+    io: Arc<dyn IoService>,
+}
+
+/// A part of a file: rows that one worker runs on one planning run.
+type Part = (Arc<PreparedFile>, Range<u64>);
+
+/// A part's batches, in row order.
+type PartFuture = BoxFuture<'static, VortexResult<Vec<ArrayRef>>>;
+
+/// A file of a pool, in file order.
+enum PoolFile {
+    Prepared(Vec<Part>),
+    /// A file to open, by its ordinal in the source.
+    Deferred(usize),
+}
+
+/// Opens a pool over the scan's `units`, preparing each of its open files.
+pub(super) fn open(state: Arc<ScanState>, units: Vec<Unit>) -> VortexResult<ScanPoolRef> {
+    let mut files = Vec::with_capacity(units.len());
+    for unit in units {
+        files.push(match state.opened(unit.file) {
+            Some(file) => PoolFile::Prepared(prepare(&state, file, unit.rows)?),
+            None => PoolFile::Deferred(unit.file),
+        });
+    }
+    let dtype = state.dtype.clone();
+    let parts_in_flight = state
+        .split_concurrency
+        .map_or(SPLITS_IN_FLIGHT_PER_WORKER, NonZeroUsize::get);
+    let shared = Arc::new(Shared {
+        limit: state.limit.map(RowLimit::new),
+        state,
+    });
+    if shared.state.ordered {
+        return Ok(Arc::new(OrderedPool {
+            dtype,
+            shared,
+            files: Mutex::new(Some(files)),
+            parts_in_flight,
+        }));
+    }
+
+    let (sender, receiver) = async_channel::unbounded();
+    for file in files {
+        match file {
+            PoolFile::Prepared(parts) => {
+                for part in parts {
+                    send(&sender, Work::Part(part));
+                }
+            }
+            PoolFile::Deferred(ordinal) => send(&sender, Work::Open(ordinal, sender.clone())),
+        }
+    }
+    Ok(Arc::new(UnorderedPool {
+        dtype,
+        shared,
+        receiver,
+        parts_in_flight,
+    }))
+}
+
+/// Prepares the scan of `rows` of `file`, or of the request's rows when `None`, and cuts them
+/// into parts, leaving out parts the selection selects nothing of.
+fn prepare(
+    state: &ScanState,
+    file: &PlanFile,
+    rows: Option<Range<u64>>,
+) -> VortexResult<Vec<Part>> {
+    let rows = match rows {
+        Some(rows) => rows,
+        None => state.file_rows(file)?,
+    };
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+    let scan = Arc::new(state.builder(file, rows.clone()).prepare()?);
+    let ranges = match file.splits() {
+        Some(splits) => part_ranges(rows, splits),
+        None => scan_chunks(rows, scan.chunk_rows),
+    };
+    let io = scan.io();
+    let file = Arc::new(PreparedFile { scan, io });
+    Ok(ranges
+        .into_iter()
+        .filter(|part| state.selection.row_count_in_range(part) > 0)
+        .map(|part| (Arc::clone(&file), part))
+        .collect())
+}
+
+/// The ranges between adjacent `splits`, clipped to `rows`, leaving out empty ones.
+fn part_ranges(rows: Range<u64>, splits: &[u64]) -> Vec<Range<u64>> {
+    splits
+        .windows(2)
+        .map(|w| w[0].max(rows.start)..w[1].min(rows.end))
+        .filter(|part| part.start < part.end)
+        .collect()
+}
+
+/// Runs a part on a planning run of its own, on the polling thread, awaiting only its reads, and
+/// returns its batches in row order.
+fn run_part((file, rows): Part) -> PartFuture {
+    async move {
+        let mut run = Run::new();
+        run.admit(
+            compose(&file.scan, rows.clone()),
+            WorkScope {
+                file_ordinal: 0,
+                rows,
+            },
+            file.io.session(),
+        );
+        let mut batches = Vec::new();
+        loop {
+            match run.advance()? {
+                Progress::Batch(batch) => batches.push((batch.scope.rows.start, batch.array)),
+                Progress::Spawn(scope, child) => {
+                    run.admit(child, scope, file.io.session());
+                }
+                Progress::RootDone(_) if run.live_roots() > 0 => {}
+                Progress::RootDone(_) | Progress::Idle => break,
+                Progress::Waiting => future::poll_fn(|cx| run.poll_completion(cx)).await?,
+            }
+        }
+        // A part's chunks finish in whatever order their reads arrive.
+        batches.sort_by_key(|(start, _)| *start);
+        Ok(batches.into_iter().map(|(_, array)| array).collect())
+    }
+    .boxed()
+}
+
+/// What every worker of a pool shares.
+struct Shared {
+    state: Arc<ScanState>,
+    limit: Option<RowLimit>,
+}
+
+impl Shared {
+    fn is_exhausted(&self) -> bool {
+        self.limit.as_ref().is_some_and(RowLimit::is_exhausted)
+    }
+
+    /// Opens and prepares the deferred file at `ordinal` into its parts.
+    async fn open_file(self: Arc<Self>, ordinal: usize) -> VortexResult<Vec<Part>> {
+        match self.state.open_file(ordinal).await? {
+            Some(file) => prepare(&self.state, &file, None),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// A worker's output: the batches of its parts, trimmed to the limit.
+    fn output(
+        &self,
+        outputs: BoxStream<'static, VortexResult<Vec<ArrayRef>>>,
+    ) -> SendableArrayStream {
+        let arrays = outputs
+            .flat_map(|arrays| match arrays {
+                Ok(arrays) => stream::iter(arrays.into_iter().map(Ok)).left_stream(),
+                Err(err) => stream::once(future::ready(Err(err))).right_stream(),
+            })
+            .boxed();
+        let arrays = match &self.limit {
+            Some(limit) => trim_to_limit(arrays, limit.clone()),
+            None => arrays,
+        };
+        ArrayStreamExt::boxed(ArrayStreamAdapter::new(self.state.dtype.clone(), arrays))
+    }
+}
+
+/// A unit of an unordered pool.
+enum Work {
+    Part(Part),
+    /// A deferred file, and where to send its parts once it is open. The sender keeps the
+    /// channel open until the file's parts are in it.
+    Open(usize, Sender<Work>),
+}
+
+fn send(sender: &Sender<Work>, work: Work) {
+    // The channel is unbounded and closes only once the pool is dropped, when the work is moot.
+    drop(sender.try_send(work));
+}
+
+/// A pool whose workers share its units through a channel.
+struct UnorderedPool {
+    dtype: DType,
+    shared: Arc<Shared>,
+    receiver: Receiver<Work>,
+    parts_in_flight: usize,
+}
+
+impl UnorderedPool {
+    fn run(shared: &Arc<Shared>, work: Work) -> PartFuture {
+        match work {
+            Work::Part(part) => run_part(part),
+            Work::Open(ordinal, sender) => {
+                let shared = Arc::clone(shared);
+                async move {
+                    for part in shared.open_file(ordinal).await? {
+                        send(&sender, Work::Part(part));
+                    }
+                    Ok(Vec::new())
+                }
+                .boxed()
+            }
+        }
+    }
+}
+
+impl ScanPool for UnorderedPool {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn worker(self: Arc<Self>) -> SendableArrayStream {
+        let shared = Arc::clone(&self.shared);
+        let runner = Arc::clone(&shared);
+        let receiver = self.receiver.clone();
+        let parts_in_flight = self.parts_in_flight;
+        // The worker holds the pool, so the pool is dropped only after its last worker.
+        let outputs = receiver
+            .take_while(move |_| future::ready(!self.shared.is_exhausted()))
+            .map(move |work| UnorderedPool::run(&runner, work))
+            .buffer_unordered(parts_in_flight)
+            .boxed();
+        shared.output(outputs)
+    }
+}
+
+impl Drop for UnorderedPool {
+    fn drop(&mut self) {
+        // Pending opens hold senders of the channel itself; drain them so it can be freed.
+        self.receiver.close();
+        while self.receiver.try_recv().is_ok() {}
+    }
+}
+
+/// A pool that gives all of its units, in row order, to its first worker.
+struct OrderedPool {
+    dtype: DType,
+    shared: Arc<Shared>,
+    /// The files, until the first worker takes them.
+    files: Mutex<Option<Vec<PoolFile>>>,
+    parts_in_flight: usize,
+}
+
+impl ScanPool for OrderedPool {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn worker(self: Arc<Self>) -> SendableArrayStream {
+        let Some(files) = self.files.lock().take() else {
+            return ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+                self.dtype.clone(),
+                stream::empty(),
+            ));
+        };
+        let opener = Arc::clone(&self.shared);
+        let shared = Arc::clone(&self.shared);
+        let outputs = stream::iter(files)
+            .then(move |file| match file {
+                PoolFile::Prepared(parts) => future::ready(Ok(parts)).boxed(),
+                PoolFile::Deferred(ordinal) => Arc::clone(&opener).open_file(ordinal).boxed(),
+            })
+            .flat_map(|parts| match parts {
+                Ok(parts) => stream::iter(parts.into_iter().map(Ok)).left_stream(),
+                Err(err) => stream::once(future::ready(Err(err))).right_stream(),
+            })
+            .take_while(move |_| future::ready(!shared.is_exhausted()))
+            .map(|part| match part {
+                Ok(part) => run_part(part),
+                Err(err) => future::ready(Err(err)).boxed(),
+            })
+            .buffered(self.parts_in_flight)
+            .boxed();
+        self.shared.output(outputs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ops::Range;
+
+    use rstest::rstest;
+
+    use super::part_ranges;
+
+    #[rstest]
+    #[case::whole(0..30, &[0, 10, 20, 30], vec![0..10, 10..20, 20..30])]
+    #[case::clipped(5..25, &[0, 10, 20, 30], vec![5..10, 10..20, 20..25])]
+    #[case::inside_one_split(12..18, &[0, 10, 20, 30], vec![12..18])]
+    #[case::empty(5..5, &[0, 10], vec![])]
+    fn parts_follow_splits(
+        #[case] rows: Range<u64>,
+        #[case] splits: &[u64],
+        #[case] expected: Vec<Range<u64>>,
+    ) {
+        assert_eq!(part_ranges(rows, splits), expected);
+    }
+}
