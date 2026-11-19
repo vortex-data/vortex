@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -12,6 +13,7 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -249,9 +251,7 @@ fn enabling_unstable_permits_only_persisted_aggregates() -> VortexResult<()> {
 
 #[test]
 fn core_edition_ids_are_registered_array_encodings() {
-    use vortex_array::serde::SerializeOptions;
-use vortex_array::serde::SerializedArray;
-use vortex_array::session::ArraySessionExt;
+    use vortex_array::session::ArraySessionExt;
 
     let session = VortexSession::default();
     let registry = session.arrays().registry().clone();
@@ -691,7 +691,7 @@ fn restricted_write_normalizes_decimal_byte_parts_stored_msp() -> VortexResult<(
     let array = DecimalByteParts::try_new(msp, DecimalDType::new(19, 2))?.into_array();
 
     let parts_id = decimal_byte_parts_v1_id();
-    let primitive_id = Id::from("vortex.primitive");
+    let primitive_id = ArrayVTable::id(&Primitive);
     let ctx = ArrayContext::empty().with_allowed_ids([parts_id, primitive_id].into_iter().collect());
     let buffers = array.serialize_with_fallback(&ctx, &session, &SerializeOptions::default())?;
     let mut bytes = ByteBufferMut::empty();
