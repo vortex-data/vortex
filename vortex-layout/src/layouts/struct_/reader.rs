@@ -52,6 +52,7 @@ use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::partitioned::PartitionedEval;
 use crate::layouts::struct_::StructLayout;
+use crate::layouts::struct_::pruning::unmask_pruning_filter;
 use crate::segments::SegmentSource;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -78,6 +79,14 @@ impl From<Item> for FieldName {
     }
 }
 
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+enum PartitionMode {
+    /// Preserves the nulls introduced by the parent struct.
+    Exact,
+    /// Can expose stored values when the resulting filter keeps every possible match.
+    Pruning,
+}
+
 pub struct StructReader {
     layout: StructLayout,
     name: Arc<str>,
@@ -90,7 +99,8 @@ pub struct StructReader {
     expanded_root_expr: BoundExpression,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
-    partitioned_expr_cache: DashMap<ExactBoundExpr, Arc<OnceLock<Partitioned>>>,
+    /// Pruning and exact evaluation can share a partition only when the struct is non-nullable.
+    partitioned_expr_cache: DashMap<(ExactBoundExpr, PartitionMode), Arc<OnceLock<Partitioned>>>,
 }
 
 impl StructReader {
@@ -193,9 +203,17 @@ impl StructReader {
             .transpose()
     }
 
-    /// Utility for partitioning an expression over the fields of a struct.
-    fn partition_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
-        let key = ExactBoundExpr(expr.clone());
+    fn partition_expr(
+        &self,
+        expr: &BoundExpression,
+        mode: PartitionMode,
+    ) -> VortexResult<Partitioned> {
+        let mode = if self.dtype().is_nullable() {
+            mode
+        } else {
+            PartitionMode::Exact
+        };
+        let key = (ExactBoundExpr(expr.clone()), mode);
 
         // Look up the cell under a shared shard lock; only a miss takes the write lock, and
         // only for as long as it takes to insert an empty cell.
@@ -216,15 +234,20 @@ impl StructReader {
         }
         // Cache the bound trees themselves: rebinding would create fresh child identity and defeat
         // downstream `ExactBoundExpr` caches on every split.
-        let result = self.compute_partitioned_expr(expr)?;
+        let result = self.compute_partitioned_expr(expr, mode)?;
         Ok(cell.get_or_init(|| result).clone())
     }
 
-    fn compute_partitioned_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
-        // First, we expand the root scope into the fields of the struct to ensure
-        // that partitioning works correctly.
-        let expr =
+    fn compute_partitioned_expr(
+        &self,
+        expr: &BoundExpression,
+        mode: PartitionMode,
+    ) -> VortexResult<Partitioned> {
+        let mut expr =
             expand_struct_root(expr.clone(), &self.expanded_root_expr, self.struct_fields())?;
+        if mode == PartitionMode::Pruning {
+            expr = unmask_pruning_filter(expr, self.expanded_root_expr.child(1))?;
+        }
 
         // Partition the expression into expressions that can be evaluated
         // over individual coordinates.
@@ -551,7 +574,7 @@ impl LayoutReader for StructReader {
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr)? {
+        match &self.partition_expr(expr, PartitionMode::Pruning)? {
             Partitioned::Single(name, partition) => {
                 let reader = self.field_reader(name)?;
                 reader
@@ -593,7 +616,7 @@ impl LayoutReader for StructReader {
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr)? {
+        match &self.partition_expr(expr, PartitionMode::Exact)? {
             Partitioned::Single(name, partition) => {
                 let reader = self.field_reader(name)?;
                 reader
@@ -634,7 +657,7 @@ impl LayoutReader for StructReader {
         mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr)? {
+        match &self.partition_expr(expr, PartitionMode::Exact)? {
             Partitioned::Single(name, partition) => {
                 let reader = self.field_reader(name)?;
                 reader

@@ -39,6 +39,7 @@ use crate::plan::FilterPlan;
 use crate::plan::PlanRef;
 use crate::plan::Zoned;
 use crate::plan::optimize;
+use crate::plan::optimize::optimize_pruning;
 use crate::plan::plan_row_idx_expression;
 use crate::planning::planner::Planner;
 use crate::planning::planner::PlannerOutput;
@@ -86,7 +87,7 @@ impl FilterPlans {
             .map(|expr| {
                 expr.falsify(session)?
                     .map(|pruning| {
-                        optimize(
+                        optimize_pruning(
                             plan_row_idx_expression(pruning, root.clone(), session)?,
                             session,
                         )

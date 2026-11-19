@@ -274,11 +274,17 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use vortex_array::ArrayContext;
+    use vortex_array::aggregate_fn::AggregateFnId;
+    use vortex_array::aggregate_fn::AggregateFnVTable;
+    use vortex_array::aggregate_fn::fns::max::Max;
+    use vortex_array::aggregate_fn::fns::min::Min;
+    use vortex_array::aggregate_fn::fns::null_count::NullCount;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_error::vortex_err;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
 
@@ -295,8 +301,22 @@ mod tests {
     use crate::test::SESSION;
     use crate::test::new_session;
 
-    /// Write a single-field struct with zoned fields, returning whether the field got a zone map.
-    fn field_has_zone_map(validity: Validity) -> VortexResult<bool> {
+    #[track_caller]
+    fn assert_zone_aggregates(layout: &LayoutRef, expected: &[AggregateFnId]) -> VortexResult<()> {
+        let zoned = layout
+            .as_opt::<Zoned>()
+            .ok_or_else(|| vortex_err!("expected a zoned layout, got {}", layout.encoding_id()))?;
+        let actual: Vec<_> = zoned
+            .aggregate_fns()
+            .iter()
+            .map(|aggregate| aggregate.id())
+            .collect();
+        assert_eq!(actual.as_slice(), expected);
+        Ok(())
+    }
+
+    /// Writes a single-field struct and returns the field's layout.
+    fn write_field(validity: Validity) -> VortexResult<LayoutRef> {
         let strategy = StructStrategy::new(
             Arc::new(FlatLayoutStrategy::default()),
             Arc::new(ZonedStrategy::new(
@@ -332,7 +352,7 @@ mod tests {
         })?;
 
         // The validity child, when present, precedes the fields.
-        Ok(layout.children()?[usize::from(is_nullable)].is::<Zoned>())
+        Ok(Arc::clone(&layout.children()?[usize::from(is_nullable)]))
     }
 
     /// Write `array` through a [`TableStrategy`] with zoned leaves, returning the layout.
@@ -365,18 +385,20 @@ mod tests {
     }
 
     #[test]
-    fn non_nullable_struct_fields_get_a_zone_map() -> VortexResult<()> {
-        assert!(field_has_zone_map(Validity::NonNullable)?);
+    fn non_nullable_struct_fields_record_bounds_and_null_counts() -> VortexResult<()> {
+        let field = write_field(Validity::NonNullable)?;
+        assert_zone_aggregates(&field, &[Max.id(), Min.id(), NullCount.id()])?;
         Ok(())
     }
 
-    /// The field holds values in rows the struct nulls out, so no aggregate over it is exact for
-    /// the logical column and no zone map is written.
+    /// The struct hides a stored value. Its field's bounds still cover the visible values, and a
+    /// count of the stored nulls would miss the null introduced by the struct.
     #[test]
-    fn nullable_struct_fields_get_no_zone_map() -> VortexResult<()> {
-        assert!(!field_has_zone_map(Validity::Array(
+    fn nullable_struct_fields_record_only_bounds() -> VortexResult<()> {
+        let field = write_field(Validity::Array(
             BoolArray::from_iter([false, true, true]).into_array(),
-        ))?);
+        ))?;
+        assert_zone_aggregates(&field, &[Max.id(), Min.id()])?;
         Ok(())
     }
 
@@ -396,10 +418,9 @@ mod tests {
         )?;
         let layout = write_table(outer_nullable)?;
         let inner = &layout.children()?[1];
-        assert!(!inner.children()?[0].is::<Zoned>());
+        assert_zone_aggregates(&inner.children()?[0], &[Max.id(), Min.id()])?;
 
-        // Non-nullable outer struct: a leaf beside the nullable inner struct keeps its zone map,
-        // the leaf below it loses it.
+        // The sibling keeps its null count because the inner struct cannot mask its values.
         let inner_nullable = StructArray::try_from_iter([
             ("sibling", buffer![1, 2, 3].into_array()),
             (
@@ -413,8 +434,8 @@ mod tests {
         ])?;
         let layout = write_table(inner_nullable)?;
         let children = layout.children()?;
-        assert!(children[0].is::<Zoned>());
-        assert!(!children[1].children()?[1].is::<Zoned>());
+        assert_zone_aggregates(&children[0], &[Max.id(), Min.id(), NullCount.id()])?;
+        assert_zone_aggregates(&children[1].children()?[1], &[Max.id(), Min.id()])?;
         Ok(())
     }
 
@@ -432,8 +453,8 @@ mod tests {
         })
     }
 
-    /// The flag survives any number of non-nullable struct levels below the nullable one, and is
-    /// only set at the nullable level, not above it.
+    /// A nullable struct suppresses descendant null counts through intervening non-nullable
+    /// structs because those levels cannot restore a hidden value.
     #[test]
     fn nullable_ancestor_propagates_through_deep_nesting() -> VortexResult<()> {
         const DEPTH: usize = 6;
@@ -447,10 +468,9 @@ mod tests {
         let layout = write_table(root)?;
         // Skip the root's validity child, then walk every non-nullable level to the leaf.
         let leaf = descend(&layout.children()?[1], DEPTH)?;
-        assert!(!leaf.is::<Zoned>());
+        assert_zone_aggregates(&leaf, &[Max.id(), Min.id()])?;
 
-        // Non-nullable levels above, a nullable struct in the middle, non-nullable levels below.
-        // A leaf above the nullable level keeps its zone map, the leaf below it does not.
+        // The leaf beside the nullable level keeps its null count even deep in the layout.
         let middle = StructArray::try_from_iter_with_validity(
             [("below", nest(buffer![1, 2, 3].into_array(), DEPTH)?)],
             some_nulls(),
@@ -467,10 +487,10 @@ mod tests {
         let layout = write_table(root)?;
         let holder = descend(&layout, DEPTH)?;
         let holder_children = holder.children()?;
-        assert!(holder_children[0].is::<Zoned>());
+        assert_zone_aggregates(&holder_children[0], &[Max.id(), Min.id(), NullCount.id()])?;
         // The nullable middle struct's children are `[validity, below]`.
         let leaf = descend(&holder_children[1].children()?[1], DEPTH)?;
-        assert!(!leaf.is::<Zoned>());
+        assert_zone_aggregates(&leaf, &[Max.id(), Min.id()])?;
         Ok(())
     }
 

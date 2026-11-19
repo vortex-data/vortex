@@ -133,10 +133,9 @@ impl LayoutWriterContext {
     /// Marks this write as nested under a nullable container, such as a field of a nullable
     /// struct.
     ///
-    /// Container writers store their children unmasked: a field holds a value even in rows where
-    /// the containing struct is null, and the struct's validity is written separately. Statistics
-    /// computed over such a child therefore see values the logical column does not contain, so
-    /// writers that record statistics must omit them rather than record inexact values.
+    /// A stored child can hold values in rows that a containing struct masks. Statistics over
+    /// that child describe its stored values. A zone bound still covers the visible values, but
+    /// a physical count can differ from the count through the containing struct.
     pub fn with_nullable_ancestor(mut self) -> Self {
         self.nullable_ancestor = true;
         self

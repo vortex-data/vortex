@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! A layout that stores each struct field and the parent validity separately.
+//!
+//! The reader can delegate a field read to its child layout. The parent validity still applies
+//! to the field's logical values and constrains which stored statistics can prune a filter.
+
+mod pruning;
 mod reader;
 pub mod writer;
 

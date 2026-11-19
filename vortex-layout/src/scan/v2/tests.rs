@@ -26,14 +26,23 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
+use vortex_array::expr::cast;
+use vortex_array::expr::checked_add;
 use vortex_array::expr::eq;
+use vortex_array::expr::fill_null;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
+use vortex_array::expr::is_nan;
 use vortex_array::expr::is_null;
 use vortex_array::expr::lit;
 use vortex_array::expr::lt;
+use vortex_array::expr::lt_eq;
+use vortex_array::expr::not;
+use vortex_array::expr::or;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_array::validity::Validity;
@@ -565,6 +574,164 @@ async fn nullable_struct_projection_preserves_validity(
         assert_eq!(source.requests(), expected_requests);
     }
 
+    Ok(())
+}
+
+/// Each scan gets a fresh reader and cache so its segment count includes every required read.
+struct NullableZones {
+    session: VortexSession,
+    input: ArrayRef,
+    segments: Arc<dyn SegmentSource>,
+    layout: LayoutRef,
+}
+
+impl NullableZones {
+    async fn write(with_nans: bool) -> VortexResult<Self> {
+        let session = new_session().with_tokio();
+        let chunks = (0..CHUNKS)
+            .map(|zone| nullable_zone(zone, with_nans))
+            .collect::<VortexResult<Vec<_>>>()?;
+        let (segments, layout) =
+            write_chunks(&session, zoned_table().as_ref(), chunks.clone()).await?;
+        let input = ChunkedArray::try_new(chunks, layout.dtype().clone())?.into_array();
+
+        Ok(Self {
+            session,
+            input,
+            segments,
+            layout,
+        })
+    }
+
+    async fn assert_scan(&self, use_v2: bool, predicate: Expression) -> VortexResult<usize> {
+        let projection = get_item("id", root());
+        let bound_projection = projection.bind(self.layout.dtype())?;
+        let dtype = bound_projection.dtype().clone();
+        let filter = predicate.bind(self.layout.dtype())?;
+        let source = Arc::new(CountingSegmentSource::new(Arc::clone(&self.segments)));
+        let segments: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&source);
+
+        let actual = if use_v2 {
+            let scan = builder(&self.session, &segments, &self.layout)?
+                .with_projection(bound_projection)
+                .with_some_filter(Some(filter));
+            collect_scan(dtype, scan).await?
+        } else {
+            let reader =
+                self.layout
+                    .new_reader("".into(), segments, &self.session, &Default::default())?;
+            let scan = V1ScanBuilder::new(self.session.clone(), reader)
+                .with_projection(bound_projection)
+                .with_filter(filter);
+            collect(dtype, scan.into_stream()?).await?
+        };
+
+        let mut ctx = self.session.create_execution_ctx();
+        let keep = self
+            .input
+            .clone()
+            .apply(&fill_null(predicate, lit(false)))?
+            .execute::<Mask>(&mut ctx)?;
+        let expected = self.input.clone().filter(keep)?.apply(&projection)?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
+
+        Ok(source.requests())
+    }
+}
+
+/// Zone 1 is entirely hidden and zone 2 is partially hidden. The optional NaNs include a visible
+/// value in zone 2 and physical values hidden by the null structs in zone 1.
+fn nullable_zone(zone: usize, with_nans: bool) -> VortexResult<ArrayRef> {
+    let first_row = i32::try_from(zone * CHUNK_ROWS)?;
+    let rows = first_row..first_row + i32::try_from(CHUNK_ROWS)?;
+    let visible = |row: i32| zone != 1 && (zone != 2 || row % 2 == 0);
+
+    let ids = Buffer::from_iter(rows.clone());
+    let ints = Buffer::from_iter(rows.clone().map(|row| {
+        if visible(row) {
+            i64::from(row)
+        } else {
+            i64::MAX
+        }
+    }));
+    let floats = PrimitiveArray::from_option_iter(rows.clone().map(|row| {
+        let value = if with_nans && (zone == 1 || (zone == 2 && row == first_row)) {
+            f64::NAN
+        } else if visible(row) {
+            f64::from(row)
+        } else {
+            1e9_f64
+        };
+        (zone != 3 || row != first_row).then_some(value)
+    }));
+    let nested = StructArray::try_new(
+        FieldNames::from(["int", "float"]),
+        [ints.into_array(), floats.into_array()],
+        CHUNK_ROWS,
+        Validity::from_iter(rows.map(visible)),
+    )?;
+
+    Ok(
+        StructArray::from_fields(&[("id", ids.into_array()), ("nested", nested.into_array())])?
+            .into_array(),
+    )
+}
+
+fn nested_zone_field(field: &str) -> Expression {
+    get_item(field, get_item("nested", root()))
+}
+
+#[rstest]
+#[case::integer("int", lit(100i64), lit(i64::MAX))]
+#[case::float("float", lit(100.0f64), lit(1e12_f64))]
+#[tokio::test]
+async fn bounds_under_nullable_structs_skip_zone_reads(
+    #[values(false, true)] use_v2: bool,
+    #[case] field: &str,
+    #[case] cutoff: Expression,
+    #[case] unpruned_cutoff: Expression,
+) -> VortexResult<()> {
+    let table = NullableZones::write(false).await?;
+    let field = nested_zone_field(field);
+    let pruned = table.assert_scan(use_v2, lt(field.clone(), cutoff)).await?;
+    let unpruned = table
+        .assert_scan(use_v2, lt_eq(field, unpruned_cutoff))
+        .await?;
+
+    // An unpruned scan reads the zone map, then the field, parent validity, and IDs for each zone.
+    // The classic scan still requests IDs in pruned zones.
+    assert_eq!(unpruned, 13);
+    assert_eq!(pruned, if use_v2 { 4 } else { 7 });
+    Ok(())
+}
+
+#[rstest]
+#[case::parent_nulls(is_null(nested_zone_field("int")))]
+#[case::loose_bound(lt(nested_zone_field("int"), lit(2050i64)))]
+#[case::nulls_or_bounds(or(
+    is_null(nested_zone_field("float")),
+    lt(nested_zone_field("float"), lit(10.0f64)),
+))]
+#[case::narrow_cast(gt(
+    cast(
+        nested_zone_field("int"),
+        DType::Primitive(PType::I16, Nullability::Nullable)
+    ),
+    lit(10i16),
+))]
+#[case::overflow(gt(checked_add(nested_zone_field("int"), lit(1i64)), lit(10i64)))]
+#[case::nan(is_nan(nested_zone_field("float")))]
+#[case::not_nan(not(is_nan(nested_zone_field("float"))))]
+#[case::float_bounds_with_nans(lt(nested_zone_field("float"), lit(100.0f64)))]
+#[tokio::test]
+async fn pruning_under_nullable_structs_preserves_matching_rows(
+    #[values(false, true)] use_v2: bool,
+    #[case] filter: Expression,
+) -> VortexResult<()> {
+    NullableZones::write(true)
+        .await?
+        .assert_scan(use_v2, filter)
+        .await?;
     Ok(())
 }
 

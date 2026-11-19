@@ -7,6 +7,7 @@
 //! expression that uses part of the struct can read the relevant children directly.
 
 pub(crate) mod execute;
+mod pruning;
 
 use std::borrow::Cow;
 use std::iter;
@@ -41,6 +42,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use self::pruning::weaken_pruning_proof;
 use crate::execution::operators::OnceSource;
 use crate::execution::operators::PackSource;
 use crate::execution::operators::WrapStage;
@@ -55,6 +57,7 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanSlots;
 use crate::plan::PlanVTable;
+use crate::plan::is_zone_pruning;
 use crate::plan::optimizer::PlanParentReduceRule;
 use crate::plan::partition::PartitionRule;
 use crate::plan::partition::PartitionSession;
@@ -353,7 +356,12 @@ impl PackPlan {
 /// The next pass pushes the lookup into the `address` child as `$.zip`. The scan can
 /// skip `city` and read just `zip` and the validity of each nullable ancestor.
 #[derive(Debug)]
-pub(crate) struct ExpressionPackRule;
+pub(crate) enum ExpressionPackRule {
+    /// Preserves the value of the expression for every row.
+    Exact,
+    /// Preserves only the proof that rows can be discarded.
+    Pruning,
+}
 
 impl PlanParentReduceRule<Pack> for ExpressionPackRule {
     type Parent = Eval;
@@ -390,6 +398,9 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         let nullable = child.dtype().is_nullable();
         if nullable {
             combiner = combiner.rewrite(&mut ProjectMaskedFields)?.into_inner();
+            if matches!(self, Self::Pruning) && is_zone_pruning(parent)? {
+                combiner = weaken_pruning_proof(combiner)?;
+            }
         }
 
         // The combiner's root is non-nullable even when it uses every original field.
