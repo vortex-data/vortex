@@ -908,7 +908,7 @@ fn bulk_list_literal(
         unsafe { prototype_dtype(element_type, "list element type", elements_nullable.into()) }?;
 
     let mut children = values
-        .map(|value| value.cast(&element_dtype))
+        .map(|value| bulk_list_element(value, &element_dtype))
         .collect::<VortexResult<Vec<Scalar>>>()?;
     if with_null {
         children.push(Scalar::null(element_dtype.as_nullable()));
@@ -919,6 +919,18 @@ fn bulk_list_literal(
         children,
         Nullability::NonNullable,
     ))))
+}
+
+/// Convert one value of a bulk list literal to the element `dtype`.
+///
+/// A cast never turns a primitive into an extension value, so the value of an extension element,
+/// such as a timestamp, is its storage value: it is cast to the storage dtype and then wrapped.
+fn bulk_list_element(value: Scalar, dtype: &DType) -> VortexResult<Scalar> {
+    let DType::Extension(ext) = dtype else {
+        return value.cast(dtype);
+    };
+    let storage = value.cast(ext.storage_dtype())?;
+    Scalar::try_extension_ref(ext.clone(), storage)
 }
 
 /// Defines the native method that builds a list literal from one Java array of primitives. See
@@ -1199,11 +1211,52 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalNull(
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex::dtype::DType;
     use vortex::dtype::DecimalDType;
+    use vortex::dtype::Nullability;
+    use vortex::extension::datetime::Date;
+    use vortex::extension::datetime::TimeUnit;
+    use vortex::extension::datetime::Timestamp;
     use vortex::scalar::DecimalValue;
+    use vortex::scalar::Scalar;
+    use vortex::scalar::ScalarValue;
 
+    use super::bulk_list_element;
     use super::decimal_value_from_be_bytes;
     use crate::errors::JNIError;
+
+    /// A bulk value for a temporal element is a count of its unit, which is the storage value.
+    #[rstest]
+    #[case::timestamp(
+        DType::Extension(Timestamp::new(TimeUnit::Microseconds, Nullability::NonNullable).erased()),
+        ScalarValue::from(5i64),
+    )]
+    #[case::date_days(
+        DType::Extension(Date::new(TimeUnit::Days, Nullability::NonNullable).erased()),
+        ScalarValue::from(5i32),
+    )]
+    fn bulk_list_element_wraps_temporal_storage(
+        #[case] dtype: DType,
+        #[case] storage: ScalarValue,
+    ) -> Result<(), JNIError> {
+        let element = bulk_list_element(Scalar::primitive(5i64, Nullability::NonNullable), &dtype)?;
+
+        assert_eq!(element, Scalar::try_new(dtype, Some(storage))?);
+        Ok(())
+    }
+
+    #[test]
+    fn bulk_list_element_rejects_a_value_outside_the_storage_type() {
+        let dtype = DType::Extension(Date::new(TimeUnit::Days, Nullability::NonNullable).erased());
+
+        assert!(
+            bulk_list_element(
+                Scalar::primitive(1i64 << 40, Nullability::NonNullable),
+                &dtype
+            )
+            .is_err()
+        );
+    }
 
     /// Precision 19 holds values above `i64::MAX`, so the value must use the canonical `i128`.
     #[rstest]

@@ -11,8 +11,8 @@ use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexResult;
 
 use crate::Zstd;
+use crate::ZstdArraySlotsExt;
 use crate::ZstdData;
-use crate::ZstdSlots;
 
 impl CastReduce for Zstd {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -34,17 +34,12 @@ impl CastReduce for Zstd {
             }
             (Nullability::NonNullable, Nullability::Nullable) => {
                 // nonnull => null, trivial cast by altering the validity
-                child_to_validity(
-                    array.slots()[ZstdSlots::VALIDITY_CHILD].as_ref(),
-                    array.dtype().nullability(),
-                )
+                child_to_validity(array.validity_child(), array.dtype().nullability())
             }
             (Nullability::Nullable, Nullability::NonNullable) => {
                 // null => non-null works if there are no nulls in the sliced range
-                let unsliced_validity = child_to_validity(
-                    array.slots()[ZstdSlots::VALIDITY_CHILD].as_ref(),
-                    array.dtype().nullability(),
-                );
+                let unsliced_validity =
+                    child_to_validity(array.validity_child(), array.dtype().nullability());
                 let has_nulls = !unsliced_validity
                     .slice(array.slice_start()..array.slice_stop())?
                     .definitely_no_nulls();

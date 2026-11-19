@@ -21,7 +21,6 @@
 
 pub mod convert;
 mod datum;
-mod declared_nullability;
 pub mod dtype;
 mod executor;
 
@@ -30,6 +29,9 @@ pub use extension::ArrowExtVTable;
 pub use extension::ArrowMetadataPolicy;
 
 pub mod ext_metadata;
+mod import_nullability;
+pub use import_nullability::level_validity;
+
 mod iter;
 mod null_buffer;
 mod options;

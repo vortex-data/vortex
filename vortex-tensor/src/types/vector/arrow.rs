@@ -98,8 +98,7 @@ impl ArrowExtVTable for Vector {
             elem.data_type()
         );
 
-        // The elements are non-nullable even when Arrow marks them nullable, and
-        // `ArrowSession::from_arrow_storage` imports the array in that form.
+        // The vector dtype requires non-nullable elements even when Arrow declares them nullable.
         let element = session.from_arrow_datatype(elem.data_type(), Nullability::NonNullable)?;
         let metadata = VectorMetadata::try_new(PType::try_from(&element)?, *list_size as u32)?;
         Ok(Some(ExtDType::try_with_vtable(
@@ -290,10 +289,8 @@ mod tests {
         (Arc::new(array), field)
     }
 
-    /// Nullable elements import as the non-nullable elements of `Vector`, and the null elements
-    /// of a null vector are dropped.
     #[test]
-    fn nullable_elements_import_as_vector() -> VortexResult<()> {
+    fn test_import_null_elements_under_null_vector() -> VortexResult<()> {
         let vortex_session = session_with_vector();
         let session = vortex_session.arrow();
         let (arrow, field) = arrow_vectors(vec![
@@ -315,24 +312,26 @@ mod tests {
         Ok(())
     }
 
-    /// A null element of a valid vector is outside the domain of `Vector`, so the import fails.
     #[test]
-    fn null_element_of_valid_vector_fails() {
+    fn test_import_null_element_in_valid_vector() -> VortexResult<()> {
         let (arrow, field) = arrow_vectors(vec![Some(vec![Some(1.0), None, Some(3.0)])]);
-        let err = session_with_vector()
+        let imported = session_with_vector()
             .arrow()
-            .from_arrow_array(arrow, &field)
-            .expect_err("a null element of a valid vector must fail the import");
-        assert!(
-            err.to_string()
-                .contains("Failed to import Arrow storage as vortex.tensor.vector"),
-            "unexpected error: {err}"
-        );
+            .from_arrow_array(arrow, &field)?;
+
+        let storage = FixedSizeListArray::try_new(
+            buffer![1.0f32, 0.0, 3.0].into_array(),
+            DIM,
+            Validity::AllValid,
+            1,
+        )?;
+        let expected = Vector::try_new_vector_array(storage.into_array())?;
+        vortex_array::assert_arrays_eq!(imported, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
     }
 
-    /// Vectors that Arrow marks non-nullable, as Arrow kernels such as `take` with null indices
-    /// build them under a null parent row: the vector and its nullable-marked elements are null.
-    fn masked_vectors() -> (ArrowArrayRef, Field) {
+    /// Build a non-nullable vector field with a null vector for use under a null parent row.
+    fn non_nullable_vectors_with_nulls() -> (ArrowArrayRef, Field) {
         let (vectors, field) = arrow_vectors(vec![
             Some(vec![Some(1.0), Some(2.0), Some(3.0)]), // A vector under a valid row.
             None,                                        // A null vector under a null row.
@@ -340,8 +339,7 @@ mod tests {
         (vectors, field.with_nullable(false))
     }
 
-    /// The import of [`masked_vectors`], where the dropped nulls become placeholders.
-    fn imported_masked_vectors() -> VortexResult<ArrayRef> {
+    fn expected_non_nullable_vectors() -> VortexResult<ArrayRef> {
         let storage = FixedSizeListArray::try_new(
             buffer![1.0f32, 2.0, 3.0, 0.0, 0.0, 0.0].into_array(),
             DIM,
@@ -351,11 +349,10 @@ mod tests {
         Vector::try_new_vector_array(storage.into_array())
     }
 
-    /// A vector field that Arrow marks non-nullable holds nulls at every level under a null row
-    /// of its struct. No row reads them, so the import drops them.
+    /// A null struct row can contain a null vector in a non-nullable field.
     #[test]
-    fn vector_field_under_null_struct_row_imports() -> VortexResult<()> {
-        let (vectors, field) = masked_vectors();
+    fn test_import_non_nullable_vector_field_under_null_struct_row() -> VortexResult<()> {
+        let (vectors, field) = non_nullable_vectors_with_nulls();
         let rows = ArrowStructArray::try_new(
             vec![field].into(),
             vec![Arc::clone(&vectors)],
@@ -367,7 +364,7 @@ mod tests {
 
         let expected = StructArray::try_new(
             FieldNames::from(["embedding"]),
-            vec![imported_masked_vectors()?],
+            vec![expected_non_nullable_vectors()?],
             2,
             Validity::from_iter([true, false]),
         )?;
@@ -375,11 +372,10 @@ mod tests {
         Ok(())
     }
 
-    /// Vectors that are the non-nullable elements of a fixed-size list hold nulls at every level
-    /// under a null list, and the import drops them.
+    /// A null list can contain null vectors in a non-nullable element field.
     #[test]
-    fn vector_elements_under_null_list_import() -> VortexResult<()> {
-        let (vectors, field) = masked_vectors();
+    fn test_import_non_nullable_vector_elements_under_null_list() -> VortexResult<()> {
+        let (vectors, field) = non_nullable_vectors_with_nulls();
         let lists = ArrowFixedSizeListArray::try_new(
             Arc::new(field),
             1,
@@ -391,7 +387,7 @@ mod tests {
             .from_arrow_array(Arc::new(lists), true)?;
 
         let expected = FixedSizeListArray::try_new(
-            imported_masked_vectors()?,
+            expected_non_nullable_vectors()?,
             1,
             Validity::from_iter([true, false]),
             2,
@@ -400,10 +396,9 @@ mod tests {
         Ok(())
     }
 
-    /// A valid vector in a null list holds null elements. No row reads them, so the import drops
-    /// them.
+    /// A valid vector inside a null list can still contain null elements.
     #[test]
-    fn vector_in_null_list_row_imports() -> VortexResult<()> {
+    fn test_import_valid_vector_under_null_variable_size_list() -> VortexResult<()> {
         let (vectors, field) = arrow_vectors(vec![
             Some(vec![Some(1.0), Some(2.0), Some(3.0)]), // A vector in a valid list.
             Some(vec![None, None, None]),                // A vector in a null list.

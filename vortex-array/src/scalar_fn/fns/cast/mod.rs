@@ -8,7 +8,6 @@ use std::fmt::Formatter;
 
 pub use kernel::*;
 use prost::Message;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -37,6 +36,7 @@ use crate::arrays::VarBinView;
 use crate::arrays::struct_::compute::cast::struct_cast;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::StructFields;
 use crate::expr::BoundExpression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
@@ -52,16 +52,73 @@ use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::is_not_null_node;
 
+/// Checks that a cast involving an extension dtype changes only its top-level nullability or
+/// creates typed nulls of a nullable dtype from an untyped [`DType::Null`].
+///
+/// The rule also holds for every extension dtype nested in a struct, list, fixed-size list, or
+/// map, which the cast pairs up the same way as its kernels do. Otherwise a cast could
+/// reinterpret a nested extension that the top-level dtypes do not show.
+///
+/// Use [`ext_storage`](crate::expr::ext_storage) to extract an extension array's storage.
+pub(crate) fn check_extension_cast(source: &DType, target: &DType) -> VortexResult<()> {
+    if source.is_extension() || target.is_extension() {
+        if !source.eq_ignore_nullability(target)
+            && !(*source == DType::Null && target.is_nullable())
+        {
+            vortex_bail!(
+                "Cannot cast {source} to {target}. Extension casts only allow changes to top-level nullability or creation of typed nulls from Null."
+            );
+        }
+        return Ok(());
+    }
+
+    match (source, target) {
+        (
+            DType::List(source, _) | DType::FixedSizeList(source, ..),
+            DType::List(target, _) | DType::FixedSizeList(target, ..),
+        ) => check_extension_cast(source, target),
+        (DType::Map(source, _), DType::Map(target, _)) => {
+            check_extension_cast(&source.key_dtype(), &target.key_dtype())?;
+            check_extension_cast(&source.value_dtype(), &target.value_dtype())
+        }
+        (DType::Struct(source, _), DType::Struct(target, _)) => {
+            check_struct_extension_cast(source, target)
+        }
+        _ => Ok(()),
+    }
+}
+
+/// [`check_extension_cast`] for each pair of fields that
+/// [`struct_cast_fields`](crate::arrays::struct_::compute::cast::struct_cast_fields) casts. A
+/// target field that the source lacks becomes nulls, so it reinterprets nothing.
+fn check_struct_extension_cast(source: &StructFields, target: &StructFields) -> VortexResult<()> {
+    if source.names() == target.names() {
+        for (source, target) in source.fields().zip(target.fields()) {
+            check_extension_cast(&source, &target)?;
+        }
+        return Ok(());
+    }
+
+    for (name, target) in target.names().iter().zip(target.fields()) {
+        if let Some(source) = source.field(name) {
+            check_extension_cast(&source, &target)?;
+        }
+    }
+    Ok(())
+}
+
 /// A cast expression that converts values to a target data type.
 #[derive(Clone)]
 pub struct Cast;
 
 impl Cast {
     /// Creates a lazy cast of `input` to `target_dtype`.
-    #[expect(clippy::new_ret_no_self, reason = "constructs the lazy result array")]
-    pub fn new(input: ArrayRef, target_dtype: DType) -> ScalarFnArray {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the source and target violate the extension cast rule.
+    pub fn try_new(input: ArrayRef, target_dtype: DType) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(Cast.bind(target_dtype), [input])
-            .vortex_expect("Cast has one child and an infallible return dtype")
     }
 }
 
@@ -119,7 +176,8 @@ impl ScalarFnVTable for Cast {
         write!(f, ")")
     }
 
-    fn return_dtype(&self, dtype: &DType, _arg_dtypes: &[DType]) -> VortexResult<DType> {
+    fn return_dtype(&self, dtype: &DType, arg_dtypes: &[DType]) -> VortexResult<DType> {
+        check_extension_cast(&arg_dtypes[0], dtype)?;
         Ok(dtype.clone())
     }
 
@@ -159,7 +217,6 @@ impl ScalarFnVTable for Cast {
     }
 
     fn reduce<T: ReduceNode>(&self, target_dtype: &DType, node: &T) -> VortexResult<Option<T>> {
-        // Collapse node if child is already the target type
         let child = node.child(0);
         if &child.node_dtype()? == target_dtype {
             return Ok(Some(child));
