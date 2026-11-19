@@ -85,8 +85,11 @@ pub(super) fn to_arrow_dictionary(
 /// shifted past the values before it, so nothing is decoded or hashed. A constant contributes one
 /// value, or none if it is null. Values are not deduplicated, which Arrow dictionaries permit.
 ///
-/// Any other array, and leaves with more values than `K` can index, are decoded and hashed into a
-/// dictionary by Arrow.
+/// A single dictionary hands over its codes and values whenever its valid codes fit `K`, even if
+/// it has more values than `K` can index.
+///
+/// Any other array, joined leaves with more values than `K` can index, and joined values that do
+/// not convert to the values field are decoded and hashed into a dictionary by Arrow.
 fn to_dictionary<K: ArrowDictionaryKeyType>(
     array: ArrayRef,
     values_field: &Field,
@@ -96,30 +99,30 @@ fn to_dictionary<K: ArrowDictionaryKeyType>(
 where
     K::Native: NativePType,
 {
-    // Keep an existing empty dictionary: canonicalization can discard its codes, and Arrow
-    // cannot repack every extension's storage type into a dictionary.
-    let array = if array.is::<Dict>() || array.is::<Constant>() {
-        array
-    } else {
-        array.execute_until::<ArrowDictExportable>(ctx)?
-    };
     let dtype = array.dtype().clone();
     let len = array.len();
 
-    let mut unexecuted = Vec::new();
-    push_leaves(array, &mut unexecuted);
-
     // Execute every leaf before building anything, so an array that cannot be joined costs no more
-    // than its decode. The leaves executed so far are kept for that decode.
-    let mut leaves = Vec::with_capacity(unexecuted.len());
+    // than its decode. The leaves executed so far are kept for that decode. `pending` holds the
+    // arrays still to visit in reverse row order, and chunks, including those that execution
+    // reveals, are pushed back onto it.
+    let mut pending = vec![array];
+    let mut leaves = Vec::new();
     let mut num_values = 0usize;
-    let mut unexecuted = unexecuted.into_iter();
-    while let Some(leaf) = unexecuted.next() {
-        let leaf = if leaf.is::<Dict>() || leaf.is::<Constant>() {
+    while let Some(leaf) = pending.pop() {
+        // Keep an existing empty dictionary: canonicalization can discard its codes, and Arrow
+        // cannot repack every extension's storage type into a dictionary.
+        let leaf = if ArrowDictExportable::matches(&leaf) {
             leaf
         } else {
             leaf.execute_until::<ArrowDictExportable>(ctx)?
         };
+        if let Some(chunked) = leaf.as_opt::<Chunked>() {
+            let start = pending.len();
+            pending.extend(chunked.non_empty_chunks().cloned());
+            pending[start..].reverse();
+            continue;
+        }
         let leaf_values = if let Some(dict) = leaf.as_opt::<Dict>() {
             Some(dict.values().len())
         } else {
@@ -127,31 +130,44 @@ where
                 .map(|constant| usize::from(!constant.scalar().is_null()))
         };
         leaves.push(leaf);
+        // A single dictionary may have more values than `K` can index, so the count only rules
+        // out a join once a second leaf arrives.
         let joinable = leaf_values.is_some_and(|leaf_values| {
             num_values += leaf_values;
-            keys_index::<K>(num_values)
+            leaves.len() == 1 || keys_index::<K>(num_values)
         });
         if !joinable {
-            leaves.extend(unexecuted);
+            leaves.extend(pending.into_iter().rev());
             return decode_to_dictionary::<K>(leaves, dtype, values_field, options, ctx);
         }
     }
 
-    // A single dictionary whose codes already have the key type hands them over without a copy.
     if let [leaf] = leaves.as_slice()
         && let Some(dict) = leaf.as_opt::<Dict>()
-        && dict.codes().dtype().as_ptype() == K::Native::PTYPE
     {
-        let codes = execute_arrow_naive(dict.codes().clone(), Some(&K::DATA_TYPE), options, ctx)?;
-        let values =
-            dict.values()
-                .clone()
-                .execute_arrow_with_options(Some(values_field), options, ctx)?;
-        // SAFETY: the valid codes of a Vortex dictionary index its values.
-        let dict = unsafe {
-            DictionaryArray::<K>::new_unchecked(codes.as_primitive::<K>().clone(), values)
-        };
-        return Ok(Arc::new(dict));
+        if dict.codes().dtype().as_ptype() == K::Native::PTYPE {
+            // Codes that already have the key type are handed over without a copy.
+            let codes =
+                execute_arrow_naive(dict.codes().clone(), Some(&K::DATA_TYPE), options, ctx)?;
+            return single_dictionary::<K>(codes, leaves, dtype, values_field, options, ctx);
+        }
+        if !keys_index::<K>(num_values) {
+            // Codes converted by the join below could wrap, so only valid codes that fit `K`
+            // are handed over.
+            let codes = dict.codes().clone().execute::<PrimitiveArray>(ctx)?;
+            let key_dtype = DType::Primitive(K::Native::PTYPE, codes.dtype().nullability());
+            return match codes
+                .into_array()
+                .cast(key_dtype)
+                .and_then(|codes| codes.execute::<PrimitiveArray>(ctx))
+            {
+                Ok(codes) => {
+                    let codes = canonical_primitive_to_arrow::<K>(codes, ctx)?;
+                    single_dictionary::<K>(codes, leaves, dtype, values_field, options, ctx)
+                }
+                Err(_) => decode_to_dictionary::<K>(leaves, dtype, values_field, options, ctx),
+            };
+        }
     }
 
     let mut codes = BufferMut::<K::Native>::with_capacity(len);
@@ -202,20 +218,8 @@ where
 
     let codes =
         canonical_primitive_to_arrow::<K>(PrimitiveArray::new(codes.freeze(), validity), ctx)?;
-    let values = match values.len() {
-        0 => new_empty_array(values_field.data_type()),
-        1 => values
-            .swap_remove(0)
-            .execute_arrow_with_options(Some(values_field), options, ctx)?,
-        _ => {
-            let values = values
-                .into_iter()
-                .map(|values| values.cast(dtype.clone()))
-                .collect::<VortexResult<Vec<_>>>()?;
-            ChunkedArray::try_new(values, dtype)?
-                .into_array()
-                .execute_arrow_with_options(Some(values_field), options, ctx)?
-        }
+    let Ok(values) = export_values(values, &dtype, values_field, options, ctx) else {
+        return decode_to_dictionary::<K>(leaves, dtype, values_field, options, ctx);
     };
     // SAFETY: `DictionaryArray::try_new` only checks the valid keys. Each valid code of a
     // dictionary was shifted onto the values its leaf contributed, a constant's valid codes point
@@ -225,15 +229,51 @@ where
     Ok(Arc::new(dict))
 }
 
-/// Push the non-empty leaves of `array` in order, looking through chunks of chunks, as from
-/// concatenating chunked batches.
-fn push_leaves(array: ArrayRef, leaves: &mut Vec<ArrayRef>) {
-    if let Some(chunked) = array.as_opt::<Chunked>() {
-        for chunk in chunked.non_empty_chunks() {
-            push_leaves(chunk.clone(), leaves);
+/// Export `leaves`, a single dictionary, with its codes already converted to `codes`.
+///
+/// Values that do not convert to the values field are decoded and hashed instead, like joined
+/// values, since the rows may only use values that do.
+fn single_dictionary<K: ArrowDictionaryKeyType>(
+    codes: ArrowArrayRef,
+    leaves: Vec<ArrayRef>,
+    dtype: DType,
+    values_field: &Field,
+    options: &ArrowExportOptions,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrowArrayRef> {
+    let values = leaves[0].as_::<Dict>().values().clone();
+    let Ok(values) = values.execute_arrow_with_options(Some(values_field), options, ctx) else {
+        return decode_to_dictionary::<K>(leaves, dtype, values_field, options, ctx);
+    };
+    // SAFETY: the valid codes of a Vortex dictionary index its values, and converting them to
+    // `K` kept their values.
+    let dict =
+        unsafe { DictionaryArray::<K>::new_unchecked(codes.as_primitive::<K>().clone(), values) };
+    Ok(Arc::new(dict))
+}
+
+/// Convert the joined `values` of the leaves to the values field.
+fn export_values(
+    mut values: Vec<ArrayRef>,
+    dtype: &DType,
+    values_field: &Field,
+    options: &ArrowExportOptions,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrowArrayRef> {
+    match values.len() {
+        0 => Ok(new_empty_array(values_field.data_type())),
+        1 => values
+            .swap_remove(0)
+            .execute_arrow_with_options(Some(values_field), options, ctx),
+        _ => {
+            let values = values
+                .into_iter()
+                .map(|values| values.cast(dtype.clone()))
+                .collect::<VortexResult<Vec<_>>>()?;
+            ChunkedArray::try_new(values, dtype.clone())?
+                .into_array()
+                .execute_arrow_with_options(Some(values_field), options, ctx)
         }
-    } else {
-        leaves.push(array);
     }
 }
 
@@ -307,6 +347,7 @@ mod tests {
 
     use arrow_array::DictionaryArray as ArrowDictArray;
     use arrow_array::StringArray;
+    use arrow_array::UInt8Array;
     use arrow_array::cast::AsArray;
     use arrow_array::types::Int32Type;
     use arrow_array::types::UInt8Type;
@@ -323,9 +364,11 @@ mod tests {
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::Nullability::Nullable;
+    use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::fns::mask::Mask;
     use vortex_array::validity::Validity;
@@ -578,6 +621,114 @@ mod tests {
             flat.as_ref(),
             &StringArray::from(vec!["a", "b", "a", "b", "x"]) as &dyn arrow_array::Array
         );
+        Ok(())
+    }
+
+    /// A single dictionary hands over its codes and values even when it has more values than the
+    /// key type can index, as long as its codes fit the key type. Arrow cannot hash these values.
+    #[rstest]
+    #[case::same_ptype(PrimitiveArray::from_iter([0i8, 1, 0]).into_array())]
+    #[case::cast_codes(PrimitiveArray::from_option_iter([Some(0u32), None, Some(1)]).into_array())]
+    fn single_dict_hands_over_codes_past_key_range(
+        #[case] codes: vortex_array::ArrayRef,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter(0..258i32).into_array(),
+            2,
+            Validity::NonNullable,
+            129,
+        )?
+        .into_array();
+        let source = DictArray::try_new(codes, values)?.into_array();
+        let arrow = SESSION.arrow();
+        let values_field = arrow.to_arrow_field("item", source.dtype())?;
+        let field = Field::new(
+            "dict",
+            dict_type(DataType::Int8, values_field.data_type().clone()),
+            source.dtype().is_nullable(),
+        );
+
+        let exported = source.clone().execute_arrow(Some(&field), &mut ctx)?;
+
+        assert_eq!(exported.as_any_dictionary().values().len(), 129);
+        let imported = arrow.from_arrow_array(exported, &field)?;
+        vortex_array::assert_arrays_eq!(imported, source, &mut ctx);
+        Ok(())
+    }
+
+    /// A single dictionary whose valid codes do not fit the key type is decoded and hashed.
+    #[test]
+    fn single_dict_hashes_codes_past_key_range() -> VortexResult<()> {
+        let values = (0..201).map(|i| format!("v{i}")).collect::<Vec<_>>();
+        let values = values.iter().map(String::as_str).collect::<Vec<_>>();
+        let dict = utf8_dict(&[0, 200, 0], &values)?;
+
+        let actual = execute(dict, &dict_type(DataType::Int8, DataType::Utf8))?;
+
+        assert_eq!(actual.as_any_dictionary().values().len(), 2);
+        let flat = arrow_cast::cast(&actual, &DataType::Utf8)?;
+        assert_eq!(
+            flat.as_ref(),
+            &StringArray::from(vec!["v0", "v200", "v0"]) as &dyn arrow_array::Array
+        );
+        Ok(())
+    }
+
+    /// A joined value that no row uses may not convert to the target value type; the rows are
+    /// then decoded instead, which only convert the values in use.
+    #[test]
+    fn unused_value_outside_target_type_decodes_rows() -> VortexResult<()> {
+        let chunk = |codes: &[u8], values: &[i8]| -> VortexResult<vortex_array::ArrayRef> {
+            Ok(DictArray::try_new(
+                PrimitiveArray::from_iter(codes.iter().copied()).into_array(),
+                PrimitiveArray::from_iter(values.iter().copied()).into_array(),
+            )?
+            .into_array())
+        };
+        let chunked = ChunkedArray::try_new(
+            vec![chunk(&[0], &[1, -1])?, chunk(&[0], &[2])?],
+            DType::Primitive(PType::I8, NonNullable),
+        )?
+        .into_array();
+
+        let actual = execute(chunked, &dict_type(DataType::UInt8, DataType::UInt8))?;
+
+        let flat = arrow_cast::cast(&actual, &DataType::UInt8)?;
+        assert_eq!(
+            flat.as_ref(),
+            &UInt8Array::from(vec![1, 2]) as &dyn arrow_array::Array
+        );
+        Ok(())
+    }
+
+    /// A leaf that only becomes chunked when executed, here a mask over chunked dictionaries,
+    /// joins its chunks instead of decoding and hashing the whole array.
+    #[test]
+    fn chunks_revealed_by_execution_join() -> VortexResult<()> {
+        let inner = ChunkedArray::try_new(
+            vec![
+                utf8_dict(&[0, 1], &["a", "b"])?,
+                utf8_dict(&[1, 0], &["a", "b"])?,
+            ],
+            DType::Utf8(NonNullable),
+        )?;
+        let masked = Mask::try_new(
+            inner.into_array(),
+            BoolArray::from_iter([true, false, true, true]).into_array(),
+        )?
+        .into_array();
+        let dtype = masked.dtype().clone();
+        let tail = utf8_dict(&[1], &["a", "b"])?.cast(dtype.clone())?;
+        let chunked = ChunkedArray::try_new(vec![masked, tail], dtype)?.into_array();
+
+        let actual = execute(chunked, &dict_type(DataType::UInt32, DataType::Utf8))?;
+
+        // Each leaf's two values are appended, not deduplicated.
+        assert_eq!(actual.as_any_dictionary().values().len(), 6);
+        let flat = arrow_cast::cast(&actual, &DataType::Utf8)?;
+        let expected = StringArray::from(vec![Some("a"), None, Some("b"), Some("a"), Some("b")]);
+        assert_eq!(flat.as_ref(), &expected as &dyn arrow_array::Array);
         Ok(())
     }
 
