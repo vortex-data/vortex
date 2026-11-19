@@ -71,6 +71,23 @@ public final class VortexV1FallbackTest {
     }
 
     @Test
+    void aSplitConcurrencyReadsEveryRowThroughV1AndV2() {
+        Path output = write("split_concurrency", false);
+        try {
+            for (String useV1 : new String[] {"", "vortex"}) {
+                spark.conf().set("spark.sql.sources.useV1SourceList", useV1);
+                Dataset<Row> read = spark.read()
+                        .format("vortex")
+                        .option("vortex.splitConcurrency", "1")
+                        .load(output.toString());
+                assertEquals(780L, read.selectExpr("sum(id)").first().getLong(0), "useV1SourceList=" + useV1);
+            }
+        } finally {
+            spark.conf().set("spark.sql.sources.useV1SourceList", "vortex");
+        }
+    }
+
+    @Test
     void readsMissingColumnsWithCodegen() {
         Path output = tempDir.resolve("v1_merged");
         spark.range(1).coalesce(1).write().format("vortex").save(output.toString());

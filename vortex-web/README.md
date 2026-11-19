@@ -24,6 +24,10 @@ bun install
 bun run dev
 ```
 
+The Explorer is served under `/explorer/` (Vite's `base`), so open http://localhost:5173/explorer/.
+The docs' Vercel project deploys it: under `/explorer/` on the docs previews, and at the root of
+explore.vortex.dev. See `docs/vercel-output-config.json` and `.github/workflows/web-build.yml`.
+
 ### Storybook (no Rust/WASM required)
 
 Storybook lets you develop and preview UI components in isolation:

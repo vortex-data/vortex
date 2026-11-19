@@ -94,7 +94,7 @@ mod tests {
 
         let array = ListContains::try_new(list, needles)?
             .into_array()
-            .optimize()?;
+            .optimize_ctx(&SESSION)?;
         assert!(array.is::<RunEnd>());
 
         assert_arrays_eq!(

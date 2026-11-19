@@ -29,7 +29,6 @@ use fastlanes::BitPacking;
 use fastlanes::BitPackingCompare;
 use fastlanes::FastLanesComparable;
 use fastlanes::transpose_bits;
-use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -45,6 +44,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use super::packed_range::set_patch_bits;
 use super::stream_predicate::stream_predicate;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
@@ -145,13 +145,13 @@ where
         let p_val = p.values().clone().execute::<PrimitiveArray>(ctx)?;
         let p_off = p.offset();
         match_each_unsigned_integer_ptype!(p_idx.ptype(), |I| {
-            let indices = p_idx.as_slice::<I>();
-            let values = p_val.as_slice::<T>();
-            for (&global, &value) in indices.iter().zip(values) {
-                let global: usize = global.as_();
-                let idx = global - p_off;
-                bits.set_to(idx, predicate(value))
-            }
+            set_patch_bits(
+                &mut bits,
+                p_idx.as_slice::<I>(),
+                p_val.as_slice::<T>(),
+                p_off,
+                predicate,
+            )
         });
     }
 

@@ -35,6 +35,8 @@ public final class VortexAggregatePushdownTest {
                 .master("local[2]")
                 .config("spark.driver.host", "127.0.0.1")
                 .config("spark.sql.adaptive.enabled", "false")
+                // Spark 4.3 asks a scan for row counts only under CBO.
+                .config("spark.sql.cbo.enabled", "true")
                 .config("spark.ui.enabled", "false")
                 .getOrCreate();
     }

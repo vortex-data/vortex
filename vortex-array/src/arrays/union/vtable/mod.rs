@@ -3,11 +3,8 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
@@ -22,15 +19,12 @@ use crate::array::VTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::union::UnionArrayExt;
 use crate::arrays::union::UnionSlots;
-use crate::arrays::union::array::make_union_parts;
-use crate::arrays::union::compute::rules::PARENT_RULES;
-use crate::arrays::union::union_type_ids_dtype;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
-use crate::serde::ArrayChildren;
 
 mod operations;
+mod plugin;
 mod validate;
 mod validity;
 
@@ -100,47 +94,6 @@ impl VTable for Union {
         with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(metadata.is_empty(), "UnionArray expects empty metadata");
-        vortex_ensure!(buffers.is_empty(), "UnionArray expects no buffers");
-        let DType::Union(variants, nullability) = dtype else {
-            vortex_bail!("Expected union dtype, found {dtype}")
-        };
-        vortex_ensure_eq!(children.len(), UnionSlots::CHILDREN_OFFSET + variants.len());
-
-        let type_ids = children.get(
-            UnionSlots::TYPE_IDS,
-            &union_type_ids_dtype(*nullability),
-            len,
-        )?;
-        let sparse_children = variants
-            .variants()
-            .enumerate()
-            .map(|(index, dtype)| children.get(UnionSlots::CHILDREN_OFFSET + index, &dtype, len))
-            .collect::<VortexResult<Vec<_>>>()?;
-
-        Ok(make_union_parts(
-            type_ids,
-            variants.clone(),
-            sparse_children,
-        ))
-    }
-
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
         if idx == UnionSlots::TYPE_IDS {
             "type_ids".to_string()
@@ -159,13 +112,5 @@ impl VTable for Union {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_bail!("TODO(connor)[Union]: implement append_to_builder for Union arrays")
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }

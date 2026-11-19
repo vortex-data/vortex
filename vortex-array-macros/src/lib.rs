@@ -24,6 +24,24 @@ use syn::spanned::Spanned;
 /// Name of the per-field attribute that pins a field to a slot index.
 const SLOT_ATTR: &str = "slot";
 
+/// Slot field names that are rejected because their generated accessors would shadow the inherent
+/// methods of `ArrayView` (which the by-value accessors take precedence over) or the ext trait's
+/// own methods.
+const RESERVED_FIELD_NAMES: &[&str] = &[
+    "array",
+    "borrow_slots",
+    "data",
+    "dtype",
+    "encoding_id",
+    "into_owned",
+    "is_empty",
+    "len",
+    "slots",
+    "slots_view",
+    "statistics",
+    "validity",
+];
+
 /// Generate slot index constants, a borrowed view struct, and a typed ext trait
 /// from a slot struct definition.
 ///
@@ -89,16 +107,32 @@ const SLOT_ATTR: &str = "slot";
 /// }
 ///
 /// // --- Ext trait with per-field accessors + slots_view() ---
-/// pub trait PatchedArraySlotsExt: TypedArrayRef<Patched> {
-///     fn inner(&self) -> &ArrayRef { ... }         // indexes slots directly
-///     fn lane_offsets(&self) -> &ArrayRef { ... }
-///     fn patch_indices(&self) -> &ArrayRef { ... }
-///     fn patch_values(&self) -> &ArrayRef { ... }
-///     fn slots_view(&self) -> PatchedSlotsView<'_> { ... }
+/// pub trait PatchedArraySlotsExt<'a>: BorrowArraySlots<'a, Patched> {
+///     fn inner(self) -> &'a ArrayRef { ... }         // indexes slots directly
+///     fn lane_offsets(self) -> &'a ArrayRef { ... }
+///     fn patch_indices(self) -> &'a ArrayRef { ... }
+///     fn patch_values(self) -> &'a ArrayRef { ... }
+///     fn slots_view(self) -> PatchedSlotsView<'a> { ... }
 /// }
 ///
-/// impl<T: TypedArrayRef<Patched>> PatchedArraySlotsExt for T {}
+/// impl<'a, S: BorrowArraySlots<'a, Patched>> PatchedArraySlotsExt<'a> for S {}
 /// ```
+///
+/// # Borrowing
+///
+/// `vortex_array::BorrowArraySlots<'a, V>` is implemented for `&'a T` where
+/// `T: TypedArrayRef<V>` (an owned `Array<V>`, or any generic typed array), and for
+/// `ArrayView<'a, V>` itself. The accessors take `self` by value, so:
+///
+/// - on an `Array<V>` or `&Array<V>`, the result borrows from the array, as with any `&self`
+///   method;
+/// - on an `ArrayView<'a, V>`, the result borrows for `'a`, the lifetime of the array the view
+///   points at, so a slot read from a temporary view, such as
+///   `array.as_::<Patched>().inner()`, outlives the view.
+///
+/// Encoding ext traits that build on the slot accessors take `TypedArrayRef<V>` as their
+/// supertrait; the blanket impl makes the accessors available on `&Self` in their default
+/// methods.
 ///
 /// # Slot index annotations
 ///
@@ -113,14 +147,20 @@ const SLOT_ATTR: &str = "slot";
 /// # Required vs optional slots
 ///
 /// - `ArrayRef` — the slot must be present. `from_slots()` panics if `None`.
-///   The ext trait accessor returns `&ArrayRef`. The view field is `&'a ArrayRef`.
+///   The ext trait accessor and the view field are `&'a ArrayRef`.
 ///
 /// - `Option<ArrayRef>` — the slot may be absent. `from_slots()` preserves `None`.
-///   The ext trait accessor returns `Option<&ArrayRef>`. The view field is
-///   `Option<&'a ArrayRef>`.
+///   The ext trait accessor and the view field are `Option<&'a ArrayRef>`.
 ///
 /// The underlying storage is always `ArraySlots` — the field type only
 /// controls whether the macro inserts a `.vortex_expect()` unwrap or not.
+///
+/// # Field names
+///
+/// The ext trait accessor is named after the field. Because the accessors take an `ArrayView`
+/// by value, Rust picks them over `ArrayView`'s own `&self` methods, so a field whose name
+/// matches one of those methods (`validity`, `dtype`, `len`, ...) would hide it. Such field
+/// names are rejected; a validity slot, for example, is conventionally named `validity_child`.
 ///
 /// # Variadic tail slots
 ///
@@ -160,7 +200,7 @@ const SLOT_ATTR: &str = "slot";
 /// }
 /// ```
 ///
-/// The view field and ext trait accessor for the tail are a `vortex_array::SlotSlice`,
+/// The view field and ext trait accessor for the tail are a `vortex_array::SlotSlice<'a>`,
 /// a borrowed run of required slots supporting `len()`, `get()`, `iter()`, and
 /// indexing:
 ///
@@ -170,10 +210,10 @@ const SLOT_ATTR: &str = "slot";
 ///     pub chunks: SlotSlice<'a>,
 /// }
 ///
-/// pub trait ChunkedArraySlotsExt: TypedArrayRef<Chunked> {
-///     fn chunk_offsets(&self) -> &ArrayRef { ... }
-///     fn chunks(&self) -> SlotSlice<'_> { ... }
-///     fn slots_view(&self) -> ChunkedSlotsView<'_> { ... }
+/// pub trait ChunkedArraySlotsExt<'a>: BorrowArraySlots<'a, Chunked> {
+///     fn chunk_offsets(self) -> &'a ArrayRef { ... }
+///     fn chunks(self) -> SlotSlice<'a> { ... }
+///     fn slots_view(self) -> ChunkedSlotsView<'a> { ... }
 /// }
 /// ```
 #[proc_macro_attribute]
@@ -221,7 +261,7 @@ fn expand_array_slots(
 
     let field_specs = fields
         .iter()
-        .map(|field| SlotField::new(field, &struct_ident))
+        .map(|field| SlotField::new(field, &struct_ident, &encoding))
         .collect::<syn::Result<Vec<_>>>()?;
 
     // The `#[slot(..)]` annotations, not the declaration order, define storage order.
@@ -277,17 +317,24 @@ fn expand_array_slots(
             }
         }
 
-        #[doc = concat!("Typed array accessors for `", stringify!(#encoding_ident), "`.")]
-        #struct_vis trait #ext_ident: ::vortex_array::TypedArrayRef<#encoding> {
+        #[doc = concat!("Typed slot accessors for `", stringify!(#encoding_ident), "` arrays.")]
+        #[doc = ""]
+        #[doc = "Implemented for `&'a T` where `T: TypedArrayRef`, and for `ArrayView<'a, _>`. The"]
+        #[doc = "accessors take `self` by value and return references borrowed for `'a`, so slots"]
+        #[doc = "read from a temporary `ArrayView` outlive the view."]
+        #struct_vis trait #ext_ident<'a>: ::vortex_array::BorrowArraySlots<'a, #encoding> {
             #(#ext_methods)*
 
             #[doc = "Returns a borrowed view of all slots."]
-            fn slots_view(&self) -> #view_ident<'_> {
-                #view_ident::from_slots(self.slots())
+            #[inline]
+            fn slots_view(self) -> #view_ident<'a> {
+                #view_ident::from_slots(
+                    ::vortex_array::BorrowArraySlots::<'a, #encoding>::borrow_slots(self),
+                )
             }
         }
 
-        impl<T: ::vortex_array::TypedArrayRef<#encoding>> #ext_ident for T {}
+        impl<'a, S: ::vortex_array::BorrowArraySlots<'a, #encoding>> #ext_ident<'a> for S {}
     })
 }
 
@@ -490,10 +537,11 @@ struct SlotField {
     index_span: Span,
     expect_message: syn::LitStr,
     struct_ident: Ident,
+    encoding: Path,
 }
 
 impl SlotField {
-    fn new(field: &Field, struct_ident: &Ident) -> syn::Result<Self> {
+    fn new(field: &Field, struct_ident: &Ident, encoding: &Path) -> syn::Result<Self> {
         let field_ident = field
             .ident
             .clone()
@@ -537,6 +585,16 @@ impl SlotField {
             field.span(),
         );
 
+        if RESERVED_FIELD_NAMES.contains(&field_name.as_str()) {
+            return Err(syn::Error::new(
+                field_ident.span(),
+                format!(
+                    "the slot field `{field_name}` would generate an accessor that shadows \
+                     `ArrayView::{field_name}`; rename the field, e.g. to `{field_name}_child`"
+                ),
+            ));
+        }
+
         Ok(Self {
             field_ident,
             field_vis: field.vis.clone(),
@@ -547,6 +605,7 @@ impl SlotField {
             index_span: annotation.span,
             expect_message,
             struct_ident: struct_ident.clone(),
+            encoding: encoding.clone(),
         })
     }
 
@@ -571,28 +630,38 @@ impl SlotField {
         }
     }
 
-    fn view_from_slots(&self) -> proc_macro2::TokenStream {
-        let field_ident = &self.field_ident;
+    /// The expression that reads this field out of a borrowed `slots` slice, whose lifetime
+    /// the result carries.
+    fn borrow_from_slots(&self, slots: &proc_macro2::TokenStream) -> proc_macro2::TokenStream {
         let struct_ident = &self.struct_ident;
         let const_ident = &self.const_ident;
         let expect_message = &self.expect_message;
 
         match self.slot_type {
             SlotFieldType::Required => quote! {
-                #field_ident: ::vortex_error::VortexExpect::vortex_expect(
-                    slots[#struct_ident::#const_ident].as_ref(),
+                ::vortex_error::VortexExpect::vortex_expect(
+                    #slots[#struct_ident::#const_ident].as_ref(),
                     #expect_message,
                 )
             },
             SlotFieldType::Optional => quote! {
-                #field_ident: slots[#struct_ident::#const_ident].as_ref()
+                #slots[#struct_ident::#const_ident].as_ref()
             },
             SlotFieldType::VariadicTail => quote! {
-                #field_ident: ::vortex_array::SlotSlice::new(
-                    &slots[#struct_ident::#const_ident..],
+                ::vortex_array::SlotSlice::new(
+                    &#slots[#struct_ident::#const_ident..],
                     #expect_message,
                 )
             },
+        }
+    }
+
+    fn view_from_slots(&self) -> proc_macro2::TokenStream {
+        let field_ident = &self.field_ident;
+        let value = self.borrow_from_slots(&quote! { slots });
+
+        quote! {
+            #field_ident: #value
         }
     }
 
@@ -652,35 +721,19 @@ impl SlotField {
 
     fn ext_method(&self) -> proc_macro2::TokenStream {
         let field_ident = &self.field_ident;
-        let struct_ident = &self.struct_ident;
-        let const_ident = &self.const_ident;
-        let expect_message = &self.expect_message;
+        let ty = self.slot_type.view_field_ty();
+        let slot_name = &self.slot_name;
+        let encoding = &self.encoding;
+        let value = self.borrow_from_slots(&quote! {
+            ::vortex_array::BorrowArraySlots::<'a, #encoding>::borrow_slots(self)
+        });
 
-        match self.slot_type {
-            SlotFieldType::Required => quote! {
-                #[inline]
-                fn #field_ident(&self) -> &::vortex_array::ArrayRef {
-                    ::vortex_error::VortexExpect::vortex_expect(
-                        self.slots()[#struct_ident::#const_ident].as_ref(),
-                        #expect_message,
-                    )
-                }
-            },
-            SlotFieldType::Optional => quote! {
-                #[inline]
-                fn #field_ident(&self) -> Option<&::vortex_array::ArrayRef> {
-                    self.slots()[#struct_ident::#const_ident].as_ref()
-                }
-            },
-            SlotFieldType::VariadicTail => quote! {
-                #[inline]
-                fn #field_ident(&self) -> ::vortex_array::SlotSlice<'_> {
-                    ::vortex_array::SlotSlice::new(
-                        &self.slots()[#struct_ident::#const_ident..],
-                        #expect_message,
-                    )
-                }
-            },
+        quote! {
+            #[doc = concat!("Returns the `", #slot_name, "` slot.")]
+            #[inline]
+            fn #field_ident(self) -> #ty {
+                #value
+            }
         }
     }
 }

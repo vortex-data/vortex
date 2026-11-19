@@ -38,11 +38,72 @@ const ONE_MEG: u64 = 1 << 20;
 /// How the compressor was configured on [`WriteStrategyBuilder`].
 enum CompressorConfig {
     /// A [`BtrBlocksCompressorBuilder`] that [`WriteStrategyBuilder::build`] will finalize.
-    /// `IntDictScheme` is automatically excluded from the data compressor to prevent recursive
-    /// dictionary encoding.
+    /// `IntDictScheme` is automatically excluded when compressing dictionary codes to prevent
+    /// recursive dictionary encoding.
     BtrBlocks(BtrBlocksCompressorBuilder),
     /// An opaque compressor used as-is for both data and stats compression.
     Opaque(Arc<dyn CompressorPlugin>),
+}
+
+/// The compressors that [`WriteStrategyBuilder::build`] derives from a [`CompressorConfig`].
+struct Compressors {
+    /// Compresses dictionary codes.
+    codes: Arc<dyn CompressorPlugin>,
+    /// Compresses everything else: chunks that dictionary encoding rejects, dictionary values and
+    /// stats tables. It also probes columns for dictionary encoding by default.
+    full: Arc<dyn CompressorPlugin>,
+}
+
+impl CompressorConfig {
+    /// Splits the configured compressor into the codes and full compressors.
+    ///
+    /// The codes compressor excludes `IntDictScheme` because `DictStrategy` already
+    /// dictionary-encoded the column, and dictionary-encoding its integer codes again would be
+    /// redundant. The full compressor keeps every scheme, so chunks that `DictStrategy` rejects can
+    /// still use integer dictionaries, e.g. for a decimal's most significant part. An opaque
+    /// compressor is used as-is for both.
+    fn into_compressors(self) -> Compressors {
+        match self {
+            CompressorConfig::BtrBlocks(builder) => Compressors {
+                codes: Arc::new(
+                    builder
+                        .clone()
+                        .exclude_schemes([IntDictScheme.id()])
+                        .build(),
+                ),
+                full: Arc::new(builder.build()),
+            },
+            CompressorConfig::Opaque(compressor) => Compressors {
+                codes: Arc::clone(&compressor),
+                full: compressor,
+            },
+        }
+    }
+}
+
+/// Coalesces chunks up to the data block target size, then compresses them with `compressor`
+/// and passes them to `buffered`.
+fn coalesce_then_compress(
+    buffered: BufferedStrategy,
+    compressor: Arc<dyn CompressorPlugin>,
+    row_block_size: usize,
+    data_block_target_bytes: Option<u64>,
+) -> RepartitionStrategy {
+    RepartitionStrategy::new(
+        CompressingStrategy::new(buffered, compressor),
+        RepartitionWriterOptions {
+            // Write stream partitions roughly become segments. Because Vortex never reads less
+            // than one segment, the size of segments and, therefore, partitions, must be small
+            // enough to both (1) allow fine-grained random access reads and (2) allow
+            // sufficient read concurrency for the desired throughput. One megabyte is small
+            // enough to achieve this for S3 (Durner et al., "Exploiting Cloud Object Storage for
+            // High-Performance Analytics", VLDB Vol 16, Iss 11).
+            block_size_minimum: data_block_target_bytes.unwrap_or(0),
+            block_len_multiple: row_block_size,
+            block_size_target: data_block_target_bytes,
+            canonicalize: true,
+        },
+    )
 }
 
 /// Build a new [writer strategy](LayoutStrategy) to compress and reorganize chunks of a Vortex
@@ -161,62 +222,42 @@ impl WriteStrategyBuilder {
             Arc::new(FlatLayoutStrategy::default())
         };
 
-        let compressor = self.compressor;
-
         // 7. for each chunk create a flat layout
         let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
         // 6. buffer chunks so they end up with closer segment ids physically
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
 
-        // 5. compress each chunk.
-        // Exclude IntDictScheme from the data compressor because DictStrategy (step 3) already
-        // dictionary-encodes columns. Allowing IntDictScheme here would redundantly
-        // dictionary-encode the integer codes produced by that earlier step.
-        let data_compressor: Arc<dyn CompressorPlugin> = match &compressor {
-            CompressorConfig::BtrBlocks(builder) => Arc::new(
-                builder
-                    .clone()
-                    .exclude_schemes([IntDictScheme.id()])
-                    .build(),
-            ),
-            CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
-        };
-        let compressing = CompressingStrategy::new(buffered, data_compressor);
-
-        // 4. prior to compression, coalesce up to a minimum size
-        let coalescing = RepartitionStrategy::new(
-            compressing,
-            RepartitionWriterOptions {
-                // Write stream partitions roughly become segments. Because Vortex never reads less
-                // than one segment, the size of segments and, therefore, partitions, must be small
-                // enough to both (1) allow fine-grained random access reads and (2) allow
-                // sufficient read concurrency for the desired throughput. One megabyte is small
-                // enough to achieve this for S3 (Durner et al., "Exploiting Cloud Object Storage for
-                // High-Performance Analytics", VLDB Vol 16, Iss 11).
-                block_size_minimum: self.data_block_target_bytes.unwrap_or(0),
-                block_len_multiple: self.row_block_size,
-                block_size_target: self.data_block_target_bytes,
-                canonicalize: true,
-            },
+        // 4. coalesce chunks up to a minimum size, then 5. compress each chunk.
+        // Dict codes and the chunks DictStrategy rejects get separate pipelines because they use
+        // different compressors; see `CompressorConfig::into_compressors`.
+        let compressors = self.compressor.into_compressors();
+        let codes = coalesce_then_compress(
+            buffered.clone(),
+            compressors.codes,
+            self.row_block_size,
+            self.data_block_target_bytes,
         );
+        let fallback = coalesce_then_compress(
+            buffered,
+            Arc::clone(&compressors.full),
+            self.row_block_size,
+            self.data_block_target_bytes,
+        );
+        let full_compressor = compressors.full;
 
         // 2.1. | 3.1. compress stats tables and dict values.
-        let stats_compressor: Arc<dyn CompressorPlugin> = match compressor {
-            CompressorConfig::BtrBlocks(builder) => Arc::new(builder.build()),
-            CompressorConfig::Opaque(compressor) => compressor,
-        };
-        let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&stats_compressor));
+        let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&full_compressor));
 
         // 3. apply dict encoding or fallback
         let probe_compressor = if let Some(probe_compressor) = self.probe_compressor {
             probe_compressor
         } else {
-            Arc::clone(&stats_compressor)
+            full_compressor
         };
         let dict = DictStrategy::new(
-            coalescing.clone(),
+            codes,
             compress_then_flat.clone(),
-            coalescing,
+            fallback,
             DictLayoutOptions {
                 probe_len: self.row_block_size,
                 ..Default::default()

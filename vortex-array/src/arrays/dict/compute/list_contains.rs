@@ -13,7 +13,6 @@ use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_contains::ListContainsElementReduce;
@@ -50,10 +49,10 @@ impl ListContainsElementReduce for Dict {
         }
 
         // A null code answers `null`, as a null needle does against a list with elements.
+        // The optimizer reduces this lazy node when it visits the returned dictionary.
         let values =
             ListContains::try_new_opts(list.slice(0..values.len())?, values.clone(), *options)?
-                .into_array()
-                .optimize()?;
+                .into_array();
 
         // SAFETY: the codes are unchanged, and the values have one result for each value.
         let dict = unsafe {

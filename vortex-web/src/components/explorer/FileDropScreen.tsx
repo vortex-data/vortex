@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { useCallback, useId, useRef, useState, type DragEvent, type FormEvent } from 'react';
+import { Footer } from './Footer';
 import { Header } from './Header';
 
 interface FileDropScreenProps {
@@ -91,9 +92,13 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
   const busy = loading || fetchingUrl;
 
   return (
-    <div className="x-app">
+    <div className="x-app is-page">
+      <a className="vx-skip-link" href="#main">
+        Skip to content
+      </a>
       <Header />
-      <main className="x-open">
+      <main id="main" tabIndex={-1} className="x-open has-dot-field">
+        <div className="vx-dot-field" aria-hidden="true" />
         <div className="x-open-body">
           <div className="x-open-head">
             <h1 className="vx-display-mono">Open a Vortex file.</h1>
@@ -180,9 +185,7 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
           </form>
         </div>
       </main>
-      <footer className="vx-status-line vx-label x-status">
-        <span className="vx-status-item">No file open</span>
-      </footer>
+      <Footer />
     </div>
   );
 }

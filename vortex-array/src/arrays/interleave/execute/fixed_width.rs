@@ -17,7 +17,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
 use super::super::Interleave;
-use super::super::InterleaveArrayExt;
+use super::super::InterleaveArraySlotsExt;
 use crate::array::Array;
 use crate::arrays::Primitive;
 use crate::match_each_unsigned_integer_ptype;
