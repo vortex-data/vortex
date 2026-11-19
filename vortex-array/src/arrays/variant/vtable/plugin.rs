@@ -21,6 +21,7 @@ use crate::IntoArray;
 use crate::VTable;
 use crate::array::EmptyArrayData;
 use crate::arrays::Variant;
+use crate::arrays::variant::VariantArraySlotsExt;
 use crate::arrays::variant::VariantSlots;
 use crate::dtype::DType;
 
@@ -40,8 +41,8 @@ impl ArrayPlugin for Variant {
             "Variant plugin cannot serialize an array of another encoding",
         );
         let array = array.as_::<Variant>();
-        let shredded_dtype = array.slots()[VariantSlots::SHREDDED]
-            .as_ref()
+        let shredded_dtype = array
+            .shredded()
             .map(|shredded| shredded.dtype().try_into())
             .transpose()?;
         let metadata = VariantMetadataProto { shredded_dtype }.encode_to_vec();
