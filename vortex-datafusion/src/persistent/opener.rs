@@ -72,6 +72,7 @@ use vortex_utils::parallelism::get_available_parallelism;
 use crate::VortexAccessPlan;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
+use crate::convert::exprs::push_down_projection_fields;
 use crate::convert::exprs::raw_projection;
 use crate::convert::schema::calculate_physical_schema;
 use crate::convert::to_record_batch;
@@ -434,11 +435,17 @@ impl FileOpener for VortexOpener {
                 indices.dedup();
                 raw_projection(&indices, &this_file_schema, projection)?
             } else if projection_pushdown {
-                expr_converter.split_projection(
+                let projection = expr_converter.split_projection(
                     projection,
                     &this_file_schema,
                     output_schema.as_ref(),
-                )?
+                )?;
+                push_down_projection_fields(
+                    projection,
+                    expr_converter.as_ref(),
+                    |expr| expr.return_dtype(vxf.dtype()),
+                    &session.arrow(),
+                )
             } else {
                 expr_converter.no_pushdown_projection(projection, &this_file_schema)?
             };
