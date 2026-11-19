@@ -24,12 +24,15 @@ use crate::ArrayRef;
 use crate::ArrayVTable;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::DictArray;
 use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::RunEnd;
 use crate::arrays::SliceArray;
 use crate::arrays::StructArray;
 use crate::arrays::Widen;
@@ -258,6 +261,64 @@ fn test_widen_wire_round_trip(
     assert_eq!(values.encoding_id(), child.encoding_id());
     assert_arrays_eq!(decoded, widen, &mut SESSION.create_execution_ctx());
 
+    Ok(())
+}
+
+#[rstest]
+#[case::dict(false)]
+#[case::run_end(true)]
+fn restricted_write_preserves_structure_of_decoded_widen(
+    #[case] run_end: bool,
+) -> VortexResult<()> {
+    let mut exec = SESSION.create_execution_ctx();
+    let values =
+        DecimalArray::from_iter([-123_456i32, 456_789], DecimalDType::new(9, 2)).into_array();
+    let structured = if run_end {
+        RunEnd::try_new_offset_length(
+            buffer![2u32, 5].into_array(),
+            values,
+            1,
+            3,
+            &mut exec,
+        )?
+        .into_array()
+    } else {
+        let codes = PrimitiveArray::from_option_iter([Some(1u8), None, Some(0)]).into_array();
+        DictArray::try_new(codes, values)?.into_array()
+    };
+    let structure_id = structured.encoding_id();
+    let widened = widen_over(
+        structured,
+        DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable),
+    )?;
+    let (decoded, _) = serialize_round_trip(&widened, &SESSION)?;
+    assert!(decoded.is::<Widen>());
+
+    let ctx = ArrayContext::empty().with_allowed_ids(
+        [
+            structure_id,
+            ArrayVTable::id(&Decimal),
+            ArrayVTable::id(&Primitive),
+            ArrayVTable::id(&Bool),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    let mut bytes = ByteBufferMut::empty();
+    for buffer in decoded.serialize_with_fallback(&ctx, &SESSION, &SerializeOptions::default())? {
+        bytes.extend_from_slice(buffer.as_ref());
+    }
+    let serialized = SerializedArray::try_from(bytes.freeze())?;
+    let read_ctx = ReadContext::new(ctx.to_ids());
+    assert_eq!(read_ctx.resolve(serialized.encoding_id()), Some(structure_id));
+    let values_node = serialized.child(1);
+    assert_eq!(
+        read_ctx.resolve(values_node.encoding_id()),
+        Some(ArrayVTable::id(&Decimal))
+    );
+    assert_eq!(values_node.buffer(0)?.len(), 2 * size_of::<i32>());
+    let actual = serialized.decode(widened.dtype(), widened.len(), &read_ctx, &SESSION)?;
+    assert_arrays_eq!(actual, widened, &mut exec);
     Ok(())
 }
 

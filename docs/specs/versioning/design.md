@@ -131,15 +131,12 @@ A serializer must choose the oldest supported writable format that preserves the
 representation without recompression. A plugin can adapt metadata, buffers, or children to fit an
 older format. Formats retained only for reading, however, are not candidates for writing.
 
-The serializer makes that choice before the writer checks edition permissions. If the chosen ID is
-forbidden, the write fails without retrying another format that happens to be permitted. In
-particular, a custom edition that permits only the v2 decimal ID cannot write the single-child array
-through this serializer, which selects v1.
-
-This policy preserves compatibility with readers of the earlier wire format when the existing
-representation allows it. If compatibility requires a different encoding of the same values, the
-write path must arrange recompression before serialization or fail. Selecting an edition does not
-perform that conversion automatically.
+The serializer makes that choice before the writer checks edition permissions. If the chosen
+wire ID is forbidden, the file writer first tries structural rewrites. If the target still
+disallows the ID, the writer executes the array or child into canonical form and tries its
+serializer. For example, if the target allows dictionaries but disallows the format of their
+value table, the writer can keep the codes and execute just the value table. If the canonical
+form still chooses a forbidden ID, the write fails.
 
 ## Write and read checks
 
@@ -149,7 +146,7 @@ edition selection does not restrict the input. Instead, the reader needs registe
 for the stored IDs, and those implementations must validate the corresponding contracts.
 
 ```{figure} ../../_static/versioning-checks.svg
-:alt: Writers select plugins by in-memory IDs, serialize arrays and children, and check all returned IDs against edition permissions. Readers select plugins by stored wire IDs, validate each contract, and construct in-memory arrays. Forbidden IDs, unknown IDs, and invalid data cause errors.
+:alt: Writers select plugins by in-memory IDs, serialize arrays and children, and check all returned IDs against edition permissions. Readers select plugins by stored wire IDs, validate each contract, and construct in-memory arrays. IDs that remain forbidden after write preparation, unknown IDs, and invalid data cause errors.
 :target: ../../_static/versioning-checks.svg
 :figclass: versioning-diagram
 
@@ -262,8 +259,7 @@ The default BtrBlocks compressor uses only the schemes whose output it can write
 allowed when the session registers it, the enabled editions permit it, and the compressor's preset
 does not exclude it. For example, the CUDA preset excludes some v2 IDs. The compressor excludes a
 scheme if any wire ID that the scheme declares is not allowed. Child arrays go through the same
-compressor. The writer still checks every serialized ID, so a forbidden ID in any child fails the
-write.
+compressor. The writer checks every serialized ID, including the IDs chosen for children.
 
 A scheme can have variants that write different wire IDs. The compressor picks the variant from the
 allowed wire IDs, so callers do not choose it directly. For example, the decimal scheme uses its v2

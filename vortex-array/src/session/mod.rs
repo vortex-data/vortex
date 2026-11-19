@@ -80,7 +80,7 @@ impl ArraySession {
         }
     }
 
-    fn serializer(&self, id: &ArrayId) -> Option<ArrayPluginRef> {
+    pub(crate) fn serializer(&self, id: &ArrayId) -> Option<ArrayPluginRef> {
         self.serializers.get(id)
     }
 }
