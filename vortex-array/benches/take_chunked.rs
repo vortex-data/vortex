@@ -187,18 +187,10 @@ fn cases() -> Vec<Case> {
     }
 
     // Random rows of a file scan: few indices over many struct chunks.
-    for value_kind in [
-        ValueKind::Struct8,
-        ValueKind::FixedSizeList8,
-        ValueKind::StructOfFixedSizeList8,
-    ] {
-        for (chunks, indices) in [(256, 64), (4_096, 1), (4_096, 64)] {
-            cases.push(
-                Case::new("sparse_rows", Pattern::Sorted, chunks, indices)
-                    .with_value_kind(value_kind),
-            );
-        }
-    }
+    cases.push(
+        Case::new("sparse_rows", Pattern::Sorted, 4_096, 64)
+            .with_value_kind(ValueKind::StructOfFixedSizeList8),
+    );
 
     for chunks in [4, 16] {
         for validity in [IndexValidity::AllValid, IndexValidity::TenPercentNull] {
