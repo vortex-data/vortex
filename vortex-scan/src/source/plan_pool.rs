@@ -8,9 +8,10 @@
 //! deferred children not yet expanded. Opening the scan prepares each ready child once, which
 //! plans without reading, and cuts its rows into parts: the child's splits when it has them,
 //! else the scan's chunks. A worker takes parts and keeps up to `split_concurrency` of them
-//! running on its own thread, each on a planning run of its own that awaits only its reads: with
-//! a filter, the part's pruning plans first, continuing into the chunks of the rows pruning kept;
-//! without, the chunks directly. A worker never spawns.
+//! in flight, each spawned onto the session's runtime when the worker takes it, as the V1 pool's
+//! splits are, and driven there on a planning run of its own that awaits only its reads: with a
+//! filter, the part's pruning plans first, continuing into the chunks of the rows pruning kept;
+//! without, the chunks directly.
 //!
 //! Work creates work: expanding a deferred child, whether a file to open, a manifest entry or a
 //! table partition, is a unit like any other, and queues the work of the children it expands
@@ -46,6 +47,7 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_io::request::IoService;
+use vortex_io::session::RuntimeSessionExt;
 
 use super::plan::DeferredPlanChild;
 use super::plan::PlanChild;
@@ -166,8 +168,8 @@ fn part_ranges(rows: Range<u64>, splits: &[u64]) -> Vec<Range<u64>> {
         .collect()
 }
 
-/// Runs a part on a planning run of its own, on the polling thread, awaiting only its reads, and
-/// returns its batches in row order.
+/// Runs a part on a planning run of its own, awaiting only its reads, and returns its batches in
+/// row order.
 fn run_part((file, rows): Part) -> PartFuture {
     async move {
         let mut run = Run::new();
@@ -205,6 +207,12 @@ struct Shared {
 }
 
 impl Shared {
+    /// Spawns a part onto the session's runtime: another runtime thread may run it while this
+    /// worker drives its other parts, and its reads start right away.
+    fn spawn_part(&self, part: Part) -> PartFuture {
+        self.state.session.handle().spawn(run_part(part)).boxed()
+    }
+
     fn is_exhausted(&self) -> bool {
         self.limit.as_ref().is_some_and(RowLimit::is_exhausted)
     }
@@ -273,7 +281,7 @@ struct UnorderedPool {
 impl UnorderedPool {
     fn run(shared: &Arc<Shared>, work: Work) -> PartFuture {
         match work {
-            Work::Part(part) => run_part(part),
+            Work::Part(part) => shared.spawn_part(part),
             Work::Expand(child, sender) => {
                 let shared = Arc::clone(shared);
                 async move {
@@ -350,6 +358,7 @@ impl ScanPool for OrderedPool {
             ));
         };
         let expander = Arc::clone(&self.shared);
+        let spawner = Arc::clone(&self.shared);
         let shared = Arc::clone(&self.shared);
         let outputs = stream::iter(children)
             .flat_map(move |child| match child {
@@ -366,8 +375,8 @@ impl ScanPool for OrderedPool {
                 Err(err) => stream::once(future::ready(Err(err))).right_stream(),
             })
             .take_while(move |_| future::ready(!shared.is_exhausted()))
-            .map(|part| match part {
-                Ok(part) => run_part(part),
+            .map(move |part| match part {
+                Ok(part) => spawner.spawn_part(part),
                 Err(err) => future::ready(Err(err)).boxed(),
             })
             .buffered(self.parts_in_flight)
