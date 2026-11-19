@@ -80,7 +80,12 @@ impl ArraySession {
         }
     }
 
-    pub(crate) fn serializer(&self, id: &ArrayId) -> Option<ArrayPluginRef> {
+    /// Check whether an in-memory encoding has a registered serializer.
+    pub(crate) fn has_serializer(&self, id: &ArrayId) -> bool {
+        self.serializers.contains_key(id)
+    }
+
+    fn serializer(&self, id: &ArrayId) -> Option<ArrayPluginRef> {
         self.serializers.get(id)
     }
 }

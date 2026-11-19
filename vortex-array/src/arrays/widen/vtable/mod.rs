@@ -33,16 +33,11 @@ use crate::array::ValidityVTableFromChild;
 use crate::array::with_empty_buffers;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
-use crate::arrays::Dict;
-use crate::arrays::RunEnd;
 use crate::arrays::decimal::widened_buffer;
-use crate::arrays::dict::DictArraySlotsExt;
-use crate::arrays::dict::DictSlots;
-use crate::arrays::runend::RunEndArraySlotsExt;
-use crate::arrays::runend::RunEndSlots;
 use crate::arrays::widen::WidenArraySlotsExt;
 use crate::arrays::widen::WidenSlots;
 use crate::arrays::widen::array::validate_dtypes;
+use crate::arrays::widen::compute::rules::DECIMAL_STRUCTURAL_RULES;
 use crate::buffer::BufferHandle;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -135,41 +130,10 @@ impl VTable for Widen {
     }
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
-        if matches!(array.dtype(), DType::Decimal(..)) {
-            if let Some(dict) = array.values().as_opt::<Dict>() {
-                let dtype = array
-                    .dtype()
-                    .with_nullability(dict.values().dtype().nullability());
-                let values = WidenArray::try_new(dict.values().clone(), dtype)?.into_array();
-                let slots = DictSlots {
-                    codes: dict.codes().clone(),
-                    values,
-                };
-                let rebuilt = Array::try_from_parts(ArrayParts::new(
-                    Dict,
-                    array.dtype().clone(),
-                    array.len(),
-                    dict.data().clone(),
-                    slots.into_slots(),
-                ))?;
-                return Ok(Some(rebuilt.into_array()));
-            }
-            if let Some(run_end) = array.values().as_opt::<RunEnd>() {
-                let values = WidenArray::try_new(run_end.values().clone(), array.dtype().clone())?
-                    .into_array();
-                let slots = RunEndSlots {
-                    ends: run_end.ends().clone(),
-                    values,
-                };
-                let rebuilt = Array::try_from_parts(ArrayParts::new(
-                    RunEnd,
-                    array.dtype().clone(),
-                    array.len(),
-                    run_end.data().clone(),
-                    slots.into_slots(),
-                ))?;
-                return Ok(Some(rebuilt.into_array()));
-            }
+        if matches!(array.dtype(), DType::Decimal(..))
+            && let Some(reduced) = DECIMAL_STRUCTURAL_RULES.evaluate(array)?
+        {
+            return Ok(Some(reduced));
         }
 
         // A physical rewrite keeps only the dtype of each child, so it can put a `Widen` here.

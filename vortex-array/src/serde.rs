@@ -76,7 +76,7 @@ impl ArrayRef {
         session: &VortexSession,
         options: &SerializeOptions,
     ) -> VortexResult<Vec<ByteBuffer>> {
-        self.serialize_impl(ctx, session, options, DisallowedEncoding::Error)
+        self.serialize_with_policy(ctx, session, options, DisallowedWireId::Reject)
     }
 
     /// Serialize an array, rewriting or executing subtrees whose wire IDs are disallowed.
@@ -89,17 +89,22 @@ impl ArrayRef {
         session: &VortexSession,
         options: &SerializeOptions,
     ) -> VortexResult<Vec<ByteBuffer>> {
-        self.serialize_impl(ctx, session, options, DisallowedEncoding::Execute(None))
+        self.serialize_with_policy(
+            ctx,
+            session,
+            options,
+            DisallowedWireId::RewriteOrExecute { context: None },
+        )
     }
 
-    fn serialize_impl(
+    fn serialize_with_policy(
         &self,
         ctx: &ArrayContext,
         session: &VortexSession,
         options: &SerializeOptions,
-        mut disallowed: DisallowedEncoding,
+        mut policy: DisallowedWireId,
     ) -> VortexResult<Vec<ByteBuffer>> {
-        let root = ArrayNodeFlatBuffer::try_new_impl(ctx, session, self, &mut disallowed)?;
+        let root = ArrayNodeFlatBuffer::try_new_with_policy(ctx, session, self, &mut policy)?;
         let array_buffers = root.array.buffers();
 
         // Allocate result buffers, including a possible padding buffer for each.
@@ -188,9 +193,12 @@ impl ArrayRef {
     }
 }
 
-enum DisallowedEncoding {
-    Error,
-    Execute(Option<ExecutionCtx>),
+enum DisallowedWireId {
+    Reject,
+    RewriteOrExecute {
+        // Snapshot execution kernels only when a wire ID needs a fallback.
+        context: Option<ExecutionCtx>,
+    },
 }
 
 fn serialize_node(session: &VortexSession, array: &ArrayRef) -> VortexResult<ArraySerialization> {
@@ -199,61 +207,76 @@ fn serialize_node(session: &VortexSession, array: &ArrayRef) -> VortexResult<Arr
     })
 }
 
-impl DisallowedEncoding {
+fn disallowed_wire_id(id: ArrayId) -> VortexError {
+    vortex_err!("Serialized array ID {id} not permitted by ctx")
+}
+
+impl DisallowedWireId {
     fn resolve(
         &mut self,
         ctx: &ArrayContext,
         session: &VortexSession,
         source: &ArrayRef,
     ) -> VortexResult<ArraySerialization> {
-        let mut serialization = serialize_node(session, source)?;
-        let Self::Execute(execution) = self else {
+        let serialization = serialize_node(session, source)?;
+        let Self::RewriteOrExecute { context } = self else {
             return Ok(serialization);
         };
-        if ctx.permits(&serialization.serialized_id) {
+        let rejected_id = serialization.serialized_id;
+        if ctx.permits(&rejected_id) {
             return Ok(serialization);
         }
-        let execution = execution.get_or_insert_with(|| session.create_execution_ctx());
 
-        // Decoded nodes are marked as optimized. Retry root rules so a previously written
-        // wrapper can still move below a permitted structural encoding.
-        let reduced =
-            Optimizer::new(execution.reduce_parent_kernels()).optimize_root(source.clone())?;
-        let candidate = if reduced.dtype() == source.dtype() {
-            &reduced
-        } else {
-            source
-        };
-        if !ArrayRef::ptr_eq(candidate, source)
-            && session
-                .arrays()
-                .serializer(&candidate.encoding_id())
-                .is_some()
-            && let Some(reduced_serialization) = session.array_serialize(candidate)?
-        {
-            serialization = reduced_serialization;
-            if ctx.permits(&serialization.serialized_id) {
-                return Ok(serialization);
-            }
-        }
-
-        if !candidate.is_canonical() {
-            let canonical = candidate
-                .clone()
-                .execute::<Canonical>(execution)?
-                .into_array();
-            vortex_ensure_eq!(canonical.dtype(), source.dtype());
-            vortex_ensure_eq!(canonical.len(), source.len());
-            serialization = serialize_node(session, &canonical)?;
-            if ctx.permits(&serialization.serialized_id) {
-                return Ok(serialization);
-            }
-        }
-        vortex_bail!(
-            "Serialized array ID {} not permitted by ctx",
-            serialization.serialized_id
-        )
+        drop(serialization);
+        let execution = context.get_or_insert_with(|| session.create_execution_ctx());
+        retry_serialization(ctx, session, source, rejected_id, execution)
     }
+}
+
+fn retry_serialization(
+    ctx: &ArrayContext,
+    session: &VortexSession,
+    source: &ArrayRef,
+    mut rejected_id: ArrayId,
+    execution: &mut ExecutionCtx,
+) -> VortexResult<ArraySerialization> {
+    // Decoded nodes are marked as optimized. Retry the root so a previously written wrapper can
+    // still move below a structural encoding.
+    let reduced = Optimizer::new(execution.reduce_parent_kernels()).optimize_root(source.clone())?;
+
+    // A containing wire node supplies the dtype, including nullability, to the child reader.
+    let candidate = if reduced.dtype() == source.dtype() {
+        &reduced
+    } else {
+        source
+    };
+    if !ArrayRef::ptr_eq(candidate, source)
+        && session.arrays().has_serializer(&candidate.encoding_id())
+        && let Some(serialization) = session.array_serialize(candidate)?
+    {
+        rejected_id = serialization.serialized_id;
+        if ctx.permits(&rejected_id) {
+            return Ok(serialization);
+        }
+    }
+
+    if candidate.is_canonical() {
+        return Err(disallowed_wire_id(rejected_id));
+    }
+
+    let canonical = candidate
+        .clone()
+        .execute::<Canonical>(execution)?
+        .into_array();
+    vortex_ensure_eq!(canonical.dtype(), source.dtype());
+    vortex_ensure_eq!(canonical.len(), source.len());
+
+    let serialization = serialize_node(session, &canonical)?;
+    if !ctx.permits(&serialization.serialized_id) {
+        return Err(disallowed_wire_id(serialization.serialized_id));
+    }
+
+    Ok(serialization)
 }
 
 #[derive(Clone, Debug)]
@@ -270,13 +293,13 @@ impl ArraySerializationTree {
         ctx: &ArrayContext,
         session: &VortexSession,
         source: &ArrayRef,
-        disallowed: &mut DisallowedEncoding,
+        policy: &mut DisallowedWireId,
     ) -> VortexResult<Self> {
-        let serialization = disallowed.resolve(ctx, session, source)?;
+        let serialization = policy.resolve(ctx, session, source)?;
         let children = serialization
             .children
             .iter()
-            .map(|child| Self::try_new(ctx, session, child, disallowed))
+            .map(|child| Self::try_new(ctx, session, child, policy))
             .collect::<VortexResult<Vec<_>>>()?;
 
         Ok(Self {
@@ -323,16 +346,16 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         session: &'a VortexSession,
         array: &ArrayRef,
     ) -> VortexResult<Self> {
-        Self::try_new_impl(ctx, session, array, &mut DisallowedEncoding::Error)
+        Self::try_new_with_policy(ctx, session, array, &mut DisallowedWireId::Reject)
     }
 
-    fn try_new_impl(
+    fn try_new_with_policy(
         ctx: &'a ArrayContext,
         session: &'a VortexSession,
         array: &ArrayRef,
-        disallowed: &mut DisallowedEncoding,
+        policy: &mut DisallowedWireId,
     ) -> VortexResult<Self> {
-        let array = ArraySerializationTree::try_new(ctx, session, array, disallowed)?;
+        let array = ArraySerializationTree::try_new(ctx, session, array, policy)?;
         let n_buffers_recursive = array.nbuffers_recursive();
         if n_buffers_recursive > u16::MAX as usize {
             vortex_bail!(
@@ -356,12 +379,10 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         array: &ArraySerializationTree,
         buffer_idx: u16,
     ) -> VortexResult<WIPOffset<fba::ArrayNode<'fb>>> {
-        let encoding_idx = self.ctx.intern(&array.serialized_id).ok_or_else(|| {
-            vortex_err!(
-                "Serialized array ID {} not permitted by ctx",
-                array.serialized_id
-            )
-        })?;
+        let encoding_idx = self
+            .ctx
+            .intern(&array.serialized_id)
+            .ok_or_else(|| disallowed_wire_id(array.serialized_id))?;
 
         let metadata = Some(fbb.create_vector(array.metadata.as_slice()));
 

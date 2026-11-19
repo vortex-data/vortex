@@ -146,7 +146,7 @@ edition selection does not restrict the input. Instead, the reader needs registe
 for the stored IDs, and those implementations must validate the corresponding contracts.
 
 ```{figure} ../../_static/versioning-checks.svg
-:alt: Writers select plugins by in-memory IDs, serialize arrays and children, and check all returned IDs against edition permissions. Readers select plugins by stored wire IDs, validate each contract, and construct in-memory arrays. IDs that remain forbidden after write preparation, unknown IDs, and invalid data cause errors.
+:alt: Writers select plugins by in-memory IDs and check the wire IDs those plugins choose. Readers select plugins by wire ID and validate the stored data.
 :target: ../../_static/versioning-checks.svg
 :figclass: versioning-diagram
 

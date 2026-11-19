@@ -55,6 +55,10 @@ use crate::serde::SerializedArray;
 use crate::session::ArraySessionExt;
 use crate::validity::Validity;
 
+fn narrow_decimal_values() -> ArrayRef {
+    DecimalArray::from_iter([-123_456i32, 456_789], DecimalDType::new(9, 2)).into_array()
+}
+
 fn serialize_blob(
     array: &ArrayRef,
     ctx: &ArrayContext,
@@ -265,34 +269,37 @@ fn test_widen_wire_round_trip(
 }
 
 #[rstest]
-#[case::dict(false)]
-#[case::run_end(true)]
-fn restricted_write_preserves_structure_of_decoded_widen(
-    #[case] run_end: bool,
+#[case::dict(
+    DictArray::try_new(
+        PrimitiveArray::from_option_iter([Some(1u8), None, Some(0)]).into_array(),
+        narrow_decimal_values(),
+    )?.into_array(),
+)]
+#[case::run_end(
+    RunEnd::try_new_offset_length(
+        buffer![2u32, 5].into_array(),
+        narrow_decimal_values(),
+        1,
+        3,
+        &mut SESSION.create_execution_ctx(),
+    )?.into_array(),
+)]
+fn restricted_write_preserves_widen_structure(
+    #[case] structured: ArrayRef,
+    #[values(false, true)] from_wire: bool,
 ) -> VortexResult<()> {
-    let mut exec = SESSION.create_execution_ctx();
-    let values =
-        DecimalArray::from_iter([-123_456i32, 456_789], DecimalDType::new(9, 2)).into_array();
-    let structured = if run_end {
-        RunEnd::try_new_offset_length(
-            buffer![2u32, 5].into_array(),
-            values,
-            1,
-            3,
-            &mut exec,
-        )?
-        .into_array()
-    } else {
-        let codes = PrimitiveArray::from_option_iter([Some(1u8), None, Some(0)]).into_array();
-        DictArray::try_new(codes, values)?.into_array()
-    };
     let structure_id = structured.encoding_id();
     let widened = widen_over(
         structured,
         DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable),
     )?;
-    let (decoded, _) = serialize_round_trip(&widened, &SESSION)?;
-    assert!(decoded.is::<Widen>());
+    let input = if from_wire {
+        let (decoded, _) = serialize_round_trip(&widened, &SESSION)?;
+        assert!(decoded.is::<Widen>());
+        decoded
+    } else {
+        widened.clone()
+    };
 
     let ctx = ArrayContext::empty().with_allowed_ids(
         [
@@ -305,7 +312,7 @@ fn restricted_write_preserves_structure_of_decoded_widen(
         .collect(),
     );
     let mut bytes = ByteBufferMut::empty();
-    for buffer in decoded.serialize_with_fallback(&ctx, &SESSION, &SerializeOptions::default())? {
+    for buffer in input.serialize_with_fallback(&ctx, &SESSION, &SerializeOptions::default())? {
         bytes.extend_from_slice(buffer.as_ref());
     }
     let serialized = SerializedArray::try_from(bytes.freeze())?;
@@ -318,7 +325,7 @@ fn restricted_write_preserves_structure_of_decoded_widen(
     );
     assert_eq!(values_node.buffer(0)?.len(), 2 * size_of::<i32>());
     let actual = serialized.decode(widened.dtype(), widened.len(), &read_ctx, &SESSION)?;
-    assert_arrays_eq!(actual, widened, &mut exec);
+    assert_arrays_eq!(actual, widened, &mut SESSION.create_execution_ctx());
     Ok(())
 }
 

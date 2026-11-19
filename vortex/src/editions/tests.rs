@@ -633,9 +633,9 @@ async fn btrblocks_respects_enabled_array_encodings() -> VortexResult<()> {
     Ok(())
 }
 
-/// A custom BtrBlocks strategy can emit Sequence even when the current edition forbids it.
+/// An unrestricted BtrBlocks strategy can select encodings outside the writer's edition.
 #[tokio::test]
-async fn writer_executes_disallowed_btrblocks_output() -> VortexResult<()> {
+async fn unrestricted_btrblocks_writes_with_restricted_editions() -> VortexResult<()> {
     let session = writer_test_session()?;
     let strategy = WriteStrategyBuilder::from_session(&session)
         .with_btrblocks_builder(BtrBlocksCompressorBuilder::from_session(&session).unrestricted())
@@ -652,9 +652,8 @@ async fn writer_executes_disallowed_btrblocks_output() -> VortexResult<()> {
     assert_written_values(&session, buffer, array).await
 }
 
-/// An explicit compressor can produce an encoding absent from the selected edition.
 #[tokio::test]
-async fn writer_executes_disallowed_custom_compressor_output() -> VortexResult<()> {
+async fn writer_executes_disallowed_sequence() -> VortexResult<()> {
     let session = writer_test_session()?;
     let strategy = WriteStrategyBuilder::from_session(&session)
         .with_compressor(forbidden_sequence_compressor)
