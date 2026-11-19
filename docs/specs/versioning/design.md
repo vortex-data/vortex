@@ -133,18 +133,19 @@ older format. Formats retained only for reading, however, are not candidates for
 
 The flat file writer used to serialize the tree chosen by the plugins and fail if any node had a
 forbidden wire ID. The writer now retries from the source array when it sees a forbidden wire ID.
-It tries a structural rewrite before taking an execution step. For example, if the target allows
-a dictionary, the writer can keep the codes and prepare just the value table.
+It tries a structural rewrite before taking an execution step.
 
-Consider a `DecimalByteParts` array whose most significant part is a `Widen` over a narrow
-`Sequence`. The v1 serializer emits the `Sequence` directly and records its narrow type in
-metadata. The `Sequence` is a grandchild in memory and a direct child in the proposed wire tree.
+For example, a core edition can permit `vortex.dict` and `vortex.decimal` while forbidding
+`vortex.widen`. Previously, `Widen(Dict(codes, values))` needed `vortex.widen` and the write failed.
+The writer can now rewrite it to `Dict(codes, Widen(values))`. When the values are a narrow Decimal
+leaf, the serializer for `Widen` writes it as `vortex.decimal`. The file keeps both the dictionary
+codes and the narrow value buffer.
 
-Previously, this write failed if the target forbade `vortex.sequence`. Now normalization follows
-the source slots through `Widen` and executes the `Sequence` at its narrow integer width. It
-rebuilds the `Widen` and `DecimalByteParts` source arrays along that path. The serializer then
-emits the narrow primitive child and regenerates its metadata. A child constructed by the
-serializer has no source slot to rewrite, so its emitted wire ID still has to be permitted.
+If that Decimal leaf stores its validity as an array, the serializer emits the validity as a
+direct child of the `vortex.decimal` node. In the source array, the validity is a grandchild of
+`Widen`, reached through the Decimal leaf's slot. When the validity needs normalization, the writer
+follows those source slots, rebuilds the affected arrays, and reruns the serializer so the metadata
+and children match. A child constructed by the serializer has to pass the wire-ID check as emitted.
 
 ## Write and read checks
 

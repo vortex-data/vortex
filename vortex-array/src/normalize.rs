@@ -174,8 +174,8 @@ impl ArrayRef {
 
             let normalized_child = match projected_children {
                 Some(children) if !children.iter().any(|emitted| Self::ptr_eq(child, emitted)) => {
-                    // This child can be a wrapper that the wire format skips. Follow its slots
-                    // to find emitted descendants and rebuild the wrapper if a slot changes.
+                    // The serializer can skip this source node and emit one of its descendants.
+                    // Follow its slots and rebuild it if one of those descendants changes.
                     child.clone().normalize_slots(Some(children), target, ctx)?
                 }
                 _ => child.clone().normalize_with_execution(target, ctx)?,
