@@ -21,7 +21,6 @@ use vortex_array::expr::stats::Precision;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_io::request::SegmentReader;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
@@ -55,7 +54,7 @@ fn source_of(row_count: u64) -> PlanDataSource {
         dtype: plan.dtype().clone(),
         root: LazyPlanRef::ready(plan),
         locations: Arc::new([]),
-        reader: SegmentReader::Opaque(Arc::new(NoSegments)),
+        segments: Arc::new(NoSegments),
         cache: None,
     };
     PlanDataSource::new(VortexSession::empty().with_tokio(), input).with_row_count(row_count)
