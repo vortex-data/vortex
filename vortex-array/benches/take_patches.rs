@@ -126,18 +126,8 @@ fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
 }
 
 /// Patch/mask ratios cover sparse searches and denser bitmap intersections.
-const FILTER_ARGS: &[(f64, f64, bool)] = &[
-    (0.01, 0.5, false),
-    (0.01, 0.5, true),
-    (0.05, 0.01, false),
-    (0.05, 0.01, true),
-    (0.1, 0.05, false),
-    (0.1, 0.05, true),
-    (0.25, 0.05, false),
-    (0.25, 0.05, true),
-    (0.9, 0.01, false),
-    (0.9, 0.01, true),
-];
+const FILTER_ARGS: &[(f64, f64, bool)] =
+    &[(0.01, 0.5, false), (0.01, 0.5, true), (0.1, 0.05, false)];
 
 #[divan::bench(args = FILTER_ARGS)]
 fn filter(bencher: Bencher, (patch_density, mask_density, cached): (f64, f64, bool)) {
