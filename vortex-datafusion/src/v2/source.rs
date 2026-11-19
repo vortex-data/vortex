@@ -142,6 +142,7 @@ use super::dynamic_filters::convert_dynamic_filter;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
+use crate::convert::exprs::push_down_projection_fields;
 use crate::convert::schema::calculate_physical_schema;
 use crate::convert::stats::stats_set_to_df;
 use crate::convert::to_record_batch;
@@ -873,15 +874,28 @@ impl DataSource for VortexDataSource {
         let converter = &self.expression_converter;
         let input_schema = self.initial_schema.as_ref();
         let projected_schema = projection.project_schema(input_schema)?;
+        let arrow = self.session.arrow();
 
         // Use the shared ExpressionConverter to split the projection into a Vortex
         // scan_projection and a leftover DataFusion projection for expressions that
         // can't be pushed down (e.g., unsupported scalar functions, decimal binary).
+        let processed =
+            converter.split_projection(projection.clone(), input_schema, &projected_schema)?;
         let ProcessedProjection {
             scan_projection,
             scan_reference_schema,
             leftover_projection,
-        } = converter.split_projection(projection.clone(), input_schema, &projected_schema)?;
+        } = push_down_projection_fields(
+            processed,
+            converter.as_ref(),
+            |expr| {
+                let initial_dtype = self
+                    .initial_projection
+                    .return_dtype(self.data_source.dtype())?;
+                expr.return_dtype(&initial_dtype)
+            },
+            &arrow,
+        );
 
         // Compose with the initial projection so the scan operates on the original
         // source columns, not the initial projection's output columns.
@@ -894,7 +908,7 @@ impl DataSource for VortexDataSource {
         let scan_output_schema = Arc::new(calculate_physical_schema(
             &scan_dtype,
             &scan_reference_schema,
-            &self.session.arrow(),
+            &arrow,
         )?);
 
         // Remap the leftover column references to match the scan output schema.

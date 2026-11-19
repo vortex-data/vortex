@@ -4,9 +4,11 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use arrow_array::Array;
 use arrow_array::ArrayRef;
 use arrow_array::Int32Array;
 use arrow_array::RecordBatch;
+use arrow_array::StringArray;
 use arrow_array::StructArray;
 use arrow_array::cast::AsArray;
 use arrow_array::types::Int32Type;
@@ -18,7 +20,9 @@ use arrow_schema::extension::Json as ArrowJson;
 use arrow_schema::extension::Uuid as ArrowUuid;
 use datafusion::assert_batches_eq;
 use datafusion::prelude::SessionContext;
+use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
+use datafusion_common::arrow::buffer::NullBuffer;
 use datafusion_common::arrow::compute::concat_batches;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::stats::Precision;
@@ -27,13 +31,18 @@ use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::source::DataSource;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::Operator;
+use datafusion_expr::ScalarUDF;
 use datafusion_functions::core::get_field;
+use datafusion_functions::core::getfield::GetFieldFunc;
+use datafusion_functions::string::upper::UpperFunc;
 use datafusion_physical_expr::PhysicalExpr;
+use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::ScalarFunctionExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_plan::ExecutionPlan;
+use datafusion_physical_plan::displayable;
 use datafusion_physical_plan::expressions as df_expr;
 use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
@@ -48,6 +57,7 @@ use vortex::editions::Edition;
 use vortex::editions::EditionId;
 use vortex::editions::EditionInclusion;
 use vortex::editions::EditionSessionExt;
+use vortex::expr::Expression;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::scan::DataSourceRef;
@@ -57,6 +67,10 @@ use vortex_arrow::ext_metadata::encode_arrow_ext_metadata;
 
 use super::VortexDataSource;
 use crate::common_tests::AnyStorage;
+use crate::convert::DefaultExpressionConverter;
+use crate::convert::ExpressionConverter;
+use crate::convert::ProcessedProjection;
+use crate::row_index;
 
 async fn vortex_source() -> anyhow::Result<VortexDataSource> {
     let batch =
@@ -95,6 +109,243 @@ async fn data_source_from_batch(
         .await?;
     let file = session.open_options().open_buffer(buffer)?;
     Ok(file.data_source()?)
+}
+
+#[rstest]
+#[case::non_nullable(false, false, false, true)]
+#[case::nullable_outer(true, true, false, true)]
+#[case::nullable_outer_non_nullable_leaf(true, true, false, false)]
+#[case::nullable_outer_in_storage(true, false, false, true)]
+#[case::nullable_inner(false, false, true, true)]
+#[case::non_nullable_leaf_in_nullable_storage(true, false, false, false)]
+#[tokio::test]
+async fn test_partial_projection_reads_struct_leaf(
+    #[case] stored_outer_nullable: bool,
+    #[case] declared_outer_nullable: bool,
+    #[case] inner_nullable: bool,
+    #[case] label_nullable: bool,
+) -> anyhow::Result<()> {
+    let label_field = Field::new("label", DataType::Utf8, label_nullable)
+        .with_metadata([("source".to_owned(), "test".to_owned())]);
+    let labels = if label_nullable {
+        StringArray::from(vec![Some("x"), Some("20"), None])
+    } else {
+        StringArray::from(vec![Some("x"), Some("20"), Some("z")])
+    };
+    let inner = StructArray::try_new(
+        vec![
+            label_field.clone(),
+            Field::new("unused", DataType::Int32, false),
+        ]
+        .into(),
+        vec![
+            Arc::new(labels),
+            Arc::new(Int32Array::from(vec![10, 20, 30])),
+        ],
+        inner_nullable.then(|| NullBuffer::from(vec![false, true, true])),
+    )?;
+    let outer_has_null = stored_outer_nullable && (declared_outer_nullable || label_nullable);
+    let outer = StructArray::try_new(
+        vec![Field::new(
+            "inner",
+            inner.data_type().clone(),
+            inner_nullable,
+        )]
+        .into(),
+        vec![Arc::new(inner)],
+        stored_outer_nullable.then(|| {
+            if outer_has_null {
+                NullBuffer::from(vec![false, true, true])
+            } else {
+                NullBuffer::new_valid(3)
+            }
+        }),
+    )?;
+    let stored_schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+        Field::new("s", outer.data_type().clone(), stored_outer_nullable),
+    ]));
+    let batch = RecordBatch::try_new(
+        stored_schema,
+        vec![
+            Arc::new(Int32Array::from(vec![1, 2, 3])) as ArrayRef,
+            Arc::new(outer) as ArrayRef,
+        ],
+    )?;
+    let schema = Arc::new(Schema::new(vec![
+        batch.schema().field(0).clone(),
+        batch
+            .schema()
+            .field(1)
+            .clone()
+            .with_nullable(declared_outer_nullable),
+    ]));
+    let session = VortexSession::default();
+    let data_source = data_source_from_batch(batch, &session).await?;
+    let source = VortexDataSource::builder(data_source, session)
+        .with_arrow_schema(Arc::clone(&schema))
+        .build()
+        .await?;
+
+    let function = |udf: ScalarUDF, args| -> anyhow::Result<PhysicalExprRef> {
+        Ok(Arc::new(ScalarFunctionExpr::try_new(
+            Arc::new(udf),
+            args,
+            &schema,
+            Arc::new(ConfigOptions::new()),
+        )?))
+    };
+    let id: PhysicalExprRef = Arc::new(df_expr::Column::new("id", 0));
+    let label = function(
+        GetFieldFunc::new().into(),
+        vec![
+            Arc::new(df_expr::Column::new("s", 1)),
+            df_expr::lit("inner"),
+            df_expr::lit("label"),
+        ],
+    )?;
+    let upper = function(UpperFunc::new().into(), vec![Arc::clone(&label)])?;
+    // The cast would fail on "x" if the scan evaluated it before the CASE selected rows.
+    let parse_label = Arc::new(df_expr::CastExpr::new(
+        Arc::clone(&label),
+        DataType::Int32,
+        None,
+    ));
+    let format_label: PhysicalExprRef =
+        Arc::new(df_expr::CastExpr::new(parse_label, DataType::Utf8, None));
+    let is_second_row: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
+        Arc::clone(&id),
+        Operator::Eq,
+        df_expr::lit(2i32),
+    ));
+    let formatted = Arc::new(df_expr::CaseExpr::try_new(
+        None,
+        vec![(is_second_row, format_label)],
+        Some(upper),
+    )?);
+    let inner = function(
+        GetFieldFunc::new().into(),
+        vec![
+            Arc::new(df_expr::Column::new("s", 1)),
+            df_expr::lit("inner"),
+        ],
+    )?;
+    let original = function(
+        GetFieldFunc::new().into(),
+        vec![inner, df_expr::lit("label")],
+    )?;
+    let projection = ProjectionExprs::from(vec![
+        ProjectionExpr::new(id, "id"),
+        ProjectionExpr::new(formatted, "formatted"),
+        ProjectionExpr::new(original, "original"),
+        ProjectionExpr::new(row_index(), "position"),
+    ]);
+    let projected = source
+        .try_swapping_with_projection(&projection)?
+        .ok_or_else(|| anyhow!("projection was not swapped"))?;
+    let plan = Arc::new(DataSourceExec::new(projected)) as Arc<dyn ExecutionPlan>;
+    let display = displayable(plan.as_ref()).one_line().to_string();
+    let declared_leaf_nullable = declared_outer_nullable || inner_nullable || label_nullable;
+    let stored_leaf_nullable = stored_outer_nullable || inner_nullable || label_nullable;
+    let expected_scan = if declared_leaf_nullable != stored_leaf_nullable {
+        "projection=pack(id: $.id, s: $.s, __vortex_row_index: #row_idx)"
+    } else {
+        "projection=pack(id: $.id, __vortex_row_index: #row_idx, label: $.s.inner.label)"
+    };
+    assert!(display.contains(expected_scan), "{display}");
+
+    let batches = datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await?;
+    let row0 = if outer_has_null || inner_nullable {
+        "| 1  |           |          | 0        |"
+    } else {
+        "| 1  | X         | x        | 0        |"
+    };
+    let row2 = if label_nullable {
+        "| 3  |           |          | 2        |"
+    } else {
+        "| 3  | Z         | z        | 2        |"
+    };
+    assert_batches_eq!(
+        [
+            "+----+-----------+----------+----------+",
+            "| id | formatted | original | position |",
+            "+----+-----------+----------+----------+",
+            row0,
+            "| 2  | 20        | 20       | 1        |",
+            row2,
+            "+----+-----------+----------+----------+",
+        ],
+        &batches
+    );
+    for batch in batches {
+        assert_eq!(batch.schema().field(2).metadata(), label_field.metadata());
+    }
+
+    Ok(())
+}
+
+#[derive(Default)]
+struct RawProjectionConverter(DefaultExpressionConverter);
+
+impl ExpressionConverter for RawProjectionConverter {
+    fn try_convert(&self, expr: &PhysicalExprRef, schema: &Schema) -> DFResult<Option<Expression>> {
+        self.0.try_convert(expr, schema)
+    }
+
+    fn split_projection(
+        &self,
+        projection: ProjectionExprs,
+        input_schema: &Schema,
+        _output_schema: &Schema,
+    ) -> DFResult<ProcessedProjection> {
+        self.no_pushdown_projection(projection, input_schema)
+    }
+}
+
+#[tokio::test]
+async fn test_custom_converter_keeps_raw_projection() -> anyhow::Result<()> {
+    let input = StructArray::try_new(
+        vec![
+            Field::new("value", DataType::Int32, false),
+            Field::new("unused", DataType::Int32, false),
+        ]
+        .into(),
+        vec![
+            Arc::new(Int32Array::from(vec![1, 2])),
+            Arc::new(Int32Array::from(vec![10, 20])),
+        ],
+        None,
+    )?;
+    let batch = RecordBatch::try_from_iter([("s", Arc::new(input) as ArrayRef)])?;
+    let schema = batch.schema();
+    let field: PhysicalExprRef = Arc::new(ScalarFunctionExpr::try_new(
+        Arc::new(GetFieldFunc::new().into()),
+        vec![
+            Arc::new(df_expr::Column::new("s", 0)),
+            df_expr::lit("value"),
+        ],
+        &schema,
+        Arc::new(ConfigOptions::new()),
+    )?);
+    let converter = RawProjectionConverter::default();
+    assert!(converter.try_convert(&field, &schema)?.is_some());
+
+    let session = VortexSession::default();
+    let data_source = data_source_from_batch(batch, &session).await?;
+    let source = VortexDataSource::builder(data_source, session)
+        .with_arrow_schema(schema)
+        .with_expression_converter(Arc::new(converter))
+        .build()
+        .await?;
+    let projection = vec![ProjectionExpr::new(field, "value")].into();
+    let projected = source
+        .try_swapping_with_projection(&projection)?
+        .ok_or_else(|| anyhow!("projection was not swapped"))?;
+    let plan = DataSourceExec::new(projected);
+    let display = displayable(&plan).one_line().to_string();
+    assert!(display.contains("projection=pack(s: $.s)"), "{display}");
+
+    Ok(())
 }
 
 #[tokio::test]

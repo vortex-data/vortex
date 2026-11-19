@@ -72,6 +72,7 @@ use vortex_utils::aliases::dash_map::Entry;
 use crate::VortexAccessPlan;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
+use crate::convert::exprs::push_down_projection_fields;
 use crate::convert::exprs::raw_projection;
 use crate::convert::schema::calculate_physical_schema;
 use crate::convert::to_record_batch;
@@ -434,11 +435,17 @@ impl FileOpener for VortexOpener {
                 indices.dedup();
                 raw_projection(&indices, &this_file_schema, projection)?
             } else if projection_pushdown {
-                expr_converter.split_projection(
+                let projection = expr_converter.split_projection(
                     projection,
                     &this_file_schema,
                     output_schema.as_ref(),
-                )?
+                )?;
+                push_down_projection_fields(
+                    projection,
+                    expr_converter.as_ref(),
+                    |expr| expr.return_dtype(vxf.dtype()),
+                    &session.arrow(),
+                )
             } else {
                 expr_converter.no_pushdown_projection(projection, &this_file_schema)?
             };
@@ -854,6 +861,7 @@ mod tests {
     use arrow_schema::Fields;
     use arrow_schema::Metadata;
     use arrow_schema::SchemaRef;
+    use datafusion::arrow::array::Array;
     use datafusion::arrow::array::DictionaryArray;
     use datafusion::arrow::array::Int32Array;
     use datafusion::arrow::array::RecordBatch;
@@ -879,6 +887,8 @@ mod tests {
     use datafusion_execution::cache::default_cache::DefaultCache;
     use datafusion_execution::object_store::ObjectStoreUrl;
     use datafusion_expr::Operator;
+    use datafusion_functions::core::expr_ext::FieldAccessor;
+    use datafusion_functions::string::expr_fn::upper;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::projection::ProjectionExpr;
@@ -1319,6 +1329,65 @@ mod tests {
             .await?;
         assert_batches_eq!(
             ["+----+", "| a  |", "+----+", "| 20 |", "| 40 |", "+----+"],
+            &batches
+        );
+        Ok(())
+    }
+
+    /// The opener does not expose its scan projection, so this test checks that reading only
+    /// `s.a` for a DataFusion UDF returns the same rows as reading `s` whole.
+    #[rstest]
+    #[tokio::test]
+    async fn test_open_reads_struct_leaf_through_udf(
+        #[values(false, true)] projection_pushdown: bool,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let s = StructArray::try_new(
+            vec![
+                Field::new("a", DataType::Utf8, false),
+                Field::new("b", DataType::Utf8, false),
+            ]
+            .into(),
+            vec![
+                Arc::new(StringArray::from(vec!["x", "y"])),
+                Arc::new(StringArray::from(vec!["unused", "unused"])),
+            ],
+            None,
+        )?;
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int32, false),
+            Field::new("s", s.data_type().clone(), false),
+        ]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Int32Array::from(vec![1, 2])), Arc::new(s)],
+        )?;
+        let size = write_arrow_to_vortex(Arc::clone(&store), "leaf.vortex", batch).await?;
+
+        let mut opener = make_opener(store, TableSchema::from(Arc::clone(&schema)), None);
+        opener.projection = ProjectionExprs::from(vec![
+            ProjectionExpr::new(logical2physical(&col("id"), &schema), "id"),
+            ProjectionExpr::new(
+                logical2physical(&upper(col("s").field("a")), &schema),
+                "upper_a",
+            ),
+        ]);
+        opener.projection_pushdown = projection_pushdown;
+        let batches = opener
+            .open(PartitionedFile::new("leaf.vortex", size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        assert_batches_eq!(
+            [
+                "+----+---------+",
+                "| id | upper_a |",
+                "+----+---------+",
+                "| 1  | X       |",
+                "| 2  | Y       |",
+                "+----+---------+",
+            ],
             &batches
         );
         Ok(())
