@@ -273,9 +273,7 @@ impl VortexFile {
     /// Create a [`DataSource`](vortex_scan::DataSource) from this file whose scans run on the
     /// planner-driven executor.
     ///
-    /// Each scan's partition hands back its [`vortex_scan::prepare::ScanBuilder`] from
-    /// [`Partition::plan`](vortex_scan::Partition::plan), for engines that drive the executor
-    /// themselves, or runs it with [`ScanDriver`](crate::v2::ScanDriver) from
+    /// Each scan's partition runs it with [`ScanDriver`](crate::v2::ScanDriver) from
     /// [`Partition::execute`](vortex_scan::Partition::execute). Every scan of the source shares
     /// one [`ScanCache`]: the file's, with [caching](Self::with_caching), or else one of its own.
     /// Stored footer aggregates are available through the source statistics methods. Opening the

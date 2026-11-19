@@ -34,7 +34,6 @@ use crate::DataSource;
 use crate::DataSourceScan;
 use crate::DataSourceScanRef;
 use crate::Partition;
-use crate::PartitionPlan;
 use crate::PartitionRef;
 use crate::PartitionStream;
 use crate::ScanRequest;
@@ -72,9 +71,8 @@ pub struct ScanInput {
 /// that overlap in time plan the input and register its reader once.
 ///
 /// A scan has one partition covering the request's row range. Its
-/// [`plan`](Partition::plan) is the scan builder, for engines that drive the executor
-/// themselves; its [`execute`](Partition::execute) runs that builder with a [`ScanDriver`] on
-/// the session's runtime and applies the request's limit.
+/// [`execute`](Partition::execute) runs the planner-driven scan with a [`ScanDriver`] on the
+/// session's runtime and applies the request's limit.
 #[derive(Clone)]
 pub struct PlannedDataSource {
     session: VortexSession,
@@ -250,10 +248,6 @@ impl Partition for PlannedPartition {
 
     fn byte_size(&self) -> Precision<u64> {
         Precision::Absent
-    }
-
-    fn plan(self: Box<Self>) -> VortexResult<PartitionPlan> {
-        Ok(PartitionPlan::Scan(Box::new(self.builder())))
     }
 
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {

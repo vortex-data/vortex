@@ -15,6 +15,7 @@ use vortex_array::expr::checked_add;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
+use vortex_array::expr::stats::Precision;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -28,7 +29,6 @@ use super::SegmentFuture;
 use super::SegmentId;
 use super::SegmentSource;
 use crate::DataSource;
-use crate::PartitionPlan;
 use crate::PartitionRef;
 use crate::ScanRequest;
 use crate::execution::pipeline::synthetic::RowSource;
@@ -117,20 +117,13 @@ async fn execute_applies_the_limit() -> VortexResult<()> {
 }
 
 #[tokio::test]
-async fn plan_hands_back_the_scan_builder() -> VortexResult<()> {
-    let mut partitions = partitions(ScanRequest {
-        projection: checked_add(root(), lit(1_u64)),
+async fn partitions_report_their_rows() -> VortexResult<()> {
+    let partitions = partitions(ScanRequest {
         row_range: Some(4..9),
         ..Default::default()
     })
     .await?;
-    let partition = partitions.remove(0);
-    assert!(partition.row_count().as_exact() == Some(5));
-    let PartitionPlan::Scan(builder) = partition.plan()? else {
-        vortex_bail!("a planned partition must hand back its scan");
-    };
-    let scan = builder.prepare()?;
-    assert_eq!(scan.rows(), &(4..9));
+    assert_eq!(partitions[0].row_count(), Precision::exact(5_u64));
     Ok(())
 }
 

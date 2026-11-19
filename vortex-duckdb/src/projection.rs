@@ -191,8 +191,6 @@ impl Projection {
 
 pub struct Filter {
     pub filter: Option<BoundExpression>,
-    /// The filter before it is bound to the first file's dtype.
-    pub filter_expr: Option<Expression>,
     pub row_selection: Selection,
     pub row_range: Option<Range<u64>>,
     pub has_non_optional_filter: bool,
@@ -259,15 +257,12 @@ impl Filter {
             }
         };
 
-        let filter_expr = and_collect(table_filter_exprs);
-        let filter = filter_expr
-            .as_ref()
+        let filter = and_collect(table_filter_exprs)
             .map(|expr| expr.bind(dtype)?.optimize_recursive())
             .transpose()?;
 
         let out = Self {
             filter,
-            filter_expr,
             row_selection,
             row_range,
             has_non_optional_filter,
