@@ -54,15 +54,27 @@ use vortex_scan::DataSource;
 use vortex_scan::DataSourceScan;
 use vortex_scan::DataSourceScanRef;
 use vortex_scan::Partition;
+use vortex_scan::PartitionPool;
 use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
+use vortex_scan::ScanPoolRef;
 use vortex_scan::ScanRequest;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
+use crate::scan::layout::Empty;
+use crate::scan::layout::group_contiguous;
 use crate::scan::limit::RowLimit;
+use crate::scan::pool::DEFAULT_SPLITS_IN_FLIGHT;
+use crate::scan::pool::FileWork;
+use crate::scan::pool::PiecePartition;
+use crate::scan::pool::PoolFile;
+use crate::scan::pool::PoolOptions;
+use crate::scan::pool::PrepareFile;
+use crate::scan::pool::PreparedScan;
+use crate::scan::pool::open_pool;
 use crate::scan::scan_builder::ScanBuilder;
 
 /// Default concurrency for opening deferred readers.
@@ -92,6 +104,7 @@ pub struct MultiLayoutDataSource {
     session: VortexSession,
     children: Arc<[MultiLayoutChild]>,
     concurrency: usize,
+    max_splits_in_flight: NonZeroUsize,
 }
 
 pub enum MultiLayoutChild {
@@ -163,6 +176,7 @@ impl MultiLayoutDataSource {
             session: session.clone(),
             children: children.into(),
             concurrency,
+            max_splits_in_flight: DEFAULT_SPLITS_IN_FLIGHT,
         }
     }
 
@@ -200,6 +214,7 @@ impl MultiLayoutDataSource {
                 .map(|(factory, byte_size)| MultiLayoutChild::Deferred { factory, byte_size })
                 .collect(),
             concurrency,
+            max_splits_in_flight: DEFAULT_SPLITS_IN_FLIGHT,
         }
     }
 
@@ -213,6 +228,15 @@ impl MultiLayoutDataSource {
     /// Defaults to the number of available CPU cores.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         self.concurrency = concurrency;
+        self
+    }
+
+    /// Bounds the splits each worker of an opened scan keeps in flight at once; see
+    /// [`LayoutReaderDataSource::with_max_splits_in_flight`].
+    ///
+    /// [`LayoutReaderDataSource::with_max_splits_in_flight`]: crate::scan::layout::LayoutReaderDataSource::with_max_splits_in_flight
+    pub fn with_max_splits_in_flight(mut self, max: NonZeroUsize) -> Self {
+        self.max_splits_in_flight = max;
         self
     }
 }
@@ -324,6 +348,7 @@ impl DataSource for MultiLayoutDataSource {
             deferred,
             handle: self.session.handle(),
             concurrency: self.concurrency,
+            max_splits_in_flight: self.max_splits_in_flight,
         }))
     }
 
@@ -374,6 +399,17 @@ impl BoundScanRequest {
             split_concurrency,
         })
     }
+
+    /// Whether the scan filters rows, so its output row count is unknown up front. A filter
+    /// that failed to bind counts as one.
+    fn has_filter(&self) -> bool {
+        !matches!(self.filter, Ok(None))
+    }
+
+    /// Whether the request selects partitions, which only the partitions path applies.
+    fn selects_partitions(&self) -> bool {
+        self.partition_range.is_some() || !matches!(self.partition_selection, Selection::All)
+    }
 }
 
 struct MultiLayoutScan {
@@ -386,6 +422,30 @@ struct MultiLayoutScan {
     deferred: VecDeque<Arc<dyn LayoutReaderFactory>>,
     handle: vortex_io::runtime::Handle,
     concurrency: usize,
+    max_splits_in_flight: NonZeroUsize,
+}
+
+impl MultiLayoutScan {
+    /// The scan as files to split or open. Files keep their partition order.
+    fn into_split_scan(self) -> MultiLayoutSplitScan {
+        let children = self
+            .ready
+            .into_iter()
+            .map(ScanChild::Opened)
+            .chain(self.deferred.into_iter().map(ScanChild::Deferred))
+            .collect();
+        MultiLayoutSplitScan {
+            context: Arc::new(ScanContext {
+                session: self.session,
+                source_dtype: self.source_dtype,
+                dtype: self.dtype,
+                request: self.request,
+                max_splits_in_flight: self.max_splits_in_flight,
+            }),
+            children,
+            index: 0,
+        }
+    }
 }
 
 impl DataSourceScan for MultiLayoutScan {
@@ -402,6 +462,39 @@ impl DataSourceScan for MultiLayoutScan {
         }
     }
 
+    fn ordered(&self) -> bool {
+        self.request.ordered
+    }
+
+    fn row_count(&self) -> Precision<u64> {
+        let estimate = estimate_row_count(
+            &self.request,
+            self.ready
+                .iter()
+                .map(|reader| file_row_count(&self.request, reader)),
+            self.ready.len() + self.deferred.len(),
+        );
+        if self.request.selects_partitions() {
+            estimate.into_inexact()
+        } else {
+            estimate
+        }
+    }
+
+    fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
+        if self.request.selects_partitions() {
+            return Ok(vec![self]);
+        }
+        Box::new(self.into_split_scan()).split(n)
+    }
+
+    fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
+        if self.request.selects_partitions() {
+            return Ok(Arc::new(PartitionPool::new(self)));
+        }
+        Box::new(self.into_split_scan()).open()
+    }
+
     fn partitions(self: Box<Self>) -> PartitionStream {
         let Self {
             session,
@@ -413,6 +506,7 @@ impl DataSourceScan for MultiLayoutScan {
             deferred,
             handle,
             concurrency,
+            max_splits_in_flight: _,
         } = *self;
 
         let ordered = request.ordered;
@@ -620,6 +714,287 @@ impl Partition for MultiLayoutPartition {
         Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
             dtype, stream,
         )))
+    }
+}
+
+/// The rows `request` selects from an opened file, before any filter or limit.
+fn file_row_count(request: &BoundScanRequest, reader: &LayoutReaderRef) -> u64 {
+    let row_range = request
+        .row_range
+        .clone()
+        .unwrap_or_else(|| 0..reader.row_count());
+    request.selection.row_count_in_range(&row_range)
+}
+
+/// Estimates the rows a scan of `files` files returns from the rows of the files whose rows are
+/// known, extrapolating to the rest.
+fn estimate_row_count(
+    request: &BoundScanRequest,
+    known: impl Iterator<Item = u64>,
+    files: usize,
+) -> Precision<u64> {
+    let (rows, known_files) = known.fold((0u64, 0u64), |(rows, count), file_rows| {
+        (rows.saturating_add(file_rows), count + 1)
+    });
+    let files = files as u64;
+    let (rows, is_exact) = if known_files == files {
+        (rows, !request.has_filter())
+    } else if let Some(average) = rows.checked_div(known_files) {
+        (average.saturating_mul(files), false)
+    } else {
+        return Precision::Absent;
+    };
+    let rows = request.limit.map_or(rows, |limit| rows.min(limit));
+    if is_exact {
+        Precision::exact(rows)
+    } else {
+        Precision::inexact(rows)
+    }
+}
+
+/// What every piece of a split or opened multi-layout scan shares.
+struct ScanContext {
+    session: VortexSession,
+    source_dtype: DType,
+    dtype: DType,
+    request: BoundScanRequest,
+    max_splits_in_flight: NonZeroUsize,
+}
+
+impl ScanContext {
+    /// Plans the scan of one opened file: checks its dtype, prunes it on statistics, and
+    /// prepares its splits. Returns `None` when statistics reject the file. Reads metadata only.
+    fn plan_file(
+        &self,
+        reader: LayoutReaderRef,
+    ) -> VortexResult<Option<(Arc<PreparedScan>, Vec<Range<u64>>)>> {
+        if reader.dtype() != &self.source_dtype {
+            return Err(vortex_err!(
+                "Multi-layout reader dtype mismatch: expected {}, got {}",
+                self.source_dtype,
+                reader.dtype()
+            ));
+        }
+        let filter = self.request.filter.clone()?;
+        let row_range = self
+            .request
+            .row_range
+            .clone()
+            .unwrap_or_else(|| 0..reader.row_count());
+
+        if let Some(filter) = &filter {
+            let mask_len = usize::try_from(row_range.end - row_range.start).unwrap_or(usize::MAX);
+            if let Ok(pruning) =
+                reader.pruning_evaluation(&row_range, filter, Mask::new_true(mask_len))
+                && let Some(Ok(mask)) = pruning.now_or_never()
+                && mask.all_false()
+            {
+                return Ok(None);
+            }
+        }
+
+        let scan = ScanBuilder::new(self.session.clone(), reader)
+            .with_row_range(row_range)
+            .with_selection(self.request.selection.clone())
+            .with_projection(self.request.projection.clone())
+            .with_some_filter(filter)
+            .with_ordered(self.request.ordered)
+            .prepare()?;
+        let ranges = scan.split_ranges(None);
+        Ok(Some((Arc::new(scan), ranges)))
+    }
+
+    /// Starts reading an opened file for one execution.
+    fn start_file(&self, reader: LayoutReaderRef) -> VortexResult<FileWork> {
+        match self.plan_file(reader)? {
+            Some((scan, ranges)) => FileWork::start(scan, ranges),
+            None => Ok(FileWork::empty()),
+        }
+    }
+}
+
+/// One file of a split or opened multi-layout scan.
+enum ScanChild {
+    Opened(LayoutReaderRef),
+    /// An opened file whose splits are known: all of them, or the share of one piece.
+    Planned {
+        scan: Arc<PreparedScan>,
+        ranges: Vec<Range<u64>>,
+    },
+    Deferred(Arc<dyn LayoutReaderFactory>),
+}
+
+/// A multi-layout scan that was split or opened, or a piece cut from one. Its units are files,
+/// then each file's splits.
+struct MultiLayoutSplitScan {
+    context: Arc<ScanContext>,
+    children: Vec<ScanChild>,
+    /// The index of the piece's single partition.
+    index: usize,
+}
+
+impl MultiLayoutSplitScan {
+    /// Splits a planned file's ranges into `pieces` contiguous groups.
+    fn split_child(child: ScanChild, pieces: usize) -> Vec<ScanChild> {
+        match child {
+            ScanChild::Planned { scan, ranges } if pieces > 1 => group_contiguous(
+                ranges,
+                NonZeroUsize::new(pieces).unwrap_or(NonZeroUsize::MIN),
+            )
+            .into_iter()
+            .map(|ranges| ScanChild::Planned {
+                scan: Arc::clone(&scan),
+                ranges,
+            })
+            .collect(),
+            child => vec![child],
+        }
+    }
+}
+
+impl DataSourceScan for MultiLayoutSplitScan {
+    fn dtype(&self) -> &DType {
+        &self.context.dtype
+    }
+
+    fn partition_count(&self) -> Precision<usize> {
+        Precision::exact(1usize)
+    }
+
+    fn partitions(self: Box<Self>) -> PartitionStream {
+        let index = self.index;
+        PiecePartition::stream(self, index)
+    }
+
+    fn ordered(&self) -> bool {
+        self.context.request.ordered
+    }
+
+    fn row_count(&self) -> Precision<u64> {
+        let request = &self.context.request;
+        let known = self.children.iter().filter_map(|child| match child {
+            ScanChild::Opened(reader) => Some(file_row_count(request, reader)),
+            ScanChild::Planned { scan, ranges } => Some(
+                ranges
+                    .iter()
+                    .map(|range| scan.selected_row_count(range))
+                    .sum(),
+            ),
+            ScanChild::Deferred(_) => None,
+        });
+        estimate_row_count(request, known, self.children.len())
+    }
+
+    fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
+        if self.context.request.limit.is_some() || n.get() == 1 || self.children.is_empty() {
+            return Ok(vec![self]);
+        }
+        let MultiLayoutSplitScan {
+            context, children, ..
+        } = *self;
+
+        // Plan the opened files so they can be cut on their splits. Deferred files stay whole:
+        // splitting never opens a file.
+        let mut planned = Vec::with_capacity(children.len());
+        for child in children {
+            match child {
+                ScanChild::Opened(reader) => {
+                    if let Some((scan, ranges)) = context.plan_file(reader)? {
+                        planned.push(ScanChild::Planned { scan, ranges });
+                    }
+                }
+                child => planned.push(child),
+            }
+        }
+        if planned.is_empty() {
+            return Ok(vec![Box::new(MultiLayoutSplitScan {
+                context,
+                children: planned,
+                index: 0,
+            })]);
+        }
+
+        let n = n.get();
+        let pieces: Vec<Vec<ScanChild>> = if n <= planned.len() {
+            // Group whole files into contiguous pieces.
+            let files = planned.len();
+            let mut pieces: Vec<Vec<ScanChild>> = Vec::new();
+            let mut current = None;
+            for (index, child) in planned.into_iter().enumerate() {
+                let piece = index * n / files;
+                if current != Some(piece) {
+                    current = Some(piece);
+                    pieces.push(Vec::new());
+                }
+                if let Some(last) = pieces.last_mut() {
+                    last.push(child);
+                }
+            }
+            pieces
+        } else {
+            // One piece per file, and the pieces left over cut planned files on their splits, in
+            // proportion to their rows.
+            let extra = (n - planned.len()) as u128;
+            let rows = |child: &ScanChild| match child {
+                ScanChild::Planned { ranges, .. } => ranges
+                    .iter()
+                    .map(|range| u128::from(range.end - range.start))
+                    .sum::<u128>(),
+                _ => 0,
+            };
+            let total = planned.iter().map(rows).sum::<u128>().max(1);
+            planned
+                .into_iter()
+                .flat_map(|child| {
+                    let pieces = 1 + usize::try_from(extra * rows(&child) / total).unwrap_or(0);
+                    Self::split_child(child, pieces)
+                })
+                .map(|child| vec![child])
+                .collect()
+        };
+
+        Ok(pieces
+            .into_iter()
+            .enumerate()
+            .map(|(index, children)| {
+                Box::new(MultiLayoutSplitScan {
+                    context: Arc::clone(&context),
+                    children,
+                    index,
+                }) as DataSourceScanRef
+            })
+            .collect())
+    }
+
+    fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
+        let MultiLayoutSplitScan {
+            context, children, ..
+        } = *self;
+        let request = &context.request;
+        if request.limit == Some(0) {
+            return Box::new(Empty::new(context.dtype.clone(), 0)).open();
+        }
+
+        let mut files = Vec::with_capacity(children.len());
+        for child in children {
+            files.push(match child {
+                ScanChild::Opened(reader) => PoolFile::Opened(context.start_file(reader)?),
+                ScanChild::Planned { scan, ranges } => {
+                    PoolFile::Opened(FileWork::start(scan, ranges)?)
+                }
+                ScanChild::Deferred(factory) => PoolFile::Deferred(factory),
+            });
+        }
+
+        let options = PoolOptions {
+            dtype: context.dtype.clone(),
+            ordered: request.ordered,
+            limit: request.limit,
+            has_filter: request.has_filter(),
+            max_splits_in_flight: context.max_splits_in_flight,
+        };
+        let prepare: PrepareFile = Arc::new(move |reader| context.start_file(reader));
+        Ok(open_pool(options, files, Some(prepare)))
     }
 }
 

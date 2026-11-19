@@ -36,6 +36,7 @@ use vortex_scan::DataSourceScanRef;
 use vortex_scan::Partition;
 use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
+use vortex_scan::ScanPoolRef;
 use vortex_scan::ScanRequest;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
@@ -44,14 +45,26 @@ use crate::LayoutReaderRef;
 use crate::scan::limit::RowLimit;
 use crate::scan::metrics::ScanMetrics;
 use crate::scan::metrics::ScanRecorder;
+use crate::scan::pool::DEFAULT_SPLITS_IN_FLIGHT;
+use crate::scan::pool::FileWork;
+use crate::scan::pool::PiecePartition;
+use crate::scan::pool::PoolFile;
+use crate::scan::pool::PoolOptions;
+use crate::scan::pool::PreparedScan;
+use crate::scan::pool::open_pool;
 use crate::scan::scan_builder::ScanBuilder;
 
 /// An implementation of a [`DataSource`] that reads data from a [`LayoutReaderRef`].
+///
+/// When a scan is [split](DataSourceScan::split) or [opened](DataSourceScan::open), its units are
+/// the layout's splits. Workers of an opened scan share them, each keeping several in flight on
+/// its own thread; see [`Self::with_max_splits_in_flight`].
 pub struct LayoutReaderDataSource {
     reader: LayoutReaderRef,
     session: VortexSession,
     split_max_row_count: u64,
     metrics: Option<ScanMetrics>,
+    max_splits_in_flight: NonZeroUsize,
 }
 
 impl LayoutReaderDataSource {
@@ -67,7 +80,24 @@ impl LayoutReaderDataSource {
             session,
             split_max_row_count: u64::MAX,
             metrics: None,
+            max_splits_in_flight: DEFAULT_SPLITS_IN_FLIGHT,
         }
+    }
+
+    /// Bounds the splits each worker of an [opened] scan keeps in flight at once.
+    ///
+    /// Each split in flight holds its pending reads and the decoded chunks of every column it
+    /// overlaps, so a scan that runs alongside others can lower this to bound its memory.
+    /// Defaults to four, which lets a worker overlap the reads of several splits on its own
+    /// thread.
+    ///
+    /// Scans read through [`DataSourceScan::partitions`] use
+    /// [`ScanRequest::split_concurrency`] instead.
+    ///
+    /// [opened]: DataSourceScan::open
+    pub fn with_max_splits_in_flight(mut self, max: NonZeroUsize) -> Self {
+        self.max_splits_in_flight = max;
+        self
     }
 
     /// Sets the maximum number of rows per Scan API split.
@@ -201,6 +231,7 @@ impl DataSource for LayoutReaderDataSource {
             dtype,
             projection,
             filter,
+            limit: scan_request.limit,
             remaining_limit: scan_request.limit,
             row_limit,
             selection: scan_request.selection,
@@ -210,6 +241,7 @@ impl DataSource for LayoutReaderDataSource {
             next_row: row_range.start,
             end_row: row_range.end,
             split_size: self.split_max_row_count,
+            max_splits_in_flight: self.max_splits_in_flight,
         }))
     }
 
@@ -224,6 +256,8 @@ struct LayoutReaderScan {
     dtype: DType,
     projection: BoundExpression,
     filter: Option<BoundExpression>,
+    /// The request's limit.
+    limit: Option<u64>,
     /// Limit rows not yet covered by the splits produced so far; production stops at zero.
     /// Decremented only for filterless scans, where each split's output is exactly its
     /// selected row count.
@@ -237,6 +271,38 @@ struct LayoutReaderScan {
     next_row: u64,
     end_row: u64,
     split_size: u64,
+    /// The most splits each worker of the opened scan keeps in flight.
+    max_splits_in_flight: NonZeroUsize,
+}
+
+impl LayoutReaderScan {
+    /// Prepares the scan once, for splitting or opening.
+    fn into_split_scan(self) -> VortexResult<LayoutSplitScan> {
+        let row_count = DataSourceScan::row_count(&self);
+        let options = LayoutScanOptions {
+            dtype: self.dtype,
+            ordered: self.ordered,
+            limit: self.limit,
+            has_filter: self.filter.is_some(),
+            max_splits_in_flight: self.max_splits_in_flight,
+        };
+        let row_range = clamp_row_range(self.next_row..self.end_row, self.reader.row_count());
+        let scan = ScanBuilder::new(self.session, self.reader)
+            .with_row_range(row_range)
+            .with_selection(self.selection)
+            .with_projection(self.projection)
+            .with_some_filter(self.filter)
+            .with_some_scan_metrics(self.metrics)
+            .with_ordered(self.ordered)
+            .prepare()?;
+        let ranges = scan.split_ranges(None);
+        Ok(LayoutSplitScan {
+            options,
+            row_count,
+            scan: Arc::new(scan),
+            ranges,
+        })
+    }
 }
 
 impl DataSourceScan for LayoutReaderScan {
@@ -256,6 +322,173 @@ impl DataSourceScan for LayoutReaderScan {
     fn partitions(self: Box<Self>) -> PartitionStream {
         (*self).boxed()
     }
+
+    fn ordered(&self) -> bool {
+        self.ordered
+    }
+
+    fn row_count(&self) -> Precision<u64> {
+        let selected = self
+            .selection
+            .row_count_in_range(&(self.next_row..self.end_row));
+        let rows = self.limit.map_or(selected, |limit| selected.min(limit));
+        if self.filter.is_some() {
+            Precision::inexact(rows)
+        } else {
+            Precision::exact(rows)
+        }
+    }
+
+    fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
+        Box::new(self.into_split_scan()?).split(n)
+    }
+
+    fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
+        Box::new(self.into_split_scan()?).open()
+    }
+}
+
+/// Clamps a requested row range to the rows of the source.
+fn clamp_row_range(row_range: Range<u64>, total_rows: u64) -> Range<u64> {
+    let end = row_range.end.min(total_rows);
+    row_range.start.min(end)..end
+}
+
+/// What a [`LayoutSplitScan`] and every piece cut from it share.
+#[derive(Clone)]
+struct LayoutScanOptions {
+    dtype: DType,
+    ordered: bool,
+    limit: Option<u64>,
+    has_filter: bool,
+    max_splits_in_flight: NonZeroUsize,
+}
+
+/// A prepared scan of one layout reader over some of its splits: a [`LayoutReaderScan`] that was
+/// split or opened, or a piece cut from one.
+struct LayoutSplitScan {
+    options: LayoutScanOptions,
+    row_count: Precision<u64>,
+    scan: Arc<PreparedScan>,
+    /// The scan's units: its layout splits, in row order.
+    ranges: Vec<Range<u64>>,
+}
+
+impl LayoutSplitScan {
+    /// A piece over some of the prepared scan's split `ranges`.
+    fn piece(
+        options: &LayoutScanOptions,
+        scan: Arc<PreparedScan>,
+        ranges: Vec<Range<u64>>,
+    ) -> Self {
+        let selected = ranges
+            .iter()
+            .map(|range| scan.selected_row_count(range))
+            .sum::<u64>();
+        Self {
+            options: options.clone(),
+            row_count: if options.has_filter {
+                Precision::inexact(selected)
+            } else {
+                Precision::exact(selected)
+            },
+            scan,
+            ranges,
+        }
+    }
+}
+
+impl DataSourceScan for LayoutSplitScan {
+    fn dtype(&self) -> &DType {
+        &self.options.dtype
+    }
+
+    fn partition_count(&self) -> Precision<usize> {
+        Precision::exact(1usize)
+    }
+
+    fn partitions(self: Box<Self>) -> PartitionStream {
+        let index = self.ranges.first().map_or(0, |range| {
+            usize::try_from(range.start).unwrap_or(usize::MAX)
+        });
+        PiecePartition::stream(self, index)
+    }
+
+    fn ordered(&self) -> bool {
+        self.options.ordered
+    }
+
+    fn row_count(&self) -> Precision<u64> {
+        self.row_count
+    }
+
+    fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
+        if self.options.limit.is_some() || self.ranges.len() <= 1 || n.get() == 1 {
+            return Ok(vec![self]);
+        }
+        let LayoutSplitScan {
+            options,
+            scan,
+            ranges,
+            ..
+        } = *self;
+        Ok(group_contiguous(ranges, n)
+            .into_iter()
+            .map(|ranges| {
+                Box::new(LayoutSplitScan::piece(&options, Arc::clone(&scan), ranges))
+                    as DataSourceScanRef
+            })
+            .collect())
+    }
+
+    fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
+        let LayoutScanOptions {
+            dtype,
+            ordered,
+            limit,
+            has_filter,
+            max_splits_in_flight,
+        } = self.options;
+        if limit == Some(0) {
+            return Box::new(Empty::new(dtype, 0)).open();
+        }
+        let work = FileWork::start(self.scan, self.ranges)?;
+        let options = PoolOptions {
+            dtype,
+            ordered,
+            limit,
+            has_filter,
+            max_splits_in_flight,
+        };
+        Ok(open_pool(options, vec![PoolFile::Opened(work)], None))
+    }
+}
+
+/// Groups consecutive `ranges` into at most `n` contiguous groups of about equal row counts.
+///
+/// Never cuts a range: each range lands whole in one group.
+pub(crate) fn group_contiguous(ranges: Vec<Range<u64>>, n: NonZeroUsize) -> Vec<Vec<Range<u64>>> {
+    let total = ranges
+        .iter()
+        .map(|range| u128::from(range.end - range.start))
+        .sum::<u128>()
+        .max(1);
+    let n_groups = n.get() as u128;
+    let mut groups: Vec<Vec<Range<u64>>> = Vec::new();
+    let mut current_group = None;
+    let mut before = 0u128;
+    for range in ranges {
+        let group = (before * n_groups / total).min(n_groups - 1);
+        before += u128::from(range.end - range.start);
+        if current_group != Some(group) {
+            current_group = Some(group);
+            groups.push(Vec::new());
+        }
+        if let Some(last) = groups.last_mut() {
+            last.push(range);
+        }
+    }
+    groups
 }
 
 impl Stream for LayoutReaderScan {
@@ -393,9 +626,15 @@ impl Partition for LayoutReaderSplit {
 }
 
 /// A scan that produces no data, only empty arrays with the correct row count.
-struct Empty {
+pub(crate) struct Empty {
     dtype: DType,
     row_count: u64,
+}
+
+impl Empty {
+    pub(crate) fn new(dtype: DType, row_count: u64) -> Self {
+        Self { dtype, row_count }
+    }
 }
 
 impl DataSourceScan for Empty {
@@ -409,6 +648,10 @@ impl DataSourceScan for Empty {
 
     fn partitions(self: Box<Self>) -> PartitionStream {
         stream::iter([Ok(self as _)]).boxed()
+    }
+
+    fn row_count(&self) -> Precision<u64> {
+        Precision::exact(self.row_count)
     }
 }
 

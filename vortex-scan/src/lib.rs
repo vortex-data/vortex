@@ -9,6 +9,12 @@
 //! It supports arbitrary projection expressions, filter expressions, and limit pushdown as well
 //! as mechanisms for parallel and distributed execution via partitions.
 //!
+//! A [`DataSourceScan`] can also be run without partitions. The host decides parallelism: it may
+//! [`split`](DataSourceScan::split) the scan into independent pieces (for example to ship them to
+//! other machines, or to keep row order across threads) and [`open`](DataSourceScan::open) each
+//! piece into a [`ScanPool`]. Any number of workers, created with [`ScanPool::worker`], then share
+//! the pool's work. A worker is a stream polled inline by its caller.
+//!
 //! The API is currently under development and may change in future releases, however we hope to
 //! stabilize into stable C ABI for use within foreign language bindings.
 //!
@@ -24,6 +30,7 @@
 
 pub mod arrays;
 pub mod execution;
+mod partition_pool;
 pub mod plan;
 pub mod planning;
 pub mod prepare;
@@ -52,6 +59,8 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
+
+pub use crate::partition_pool::PartitionPool;
 
 /// A sendable stream of partitions.
 pub type PartitionStream = BoxStream<'static, VortexResult<PartitionRef>>;
@@ -205,7 +214,10 @@ impl Default for ScanRequest {
 pub type DataSourceScanRef = Box<dyn DataSourceScan>;
 
 /// A data source scan produces partitions that can be executed to read data from the source.
-pub trait DataSourceScan: 'static + Send {
+///
+/// A scan is consumed once: by [`partitions`](Self::partitions), or by [`split`](Self::split) and
+/// [`open`](Self::open).
+pub trait DataSourceScan: 'static + Send + IntoDataSourceScanRef {
     /// The returned dtype of the scan.
     fn dtype(&self) -> &DType;
 
@@ -214,6 +226,85 @@ pub trait DataSourceScan: 'static + Send {
 
     /// Returns a stream of partitions to be processed.
     fn partitions(self: Box<Self>) -> PartitionStream;
+
+    /// Whether a single worker of this scan's [`ScanPool`] yields rows in row order.
+    ///
+    /// Defaults to `true`, so that a source that does not say keeps its order.
+    fn ordered(&self) -> bool {
+        true
+    }
+
+    /// Estimates the rows this scan returns, from plan-time state only.
+    fn row_count(&self) -> Precision<u64> {
+        Precision::Absent
+    }
+
+    /// Estimates the bytes this scan reads, before any filter, from plan-time state only.
+    fn byte_size(&self) -> Precision<u64> {
+        Precision::Absent
+    }
+
+    /// Cuts the scan into at most `n` independent scans, in row order, from metadata only.
+    ///
+    /// Together the pieces read exactly what this scan reads. A source may return fewer pieces,
+    /// and returns the scan itself when it cannot be cut (the default). Never returns an empty
+    /// list.
+    fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
+        let _ = n;
+        Ok(vec![self.into_data_source_scan_ref()])
+    }
+
+    /// Opens the scan for execution by any number of workers.
+    ///
+    /// Must be cheap: all I/O happens when the pool's workers are polled. The default is a
+    /// [`PartitionPool`] over [`partitions`](Self::partitions).
+    fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
+        Ok(Arc::new(PartitionPool::new(
+            self.into_data_source_scan_ref(),
+        )))
+    }
+}
+
+/// Converts a boxed scan into a [`DataSourceScanRef`].
+///
+/// Implemented for every sized [`DataSourceScan`], so that its default methods can return the
+/// scan itself.
+pub trait IntoDataSourceScanRef {
+    /// Returns this scan as a [`DataSourceScanRef`].
+    fn into_data_source_scan_ref(self: Box<Self>) -> DataSourceScanRef;
+}
+
+impl<T: DataSourceScan> IntoDataSourceScanRef for T {
+    fn into_data_source_scan_ref(self: Box<Self>) -> DataSourceScanRef {
+        self
+    }
+}
+
+/// A reference-counted, opened scan.
+pub type ScanPoolRef = Arc<dyn ScanPool>;
+
+/// An opened scan whose work any number of workers share.
+///
+/// Each unit of work is read by exactly one worker.
+pub trait ScanPool: 'static + Send + Sync {
+    /// The dtype of the arrays the workers return.
+    fn dtype(&self) -> &DType;
+
+    /// Returns a new worker: a stream of the scan's arrays that the calling thread polls inline.
+    ///
+    /// Workers may be created at any time and polled from any thread; a worker ends once the
+    /// pool has no work left for it. For an ordered scan, a single worker yields rows in row
+    /// order; several workers give no global order.
+    fn worker(self: Arc<Self>) -> SendableArrayStream;
+
+    /// True once every unit has been handed to a worker (workers may still be producing).
+    ///
+    /// A host uses it to stop adding threads to a scan that has nothing left to hand out.
+    fn is_exhausted(&self) -> bool;
+
+    /// Fraction in `[0, 1]` of the scan's units, weighted by row count where known, handed out
+    /// so far.
+    fn progress(&self) -> f64;
 }
 
 /// A reference-counted partition.

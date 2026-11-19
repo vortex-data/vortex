@@ -175,7 +175,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
     }
 
     /// Each execution gets its own recorder, so file events count once for each execution.
-    fn task_context(&self) -> Arc<TaskContext> {
+    pub(crate) fn task_context(&self) -> Arc<TaskContext> {
         Arc::new(TaskContext {
             filter: self
                 .filter
@@ -188,7 +188,10 @@ impl<A: 'static + Send> RepeatedScan<A> {
         })
     }
 
-    fn split_ranges(&self, row_range: Option<Range<u64>>) -> Vec<Range<u64>> {
+    /// The row ranges of the scan's splits within `row_range`, in row order.
+    ///
+    /// Ranges whose rows the selection excludes are included; [`Self::split_mask`] skips them.
+    pub(crate) fn split_ranges(&self, row_range: Option<Range<u64>>) -> Vec<Range<u64>> {
         let selection_range: Option<Range<u64>> = match &self.selection {
             Selection::IncludeByIndex(buf) if !buf.is_empty() => {
                 Some(buf[0]..buf[buf.len() - 1] + 1)
@@ -242,6 +245,33 @@ impl<A: 'static + Send> RepeatedScan<A> {
                 }
             },
         }
+    }
+
+    /// Whether the selection includes any row of `range`.
+    pub(crate) fn selects_rows(&self, range: &Range<u64>) -> bool {
+        self.selection.row_count_in_range(range) != 0
+    }
+
+    /// The number of rows of `range` that the selection includes.
+    pub(crate) fn selected_row_count(&self, range: &Range<u64>) -> u64 {
+        self.selection.row_count_in_range(range)
+    }
+
+    /// The selected rows of the split over `range`, or `None` if the selection excludes them all.
+    pub(crate) fn split_mask(&self, range: &Range<u64>) -> Option<RowMask> {
+        selected_mask(&self.selection, range)
+    }
+
+    /// Builds the task of one split. The task does no work until it is polled, but building it
+    /// may register the split's reads with the reader, so build it only when it is about to run.
+    ///
+    /// `mask` must select at least one row.
+    pub(crate) fn split_task(
+        &self,
+        ctx: &Arc<TaskContext>,
+        mask: RowMask,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<Option<A>>>> {
+        Ok(map_split(split_exec(ctx, mask)?, &self.map_fn))
     }
 
     /// The non-empty row masks of the splits within `row_range`, in split order.
@@ -362,7 +392,8 @@ fn selected_mask(selection: &Selection, range: &Range<u64>) -> Option<RowMask> {
     (!mask.mask().all_false()).then_some(mask)
 }
 
-fn can_prune_file(ctx: &TaskContext) -> VortexResult<bool> {
+/// Counts a file scan attempt and returns whether whole-file statistics reject the filter.
+pub(crate) fn can_prune_file(ctx: &TaskContext) -> VortexResult<bool> {
     ctx.count::<true>(ScanRecorder::attempt_file_scan);
     if let Some(filter) = &ctx.filter
         && can_prune_conjuncts(filter, ctx.reader.as_ref())?
