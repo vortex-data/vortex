@@ -78,10 +78,10 @@ impl ScanPool for PartitionPool {
             (self, None::<SendableArrayStream>),
             |(pool, mut current)| async move {
                 loop {
-                    if let Some(mut arrays) = current.take() {
-                        if let Some(item) = arrays.next().await {
-                            return Some((item, (pool, Some(arrays))));
-                        }
+                    if let Some(mut arrays) = current.take()
+                        && let Some(item) = arrays.next().await
+                    {
+                        return Some((item, (pool, Some(arrays))));
                     }
                     let partition = match pool.next_partition().await? {
                         Ok(partition) => partition,

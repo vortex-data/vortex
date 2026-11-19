@@ -54,6 +54,9 @@ use crate::scan::tasks::TaskContext;
 /// A scan prepared once and shared by every piece and execution of it.
 pub(crate) type PreparedScan = RepeatedScan<ArrayRef>;
 
+/// A prepared scan and the row ranges of its splits, in row order.
+pub(crate) type PlannedSplits = (Arc<PreparedScan>, Vec<Range<u64>>);
+
 /// The most splits each worker keeps in flight when the request does not say; stands in for the
 /// scan engine's memory budget.
 const SPLITS_IN_FLIGHT_PER_WORKER: usize = 4;

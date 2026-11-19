@@ -69,6 +69,7 @@ use crate::scan::layout::group_contiguous;
 use crate::scan::limit::RowLimit;
 use crate::scan::pool::FileWork;
 use crate::scan::pool::PiecePartition;
+use crate::scan::pool::PlannedSplits;
 use crate::scan::pool::PoolFile;
 use crate::scan::pool::PoolOptions;
 use crate::scan::pool::PrepareFile;
@@ -744,10 +745,7 @@ struct ScanContext {
 impl ScanContext {
     /// Plans the scan of one opened file: checks its dtype, prunes it on statistics, and
     /// prepares its splits. Returns `None` when statistics reject the file. Reads metadata only.
-    fn plan_file(
-        &self,
-        reader: LayoutReaderRef,
-    ) -> VortexResult<Option<(Arc<PreparedScan>, Vec<Range<u64>>)>> {
+    fn plan_file(&self, reader: LayoutReaderRef) -> VortexResult<Option<PlannedSplits>> {
         if reader.dtype() != &self.source_dtype {
             return Err(vortex_err!(
                 "Multi-layout reader dtype mismatch: expected {}, got {}",
@@ -1177,11 +1175,13 @@ mod pool_tests {
     use vortex_array::dtype::PType;
     use vortex_array::expr::root;
     use vortex_array::stream::SendableArrayStream;
+    use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_scan::DataSource;
     use vortex_scan::ScanRequest;
+    use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 
     use super::*;
     use crate::scan::test::InFlight;
@@ -1422,20 +1422,18 @@ mod pool_tests {
     /// A request that selects partitions is split and opened by its partitions, so both paths
     /// read the same files.
     #[rstest]
-    #[case::range(Some(1..2), Selection::All)]
-    #[case::selection(
-        None,
-        Selection::IncludeByIndex(
-            vortex_scan::strict_sorted_buffer::StrictSortedBuffer::try_new(
-                vortex_buffer::Buffer::from_iter([1u64])
-            )
-            .expect("sorted")
-        )
-    )]
+    #[case::range(Some(1..2), None)]
+    #[case::selection(None, Some(1))]
     fn selected_partitions_open_by_partition(
         #[case] partition_range: Option<Range<u64>>,
-        #[case] partition_selection: Selection,
+        #[case] selected_partition: Option<u64>,
     ) -> VortexResult<()> {
+        let partition_selection = match selected_partition {
+            Some(index) => {
+                Selection::IncludeByIndex(StrictSortedBuffer::try_new(Buffer::from_iter([index]))?)
+            }
+            None => Selection::All,
+        };
         // The partitions path spawns file opens onto the session's runtime.
         let runtime = SingleThreadRuntime::default();
         let gate = Arc::new(Gate::default());

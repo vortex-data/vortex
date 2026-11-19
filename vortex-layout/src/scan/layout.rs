@@ -867,6 +867,7 @@ mod pool_tests {
     use super::LayoutReaderDataSource;
     use super::group_contiguous;
     use crate::scan::test::TestLayoutReader;
+    use crate::scan::test::collect_scan_values;
     use crate::scan::test::keep_odd;
     use crate::scan::test::new_session;
     use crate::scan::test::read_with_one_worker;
@@ -1112,9 +1113,9 @@ mod pool_tests {
                 futures::executor::block_on_stream(piece.partitions()).collect::<Vec<_>>();
             assert_eq!(partitions.len(), 1);
             for partition in partitions {
-                values.extend(crate::scan::test::collect_scan_values(
-                    futures::executor::block_on_stream(partition?.execute()?),
-                )?);
+                values.extend(collect_scan_values(futures::executor::block_on_stream(
+                    partition?.execute()?,
+                ))?);
             }
         }
         assert_eq!(values, (0..20).collect::<Vec<_>>());
