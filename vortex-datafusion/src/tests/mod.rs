@@ -2,4 +2,5 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod nested_projection;
+mod protobuf;
 mod schema_evolution;

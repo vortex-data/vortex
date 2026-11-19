@@ -11733,6 +11733,10 @@ dependencies = [
  "insta",
  "itertools 0.14.0",
  "object_store 0.13.2",
+ "parking_lot",
+ "prost 0.14.6",
+ "prost-reflect",
+ "protox",
  "rstest",
  "tempfile",
  "tokio",
@@ -11743,6 +11747,7 @@ dependencies = [
  "vortex-array",
  "vortex-arrow",
  "vortex-json",
+ "vortex-protobuf",
  "vortex-tensor",
  "vortex-utils",
 ]
@@ -12282,6 +12287,30 @@ dependencies = [
  "vortex-arrow",
  "vortex-buffer",
  "vortex-error",
+ "vortex-mask",
+ "vortex-session",
+]
+
+[[package]]
+name = "vortex-protobuf"
+version = "0.1.0"
+dependencies = [
+ "arrow-schema 59.3.2",
+ "futures",
+ "insta",
+ "prost 0.14.6",
+ "prost-reflect",
+ "prost-types",
+ "protox",
+ "rstest",
+ "vortex-array",
+ "vortex-arrow",
+ "vortex-buffer",
+ "vortex-edition",
+ "vortex-error",
+ "vortex-file",
+ "vortex-io",
+ "vortex-layout",
  "vortex-mask",
  "vortex-session",
 ]
