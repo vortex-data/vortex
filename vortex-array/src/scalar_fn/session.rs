@@ -10,6 +10,7 @@ use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
 
+use crate::extension::datetime::operations::TemporalConvert;
 use crate::scalar_fn::ScalarFnPluginRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::builtin::LegacyBinary;
@@ -65,6 +66,7 @@ impl Default for ScalarFnSession {
         this.register(Not);
         this.register(Numeric);
         this.register(Pack);
+        this.register(TemporalConvert);
 
         // Expressions that an older version serialized can hold the legacy `vortex.binary` id.
         let legacy_binary = Arc::new(LegacyBinary) as ScalarFnPluginRef;

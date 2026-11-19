@@ -16,13 +16,13 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
-use crate::scalar_fn::builtin::cast::check_extension_cast;
+use crate::scalar_fn::builtin::cast::bind_extension_cast;
 
 impl Scalar {
     /// Cast this scalar to another data type.
     ///
-    /// A cast can change the top-level nullability of an extension dtype. A scalar of dtype
-    /// [`DType::Null`] can also become a typed null of any nullable dtype.
+    /// A cast can change extension nullability or perform a supported exact temporal conversion.
+    /// A scalar of dtype [`DType::Null`] can become a typed null of any nullable dtype.
     ///
     /// # Errors
     ///
@@ -41,7 +41,9 @@ impl Scalar {
             return Scalar::try_new(target_dtype.clone(), self.value().cloned());
         }
 
-        check_extension_cast(self.dtype(), target_dtype)?;
+        if let Some(cast) = bind_extension_cast(self.dtype(), target_dtype)? {
+            return cast.cast_scalar(self, target_dtype);
+        }
 
         if let (Some(source), Some(target)) = (self.dtype().as_map_opt(), target_dtype.as_map_opt())
             && target.keys_sorted()
