@@ -60,10 +60,7 @@ const CHUNK_ROWS: usize = 32;
 const NUM_CHUNKS: usize = 16;
 
 /// Rows taken in one batch, few enough to keep the CodSpeed simulation under 1 ms.
-const TAKEN_ROWS: &[usize] = &[8, 16, 32];
-
-/// Lengths of the rows for a take of 64 rows, around the length where the take changes path.
-const LIST_SIZES: &[usize] = &[16, 64, 128, 256, 512];
+const TAKEN_ROWS: &[usize] = &[4, 8];
 
 /// A chunked array of rows of tokens, with bit-packed elements of 17 bits.
 fn chunked_tokens() -> ArrayRef {
@@ -106,30 +103,6 @@ fn take_random_rows(bencher: Bencher, taken: usize) {
     let mut rng = StdRng::seed_from_u64(1);
     let indices: Buffer<u32> = (0..taken)
         .map(|_| rng.random_range(0..(NUM_CHUNKS * CHUNK_ROWS) as u32))
-        .collect();
-    let indices = indices.into_array();
-
-    bencher
-        .with_inputs(|| (&array, &indices, SESSION.create_execution_ctx()))
-        .bench_refs(|(array, indices, ctx)| {
-            array
-                .take((*indices).clone())
-                .unwrap()
-                .execute::<RecursiveCanonical>(ctx)
-                .unwrap()
-        });
-}
-
-/// Takes 64 random rows of lists of `list_size` elements, with the same number of elements in
-/// each chunk.
-#[divan::bench(args = LIST_SIZES)]
-fn take_random_rows_by_list_size(bencher: Bencher, list_size: usize) {
-    let chunk_rows = CHUNK_ROWS * LIST_SIZE / list_size;
-    let array = chunked_lists(list_size, chunk_rows);
-
-    let mut rng = StdRng::seed_from_u64(1);
-    let indices: Buffer<u32> = (0..64)
-        .map(|_| rng.random_range(0..(NUM_CHUNKS * chunk_rows) as u32))
         .collect();
     let indices = indices.into_array();
 

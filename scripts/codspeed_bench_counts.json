@@ -7,7 +7,7 @@
   },
   "vortex-alp": {
     "alp_compress": 36,
-    "alp_fsl_take": 6,
+    "alp_fsl_take": 2,
     "alp_rd_take_chunked": 4
   },
   "vortex-array": {
@@ -123,7 +123,7 @@
     "bitpacking_take": 40,
     "canonicalize_bench": 14,
     "cast_bitpacked": 6,
-    "chunked_fsl_take": 8,
+    "chunked_fsl_take": 2,
     "compute_between": 11,
     "delta_decode": 6,
     "for_decode": 0,
