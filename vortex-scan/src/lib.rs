@@ -43,14 +43,14 @@ use selection::Selection;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
-use vortex_array::expr::Expression;
-use vortex_array::expr::root;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::stats::Precision;
 use vortex_array::scalar::Scalar;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
 /// A sendable stream of partitions.
@@ -125,6 +125,9 @@ pub trait DataSource: 'static + Send + Sync {
     }
 
     /// Returns a scan over the source.
+    ///
+    /// Implementations reject a request whose expressions are not bound against
+    /// [`dtype`](Self::dtype), using [`ScanRequest::check_bound_to`].
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef>;
 
     /// Returns the statistics for a given field.
@@ -150,12 +153,16 @@ pub trait DataSource: 'static + Send + Sync {
 }
 
 /// A request to scan a data source.
+///
+/// The projection and filter are bound against the scanned source's [`DataSource::dtype`], and
+/// a source rejects expressions bound against any other dtype. A caller holding an unbound
+/// expression, such as one decoded from a foreign API, binds it against that dtype first.
 #[derive(Debug, Clone)]
 pub struct ScanRequest {
-    /// Projection expression. Defaults to `root()` which returns all columns.
-    pub projection: Expression,
+    /// Projection expression. `None` returns the source's rows as they are.
+    pub projection: Option<BoundExpression>,
     /// Filter expression, `None` implies no filter.
-    pub filter: Option<Expression>,
+    pub filter: Option<BoundExpression>,
     /// The per-partition row range to read. Row range will be applied
     /// over every partition you scan.
     pub row_range: Option<Range<u64>>,
@@ -188,7 +195,7 @@ pub struct ScanRequest {
 impl Default for ScanRequest {
     fn default() -> Self {
         Self {
-            projection: root(),
+            projection: None,
             filter: None,
             row_range: None,
             selection: Selection::default(),
@@ -198,6 +205,20 @@ impl Default for ScanRequest {
             partition_range: None,
             split_concurrency: None,
         }
+    }
+}
+
+impl ScanRequest {
+    /// Checks that the projection and filter are bound against `dtype`, the scanned source's
+    /// dtype.
+    pub fn check_bound_to(&self, dtype: &DType) -> VortexResult<()> {
+        for expr in self.projection.iter().chain(&self.filter) {
+            vortex_ensure!(
+                expr.is_root_bound_to(dtype),
+                "Scan expression {expr} is not bound against the source dtype {dtype}"
+            );
+        }
+        Ok(())
     }
 }
 

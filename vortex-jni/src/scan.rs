@@ -33,11 +33,11 @@ use jni::sys::jlong;
 use vortex::array::VortexSessionExecute;
 use vortex::array::stream::SendableArrayStream;
 use vortex::buffer::Buffer;
+use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
-use vortex::expr::root;
 use vortex::expr::stats::Precision;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::arrow::RecordBatchIteratorAdapter;
@@ -90,17 +90,18 @@ fn build_scan_request(
     limit: jlong,
     ordered: jboolean,
     split_concurrency: jint,
+    dtype: &DType,
 ) -> VortexResult<ScanRequest> {
     let projection = if projection_ptr == 0 {
-        root()
+        None
     } else {
-        unsafe { &*(projection_ptr as *const Expression) }.clone()
+        Some(unsafe { &*(projection_ptr as *const Expression) }.bind(dtype)?)
     };
 
     let filter = if filter_ptr == 0 {
         None
     } else {
-        Some(unsafe { &*(filter_ptr as *const Expression) }.clone())
+        Some(unsafe { &*(filter_ptr as *const Expression) }.bind(dtype)?)
     };
 
     let selection = match selection_include {
@@ -201,6 +202,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_create(
             limit,
             ordered,
             split_concurrency,
+            ds.inner().dtype(),
         )?;
 
         let split_concurrency = request.split_concurrency;

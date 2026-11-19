@@ -493,9 +493,14 @@ impl VortexDataSource {
                 stream::empty(),
             )) as SendableRecordBatchStream
         } else {
+            let dtype = self.data_source.dtype();
+            let bind = |expr: &Expression| {
+                expr.bind(dtype)
+                    .map_err(|e| DataFusionError::External(Box::new(e)))
+            };
             let scan_request = ScanRequest {
-                projection: self.projected_projection.clone(),
-                filter: self.filter.clone(),
+                projection: Some(bind(&self.projected_projection)?),
+                filter: self.filter.as_ref().map(bind).transpose()?,
                 limit: self.limit.map(|l| u64::try_from(l).unwrap_or(u64::MAX)),
                 ordered: self.ordered,
                 ..Default::default()

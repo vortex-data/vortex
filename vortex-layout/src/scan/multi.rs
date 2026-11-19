@@ -44,7 +44,6 @@ use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
-use vortex_error::SharedVortexResult;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -335,7 +334,7 @@ impl DataSource for MultiLayoutDataSource {
 #[derive(Clone)]
 struct BoundScanRequest {
     projection: BoundExpression,
-    filter: SharedVortexResult<Option<BoundExpression>>,
+    filter: Option<BoundExpression>,
     row_range: Option<Range<u64>>,
     selection: Selection,
     partition_selection: Selection,
@@ -347,6 +346,7 @@ struct BoundScanRequest {
 
 impl BoundScanRequest {
     fn try_new(request: ScanRequest, dtype: &DType) -> VortexResult<Self> {
+        request.check_bound_to(dtype)?;
         let ScanRequest {
             projection,
             filter,
@@ -360,11 +360,10 @@ impl BoundScanRequest {
         } = request;
 
         Ok(Self {
-            projection: projection.bind(dtype)?.optimize_recursive()?,
-            filter: filter
-                .map(|expr| expr.bind(dtype)?.optimize_recursive())
-                .transpose()
-                .map_err(Arc::new),
+            projection: projection
+                .unwrap_or_else(|| BoundExpression::new_root(dtype.clone()))
+                .optimize_recursive()?,
+            filter: filter.map(|expr| expr.optimize_recursive()).transpose()?,
             row_range,
             selection,
             partition_selection,
@@ -524,7 +523,7 @@ fn reader_partition(
 
     // Check file-level pruning: if the filter can be proven false for the entire row range
     // using file-level statistics, skip this reader entirely.
-    if let Ok(Some(filter)) = &request.filter {
+    if let Some(filter) = &request.filter {
         let mask_len = usize::try_from(row_range.end - row_range.start).unwrap_or(usize::MAX);
         let mask = Mask::new_true(mask_len);
         if let Ok(pruning_future) = reader.pruning_evaluation(&row_range, filter, mask)
@@ -581,11 +580,7 @@ impl Partition for MultiLayoutPartition {
             .limit
             .map_or(row_count, |limit| row_count.min(limit));
 
-        let has_filter = match &self.request.filter {
-            Ok(filter) => filter.is_some(),
-            Err(_) => true,
-        };
-        if has_filter || self.row_limit.is_some() {
+        if self.request.filter.is_some() || self.row_limit.is_some() {
             Precision::inexact(row_count)
         } else {
             Precision::exact(row_count)
@@ -598,11 +593,10 @@ impl Partition for MultiLayoutPartition {
 
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
         let request = self.request;
-        let filter = request.filter?;
         let mut builder = ScanBuilder::new(self.session, self.reader)
             .with_selection(request.selection)
             .with_projection(request.projection)
-            .with_some_filter(filter)
+            .with_some_filter(request.filter)
             .with_ordered(request.ordered)
             .with_some_max_splits_in_flight(request.split_concurrency);
         builder = match self.row_limit {
@@ -631,9 +625,6 @@ mod tests {
     use futures::TryStreamExt;
     use rstest::rstest;
     use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::PType;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_error::VortexResult;
     use vortex_io::runtime::BlockingRuntime;
@@ -679,21 +670,6 @@ mod tests {
         assert_eq!(deferred_source(sizes).byte_size(), expected);
     }
 
-    #[test]
-    fn filter_binding_errors_are_deferred() -> VortexResult<()> {
-        let dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
-        let request = ScanRequest {
-            filter: Some(eq(root(), lit(67_i32))),
-            ..ScanRequest::default()
-        };
-
-        let request = BoundScanRequest::try_new(request, &dtype)?;
-
-        assert_eq!(request.projection.dtype(), &dtype);
-        assert!(request.filter.is_err());
-        Ok(())
-    }
-
     struct StaticReaderFactory {
         reader: LayoutReaderRef,
     }
@@ -721,7 +697,7 @@ mod tests {
         );
 
         let scan = runtime.block_on(source.scan(ScanRequest {
-            filter: Some(root()),
+            filter: Some(root().bind(source.dtype())?),
             limit: Some(3),
             ordered: false,
             ..Default::default()

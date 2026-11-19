@@ -116,16 +116,17 @@ impl DataSource for LayoutReaderDataSource {
     }
 
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+        scan_request.check_bound_to(self.reader.dtype())?;
         let total_rows = self.reader.row_count();
         let row_range = scan_request.row_range.unwrap_or(0..total_rows);
 
         let projection = scan_request
             .projection
-            .bind(self.reader.dtype())?
+            .unwrap_or_else(|| BoundExpression::new_root(self.reader.dtype().clone()))
             .optimize_recursive()?;
         let filter = scan_request
             .filter
-            .map(|expr| expr.bind(self.reader.dtype())?.optimize_recursive())
+            .map(|expr| expr.optimize_recursive())
             .transpose()?;
         let dtype = projection.dtype().clone();
 
@@ -459,6 +460,9 @@ mod tests {
     use futures::StreamExt;
     use futures::TryStreamExt;
     use rstest::rstest;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::expr::root;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
@@ -509,7 +513,7 @@ mod tests {
             .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry));
         for execution in 1..=2 {
             let scan = runtime.block_on(source.scan(ScanRequest {
-                filter: Some(root()),
+                filter: Some(root().bind(source.dtype())?),
                 limit,
                 selection: if selected {
                     Selection::All
@@ -565,7 +569,7 @@ mod tests {
             .with_split_max_row_count(2);
 
         let scan = runtime.block_on(source.scan(ScanRequest {
-            filter: Some(root()),
+            filter: Some(root().bind(source.dtype())?),
             limit: Some(3),
             ordered: false,
             ..Default::default()
@@ -617,6 +621,22 @@ mod tests {
         }
 
         assert_eq!(values, [0, 2, 4]);
+        Ok(())
+    }
+
+    #[test]
+    fn scan_rejects_expressions_bound_to_another_dtype() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let source = LayoutReaderDataSource::new(Arc::new(TestLayoutReader::new(4)), session);
+        let other = DType::Primitive(PType::I64, Nullability::NonNullable);
+
+        let scan = runtime.block_on(source.scan(ScanRequest {
+            projection: Some(root().bind(&other)?),
+            ..Default::default()
+        }));
+
+        assert!(scan.is_err());
         Ok(())
     }
 }
