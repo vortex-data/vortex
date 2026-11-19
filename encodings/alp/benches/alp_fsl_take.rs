@@ -45,8 +45,8 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     vortex_alp::initialize(&session);
     session
 });
-/// Rows taken in one batch.
-const ROWS: &[usize] = &[16, 64, 256];
+/// Rows taken in one batch, few enough to keep the CodSpeed simulation under 1 ms.
+const ROWS: &[usize] = &[4, 8, 16];
 /// A chunked array of 16 chunks of 65536 `f32` values each, in rows of `list_size` values. About
 /// one value in twelve is an outlier that becomes a patch.
 fn embeddings(list_size: usize) -> ArrayRef {

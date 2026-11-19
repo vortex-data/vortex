@@ -59,8 +59,8 @@ const CHUNK_ROWS: usize = 32;
 /// Chunks of the array.
 const NUM_CHUNKS: usize = 16;
 
-/// Rows taken in one batch.
-const TAKEN_ROWS: &[usize] = &[16, 64, 256];
+/// Rows taken in one batch, few enough to keep the CodSpeed simulation under 1 ms.
+const TAKEN_ROWS: &[usize] = &[8, 16, 32];
 
 /// Lengths of the rows for a take of 64 rows, around the length where the take changes path.
 const LIST_SIZES: &[usize] = &[16, 64, 128, 256, 512];
