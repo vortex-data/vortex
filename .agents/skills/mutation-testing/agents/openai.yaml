@@ -1,0 +1,6 @@
+interface:
+  display_name: "Mutation Testing"
+  short_description: "Close test gaps in one scope with cargo-mutants"
+  default_prompt: "Use $mutation-testing to mutation-test one scope of the Vortex Rust code: run cargo-mutants, triage every survivor, add tests for the real gaps, record equivalent mutants, and write the report."
+policy:
+  allow_implicit_invocation: true
