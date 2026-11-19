@@ -5,7 +5,7 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use super::IsSortedIteratorExt;
+use super::IsSortedOptions;
 use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::NativeValue;
@@ -14,17 +14,17 @@ use crate::match_each_native_ptype;
 
 pub(super) fn check_primitive_sorted(
     array: &PrimitiveArray,
-    strict: bool,
+    options: &IsSortedOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
     match_each_native_ptype!(array.ptype(), |P| {
-        compute_is_sorted::<P>(array, strict, ctx)
+        compute_is_sorted::<P>(array, options, ctx)
     })
 }
 
 fn compute_is_sorted<T: NativePType>(
     array: &PrimitiveArray,
-    strict: bool,
+    options: &IsSortedOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
     match array
@@ -32,16 +32,12 @@ fn compute_is_sorted<T: NativePType>(
         .validity()?
         .execute_mask(array.as_ref().len(), ctx)?
     {
-        Mask::AllFalse(_) => Ok(!strict),
+        Mask::AllFalse(_) => Ok(!options.strict),
         Mask::AllTrue(_) => {
             let slice = array.as_slice::<T>();
             let iter = slice.iter().copied().map(NativeValue);
 
-            Ok(if strict {
-                iter.is_strict_sorted()
-            } else {
-                iter.is_sorted()
-            })
+            Ok(options.is_sorted(iter))
         }
         Mask::Values(mask_values) => {
             let iter = mask_values
@@ -50,11 +46,7 @@ fn compute_is_sorted<T: NativePType>(
                 .zip_eq(array.as_slice::<T>())
                 .map(|(is_valid, value)| is_valid.then_some(NativeValue(*value)));
 
-            Ok(if strict {
-                iter.is_strict_sorted()
-            } else {
-                iter.is_sorted()
-            })
+            Ok(options.is_nullable_sorted(iter))
         }
     }
 }

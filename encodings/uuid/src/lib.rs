@@ -156,7 +156,7 @@ mod tests {
         let column = uuid_column(leading_bytes)?;
         let mut acc = Accumulator::try_new(
             ExtensionStoragePushdown::new(IsSorted, Uuid),
-            IsSortedOptions { strict },
+            IsSortedOptions::default().with_strict(strict),
             column.dtype().clone(),
         )?;
         acc.accumulate(&column, &mut session.create_execution_ctx())?;

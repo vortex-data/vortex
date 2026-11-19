@@ -7,6 +7,7 @@ mod fixed_size_list;
 mod primitive;
 mod varbin;
 
+use std::cmp::Reverse;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -45,16 +46,157 @@ use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
 
-/// Options for the `is_sorted` aggregate function.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+/// The order of non-null values, independent of where nulls sort.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SortDirection {
+    /// Increasing values.
+    #[default]
+    Asc,
+    /// Decreasing values.
+    Desc,
+}
+
+/// Where nulls sort relative to non-null values.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum NullOrder {
+    /// Nulls come before all values, whatever the direction.
+    #[default]
+    First,
+    /// Nulls come after all values, whatever the direction.
+    Last,
+}
+
+/// Options for the [`IsSorted`] aggregate function.
+///
+/// # Serialization
+///
+/// Options are serialized as a single byte, with one bit per field:
+///
+/// ```text
+///  bit   7  6  5  4  3      2            1           0
+///      ┌────────────────┬────────────┬───────────┬────────┐
+///      │ reserved (0)   │ null order │ direction │ strict │
+///      └────────────────┴────────────┴───────────┴────────┘
+///                         0 = first    0 = asc     0 = no
+///                         1 = last     1 = desc    1 = yes
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct IsSortedOptions {
-    /// If true, check for strictly ascending order (no duplicates).
+    /// If true, require strict order (no duplicates).
     pub strict: bool,
+    /// The direction to check.
+    pub direction: SortDirection,
+    /// Where nulls must appear, independent of the direction.
+    pub null_order: NullOrder,
+}
+
+impl IsSortedOptions {
+    /// Returns these options with `strict` replaced.
+    pub fn with_strict(self, strict: bool) -> Self {
+        Self { strict, ..self }
+    }
+
+    /// Returns these options with `direction` replaced.
+    pub fn with_direction(self, direction: SortDirection) -> Self {
+        Self { direction, ..self }
+    }
+
+    /// Returns these options with `null_order` replaced.
+    pub fn with_null_order(self, null_order: NullOrder) -> Self {
+        Self { null_order, ..self }
+    }
+}
+
+// Options bits position inside a single byte.
+//
+// As a reference check [IsSortedOptions] doc.
+const STRICT_BIT: u8 = 1 << 0;
+const DESC_BIT: u8 = 1 << 1;
+const NULLS_LAST_BIT: u8 = 1 << 2;
+
+impl Display for SortDirection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Asc => "asc",
+            Self::Desc => "desc",
+        })
+    }
+}
+
+impl Display for NullOrder {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::First => "first",
+            Self::Last => "last",
+        })
+    }
 }
 
 impl Display for IsSortedOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "strict={}", self.strict)
+        write!(
+            f,
+            "strict={}, direction={}, nulls={}",
+            self.strict, self.direction, self.null_order
+        )
+    }
+}
+
+impl IsSortedOptions {
+    fn is_sorted<I: Iterator>(&self, iter: I) -> bool
+    where
+        I::Item: PartialOrd,
+    {
+        match (self.direction, self.strict) {
+            (SortDirection::Asc, false) => iter.is_sorted(),
+            (SortDirection::Asc, true) => iter.is_strict_sorted(),
+            (SortDirection::Desc, false) => iter.is_sorted_by(|a, b| a >= b),
+            (SortDirection::Desc, true) => iter.is_sorted_by(|a, b| a > b),
+        }
+    }
+
+    /// Checks if a nullable iterator is sorted, with nulls placed according to `null_order`.
+    ///
+    /// Every case is checked as ascending. [`Reverse`] around the values flips their order, and
+    /// around the whole `Option` it also moves the nulls after every value. `Reverse` is free at
+    /// runtime, so all four cases cost one `Option` comparison per pair.
+    ///
+    /// TODO (joacoc): I'm looking for alternatives to avoid using reverse here. Alternatives
+    /// are for example, checking nulls in another place, instead of comparing `Option`s here. In a
+    /// sorted array the nulls form one block at the end chosen by `null_order`, so a popcount over
+    /// that block checks their placement, and the values in between can be checked as a plain
+    /// slice, without `Reverse` or per-element validity.
+    fn is_nullable_sorted<T: PartialOrd>(&self, iter: impl Iterator<Item = Option<T>>) -> bool {
+        let ascending = self.with_direction(SortDirection::Asc);
+        match (self.direction, self.null_order) {
+            // `None` already compares below every `Some`.
+            (SortDirection::Asc, NullOrder::First) => ascending.is_sorted(iter),
+            // Reversing the values inside `Option` flips their order and keeps the nulls first.
+            (SortDirection::Desc, NullOrder::First) => {
+                ascending.is_sorted(iter.map(|value| value.map(Reverse)))
+            }
+            // Reversing the whole `Option` flips the values and moves the nulls last.
+            (SortDirection::Desc, NullOrder::Last) => ascending.is_sorted(iter.map(Reverse)),
+            // Reversing twice keeps the values ascending, and the outer `Reverse` moves the nulls
+            // last.
+            (SortDirection::Asc, NullOrder::Last) => {
+                ascending.is_sorted(iter.map(|value| Reverse(value.map(Reverse))))
+            }
+        }
+    }
+
+    fn boundary_is_sorted(&self, previous: &Scalar, next: &Scalar) -> bool {
+        match (previous.is_null(), next.is_null()) {
+            (true, true) => !self.strict,
+            (true, false) => self.null_order == NullOrder::First,
+            (false, true) => self.null_order == NullOrder::Last,
+            (false, false) => match (self.direction, self.strict) {
+                (SortDirection::Asc, false) => previous <= next,
+                (SortDirection::Asc, true) => previous < next,
+                (SortDirection::Desc, false) => previous >= next,
+                (SortDirection::Desc, true) => previous > next,
+            },
+        }
     }
 }
 
@@ -64,7 +206,7 @@ impl Display for IsSortedOptions {
 /// Returns `false` for struct, list, and fixed-size list arrays, except fixed-size lists of
 /// non-nullable `u8`, which are ordered by byte.
 pub fn is_sorted(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-    is_sorted_impl(array, false, ctx)
+    is_sorted_with_options(array, IsSortedOptions::default(), ctx)
 }
 
 /// Compute whether an array is strictly sorted in increasing order (no duplicates).
@@ -73,16 +215,20 @@ pub fn is_sorted(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool>
 /// Returns `false` for struct, list, and fixed-size list arrays, except fixed-size lists of
 /// non-nullable `u8`, which are ordered by byte.
 pub fn is_strict_sorted(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-    is_sorted_impl(array, true, ctx)
+    is_sorted_with_options(array, IsSortedOptions::default().with_strict(true), ctx)
 }
 
-fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-    let stat = if strict {
-        Stat::IsStrictSorted
-    } else {
-        Stat::IsSorted
-    };
-
+/// Checks sortedness.
+///
+/// Properties:
+/// - Empty arrays and arrays of length one are always sorted, including in strict mode.
+/// - Only ascending results use cached sortedness stats, and with nulls last only when the
+///   array has no nulls.
+pub fn is_sorted_with_options(
+    array: &ArrayRef,
+    options: IsSortedOptions,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
     // Arrays with 0 or 1 elements are (strict) sorted. Check this before the cached
     // statistics so that a stale hint cannot contradict it.
     if array.len() <= 1 {
@@ -90,14 +236,14 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
     }
 
     // Short-circuit using cached array statistics.
-    if let Precision::Exact(value) = array.statistics().get_as::<bool>(stat) {
+    if let Some(value) = cached_sortedness(array, &options) {
         return Ok(value);
     }
 
     // Constant and null arrays are always sorted, but not strict sorted.
     if array.is::<Constant>() || array.is::<Null>() {
-        let result = !strict;
-        cache_is_sorted(array, strict, result);
+        let result = !options.strict;
+        set_sortedness_cache(array, &options, result);
         return Ok(result);
     }
 
@@ -107,50 +253,95 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
     }
 
     // Short-circuit for unsupported dtypes.
-    if IsSorted
-        .return_dtype(&IsSortedOptions { strict }, array.dtype())
-        .is_none()
-    {
+    if IsSorted.return_dtype(&options, array.dtype()).is_none() {
         return Ok(false);
     }
 
     // Enforce strictness before we even try to check if the array is sorted.
-    if strict {
+    if options.strict {
         let invalid_count = array.invalid_count(ctx)?;
         match invalid_count {
             // We can keep going
             0 => {}
-            // If we have a potential null value - it has to be the first one.
+            // A single null position depends on the null order.
             1 => {
-                if !array.is_invalid(0, ctx)? {
-                    cache_is_sorted(array, strict, false);
+                let null_index = match options.null_order {
+                    NullOrder::First => 0,
+                    NullOrder::Last => array.len() - 1,
+                };
+                if !array.is_invalid(null_index, ctx)? {
+                    set_sortedness_cache(array, &options, false);
                     return Ok(false);
                 }
             }
             _ => {
-                cache_is_sorted(array, strict, false);
+                set_sortedness_cache(array, &options, false);
                 return Ok(false);
             }
         }
     }
 
     // Compute using Accumulator<IsSorted>.
-    let mut acc =
-        Accumulator::try_new(IsSorted, IsSortedOptions { strict }, array.dtype().clone())?;
+    let mut acc = Accumulator::try_new(IsSorted, options, array.dtype().clone())?;
     acc.accumulate(array, ctx)?;
     let result_scalar = acc.finish()?;
 
     let result = result_scalar.as_bool().value().unwrap_or(false);
 
     // Cache the computed result as statistics.
-    cache_is_sorted(array, strict, result);
+    set_sortedness_cache(array, &options, result);
 
     Ok(result)
 }
 
-fn cache_is_sorted(array: &ArrayRef, strict: bool, result: bool) {
+/// Returns true if the options can use the cache.
+///
+/// The current cache cannot discern between different options,
+/// e.g. between asc and desc options. So, it is not possible to
+/// use the cache for them. The only valid case is `ASC`, strict or
+/// non-strict, with nulls first. Nulls last can also use it when the
+/// array has no nulls, because then the null order doesn't make a
+/// difference.
+fn can_use_sortedness_cache(array: &ArrayRef, options: &IsSortedOptions) -> bool {
+    if options.direction != SortDirection::Asc {
+        return false;
+    }
+
+    match options.null_order {
+        NullOrder::First => true,
+        NullOrder::Last => {
+            !array.dtype().is_nullable()
+                || array.statistics().get_as::<usize>(Stat::NullCount) == Precision::Exact(0)
+        }
+    }
+}
+
+/// Returns cached sortedness if possible.
+///
+/// If aggregate options are not default or there is no
+/// cached value, returns `None`.
+fn cached_sortedness(array: &ArrayRef, options: &IsSortedOptions) -> Option<bool> {
+    if !can_use_sortedness_cache(array, options) {
+        return None;
+    }
+
+    let stat = if options.strict {
+        Stat::IsStrictSorted
+    } else {
+        Stat::IsSorted
+    };
+
+    array.statistics().get_as::<bool>(stat).as_exact()
+}
+
+/// Cache sortedness into the array stats.
+fn set_sortedness_cache(array: &ArrayRef, options: &IsSortedOptions, result: bool) {
+    if !can_use_sortedness_cache(array, options) {
+        return;
+    }
+
     let array_stats = array.statistics();
-    if strict {
+    if options.strict {
         if result {
             array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
             array_stats.set(Stat::IsStrictSorted, Precision::Exact(true.into()));
@@ -254,7 +445,18 @@ impl AggregateFnVTable for IsSorted {
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![u8::from(options.strict)]))
+        let mut byte = 0;
+        if options.strict {
+            byte |= STRICT_BIT;
+        }
+        if options.direction == SortDirection::Desc {
+            byte |= DESC_BIT;
+        }
+        if options.null_order == NullOrder::Last {
+            byte |= NULLS_LAST_BIT;
+        }
+
+        Ok(Some(vec![byte]))
     }
 
     fn deserialize(
@@ -262,11 +464,27 @@ impl AggregateFnVTable for IsSorted {
         metadata: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        match metadata {
-            [0] => Ok(IsSortedOptions { strict: false }),
-            [1] => Ok(IsSortedOptions { strict: true }),
-            _ => vortex_bail!("Invalid IsSorted options: expected a single boolean byte"),
+        let &[byte] = metadata else {
+            vortex_bail!("Invalid IsSorted options: expected a single byte");
+        };
+
+        if byte & !(STRICT_BIT | DESC_BIT | NULLS_LAST_BIT) != 0 {
+            vortex_bail!("Invalid IsSorted options: reserved bits set in {byte:#010b}");
         }
+
+        Ok(IsSortedOptions {
+            strict: byte & STRICT_BIT != 0,
+            direction: if byte & DESC_BIT != 0 {
+                SortDirection::Desc
+            } else {
+                SortDirection::Asc
+            },
+            null_order: if byte & NULLS_LAST_BIT != 0 {
+                NullOrder::Last
+            } else {
+                NullOrder::First
+            },
+        })
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -371,23 +589,10 @@ impl AggregateFnVTable for IsSorted {
         // A partial that saw a single value carries it as both boundaries.
         let last = partial.last_value.unwrap_or_else(|| first.clone());
 
-        if let Some(acc_last) = &acc.last_value {
-            if !acc_last.is_null() && !first.is_null() {
-                let boundary_ok = if args.options.strict {
-                    *acc_last < first
-                } else {
-                    *acc_last <= first
-                };
-                if !boundary_ok {
-                    acc.is_sorted = false;
-                }
-            } else if !acc_last.is_null() && first.is_null() {
-                // non-null before null violates sort order
-                acc.is_sorted = false;
-            } else if acc_last.is_null() && first.is_null() && args.options.strict {
-                // both null with strict: violates strict sort
-                acc.is_sorted = false;
-            }
+        if let Some(acc_last) = &acc.last_value
+            && !args.options.boundary_is_sorted(acc_last, &first)
+        {
+            acc.is_sorted = false;
         }
 
         if acc.first_value.is_none() {
@@ -462,21 +667,10 @@ impl AggregateFnVTable for IsSorted {
                 }
 
                 // Check boundary with previous chunk.
-                if let Some(self_last) = &partial.last_value {
-                    if !self_last.is_null() && !value.is_null() {
-                        let boundary_ok = if args.options.strict {
-                            *self_last < value
-                        } else {
-                            *self_last <= value
-                        };
-                        if !boundary_ok {
-                            partial.is_sorted = false;
-                        }
-                    } else if (!self_last.is_null() && value.is_null())
-                        || (self_last.is_null() && value.is_null() && args.options.strict)
-                    {
-                        partial.is_sorted = false;
-                    }
+                if let Some(self_last) = &partial.last_value
+                    && !args.options.boundary_is_sorted(self_last, &value)
+                {
+                    partial.is_sorted = false;
                 }
 
                 if partial.first_value.is_none() {
@@ -494,52 +688,30 @@ impl AggregateFnVTable for IsSorted {
 
                 // Check boundary with previous chunk.
                 let first_value = array_ref.execute_scalar(0, ctx)?.into_nullable();
-                if let Some(self_last) = &partial.last_value {
-                    if !self_last.is_null() && !first_value.is_null() {
-                        let boundary_ok = if args.options.strict {
-                            *self_last < first_value
-                        } else {
-                            *self_last <= first_value
-                        };
-                        if !boundary_ok {
-                            partial.is_sorted = false;
-                            partial.last_value = Some(
-                                array_ref
-                                    .execute_scalar(array_ref.len() - 1, ctx)?
-                                    .into_nullable(),
-                            );
-                            if partial.first_value.is_none() {
-                                partial.first_value = Some(first_value);
-                            }
-                            return Ok(());
-                        }
-                    } else if (!self_last.is_null() && first_value.is_null())
-                        || (self_last.is_null() && first_value.is_null() && args.options.strict)
-                    {
-                        partial.is_sorted = false;
-                        partial.last_value = Some(
-                            array_ref
-                                .execute_scalar(array_ref.len() - 1, ctx)?
-                                .into_nullable(),
-                        );
-                        if partial.first_value.is_none() {
-                            partial.first_value = Some(first_value);
-                        }
-                        return Ok(());
+                if let Some(self_last) = &partial.last_value
+                    && !args.options.boundary_is_sorted(self_last, &first_value)
+                {
+                    partial.is_sorted = false;
+                    partial.last_value = Some(
+                        array_ref
+                            .execute_scalar(array_ref.len() - 1, ctx)?
+                            .into_nullable(),
+                    );
+                    if partial.first_value.is_none() {
+                        partial.first_value = Some(first_value);
                     }
+                    return Ok(());
                 }
 
                 // Check within-batch sortedness.
                 let batch_is_sorted = match c {
                     _ if c.len() == 1 => true,
-                    Canonical::Primitive(p) => check_primitive_sorted(p, args.options.strict, ctx)?,
-                    Canonical::Bool(b) => check_bool_sorted(b, args.options.strict, ctx)?,
-                    Canonical::VarBinView(v) => {
-                        check_varbinview_sorted(v, args.options.strict, ctx)?
-                    }
-                    Canonical::Decimal(d) => check_decimal_sorted(d, args.options.strict, ctx)?,
+                    Canonical::Primitive(p) => check_primitive_sorted(p, args.options, ctx)?,
+                    Canonical::Bool(b) => check_bool_sorted(b, args.options, ctx)?,
+                    Canonical::VarBinView(v) => check_varbinview_sorted(v, args.options, ctx)?,
+                    Canonical::Decimal(d) => check_decimal_sorted(d, args.options, ctx)?,
                     Canonical::FixedSizeList(f) => {
-                        check_fixed_size_bytes_sorted(f, args.options.strict, ctx)?
+                        check_fixed_size_bytes_sorted(f, args.options, ctx)?
                     }
                     Canonical::Null(_) => !args.options.strict,
                     // Struct, List, other FixedSizeLists and Extension should have been filtered
@@ -633,13 +805,17 @@ mod tests {
     use crate::aggregate_fn::fns::is_sorted::IsSorted;
     use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
     use crate::aggregate_fn::fns::is_sorted::IsSortedPartial;
+    use crate::aggregate_fn::fns::is_sorted::NullOrder;
+    use crate::aggregate_fn::fns::is_sorted::SortDirection;
     use crate::aggregate_fn::fns::is_sorted::is_sorted;
+    use crate::aggregate_fn::fns::is_sorted::is_sorted_with_options;
     use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::DecimalArray;
     use crate::arrays::DictArray;
+    use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
@@ -651,6 +827,7 @@ mod tests {
     use crate::dtype::PType;
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
+    use crate::expr::stats::StatsProviderExt;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
@@ -820,7 +997,7 @@ mod tests {
     fn empty_constant_leaves_partial_empty() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array = ConstantArray::new(Scalar::from(99i32), 0).into_array();
-        let options = IsSortedOptions { strict: false };
+        let options = IsSortedOptions::default();
         let mut acc = Accumulator::try_new(IsSorted, options, array.dtype().clone())?;
 
         acc.accumulate(&array, &mut ctx)?;
@@ -835,8 +1012,8 @@ mod tests {
     fn unsorted_merged_into_empty_keeps_verdict() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let options = IsSortedOptions { strict: false };
-        let mut empty = Accumulator::try_new(IsSorted, options.clone(), dtype.clone())?;
+        let options = IsSortedOptions::default();
+        let mut empty = Accumulator::try_new(IsSorted, options, dtype.clone())?;
         let mut unsorted = Accumulator::try_new(IsSorted, options, dtype)?;
 
         // An empty batch materializes the empty partial in place.
@@ -859,7 +1036,7 @@ mod tests {
     #[test]
     fn unsorted_partial_without_boundaries_is_not_empty() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let options = IsSortedOptions { strict: false };
+        let options = IsSortedOptions::default();
         let owned = AggregateDTypes::try_new(&IsSorted, &options, dtype)?;
         let args = owned.args(&options);
         let partial = IsSortedPartial {
@@ -895,7 +1072,7 @@ mod tests {
         for array in [array, dict, runend] {
             let mut acc = Accumulator::try_new(
                 IsSorted,
-                IsSortedOptions { strict: true },
+                IsSortedOptions::default().with_strict(true),
                 array.dtype().clone(),
             )?;
             acc.accumulate(&array, &mut ctx)?;
@@ -926,7 +1103,7 @@ mod tests {
             .collect::<Vec<_>>();
         let mut split = Accumulator::try_new(
             IsSorted,
-            IsSortedOptions { strict: true },
+            IsSortedOptions::default().with_strict(true),
             flat.dtype().clone(),
         )?;
         for chunk in &chunks {
@@ -940,7 +1117,7 @@ mod tests {
         for array in [flat, chunked] {
             let mut acc = Accumulator::try_new(
                 IsSorted,
-                IsSortedOptions { strict: true },
+                IsSortedOptions::default().with_strict(true),
                 array.dtype().clone(),
             )?;
             acc.accumulate(&array, &mut ctx)?;
@@ -972,7 +1149,8 @@ mod tests {
         )?
         .into_array();
 
-        let mut acc = GroupedAccumulator::try_new(IsSorted, IsSortedOptions { strict }, dtype)?;
+        let options = IsSortedOptions::default().with_strict(strict);
+        let mut acc = GroupedAccumulator::try_new(IsSorted, options, dtype)?;
         acc.accumulate_list(&groups, &mut ctx)?;
 
         assert_arrays_eq!(acc.finish()?, BoolArray::from_iter(expected), &mut ctx);
@@ -1016,6 +1194,235 @@ mod tests {
 
         assert!(!is_sorted(&flat, &mut ctx)?);
         assert!(!is_sorted(&chunked, &mut ctx)?);
+        Ok(())
+    }
+
+    /// Nullable primitive arrays are covered by `null_order_batch_boundaries`.
+    #[rstest]
+    #[case::float(buffer![f64::INFINITY, 2.0, -0.0, f64::NEG_INFINITY].into_array())]
+    #[case::bool(BoolArray::from_iter([None, Some(true), Some(false)]).into_array())]
+    #[case::decimal(DecimalArray::new(
+        buffer![3i128, 2, 1], DecimalDType::new(19, 2), Validity::NonNullable,
+    ).into_array())]
+    #[case::utf8(VarBinViewArray::from_iter_nullable_str([None, Some("zz"), Some("aa")]).into_array())]
+    #[case::binary(VarBinViewArray::from_iter_bin([b"zz", b"aa"]).into_array())]
+    #[case::fixed_size_bytes(FixedSizeListArray::new(
+        buffer![3u8, 0, 2, 0].into_array(), 2, Validity::NonNullable, 2,
+    ).into_array())]
+    fn descending_supported_types(
+        #[case] array: ArrayRef,
+        #[values(false, true)] strict: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let options = IsSortedOptions::default()
+            .with_strict(strict)
+            .with_direction(SortDirection::Desc);
+
+        assert!(is_sorted_with_options(&array, options, &mut ctx)?);
+        assert!(!is_sorted(&array, &mut ctx)?);
+        Ok(())
+    }
+
+    /// Primitive arrays are covered by `null_order_batch_boundaries`.
+    #[rstest]
+    #[case::bool(BoolArray::from_iter([Some(false), Some(true), None]).into_array())]
+    #[case::decimal(DecimalArray::new(
+        buffer![1i128, 2, 0],
+        DecimalDType::new(19, 2),
+        Validity::from_iter([true, true, false]),
+    ).into_array())]
+    #[case::utf8(VarBinViewArray::from_iter_nullable_str([Some("aa"), Some("zz"), None]).into_array())]
+    #[case::fixed_size_bytes(FixedSizeListArray::new(
+        buffer![0u8, 2, 0, 3, 0, 0].into_array(), 2, Validity::from_iter([true, true, false]), 3,
+    ).into_array())]
+    fn nulls_last_supported_types(
+        #[case] array: ArrayRef,
+        #[values(false, true)] strict: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let options = IsSortedOptions::default()
+            .with_strict(strict)
+            .with_null_order(NullOrder::Last);
+
+        assert!(is_sorted_with_options(&array, options, &mut ctx)?);
+        assert!(!is_sorted_with_options(
+            &array,
+            IsSortedOptions::default().with_strict(true),
+            &mut ctx
+        )?);
+        Ok(())
+    }
+
+    /// Expected verdicts are `[nulls first, nulls last]`, each as `[non-strict, strict]`.
+    ///
+    /// Empty and single-element arrays are covered by `strict_sorted_batch_boundaries` and
+    /// `singleton_null_is_strict_sorted`; their verdict doesn't depend on the options.
+    #[rstest]
+    #[case::leading_null(
+        SortDirection::Desc, vec![None, Some(3), Some(2)], [[true, true], [false, false]]
+    )]
+    #[case::trailing_null(
+        SortDirection::Desc, vec![Some(3), Some(2), None], [[false, false], [true, true]]
+    )]
+    #[case::increasing(SortDirection::Desc, vec![Some(2), Some(3)], [[false, false], [false, false]])]
+    #[case::repeated_trailing_nulls(
+        SortDirection::Desc, vec![Some(3), None, None], [[false, false], [true, false]]
+    )]
+    #[case::asc_leading_null(
+        SortDirection::Asc, vec![None, Some(2), Some(3)], [[true, true], [false, false]]
+    )]
+    #[case::asc_trailing_null(
+        SortDirection::Asc, vec![Some(2), Some(3), None], [[false, false], [true, true]]
+    )]
+    #[case::asc_interior_null(
+        SortDirection::Asc, vec![Some(2), None, Some(3)], [[false, false], [false, false]]
+    )]
+    fn null_order_batch_boundaries(
+        #[case] direction: SortDirection,
+        #[case] values: Vec<Option<i32>>,
+        #[case] expected: [[bool; 2]; 2],
+        #[values(NullOrder::First, NullOrder::Last)] null_order: NullOrder,
+        #[values(false, true)] strict: bool,
+    ) -> VortexResult<()> {
+        let expected = expected[usize::from(null_order == NullOrder::Last)][usize::from(strict)];
+        let mut ctx = SESSION.create_execution_ctx();
+        let options = IsSortedOptions {
+            strict,
+            direction,
+            null_order,
+        };
+        let flat = PrimitiveArray::from_option_iter(values.iter().copied()).into_array();
+        assert_eq!(is_sorted_with_options(&flat, options, &mut ctx)?, expected);
+
+        let mut split = Accumulator::try_new(IsSorted, options, flat.dtype().clone())?;
+        let mut merged = Accumulator::try_new(IsSorted, options, flat.dtype().clone())?;
+        for value in values {
+            let chunk = PrimitiveArray::from_option_iter([value]).into_array();
+            split.accumulate(&chunk, &mut ctx)?;
+
+            let mut single = Accumulator::try_new(IsSorted, options, flat.dtype().clone())?;
+            single.accumulate(&chunk, &mut ctx)?;
+            merged.merge_from(&mut single)?;
+        }
+
+        let expected = Scalar::bool(expected, Nullability::NonNullable);
+        assert_eq!(split.finish()?, expected);
+        assert_eq!(merged.finish()?, expected);
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::descending(
+        buffer![1i32, 2, 3].into_array(), SortDirection::Desc, NullOrder::First, false
+    )]
+    #[case::descending_sorted(
+        buffer![3i32, 2, 1].into_array(), SortDirection::Desc, NullOrder::First, true
+    )]
+    #[case::nulls_last(
+        PrimitiveArray::from_option_iter([None, Some(1i32), Some(2)]).into_array(),
+        SortDirection::Asc,
+        NullOrder::Last,
+        false,
+    )]
+    #[case::nulls_last_sorted(
+        PrimitiveArray::from_option_iter([Some(1i32), Some(2), None]).into_array(),
+        SortDirection::Asc,
+        NullOrder::Last,
+        true,
+    )]
+    fn non_default_order_ignores_stats(
+        #[case] array: ArrayRef,
+        #[case] direction: SortDirection,
+        #[case] null_order: NullOrder,
+        #[case] sorted: bool,
+        #[values(false, true)] strict: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let stats = [Stat::IsSorted, Stat::IsStrictSorted];
+        for stat in stats {
+            array
+                .statistics()
+                .set(stat, Precision::Exact((!sorted).into()));
+        }
+        let options = IsSortedOptions {
+            strict,
+            direction,
+            null_order,
+        };
+
+        assert_eq!(is_sorted_with_options(&array, options, &mut ctx)?, sorted);
+
+        for stat in stats {
+            assert_eq!(
+                array.statistics().get_as::<bool>(stat),
+                Precision::Exact(!sorted),
+            );
+        }
+
+        Ok(())
+    }
+
+    fn known_without_nulls() -> ArrayRef {
+        let array = PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3)]).into_array();
+        array
+            .statistics()
+            .set(Stat::NullCount, Precision::Exact(0u64.into()));
+        array
+    }
+
+    /// Without nulls, nulls last has the same verdict as nulls first, so it reads the ascending
+    /// statistics. The planted verdict is stale, so the result shows whether they were read.
+    #[rstest]
+    #[case::non_nullable(buffer![1i32, 2, 3].into_array(), true)]
+    #[case::known_without_nulls(known_without_nulls(), true)]
+    #[case::unknown_null_count(
+        PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3)]).into_array(),
+        false,
+    )]
+    fn nulls_last_reads_stats_without_nulls(
+        #[case] array: ArrayRef,
+        #[case] reads_stats: bool,
+        #[values(false, true)] strict: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        for stat in [Stat::IsSorted, Stat::IsStrictSorted] {
+            array.statistics().set(stat, Precision::Exact(false.into()));
+        }
+        let options = IsSortedOptions::default()
+            .with_strict(strict)
+            .with_null_order(NullOrder::Last);
+
+        assert_eq!(
+            is_sorted_with_options(&array, options, &mut ctx)?,
+            !reads_stats
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::ascending(false, SortDirection::Asc, NullOrder::First, 0)]
+    #[case::strict_ascending(true, SortDirection::Asc, NullOrder::First, 1)]
+    #[case::descending(false, SortDirection::Desc, NullOrder::First, 2)]
+    #[case::strict_descending(true, SortDirection::Desc, NullOrder::First, 3)]
+    #[case::ascending_nulls_last(false, SortDirection::Asc, NullOrder::Last, 4)]
+    #[case::strict_ascending_nulls_last(true, SortDirection::Asc, NullOrder::Last, 5)]
+    #[case::descending_nulls_last(false, SortDirection::Desc, NullOrder::Last, 6)]
+    #[case::strict_descending_nulls_last(true, SortDirection::Desc, NullOrder::Last, 7)]
+    fn options_metadata(
+        #[case] strict: bool,
+        #[case] direction: SortDirection,
+        #[case] null_order: NullOrder,
+        #[case] byte: u8,
+    ) -> VortexResult<()> {
+        let options = IsSortedOptions {
+            strict,
+            direction,
+            null_order,
+        };
+        assert_eq!(IsSorted.serialize(&options)?, Some(vec![byte]));
+        assert_eq!(IsSorted.deserialize(&[byte], &SESSION)?, options);
         Ok(())
     }
 }

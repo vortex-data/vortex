@@ -100,7 +100,7 @@ use crate::scalar::Scalar;
 ///
 /// let mut acc = Accumulator::try_new(
 ///     is_sorted,
-///     IsSortedOptions { strict: true },
+///     IsSortedOptions::default().with_strict(true),
 ///     DType::Extension(ext_dtype),
 /// )?;
 /// acc.accumulate(&column, &mut session.create_execution_ctx())?;
@@ -501,7 +501,7 @@ mod tests {
 
         let mut acc = Accumulator::try_new(
             ExtensionStoragePushdown::new(IsSorted, Timestamp),
-            IsSortedOptions { strict },
+            IsSortedOptions::default().with_strict(strict),
             DType::Extension(ext_dtype),
         )?;
         acc.accumulate(&array, &mut ctx)?;
