@@ -24,6 +24,7 @@ use crate::arrays::FixedSizeListArray;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::Slice;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
@@ -36,6 +37,7 @@ use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_unsigned_integer_ptype;
+use crate::optimizer::ArrayOptimizer;
 use crate::validity::Validity;
 
 /// Flattens per-chunk take/filter results into a single array. Flat dtypes append directly into
@@ -380,6 +382,23 @@ fn take_chunked_fsl(
     fsl.into_array().take(indices.clone()).map(Some)
 }
 
+/// Out-of-order runs at least this long on average append to the result directly, in output
+/// order.
+///
+/// Each run is a slice of a chunk that appends into one builder, so the rows are decoded once.
+/// Each slice has a fixed cost, so for very short runs a second copy of the gathered rows costs
+/// about the same. In the `chunked_fsl_take` bench, the two paths are equal for runs of 16 rows,
+/// and the direct path is faster from 64 rows.
+const MIN_AVERAGE_DIRECT_RUN: usize = 32;
+
+/// Runs of a slice that does its work at execution append directly only if they are at least
+/// this long on average.
+const MIN_AVERAGE_EXECUTED_RUN: usize = 256;
+
+/// Runs of a slice that does its work at execution append directly only if they read at most
+/// `1 / SPARSE_CHUNK_RATIO` of the rows of each chunk.
+const SPARSE_CHUNK_RATIO: usize = 8;
+
 /// A per-chunk gather plan: chunk-local sub-piece runs to take from one chunk, in output order.
 #[derive(Default)]
 struct ChunkGather {
@@ -435,6 +454,9 @@ fn take_piecewise_chunked(
     // Sub-pieces in output order: (chunk index, offset within that chunk's gathered output, run
     // length).
     let mut sub_pieces: Vec<(usize, usize, usize)> = Vec::with_capacity(starts.len());
+    // Sub-pieces in output order as (chunk index, start in the chunk, run length). A run that
+    // continues the previous run in the same chunk extends it.
+    let mut runs: Vec<(usize, usize, usize)> = Vec::with_capacity(starts.len());
     let mut monotonic = true;
     let mut prev_chunk = 0usize;
     let mut total_len = 0usize;
@@ -479,7 +501,18 @@ fn take_piecewise_chunked(
             }
             // A run that continues exactly where the chunk's previous run ended extends it, so
             // contiguous spans gather as one run.
-            let local_start = (cursor - chunk_offsets[chunk_idx]) as u64;
+            let local_start = cursor - chunk_offsets[chunk_idx];
+
+            match runs.last_mut() {
+                Some((last_chunk, last_start, last_run))
+                    if *last_chunk == chunk_idx && *last_start + *last_run == local_start =>
+                {
+                    *last_run += run;
+                }
+                _ => runs.push((chunk_idx, local_start, run)),
+            }
+
+            let local_start = local_start as u64;
             match (plan.starts.last(), plan.lengths.last_mut()) {
                 (Some(&prev_start), Some(prev_len)) if prev_start + *prev_len == local_start => {
                     *prev_len += run as u64;
@@ -521,6 +554,27 @@ fn take_piecewise_chunked(
         return Ok(Some(result));
     }
 
+    // Long out-of-order runs: append a slice of each run to the result in output order, so the
+    // rows are decoded once and copied once.
+    if !array.dtype().is_nested()
+        && output_len >= runs.len() * MIN_AVERAGE_DIRECT_RUN
+        && (sparse_long_runs(array, &plans, runs.len(), output_len)
+            || slices_reduce(array, &runs, ctx)?)
+    {
+        let mut flattener = ChunkFlattener::new(array.dtype(), output_len, ctx.allocator());
+
+        for &(chunk_idx, local_start, run) in &runs {
+            flattener.push(
+                array
+                    .chunk(chunk_idx)
+                    .slice(local_start..local_start + run)?,
+                ctx,
+            )?;
+        }
+
+        return flattener.finish(array.dtype(), ctx).map(Some);
+    }
+
     // Out-of-order sub-pieces: flatten the per-chunk gathers, then take the sub-piece runs from
     // the flattened result in output order.
     let mut bases = vec![0usize; nchunks];
@@ -544,6 +598,54 @@ fn take_piecewise_chunked(
     }
     flat.take(contiguous_runs(reorder_starts, reorder_lengths, output_len))
         .map(Some)
+}
+
+/// Tells if the runs are long and read a small part of each chunk.
+///
+/// Then a slice of each run reads less than the take of the runs of each chunk, also when the
+/// slice does its work at execution. In the `alp_fsl_take` bench, which has patches, a take of
+/// rows of 768 elements is up to 7 times faster this way, and a take of rows of 64 elements is
+/// 20% slower.
+fn sparse_long_runs(
+    array: ArrayView<'_, Chunked>,
+    plans: &[ChunkGather],
+    num_runs: usize,
+    output_len: usize,
+) -> bool {
+    output_len >= num_runs * MIN_AVERAGE_EXECUTED_RUN
+        && plans.iter().enumerate().all(|(chunk_idx, plan)| {
+            plan.total.saturating_mul(SPARSE_CHUNK_RATIO) <= array.chunk(chunk_idx).len()
+        })
+}
+
+/// Tells if a slice of each chunk that `runs` read becomes an encoded array with no execution.
+///
+/// Such a slice decodes only its rows when it appends to a builder. A slice that does not
+/// reduce, such as a slice of an array with patches, does its work for each run, and a take of
+/// the runs of each chunk does it once for the chunk. The first run of each chunk is the test.
+fn slices_reduce(
+    array: ArrayView<'_, Chunked>,
+    runs: &[(usize, usize, usize)],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
+    let mut tested = vec![false; array.nchunks()];
+
+    for &(chunk_idx, start, run) in runs {
+        if std::mem::replace(&mut tested[chunk_idx], true) {
+            continue;
+        }
+
+        let slice = array
+            .chunk(chunk_idx)
+            .slice(start..start + run)?
+            .optimize_ctx(ctx)?;
+
+        if slice.is::<Slice>() {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
 }
 
 /// Gathers a chunk's planned runs: a single run is a zero-copy slice, multiple runs become a
@@ -665,6 +767,66 @@ mod tests {
             PrimitiveArray::from_iter([12i32, 13, 14, 2, 3, 7, 8, 9, 0]),
             &mut ctx
         );
+        Ok(())
+    }
+
+    /// Long runs out of chunk order append to the result directly in output order.
+    #[test]
+    fn test_take_piecewise_interleaved_long_runs() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let chunks = (0..4)
+            .map(|chunk| {
+                (chunk * 512..(chunk + 1) * 512)
+                    .collect::<Buffer<i32>>()
+                    .into_array()
+            })
+            .collect::<Vec<_>>();
+        let arr = ChunkedArray::try_new(
+            chunks,
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+        )?;
+
+        // The runs visit the chunks out of order. One run crosses a chunk boundary, and two
+        // runs in the first chunk are in reverse order.
+        let starts = [1600u64, 300, 900, 0, 1200];
+        let lengths = [300u64, 200, 400, 200, 250];
+        let result = arr.take(contiguous_pieces(&starts, &lengths)?)?;
+
+        let expected = starts.iter().zip(&lengths).flat_map(|(&start, &length)| {
+            (start..start + length).map(|row| i32::try_from(row).unwrap_or(i32::MAX))
+        });
+
+        assert_arrays_eq!(result, PrimitiveArray::from_iter(expected), &mut ctx);
+        Ok(())
+    }
+
+    /// Long runs out of chunk order keep the nulls of each row.
+    #[test]
+    fn test_take_piecewise_interleaved_long_runs_nullable() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let rows = |range: std::ops::Range<i32>| {
+            PrimitiveArray::from_option_iter(range.map(|row| (row % 5 != 2).then_some(row)))
+                .into_array()
+        };
+        let arr = ChunkedArray::try_new(
+            vec![rows(0..512), rows(512..1024), rows(1024..1536)],
+            DType::Primitive(PType::I32, Nullability::Nullable),
+        )?;
+
+        let starts = [1100u64, 0, 700, 300];
+        let lengths = [400u64, 150, 300, 200];
+        let result = arr.take(contiguous_pieces(&starts, &lengths)?)?;
+
+        let expected = starts.iter().zip(&lengths).flat_map(|(&start, &length)| {
+            (start..start + length).map(|row| {
+                let row = i32::try_from(row).unwrap_or(i32::MAX);
+                (row % 5 != 2).then_some(row)
+            })
+        });
+
+        assert_arrays_eq!(result, PrimitiveArray::from_option_iter(expected), &mut ctx);
         Ok(())
     }
 
