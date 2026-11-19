@@ -1,10 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! [`PlanDataSource`]: a [`DataSource`] over one or more [`ScanInput`]s, scanned by the
-//! planner-driven executor.
+//! [`PlanDataSource`]: a [`DataSource`] over plan children, scanned by the planner-driven
+//! executor.
+//!
+//! Nothing here is about one format. A child is a [`ScanInput`], a plan over placed segments,
+//! from a Vortex file, a Parquet file whose column chunks are segments, or any store that lowers
+//! its data to plans; a deferred child is anything that expands into children, such as a file to
+//! open, a table format's manifest, or a partition to list.
 
 use std::any::Any;
+use std::collections::VecDeque;
+use std::future;
 use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
@@ -13,6 +20,8 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
+use futures::stream::BoxStream;
+use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::expr::BoundExpression;
@@ -44,23 +53,23 @@ use crate::pool::trim_to_limit;
 use crate::prepare::ScanBuilder;
 use crate::selection::Selection;
 
-/// Whether a file's own statistics prove a filter, bound to the file's dtype, false for every
-/// row of the file.
+/// Whether a child's own statistics, such as a file footer's, prove a filter, bound to the
+/// child's dtype, false for every row of the child.
 pub type FilePruner = Arc<dyn Fn(&BoundExpression) -> VortexResult<bool> + Send + Sync>;
 
-/// One open file of a [`PlanDataSource`]: its [`ScanInput`] and what the source knows of it
-/// without reading payloads.
+/// A child of a [`PlanDataSource`] whose plan is ready to prepare: its [`ScanInput`] and what the
+/// source knows of it without reading payloads.
 #[derive(Clone)]
-pub struct PlanFile {
+pub struct PlanChild {
     input: ScanInput,
     row_count: Option<u64>,
     splits: Option<Arc<[u64]>>,
     pruner: Option<FilePruner>,
 }
 
-impl PlanFile {
-    /// A file scanning `input`. Without a cache, the input gets a fresh one that every scan of
-    /// the file shares.
+impl PlanChild {
+    /// A child scanning `input`. Without a cache, the input gets a fresh one that every scan of
+    /// the child shares.
     pub fn new(mut input: ScanInput) -> Self {
         input.cache.get_or_insert_default();
         Self {
@@ -71,34 +80,34 @@ impl PlanFile {
         }
     }
 
-    /// Sets the file's exact row count. Without it, the source lowers the file's root plan to
+    /// Sets the child's exact row count. Without it, the source lowers the child's root plan to
     /// learn the count when a scan needs it.
     pub fn with_row_count(mut self, row_count: u64) -> Self {
         self.row_count = Some(row_count);
         self
     }
 
-    /// Sets the row boundaries that an opened scan cuts the file's work at, such as the file's
-    /// layout splits, ascending and covering the file's rows. Without them, the work is cut on
+    /// Sets the row boundaries that an opened scan cuts the child's work at, such as the child's
+    /// layout splits, ascending and covering the child's rows. Without them, the work is cut on
     /// the scan's chunk grid.
     pub fn with_splits(mut self, splits: Arc<[u64]>) -> Self {
         self.splits = Some(splits);
         self
     }
 
-    /// Sets how the file's statistics rule out a scan's filter, so a scan they rule out reads
-    /// nothing of the file.
+    /// Sets how the child's statistics rule out a scan's filter, so a scan they rule out reads
+    /// nothing of the child.
     pub fn with_pruner(mut self, pruner: FilePruner) -> Self {
         self.pruner = Some(pruner);
         self
     }
 
-    /// The input this file scans.
+    /// The input this child scans.
     pub fn input(&self) -> &ScanInput {
         &self.input
     }
 
-    /// The file's rows, from the row count when set, else from its root plan.
+    /// The child's rows, from the row count when set, else from its root plan.
     pub(super) fn rows(&self) -> VortexResult<u64> {
         match self.row_count {
             Some(rows) => Ok(rows),
@@ -106,7 +115,7 @@ impl PlanFile {
         }
     }
 
-    /// The bytes of all of the file's segments.
+    /// The bytes of all of the child's segments.
     fn byte_size(&self) -> u64 {
         self.input
             .locations
@@ -127,95 +136,107 @@ impl PlanFile {
     }
 }
 
-/// Opens a file of a [`PlanDataSource`] when a scan reaches it.
+/// A child of a [`PlanDataSource`] that a scan expands when it reaches it: a file to open, a
+/// manifest entry to read, a table partition to list.
+///
+/// Expanding is work like any other unit of an opened scan: the worker that takes the child
+/// expands it and queues the work of what it expanded into, for any worker to take.
 #[async_trait]
-pub trait DeferredPlanFile: 'static + Send + Sync {
-    /// Opens the file, or returns `None` when the scan should skip it.
-    async fn open(&self) -> VortexResult<Option<PlanFile>>;
+pub trait DeferredPlanChild: 'static + Send + Sync {
+    /// The children this child stands for, in row order. They may be deferred in turn, as a
+    /// manifest's children are. An empty list skips the child.
+    async fn expand(&self) -> VortexResult<Vec<PlanSourceChild>>;
 }
 
-/// A file of a [`PlanDataSource`].
+/// A child of a [`PlanDataSource`].
 #[derive(Clone)]
-pub enum PlanSourceFile {
-    /// A file that is already open.
-    Opened(PlanFile),
-    /// A file that a scan opens when it reaches it, so a source over many files reads only the
-    /// footers its scans need.
+pub enum PlanSourceChild {
+    /// A child whose plan is ready to prepare.
+    Ready(PlanChild),
+    /// A child that a scan expands when it reaches it, so a source over many children reads only
+    /// the metadata its scans need.
     Deferred {
-        /// Opens the file.
-        file: Arc<dyn DeferredPlanFile>,
-        /// The file's size in bytes, if known.
+        /// Expands the child.
+        child: Arc<dyn DeferredPlanChild>,
+        /// The child's size in bytes, if known.
         byte_size: Option<u64>,
     },
 }
 
-/// A [`DataSource`] over the files of [`ScanInput`]s, scanned by the planner-driven executor.
+/// A [`DataSource`] over plan children, scanned by the planner-driven executor.
 ///
-/// This is the standard way to expose sources that can name their segments, whatever their
-/// format: Vortex files, Parquet files whose column chunks are placed segments, or any store that
-/// can lower its data to plans. Every scan of a file shares the file's [`ScanCache`], so scans
-/// that overlap in time plan the file once.
+/// This is the standard way to expose sources that can lower their data to plans over placed
+/// segments, whatever their format. Every scan of a ready child shares the child's
+/// [`ScanCache`], so scans that overlap in time plan it once.
 ///
-/// A scan's request applies to each file: its row range and row selection are in the file's own
-/// rows. A scan reads its files in order.
+/// A scan's request applies to each child: its row range and row selection are in the child's
+/// own rows. A scan reads its children in order, and a deferred child's children in its place.
 ///
 /// # Splitting and opening
 ///
-/// [`split`](DataSourceScan::split) cuts a scan on the 8,192-row block grid of its files, which
-/// every chunk boundary of the executor lies on, into contiguous pieces of about equal row
-/// counts. It reads nothing; a file that is not open yet is one indivisible unit.
+/// The work of a scan is plan work: chunks of a prepared plan, and the expansion of deferred
+/// children, which queues the work of their children. A Vortex multi-file scan is one case.
 ///
-/// [`open`](DataSourceScan::open) prepares each open file of the scan once and hands its parts,
-/// the chunks of the scan, or the file's [splits](PlanFile::with_splits) when it has them, to
-/// workers, which run several at a time on their own thread. A file that is not open yet is a
-/// unit of work too: the worker that takes it opens and prepares it, and puts its parts back for
+/// [`split`](DataSourceScan::split) cuts a scan into contiguous pieces of about equal row counts,
+/// each a list of children and row ranges of them, on the 8,192-row block grid that every chunk
+/// boundary of the executor lies on. It reads nothing; a deferred child is one indivisible unit.
+///
+/// [`open`](DataSourceScan::open) prepares each ready child of the scan once and hands its parts,
+/// the chunks of its plan, or the child's [splits](PlanChild::with_splits) when it has them, to
+/// workers, which run several at a time on their own thread. Expanding a deferred child is a unit
+/// of work too: the worker that takes it expands it and puts the work of its children back for
 /// any worker to take. See the pool's documentation in `plan_pool.rs`.
 ///
 /// # Partitions
 ///
-/// A scan has one partition per file, whose [`index`](Partition::index) is the file's ordinal,
-/// so a request's `partition_range` and `partition_selection` select files. A partition runs its
-/// file's scan with a [`ScanDriver`] on the session's runtime.
+/// A scan has one partition per child, whose [`index`](Partition::index) is the child's ordinal,
+/// so a request's `partition_range` and `partition_selection` select children. A partition runs
+/// its child, or each child a deferred one expands into, with a [`ScanDriver`] on the session's
+/// runtime.
 ///
 /// [`ScanCache`]: crate::prepare::ScanCache
 #[derive(Clone)]
 pub struct PlanDataSource {
     session: VortexSession,
     dtype: DType,
-    files: Arc<[PlanSourceFile]>,
+    children: Arc<[PlanSourceChild]>,
     row_count: Precision<u64>,
     byte_size: Precision<u64>,
 }
 
 impl PlanDataSource {
-    /// A source scanning one open `input` with `session`.
+    /// A source scanning one ready `input` with `session`.
     pub fn new(session: VortexSession, input: ScanInput) -> Self {
-        Self::from_file(session, PlanFile::new(input))
+        Self::from_child(session, PlanChild::new(input))
     }
 
-    /// A source scanning one open `file` with `session`.
-    pub fn from_file(session: VortexSession, file: PlanFile) -> Self {
-        let dtype = file.input.dtype.clone();
-        let row_count = file.row_count.map_or(Precision::Absent, Precision::exact);
+    /// A source scanning one ready `child` with `session`.
+    pub fn from_child(session: VortexSession, child: PlanChild) -> Self {
+        let dtype = child.input.dtype.clone();
+        let row_count = child.row_count.map_or(Precision::Absent, Precision::exact);
         Self {
             session,
             dtype,
-            files: Arc::new([PlanSourceFile::Opened(file)]),
+            children: Arc::new([PlanSourceChild::Ready(child)]),
             row_count,
             byte_size: Precision::Absent,
         }
     }
 
-    /// A source scanning `files` in order with `session`. Every file must have `dtype`; a scan
-    /// that opens a file of another dtype fails.
-    pub fn from_files(session: VortexSession, dtype: DType, files: Vec<PlanSourceFile>) -> Self {
+    /// A source scanning `children` in order with `session`. Every child must have `dtype`; a
+    /// scan that expands a child of another dtype fails.
+    pub fn from_children(
+        session: VortexSession,
+        dtype: DType,
+        children: Vec<PlanSourceChild>,
+    ) -> Self {
         let mut rows = Some(0u64);
         let mut bytes = Some(0u64);
         let mut known_rows = 0;
         let mut known_files = 0;
-        for file in &files {
+        for file in &children {
             match file {
-                PlanSourceFile::Opened(file) => {
+                PlanSourceChild::Ready(file) => {
                     match file.row_count {
                         Some(count) => {
                             known_rows += count;
@@ -225,33 +246,33 @@ impl PlanDataSource {
                     }
                     bytes = bytes.map(|bytes| bytes + file.byte_size());
                 }
-                PlanSourceFile::Deferred { byte_size, .. } => {
+                PlanSourceChild::Deferred { byte_size, .. } => {
                     rows = None;
                     bytes = bytes.zip(*byte_size).map(|(bytes, size)| bytes + size);
                 }
             }
         }
-        // Files not open yet are estimated at the average row count of the open ones.
+        // Deferred children are estimated at the average row count of the ready ones.
         let row_count = match rows {
             Some(rows) => Precision::exact(rows + known_rows),
             None if known_files > 0 => {
-                Precision::inexact(known_rows / known_files * files.len() as u64)
+                Precision::inexact(known_rows / known_files * children.len() as u64)
             }
             None => Precision::Absent,
         };
         Self {
             session,
             dtype,
-            files: files.into(),
+            children: children.into(),
             row_count,
             byte_size: bytes.map_or(Precision::Absent, Precision::inexact),
         }
     }
 
-    /// Sets the exact row count of a one-file source, which scans and partitions report.
+    /// Sets the exact row count of a one-child source, which scans and partitions report.
     pub fn with_row_count(mut self, row_count: u64) -> Self {
-        if let [PlanSourceFile::Opened(file)] = &*self.files {
-            self.files = Arc::new([PlanSourceFile::Opened(
+        if let [PlanSourceChild::Ready(file)] = &*self.children {
+            self.children = Arc::new([PlanSourceChild::Ready(
                 file.clone().with_row_count(row_count),
             )]);
         }
@@ -265,9 +286,9 @@ impl PlanDataSource {
         self
     }
 
-    /// The files this source scans, in order.
-    pub fn files(&self) -> &[PlanSourceFile] {
-        &self.files
+    /// The children this source scans, in order.
+    pub fn children(&self) -> &[PlanSourceChild] {
+        &self.children
     }
 
     /// The session scans of this source run with.
@@ -299,7 +320,7 @@ impl DataSource for PlanDataSource {
         let mut units = Vec::new();
         let scans_rows =
             request.limit != Some(0) && !request.row_range.as_ref().is_some_and(Range::is_empty);
-        for (ordinal, file) in self.files.iter().enumerate().filter(|_| scans_rows) {
+        for (ordinal, file) in self.children.iter().enumerate().filter(|_| scans_rows) {
             let index = ordinal as u64;
             let selected = request
                 .partition_range
@@ -313,27 +334,27 @@ impl DataSource for PlanDataSource {
                 continue;
             }
             let rows = match file {
-                PlanSourceFile::Opened(file) => {
+                PlanSourceChild::Ready(file) => {
                     if file.is_pruned(filter.as_ref())? {
                         continue;
                     }
                     file.row_count
                         .map(|count| clamp_rows(request.row_range.clone(), count))
                 }
-                PlanSourceFile::Deferred { .. } => None,
+                PlanSourceChild::Deferred { .. } => None,
             };
             if rows.as_ref().is_some_and(Range::is_empty) {
                 continue;
             }
             units.push(Unit {
-                file: ordinal,
+                child: ordinal,
                 rows,
             });
         }
         let state = ScanState {
             session: self.session.clone(),
             source_dtype: self.dtype.clone(),
-            files: Arc::clone(&self.files),
+            children: Arc::clone(&self.children),
             dtype: projection.dtype().clone(),
             projection,
             filter,
@@ -354,7 +375,7 @@ impl DataSource for PlanDataSource {
     }
 }
 
-/// The request's `rows`, or all of them, clamped to a file of `count` rows.
+/// The request's `rows`, or all of them, clamped to a child of `count` rows.
 fn clamp_rows(rows: Option<Range<u64>>, count: u64) -> Range<u64> {
     let rows = rows.unwrap_or(0..count);
     let end = rows.end.min(count);
@@ -365,7 +386,7 @@ fn clamp_rows(rows: Option<Range<u64>>, count: u64) -> Range<u64> {
 pub(super) struct ScanState {
     pub(super) session: VortexSession,
     source_dtype: DType,
-    files: Arc<[PlanSourceFile]>,
+    children: Arc<[PlanSourceChild]>,
     /// The dtype of the scan's output.
     pub(super) dtype: DType,
     projection: BoundExpression,
@@ -378,45 +399,91 @@ pub(super) struct ScanState {
 }
 
 impl ScanState {
-    /// The file at `ordinal` if it is open.
-    pub(super) fn opened(&self, ordinal: usize) -> Option<&PlanFile> {
-        match &self.files[ordinal] {
-            PlanSourceFile::Opened(file) => Some(file),
-            PlanSourceFile::Deferred { .. } => None,
+    /// The source's child at `ordinal`.
+    pub(super) fn child(&self, ordinal: usize) -> &PlanSourceChild {
+        &self.children[ordinal]
+    }
+
+    /// The child at `ordinal` if it is ready.
+    pub(super) fn ready(&self, ordinal: usize) -> Option<&PlanChild> {
+        match &self.children[ordinal] {
+            PlanSourceChild::Ready(child) => Some(child),
+            PlanSourceChild::Deferred { .. } => None,
         }
     }
 
-    /// Opens the file at `ordinal`, or returns `None` when the file is skipped or its statistics
-    /// rule out the filter. An open file was checked against the filter when the scan began.
-    pub(super) async fn open_file(&self, ordinal: usize) -> VortexResult<Option<PlanFile>> {
-        let file = match &self.files[ordinal] {
-            PlanSourceFile::Opened(file) => return Ok(Some(file.clone())),
-            PlanSourceFile::Deferred { file, .. } => file.open().await?,
-        };
-        let Some(file) = file else {
-            return Ok(None);
-        };
-        if file.input.dtype != self.source_dtype {
+    /// Admits a child that expanding produced: `None` when its statistics rule out the filter,
+    /// and an error when its dtype is not the source's.
+    pub(super) fn admit(&self, child: PlanChild) -> VortexResult<Option<PlanChild>> {
+        if child.input.dtype != self.source_dtype {
             vortex_bail!(
-                "file {ordinal} of the source has dtype {}, but the source has dtype {}",
-                file.input.dtype,
+                "a child of the source has dtype {}, but the source has dtype {}",
+                child.input.dtype,
                 self.source_dtype
             );
         }
-        if file.is_pruned(self.filter.as_ref())? {
+        if child.is_pruned(self.filter.as_ref())? {
             return Ok(None);
         }
-        Ok(Some(file))
+        Ok(Some(child))
     }
 
-    /// The rows of `file` this scan reads: the request's row range, clamped to the file.
-    pub(super) fn file_rows(&self, file: &PlanFile) -> VortexResult<Range<u64>> {
-        Ok(clamp_rows(self.row_range.clone(), file.rows()?))
+    /// Expands `children` depth-first, in order, into the admitted ready children they stand for,
+    /// expanding each deferred child only once the children before it are taken.
+    pub(super) fn expand_in_order(
+        self: &Arc<Self>,
+        children: Vec<PlanSourceChild>,
+    ) -> BoxStream<'static, VortexResult<PlanChild>> {
+        let state = Arc::clone(self);
+        stream::try_unfold(VecDeque::from(children), move |mut queue| {
+            let state = Arc::clone(&state);
+            async move {
+                while let Some(child) = queue.pop_front() {
+                    match child {
+                        PlanSourceChild::Ready(child) => {
+                            if let Some(child) = state.admit(child)? {
+                                return Ok(Some((child, queue)));
+                            }
+                        }
+                        PlanSourceChild::Deferred { child, .. } => {
+                            for child in child.expand().await?.into_iter().rev() {
+                                queue.push_front(child);
+                            }
+                        }
+                    }
+                }
+                Ok(None)
+            }
+        })
+        .boxed()
     }
 
-    /// A builder of this scan's `rows` of `file`.
-    pub(super) fn builder(&self, file: &PlanFile, rows: Range<u64>) -> ScanBuilder {
-        ScanBuilder::new(self.session.clone(), file.input.clone())
+    /// Runs `rows` of `child`, or the request's rows of it when `None`, with a [`ScanDriver`].
+    fn drive(
+        &self,
+        child: &PlanChild,
+        rows: Option<Range<u64>>,
+    ) -> BoxStream<'static, VortexResult<ArrayRef>> {
+        let rows = match rows.map_or_else(|| self.child_rows(child), Ok) {
+            Ok(rows) => rows,
+            Err(err) => return stream::once(future::ready(Err(err))).boxed(),
+        };
+        if rows.is_empty() {
+            return stream::empty().boxed();
+        }
+        ScanDriver::new(self.session.handle(), 1, self.ordered)
+            .with_max_in_flight(self.split_concurrency)
+            .run(self.builder(child, rows))
+    }
+
+    /// The rows of `child` this scan reads: the request's row range, clamped to the child.
+    pub(super) fn child_rows(&self, child: &PlanChild) -> VortexResult<Range<u64>> {
+        Ok(clamp_rows(self.row_range.clone(), child.rows()?))
+    }
+
+    /// A builder of this scan's `rows` of `child`.
+    pub(super) fn builder(&self, child: &PlanChild, rows: Range<u64>) -> ScanBuilder {
+        ScanBuilder::new(self.session.clone(), child.input.clone())
             .with_projection(self.projection.clone())
             .with_some_filter(self.filter.clone())
             .with_selection(self.selection.clone())
@@ -424,12 +491,12 @@ impl ScanState {
     }
 }
 
-/// Rows of one file that a scan reads.
+/// Rows of one child that a scan reads.
 #[derive(Clone, Debug)]
 pub(super) struct Unit {
-    /// The file's ordinal in the source.
-    pub(super) file: usize,
-    /// The file's rows, or `None` for the request's rows of a file whose row count is not known
+    /// The child's ordinal in the source.
+    pub(super) child: usize,
+    /// The child's rows, or `None` for the request's rows of a child whose row count is not known
     /// until it is open.
     pub(super) rows: Option<Range<u64>>,
 }
@@ -437,7 +504,7 @@ pub(super) struct Unit {
 /// A scan of a [`PlanDataSource`], or a piece split from one.
 struct PlanScan {
     state: Arc<ScanState>,
-    /// The scan's units, in file and row order.
+    /// The scan's units, in child and row order.
     units: Vec<Unit>,
 }
 
@@ -448,10 +515,10 @@ impl PlanScan {
         Some(self.state.selection.row_count_in_range(rows))
     }
 
-    /// The bytes of `unit`, in proportion to its share of its file's rows.
+    /// The bytes of `unit`, in proportion to its share of its child's rows.
     fn unit_bytes(&self, unit: &Unit) -> Option<u64> {
-        match &self.state.files[unit.file] {
-            PlanSourceFile::Opened(file) => {
+        match &self.state.children[unit.child] {
+            PlanSourceChild::Ready(file) => {
                 let bytes = file.byte_size();
                 match (&unit.rows, file.row_count) {
                     (Some(rows), Some(count)) if count > 0 => Some(
@@ -464,7 +531,7 @@ impl PlanScan {
                     _ => Some(bytes),
                 }
             }
-            PlanSourceFile::Deferred { byte_size, .. } => *byte_size,
+            PlanSourceChild::Deferred { byte_size, .. } => *byte_size,
         }
     }
 }
@@ -534,7 +601,7 @@ impl DataSourceScan for PlanScan {
             .iter()
             .filter_map(|unit| unit.rows.as_ref().map(|rows| rows.end - rows.start))
             .collect();
-        // A file that is not open yet weighs as much as the average open unit.
+        // A deferred child weighs as much as the average ready unit.
         let unknown = (known.iter().sum::<u64>() / known.len().max(1) as u64).max(1);
         let weight = |unit: &Unit| {
             unit.rows
@@ -578,7 +645,7 @@ fn split_atoms(units: &[Unit], n: NonZeroUsize) -> Vec<Unit> {
         while start < rows.end {
             let end = ((start / per_atom + 1) * per_atom).min(rows.end);
             atoms.push(Unit {
-                file: unit.file,
+                child: unit.child,
                 rows: Some(start..end),
             });
             start = end;
@@ -587,12 +654,12 @@ fn split_atoms(units: &[Unit], n: NonZeroUsize) -> Vec<Unit> {
     atoms
 }
 
-/// Joins adjacent atoms of the same file back into one unit.
+/// Joins adjacent atoms of the same child back into one unit.
 fn join_atoms(atoms: Vec<Unit>) -> Vec<Unit> {
     let mut units: Vec<Unit> = Vec::new();
     for atom in atoms {
         if let Some(last) = units.last_mut()
-            && last.file == atom.file
+            && last.child == atom.child
             && let (Some(rows), Some(next)) = (&mut last.rows, &atom.rows)
             && rows.end == next.start
         {
@@ -604,7 +671,7 @@ fn join_atoms(atoms: Vec<Unit>) -> Vec<Unit> {
     units
 }
 
-/// One file's rows of a scan of a [`PlanDataSource`].
+/// One child's rows of a scan of a [`PlanDataSource`].
 struct PlanPartition {
     state: Arc<ScanState>,
     unit: Unit,
@@ -617,13 +684,13 @@ impl Partition for PlanPartition {
     }
 
     fn index(&self) -> usize {
-        self.unit.file
+        self.unit.child
     }
 
     fn row_count(&self) -> Precision<u64> {
-        let rows = match (&self.unit.rows, self.state.opened(self.unit.file)) {
+        let rows = match (&self.unit.rows, self.state.ready(self.unit.child)) {
             (Some(rows), _) => rows.clone(),
-            (None, Some(file)) if file.row_count.is_some() => match self.state.file_rows(file) {
+            (None, Some(file)) if file.row_count.is_some() => match self.state.child_rows(file) {
                 Ok(rows) => rows,
                 Err(_) => return Precision::Absent,
             },
@@ -645,23 +712,19 @@ impl Partition for PlanPartition {
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
         let PlanPartition { state, unit, limit } = *self;
         let dtype = state.dtype.clone();
-        let arrays = stream::once(async move {
-            let Some(file) = state.open_file(unit.file).await? else {
-                return Ok(stream::empty().boxed());
-            };
-            let rows = match unit.rows {
-                Some(rows) => rows,
-                None => state.file_rows(&file)?,
-            };
-            if rows.is_empty() {
-                return Ok(stream::empty().boxed());
-            }
-            let driver = ScanDriver::new(state.session.handle(), 1, state.ordered)
-                .with_max_in_flight(state.split_concurrency);
-            VortexResult::Ok(driver.run(state.builder(&file, rows)))
-        })
-        .try_flatten()
-        .boxed();
+        // A ready child runs as it is; a deferred one runs each child it expands into, in order.
+        let children = match state.ready(unit.child) {
+            Some(child) => stream::iter([Ok((child.clone(), unit.rows))]).boxed(),
+            None => state
+                .expand_in_order(vec![state.child(unit.child).clone()])
+                .map_ok(|child| (child, None))
+                .boxed(),
+        };
+        let driver = Arc::clone(&state);
+        let arrays = children
+            .map_ok(move |(child, rows)| driver.drive(&child, rows))
+            .try_flatten()
+            .boxed();
         let arrays = match limit {
             Some(limit) => trim_to_limit(arrays, limit),
             None => arrays,
@@ -682,9 +745,9 @@ mod tests {
     use super::join_atoms;
     use super::split_atoms;
 
-    fn unit(file: usize, rows: std::ops::Range<u64>) -> Unit {
+    fn unit(child: usize, rows: std::ops::Range<u64>) -> Unit {
         Unit {
-            file,
+            child,
             rows: Some(rows),
         }
     }

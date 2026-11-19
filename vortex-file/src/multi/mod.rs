@@ -27,10 +27,9 @@ use vortex_layout::scan::multi::LayoutReaderFactory;
 use vortex_layout::scan::multi::MultiLayoutDataSource;
 use vortex_scan::DataSource;
 use vortex_scan::DataSourceRef;
-use vortex_scan::source::DeferredPlanFile;
+use vortex_scan::source::DeferredPlanChild;
 use vortex_scan::source::PlanDataSource;
-use vortex_scan::source::PlanFile;
-use vortex_scan::source::PlanSourceFile;
+use vortex_scan::source::PlanSourceChild;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
@@ -156,12 +155,12 @@ impl MultiFileDataSource {
                 &all_files,
             )?));
         }
-        let mut files = vec![PlanSourceFile::Opened(first_file.plan_file())];
+        let mut files = vec![PlanSourceChild::Ready(first_file.plan_child())];
         files.extend(
             all_files[1..]
                 .iter()
-                .map(|(file, fs)| PlanSourceFile::Deferred {
-                    file: Arc::new(DeferredVortexPlanFile {
+                .map(|(file, fs)| PlanSourceChild::Deferred {
+                    child: Arc::new(DeferredVortexFile {
                         fs: Arc::clone(fs),
                         file: file.clone(),
                         session: session.clone(),
@@ -170,7 +169,7 @@ impl MultiFileDataSource {
                     byte_size: file.size,
                 }),
         );
-        let source = PlanDataSource::from_files(session, first_file.dtype().clone(), files);
+        let source = PlanDataSource::from_children(session, first_file.dtype().clone(), files);
         debug!(file_count = all_files.len(), dtype = %source.dtype(), "built a plan MultiFileDataSource");
         Ok(Arc::new(source))
     }
@@ -352,8 +351,8 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
     }
 }
 
-/// A [`DeferredPlanFile`] that opens a single Vortex file when a scan reaches it.
-struct DeferredVortexPlanFile {
+/// A [`DeferredPlanChild`] that opens a single Vortex file when a scan reaches it.
+struct DeferredVortexFile {
     fs: FileSystemRef,
     file: FileListing,
     session: VortexSession,
@@ -361,8 +360,8 @@ struct DeferredVortexPlanFile {
 }
 
 #[async_trait]
-impl DeferredPlanFile for DeferredVortexPlanFile {
-    async fn open(&self) -> VortexResult<Option<PlanFile>> {
+impl DeferredPlanChild for DeferredVortexFile {
+    async fn expand(&self) -> VortexResult<Vec<PlanSourceChild>> {
         let file = open_file(
             &self.fs,
             &self.file,
@@ -370,7 +369,7 @@ impl DeferredPlanFile for DeferredVortexPlanFile {
             self.open_options_fn.as_ref(),
         )
         .await?;
-        Ok(Some(file.plan_file()))
+        Ok(vec![PlanSourceChild::Ready(file.plan_child())])
     }
 }
 

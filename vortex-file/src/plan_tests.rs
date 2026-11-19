@@ -42,12 +42,15 @@ use vortex_io::filesystem::FileSystem;
 use vortex_io::filesystem::FileSystemRef;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
+use vortex_scan::DataSource;
 use vortex_scan::DataSourceRef;
 use vortex_scan::DataSourceScanRef;
 use vortex_scan::PartitionRef;
 use vortex_scan::ScanRequest;
 use vortex_scan::pool::ScanPoolRef;
+use vortex_scan::source::DeferredPlanChild;
 use vortex_scan::source::PlanDataSource;
+use vortex_scan::source::PlanSourceChild;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
@@ -260,9 +263,9 @@ async fn open_cuts_parts_on_file_splits(
 ) -> VortexResult<()> {
     let file = open_one_file().await?;
     let splits: Arc<[u64]> = Arc::from([0, 150_000, 400_000, u64::from(ROWS)]);
-    let source: DataSourceRef = Arc::new(PlanDataSource::from_file(
+    let source: DataSourceRef = Arc::new(PlanDataSource::from_child(
         SESSION.clone(),
-        file.plan_file().with_splits(splits),
+        file.plan_child().with_splits(splits),
     ));
     let scan = source
         .scan(ScanRequest {
@@ -472,5 +475,132 @@ async fn partitions_are_files() -> VortexResult<()> {
         read.extend(values(partition.execute()?).await?);
     }
     assert_eq!(read, expected(0..ROWS, false));
+    Ok(())
+}
+
+/// A deferred child that expands into `children`, as a manifest lists its files.
+struct Manifest(Vec<PlanSourceChild>);
+
+#[async_trait]
+impl DeferredPlanChild for Manifest {
+    async fn expand(&self) -> VortexResult<Vec<PlanSourceChild>> {
+        Ok(self.0.clone())
+    }
+}
+
+/// A deferred child that opens a file of `values` when expanded.
+struct LazyFile(Range<u32>);
+
+#[async_trait]
+impl DeferredPlanChild for LazyFile {
+    async fn expand(&self) -> VortexResult<Vec<PlanSourceChild>> {
+        let file = SESSION
+            .open_options()
+            .open_read(YieldingRead(file_bytes(self.0.clone()).await?))
+            .await?;
+        Ok(vec![PlanSourceChild::Ready(file.plan_child())])
+    }
+}
+
+fn deferred(child: impl DeferredPlanChild) -> PlanSourceChild {
+    PlanSourceChild::Deferred {
+        child: Arc::new(child),
+        byte_size: None,
+    }
+}
+
+/// A source whose second child is a manifest of deferred files: expanding a child queues its
+/// children's work, however deep, and reads them in the manifest's place.
+async fn nested() -> VortexResult<DataSourceRef> {
+    let first = open_one_file_of(0..200_000).await?;
+    let dtype = first.dtype().clone();
+    let manifest = Manifest(vec![
+        deferred(LazyFile(200_000..400_000)),
+        deferred(Manifest(vec![deferred(LazyFile(400_000..600_000))])),
+    ]);
+    Ok(Arc::new(PlanDataSource::from_children(
+        SESSION.clone(),
+        dtype,
+        vec![
+            PlanSourceChild::Ready(first.plan_child()),
+            deferred(manifest),
+        ],
+    )))
+}
+
+async fn open_one_file_of(values: Range<u32>) -> VortexResult<VortexFile> {
+    SESSION
+        .open_options()
+        .open_read(YieldingRead(file_bytes(values).await?))
+        .await
+}
+
+#[rstest]
+#[case::unordered(false, false)]
+#[case::unordered_filter(false, true)]
+#[case::ordered(true, false)]
+#[case::ordered_filter(true, true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[cfg_attr(miri, ignore)]
+async fn open_expands_nested_children(
+    #[case] ordered: bool,
+    #[case] filtered: bool,
+) -> VortexResult<()> {
+    let source = nested().await?;
+    let request = ScanRequest {
+        filter: filtered.then(m_filter),
+        ..request(ordered)
+    };
+    let workers = read_pool(source.scan(request.clone()).await?.open()?, 4).await?;
+    if ordered {
+        assert_eq!(workers[0], expected(0..ROWS, filtered));
+    } else {
+        assert_eq!(sorted(workers), expected(0..ROWS, filtered));
+    }
+
+    // The partitions are the source's two children; the manifest's runs all of its files.
+    let partitions: Vec<PartitionRef> = source
+        .scan(ScanRequest {
+            ordered: true,
+            ..request
+        })
+        .await?
+        .partitions()
+        .try_collect()
+        .await?;
+    assert_eq!(partitions.len(), 2);
+    let mut read = Vec::new();
+    for partition in partitions {
+        read.extend(values(partition.execute()?).await?);
+    }
+    assert_eq!(read, expected(0..ROWS, filtered));
+    Ok(())
+}
+
+/// A child whose dtype is not the source's fails the scan that expands it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[cfg_attr(miri, ignore)]
+async fn expanding_a_child_of_another_dtype_fails() -> VortexResult<()> {
+    let first = open_one_file_of(0..10).await?;
+    let other = SESSION.open_options().open_buffer({
+        let array = StructArray::from_fields(&[("n", Buffer::from_iter(0..10u64).into_array())])?
+            .into_array();
+        let mut buf = ByteBufferMut::empty();
+        SESSION
+            .write_options()
+            .write(&mut buf, array.to_array_stream())
+            .await?;
+        buf.freeze()
+    })?;
+    let source = PlanDataSource::from_children(
+        SESSION.clone(),
+        first.dtype().clone(),
+        vec![
+            PlanSourceChild::Ready(first.plan_child()),
+            deferred(Manifest(vec![PlanSourceChild::Ready(other.plan_child())])),
+        ],
+    );
+    let scan = source.scan(request(false)).await?;
+    assert!(read_pool(scan.open()?, 2).await.is_err());
     Ok(())
 }

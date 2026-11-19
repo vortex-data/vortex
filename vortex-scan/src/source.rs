@@ -37,11 +37,11 @@ pub struct ScanInput {
 mod plan;
 mod plan_pool;
 
-pub use plan::DeferredPlanFile;
+pub use plan::DeferredPlanChild;
 pub use plan::FilePruner;
+pub use plan::PlanChild;
 pub use plan::PlanDataSource;
-pub use plan::PlanFile;
-pub use plan::PlanSourceFile;
+pub use plan::PlanSourceChild;
 
 #[cfg(test)]
 mod tests;

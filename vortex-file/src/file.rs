@@ -29,8 +29,8 @@ use vortex_layout::segments::UsageSegmentSource;
 use vortex_scan::DataSourceRef;
 use vortex_scan::prepare::ScanCache;
 use vortex_scan::prepare::SegmentLocation;
+use vortex_scan::source::PlanChild;
 use vortex_scan::source::PlanDataSource;
-use vortex_scan::source::PlanFile;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -320,7 +320,7 @@ impl VortexFile {
     /// Create a [`DataSource`](vortex_scan::DataSource) from this file whose scans run on the
     /// planner-driven executor.
     ///
-    /// The source is a [`PlanDataSource`] over [`plan_file`](Self::plan_file): hosts read its
+    /// The source is a [`PlanDataSource`] over [`plan_file`](Self::plan_child): hosts read its
     /// scans through native `split` and `open`, or through one partition covering the requested
     /// rows, which runs it with [`ScanDriver`](crate::v2::ScanDriver) from
     /// [`Partition::execute`](vortex_scan::Partition::execute). Every scan of the source shares
@@ -329,14 +329,14 @@ impl VortexFile {
     /// aggregates are available through the source statistics methods. Opening the source reads
     /// nothing and builds no layout reader.
     pub fn plan_data_source(&self) -> DataSourceRef {
-        let source = PlanDataSource::from_file(self.session.clone(), self.plan_file());
+        let source = PlanDataSource::from_child(self.session.clone(), self.plan_child());
         Arc::new(FileDataSource::new(source, self.file_stats().cloned()))
     }
 
-    /// This file as a file of a [`PlanDataSource`]: its V2 scan input, row count, and a pruner
+    /// This file as a child of a [`PlanDataSource`]: its V2 scan input, row count, and a pruner
     /// that skips scans whose filter the file-level statistics prove false.
-    pub fn plan_file(&self) -> PlanFile {
-        let file = PlanFile::new(self.scan_file().into()).with_row_count(self.row_count());
+    pub fn plan_child(&self) -> PlanChild {
+        let file = PlanChild::new(self.scan_file().into()).with_row_count(self.row_count());
         let Some(statistics) = self.file_stats().cloned() else {
             return file;
         };

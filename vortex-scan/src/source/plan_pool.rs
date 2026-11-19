@@ -3,20 +3,25 @@
 
 //! The work that the workers of an opened [`PlanDataSource`](super::PlanDataSource) scan share.
 //!
-//! This is the V1 layout pool's pattern (`vortex-layout/src/scan/pool.rs`) over the V2 executor.
-//! A pool's units are the parts of its files, and the files not yet opened. Opening the scan
-//! prepares each open file once, which plans without reading, and cuts its rows into parts: the
-//! file's splits when it has them, else the scan's chunks. A worker takes parts and keeps up to
-//! `split_concurrency` of them running on its own thread, each on a planning run of its own that
-//! awaits only its reads: with a filter, the part's pruning plans first, continuing into the
-//! chunks of the rows pruning kept; without, the chunks directly. A worker never spawns. Opening
-//! a deferred file is a unit like any other.
+//! This is the V1 layout pool's pattern (`vortex-layout/src/scan/pool.rs`) over the V2 executor,
+//! with plan work for units. A pool's units are parts, rows of a prepared child's plan, and
+//! deferred children not yet expanded. Opening the scan prepares each ready child once, which
+//! plans without reading, and cuts its rows into parts: the child's splits when it has them,
+//! else the scan's chunks. A worker takes parts and keeps up to `split_concurrency` of them
+//! running on its own thread, each on a planning run of its own that awaits only its reads: with
+//! a filter, the part's pruning plans first, continuing into the chunks of the rows pruning kept;
+//! without, the chunks directly. A worker never spawns.
 //!
-//! - An unordered pool hands units out through a channel. The worker that opens a deferred file
-//!   sends the file's parts back into the channel, where any worker can take them. The channel
-//!   closes once every open has finished, which ends the workers.
-//! - An ordered pool gives all of its units, in row order, to its first worker; later workers
-//!   get nothing. Parallel ordered reads cut the scan with `split` first.
+//! Work creates work: expanding a deferred child, whether a file to open, a manifest entry or a
+//! table partition, is a unit like any other, and queues the work of the children it expands
+//! into, which may be deferred in turn.
+//!
+//! - An unordered pool hands units out through a channel. The worker that expands a deferred
+//!   child sends its children's units back into the channel, where any worker can take them. The
+//!   channel closes once every expansion has finished, which ends the workers.
+//! - An ordered pool gives all of its units, in row order, to its first worker, which expands
+//!   each deferred child in its place; later workers get nothing. Parallel ordered reads cut the
+//!   scan with `split` first.
 //!
 //! A limit is a [`RowLimit`] the workers take rows from as they yield them; workers stop taking
 //! units once it is spent.
@@ -42,7 +47,9 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_io::request::IoService;
 
-use super::plan::PlanFile;
+use super::plan::DeferredPlanChild;
+use super::plan::PlanChild;
+use super::plan::PlanSourceChild;
 use super::plan::ScanState;
 use super::plan::Unit;
 use crate::execution::driver::compose;
@@ -57,32 +64,33 @@ use crate::pool::ScanPoolRef;
 use crate::pool::trim_to_limit;
 use crate::prepare::PreparedScan;
 
-/// One file's prepared scan, shared by the workers running its parts.
-struct PreparedFile {
+/// One child's prepared scan, shared by the workers running its parts.
+struct PreparedChild {
     scan: Arc<PreparedScan>,
     io: Arc<dyn IoService>,
 }
 
-/// A part of a file: rows that one worker runs on one planning run.
-type Part = (Arc<PreparedFile>, Range<u64>);
+/// A part of a child: rows of its plan that one worker runs on one planning run.
+type Part = (Arc<PreparedChild>, Range<u64>);
 
 /// A part's batches, in row order.
 type PartFuture = BoxFuture<'static, VortexResult<Vec<ArrayRef>>>;
 
-/// A file of a pool, in file order.
-enum PoolFile {
+/// A child of a pool, in row order.
+enum PoolChild {
     Prepared(Vec<Part>),
-    /// A file to open, by its ordinal in the source.
-    Deferred(usize),
+    Deferred(Arc<dyn DeferredPlanChild>),
 }
 
-/// Opens a pool over the scan's `units`, preparing each of its open files.
+/// Opens a pool over the scan's `units`, preparing each of its ready children.
 pub(super) fn open(state: Arc<ScanState>, units: Vec<Unit>) -> VortexResult<ScanPoolRef> {
-    let mut files = Vec::with_capacity(units.len());
+    let mut children = Vec::with_capacity(units.len());
     for unit in units {
-        files.push(match state.opened(unit.file) {
-            Some(file) => PoolFile::Prepared(prepare(&state, file, unit.rows)?),
-            None => PoolFile::Deferred(unit.file),
+        children.push(match state.child(unit.child) {
+            PlanSourceChild::Ready(child) => {
+                PoolChild::Prepared(prepare(&state, child, unit.rows)?)
+            }
+            PlanSourceChild::Deferred { child, .. } => PoolChild::Deferred(Arc::clone(child)),
         });
     }
     let dtype = state.dtype.clone();
@@ -97,20 +105,20 @@ pub(super) fn open(state: Arc<ScanState>, units: Vec<Unit>) -> VortexResult<Scan
         return Ok(Arc::new(OrderedPool {
             dtype,
             shared,
-            files: Mutex::new(Some(files)),
+            children: Mutex::new(Some(children)),
             parts_in_flight,
         }));
     }
 
     let (sender, receiver) = async_channel::unbounded();
-    for file in files {
-        match file {
-            PoolFile::Prepared(parts) => {
+    for child in children {
+        match child {
+            PoolChild::Prepared(parts) => {
                 for part in parts {
                     send(&sender, Work::Part(part));
                 }
             }
-            PoolFile::Deferred(ordinal) => send(&sender, Work::Open(ordinal, sender.clone())),
+            PoolChild::Deferred(child) => send(&sender, Work::Expand(child, sender.clone())),
         }
     }
     Ok(Arc::new(UnorderedPool {
@@ -121,31 +129,31 @@ pub(super) fn open(state: Arc<ScanState>, units: Vec<Unit>) -> VortexResult<Scan
     }))
 }
 
-/// Prepares the scan of `rows` of `file`, or of the request's rows when `None`, and cuts them
+/// Prepares the scan of `rows` of `child`, or of the request's rows when `None`, and cuts them
 /// into parts, leaving out parts the selection selects nothing of.
 fn prepare(
     state: &ScanState,
-    file: &PlanFile,
+    child: &PlanChild,
     rows: Option<Range<u64>>,
 ) -> VortexResult<Vec<Part>> {
     let rows = match rows {
         Some(rows) => rows,
-        None => state.file_rows(file)?,
+        None => state.child_rows(child)?,
     };
     if rows.is_empty() {
         return Ok(Vec::new());
     }
-    let scan = Arc::new(state.builder(file, rows.clone()).prepare()?);
-    let ranges = match file.splits() {
+    let scan = Arc::new(state.builder(child, rows.clone()).prepare()?);
+    let ranges = match child.splits() {
         Some(splits) => part_ranges(rows, splits),
         None => scan_chunks(rows, scan.chunk_rows),
     };
     let io = scan.io();
-    let file = Arc::new(PreparedFile { scan, io });
+    let prepared = Arc::new(PreparedChild { scan, io });
     Ok(ranges
         .into_iter()
         .filter(|part| state.selection.row_count_in_range(part) > 0)
-        .map(|part| (Arc::clone(&file), part))
+        .map(|part| (Arc::clone(&prepared), part))
         .collect())
 }
 
@@ -201,12 +209,17 @@ impl Shared {
         self.limit.as_ref().is_some_and(RowLimit::is_exhausted)
     }
 
-    /// Opens and prepares the deferred file at `ordinal` into its parts.
-    async fn open_file(self: Arc<Self>, ordinal: usize) -> VortexResult<Vec<Part>> {
-        match self.state.open_file(ordinal).await? {
-            Some(file) => prepare(&self.state, &file, None),
-            None => Ok(Vec::new()),
-        }
+    /// The parts of the children that `children` expand into, in row order, expanding each
+    /// deferred child only once the parts before it are taken.
+    fn parts_in_order(
+        self: &Arc<Self>,
+        children: Vec<PlanSourceChild>,
+    ) -> BoxStream<'static, VortexResult<Vec<Part>>> {
+        let shared = Arc::clone(self);
+        self.state
+            .expand_in_order(children)
+            .map(move |child| child.and_then(|child| prepare(&shared.state, &child, None)))
+            .boxed()
     }
 
     /// A worker's output: the batches of its parts, trimmed to the limit, ending after the first
@@ -239,9 +252,9 @@ impl Shared {
 /// A unit of an unordered pool.
 enum Work {
     Part(Part),
-    /// A deferred file, and where to send its parts once it is open. The sender keeps the
-    /// channel open until the file's parts are in it.
-    Open(usize, Sender<Work>),
+    /// A deferred child, and where to send the units of its children once it is expanded. The
+    /// sender keeps the channel open until they are in it.
+    Expand(Arc<dyn DeferredPlanChild>, Sender<Work>),
 }
 
 fn send(sender: &Sender<Work>, work: Work) {
@@ -261,11 +274,23 @@ impl UnorderedPool {
     fn run(shared: &Arc<Shared>, work: Work) -> PartFuture {
         match work {
             Work::Part(part) => run_part(part),
-            Work::Open(ordinal, sender) => {
+            Work::Expand(child, sender) => {
                 let shared = Arc::clone(shared);
                 async move {
-                    for part in shared.open_file(ordinal).await? {
-                        send(&sender, Work::Part(part));
+                    for child in child.expand().await? {
+                        match child {
+                            PlanSourceChild::Ready(child) => {
+                                let Some(child) = shared.state.admit(child)? else {
+                                    continue;
+                                };
+                                for part in prepare(&shared.state, &child, None)? {
+                                    send(&sender, Work::Part(part));
+                                }
+                            }
+                            PlanSourceChild::Deferred { child, .. } => {
+                                send(&sender, Work::Expand(child, sender.clone()));
+                            }
+                        }
                     }
                     Ok(Vec::new())
                 }
@@ -307,8 +332,8 @@ impl Drop for UnorderedPool {
 struct OrderedPool {
     dtype: DType,
     shared: Arc<Shared>,
-    /// The files, until the first worker takes them.
-    files: Mutex<Option<Vec<PoolFile>>>,
+    /// The children, until the first worker takes them.
+    children: Mutex<Option<Vec<PoolChild>>>,
     parts_in_flight: usize,
 }
 
@@ -318,18 +343,23 @@ impl ScanPool for OrderedPool {
     }
 
     fn worker(self: Arc<Self>) -> SendableArrayStream {
-        let Some(files) = self.files.lock().take() else {
+        let Some(children) = self.children.lock().take() else {
             return ArrayStreamExt::boxed(ArrayStreamAdapter::new(
                 self.dtype.clone(),
                 stream::empty(),
             ));
         };
-        let opener = Arc::clone(&self.shared);
+        let expander = Arc::clone(&self.shared);
         let shared = Arc::clone(&self.shared);
-        let outputs = stream::iter(files)
-            .then(move |file| match file {
-                PoolFile::Prepared(parts) => future::ready(Ok(parts)).boxed(),
-                PoolFile::Deferred(ordinal) => Arc::clone(&opener).open_file(ordinal).boxed(),
+        let outputs = stream::iter(children)
+            .flat_map(move |child| match child {
+                PoolChild::Prepared(parts) => stream::iter([Ok(parts)]).boxed(),
+                PoolChild::Deferred(child) => {
+                    expander.parts_in_order(vec![PlanSourceChild::Deferred {
+                        child,
+                        byte_size: None,
+                    }])
+                }
             })
             .flat_map(|parts| match parts {
                 Ok(parts) => stream::iter(parts.into_iter().map(Ok)).left_stream(),
