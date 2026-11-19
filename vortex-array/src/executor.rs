@@ -237,7 +237,7 @@ impl ArrayRef {
                 // instead of being put back, and the chain is driven in place of the parents
                 // that extend it.
                 if done_canonical && ctx.block_fusion && current_builder.is_none() {
-                    match try_fuse(&mut stack, current_array, kernels, ctx)? {
+                    match try_fuse(&mut stack, current_array, ctx)? {
                         Ok(driven) => {
                             current_array = driven;
                             child_rewritten = false;
@@ -378,7 +378,7 @@ impl ArrayRef {
             // it in their place. This edge had its execute_parent probes in 2a and 2b, so fusing
             // skips no kernel.
             if ctx.block_fusion && current_builder.is_none() {
-                match try_fuse(&mut stack, current_array, kernels, ctx)? {
+                match try_fuse(&mut stack, current_array, ctx)? {
                     Ok(driven) => {
                         current_array = driven;
                         child_rewritten = false;
@@ -407,11 +407,16 @@ impl ArrayRef {
                         i,
                         done,
                         false,
-                        false,
                     )?;
                     child_rewritten = false;
                 }
                 ExecutionStep::ExecuteSpine(i, done) => {
+                    // On the way down, check everything about fusing this slot that does not need
+                    // it executed. A slot that cannot fuse is an ordinary `ExecuteSlot`, so the
+                    // way up spends nothing on it.
+                    let fuse = ctx.block_fusion
+                        && current_builder.is_none()
+                        && spine_can_fuse(&stack, &array, i, kernels);
                     (current_array, current_builder) = push_frame(
                         &mut stack,
                         &mut optimizer,
@@ -419,8 +424,7 @@ impl ArrayRef {
                         current_builder.take(),
                         i,
                         done,
-                        true,
-                        ctx.block_fusion,
+                        fuse,
                     )?;
                     child_rewritten = false;
                 }
@@ -498,10 +502,9 @@ fn block_fusion_default() -> bool {
 fn try_fuse(
     stack: &mut Vec<StackFrame>,
     child: ArrayRef,
-    kernels: &ParentExecutionKernels,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Result<ArrayRef, ArrayRef>> {
-    let Some((frame, validity)) = fusable_frame(stack, kernels) else {
+    let Some((frame, validity)) = fusable_frame(stack) else {
         return Ok(Err(child));
     };
     let mut chain =
@@ -510,7 +513,7 @@ fn try_fuse(
             Err(child) => return Ok(Err(child)),
         };
     stack.pop();
-    while let Some((frame, validity)) = fusable_frame(stack, kernels) {
+    while let Some((frame, validity)) = fusable_frame(stack) {
         match chain.extend(&frame.parent_array, frame.slot_idx, validity, ctx)? {
             Ok(extended) => {
                 chain = extended;
@@ -522,27 +525,40 @@ fn try_fuse(
     chain.drive(ctx).map(Ok)
 }
 
-/// The frame on the top of the stack, with its parent's validity, if the executor may fuse its
-/// slot with the parent's block op.
-///
-/// A parent with execute-parent kernels of its own, or one the next parent up has a kernel for,
-/// is not fused: replacing it would skip the kernels that probe it with its child executed.
-fn fusable_frame<'s>(
-    stack: &'s [StackFrame],
-    kernels: &ParentExecutionKernels,
-) -> Option<(&'s StackFrame, &'s Validity)> {
+/// The frame on the top of the stack, with its parent's validity, if [`spine_can_fuse`] passed
+/// when it was pushed.
+fn fusable_frame(stack: &[StackFrame]) -> Option<(&StackFrame, &Validity)> {
     let frame = stack.last()?;
-    let validity = frame.fusion_validity.as_ref()?;
-    let parent = &frame.parent_array;
-    let blocked = frame.parent_builder.is_some()
-        || has_execute_parent_kernels(kernels, parent)
-        || stack.iter().rev().nth(1).is_some_and(|grand| {
+    Some((frame, frame.fusion_validity.as_ref()?))
+}
+
+/// Whether slot `slot_idx` of `parent`, which asked for it as its spine, may fuse with the
+/// parent's block op: checked on the way down, before the slot executes, from what does not
+/// depend on executing it. `stack` holds the frames above `parent`.
+///
+/// Both arrays must be primitive and non-empty, and of one length. A parent with execute-parent
+/// kernels of its own, or one the next parent up has a kernel for, is not fused: replacing it
+/// would skip the kernels that probe it with its child executed.
+fn spine_can_fuse(
+    stack: &[StackFrame],
+    parent: &ArrayRef,
+    slot_idx: usize,
+    kernels: &ParentExecutionKernels,
+) -> bool {
+    let Some(child) = parent.slots().get(slot_idx).and_then(Option::as_ref) else {
+        return false;
+    };
+    fusable_ptype(parent).is_some()
+        && fusable_ptype(child).is_some()
+        && !child.is_empty()
+        && child.len() == parent.len()
+        && !has_execute_parent_kernels(kernels, parent)
+        && !stack.last().is_some_and(|grand| {
             kernels.contains_key(&execute_parent_key(
                 grand.parent_array.encoding_id(),
                 parent.encoding_id(),
             ))
-        });
-    (!blocked).then_some((frame, validity))
+        })
 }
 
 /// Suspend `array` on the stack while its slot `slot_idx` executes, returning that child.
@@ -554,20 +570,15 @@ fn push_frame(
     parent_builder: Option<Box<dyn ArrayBuilder>>,
     slot_idx: usize,
     done: DonePredicate,
-    spine: bool,
     fuse: bool,
 ) -> VortexResult<(ArrayRef, Option<Box<dyn ArrayBuilder>>)> {
     // A fused chain stands for the parent with its slot executed, so take the parent's validity
     // while the slot is in place.
-    let fusion_validity = if fuse && fusable_ptype(&array).is_some() {
-        Some(array.validity()?)
-    } else {
-        None
-    };
+    let fusion_validity = fuse.then(|| array.validity()).transpose()?;
     // SAFETY: the slot is put back, or the parent driven to completion, before the parent
     // leaves the executor.
     let (parent, child) = unsafe { array.take_slot_unchecked(slot_idx) }?;
-    trace_op!(record_execute_slot(slot_idx, &parent, &child, spine));
+    trace_op!(record_execute_slot(slot_idx, &parent, &child, fuse));
     stack.push(StackFrame {
         parent_array: parent,
         parent_builder,
@@ -1048,7 +1059,8 @@ pub enum ExecutionStep {
     ///
     /// The executor may then fuse the slot's execution with this encoding's transform and with
     /// any spine parents waiting above it, block by block, instead of materializing each level.
-    /// See [`crate::block`].
+    /// It decides when it suspends the encoding, from what does not need the slot executed: a
+    /// slot it cannot fuse runs as an [`ExecuteSlot`](Self::ExecuteSlot). See [`crate::block`].
     ///
     /// Use [`ExecutionResult::execute_spine`] or [`require_spine!`](crate::require_spine)
     /// instead of constructing this variant directly.
@@ -1211,6 +1223,10 @@ macro_rules! require_child {
 /// Like [`require_child!`], but requests the child as this encoding's spine with
 /// [`ExecutionResult::execute_spine`]. Use it for the last child `execute` waits for, once every
 /// other child it needs is executed.
+///
+/// It needs no check of whether fusion can happen: when the executor cannot fuse the slot, or
+/// fusion is off, the request is a plain [`require_child!`], and `execute` is called again with
+/// the child executed.
 ///
 /// ```ignore
 /// let array = require_spine!(array, array.encoded(), 0 => Primitive);
