@@ -23,6 +23,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::Handle;
+use vortex_io::runtime::current::CurrentThreadRuntime;
+use vortex_io::runtime::current::CurrentThreadWorkerPool;
 use vortex_io::runtime::single::SingleThreadRuntime;
 use vortex_io::session::RuntimeSession;
 use vortex_io::session::RuntimeSessionExt;
@@ -38,10 +40,20 @@ use crate::session::LayoutSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
+/// A runtime driven by background threads, so splits the pools spawn make progress while test
+/// workers block on their streams with `futures::executor`.
+static RUNTIME: LazyLock<(CurrentThreadRuntime, CurrentThreadWorkerPool)> = LazyLock::new(|| {
+    let runtime = CurrentThreadRuntime::new();
+    let pool = runtime.new_pool();
+    pool.set_workers(4);
+    (runtime, pool)
+});
+
 pub fn new_session() -> VortexSession {
     VortexSession::empty()
         .with::<LayoutSession>()
         .with::<RuntimeSession>()
+        .with_handle(RUNTIME.0.handle())
 }
 
 pub fn session_with_handle(handle: Handle) -> VortexSession {

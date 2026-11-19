@@ -1051,7 +1051,9 @@ mod pool_tests {
 
         let mut values = Vec::new();
         for piece in pieces {
-            let piece_values = read_with_one_worker(piece.open()?)?;
+            // The scan is unordered, so a piece's splits may finish in any order.
+            let mut piece_values = read_with_one_worker(piece.open()?)?;
+            piece_values.sort_unstable();
             let first = *piece_values.first().expect("pieces are not empty");
             let last = *piece_values.last().expect("pieces are not empty");
             assert_eq!(first % 3, 0, "piece starts on a split boundary");
