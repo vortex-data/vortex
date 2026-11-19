@@ -13,7 +13,9 @@ immutable = false
 # Components added by this edition.
 [added]
 arrays = []
-layouts = []
+layouts = [
+    "vortex.extension",
+]
 dtypes = [
     "vortex.duration",
 ]
@@ -23,7 +25,9 @@ aggregates = []
 # editions of the family.
 [components]
 arrays = []
-layouts = []
+layouts = [
+    "vortex.extension",
+]
 dtypes = [
     "vortex.duration",
 ]
