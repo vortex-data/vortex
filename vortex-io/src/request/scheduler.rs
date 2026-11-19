@@ -43,7 +43,6 @@ use super::Completion;
 use super::IoBatch;
 use super::IoIntent;
 use super::IoOwnerId;
-use super::IoResult;
 use super::IoService;
 use super::IoSource;
 use super::IoTarget;
@@ -131,7 +130,7 @@ impl IoScheduler {
             SegmentReader::Placed(placed) => placed,
             SegmentReader::Opaque(segments) => {
                 let segments = Arc::new(SharedSegmentSource::new(segments));
-                return self.insert(locations, segments, None, retained_bytes);
+                return self.insert(locations, segments, retained_bytes);
             }
         };
         let mut registration = placed.registration.lock();
@@ -151,12 +150,7 @@ impl IoScheduler {
             initial: Arc::clone(&placed.initial),
             inner: SharedSegmentSource::new(driver),
         });
-        let source = self.insert(
-            locations,
-            segments,
-            Some(Arc::clone(&placed.read)),
-            retained_bytes,
-        )?;
+        let source = self.insert(locations, segments, retained_bytes)?;
         *registration = Arc::downgrade(&source);
         Ok(source)
     }
@@ -165,7 +159,6 @@ impl IoScheduler {
         &self,
         locations: Arc<[SegmentLocation]>,
         segments: Arc<dyn SegmentSource>,
-        read: Option<Arc<dyn VortexReadAt>>,
         retained_bytes: u64,
     ) -> VortexResult<Arc<RegisteredSource>> {
         let id = self
@@ -183,7 +176,6 @@ impl IoScheduler {
             scheduler: Arc::downgrade(&self.inner),
             locations,
             segments,
-            read,
         });
         self.inner.live.lock().insert(id, Arc::downgrade(&source));
         Ok(source)
@@ -211,8 +203,6 @@ pub struct RegisteredSource {
     scheduler: Weak<Sources>,
     locations: Arc<[SegmentLocation]>,
     segments: Arc<dyn SegmentSource>,
-    /// The object a placed source reads, which also answers its size.
-    read: Option<Arc<dyn VortexReadAt>>,
 }
 
 impl RegisteredSource {
@@ -231,17 +221,6 @@ impl RegisteredSource {
             .get(*segment as usize)
             .map(|location| location.alignment)
             .ok_or_else(|| vortex_err!("{segment} of {:?} has no known location", self.id))
-    }
-
-    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        match &self.read {
-            Some(read) => read.size(),
-            None => future::ready(Err(vortex_err!(
-                "{:?} has no size: it reads segments itself",
-                self.id
-            )))
-            .boxed(),
-        }
     }
 }
 
@@ -372,25 +351,7 @@ impl IoSource for SchedulerSession {
                 }
             };
             let id = request.request;
-            let (segment, bytes) = match request.target {
-                IoTarget::Size => {
-                    if request.intent == IoIntent::Fetch {
-                        let size = source.size();
-                        reads.push(
-                            async move {
-                                Completion {
-                                    owner,
-                                    request: id,
-                                    result: size.await.map(IoResult::Size),
-                                }
-                            }
-                            .boxed(),
-                        );
-                    }
-                    continue;
-                }
-                IoTarget::Segment { segment, bytes } => (segment, bytes),
-            };
+            let IoTarget { segment, bytes } = request.target;
             let key = (source.id, segment);
             if request.intent == IoIntent::Announce {
                 self.announced
@@ -435,7 +396,7 @@ impl IoSource for SchedulerSession {
                 ready.push_back(Completion {
                     owner,
                     request: id,
-                    result: result.map(IoResult::Bytes),
+                    result,
                 });
                 continue;
             }
@@ -444,7 +405,7 @@ impl IoSource for SchedulerSession {
                     Completion {
                         owner,
                         request: id,
-                        result: bytes.await.map(IoResult::Bytes),
+                        result: bytes.await,
                     }
                 }
                 .boxed(),
@@ -517,7 +478,6 @@ mod tests {
     use crate::request::IoOwnerId;
     use crate::request::IoRequest;
     use crate::request::IoRequestId;
-    use crate::request::IoResult;
     use crate::request::IoService;
     use crate::request::IoTarget;
     use crate::request::SegmentBytes;
@@ -698,17 +658,17 @@ mod tests {
         let source = register(&scheduler, Arc::new(Counting16), 1)?;
         let io = scheduler.session();
         let mut packed = request(&source, IoIntent::Fetch, 0);
-        packed.target = IoTarget::Segment {
+        packed.target = IoTarget {
             segment: SegmentId::from(0),
             bytes: SegmentBytes::Ranges(Arc::from([2..4, 8..11])),
         };
         let mut unsorted = request(&source, IoIntent::Fetch, 1);
-        unsorted.target = IoTarget::Segment {
+        unsorted.target = IoTarget {
             segment: SegmentId::from(0),
             bytes: SegmentBytes::Ranges(Arc::from([8..11, 2..4])),
         };
         io.submit(IoOwnerId(0), vec![packed, unsorted])?;
-        let Some(Ok(IoResult::Bytes(bytes))) = io.poll()?.map(|done| done.result) else {
+        let Some(Ok(bytes)) = io.poll()?.map(|done| done.result) else {
             panic!("the packed ranges are ready");
         };
         assert_eq!(bytes.try_into_host_sync()?.as_slice(), &[2, 3, 8, 9, 10]);

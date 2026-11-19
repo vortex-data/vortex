@@ -22,11 +22,11 @@ use std::sync::atomic::Ordering;
 
 use parking_lot::Mutex;
 use vortex::array::ArrayRef;
+use vortex::array::buffer::BufferHandle;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::io::request::IoConsumer;
 use vortex::io::request::IoRequestId;
-use vortex::io::request::IoResult;
 use vortex::io::request::IoService;
 use vortex::io::runtime::BlockingRuntime as _;
 use vortex::layout::scan::v2::ScanBuilder;
@@ -240,7 +240,7 @@ impl PartPlanner {
 }
 
 impl IoConsumer for PartPlanner {
-    fn set_io_result(&mut self, _request: IoRequestId, _result: IoResult) {}
+    fn set_io_result(&mut self, _request: IoRequestId, _result: BufferHandle) {}
 }
 
 impl Planner for PartPlanner {

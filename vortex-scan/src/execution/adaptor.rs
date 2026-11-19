@@ -16,7 +16,6 @@ use vortex_error::vortex_panic;
 use vortex_io::request;
 use vortex_io::request::IoBatch;
 use vortex_io::request::IoIntent;
-use vortex_io::request::IoResult;
 use vortex_io::request::IoTarget;
 use vortex_io::request::SourceId;
 
@@ -163,12 +162,9 @@ impl ScanAdaptor {
     /// Hands a delivered read to the scan. The driver only delivers requests this adaptor
     /// published, so anything else is a driver bug. Bytes the scan cannot take fail the owner's
     /// next compute.
-    pub(super) fn set_io_result(&mut self, id: request::IoRequestId, result: IoResult) {
+    pub(super) fn set_io_result(&mut self, id: request::IoRequestId, bytes: BufferHandle) {
         let Some((read, segment_id)) = self.outstanding.remove(&id.0) else {
             vortex_panic!("ScanAdaptor: delivery of {id:?}, which is not outstanding");
-        };
-        let IoResult::Bytes(bytes) = result else {
-            vortex_panic!("ScanAdaptor: segment {segment_id} answered with a size");
         };
         if let Err(error) = self.deliver(read, segment_id, bytes)
             && self.failed.is_none()

@@ -4,10 +4,8 @@
 //! IO requests, results, and the scheduler that fulfils them.
 //!
 //! A request names a registered source, a segment of that source, and the bytes of the segment it
-//! wants. A source has exactly one other property a consumer may ask for, its length, because a
-//! Vortex file cannot be located from its start without it. Where a segment's bytes live is
-//! construction-time data the scheduler holds, so every read keeps its name from the operator that
-//! asks for it to the source that serves it.
+//! wants. Where a segment's bytes live is construction-time data the scheduler holds, so every
+//! read keeps its name from the operator that asks for it to the source that serves it.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -37,24 +35,19 @@ pub struct IoRequestId(pub u32);
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SourceId(pub u32);
 
-/// What to fetch from a source: its length, or bytes of one of its segments.
+/// What to fetch from a source: bytes of one of its segments.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum IoTarget {
-    /// Total length of the source in bytes.
-    Size,
-    /// Bytes of one segment.
-    Segment {
-        /// The segment, local to the request's source.
-        segment: SegmentId,
-        /// Which bytes of the segment.
-        bytes: SegmentBytes,
-    },
+pub struct IoTarget {
+    /// The segment, local to the request's source.
+    pub segment: SegmentId,
+    /// Which bytes of the segment.
+    pub bytes: SegmentBytes,
 }
 
 impl IoTarget {
     /// The whole of `segment`.
     pub fn segment(segment: SegmentId) -> Self {
-        Self::Segment {
+        Self {
             segment,
             bytes: SegmentBytes::All,
         }
@@ -101,34 +94,6 @@ pub struct IoRequest {
 /// Requests an object publishes together, each exactly once.
 pub type IoBatch = Vec<IoRequest>;
 
-/// Result for one request. The variant matches the target: `Size` for `Size`, `Bytes` for
-/// `Segment`. The driver checks this before delivering, so a consumer never sees a mismatch.
-#[derive(Debug, Clone)]
-pub enum IoResult {
-    /// Total length of the source in bytes.
-    Size(u64),
-    /// The bytes of a range request, possibly not yet resident on the host.
-    Bytes(BufferHandle),
-}
-
-impl IoResult {
-    /// Whether this is the variant `target` must be answered with.
-    pub fn matches(&self, target: &IoTarget) -> bool {
-        matches!(
-            (self, target),
-            (Self::Size(_), IoTarget::Size) | (Self::Bytes(_), IoTarget::Segment { .. })
-        )
-    }
-
-    /// The variant name, for messages.
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Self::Size(_) => "size",
-            Self::Bytes(_) => "bytes",
-        }
-    }
-}
-
 /// Opaque owner identity chosen by the caller, unique within a registration scope.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IoOwnerId(pub u64);
@@ -139,8 +104,9 @@ pub struct Completion {
     pub owner: IoOwnerId,
     /// The request's consumer-chosen id.
     pub request: IoRequestId,
-    /// The answer, or the read error, which fails the registration scope.
-    pub result: VortexResult<IoResult>,
+    /// The requested bytes, possibly not yet resident on the host, or the read error, which
+    /// fails the registration scope.
+    pub result: VortexResult<BufferHandle>,
 }
 
 /// IO registration and dispatch for one registration scope, such as the work descended from one
@@ -180,11 +146,11 @@ pub trait IoService: Send + Sync {
 
 /// Receives fulfilled requests. Implementations only store; they never compute here.
 pub trait IoConsumer {
-    /// Stores the result for `request`.
+    /// Stores the bytes fetched for `request`.
     ///
-    /// The driver only delivers fetches the consumer published and results that match their
-    /// targets, so anything else is a driver bug and the consumer may panic.
-    fn set_io_result(&mut self, request: IoRequestId, result: IoResult);
+    /// The driver only delivers fetches the consumer published, so anything else is a driver
+    /// bug and the consumer may panic.
+    fn set_io_result(&mut self, request: IoRequestId, result: BufferHandle);
 }
 
 /// One outstanding request at a time, with ids that never repeat within the owner.
@@ -195,7 +161,7 @@ pub trait IoConsumer {
 pub struct IoSlot {
     next_id: u32,
     request: Option<IoRequest>,
-    result: Option<IoResult>,
+    result: Option<BufferHandle>,
 }
 
 impl IoSlot {
@@ -221,24 +187,21 @@ impl IoSlot {
         self.request.is_some()
     }
 
-    /// Stores the result for the in-flight request. Panics on an unknown id or a result that
-    /// does not match the target, since the driver guarantees both.
-    pub fn deliver(&mut self, id: IoRequestId, result: IoResult) {
-        let Some(request) = self.request.take_if(|request| request.request == id) else {
+    /// Stores the result for the in-flight request. Panics on an unknown id, since the driver
+    /// only delivers requests that are outstanding.
+    pub fn deliver(&mut self, id: IoRequestId, result: BufferHandle) {
+        if self
+            .request
+            .take_if(|request| request.request == id)
+            .is_none()
+        {
             vortex_panic!("IoSlot: delivery of {id:?}, which is not outstanding");
-        };
-        if !result.matches(&request.target) {
-            vortex_panic!(
-                "IoSlot: {id:?} for {:?} answered with {}",
-                request.target,
-                result.kind()
-            );
         }
         self.result = Some(result);
     }
 
     /// The delivered result, once.
-    pub fn take(&mut self) -> Option<IoResult> {
+    pub fn take(&mut self) -> Option<BufferHandle> {
         self.result.take()
     }
 }

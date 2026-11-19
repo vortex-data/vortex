@@ -11,6 +11,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_io::request::IoRequest;
+use vortex_io::request::IoTarget;
 use vortex_io::request::SourceId;
 use vortex_io::segments::SegmentId;
 
@@ -170,8 +171,8 @@ fn needs_io_delivers_every_request_in_order() -> VortexResult<()> {
         log.events(),
         vec![
             "publish root",
-            "deliver root 0 bytes",
-            "deliver root 1 bytes",
+            "deliver root 0",
+            "deliver root 1",
             "compute root",
         ]
     );
@@ -201,7 +202,7 @@ fn fetch_published_ahead_is_delivered_when_awaited() -> VortexResult<()> {
         vec![
             "compute root",
             "compute root",
-            "deliver root 0 bytes",
+            "deliver root 0",
             "compute root",
         ]
     );
@@ -275,8 +276,8 @@ fn completions_out_of_order_within_one_batch() -> VortexResult<()> {
         log.events(),
         vec![
             "publish root",
-            "deliver root 1 bytes",
-            "deliver root 0 bytes",
+            "deliver root 1",
+            "deliver root 0",
             "compute root",
         ]
     );
@@ -309,28 +310,9 @@ fn completions_out_of_order_across_parked_items() -> VortexResult<()> {
         .collect();
     assert_eq!(
         deliveries,
-        vec!["deliver child 6 bytes", "deliver child 5 bytes"],
+        vec!["deliver child 6", "deliver child 5"],
         "both children were parked before either completed"
     );
-    Ok(())
-}
-
-#[test]
-fn lying_source_fails_before_delivery() -> VortexResult<()> {
-    let log = Log::default();
-    let source = source();
-    source.answer_with_size(segment_target(0), 4);
-    let root = ScriptedPlanner::boxed(
-        "root",
-        vec![PlannerStep::Io(vec![request(0, 0)]), PlannerStep::Done],
-        &log,
-    );
-    let err = driver(&source).run(root).err().map(|e| e.to_string());
-    assert!(
-        err.as_deref().is_some_and(|m| m.contains("answered")),
-        "{err:?}"
-    );
-    assert_eq!(log.events(), vec!["publish root"]);
     Ok(())
 }
 
@@ -617,10 +599,7 @@ fn cancel_drops_a_roots_work_and_clears_its_session() -> VortexResult<()> {
         drain(&mut run)?,
         vec!["batch RootId(1) 2..4", "done RootId(1)", "idle"]
     );
-    assert!(
-        !log.events()
-            .contains(&"deliver cancelled 0 bytes".to_string())
-    );
+    assert!(!log.events().contains(&"deliver cancelled 0".to_string()));
     Ok(())
 }
 

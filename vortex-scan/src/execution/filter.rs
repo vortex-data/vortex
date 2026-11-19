@@ -7,6 +7,7 @@ use std::sync::Arc;
 use bit_vec::BitVec;
 use rustc_hash::FxHashSet;
 use vortex_array::VortexSessionExecute;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
@@ -19,7 +20,6 @@ use vortex_io::request::IoConsumer;
 use vortex_io::request::IoIntent;
 use vortex_io::request::IoRequest;
 use vortex_io::request::IoRequestId;
-use vortex_io::request::IoResult;
 use vortex_io::request::IoTarget;
 use vortex_io::request::SourceId;
 use vortex_mask::Mask;
@@ -243,7 +243,7 @@ pub(super) fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<
 }
 
 impl IoConsumer for FilterPlanner {
-    fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
+    fn set_io_result(&mut self, request: IoRequestId, result: BufferHandle) {
         if let Some((_, _, adaptor)) = &mut self.active {
             adaptor.set_io_result(request, result);
         }

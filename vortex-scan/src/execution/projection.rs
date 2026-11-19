@@ -6,12 +6,12 @@ use std::vec::IntoIter;
 
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::request::IoConsumer;
 use vortex_io::request::IoRequestId;
-use vortex_io::request::IoResult;
 use vortex_mask::Mask;
 
 use crate::execution::PreparedScan;
@@ -71,7 +71,7 @@ impl ProjectionPlanner {
 }
 
 impl IoConsumer for ProjectionPlanner {
-    fn set_io_result(&mut self, _request: IoRequestId, _result: IoResult) {}
+    fn set_io_result(&mut self, _request: IoRequestId, _result: BufferHandle) {}
 }
 
 impl Planner for ProjectionPlanner {
@@ -139,7 +139,7 @@ impl ProjectionMorsel {
 }
 
 impl IoConsumer for ProjectionMorsel {
-    fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
+    fn set_io_result(&mut self, request: IoRequestId, result: BufferHandle) {
         if let Some(adaptor) = self.adaptor.as_mut() {
             adaptor.set_io_result(request, result);
         }
