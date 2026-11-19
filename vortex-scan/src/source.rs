@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use vortex_array::dtype::DType;
+use vortex_io::request::SegmentReader;
 pub use vortex_io::segments::SegmentFuture;
 pub use vortex_io::segments::SegmentId;
 pub use vortex_io::segments::SegmentSource;
@@ -27,8 +28,8 @@ pub struct ScanInput {
     pub root: LazyPlanRef,
     /// Byte locations indexed by source-local segment identifiers.
     pub locations: Arc<[SegmentLocation]>,
-    /// Fetches bytes by source-local segment identifier.
-    pub segments: Arc<dyn SegmentSource>,
+    /// How the session's I/O scheduler reads segments by source-local identifier.
+    pub reader: SegmentReader,
     /// State shared by repeated scans of this input.
     pub cache: Option<ScanCache>,
 }

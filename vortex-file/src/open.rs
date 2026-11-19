@@ -14,6 +14,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::VortexReadAt;
+use vortex_io::request::PlacedSegments;
+use vortex_io::request::SegmentReader;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::segments::InstrumentedSegmentCache;
 use vortex_layout::segments::NoOpSegmentCache;
@@ -316,6 +318,21 @@ impl VortexOpenOptions {
             }
         }
 
+        let metrics = RequestMetrics::new(metrics_registry.as_ref(), self.labels.clone());
+
+        // Without a user segment cache, V2 scans register the file with the session's I/O
+        // scheduler, which reads and coalesces its segments itself.
+        let scan_reader = self.segment_cache.is_none().then(|| {
+            let placed = PlacedSegments::new(
+                Arc::new(reader.clone()),
+                self.session.handle(),
+                metrics.clone(),
+            );
+            SegmentReader::Placed(Arc::new(
+                placed.with_initial_segments(initial_segments.clone()),
+            ))
+        });
+
         let segment_cache = Arc::new(InstrumentedSegmentCache::new(
             InitialReadSegmentCache {
                 initial: initial_segments,
@@ -324,8 +341,6 @@ impl VortexOpenOptions {
             metrics_registry.as_ref(),
             self.labels.clone(),
         ));
-
-        let metrics = RequestMetrics::new(metrics_registry.as_ref(), self.labels);
 
         // Create a segment source backed by the VortexRead implementation.
         let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
@@ -346,8 +361,9 @@ impl VortexOpenOptions {
         } else {
             Arc::new(HashMap::new())
         };
-        let file =
-            VortexFile::new(footer, segment_source, self.session.clone()).with_metadata(metadata);
+        let file = VortexFile::new(footer, segment_source, self.session.clone())
+            .with_metadata(metadata)
+            .with_scan_reader(scan_reader);
         Ok(if self.cache_layout_reader {
             file.with_caching()
         } else {

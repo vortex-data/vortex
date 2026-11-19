@@ -19,6 +19,7 @@ use vortex_array::expr::root;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_io::request::SegmentReader;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
@@ -48,7 +49,7 @@ fn builder() -> ScanBuilder {
             dtype: plan.dtype().clone(),
             root: LazyPlanRef::ready(plan),
             locations: Arc::new([]),
-            segments: Arc::new(NoSegments),
+            reader: SegmentReader::Opaque(Arc::new(NoSegments)),
             cache: Some(ScanCache::default()),
         },
     )

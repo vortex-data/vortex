@@ -10,6 +10,7 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+pub use vortex_io::request::SegmentReader;
 use vortex_scan::plan::LazyPlanRef;
 pub use vortex_scan::prepare::ChunkPlanner;
 pub use vortex_scan::prepare::FilterPlans;
@@ -26,7 +27,6 @@ use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
 use crate::LayoutRef;
-use crate::segments::SegmentSource;
 
 // Match the scan executor's row grid so byte partitions and scan chunks stay aligned.
 const ROW_BLOCK_SIZE: usize = 8192;
@@ -54,8 +54,8 @@ pub struct ScanFile {
     pub layout: LayoutRef,
     /// The location of every segment, indexed by segment id.
     pub locations: Arc<[SegmentLocation]>,
-    /// Fetches segment bytes by id.
-    pub segments: Arc<dyn SegmentSource>,
+    /// How the session's I/O scheduler reads segments by id.
+    pub reader: SegmentReader,
     /// State shared by every scan of this file, or `None` to rebuild it for each scan.
     pub cache: Option<ScanCache>,
 }
@@ -66,7 +66,7 @@ impl From<ScanFile> for ScanInput {
             dtype: file.layout.dtype().clone(),
             root: LazyPlanRef::lazy(move || file.layout.new_plan()),
             locations: file.locations,
-            segments: file.segments,
+            reader: file.reader,
             cache: file.cache,
         }
     }
