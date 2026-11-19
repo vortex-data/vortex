@@ -70,6 +70,7 @@
 use std::any::Any;
 use std::fmt;
 use std::fmt::Formatter;
+use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -113,10 +114,11 @@ use futures::Stream;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::future::try_join_all;
-use futures::lock::Mutex;
 use futures::stream;
-use futures::task::AtomicWaker;
+use futures::stream::BoxStream;
+use parking_lot::Mutex;
 use tokio::sync::OnceCell;
+use vortex::array::ArrayRef;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::dtype::Nullability;
@@ -132,8 +134,9 @@ use vortex::expr::stats::Precision;
 use vortex::expr::transform::replace;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::DataSourceRef;
-use vortex::scan::PartitionStream;
+use vortex::scan::DataSourceScanRef;
 use vortex::scan::ScanRequest;
+use vortex::scan::pool::ScanPoolRef;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -145,9 +148,6 @@ use crate::convert::exprs::ProcessedProjection;
 use crate::convert::schema::calculate_physical_schema;
 use crate::convert::stats::stats_set_to_df;
 use crate::convert::to_record_batch;
-
-// Bound active Scan API partition streams independently of the DataFusion output count.
-const SCAN_PARTITION_READ_AHEAD: usize = 2;
 
 /// Builder for [`VortexDataSource`].
 ///
@@ -350,6 +350,7 @@ impl VortexDataSourceBuilder {
             dynamic_filters: Vec::new(),
             limit: None,
             ordered: self.output_ordering.is_some(),
+            preserve_order: false,
             target_parallelism: get_available_parallelism().unwrap_or(1),
         })
     }
@@ -379,16 +380,24 @@ impl VortexDataSource {
 /// During execution, it builds the final Vortex [`ScanRequest`] from the
 /// current projection, pushed filters, ordering hints, and row limit.
 ///
-/// Unordered scans expose the requested DataFusion output partitions, sharing one lazy scan
-/// per execution through [`DataSource::create_sibling_state`]. Ordered and fetch-limited scans
-/// use one output partition to preserve partition sequence and a global fetch limit. Direct
-/// [`DataSource::open`] calls support only a single output partition; multiple output partitions
-/// must be opened through [`DataSourceExec`] or shared [`OpenArgs`]. Dropping an output partition
-/// before completion cancels its execution; other output partitions report an error.
-/// Scan initialization attempts are serialized; cancellation may drop a pending attempt,
-/// allowing another output partition to retry it.
+/// Unordered scans expose the requested DataFusion output partitions, which share one lazy scan
+/// per execution through [`DataSource::create_sibling_state`]. A scan with a declared global
+/// ordering uses one output partition.
 ///
-/// [`DataSourceExec`]: datafusion_datasource::source::DataSourceExec
+/// The output partitions read the scan in one of two ways, chosen as DataFusion's own file scans
+/// choose whether to steal work. By default the scan is [opened] into a pool and every output
+/// partition polls its own worker, so partitions that finish early take work from the others.
+/// When each partition must keep its rows in order, or when
+/// `datafusion.execution.enable_file_stream_work_stealing` is off, the scan is instead [split]
+/// into one piece per output partition, and partitions beyond the piece count return no rows.
+/// A direct [`DataSource::open`] without shared [`OpenArgs`] always splits, since its partition
+/// cannot share a pool with the others.
+///
+/// As with DataFusion's work-stealing file scans, dropping an output partition before it ends
+/// abandons the work it had taken, so a host drops one early only when it abandons the scan.
+///
+/// [opened]: vortex::scan::DataSourceScan::open
+/// [split]: vortex::scan::DataSourceScan::split
 ///
 /// Use [`crate::VortexSource`] instead when DataFusion should discover and plan
 /// `.vortex` files on its own.
@@ -439,11 +448,13 @@ pub struct VortexDataSource {
     dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
     /// An optional row limit populated by [`DataSource::with_fetch`].
     limit: Option<usize>,
-    /// Whether to preserve the order of the output rows.
+    /// Whether to preserve a declared global order, which keeps one output partition.
     ordered: bool,
+    /// Whether each output partition must return its rows in order, as DataFusion requests
+    /// through [`DataSource::with_preserve_order`].
+    preserve_order: bool,
 
     /// Target Arrow conversion concurrency when only one output partition is exposed.
-    /// Each unordered output partition opens at most two Scan API partitions concurrently.
     target_parallelism: usize,
 }
 
@@ -460,10 +471,30 @@ impl fmt::Debug for VortexDataSource {
 
 impl VortexDataSource {
     fn output_partition_count(&self) -> usize {
-        if self.ordered || self.limit.is_some() {
+        if self.ordered {
             1
         } else {
             self.output_partitions
+        }
+    }
+
+    /// Whether output partition `i` reads its own piece of a split scan rather than taking work
+    /// from a pool shared by every output partition.
+    ///
+    /// This mirrors when DataFusion's `FileScanConfig` turns off work stealing: an order-sensitive
+    /// scan must keep each partition's rows in sequence, and a host that runs partitions in
+    /// isolation disables stealing through `enable_file_stream_work_stealing`.
+    fn splits(&self, config: &ConfigOptions) -> bool {
+        self.ordered || self.preserve_order || !config.execution.enable_file_stream_work_stealing
+    }
+
+    fn scan_request(&self) -> ScanRequest {
+        ScanRequest {
+            projection: self.projected_projection.clone(),
+            filter: self.filter.clone(),
+            limit: self.limit.map(|l| u64::try_from(l).unwrap_or(u64::MAX)),
+            ordered: self.ordered || self.preserve_order,
+            ..Default::default()
         }
     }
 
@@ -472,15 +503,10 @@ impl VortexDataSource {
         partition: usize,
         execution: Arc<ScanExecution>,
     ) -> DFResult<SendableRecordBatchStream> {
-        if execution.cancelled.load(Ordering::Acquire) {
-            return Err(DataFusionError::Execution(
-                "scan execution cancelled".into(),
-            ));
-        }
-        let output = execution.output_partitions.get(partition).ok_or_else(|| {
+        let claimed = execution.claimed.get(partition).ok_or_else(|| {
             DataFusionError::Execution(format!("invalid scan output partition {partition}"))
         })?;
-        if output.claimed.swap(true, Ordering::AcqRel) {
+        if claimed.swap(true, Ordering::AcqRel) {
             return Err(DataFusionError::Execution(
                 "scan output partition already opened; reset the execution plan before replay"
                     .into(),
@@ -493,59 +519,45 @@ impl VortexDataSource {
                 stream::empty(),
             )) as SendableRecordBatchStream
         } else {
-            let scan_request = ScanRequest {
-                projection: self.projected_projection.clone(),
-                filter: self.filter.clone(),
-                limit: self.limit.map(|l| u64::try_from(l).unwrap_or(u64::MAX)),
-                ordered: self.ordered,
-                ..Default::default()
-            };
             let data_source = Arc::clone(&self.data_source);
-            let partitions = stream::try_unfold(Arc::clone(&execution), move |execution| {
-                let data_source = Arc::clone(&data_source);
-                let request = scan_request.clone();
-                async move {
-                    // Cancellation may retry initialization, but never runs attempts concurrently.
-                    let partitions = execution
-                        .scan_partitions
-                        .get_or_init(|| async {
-                            data_source
-                                .scan(request)
-                                .await
-                                .map(|scan| Mutex::new(Some(scan.partitions())))
-                        })
-                        .await
-                        .as_ref()
-                        .map_err(Clone::clone)?;
-                    let partition = {
-                        let mut partitions = partitions.lock().await;
-                        let next = match partitions.as_mut() {
-                            Some(partitions) => partitions.try_next().await?,
-                            None => None,
-                        };
-                        if next.is_none() {
-                            drop(partitions.take());
-                        }
-                        next
-                    };
-                    Ok(partition.map(|partition| (partition, execution)))
-                }
+            let request = self.scan_request();
+            let arrays = stream::once(async move {
+                let work = execution
+                    .work
+                    .get_or_init(|| execution.start(data_source, request))
+                    .await
+                    .as_ref()
+                    .map_err(Clone::clone)?;
+                let worker = match work {
+                    ScanWork::Pool(pool) => Some(Arc::clone(pool).worker()),
+                    ScanWork::Pieces(pieces) => {
+                        let piece = pieces.get(partition).and_then(|piece| piece.lock().take());
+                        piece
+                            .map(|piece| piece.open())
+                            .transpose()?
+                            .map(|pool| pool.worker())
+                    }
+                };
+                // Output partitions beyond the scan's pieces have nothing to read.
+                VortexResult::Ok(match worker {
+                    Some(worker) => worker.left_stream(),
+                    None => stream::empty().right_stream(),
+                })
             })
+            .try_flatten()
             .boxed();
-            self.batch_stream(partitions, partition, metrics.clone())?
+            self.batch_stream(arrays, partition, metrics.clone())?
         };
         Ok(Box::pin(OutputPartitionStream {
-            partition,
             schema: Arc::clone(&self.leftover_schema),
-            stream: Some(stream),
-            execution,
+            stream,
             metrics,
         }))
     }
 
     fn batch_stream(
         &self,
-        scan_partitions: PartitionStream,
+        arrays: BoxStream<'static, VortexResult<ArrayRef>>,
         partition: usize,
         metrics: BaselineMetrics,
     ) -> DFResult<SendableRecordBatchStream> {
@@ -561,7 +573,6 @@ impl VortexDataSource {
         } else {
             1
         };
-        let ordered = self.ordered;
         let limit = self.limit;
 
         // Pre-build the leftover projector (if any) so we can apply it after batch conversion.
@@ -571,64 +582,45 @@ impl VortexDataSource {
             .map(|proj| proj.make_projector(&self.projected_schema))
             .transpose()?;
 
-        // Defer the async DataSource::scan() call to the first poll of the stream.
-        let stream = stream::once(async move {
-            let scan_streams = scan_partitions.map(|split| split?.execute());
-
-            // When ordering is requested we must emit partition output in partition order, so we
-            // flatten the split streams sequentially. Otherwise we use try_flatten_unordered to
-            // poll multiple split streams concurrently so that the next split is already warm when
-            // the current one finishes.
-            let flattened = if ordered {
-                scan_streams.try_flatten().left_stream()
-            } else {
-                scan_streams
-                    .try_flatten_unordered(Some(SCAN_PARTITION_READ_AHEAD))
-                    .right_stream()
-            };
-
-            let handle = session.handle();
-            let stream = flattened
-                .map(move |result| {
-                    let session = session.clone();
-                    let target_field = Arc::clone(&projected_target_field);
-                    let metrics = metrics.intermediate();
-                    handle.spawn_cpu(move || {
-                        let _timer = metrics.elapsed_compute().timer();
-                        to_record_batch(result?, &target_field, &session)
-                    })
+        let handle = session.handle();
+        let stream = arrays
+            .map(move |result| {
+                let session = session.clone();
+                let target_field = Arc::clone(&projected_target_field);
+                let metrics = metrics.intermediate();
+                handle.spawn_cpu(move || {
+                    let _timer = metrics.elapsed_compute().timer();
+                    to_record_batch(result?, &target_field, &session)
                 })
-                .buffered(conversion_concurrency)
-                .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))));
+            })
+            .buffered(conversion_concurrency)
+            .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))));
 
-            // DataFusion drops its own limit operator once `with_fetch` accepts the limit, so the
-            // fetch must be exact here. Unordered scans share the limit across partitions, but
-            // ordered partitions each apply it locally and rely on this trim.
-            let stream = match limit {
-                Some(limit) => LimitStream::new(
-                    Box::pin(RecordBatchStreamAdapter::new(projected_schema, stream)),
-                    0,
-                    Some(limit),
-                    BaselineMetrics::new(&ExecutionPlanMetricsSet::new(), partition),
-                )
-                .boxed(),
-                None => stream.boxed(),
-            };
+        // With one output partition DataFusion drops its own limit operator once `with_fetch`
+        // accepts the limit, so the fetch must be exact here. With several, the fetch bounds each
+        // partition and DataFusion keeps a global limit above. An unordered scan shares its limit
+        // across partitions, but ordered pieces each apply it locally and rely on this trim.
+        let stream = match limit {
+            Some(limit) => LimitStream::new(
+                Box::pin(RecordBatchStreamAdapter::new(projected_schema, stream)),
+                0,
+                Some(limit),
+                BaselineMetrics::new(&ExecutionPlanMetricsSet::new(), partition),
+            )
+            .boxed(),
+            None => stream.boxed(),
+        };
 
-            // Apply leftover projection (expressions that couldn't be pushed into Vortex).
-            let stream = if let Some(projector) = leftover_projector {
-                stream
-                    .map(move |batch_result| {
-                        batch_result.and_then(|batch| projector.project_batch(&batch))
-                    })
-                    .boxed()
-            } else {
-                stream.boxed()
-            };
-
-            Ok::<_, DataFusionError>(stream)
-        })
-        .try_flatten();
+        // Apply leftover projection (expressions that couldn't be pushed into Vortex).
+        let stream = if let Some(projector) = leftover_projector {
+            stream
+                .map(move |batch_result| {
+                    batch_result.and_then(|batch| projector.project_batch(&batch))
+                })
+                .boxed()
+        } else {
+            stream
+        };
 
         Ok(Box::pin(RecordBatchStreamAdapter::new(
             Arc::clone(&self.leftover_schema),
@@ -637,43 +629,57 @@ impl VortexDataSource {
     }
 }
 
-#[derive(Default)]
-struct OutputPartitionState {
-    claimed: AtomicBool,
-    waker: AtomicWaker,
+/// The scan shared by every output partition of one execution of the exec.
+///
+/// The first output partition polled starts the scan; every other partition reads the same one.
+struct ScanExecution {
+    /// Whether to split the scan into one piece per output partition rather than open it into a
+    /// pool that every output partition takes work from.
+    split: bool,
+    claimed: Vec<AtomicBool>,
+    work: OnceCell<VortexResult<ScanWork>>,
 }
 
-struct ScanExecution {
-    output_partitions: Vec<OutputPartitionState>,
-    cancelled: AtomicBool,
-    scan_partitions: OnceCell<VortexResult<Mutex<Option<PartitionStream>>>>,
+enum ScanWork {
+    /// Every output partition polls its own worker of this pool.
+    Pool(ScanPoolRef),
+    /// Output partition `i` takes piece `i`, if there is one.
+    Pieces(Vec<Mutex<Option<DataSourceScanRef>>>),
 }
 
 impl ScanExecution {
-    fn new(output_partitions: usize) -> Self {
+    fn new(output_partitions: usize, split: bool) -> Self {
         Self {
-            output_partitions: (0..output_partitions)
-                .map(|_| OutputPartitionState::default())
+            split,
+            claimed: (0..output_partitions)
+                .map(|_| AtomicBool::new(false))
                 .collect(),
-            cancelled: AtomicBool::new(false),
-            scan_partitions: OnceCell::new(),
+            work: OnceCell::new(),
         }
     }
 
-    fn cancel(&self) {
-        if !self.cancelled.swap(true, Ordering::AcqRel) {
-            for output in &self.output_partitions {
-                output.waker.wake();
-            }
+    async fn start(
+        &self,
+        data_source: DataSourceRef,
+        request: ScanRequest,
+    ) -> VortexResult<ScanWork> {
+        let scan = data_source.scan(request).await?;
+        if !self.split {
+            return Ok(ScanWork::Pool(scan.open()?));
         }
+        let pieces = NonZeroUsize::new(self.claimed.len()).unwrap_or(NonZeroUsize::MIN);
+        Ok(ScanWork::Pieces(
+            scan.split(pieces)?
+                .into_iter()
+                .map(|piece| Mutex::new(Some(piece)))
+                .collect(),
+        ))
     }
 }
 
 struct OutputPartitionStream {
-    partition: usize,
     schema: SchemaRef,
-    stream: Option<SendableRecordBatchStream>,
-    execution: Arc<ScanExecution>,
+    stream: SendableRecordBatchStream,
     metrics: BaselineMetrics,
 }
 
@@ -683,34 +689,8 @@ impl Stream for OutputPartitionStream {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let metrics = self.metrics.clone();
         let _timer = metrics.elapsed_compute().timer();
-        self.execution.output_partitions[self.partition]
-            .waker
-            .register(cx.waker());
-        let mut result = if self.execution.cancelled.load(Ordering::Acquire) {
-            Poll::Ready(None)
-        } else {
-            match self.stream.as_mut() {
-                Some(stream) => stream.as_mut().poll_next(cx),
-                None => Poll::Ready(None),
-            }
-        };
-        if self.stream.is_some() && self.execution.cancelled.load(Ordering::Acquire) {
-            result = Poll::Ready(Some(Err(DataFusionError::Execution(
-                "scan execution cancelled".into(),
-            ))));
-        }
-        if matches!(result, Poll::Ready(Some(Err(_)))) {
-            self.execution.cancel();
-        }
-        if matches!(result, Poll::Ready(None | Some(Err(_)))) {
-            self.stream = None;
-            drop(
-                self.execution.output_partitions[self.partition]
-                    .waker
-                    .take(),
-            );
-        }
-        metrics.record_poll(result)
+        let poll = self.stream.as_mut().poll_next(cx);
+        metrics.record_poll(poll)
     }
 }
 
@@ -722,21 +702,6 @@ impl RecordBatchStream for OutputPartitionStream {
 
 impl Drop for OutputPartitionStream {
     fn drop(&mut self) {
-        if self.stream.is_some() {
-            self.execution.cancel();
-        }
-        drop(self.stream.take());
-        drop(
-            self.execution.output_partitions[self.partition]
-                .waker
-                .take(),
-        );
-        if self.execution.cancelled.load(Ordering::Acquire)
-            && let Some(Ok(partitions)) = self.execution.scan_partitions.get()
-            && let Some(mut partitions) = partitions.try_lock()
-        {
-            drop(partitions.take());
-        }
         self.metrics.done();
     }
 }
@@ -747,16 +712,19 @@ impl DataSource for VortexDataSource {
         partition: usize,
         _context: Arc<TaskContext>,
     ) -> DFResult<SendableRecordBatchStream> {
-        if self.output_partition_count() != 1 {
-            return Err(DataFusionError::Execution(
-                "multiple scan output partitions require sibling execution state".into(),
-            ));
-        }
-        self.open_partition(partition, Arc::new(ScanExecution::new(1)))
+        // Without sibling state this partition cannot share a pool with the others, so it scans
+        // on its own and reads only its piece.
+        self.open_partition(
+            partition,
+            Arc::new(ScanExecution::new(self.output_partition_count(), true)),
+        )
     }
 
-    fn create_sibling_state(&self, _config: &ConfigOptions) -> Option<Arc<dyn Any + Send + Sync>> {
-        Some(Arc::new(ScanExecution::new(self.output_partition_count())))
+    fn create_sibling_state(&self, config: &ConfigOptions) -> Option<Arc<dyn Any + Send + Sync>> {
+        Some(Arc::new(ScanExecution::new(
+            self.output_partition_count(),
+            self.splits(config),
+        )))
     }
 
     fn open_with_args(&self, args: OpenArgs) -> DFResult<SendableRecordBatchStream> {
@@ -838,15 +806,18 @@ impl DataSource for VortexDataSource {
         } else {
             statistics
         };
-        // Fetch is accepted only for one output partition, so it applies globally.
-        Ok(Arc::new(statistics.with_fetch(self.limit, 0, 1)?))
+        // The fetch bounds each output partition.
+        Ok(Arc::new(statistics.with_fetch(
+            self.limit,
+            0,
+            self.output_partition_count(),
+        )?))
     }
 
     fn with_fetch(&self, limit: Option<usize>) -> Option<Arc<dyn DataSource>> {
-        // DataSourceExec retains its partition properties when accepting fetch.
-        if limit.is_some()
-            && (self.output_partition_count() > 1 || !self.dynamic_filters.is_empty())
-        {
+        // DataSourceExec retains its partition properties when accepting fetch, so the fetch
+        // bounds each output partition and DataFusion keeps a global limit above several.
+        if limit.is_some() && !self.dynamic_filters.is_empty() {
             return None;
         }
         let mut this = self.clone();
@@ -857,6 +828,12 @@ impl DataSource for VortexDataSource {
 
     fn fetch(&self) -> Option<usize> {
         self.limit
+    }
+
+    fn with_preserve_order(&self, preserve_order: bool) -> Option<Arc<dyn DataSource>> {
+        let mut this = self.clone();
+        this.preserve_order = preserve_order;
+        Some(Arc::new(this))
     }
 
     // Note that we're explicitly "swapping" the projection. That means everything we do must
@@ -1047,8 +1024,6 @@ mod tests {
     use datafusion_physical_plan::expressions::BinaryExpr;
     use datafusion_physical_plan::expressions::lit;
     use futures::TryStreamExt;
-    use futures::task::ArcWake;
-    use futures::task::waker_ref;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
@@ -1080,15 +1055,6 @@ mod tests {
 
     use super::*;
     use crate::v2::VortexTable;
-
-    #[derive(Default)]
-    struct WakeCounter(AtomicUsize);
-
-    impl ArcWake for WakeCounter {
-        fn wake_by_ref(arc_self: &Arc<Self>) {
-            arc_self.0.fetch_add(1, Ordering::Relaxed);
-        }
-    }
 
     /// The source enforces a pushed-down `LIMIT` itself: DataFusion removes its limit operator
     /// once the fetch is accepted, so a filtered scan over several partitions must still return
@@ -1356,8 +1322,10 @@ mod tests {
             source.partition_statistics(Some(0))?.num_rows,
             DFPrecision::Absent
         );
-        assert!(source.with_fetch(Some(1)).is_none());
-        assert!(source.open(0, Arc::new(TaskContext::default())).is_err());
+        let fetched = source
+            .with_fetch(Some(1))
+            .expect("fetch bounds each partition");
+        assert_eq!(fetched.output_partitioning().partition_count(), 4);
         let plan = Arc::new(DataSourceExec::new(Arc::clone(&source))) as Arc<dyn ExecutionPlan>;
         assert_eq!(scans.load(Ordering::Relaxed), 0);
         let context = Arc::new(TaskContext::default());
@@ -1384,7 +1352,8 @@ mod tests {
         assert_eq!(plan.metrics().expect("scan metrics").output_rows(), Some(4));
         assert!(plan.execute(0, Arc::clone(&context)).is_err());
         let reset = Arc::clone(&plan).reset_state()?;
-        let independent = Arc::new(DataSourceExec::new(source)) as Arc<dyn ExecutionPlan>;
+        let independent =
+            Arc::new(DataSourceExec::new(Arc::clone(&source))) as Arc<dyn ExecutionPlan>;
         let (reset, independent) = futures::try_join!(
             collect(reset, Arc::clone(&context)),
             collect(independent, context)
@@ -1392,39 +1361,117 @@ mod tests {
         assert_eq!(values(reset), [0, 1, 100, 101]);
         assert_eq!(values(independent), [0, 1, 100, 101]);
         assert_eq!(scans.load(Ordering::Relaxed), 3);
-        let cancelled = Arc::clone(&plan).reset_state()?;
-        let mut output = cancelled.execute(0, Arc::new(TaskContext::default()))?;
-        assert!(output.try_next().await?.is_some());
-        drop(output);
-        assert!(
-            cancelled
-                .execute(1, Arc::new(TaskContext::default()))
-                .is_err()
-        );
 
-        let execution = Arc::new(ScanExecution::new(2));
-        let output = |partition| OutputPartitionStream {
-            partition,
-            schema: plan.schema(),
-            stream: Some(Box::pin(RecordBatchStreamAdapter::new(
-                plan.schema(),
-                stream::pending(),
-            ))),
-            execution: Arc::clone(&execution),
-            metrics: BaselineMetrics::new(&ExecutionPlanMetricsSet::new(), partition),
-        };
-        let cancelled = output(0);
-        let mut pending = Box::pin(output(1));
-        let wakes = Arc::new(WakeCounter::default());
-        let waker = waker_ref(&wakes);
-        let mut cx = Context::from_waker(&waker);
-        assert!(pending.as_mut().poll_next(&mut cx).is_pending());
-        drop(cancelled);
-        assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
-        assert!(matches!(
-            pending.as_mut().poll_next(&mut cx),
-            Poll::Ready(Some(Err(_)))
-        ));
+        // Without sibling state a partition scans on its own and reads only its piece.
+        let direct = |partition| source.open(partition, Arc::new(TaskContext::default()));
+        assert_eq!(values(direct(0)?.try_collect().await?), [0, 1, 100, 101]);
+        assert!(values(direct(1)?.try_collect().await?).is_empty());
+        Ok(())
+    }
+
+    /// A file of 12 rows in splits of 3, scanned through the v2 table.
+    async fn split_file_source() -> VortexResult<(DataSourceRef, VortexSession, SchemaRef)> {
+        let session = VortexSession::default();
+        let array = StructArray::from_fields(&[(
+            "a",
+            buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].into_array(),
+        )])?
+        .into_array();
+        let mut buf = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(&mut buf, array.to_array_stream())
+            .await?;
+        let file = session.open_options().open_buffer(buf)?;
+        let data_source: DataSourceRef = Arc::new(
+            LayoutReaderDataSource::new(file.layout_reader()?, session.clone())
+                .with_split_max_row_count(3),
+        );
+        let schema = Arc::new(session.arrow().to_arrow_schema(file.dtype())?);
+        Ok((data_source, session, schema))
+    }
+
+    fn partition_values(batches: &[RecordBatch]) -> Vec<i32> {
+        batches
+            .iter()
+            .flat_map(|batch| {
+                batch
+                    .column(0)
+                    .as_primitive::<Int32Type>()
+                    .values()
+                    .iter()
+                    .copied()
+            })
+            .collect()
+    }
+
+    /// With work stealing off, each output partition reads one contiguous piece in order, and
+    /// partitions beyond the piece count return no rows.
+    #[tokio::test]
+    async fn without_work_stealing_partitions_read_split_pieces() -> anyhow::Result<()> {
+        let (data_source, session, schema) = split_file_source().await?;
+        let source = VortexDataSource::builder(data_source, session)
+            .with_arrow_schema(schema)
+            .build()
+            .await?
+            .repartitioned(8, 0, None)?
+            .expect("repartitioning supported");
+        let plan = Arc::new(DataSourceExec::new(source)) as Arc<dyn ExecutionPlan>;
+        let mut config = datafusion::prelude::SessionConfig::new();
+        config
+            .options_mut()
+            .execution
+            .enable_file_stream_work_stealing = false;
+        let context = Arc::new(TaskContext::default().with_session_config(config));
+
+        let mut partitions = Vec::new();
+        for partition in 0..8 {
+            let batches: Vec<RecordBatch> = plan
+                .execute(partition, Arc::clone(&context))?
+                .try_collect()
+                .await?;
+            partitions.push(partition_values(&batches));
+        }
+        let pieces: Vec<_> = partitions.iter().filter(|p| !p.is_empty()).collect();
+        assert!(pieces.len() > 1, "expected several pieces: {partitions:?}");
+        assert!(partitions[pieces.len()..].iter().all(Vec::is_empty));
+        assert_eq!(
+            pieces.into_iter().flatten().copied().collect::<Vec<_>>(),
+            (0..12).collect::<Vec<_>>()
+        );
+        Ok(())
+    }
+
+    /// A fetch bounds each of several output partitions, and the pooled scan shares its limit.
+    #[tokio::test]
+    async fn fetch_bounds_each_of_several_partitions() -> anyhow::Result<()> {
+        let (data_source, session, schema) = split_file_source().await?;
+        let source = VortexDataSource::builder(data_source, session)
+            .with_arrow_schema(schema)
+            .build()
+            .await?
+            .repartitioned(4, 0, None)?
+            .expect("repartitioning supported")
+            .with_fetch(Some(5))
+            .expect("fetch supported");
+        let plan = Arc::new(DataSourceExec::new(source)) as Arc<dyn ExecutionPlan>;
+        assert_eq!(plan.properties().partitioning.partition_count(), 4);
+        let context = Arc::new(TaskContext::default());
+
+        let partitions = try_join_all((0..4).map(|partition| {
+            let stream = plan.execute(partition, Arc::clone(&context));
+            async move {
+                let batches: Vec<RecordBatch> = stream?.try_collect().await?;
+                Ok::<_, DataFusionError>(partition_values(&batches))
+            }
+        }))
+        .await?;
+        assert!(partitions.iter().all(|values| values.len() <= 5));
+        let mut values = partitions.concat();
+        assert!(values.len() >= 5, "{partitions:?}");
+        values.sort_unstable();
+        values.dedup();
+        assert_eq!(values.len(), partitions.iter().map(Vec::len).sum::<usize>());
         Ok(())
     }
 
