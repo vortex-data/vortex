@@ -32,10 +32,10 @@ pub struct ArraySerialization {
     pub metadata: Vec<u8>,
     /// Top-level buffers written for this array node.
     pub buffers: Vec<ByteBuffer>,
-    /// Child arrays to serialize recursively in wire order.
+    /// The arrays to serialize as this node's children, in wire order.
     ///
-    /// A serializer can emit a source descendant directly, such as the grandchild of a node
-    /// whose immediate child is a wrapper. It can also construct a child for the wire format.
+    /// Given a source tree `A(B(C))`, the serializer for `A` can list `C` here to make it a direct
+    /// wire child. The serializer can also list a newly constructed array.
     pub children: Vec<ArrayRef>,
 }
 
