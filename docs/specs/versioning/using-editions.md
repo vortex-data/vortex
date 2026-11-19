@@ -110,10 +110,9 @@ plugin available.
 
 ## Write errors
 
-The file writer first tries the wire format chosen by each array's serializer. If the selected
-editions disallow it, the writer tries structural rewrites, then executes the remaining rejected
-array or child into canonical form. This may expand a compressed array. The write fails if the
-result still needs a disallowed wire ID.
+If serialization for a flat layout chooses a wire ID outside the selected editions, the writer
+tries to rewrite or execute the source arrays and then serializes them again. This can expand
+compressed data. The write fails if a serializer still emits a disallowed wire ID.
 
 The writer also checks layout, nested extension dtype, and stored aggregate IDs. Custom strategies
 and compressors keep their own configuration, so they can still produce layouts the target edition
