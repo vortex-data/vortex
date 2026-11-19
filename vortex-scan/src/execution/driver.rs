@@ -12,6 +12,7 @@
 //! produced the batch, beside the scan's other chunks.
 
 use std::future;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -42,6 +43,7 @@ use crate::prepare::ScanBuilder;
 pub struct ScanDriver {
     handle: Handle,
     concurrency: usize,
+    max_in_flight: Option<NonZeroUsize>,
     ordered: bool,
 }
 
@@ -54,8 +56,16 @@ impl ScanDriver {
         Self {
             handle,
             concurrency,
+            max_in_flight: None,
             ordered,
         }
+    }
+
+    /// Caps the chunks the scan decodes at once, in all, below the per-worker limit. `None`
+    /// keeps the per-worker limit only.
+    pub fn with_max_in_flight(mut self, max_in_flight: Option<NonZeroUsize>) -> Self {
+        self.max_in_flight = max_in_flight;
+        self
     }
 
     /// Prepares `builder` where compute runs, composes its planners, and streams their batches.
@@ -101,6 +111,9 @@ impl ScanDriver {
         let scan = Arc::new(scan);
         let map_fn: MapFn<A> = Arc::new(map_fn);
         let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
+        let in_flight = self
+            .max_in_flight
+            .map_or(in_flight, |max| in_flight.min(max.get()));
         let inline = in_flight <= 1;
         let scope = WorkScope {
             file_ordinal: 0,
