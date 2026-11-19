@@ -209,12 +209,20 @@ impl Shared {
         }
     }
 
-    /// A worker's output: the batches of its parts, trimmed to the limit.
+    /// A worker's output: the batches of its parts, trimmed to the limit, ending after the first
+    /// error.
     fn output(
         &self,
         outputs: BoxStream<'static, VortexResult<Vec<ArrayRef>>>,
     ) -> SendableArrayStream {
         let arrays = outputs
+            .scan(false, |failed, output| {
+                if *failed {
+                    return future::ready(None);
+                }
+                *failed = output.is_err();
+                future::ready(Some(output))
+            })
             .flat_map(|arrays| match arrays {
                 Ok(arrays) => stream::iter(arrays.into_iter().map(Ok)).left_stream(),
                 Err(err) => stream::once(future::ready(Err(err))).right_stream(),

@@ -11,8 +11,10 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use async_trait::async_trait;
+use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::future::BoxFuture;
 use futures::stream;
 use rstest::rstest;
 use vortex_array::ArrayRef;
@@ -20,6 +22,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::expr::Expression;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
@@ -27,6 +30,7 @@ use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
 use vortex_array::stream::SendableArrayStream;
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -43,9 +47,11 @@ use vortex_scan::DataSourceScanRef;
 use vortex_scan::PartitionRef;
 use vortex_scan::ScanRequest;
 use vortex_scan::pool::ScanPoolRef;
+use vortex_scan::source::PlanDataSource;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
+use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
 use crate::multi::MultiFileDataSource;
 use crate::multi::MultiFileSession;
@@ -60,13 +66,35 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-/// The rows of a one-file source: several chunks of the scan's chunk grid.
-const ROWS: u32 = 200_000;
+/// The rows of a one-file source: several parts of the scan, filtered or not.
+const ROWS: u32 = 600_000;
 
-/// A file of one `n` column holding `values`, with file statistics.
+/// The `m` value of row `n`: scrambled, so the column does not compress away and its segments
+/// are read during the scan rather than with the footer.
+fn scramble(n: u32) -> u32 {
+    n.wrapping_mul(2_654_435_761)
+}
+
+const THRESHOLD: u32 = u32::MAX / 2;
+
+/// The filter of filtered cases, which keeps about half of the rows and, with the `n`
+/// projection, makes the scan read two columns.
+fn m_filter() -> Expression {
+    gt(get_item("m", root()), lit(THRESHOLD))
+}
+
+/// The values of `n` in `rows` that a scan returns, with [`m_filter`] when `filtered`.
+fn expected(rows: Range<u32>, filtered: bool) -> Vec<u32> {
+    rows.filter(|&n| !filtered || scramble(n) > THRESHOLD)
+        .collect()
+}
+
+/// A file of an `n` column holding `values` and an `m` column of their scrambles.
 async fn file_bytes(values: Range<u32>) -> VortexResult<ByteBuffer> {
+    let m = Buffer::from_iter(values.clone().map(scramble)).into_array();
     let array =
-        StructArray::from_fields(&[("n", Buffer::from_iter(values).into_array())])?.into_array();
+        StructArray::from_fields(&[("n", Buffer::from_iter(values).into_array()), ("m", m)])?
+            .into_array();
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
@@ -75,11 +103,43 @@ async fn file_bytes(values: Range<u32>) -> VortexResult<ByteBuffer> {
     Ok(buf.freeze())
 }
 
-async fn one_file() -> VortexResult<DataSourceRef> {
-    let file = SESSION
+/// A reader of in-memory bytes whose reads pend once before they complete, as storage reads do.
+#[derive(Clone)]
+struct YieldingRead(ByteBuffer);
+
+impl VortexReadAt for YieldingRead {
+    fn concurrency(&self) -> usize {
+        self.0.concurrency()
+    }
+
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        self.0.size()
+    }
+
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let read = self.0.read_at(offset, length, alignment);
+        async move {
+            tokio::task::yield_now().await;
+            read.await
+        }
+        .boxed()
+    }
+}
+
+async fn open_one_file() -> VortexResult<VortexFile> {
+    SESSION
         .open_options()
-        .open_buffer(file_bytes(0..ROWS).await?)?;
-    Ok(file.plan_data_source())
+        .open_read(YieldingRead(file_bytes(0..ROWS).await?))
+        .await
+}
+
+async fn one_file() -> VortexResult<DataSourceRef> {
+    Ok(open_one_file().await?.plan_data_source())
 }
 
 fn n() -> Expression {
@@ -168,22 +228,55 @@ async fn split_pieces_cover_all_rows_in_order(#[case] n: usize) -> VortexResult<
 
 /// The workers of an unordered pool together read every selected row once.
 #[rstest]
-#[case::projection(None)]
-#[case::filter(Some(gt(n(), lit(1_000u32))))]
+#[case::projection(false)]
+#[case::filter(true)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[cfg_attr(miri, ignore)]
-async fn open_reads_every_row_once(#[case] filter: Option<Expression>) -> VortexResult<()> {
-    let first = if filter.is_some() { 1_001 } else { 0 };
+async fn open_reads_every_row_once(#[case] filtered: bool) -> VortexResult<()> {
     let source = one_file().await?;
     let scan = source
         .scan(ScanRequest {
-            filter,
+            filter: filtered.then(m_filter),
             split_concurrency: NonZeroUsize::new(2),
             ..request(false)
         })
         .await?;
     let workers = read_pool(scan.open()?, 4).await?;
-    assert_eq!(sorted(workers), (first..ROWS).collect::<Vec<_>>());
+    assert_eq!(sorted(workers), expected(0..ROWS, filtered));
+    Ok(())
+}
+
+/// A file's splits are its parts, each of several chunks, which a worker returns in row order.
+#[rstest]
+#[case::unordered(false, false)]
+#[case::unordered_filter(false, true)]
+#[case::ordered(true, false)]
+#[case::ordered_filter(true, true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[cfg_attr(miri, ignore)]
+async fn open_cuts_parts_on_file_splits(
+    #[case] ordered: bool,
+    #[case] filtered: bool,
+) -> VortexResult<()> {
+    let file = open_one_file().await?;
+    let splits: Arc<[u64]> = Arc::from([0, 150_000, 400_000, u64::from(ROWS)]);
+    let source: DataSourceRef = Arc::new(PlanDataSource::from_file(
+        SESSION.clone(),
+        file.plan_file().with_splits(splits),
+    ));
+    let scan = source
+        .scan(ScanRequest {
+            filter: filtered.then(m_filter),
+            ..request(ordered)
+        })
+        .await?;
+    let workers = read_pool(scan.open()?, 3).await?;
+    if ordered {
+        assert_eq!(workers[0], expected(0..ROWS, filtered));
+    } else {
+        // Each worker returns its parts' rows in order within each part.
+        assert_eq!(sorted(workers), expected(0..ROWS, filtered));
+    }
     Ok(())
 }
 
@@ -200,23 +293,20 @@ async fn ordered_open_reads_in_order_on_the_first_worker() -> VortexResult<()> {
 
 /// A pool's limit holds across its workers; an ordered pool returns the first rows.
 #[rstest]
-#[case::unordered(false, None)]
-#[case::unordered_filter(false, Some(gt(n(), lit(1_000u32))))]
-#[case::ordered(true, None)]
-#[case::ordered_filter(true, Some(gt(n(), lit(1_000u32))))]
+#[case::unordered(false, false)]
+#[case::unordered_filter(false, true)]
+#[case::ordered(true, false)]
+#[case::ordered_filter(true, true)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[cfg_attr(miri, ignore)]
-async fn open_applies_the_limit(
-    #[case] ordered: bool,
-    #[case] filter: Option<Expression>,
-) -> VortexResult<()> {
-    const LIMIT: u32 = 70_000;
-    let first = if filter.is_some() { 1_001 } else { 0 };
+async fn open_applies_the_limit(#[case] ordered: bool, #[case] filtered: bool) -> VortexResult<()> {
+    const LIMIT: usize = 150_000;
+    let rows = expected(0..ROWS, filtered);
     let source = one_file().await?;
     let scan = source
         .scan(ScanRequest {
-            filter,
-            limit: Some(u64::from(LIMIT)),
+            filter: filtered.then(m_filter),
+            limit: Some(LIMIT as u64),
             ..request(ordered)
         })
         .await?;
@@ -228,12 +318,12 @@ async fn open_applies_the_limit(
     };
     let workers = read_pool(scan.open()?, 3).await?;
     if ordered {
-        assert_eq!(workers[0], (first..first + LIMIT).collect::<Vec<_>>());
+        assert_eq!(workers[0], rows[..LIMIT]);
     }
     let all = sorted(workers);
-    assert_eq!(all.len(), LIMIT as usize);
+    assert_eq!(all.len(), LIMIT);
     all.windows(2).for_each(|w| assert!(w[0] < w[1]));
-    assert!(all.iter().all(|value| (first..ROWS).contains(value)));
+    assert!(all.iter().all(|value| rows.binary_search(value).is_ok()));
     Ok(())
 }
 
@@ -275,7 +365,7 @@ impl FileSystem for MemoryFileSystem {
             .file(path)
             .ok_or_else(|| vortex_err!("no file {path}"))?
             .clone();
-        Ok(Arc::new(bytes))
+        Ok(Arc::new(YieldingRead(bytes)))
     }
 
     async fn delete(&self, _path: &str) -> VortexResult<()> {
@@ -284,7 +374,7 @@ impl FileSystem for MemoryFileSystem {
 }
 
 /// The values of the files of [`three_files`].
-const FILES: [Range<u32>; 3] = [0..70_000, 70_000..140_000, 140_000..210_000];
+const FILES: [Range<u32>; 3] = [0..200_000, 200_000..400_000, 400_000..600_000];
 
 /// A V2 source over three files, of which all but the first are opened during scans.
 async fn three_files() -> VortexResult<DataSourceRef> {
@@ -301,24 +391,21 @@ async fn three_files() -> VortexResult<DataSourceRef> {
 }
 
 /// Deferred files are opened by the workers that take them, and every row of every file is read
-/// once.
+/// once. A file the filter rules out by its statistics is skipped.
 #[rstest]
-#[case::all(None, 0)]
-#[case::filter(Some(gt(n(), lit(100_000u32))), 100_001)]
+#[case::all(false)]
+#[case::filter(true)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[cfg_attr(miri, ignore)]
-async fn open_reads_deferred_files(
-    #[case] filter: Option<Expression>,
-    #[case] first: u32,
-) -> VortexResult<()> {
+async fn open_reads_deferred_files(#[case] filtered: bool) -> VortexResult<()> {
     let source = three_files().await?;
-    assert_eq!(source.row_count(), Precision::inexact(210_000u64));
+    assert_eq!(source.row_count(), Precision::inexact(u64::from(ROWS)));
     let request = ScanRequest {
-        filter,
+        filter: filtered.then(m_filter),
         ..request(false)
     };
     let workers = read_pool(source.scan(request.clone()).await?.open()?, 4).await?;
-    assert_eq!(sorted(workers), (first..210_000).collect::<Vec<_>>());
+    assert_eq!(sorted(workers), expected(0..ROWS, filtered));
 
     // Ordered, the files are read in order.
     let ordered = ScanRequest {
@@ -326,7 +413,7 @@ async fn open_reads_deferred_files(
         ..request
     };
     let workers = read_pool(source.scan(ordered).await?.open()?, 2).await?;
-    assert_eq!(workers[0], (first..210_000).collect::<Vec<_>>());
+    assert_eq!(workers[0], expected(0..ROWS, filtered));
     Ok(())
 }
 
@@ -344,7 +431,7 @@ async fn split_keeps_deferred_files_whole() -> VortexResult<()> {
         assert!(!values.is_empty());
         read.extend(values);
     }
-    assert_eq!(read, (0..210_000).collect::<Vec<_>>());
+    assert_eq!(read, expected(0..ROWS, false));
     Ok(())
 }
 
@@ -355,12 +442,12 @@ async fn open_limits_across_deferred_files() -> VortexResult<()> {
     let source = three_files().await?;
     let scan = source
         .scan(ScanRequest {
-            limit: Some(100_000),
+            limit: Some(300_000),
             ..request(false)
         })
         .await?;
     let all = sorted(read_pool(scan.open()?, 4).await?);
-    assert_eq!(all.len(), 100_000);
+    assert_eq!(all.len(), 300_000);
     all.windows(2).for_each(|w| assert!(w[0] < w[1]));
     Ok(())
 }
@@ -384,6 +471,6 @@ async fn partitions_are_files() -> VortexResult<()> {
     for partition in partitions {
         read.extend(values(partition.execute()?).await?);
     }
-    assert_eq!(read, (0..210_000).collect::<Vec<_>>());
+    assert_eq!(read, expected(0..ROWS, false));
     Ok(())
 }
