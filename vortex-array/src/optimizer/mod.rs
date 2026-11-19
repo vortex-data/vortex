@@ -25,6 +25,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use smallvec::SmallVec;
+use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -34,6 +35,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::array::ArrayId;
+use crate::array::ArraySlots;
 use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::executor::ExecutionCtx;
@@ -293,21 +295,16 @@ impl<'a> Optimizer<'a> {
     /// If another owner holds `array` too, the rewrite is remembered, and a later call with the
     /// same array returns it.
     pub(crate) fn optimize_array(&mut self, array: &ArrayRef) -> VortexResult<ArrayRef> {
-        if !array.is_shared() {
-            return self.optimize(array.clone());
+        if array.optimized_state().is_optimized() {
+            return Ok(array.clone());
         }
 
-        let key = ArrayByPtr(array.clone());
-        if let Some(rewritten) = self.rewritten_shared.get(&key) {
+        let shared = array.is_shared();
+        if shared && let Some(rewritten) = self.rewritten_shared.get(&ArrayByPtr(array.clone())) {
             return Ok(rewritten.clone());
         }
 
-        let optimized = self.optimize(array.clone())?;
-        if !ArrayRef::ptr_eq(&optimized, array) {
-            self.rewritten_shared.insert(key, optimized.clone());
-        }
-
-        Ok(optimized)
+        self.run(OptimizeFrame::new(array.clone(), shared))
     }
 
     /// Tries the parent-reduce kernels of the child in `slot_idx` against `parent`, without trying
@@ -323,142 +320,322 @@ impl<'a> Optimizer<'a> {
         reduce_parent_with_kernels(self.kernels, parent, child, slot_idx)
     }
 
-    /// Optimizes `array` top down: first the root, then the descendants below it that were never
-    /// optimized, then the root again while its children change. Marks the result.
-    fn optimize(&mut self, array: ArrayRef) -> VortexResult<ArrayRef> {
-        if array.optimized_state().is_optimized() {
-            return Ok(array);
-        }
+    /// Optimizes the subtree of `root` top down, with one frame per node whose subtree is being
+    /// optimized.
+    ///
+    /// A frame first runs the rules of its node to fixpoint. The rules get the first try, on
+    /// children that can still be lazy, so a rule that drops or replaces a child does not pay to
+    /// optimize that child's subtree first. After each rewrite, the nodes that the rewrite built
+    /// are optimized before the next pass. Rules and constructors build lazy arrays at any depth,
+    /// and optimizing them first keeps the optimizer from undoing one rule with its inverse:
+    /// `slice(get_item(s))` and `get_item(slice(s))` rewrite into each other until the inner
+    /// `slice(s)` collapses into the encoding of `s`.
+    ///
+    /// At the fixpoint, the frame optimizes the children that were never optimized. If a child
+    /// changed its encoding, a parent rule keyed on that encoding can apply now, so the frame runs
+    /// the rules of its node again. A child that is already optimized is kept without a visit to
+    /// its subtree, which skips the subtrees that a rule carries over from the array it rewrote.
+    ///
+    /// The walk keeps its own stack, so a lazy tree deeper than the thread's stack allows, such as
+    /// a chain of thousands of nested scalar functions, still optimizes.
+    fn run(&mut self, root: OptimizeFrame) -> VortexResult<ArrayRef> {
+        let mut stack: SmallVec<[OptimizeFrame; 8]> = smallvec![root];
 
-        // The rules of the root get the first try, on children that can still be lazy, so a rule
-        // that drops or replaces a child does not pay to optimize that child's subtree first.
-        let mut optimized = self.optimize_root(array.clone())?;
+        loop {
+            let frame = stack
+                .last_mut()
+                .vortex_expect("a frame is on the stack until its subtree is optimized");
 
-        for _ in 0..=MAX_OPTIMIZER_REWRITE_PASS {
-            let with_children = self.optimize_new_nodes(optimized.clone())?;
-            if ArrayRef::ptr_eq(&with_children, &optimized) {
-                break;
+            match frame.phase {
+                Phase::Root => {
+                    if let Some(new_array) =
+                        self.reduce_root(&frame.current, &mut frame.root_passes)?
+                    {
+                        frame.current = new_array;
+                        frame.any_optimizations = true;
+                        trace_op!(record_optimize_loop_end());
+                        frame.start_children(After::ContinueRoot);
+                        continue;
+                    }
+
+                    trace_op!(record_optimize_parent_reduce_none(&frame.current));
+                    trace_op!(record_optimize_loop_end());
+                    trace_op!(record_optimize_done(
+                        &frame.current,
+                        frame.any_optimizations
+                    ));
+
+                    // Most lazy nodes sit over children that are already optimized, so the rules
+                    // of the root alone took them to their fixpoint.
+                    if frame.outer_passes > MAX_OPTIMIZER_REWRITE_PASS
+                        || children_optimized(&frame.current)
+                    {
+                        if let Some(result) = self.finish(&mut stack) {
+                            return Ok(result);
+                        }
+                        continue;
+                    }
+
+                    frame.start_children(After::Finish);
+                }
+                Phase::Children(after) => {
+                    if let Some((child, shared)) =
+                        frame.next_unoptimized_child(&self.rewritten_shared)
+                    {
+                        stack.push(OptimizeFrame::new(child, shared));
+                        continue;
+                    }
+
+                    let changed = frame.take_children()?;
+                    match after {
+                        After::ContinueRoot => frame.phase = Phase::Root,
+                        After::Finish if changed => {
+                            frame.outer_passes += 1;
+                            frame.rerun_root();
+                        }
+                        After::Finish => {
+                            if let Some(result) = self.finish(&mut stack) {
+                                return Ok(result);
+                            }
+                        }
+                    }
+                }
             }
+        }
+    }
 
-            // A child changed its encoding, so a parent rule keyed on that encoding can apply now.
-            optimized = self.optimize_root(with_children)?;
+    /// One pass of the fixpoint loop of the rules on `current`, the `passes`-th so far. Returns
+    /// the rewrite of the first reduce or parent-reduce rule that applies.
+    fn reduce_root(
+        &self,
+        current: &ArrayRef,
+        passes: &mut usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if *passes == 0 {
+            trace_op!(record_optimize_start(current));
+        }
+        if *passes > MAX_OPTIMIZER_REWRITE_PASS {
+            vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
+        }
+        *passes += 1;
+
+        trace_op!(record_optimize_loop_start(current));
+
+        if let Some(new_array) = current.reduce()? {
+            return Ok(Some(new_array));
         }
 
-        // A rewrite keeps the logical values, so every statistic of the input stays valid. Lazy
-        // constructors such as `slice` put the statistics they carry over on the lazy node.
-        if !ArrayRef::ptr_eq(&optimized, &array) {
-            optimized.statistics().inherit_from(array.statistics());
+        trace_op!(record_optimize_reduce_none(current));
+
+        // Try children in order; the first parent rewrite restarts the fixpoint loop. A parent
+        // that no kernel is registered for skips its children without probing each pair.
+        let candidates = ReduceParentCandidates::new(self.kernels, current);
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+
+        for (slot_idx, slot) in current.slots().iter().enumerate() {
+            let Some(child) = slot else {
+                continue;
+            };
+            if candidates.contains(child)
+                && let Some(new_array) =
+                    reduce_parent_with_kernels(self.kernels, current, child, slot_idx)?
+            {
+                return Ok(Some(new_array));
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Pops the top frame as optimized and hands its result to the parent frame. Returns the
+    /// result when the frame was the root.
+    fn finish(&mut self, stack: &mut SmallVec<[OptimizeFrame; 8]>) -> Option<ArrayRef> {
+        let OptimizeFrame {
+            input,
+            current,
+            shared,
+            ..
+        } = stack.pop().vortex_expect("the frame was just read");
+
+        if !ArrayRef::ptr_eq(&current, &input) {
+            // A rewrite keeps the logical values, so every statistic of the input stays valid.
+            // Lazy constructors such as `slice` put the statistics they carry over on the lazy
+            // node.
+            current.statistics().inherit_from(input.statistics());
+
+            if shared {
+                self.rewritten_shared
+                    .insert(ArrayByPtr(input), current.clone());
+            }
         }
 
         if self.mark {
-            optimized.optimized_state().mark_optimized();
+            current.optimized_state().mark_optimized();
         }
 
-        Ok(optimized)
-    }
-
-    /// Runs the reduce and parent-reduce rules on the root of `current_array` to fixpoint.
-    ///
-    /// The nodes each rewrite built are optimized before the next pass.
-    fn optimize_root(&mut self, mut current_array: ArrayRef) -> VortexResult<ArrayRef> {
-        let mut any_optimizations = false;
-
-        trace_op!(record_optimize_start(&current_array));
-
-        for _ in 0..=MAX_OPTIMIZER_REWRITE_PASS {
-            trace_op!(record_optimize_loop_start(&current_array));
-
-            if let Some(new_array) = current_array.reduce()? {
-                current_array = self.optimize_new_nodes(new_array)?;
-                any_optimizations = true;
-                trace_op!(record_optimize_loop_end());
-                continue;
+        match stack.last_mut() {
+            Some(parent) => {
+                parent.absorb(current);
+                None
             }
-
-            trace_op!(record_optimize_reduce_none(&current_array));
-
-            // Try children in order; the first parent rewrite restarts the fixpoint loop. A parent
-            // that no kernel is registered for skips its children without probing each pair.
-            let mut reduced_parent = None;
-            let candidates = ReduceParentCandidates::new(self.kernels, &current_array);
-            if !candidates.is_empty() {
-                for (slot_idx, slot) in current_array.slots().iter().enumerate() {
-                    let Some(child) = slot else {
-                        continue;
-                    };
-                    if candidates.contains(child)
-                        && let Some(new_array) = reduce_parent_with_kernels(
-                            self.kernels,
-                            &current_array,
-                            child,
-                            slot_idx,
-                        )?
-                    {
-                        reduced_parent = Some(new_array);
-                        break;
-                    }
-                }
-            }
-
-            if let Some(new_array) = reduced_parent {
-                current_array = self.optimize_new_nodes(new_array)?;
-                any_optimizations = true;
-                trace_op!(record_optimize_loop_end());
-                continue;
-            }
-
-            trace_op!(record_optimize_parent_reduce_none(&current_array));
-            trace_op!(record_optimize_loop_end());
-
-            trace_op!(record_optimize_done(&current_array, any_optimizations));
-
-            return Ok(current_array);
+            None => Some(current),
         }
+    }
+}
 
-        vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
+/// Whether every child of `array` is already optimized.
+fn children_optimized(array: &ArrayRef) -> bool {
+    array
+        .slots()
+        .iter()
+        .flatten()
+        .all(|child| child.optimized_state().is_optimized())
+}
+
+/// What an [`OptimizeFrame`] does next.
+#[derive(Clone, Copy)]
+enum Phase {
+    /// One pass of the reduce and parent-reduce rules on the root.
+    Root,
+    /// Walk the children, and optimize those that were never optimized.
+    Children(After),
+}
+
+/// What an [`OptimizeFrame`] does after a walk over its children.
+#[derive(Clone, Copy)]
+enum After {
+    /// Continue the fixpoint loop of the root: the children were those of a rewrite.
+    ContinueRoot,
+    /// Run the fixpoint loop of the root again if a child changed, else finish the frame.
+    Finish,
+}
+
+/// A node whose subtree is being optimized.
+struct OptimizeFrame {
+    phase: Phase,
+    /// The node as it was handed to the optimizer.
+    input: ArrayRef,
+    /// Whether another owner held `input` before the frame cloned it. The frame holds two
+    /// references itself, so `input.is_shared()` is always true here.
+    shared: bool,
+    /// The node as rewritten so far.
+    current: ArrayRef,
+    /// Passes of the root fixpoint loop so far. Reset when the loop runs again over changed
+    /// children.
+    root_passes: usize,
+    any_optimizations: bool,
+    /// The number of times the root fixpoint loop ran again over children that changed.
+    outer_passes: usize,
+    /// The next slot that the children walk looks at.
+    next_slot: usize,
+    /// The children walked so far. Stays `None` until a child changes, so a node whose children
+    /// stay as they are is not rebuilt, and the frame stays small to move.
+    new_slots: Option<Box<ArraySlots>>,
+}
+
+impl OptimizeFrame {
+    fn new(array: ArrayRef, shared: bool) -> Self {
+        Self {
+            phase: Phase::Root,
+            input: array.clone(),
+            shared,
+            current: array,
+            root_passes: 0,
+            any_optimizations: false,
+            outer_passes: 0,
+            next_slot: 0,
+            new_slots: None,
+        }
     }
 
-    /// Optimizes the nodes below `array` that were never optimized, such as those a rule built
-    /// below its result.
-    ///
-    /// Rules and constructors build lazy arrays, so these nodes are not yet optimized, at any
-    /// depth. Optimizing them as each rewrite happens keeps the optimizer from undoing one rule
-    /// with its inverse: `slice(get_item(s))` and `get_item(slice(s))` rewrite into each other
-    /// until the inner `slice(s)` collapses into `s`'s own encoding.
-    ///
-    /// A child that is already optimized is left as it is without visiting its subtree, which
-    /// skips the subtrees a rule carries over from the array it rewrote.
-    fn optimize_new_nodes(&mut self, array: ArrayRef) -> VortexResult<ArrayRef> {
-        let mut new_slots: Option<SmallVec<_>> = None;
-        for (slot_idx, slot) in array.slots().iter().enumerate() {
-            let optimized = match slot {
-                Some(child) if !child.optimized_state().is_optimized() => {
-                    let optimized = self.optimize_array(child)?;
-                    (!ArrayRef::ptr_eq(&optimized, child)).then_some(optimized)
-                }
-                _ => None,
+    /// Starts the walk over the children of `current`, to continue with `after` when it ends.
+    fn start_children(&mut self, after: After) {
+        self.phase = Phase::Children(after);
+        self.next_slot = 0;
+        self.new_slots = None;
+    }
+
+    /// Starts the fixpoint loop of the root again, over the current children.
+    fn rerun_root(&mut self) {
+        self.phase = Phase::Root;
+        self.root_passes = 0;
+        self.any_optimizations = false;
+    }
+
+    /// Returns the next child of `current` that was never optimized and whether another owner
+    /// holds it, and advances the walk past it. A shared child that this optimizer already
+    /// rewrote takes its rewrite instead of a walk.
+    fn next_unoptimized_child(
+        &mut self,
+        rewritten_shared: &HashMap<ArrayByPtr, ArrayRef>,
+    ) -> Option<(ArrayRef, bool)> {
+        while let Some(slot) = self.current.slots().get(self.next_slot) {
+            self.next_slot += 1;
+
+            let Some(child) = slot
+                .as_ref()
+                .filter(|c| !c.optimized_state().is_optimized())
+            else {
+                self.keep_slot();
+                continue;
             };
-            match optimized {
-                Some(optimized) => new_slots
-                    .get_or_insert_with(|| {
-                        let mut slots = SmallVec::with_capacity(array.slots().len());
-                        slots.extend(array.slots()[..slot_idx].iter().cloned());
-                        slots
-                    })
-                    .push(Some(optimized)),
-                None => {
-                    if let Some(new_slots) = &mut new_slots {
-                        new_slots.push(slot.clone());
-                    }
-                }
+
+            // The parent slot holds one reference, so any other makes the child shared.
+            let shared = child.is_shared();
+            if !shared {
+                return Some((child.clone(), false));
+            }
+
+            let key = ArrayByPtr(child.clone());
+            match rewritten_shared.get(&key) {
+                Some(rewritten) => self.absorb(rewritten.clone()),
+                None => return Some((key.0, true)),
             }
         }
-        let Some(new_slots) = new_slots else {
-            return Ok(array);
+
+        None
+    }
+
+    /// Takes the optimized child of the slot that the walk last advanced past.
+    fn absorb(&mut self, optimized: ArrayRef) {
+        let slot_idx = self.next_slot - 1;
+        let slots = self.current.slots();
+        let unchanged = slots[slot_idx]
+            .as_ref()
+            .is_some_and(|child| ArrayRef::ptr_eq(child, &optimized));
+        if unchanged {
+            self.keep_slot();
+            return;
+        }
+
+        self.new_slots
+            .get_or_insert_with(|| {
+                let mut new_slots = ArraySlots::with_capacity(slots.len());
+                new_slots.extend(slots[..slot_idx].iter().cloned());
+                Box::new(new_slots)
+            })
+            .push(Some(optimized));
+    }
+
+    /// Keeps the slot that the walk last advanced past as it is.
+    fn keep_slot(&mut self) {
+        if let Some(new_slots) = &mut self.new_slots {
+            new_slots.push(self.current.slots()[self.next_slot - 1].clone());
+        }
+    }
+
+    /// Rebuilds `current` over its walked children. Returns whether a child changed.
+    fn take_children(&mut self) -> VortexResult<bool> {
+        let Some(new_slots) = self.new_slots.take() else {
+            return Ok(false);
         };
+
         // SAFETY: optimizer rules only replace child slots with logically equivalent arrays, so
         // the parent's logical values and statistics remain valid.
-        unsafe { array.with_slots(new_slots) }
+        self.current = unsafe { self.current.clone().with_slots(*new_slots) }?;
+        Ok(true)
     }
 }
 

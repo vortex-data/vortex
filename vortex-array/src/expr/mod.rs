@@ -66,6 +66,7 @@ pub use exprs::case_when;
 pub use exprs::case_when_no_else;
 pub use exprs::cast;
 pub use exprs::checked_add;
+pub use exprs::coalesce;
 pub use exprs::col;
 pub use exprs::dynamic;
 pub use exprs::dynamic_expression;

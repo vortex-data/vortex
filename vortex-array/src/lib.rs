@@ -109,6 +109,7 @@ mod canonical;
 mod columnar;
 pub mod compute;
 pub mod display;
+mod drop_guard;
 pub mod dtype;
 mod executor;
 pub mod expr;

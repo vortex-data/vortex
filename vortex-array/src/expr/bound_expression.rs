@@ -18,6 +18,7 @@ use crate::expr::Expression;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::expression::unbound_variable;
 use crate::expr::scope::Scope;
+use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
 use crate::scalar_fn::EmptyOptions;
@@ -296,22 +297,18 @@ impl Expression {
 
     /// Bind this expression against an explicit [`Scope`].
     pub fn bind_scope(&self, scope: &Scope) -> VortexResult<BoundExpression> {
-        if self.is_root() {
-            return Ok(BoundExpression::new_root(scope.root().clone()));
-        }
-        if let Expression::Variable(name) = self {
-            return Err(unbound_variable(name));
-        }
-
-        let children: Vec<_> = self
-            .children()
-            .iter()
-            .map(|child| child.bind_scope(scope))
-            .try_collect()?;
-        let scalar_fn = self
-            .as_scalar()
-            .vortex_expect("leaves were handled above, so this is a scalar node");
-        BoundExpression::try_new(scalar_fn.clone(), children)
+        self.fold_up(|node, children| {
+            if node.is_root() {
+                return Ok(BoundExpression::new_root(scope.root().clone()));
+            }
+            if let Expression::Variable(name) = node {
+                return Err(unbound_variable(name));
+            }
+            let scalar_fn = node
+                .as_scalar()
+                .vortex_expect("leaves were handled above, so this is a scalar node");
+            BoundExpression::try_new(scalar_fn.clone(), children)
+        })
     }
 }
 
