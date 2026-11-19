@@ -24,16 +24,20 @@ use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
+use vortex_array::dtype::UnionVariants;
 use vortex_array::expr::root;
 use vortex_array::expr::variant_get;
 use vortex_functions::variant_get::VariantPath;
 use vortex_functions::variant_shred::VariantShred;
 use vortex_functions::variant_shred::VariantShredStrict;
+use vortex_functions::variant_shred::VariantShredUnion;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowSessionExt;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
@@ -515,5 +519,98 @@ fn strict_shredding_keeps_values_that_fit() -> VortexResult<()> {
             .execute_mask(residual.len(), &mut SESSION.create_execution_ctx())?
             .all_false()
     );
+    Ok(())
+}
+
+fn union(members: &[(&str, DType)]) -> DType {
+    let variants = UnionVariants::new(
+        FieldNames::from_iter(members.iter().map(|(name, _)| *name)),
+        members.iter().map(|(_, dtype)| dtype.clone()).collect(),
+    )
+    .vortex_expect("distinct member names");
+    DType::Union(variants, Nullability::Nullable)
+}
+
+fn shred_into_union(array: ArrayRef, dtype: DType) -> VortexResult<ArrayRef> {
+    VariantShredUnion::try_new(array, dtype)?
+        .into_array()
+        .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())
+}
+
+/// A union shredding keeps every value, whether a member holds it or the residual does, and the
+/// export folds the union back into Variant bytes.
+#[rstest]
+#[case::leaves(object(&[("n", union(&[("int", int(PType::I64)), ("str", utf8())]))]))]
+#[case::narrow_first(object(&[("n", union(&[("small", int(PType::I8)), ("big", int(PType::I64))]))]))]
+#[case::struct_member(object(&[(
+    "o",
+    union(&[
+        ("object", object(&[("n", int(PType::I64)), ("x", int(PType::I64))])),
+        ("list", list(int(PType::I64))),
+    ]),
+)]))]
+#[case::list_member(object(&[("l", union(&[("list", list(union(&[("int", int(PType::I64)), ("str", utf8())])))]))]))]
+#[case::in_a_list(object(&[("l", list(union(&[("int", int(PType::I64)), ("str", utf8())])))]))]
+#[case::root(union(&[
+    ("object", object(&[("n", int(PType::I64)), ("x", object(&[("n", int(PType::I64))]))])),
+    ("int", int(PType::I64)),
+]))]
+#[case::nested(object(&[("o", union(&[("object", object(&[("n", union(&[("int", int(PType::I64)), ("str", utf8())]))]))]))]))]
+fn union_shredding_keeps_every_value(#[case] schema: DType) -> VortexResult<()> {
+    let array = from_json(VALUES)?;
+    assert_eq!(
+        values(shred_into_union(array.clone(), schema)?)?,
+        values(array)?
+    );
+    Ok(())
+}
+
+/// A value goes to the member of its type, and a value of no member stays in the residual.
+#[test]
+fn union_shredding_moves_values_into_members() -> VortexResult<()> {
+    let array = from_json([
+        Some(r#"{"n":1}"#),
+        Some(r#"{"n":"x"}"#),
+        Some(r#"{"n":true}"#),
+        Some(r#"{"m":1}"#),
+    ])?;
+    let schema = object(&[("n", union(&[("int", int(PType::I64)), ("str", utf8())]))]);
+    let shredded = shred_into_union(array, schema)?;
+
+    let variant = shredded
+        .clone()
+        .execute::<VariantArray>(&mut SESSION.create_execution_ctx())?;
+    let shredded_dtype = variant
+        .shredded()
+        .ok_or_else(|| vortex_err!("not shredded"))?
+        .dtype()
+        .clone();
+    assert!(super::has_union(&shredded_dtype), "{shredded_dtype}");
+
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_arrays_eq!(
+        get(shredded.clone(), &["n"], int(PType::I64))?,
+        PrimitiveArray::from_option_iter([Some(1i64), None, None, None]),
+        &mut ctx
+    );
+    assert_arrays_eq!(
+        get(shredded.clone(), &["n"], utf8())?,
+        VarBinViewArray::from_iter_nullable_str([None, Some("x"), None, None]),
+        &mut ctx
+    );
+    assert_arrays_eq!(
+        get(shredded, &["n"], boolean())?,
+        BoolArray::from_iter([None, None, Some(true), None]),
+        &mut ctx
+    );
+    Ok(())
+}
+
+/// A Parquet shredding writes Parquet storage, which has no union.
+#[test]
+fn parquet_shredding_rejects_a_union() -> VortexResult<()> {
+    let schema = object(&[("n", union(&[("int", int(PType::I64)), ("str", utf8())]))]);
+    assert!(shred_into(from_json(VALUES)?, schema.clone()).is_err());
+    assert!(shred_strictly(from_json(VALUES)?, schema).is_err());
     Ok(())
 }

@@ -39,6 +39,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
+use super::union::UnionMember;
 use crate::extract::ARRAY;
 use crate::extract::BASIC_TYPE_MASK;
 use crate::extract::Elements;
@@ -125,7 +126,7 @@ pub(super) fn shred(
 }
 
 /// Why a value could not be appended.
-enum Fail {
+pub(super) enum Fail {
     /// The bytes are cut short or do not decode.
     Malformed,
     /// The value does not fit the schema, and the shredding rejects it.
@@ -133,7 +134,7 @@ enum Fail {
 }
 
 /// Turns a value that is missing because bytes do not decode into [`Fail::Malformed`].
-trait OrMalformed<T> {
+pub(super) trait OrMalformed<T> {
     fn or_malformed(self) -> Result<T, Fail>;
 }
 
@@ -204,6 +205,8 @@ enum Typed {
     F64(Leaf<f64>),
     Object(Box<ObjectShredder>),
     List(Box<ListShredder>),
+    /// A union takes a value whole, as a leaf does.
+    Union(Box<UnionMember>),
 }
 
 /// A shredded struct. Each field shreds the field of the object of the same name.
@@ -226,13 +229,13 @@ struct ListShredder {
 }
 
 /// The values and validity of a typed leaf.
-struct Leaf<T> {
+pub(super) struct Leaf<T> {
     values: BufferMut<T>,
     validity: BitBufferMut,
 }
 
 impl<T: Copy + Default> Leaf<T> {
-    fn new(capacity: usize) -> Self {
+    pub(super) fn new(capacity: usize) -> Self {
         Self {
             values: BufferMut::with_capacity(capacity),
             validity: BitBufferMut::with_capacity(capacity),
@@ -240,21 +243,21 @@ impl<T: Copy + Default> Leaf<T> {
     }
 
     #[inline]
-    fn push(&mut self, value: Option<T>) {
+    pub(super) fn push(&mut self, value: Option<T>) {
         self.values.push(value.unwrap_or_default());
         self.validity.append(value.is_some());
     }
 }
 
 impl<T: NativePType> Leaf<T> {
-    fn finish(self) -> ArrayRef {
+    pub(super) fn finish(self) -> ArrayRef {
         PrimitiveArray::new(self.values.freeze(), Validity::from(self.validity.freeze()))
             .into_array()
     }
 }
 
 impl Leaf<bool> {
-    fn finish_bool(self) -> ArrayRef {
+    pub(super) fn finish_bool(self) -> ArrayRef {
         let values = self.values.iter().copied().collect::<BitBufferMut>();
         BoolArray::new(values.freeze(), Validity::from(self.validity.freeze())).into_array()
     }
@@ -315,9 +318,12 @@ impl Shredder {
                     validity: BitBufferMut::with_capacity(capacity),
                 }))
             }
+            DType::Union(..) => Typed::Union(Box::new(UnionMember::new(
+                schema, names, capacity, allocator,
+            )?)),
             _ => vortex_bail!(
                 "a Parquet Variant can only be shredded into strings, binaries, booleans, signed \
-                 integers, floats, structs and lists, not {schema}"
+                 integers, floats, structs, lists and unions, not {schema}"
             ),
         };
 
@@ -370,6 +376,7 @@ impl Shredder {
             Typed::I64(leaf) => push(leaf, integer(value)),
             Typed::F32(leaf) => push(leaf, float(value)),
             Typed::F64(leaf) => push(leaf, double(value)),
+            Typed::Union(union) => union.append_fitting(fields, value)?,
             Typed::Object(object) => {
                 return object.append(fields, value, &mut self.value, &self.node);
             }
@@ -403,6 +410,7 @@ impl Shredder {
             Typed::F64(leaf) => leaf.finish(),
             Typed::Object(object) => object.finish()?,
             Typed::List(list) => list.finish()?,
+            Typed::Union(union) => union.finish()?,
         };
         Ok((value, typed))
     }
@@ -435,6 +443,7 @@ impl Typed {
             Self::F64(leaf) => leaf.push(None),
             Self::Object(object) => object.append_null(),
             Self::List(list) => list.append_null(),
+            Self::Union(union) => union.append_null(),
         }
     }
 }
@@ -560,7 +569,7 @@ impl ListShredder {
     }
 }
 
-fn binary_builder(capacity: usize, allocator: &BufferAllocatorRef) -> VarBinViewBuilder {
+pub(super) fn binary_builder(capacity: usize, allocator: &BufferAllocatorRef) -> VarBinViewBuilder {
     VarBinViewBuilder::with_capacity_in(
         DType::Binary(Nullability::Nullable),
         capacity,
@@ -585,7 +594,7 @@ fn header(value: &[u8]) -> Option<(u8, u8)> {
 }
 
 /// The string that `value` holds, if it is a string.
-fn string(value: &[u8]) -> Option<&str> {
+pub(super) fn string(value: &[u8]) -> Option<&str> {
     let bytes = match header(value)? {
         (SHORT_STRING, len) => value.get(1..1 + usize::from(len))?,
         (PRIMITIVE, LONG_STRING) => sized(value)?,
@@ -595,7 +604,7 @@ fn string(value: &[u8]) -> Option<&str> {
 }
 
 /// The bytes that `value` holds, if it is a binary.
-fn binary(value: &[u8]) -> Option<&[u8]> {
+pub(super) fn binary(value: &[u8]) -> Option<&[u8]> {
     match header(value)? {
         (PRIMITIVE, BINARY) => sized(value),
         _ => None,
@@ -608,7 +617,7 @@ fn sized(value: &[u8]) -> Option<&[u8]> {
     value.get(5..5 + len)
 }
 
-fn boolean(value: &[u8]) -> Option<bool> {
+pub(super) fn boolean(value: &[u8]) -> Option<bool> {
     match header(value)? {
         (PRIMITIVE, TRUE) => Some(true),
         (PRIMITIVE, FALSE) => Some(false),
@@ -617,7 +626,7 @@ fn boolean(value: &[u8]) -> Option<bool> {
 }
 
 /// The integer that `value` holds, if it is an integer of any width.
-fn integer(value: &[u8]) -> Option<i64> {
+pub(super) fn integer(value: &[u8]) -> Option<i64> {
     let payload = value.get(1..)?;
     match header(value)? {
         (PRIMITIVE, INT8) => Some(i64::from(i8::from_le_bytes(array(payload)?))),
@@ -628,14 +637,14 @@ fn integer(value: &[u8]) -> Option<i64> {
     }
 }
 
-fn float(value: &[u8]) -> Option<f32> {
+pub(super) fn float(value: &[u8]) -> Option<f32> {
     match header(value)? {
         (PRIMITIVE, FLOAT) => Some(f32::from_le_bytes(array(value.get(1..)?)?)),
         _ => None,
     }
 }
 
-fn double(value: &[u8]) -> Option<f64> {
+pub(super) fn double(value: &[u8]) -> Option<f64> {
     match header(value)? {
         (PRIMITIVE, DOUBLE) => Some(f64::from_le_bytes(array(value.get(1..)?)?)),
         _ => None,

@@ -251,6 +251,7 @@ mod tests {
     use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::UnionVariants;
     use vortex_array::dtype::session::DTypeSessionExt;
     use vortex_array::expr::root;
     use vortex_array::expr::variant_get;
@@ -279,6 +280,7 @@ mod tests {
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::layouts::struct_::Struct as StructLayoutEncoding;
     use vortex_layout::layouts::variant::NoShredding;
+    use vortex_layout::layouts::variant::UnionShredding;
     use vortex_layout::layouts::variant::VariantShreddingPolicy;
     use vortex_layout::session::LayoutSession;
     use vortex_layout::session::LayoutSessionExt;
@@ -539,6 +541,84 @@ mod tests {
                 .clone()
                 .apply(&extraction)?
                 .execute::<ArrayRef>(&mut ctx)?;
+            let scanned = file
+                .scan()?
+                .with_projection(extraction.bind(file.dtype())?)
+                .into_array_stream()?
+                .read_all()
+                .await?;
+            assert_arrays_eq!(scanned, expected, &mut ctx);
+        }
+        Ok(())
+    }
+
+    /// A union shredding writes each member of a union, and a scan extracts the values of each
+    /// type from the file.
+    #[rstest]
+    #[tokio::test]
+    async fn test_file_roundtrip_variant_shredded_into_a_union(
+        parquet_variant_file_session: VortexResult<VortexSession>,
+    ) -> VortexResult<()> {
+        let session = parquet_variant_file_session?;
+        crate::initialize(&session);
+        let unshredded = writer_rows(&session)?;
+
+        let utf8 = DType::Utf8(Nullability::Nullable);
+        let i64 = DType::Primitive(PType::I64, Nullability::Nullable);
+        let mixed = DType::Union(
+            UnionVariants::new(["int", "str"].into(), vec![i64.clone(), utf8.clone()])?,
+            Nullability::Nullable,
+        );
+        let schema = DType::struct_(
+            [("kind", utf8.clone()), ("mixed", mixed)],
+            Nullability::Nullable,
+        );
+
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(
+                vortex_file::WriteStrategyBuilder::from_session(&session)
+                    .with_variant_shredding(Arc::new(UnionShredding::new(schema)))
+                    .build(),
+            )
+            .write(&mut bytes, unshredded.to_array_stream())
+            .await?;
+        let file = session.open_options().open_buffer(bytes)?;
+        assert!(is_variant_layout(file.footer().layout()));
+
+        let mut ctx = session.create_execution_ctx();
+        let actual = file.scan()?.into_array_stream()?.read_all().await?;
+        // The export folds the union back into the Variant bytes of each row.
+        let exported = crate::arrow::prepare_variant_for_export(actual.clone(), None, &mut ctx)?;
+        for (path, dtype) in [
+            (VariantPath::field("kind"), utf8.clone()),
+            (VariantPath::field("mixed"), utf8.clone()),
+            (VariantPath::field("mixed"), i64.clone()),
+            (VariantPath::field("n"), i64),
+        ] {
+            let extraction = variant_get(root(), path, Some(dtype));
+            let expected = unshredded
+                .clone()
+                .apply(&extraction)?
+                .execute::<ArrayRef>(&mut ctx)?;
+
+            assert_arrays_eq!(
+                actual
+                    .clone()
+                    .apply(&extraction)?
+                    .execute::<ArrayRef>(&mut ctx)?,
+                expected,
+                &mut ctx
+            );
+            assert_arrays_eq!(
+                exported
+                    .clone()
+                    .apply(&extraction)?
+                    .execute::<ArrayRef>(&mut ctx)?,
+                expected,
+                &mut ctx
+            );
             let scanned = file
                 .scan()?
                 .with_projection(extraction.bind(file.dtype())?)
