@@ -12,19 +12,27 @@ use datafusion::logical_expr::simplify::SimplifyContext;
 use datafusion::optimizer::simplify_expressions::ExprSimplifier;
 use datafusion::physical_expr::create_physical_expr;
 use datafusion::prelude::SessionContext;
+use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::config::ConfigOptions;
 use datafusion_expr::HigherOrderUDF;
 use datafusion_expr::Operator as DFOperator;
+use datafusion_expr::ScalarUDF;
 use datafusion_functions::core::getfield::GetFieldFunc;
 use datafusion_functions_nested::array_transform::ArrayTransform;
+use datafusion_functions_nested::cardinality::Cardinality;
 use datafusion_physical_expr::HigherOrderFunctionExpr;
 use datafusion_physical_expr::ScalarFunctionExpr;
 use rstest::rstest;
 use vortex::expr::Expression;
+use vortex::expr::Lambda;
+use vortex::expr::eq;
 use vortex::expr::get_item;
+use vortex::expr::list_transform;
+use vortex::expr::lit;
 use vortex::expr::root;
+use vortex::expr::var;
 
 use super::*;
 use crate::convert::DefaultExpressionConverter;
@@ -355,11 +363,8 @@ fn test_map_access_stays_in_datafusion(
     Ok(())
 }
 
-/// DataFusion numbers lambda parameters after the input columns, so a lambda that stays in
-/// DataFusion keeps the raw projection.
-#[test]
-fn test_lambda_in_datafusion_reads_raw_columns() -> DFResult<()> {
-    let schema = schema();
+/// `array_transform(tags, x -> x <operator> 2)`.
+fn transform_tags(schema: &Schema, operator: DFOperator) -> DFResult<Arc<dyn PhysicalExpr>> {
     let DataType::List(element) = schema.field(2).data_type() else {
         return Err(exec_datafusion_err!("tags must be a list"));
     };
@@ -369,20 +374,36 @@ fn test_lambda_in_datafusion_reads_raw_columns() -> DFResult<()> {
     ));
     let body = Arc::new(df_expr::BinaryExpr::new(
         variable,
-        DFOperator::Modulo,
+        operator,
         Arc::new(df_expr::Literal::new(ScalarValue::Int64(Some(2)))),
     ));
-    let transform: Arc<dyn PhysicalExpr> = Arc::new(HigherOrderFunctionExpr::try_new_with_schema(
+    Ok(Arc::new(HigherOrderFunctionExpr::try_new_with_schema(
         Arc::new(HigherOrderUDF::new_from_impl(ArrayTransform::new())),
         vec![
             Arc::new(df_expr::Column::new("tags", 2)),
             Arc::new(df_expr::LambdaExpr::try_new(vec!["x".to_owned()], body)?),
         ],
-        &schema,
+        schema,
         Arc::new(ConfigOptions::new()),
-    )?);
+    )?))
+}
+
+/// `list_transform($.tags, x -> x = 2)`, the conversion of `transform_tags` with `=`.
+fn tags_equal_two() -> DFResult<Expression> {
+    Ok(list_transform(
+        get_item("tags", root()),
+        Lambda::new(["x"], eq(var("x"), lit(2i64)))
+            .map_err(|err| DataFusionError::External(Box::new(err)))?,
+    ))
+}
+
+/// DataFusion numbers lambda parameters after the input columns, so a lambda that stays in
+/// DataFusion keeps the raw projection.
+#[test]
+fn test_lambda_in_datafusion_reads_raw_columns() -> DFResult<()> {
+    let schema = schema();
     let source = ProjectionExprs::from(vec![
-        ProjectionExpr::new(transform, "odd"),
+        ProjectionExpr::new(transform_tags(&schema, DFOperator::Modulo)?, "odd"),
         ProjectionExpr::new(plan("upper(get_field(s, 'a'))", &schema)?, "up"),
     ]);
     let processed = split(source.clone(), &schema)?;
@@ -394,6 +415,88 @@ fn test_lambda_in_datafusion_reads_raw_columns() -> DFResult<()> {
         ])
     );
     assert_eq!(processed.leftover_projection, source);
+    Ok(())
+}
+
+/// A lambda in a subexpression that the scan evaluates does not stay in DataFusion, so the
+/// projection still splits: an `array_transform` whose lambda converts is read in the scan under
+/// an unsupported function, and so is a field read under another.
+#[test]
+fn test_lambda_under_unsupported_function_is_read_in_scan() -> DFResult<()> {
+    let schema = schema();
+    let cardinality: Arc<dyn PhysicalExpr> = Arc::new(ScalarFunctionExpr::try_new(
+        Arc::new(ScalarUDF::new_from_impl(Cardinality::new())),
+        vec![transform_tags(&schema, DFOperator::Eq)?],
+        &schema,
+        Arc::new(ConfigOptions::new()),
+    )?);
+    let source = ProjectionExprs::from(vec![
+        ProjectionExpr::new(cardinality, "n"),
+        ProjectionExpr::new(plan("upper(get_field(s, 'a'))", &schema)?, "up"),
+    ]);
+    let processed = split(source, &schema)?;
+    assert_eq!(
+        processed.scan_projection,
+        scan([
+            ("__vortex_expr_0", tags_equal_two()?),
+            ("__vortex_expr_1", s_field(&["a"])),
+        ])
+    );
+    assert_eq!(
+        leftover(&processed),
+        [
+            "cardinality(__vortex_expr_0@0) AS n",
+            "upper(__vortex_expr_1@1) AS up"
+        ]
+    );
+    Ok(())
+}
+
+/// After a residual filter, the projection reads an `array_transform` whose lambda converts from
+/// the scan, which evaluates it on every row since it cannot fail. One whose lambda stays in
+/// DataFusion makes both the filter and the projection read raw columns.
+#[test]
+fn test_filtered_projection_with_lambda() -> DFResult<()> {
+    let schema = schema();
+    let converter = DefaultExpressionConverter::default();
+    let filters = vec![plan("get_field(s, 'b') % 2 = 0", &schema)?];
+    let pushed = ProjectionExprs::from(vec![ProjectionExpr::new(
+        transform_tags(&schema, DFOperator::Eq)?,
+        "twos",
+    )]);
+    let (processed, rewritten) =
+        split_filtered_projection(&converter, pushed, filters.clone(), &schema)?;
+    assert_eq!(
+        processed.scan_projection,
+        scan([
+            ("__vortex_expr_0", s_field(&["b"])),
+            ("__vortex_expr_1", tags_equal_two()?),
+        ])
+    );
+    assert_eq!(
+        rewritten
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["__vortex_expr_0@0 % 2 = 0"]
+    );
+    assert_eq!(leftover(&processed), ["__vortex_expr_1@1 AS twos"]);
+
+    let kept = ProjectionExprs::from(vec![ProjectionExpr::new(
+        transform_tags(&schema, DFOperator::Modulo)?,
+        "odd",
+    )]);
+    let (processed, rewritten) =
+        split_filtered_projection(&converter, kept.clone(), filters.clone(), &schema)?;
+    assert_eq!(
+        processed.scan_projection,
+        scan([
+            ("s", get_item("s", root())),
+            ("tags", get_item("tags", root()))
+        ])
+    );
+    assert_eq!(processed.leftover_projection, kept);
+    assert_eq!(rewritten, filters);
     Ok(())
 }
 
@@ -479,7 +582,8 @@ fn test_raw_filtered_projection_reads_filter_columns() -> DFResult<()> {
     let schema = schema();
     let filters = vec![plan("get_field(s, 'b') % 2 = 0", &schema)?];
     let source = projection(&[("id", "id")], &schema)?;
-    let (processed, rewritten) = raw_filtered_projection(source.clone(), filters.clone(), &schema)?;
+    let (processed, rewritten) = DefaultExpressionConverter::default()
+        .no_pushdown_filtered_projection(source.clone(), filters.clone(), &schema)?;
     assert_eq!(
         processed.scan_projection,
         scan([("id", get_item("id", root())), ("s", get_item("s", root()))])

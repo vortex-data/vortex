@@ -6,29 +6,12 @@
 //! The decoder reads the wire format straight into one builder per storage column, without a
 //! message object per row. When it is created, it compiles the message descriptor into a tree of
 //! columns that know their field numbers, wire types and oneofs. Decoding a message then walks
-//! its fields once, in the order they appear, and appends each value to its column.
+//! its fields once, in the order they appear, and appends each value to its column, following the
+//! [parse semantics](crate#decoding-and-encoding) of protobuf.
 //!
-//! It follows protobuf parse semantics:
-//!
-//! - Fields may appear in any order, and unknown field numbers are skipped, with groups.
-//! - The last value of a singular scalar field wins, and so does the last member of a oneof.
-//! - A singular message field that appears again merges into the message, as if the two encodings
-//!   were concatenated.
-//! - A repeated scalar field accepts packed and unpacked values, mixed.
-//! - A map entry without a key or value takes the default, and a later entry replaces an earlier
-//!   one with the same key.
-//! - A value whose wire type does not match its field is skipped like an unknown field.
-//! - A number that a closed (proto2) enum does not define is skipped like an unknown field. A map
-//!   entry with such a value is dropped.
-//!
-//! If the mapping preserves unknown fields, each message collects the bytes of the fields that it
-//! skips, in the order read. A number of a packed run that a closed enum does not define becomes
-//! a varint field of its own, as in protobuf parsers.
-//!
-//! A message beyond the recursion depth is not parsed: its occurrences are appended to its bytes,
-//! which merges them as protobuf does. A well-known type in a dedicated form collects its bytes in
-//! the same way, and converts them once the whole top-level message has decoded, so that the
-//! occurrences have merged.
+//! A message beyond the recursion depth and a well-known type in a dedicated form both collect the
+//! bytes of their occurrences, which merges them as protobuf does. A well-known type converts its
+//! bytes once the whole top-level message has decoded, so that the occurrences have merged.
 //!
 //! A column that a message does not set falls behind and catches up with one call that appends
 //! all absent rows, when a later message sets it or when the decoder finishes. So the cost of a
@@ -71,8 +54,8 @@ pub fn decode_messages<'a>(
 ///
 /// Each appended message is decoded from the protobuf wire format into one builder per storage
 /// column. A field that is absent from a message becomes null if it has explicit presence, and
-/// takes its protobuf default value otherwise. The [module documentation](self) lists the parse
-/// semantics.
+/// takes its protobuf default value otherwise. The [crate documentation](crate#decoding-and-encoding)
+/// lists the parse semantics.
 pub struct ProtobufDecoder {
     /// The extension dtype of the result.
     dtype: ExtDType<Protobuf>,

@@ -17,9 +17,10 @@
 //! member of a oneof is set.
 //!
 //! [`ProtobufDecoder`] builds arrays from serialized messages, and [`encode_messages`] serializes
-//! them again. Both work on the wire format and the storage columns directly, without a message
-//! object per row, and follow protobuf parse semantics. [`initialize`] registers the dtype, the
-//! [`EnumName`] function and JSON support with a session.
+//! them again, as the [`protobuf_encode`] expression does. Both work on the wire format and the
+//! storage columns directly, without a message object per row, and follow protobuf parse
+//! semantics. [`initialize`] registers the dtype, the [`EnumName`] and [`Encode`] functions and
+//! JSON support with a session.
 //!
 //! # Storage mapping
 //!
@@ -122,6 +123,33 @@
 //! and metadata with an editions descriptor set fails to load. Supporting editions also needs the
 //! canonical descriptor set to keep the `edition` and the features.
 //!
+//! # Decoding and encoding
+//!
+//! [`ProtobufDecoder`] follows protobuf parse semantics:
+//!
+//! - Fields may appear in any order, and unknown field numbers are skipped, with groups.
+//! - The last value of a singular scalar field wins, and so does the last member of a oneof.
+//! - A singular message field that appears again merges into the message, as if the two encodings
+//!   were concatenated.
+//! - A repeated scalar field accepts packed and unpacked values, mixed.
+//! - A map entry without a key or value takes the default, and a later entry replaces an earlier
+//!   one with the same key.
+//! - A value whose wire type does not match its field is skipped like an unknown field.
+//! - A number that a closed (proto2) enum does not define is skipped like an unknown field. A map
+//!   entry with such a value is dropped.
+//!
+//! If the mapping preserves unknown fields, each message collects the bytes of the fields that it
+//! skips, in the order read. A number of a packed run that a closed enum does not define becomes
+//! a varint field of its own, as in protobuf parsers. A message beyond the recursion depth is not
+//! parsed: its occurrences are appended to its bytes, which merges them as protobuf does.
+//!
+//! [`encode_messages`] writes the fields of a message in field number order and packs the repeated
+//! scalar fields that the schema declares packed. A field with implicit presence is omitted when
+//! it holds its default value, except a `-0.0`, which is written so that it survives a round trip.
+//! Stored unknown fields follow the known fields of their message, and a message beyond the
+//! recursion depth is written as its stored bytes. A well-known type in a dedicated form is
+//! converted back to its message encoding first.
+//!
 //! # Files
 //!
 //! A Vortex file can split the storage struct of a protobuf column into one column per message
@@ -148,7 +176,9 @@ mod wire;
 pub use decode::ProtobufDecoder;
 pub use decode::decode_messages;
 pub use dtype::Protobuf;
+pub use encode::Encode;
 pub use encode::encode_messages;
+pub use encode::protobuf_encode;
 pub use enum_name::EnumName;
 pub use enum_name::EnumNameOptions;
 pub use field::protobuf_enum_name;
@@ -174,8 +204,8 @@ use vortex_error::VortexExpect;
 use vortex_layout::session::LayoutSessionExt;
 use vortex_session::VortexSession;
 
-/// Registers protobuf extension support with a session: the dtype, the [`EnumName`] function and
-/// JSON support, which `vortex_json::initialize` registers.
+/// Registers protobuf extension support with a session: the dtype, the [`EnumName`] and
+/// [`Encode`] functions and JSON support, which `vortex_json::initialize` registers.
 ///
 /// The dtype joins the experimental [`UNSTABLE`](vortex_edition::UNSTABLE) edition, which has no
 /// compatibility guarantee. A writer can only store the dtype in files after it opts in with
@@ -187,6 +217,7 @@ pub fn initialize(session: &VortexSession) {
     vortex_json::initialize(session);
     session.dtypes().register(Protobuf);
     session.scalar_fns().register(EnumName);
+    session.scalar_fns().register(Encode);
     session
         .layouts()
         .decompose_extension(ExtVTable::id(&Protobuf));

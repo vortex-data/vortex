@@ -84,8 +84,8 @@ use vortex_arrow::ArrowSessionExt;
 use crate::row_index::RowIndex;
 
 mod partial;
-
-pub(crate) use partial::split_filtered_projection;
+#[cfg(feature = "unstable_protobuf")]
+mod protobuf;
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
@@ -154,10 +154,18 @@ pub trait ExpressionConverter: Send + Sync {
     /// is not read whole for one field. Converting a subexpression applies its conversion's
     /// semantics, including [`DefaultExpressionConverter`]'s nested field access.
     ///
+    /// DataFusion may evaluate an expression that stays with it on some rows only, as it does a
+    /// `CASE` branch, while the scan evaluates every row. So inside such an expression, the scan
+    /// evaluates only subexpressions that cannot fail: in `abs(id + 1)`, it reads `id`, and
+    /// DataFusion evaluates `id + 1`.
+    ///
     /// An expression or subexpression whose conversion fails stays in DataFusion, like an
     /// unsupported one, and DataFusion reports any error when it evaluates it. Duplicate aliases,
     /// and a lambda that would stay in DataFusion, evaluate the complete projection in DataFusion
     /// over deduplicated raw inputs.
+    ///
+    /// A projection after residual filters is split by
+    /// [`split_filtered_projection`](Self::split_filtered_projection) instead.
     fn split_projection(
         &self,
         source_projection: ProjectionExprs,
@@ -213,6 +221,37 @@ pub trait ExpressionConverter: Send + Sync {
             input_schema,
             source_projection,
         )
+    }
+
+    /// Split a projection and the residual filters that DataFusion evaluates before it, which
+    /// both read the scan output. Returns the split projection and the residual filters rewritten
+    /// to read the scan output.
+    ///
+    /// The scan evaluates no residual filter whole, and DataFusion evaluates the projection only on
+    /// the rows that the filters keep. So by default the scan evaluates the convertible
+    /// subexpressions of either that cannot fail, as [`split_projection`](Self::split_projection)
+    /// does inside an expression that stays in DataFusion. A converter that overrides
+    /// `split_projection` should override this method too, so that a residual filter does not
+    /// change how its projections evaluate.
+    fn split_filtered_projection(
+        &self,
+        projection: ProjectionExprs,
+        residual_filters: Vec<Arc<dyn PhysicalExpr>>,
+        input_schema: &Schema,
+    ) -> DFResult<(ProcessedProjection, Vec<Arc<dyn PhysicalExpr>>)> {
+        partial::split_filtered_projection(self, projection, residual_filters, input_schema)
+    }
+
+    /// Create a projection that reads only the columns that the projection and the residual
+    /// filters read, without pushing down any expressions. Returns the residual filters
+    /// unchanged.
+    fn no_pushdown_filtered_projection(
+        &self,
+        projection: ProjectionExprs,
+        residual_filters: Vec<Arc<dyn PhysicalExpr>>,
+        input_schema: &Schema,
+    ) -> DFResult<(ProcessedProjection, Vec<Arc<dyn PhysicalExpr>>)> {
+        raw_filtered_projection(projection, residual_filters, input_schema)
     }
 }
 
@@ -272,7 +311,7 @@ pub(crate) fn raw_projection(
 
 /// Read the raw columns of a projection and of the residual filters that DataFusion evaluates
 /// before it, returning the filters unchanged.
-pub(crate) fn raw_filtered_projection(
+fn raw_filtered_projection(
     projection: ProjectionExprs,
     residual_filters: Vec<Arc<dyn PhysicalExpr>>,
     input_schema: &Schema,
@@ -318,7 +357,8 @@ type Conversion<T> = Result<T, Unconverted>;
 /// are accepted for both filters and projections. DataFusion sees an extension type that Arrow
 /// exports as its struct storage as that struct, so field access on it reads the storage through
 /// `ext_storage`. Field access on an extension type that the session does not know stays in
-/// DataFusion.
+/// DataFusion. With the `unstable_protobuf` feature, the protobuf functions convert to the Vortex
+/// expressions that they evaluate, over columns that the session knows as protobuf.
 /// Searched `CASE WHEN` expressions preserve short-circuit evaluation: conditions and
 /// branch values only execute on the rows that reach them, including fallible branches.
 /// Other expressions require compatible SQL semantics or remain in DataFusion.
@@ -765,6 +805,11 @@ impl DefaultExpressionConverter {
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
+        #[cfg(feature = "unstable_protobuf")]
+        if let Some(converted) = self.convert_protobuf_function(scalar_fn, schema, input_dtype) {
+            return converted;
+        }
+
         if ScalarFunctionExpr::try_downcast_func::<LowerFunc>(scalar_fn).is_some() {
             let [input] = scalar_fn.args() else {
                 return Err(exec_datafusion_err!("lower requires exactly one argument").into());

@@ -4,17 +4,13 @@
 //! Encoding Vortex arrays of protobuf messages back to the protobuf wire format.
 //!
 //! The encoder writes the canonical storage columns straight to bytes, without a message object
-//! per row. It writes the fields of a message in field number order and packs the repeated
-//! scalar fields that the schema declares packed. A field with implicit presence is omitted when
-//! it holds its default value, except a `-0.0`, which is written so that it survives a round
-//! trip. Stored unknown fields follow the known fields of their message, and a message beyond the
-//! recursion depth is written as its stored bytes. A well-known type in a dedicated form is
-//! converted back to its message encoding first.
+//! per row, in the [encoding](crate#decoding-and-encoding) that the crate documentation describes.
 //!
 //! A nested message is written after its length, so the encoder first computes the encoded size
 //! of every message from the innermost messages outward, and then writes each row in one pass.
 
 mod columns;
+mod function;
 mod scalar;
 mod value;
 
@@ -34,6 +30,8 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+pub use self::function::Encode;
+pub use self::function::protobuf_encode;
 pub(crate) use self::value::encode_value;
 use crate::Protobuf;
 use crate::encode::columns::MessageEncoder;
@@ -41,7 +39,7 @@ use crate::encode::columns::MessageEncoder;
 /// Serializes each message of a protobuf extension array in the protobuf wire format.
 ///
 /// Returns a binary array of the same length and nullability, with null where the input holds a
-/// null message. The [module documentation](self) describes the encoding.
+/// null message. The [crate documentation](crate#decoding-and-encoding) describes the encoding.
 ///
 /// # Errors
 ///

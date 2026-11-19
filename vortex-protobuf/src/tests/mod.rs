@@ -7,6 +7,7 @@ mod arrow;
 mod codec;
 mod differential;
 mod editions;
+mod encode_function;
 mod enums_and_oneofs;
 mod file;
 mod generate;

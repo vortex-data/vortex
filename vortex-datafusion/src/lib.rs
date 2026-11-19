@@ -93,6 +93,13 @@
 //! plain strings cannot be mislabeled as JSON or JSON read as plain strings. This preserves type
 //! identity during scans, but does not define valid operations on extension values.
 //!
+//! # Protobuf functions
+//!
+//! The experimental `unstable_protobuf` feature adds the `protobuf` module. Its SQL functions read
+//! enum names, oneof cases and the wire format of `vortex.protobuf` columns, and the
+//! [`DefaultExpressionConverter`] pushes them into Vortex scans.
+//!
+//! [`DefaultExpressionConverter`]: convert::DefaultExpressionConverter
 //! [`Schema`]: arrow_schema::Schema
 //! [`DFSchema`]: datafusion_common::DFSchema
 //! [`PhysicalExprAdapter`]: datafusion_physical_expr_adapter::PhysicalExprAdapter
@@ -113,6 +120,8 @@ use vortex::expr::stats::Precision;
 
 pub mod convert;
 mod persistent;
+#[cfg(feature = "unstable_protobuf")]
+pub mod protobuf;
 mod row_index;
 pub mod v2;
 

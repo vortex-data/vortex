@@ -26,14 +26,22 @@ use vortex::array::arrays::StructArray;
 use vortex::buffer::buffer;
 use vortex::dtype::Nullability;
 use vortex::dtype::extension::ExtDType;
+use vortex::editions::ComponentKind;
+use vortex::editions::EditionInclusion;
 use vortex::editions::EditionSessionExt;
 use vortex::editions::UNSTABLE;
+use vortex::expr::Expression;
+use vortex::expr::Lambda;
 use vortex::expr::get_item;
+use vortex::expr::list_transform;
 use vortex::expr::pack;
 use vortex::expr::root;
+use vortex::expr::var;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::VortexWrite;
 use vortex::io::object_store::ObjectStoreWrite;
+use vortex::layout::VTable;
+use vortex::layout::layouts::list::List;
 use vortex::session::VortexSession;
 use vortex_protobuf::Protobuf;
 use vortex_protobuf::ProtobufDecoder;
@@ -46,6 +54,9 @@ use crate::common_tests::TestSessionContext;
 use crate::convert::DefaultExpressionConverter;
 use crate::convert::ExpressionConverter;
 use crate::tests::RecordingConverter;
+
+#[cfg(feature = "unstable_protobuf")]
+mod functions;
 
 /// A schema with a nested message and a repeated message.
 const ORDER_PROTO: (&str, &str) = (
@@ -72,12 +83,12 @@ message Order {
 "#,
 );
 
-/// Resolves the import-free [`ORDER_PROTO`] schema.
-struct OrderSchema;
+/// Resolves one import-free schema file, given by its name and source.
+struct SingleFile((&'static str, &'static str));
 
-impl FileResolver for OrderSchema {
+impl FileResolver for SingleFile {
     fn open_file(&self, name: &str) -> Result<File, protox::Error> {
-        let (file, source) = ORDER_PROTO;
+        let (file, source) = self.0;
         if name == file {
             File::from_source(file, source)
         } else {
@@ -86,12 +97,62 @@ impl FileResolver for OrderSchema {
     }
 }
 
-/// A default session that can write protobuf columns, and with them the extension layout.
+/// Compiles the import-free schema `file`, given by its name and source, and returns the
+/// descriptor of its message `name`.
+fn message_descriptor(
+    file: (&'static str, &'static str),
+    name: &str,
+) -> anyhow::Result<MessageDescriptor> {
+    let mut compiler = Compiler::with_file_resolver(SingleFile(file));
+    compiler.open_file(file.0)?;
+    compiler
+        .descriptor_pool()
+        .get_message_by_name(name)
+        .ok_or_else(|| anyhow::anyhow!("missing {name}"))
+}
+
+/// A default session that can write protobuf columns, and with them the extension layout and the
+/// list layout, so the fields of the repeated `items` are written as columns of their own.
 fn protobuf_session() -> anyhow::Result<VortexSession> {
     let session = VortexSession::default();
     vortex_protobuf::initialize(&session);
+    // No edition includes the list layout, so the test adds it to the unstable edition.
+    session.editions().declare_inclusion(EditionInclusion::new(
+        ComponentKind::Layout,
+        &List.id(),
+        UNSTABLE,
+    ))?;
     session.enable_edition(UNSTABLE)?;
     Ok(session)
+}
+
+/// Registers DataFusion's nested functions, such as `array_transform`, with `ctx`, and switches to
+/// the DuckDB dialect, which parses `lambda x: ...`.
+async fn enable_lambdas(ctx: &TestSessionContext) -> anyhow::Result<()> {
+    datafusion_functions_nested::register_all(&mut *ctx.session.state_ref().write())?;
+    ctx.session
+        .sql("SET datafusion.sql_parser.dialect = 'duckdb'")
+        .await?
+        .collect()
+        .await?;
+    Ok(())
+}
+
+/// The scan expression of `array_transform(msg['items'], lambda x: x['sku'])`.
+fn item_skus() -> anyhow::Result<Expression> {
+    Ok(list_transform(
+        protobuf_field("items", get_item("msg", root())),
+        Lambda::new(["x"], get_item("sku", var("x")))?,
+    ))
+}
+
+/// Asserts that every scan projection that `converter` recorded is `expected`.
+fn assert_scan_projections(converter: &RecordingConverter, expected: &Expression) {
+    let scan_projections = converter.scan_projections.lock();
+    assert!(!scan_projections.is_empty());
+    for projection in scan_projections.iter() {
+        assert_eq!(projection, expected);
+    }
 }
 
 /// Builds a message of type `name` from the pool of `descriptor` with the given fields.
@@ -153,12 +214,7 @@ fn order(
 
 /// A table `{id: i64, msg: shop.Order?}` whose third message is null.
 fn orders() -> anyhow::Result<ArrayRef> {
-    let mut compiler = Compiler::with_file_resolver(OrderSchema);
-    compiler.open_file(ORDER_PROTO.0)?;
-    let descriptor = compiler
-        .descriptor_pool()
-        .get_message_by_name("shop.Order")
-        .ok_or_else(|| anyhow::anyhow!("missing shop.Order"))?;
+    let descriptor = message_descriptor(ORDER_PROTO, "shop.Order")?;
     let dtype = ExtDType::<Protobuf>::try_new(
         ProtobufMetadata::try_new(&descriptor)?,
         Nullability::Nullable,
@@ -185,6 +241,27 @@ async fn orders_table(
     scan_v2: bool,
     converter: Arc<dyn ExpressionConverter>,
 ) -> anyhow::Result<TestSessionContext> {
+    protobuf_table(
+        "orders",
+        orders()?,
+        write_session,
+        read_session,
+        scan_v2,
+        converter,
+    )
+    .await
+}
+
+/// Writes `array` to a Vortex file with `write_session` and registers it as the table `name`,
+/// which reads with `read_session` and converts expressions with `converter`.
+async fn protobuf_table(
+    name: &str,
+    array: ArrayRef,
+    write_session: &VortexSession,
+    read_session: VortexSession,
+    scan_v2: bool,
+    converter: Arc<dyn ExpressionConverter>,
+) -> anyhow::Result<TestSessionContext> {
     let options = VortexTableOptions {
         projection_pushdown: true,
         scan_v2,
@@ -197,15 +274,20 @@ async fn orders_table(
     ctx.session
         .register_expr_planner(Arc::new(FieldAccessPlanner))?;
 
-    let mut write =
-        ObjectStoreWrite::new(Arc::clone(&ctx.store), &"files/orders.vortex".into()).await?;
+    let mut write = ObjectStoreWrite::new(
+        Arc::clone(&ctx.store),
+        &format!("files/{name}.vortex").into(),
+    )
+    .await?;
     write_session
         .write_options()
-        .write(&mut write, orders()?.to_array_stream())
+        .write(&mut write, array.to_array_stream())
         .await?;
     write.shutdown().await?;
     ctx.session
-        .sql("CREATE EXTERNAL TABLE orders STORED AS vortex LOCATION '/files/'")
+        .sql(&format!(
+            "CREATE EXTERNAL TABLE {name} STORED AS vortex LOCATION '/files/'"
+        ))
         .await?;
     Ok(ctx)
 }
@@ -213,9 +295,9 @@ async fn orders_table(
 /// SQL that projects nested message fields and filters on a leaf field runs both the filter and the
 /// field access in the Vortex scan.
 ///
-/// This checks the converted expressions, not the segments that the scan reads. The classic scan
-/// reads only the columns of the selected fields. The planner-driven scan does not push field
-/// reads through a nullable struct yet, so for the nullable `msg` it reads every storage column.
+/// This checks the converted expressions, not the segments that the scan reads. Both scans read
+/// only the columns of the selected fields and the validity of `msg`, which the file tests of
+/// `vortex-protobuf` check.
 #[rstest]
 #[tokio::test]
 async fn test_protobuf_fields_are_read_in_scan(
@@ -264,11 +346,7 @@ async fn test_protobuf_fields_are_read_in_scan(
         ],
         Nullability::NonNullable,
     );
-    let scan_projections = converter.scan_projections.lock();
-    assert!(!scan_projections.is_empty());
-    for projection in scan_projections.iter() {
-        assert_eq!(projection, &expected);
-    }
+    assert_scan_projections(&converter, &expected);
     Ok(())
 }
 
@@ -328,11 +406,115 @@ async fn test_protobuf_mixed_projection_reads_needed_fields(
         ],
         Nullability::NonNullable,
     );
-    let scan_projections = converter.scan_projections.lock();
-    assert!(!scan_projections.is_empty());
-    for projection in scan_projections.iter() {
-        assert_eq!(projection, &expected);
-    }
+    assert_scan_projections(&converter, &expected);
+    Ok(())
+}
+
+/// `array_transform` reads one field of every item of the repeated `items`, through the extension
+/// storage and the list layout, and the scan evaluates it whole: a null message has null items, and
+/// a message without items an empty list.
+#[rstest]
+#[tokio::test]
+async fn test_protobuf_repeated_message_field_is_read_in_scan(
+    #[values(false, true)] scan_v2: bool,
+) -> anyhow::Result<()> {
+    let session = protobuf_session()?;
+    let converter = Arc::new(RecordingConverter::new(session.clone()));
+    let ctx = orders_table(
+        &session,
+        session.clone(),
+        scan_v2,
+        Arc::clone(&converter) as _,
+    )
+    .await?;
+    enable_lambdas(&ctx).await?;
+
+    let batches = ctx
+        .session
+        .sql(
+            "SELECT id, array_transform(msg['items'], lambda x: x['sku']) AS skus FROM orders \
+             ORDER BY id",
+        )
+        .await?
+        .collect()
+        .await?;
+    assert_batches_eq!(
+        [
+            "+----+--------+",
+            "| id | skus   |",
+            "+----+--------+",
+            "| 1  | [a]    |",
+            "| 2  | []     |",
+            "| 3  |        |",
+            "| 4  | [b, c] |",
+            "| 5  | []     |",
+            "+----+--------+",
+        ],
+        &batches
+    );
+
+    let expected = pack(
+        [("id", get_item("id", root())), ("skus", item_skus()?)],
+        Nullability::NonNullable,
+    );
+    assert_scan_projections(&converter, &expected);
+    Ok(())
+}
+
+/// A lambda that the scan evaluates leaves the rest of the projection split as it is without one:
+/// the scan reads the SKUs under an unsupported function, and the city beside them, rather than
+/// whole messages.
+#[rstest]
+#[tokio::test]
+async fn test_protobuf_lambda_under_unsupported_function_is_read_in_scan(
+    #[values(false, true)] scan_v2: bool,
+) -> anyhow::Result<()> {
+    let session = protobuf_session()?;
+    let converter = Arc::new(RecordingConverter::new(session.clone()));
+    let ctx = orders_table(
+        &session,
+        session.clone(),
+        scan_v2,
+        Arc::clone(&converter) as _,
+    )
+    .await?;
+    enable_lambdas(&ctx).await?;
+
+    let batches = ctx
+        .session
+        .sql(
+            "SELECT id, msg['address']['city'] AS city, \
+             array_has(array_transform(msg['items'], lambda x: x['sku']), 'b') AS has_b \
+             FROM orders ORDER BY id",
+        )
+        .await?
+        .collect()
+        .await?;
+    assert_batches_eq!(
+        [
+            "+----+--------+-------+",
+            "| id | city   | has_b |",
+            "+----+--------+-------+",
+            "| 1  | Berlin | false |",
+            "| 2  | Lisbon | false |",
+            "| 3  |        |       |",
+            "| 4  | Oslo   | true  |",
+            "| 5  |        | false |",
+            "+----+--------+-------+",
+        ],
+        &batches
+    );
+
+    let msg = get_item("msg", root());
+    let expected = pack(
+        [
+            ("id", get_item("id", root())),
+            ("__vortex_expr_0", protobuf_field("address.city", msg)),
+            ("__vortex_expr_1", item_skus()?),
+        ],
+        Nullability::NonNullable,
+    );
+    assert_scan_projections(&converter, &expected);
     Ok(())
 }
 
