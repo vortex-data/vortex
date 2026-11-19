@@ -41,9 +41,15 @@ mod tests {
     ) -> VortexResult<()> {
         let changes_type = source_dtype != DType::Null && source_dtype != target_dtype;
         let involves_extension = source_dtype.is_extension() || target_dtype.is_extension();
+        let date_to_naive_timestamp = source_dtype
+            == DType::Extension(Date::new(TimeUnit::Days, Nullability::Nullable).erased())
+            && target_dtype
+                == DType::Extension(
+                    Timestamp::new(TimeUnit::Seconds, Nullability::Nullable).erased(),
+                );
         let result = Scalar::null(source_dtype).cast(&target_dtype);
 
-        if changes_type && involves_extension {
+        if changes_type && involves_extension && !date_to_naive_timestamp {
             assert!(result.is_err());
             return Ok(());
         }
