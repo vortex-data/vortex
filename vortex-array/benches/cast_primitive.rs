@@ -193,13 +193,6 @@ where
     PrimitiveArray::from_option_iter((0..n).map(|_| rng.random_bool(0.7).then(|| f(&mut rng))))
 }
 
-/// Int-to-float cast, which accepts every value and converts each type pair directly.
-#[divan::bench(args = SIZES)]
-fn cast_i32_to_f64(bencher: Bencher, n: usize) {
-    let arr = random_nullable(n, |rng| rng.random_range(i32::MIN..i32::MAX));
-    bench_cast(bencher, arr, PType::F64);
-}
-
 /// Float-to-int cast that has to check the values fit the target range first.
 #[divan::bench(args = SIZES)]
 fn cast_f32_to_u16(bencher: Bencher, n: usize) {

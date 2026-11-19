@@ -155,28 +155,6 @@ fn widen_nullable(bencher: Bencher, n: usize) {
     );
 }
 
-/// Builds a `T`-backed `Decimal(precision, scale)` array of `n` multiples of `step` below `10^9`,
-/// with ~50% nulls.
-fn decimal_multiples<T: NativeDecimalType>(
-    n: usize,
-    precision: u8,
-    scale: i8,
-    step: i64,
-) -> ArrayRef {
-    let mut rng = StdRng::seed_from_u64(42);
-    let values: BufferMut<T> = (0..n)
-        .map(|_| <T as BigCast>::from(rng.random_range(0..1_000_000_000i64 / step) * step).unwrap())
-        .collect();
-    let validity = Validity::from_iter((0..n).map(|_| rng.random_bool(0.5)));
-    DecimalArray::new(
-        values.freeze(),
-        DecimalDType::new(precision, scale),
-        validity,
-        &mut SESSION.create_execution_ctx(),
-    )
-    .into_array()
-}
-
 // Narrowing: the target precision has a narrower canonical width, so every value is range-checked
 // and copied into a buffer of the narrower type.
 
@@ -186,26 +164,6 @@ fn narrow_i64_to_i32_nullable(bencher: Bencher, n: usize) {
         bencher,
         decimal_array::<i64>(n, 18, 2, true),
         DType::Decimal(DecimalDType::new(9, 2), Nullability::Nullable),
-    );
-}
-
-// Rescaling: changing the scale multiplies or exactly divides every value by a power of ten.
-
-#[divan::bench(args = SIZES)]
-fn scale_up_i32_to_i64_nullable(bencher: Bencher, n: usize) {
-    bench_cast(
-        bencher,
-        decimal_array::<i32>(n, 9, 2, true),
-        DType::Decimal(DecimalDType::new(18, 4), Nullability::Nullable),
-    );
-}
-
-#[divan::bench(args = DIVIDING_SIZES)]
-fn scale_down_i64_nullable(bencher: Bencher, n: usize) {
-    bench_cast(
-        bencher,
-        decimal_multiples::<i64>(n, 18, 4, 100),
-        DType::Decimal(DecimalDType::new(16, 2), Nullability::Nullable),
     );
 }
 

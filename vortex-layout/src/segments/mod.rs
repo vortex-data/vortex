@@ -9,6 +9,7 @@
 //! scans.
 
 mod cache;
+#[cfg(test)]
 mod shared;
 mod sink;
 mod source;
@@ -18,10 +19,10 @@ mod usage;
 mod test;
 
 pub use cache::*;
-pub use shared::*;
 pub use sink::*;
 pub use source::*;
 #[cfg(any(test, feature = "_test-harness"))]
 pub use test::*;
 pub use usage::*;
+pub use vortex_io::segments::SharedSegmentSource;
 pub use vortex_scan::source::SegmentId;
