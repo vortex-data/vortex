@@ -433,13 +433,8 @@ mod tests {
         assert_eq!(filtered.as_slice(), expected);
     }
 
-    #[rstest]
-    fn filter_chunked_matches_expected(
-        #[values(0.001, 0.01, 0.05, 0.2, 0.5, 0.9, 0.999)] density: f64,
-        #[values(0, 3, 1000)] offset: usize,
-        #[values(0, 5)] bit_offset: usize,
-        #[values(Cached::Bitmap, Cached::Slices, Cached::Indices)] cached: Cached,
-    ) {
+    /// Filters a random selection of the given density, for values of every width.
+    fn check_random(density: f64, offset: usize, bit_offset: usize, cached: Cached) {
         let mut rng = StdRng::seed_from_u64(42);
         let bits = (0..5000 + bit_offset)
             .map(|_| rng.random_bool(density))
@@ -453,14 +448,8 @@ mod tests {
         check::<u128>(&bits, offset, cached);
     }
 
-    /// Runs of selected values, some of which cross chunk boundaries.
-    #[rstest]
-    fn filter_chunked_runs_matches_expected(
-        #[values(9, 12, 200, 3000)] run_len: usize,
-        #[values(1, 16, 64, 1500)] gap: usize,
-        #[values(0, 3, 1000)] offset: usize,
-        #[values(Cached::Bitmap, Cached::Slices, Cached::Indices)] cached: Cached,
-    ) {
+    /// Filters runs of selected values, some of which cross chunk boundaries.
+    fn check_runs(run_len: usize, gap: usize, offset: usize, cached: Cached) {
         let bits = (0..5000)
             .map(|i| i % (run_len + gap) < run_len)
             .collect::<BitBuffer>();
@@ -470,6 +459,69 @@ mod tests {
         check::<u32>(&bits, offset, cached);
         check::<u64>(&bits, offset, cached);
         check::<u128>(&bits, offset, cached);
+    }
+
+    #[rstest]
+    #[cfg_attr(miri, ignore = "too slow under Miri, which runs a subset")]
+    fn filter_chunked_matches_expected(
+        #[values(0.001, 0.01, 0.05, 0.2, 0.5, 0.9, 0.999)] density: f64,
+        #[values(0, 3, 1000)] offset: usize,
+        #[values(0, 5)] bit_offset: usize,
+        #[values(Cached::Bitmap, Cached::Slices, Cached::Indices)] cached: Cached,
+    ) {
+        check_random(density, offset, bit_offset, cached);
+    }
+
+    #[rstest]
+    #[cfg_attr(miri, ignore = "too slow under Miri, which runs a subset")]
+    fn filter_chunked_runs_matches_expected(
+        #[values(9, 12, 200, 3000)] run_len: usize,
+        #[values(1, 16, 64, 1500)] gap: usize,
+        #[values(0, 3, 1000)] offset: usize,
+        #[values(Cached::Bitmap, Cached::Slices, Cached::Indices)] cached: Cached,
+    ) {
+        check_runs(run_len, gap, offset, cached);
+    }
+
+    /// A subset of [`filter_chunked_matches_expected`] small enough for Miri that still reaches
+    /// every chunk strategy for every width and representation, at aligned and unaligned offsets.
+    #[rstest]
+    // Empty chunks, and an offset that skips most of the first chunk.
+    #[case(0.001, 1000, 0)]
+    // Sparse chunks for values of 4 or more bytes, dense ones for narrower values.
+    #[case(0.05, 3, 5)]
+    // Dense chunks, compacted with byte compress or a bitmap walk depending on the width.
+    #[case(0.5, 0, 5)]
+    // Full chunks among nearly full ones.
+    #[case(0.999, 3, 0)]
+    fn filter_chunked_strategies(
+        #[case] density: f64,
+        #[case] offset: usize,
+        #[case] bit_offset: usize,
+        #[values(Cached::Bitmap, Cached::Slices, Cached::Indices)] cached: Cached,
+    ) {
+        check_random(density, offset, bit_offset, cached);
+    }
+
+    /// A subset of [`filter_chunked_runs_matches_expected`] small enough for Miri.
+    #[rstest]
+    // Short runs that make dense chunks of many slices.
+    #[case(9, 16, 3)]
+    // Short runs that make sparse chunks.
+    #[case(9, 1500, 1000)]
+    // Nearly dense runs, long enough in bytes to copy as runs only for values of 8 or more bytes.
+    #[case(12, 1, 1000)]
+    // Runs that cross chunk boundaries.
+    #[case(200, 64, 0)]
+    // Runs that cover whole chunks, between whole empty chunks.
+    #[case(3000, 1500, 3)]
+    fn filter_chunked_run_strategies(
+        #[case] run_len: usize,
+        #[case] gap: usize,
+        #[case] offset: usize,
+        #[values(Cached::Bitmap, Cached::Slices, Cached::Indices)] cached: Cached,
+    ) {
+        check_runs(run_len, gap, offset, cached);
     }
 
     #[rstest]

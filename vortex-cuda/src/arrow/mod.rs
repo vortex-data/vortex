@@ -289,8 +289,7 @@ pub trait DeviceArrayExt {
     /// arrays. Top-level non-struct arrays are exported as column-shaped field schemas and
     /// column-shaped device arrays; this method does not wrap them in a single-field struct.
     ///
-    /// Decimal exports use the Arrow decimal width implied by precision; storage wider than that
-    /// width is rejected rather than narrowed on device.
+    /// Decimal exports use the Arrow width implied by precision, with a minimum of 32 bits.
     async fn export_device_array_with_schema(
         self,
         ctx: &mut CudaExecutionCtx,

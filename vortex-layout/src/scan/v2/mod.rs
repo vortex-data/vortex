@@ -1,32 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The planner-driven scan executor.
-//!
-//! A V2 scan lowers the file's layout once into a physical plan and runs it through the planning
-//! protocol: an engine composes planners over a [`PreparedScan`], a [`PrunePlanner`] into a
-//! [`ChunkPlanner`], admits the first to a [`Run`](vortex_scan::planning::driver::Run) of its own
-//! driver, and every segment read is a protocol request served from the file's
-//! [`SegmentSource`]. The layout reader is never asked to evaluate anything, and this crate never
-//! decides where compute runs or how IO is awaited: that is the engine's driver.
-//!
-//! Import this module's [`ScanBuilder`] to prepare a V2 scan. It accepts a [`ScanFile`] directly
-//! and supports projection, filters, row ranges, and selections. Unsupported layouts return an
-//! error when the plan is prepared; limits are not part of this builder's API. Work is cut into
-//! chunks of up to 65,536 rows, or 131,072 rows for filtered scans. Filtered scans reading only
-//! one primitive or boolean field use 1,048,576 rows to amortize setup, independently of the stored
-//! layout's chunk boundaries. Full-file projections use smaller 8,192-row multiples when
-//! serialized bytes per row are high.
-//!
-//! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and pruned
-//! zones, segment index, dictionary values, and recently read segments with every other scan of
-//! that file, like a cached layout reader does for V1 scans.
-
-mod cache;
-pub(crate) mod io;
-mod retain;
-#[cfg(test)]
-mod tests;
+//! Native layout inputs for the planner-driven scan engine.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -35,28 +10,26 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_expr::analysis::referenced_field_paths;
+use vortex_scan::plan::LazyPlanRef;
+pub use vortex_scan::prepare::ChunkPlanner;
+pub use vortex_scan::prepare::FilterPlans;
+pub use vortex_scan::prepare::PreparedScan;
+pub use vortex_scan::prepare::PruneNext;
+pub use vortex_scan::prepare::PrunePlanner;
+use vortex_scan::prepare::ScanBuilder as EngineScanBuilder;
+pub use vortex_scan::prepare::ScanCache;
+pub use vortex_scan::prepare::SegmentLocation;
+pub use vortex_scan::prepare::WeakScanCache;
 use vortex_scan::selection::Selection;
+use vortex_scan::source::ScanInput;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
-pub use self::cache::ScanCache;
-pub use self::cache::WeakScanCache;
 use crate::LayoutRef;
-use crate::plan::physical::optimize;
-use crate::plan::physical::plan_row_idx_expression;
-pub use crate::scan::execution::ChunkPlanner;
-use crate::scan::execution::FILTERED_ROWS_PER_CHUNK;
-pub use crate::scan::execution::FilterPlans;
-use crate::scan::execution::MAX_ROWS_PER_CHUNK;
-pub use crate::scan::execution::PreparedScan;
-pub use crate::scan::execution::PruneNext;
-pub use crate::scan::execution::PrunePlanner;
-use crate::scan::execution::ROW_BLOCK_SIZE;
-pub use crate::scan::execution::SegmentLocation;
-use crate::scan::execution::rows_per_chunk;
-use crate::scan::v2::io::segment_ranges;
 use crate::segments::SegmentSource;
+
+// Match the scan executor's row grid so byte partitions and scan chunks stay aligned.
+const ROW_BLOCK_SIZE: usize = 8192;
 
 /// The rows a byte range of the file stands for when an engine splits the file by bytes before
 /// opening it. Consecutive byte ranges give consecutive row ranges that tile the file, with
@@ -87,10 +60,19 @@ pub struct ScanFile {
     pub cache: Option<ScanCache>,
 }
 
-/// Prepares a scan on the planner-driven V2 executor.
-///
-/// This builder reads the file's layout and segments directly and plans the scan without IO.
-/// Driving the plan is the engine's: see [`PreparedScan`]. Row limits are not supported.
+impl From<ScanFile> for ScanInput {
+    fn from(file: ScanFile) -> Self {
+        Self {
+            dtype: file.layout.dtype().clone(),
+            root: LazyPlanRef::lazy(move || file.layout.new_plan()),
+            locations: file.locations,
+            segments: file.segments,
+            cache: file.cache,
+        }
+    }
+}
+
+/// Prepares a scan of a native layout using the shared scan engine.
 pub struct ScanBuilder {
     session: VortexSession,
     file: ScanFile,
@@ -103,7 +85,7 @@ pub struct ScanBuilder {
 }
 
 impl ScanBuilder {
-    /// Creates a V2 scan over the file's layout and segment source.
+    /// Creates a scan over the file's layout and segment source.
     pub fn new(session: VortexSession, file: ScanFile) -> Self {
         Self {
             projection: BoundExpression::new_root(file.layout.dtype().clone()),
@@ -174,107 +156,30 @@ impl ScanBuilder {
         self
     }
 
-    /// Lowers the file's layout and plans the filter and the projection, from the file's cache
-    /// where an earlier scan planned them already. Touches no segment. Lowering and optimizing a
-    /// wide file is real CPU, so a driver runs this where it runs compute.
+    /// Lowers the native layout and prepares the scan without reading payloads.
     pub fn prepare(self) -> VortexResult<PreparedScan> {
-        let file = self.file;
-        let cache = file.cache.unwrap_or_default();
-        let root = match cache.root() {
-            Some(root) => root,
-            None => cache.insert_root(file.layout.new_plan()?),
-        };
-        let row_count = root.row_count();
-        let filtered_chunk_rows = self
-            .filter
-            .as_ref()
-            .map(|filter| filtered_rows_per_chunk(root.dtype(), &self.projection, filter))
-            .transpose()?;
-        let filter = self
-            .filter
-            .map(|filter| -> VortexResult<_> {
-                let skip = self.skip_unselective_dynamic;
-                match cache.filter_plans(&filter) {
-                    Some(plans) if plans.skips_unselective_dynamic() == skip => Ok(plans),
-                    // A scan whose skipping differs from the cached plans' plans its own.
-                    Some(_) => Ok(Arc::new(FilterPlans::new(
-                        filter,
-                        &root,
-                        &self.session,
-                        skip,
-                    )?)),
-                    None => {
-                        let plans = Arc::new(FilterPlans::new(
-                            filter.clone(),
-                            &root,
-                            &self.session,
-                            skip,
-                        )?);
-                        Ok(cache.insert_filter_plans(filter, plans))
-                    }
-                }
-            })
-            .transpose()?;
-        // Optimizing drops the zone tables a projection never reads and keeps the chunks of a
-        // chunked column lazy, so an identity projection is optimized like any other.
-        let identity = self.projection.is_root() && self.projection.dtype() == root.dtype();
-        let projection = match cache.projection(&self.projection) {
-            Some(plan) => plan,
-            None => {
-                let plan = optimize(
-                    plan_row_idx_expression(self.projection.clone(), root, &self.session)?,
-                    &self.session,
-                )?;
-                cache.insert_projection(self.projection, plan)
-            }
-        };
-        let chunk_rows = if let Some(rows) = filtered_chunk_rows {
-            rows
-        } else if identity {
-            rows_per_chunk(row_count, &file.locations)
-        } else {
-            MAX_ROWS_PER_CHUNK
-        };
-        let ranges = match cache.ranges() {
-            Some(ranges) => ranges,
-            None => cache.insert_ranges(segment_ranges(&file.locations)),
-        };
-        let values = cache.values();
-        Ok(PreparedScan {
-            session: self.session,
-            rows: self.row_range.unwrap_or(0..row_count),
-            selection: self.selection,
-            segments: cache.retaining(file.segments),
-            ranges,
-            cache,
-            locations: file.locations,
-            projection,
-            filter,
-            row_offset: self.row_offset,
-            values,
-            chunk_rows,
-        })
+        self.into_scan_builder().prepare()
+    }
+
+    fn into_scan_builder(self) -> EngineScanBuilder {
+        let mut builder = EngineScanBuilder::new(self.session, self.file)
+            .with_projection(self.projection)
+            .with_some_filter(self.filter)
+            .with_selection(self.selection)
+            .with_row_offset(self.row_offset)
+            .with_skip_unselective_dynamic(self.skip_unselective_dynamic);
+        if let Some(rows) = self.row_range {
+            builder = builder.with_row_range(rows);
+        }
+        builder
     }
 }
 
-fn filtered_rows_per_chunk(
-    dtype: &DType,
-    projection: &BoundExpression,
-    filter: &BoundExpression,
-) -> VortexResult<usize> {
-    let mut fields = referenced_field_paths(projection)?;
-    fields.extend(referenced_field_paths(filter)?);
-    let mut fields = fields.into_iter();
-    let first = fields.next();
-    // A scan of one fixed-width field is cheap enough that smaller chunks mainly add setup.
-    // Wider and variable-width scans need more chunks to avoid long tails on a few workers.
-    let narrow = fields.next().is_none()
-        && first
-            .and_then(|field| field.resolve(dtype.clone()))
-            .is_some_and(|dtype| matches!(dtype, DType::Primitive(..) | DType::Bool(..)));
-    Ok(if narrow {
-        128 * ROW_BLOCK_SIZE
-    } else {
-        FILTERED_ROWS_PER_CHUNK
-    })
+impl From<ScanBuilder> for EngineScanBuilder {
+    fn from(builder: ScanBuilder) -> Self {
+        builder.into_scan_builder()
+    }
 }
+
+#[cfg(test)]
+mod tests;

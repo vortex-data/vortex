@@ -102,3 +102,7 @@ harness = false
 [[bench]]
 name = "patched_search"
 harness = false
+
+[[bench]]
+name = "rle_decode"
+harness = false

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -14,10 +13,8 @@ use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
 use crate::dtype::NativeDecimalType;
-use crate::dtype::Nullability;
-use crate::dtype::i256;
 use crate::match_each_decimal_value_type;
-use crate::scalar::Scalar;
+use crate::scalar::DecimalValue;
 use crate::scalar_fn::fns::between::BetweenKernel;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
@@ -30,138 +27,82 @@ impl BetweenKernel for Decimal {
         options: &BetweenOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // NOTE: We know that the precision and scale were already checked to be equal by the main
-        // `between` entrypoint function.
-
         let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant()) else {
             return Ok(None);
         };
 
-        // NOTE: we know that have checked before that the lower and upper bounds are not all null.
+        if !arr.dtype().eq_ignore_nullability(lower.dtype())
+            || !arr.dtype().eq_ignore_nullability(upper.dtype())
+        {
+            return Ok(None);
+        }
         let nullability =
             arr.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
+        let (Some(lower), Some(upper)) = (
+            lower.as_decimal().decimal_value(),
+            upper.as_decimal().decimal_value(),
+        ) else {
+            // A null bound needs the Kleene AND of the two comparisons.
+            return Ok(None);
+        };
 
-        match_each_decimal_value_type!(arr.values_type(), |D| {
-            between_unpack::<D>(arr, lower, upper, nullability, options, ctx)
-        })
+        let bits = match_each_decimal_value_type!(arr.values_type(), |T| {
+            between_values(
+                &arr.buffer::<T>(),
+                lower,
+                upper,
+                options,
+                ctx.allocator().clone(),
+            )
+        });
+        let validity = arr.validity()?.union_nullability(nullability);
+
+        Ok(Some(BoolArray::new(bits, validity).into_array()))
     }
 }
 
-fn between_unpack<T: NativeDecimalType>(
-    arr: ArrayView<'_, Decimal>,
-    lower: &Scalar,
-    upper: &Scalar,
-    nullability: Nullability,
+fn between_values<T: NativeDecimalType>(
+    values: &[T],
+    lower: DecimalValue,
+    upper: DecimalValue,
     options: &BetweenOptions,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ArrayRef>> {
-    let Some(lower_dv) = lower.as_decimal().decimal_value() else {
-        // Null lower bound — fall back to canonical path.
-        return Ok(None);
-    };
-    let Some(upper_dv) = upper.as_decimal().decimal_value() else {
-        // Null upper bound — fall back to canonical path.
-        return Ok(None);
-    };
-
-    // Try to cast the bound scalar to the array's storage type T.
-    //
-    // If the cast fails, the bound's value is outside [T::MIN, T::MAX].  For all signed
-    // NativeDecimalType implementations the minimum is negative and the maximum is positive, so
-    // we can determine the direction of overflow from the sign of the bound:
-    //   • non-negative and doesn't fit in T  ⟹  value > T::MAX
-    //   • negative and doesn't fit in T      ⟹  value < T::MIN
-    //
-    // From the direction we can answer the comparison immediately:
-    //   lower > T::MAX: no array value (≤ T::MAX) satisfies lower ≤ value  → all-false
-    //   lower < T::MIN: every array value (≥ T::MIN) satisfies lower ≤ value → no lower constraint
-    //   upper > T::MAX: every array value (≤ T::MAX) satisfies value ≤ upper → no upper constraint
-    //   upper < T::MIN: no array value (≥ T::MIN) satisfies value ≤ upper   → all-false
-    //
-    // Both the strict and non-strict forms lead to the same conclusion because the overflow is
-    // by at least one integer, so no boundary element can make the strict form differ.
-    let lower_value: Option<T> = match lower_dv.cast::<T>() {
-        Some(v) => Some(v),
-        None => {
-            if lower_dv.as_i256() >= i256::ZERO {
-                let validity = arr.validity()?.union_nullability(nullability);
-                return Ok(Some(
-                    BoolArray::new(BitBuffer::new_unset(arr.len()), validity).into_array(),
-                ));
-            }
-            None
-        }
-    };
-
-    let upper_value: Option<T> = match upper_dv.cast::<T>() {
-        Some(v) => Some(v),
-        None => {
-            if upper_dv.as_i256() < i256::ZERO {
-                let validity = arr.validity()?.union_nullability(nullability);
-                return Ok(Some(
-                    BoolArray::new(BitBuffer::new_unset(arr.len()), validity).into_array(),
-                ));
-            }
-            None
-        }
-    };
-
-    let buffer = arr.buffer::<T>();
-    let (l, u) = (lower_value, upper_value);
-    let allocator = ctx.allocator().clone();
-
-    let between_bits = match (options.lower_strict, options.upper_strict) {
-        (StrictComparison::Strict, StrictComparison::Strict) => {
-            between_impl::<T>(buffer, l, u, T::lt, T::lt, allocator)
-        }
-        (StrictComparison::Strict, StrictComparison::NonStrict) => {
-            between_impl::<T>(buffer, l, u, T::lt, T::le, allocator)
-        }
-        (StrictComparison::NonStrict, StrictComparison::Strict) => {
-            between_impl::<T>(buffer, l, u, T::le, T::lt, allocator)
-        }
-        (StrictComparison::NonStrict, StrictComparison::NonStrict) => {
-            between_impl::<T>(buffer, l, u, T::le, T::le, allocator)
-        }
-    };
-
-    let validity = arr
-        .validity()
-        .vortex_expect("validity should be derivable")
-        .union_nullability(nullability);
-    Ok(Some(BoolArray::new(between_bits, validity).into_array()))
-}
-
-fn between_impl<T: NativeDecimalType>(
-    buffer: Buffer<T>,
-    lower: Option<T>,
-    upper: Option<T>,
-    lower_op: impl Fn(&T, &T) -> bool,
-    upper_op: impl Fn(&T, &T) -> bool,
     allocator: BufferAllocatorRef,
 ) -> BitBuffer {
-    // SAFETY: `collect_bool_multiversioned_in` only accesses `0..buffer.len()`.
-    let value_at = |idx| unsafe { *buffer.get_unchecked(idx) };
+    let lower = lower
+        .cast::<T>()
+        .vortex_expect("a decimal bound fits the canonical width of its precision");
+    let upper = upper
+        .cast::<T>()
+        .vortex_expect("a decimal bound fits the canonical width of its precision");
 
-    match (lower, upper) {
-        (Some(lower), Some(upper)) => BitBuffer::collect_bool_multiversioned_in(
-            buffer.len(),
-            |idx| {
-                let value = value_at(idx);
-                lower_op(&lower, &value) & upper_op(&value, &upper)
-            },
-            allocator,
-        ),
-        (Some(lower), None) => BitBuffer::collect_bool_multiversioned_in(
-            buffer.len(),
-            |idx| lower_op(&lower, &value_at(idx)),
-            allocator,
-        ),
-        (None, Some(upper)) => BitBuffer::collect_bool_multiversioned_in(
-            buffer.len(),
-            |idx| upper_op(&value_at(idx), &upper),
-            allocator,
-        ),
-        (None, None) => BitBuffer::new_set_in(buffer.len(), allocator),
+    match (options.lower_strict, options.upper_strict) {
+        (StrictComparison::Strict, StrictComparison::Strict) => {
+            between_bits(values, |v| (lower < v) & (v < upper), allocator)
+        }
+        (StrictComparison::Strict, StrictComparison::NonStrict) => {
+            between_bits(values, |v| (lower < v) & (v <= upper), allocator)
+        }
+        (StrictComparison::NonStrict, StrictComparison::Strict) => {
+            between_bits(values, |v| (lower <= v) & (v < upper), allocator)
+        }
+        (StrictComparison::NonStrict, StrictComparison::NonStrict) => {
+            between_bits(values, |v| (lower <= v) & (v <= upper), allocator)
+        }
     }
+}
+
+fn between_bits<T: Copy>(
+    values: &[T],
+    predicate: impl Fn(T) -> bool,
+    allocator: BufferAllocatorRef,
+) -> BitBuffer {
+    BitBuffer::collect_bool_multiversioned_in(
+        values.len(),
+        |index| {
+            // SAFETY: The collector visits only indices in 0..values.len().
+            let value = unsafe { *values.get_unchecked(index) };
+            predicate(value)
+        },
+        allocator,
+    )
 }
