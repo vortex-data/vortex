@@ -111,6 +111,62 @@ async fn data_source_from_batch(
     Ok(file.data_source()?)
 }
 
+fn nested_label_projection(schema: &Schema) -> anyhow::Result<ProjectionExprs> {
+    let function = |udf: ScalarUDF, args| -> anyhow::Result<PhysicalExprRef> {
+        Ok(Arc::new(ScalarFunctionExpr::try_new(
+            Arc::new(udf),
+            args,
+            schema,
+            Arc::new(ConfigOptions::new()),
+        )?))
+    };
+    let id: PhysicalExprRef = Arc::new(df_expr::Column::new("id", 0));
+    let label = function(
+        GetFieldFunc::new().into(),
+        vec![
+            Arc::new(df_expr::Column::new("s", 1)),
+            df_expr::lit("inner"),
+            df_expr::lit("label"),
+        ],
+    )?;
+    let upper = function(UpperFunc::new().into(), vec![Arc::clone(&label)])?;
+    // The cast would fail on "x" if the scan evaluated it before the CASE selected rows.
+    let parse_label = Arc::new(df_expr::CastExpr::new(
+        Arc::clone(&label),
+        DataType::Int32,
+        None,
+    ));
+    let format_label: PhysicalExprRef =
+        Arc::new(df_expr::CastExpr::new(parse_label, DataType::Utf8, None));
+    let is_second_row: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
+        Arc::clone(&id),
+        Operator::Eq,
+        df_expr::lit(2i32),
+    ));
+    let formatted = Arc::new(df_expr::CaseExpr::try_new(
+        None,
+        vec![(is_second_row, format_label)],
+        Some(upper),
+    )?);
+    let inner = function(
+        GetFieldFunc::new().into(),
+        vec![
+            Arc::new(df_expr::Column::new("s", 1)),
+            df_expr::lit("inner"),
+        ],
+    )?;
+    let original = function(
+        GetFieldFunc::new().into(),
+        vec![inner, df_expr::lit("label")],
+    )?;
+    Ok(ProjectionExprs::from(vec![
+        ProjectionExpr::new(id, "id"),
+        ProjectionExpr::new(formatted, "formatted"),
+        ProjectionExpr::new(original, "original"),
+        ProjectionExpr::new(row_index(), "position"),
+    ]))
+}
+
 #[rstest]
 #[case::non_nullable(false, false, false, true)]
 #[case::nullable_outer(true, true, false, true)]
@@ -187,59 +243,7 @@ async fn test_partial_projection_reads_struct_leaf(
         .build()
         .await?;
 
-    let function = |udf: ScalarUDF, args| -> anyhow::Result<PhysicalExprRef> {
-        Ok(Arc::new(ScalarFunctionExpr::try_new(
-            Arc::new(udf),
-            args,
-            &schema,
-            Arc::new(ConfigOptions::new()),
-        )?))
-    };
-    let id: PhysicalExprRef = Arc::new(df_expr::Column::new("id", 0));
-    let label = function(
-        GetFieldFunc::new().into(),
-        vec![
-            Arc::new(df_expr::Column::new("s", 1)),
-            df_expr::lit("inner"),
-            df_expr::lit("label"),
-        ],
-    )?;
-    let upper = function(UpperFunc::new().into(), vec![Arc::clone(&label)])?;
-    // The cast would fail on "x" if the scan evaluated it before the CASE selected rows.
-    let parse_label = Arc::new(df_expr::CastExpr::new(
-        Arc::clone(&label),
-        DataType::Int32,
-        None,
-    ));
-    let format_label: PhysicalExprRef =
-        Arc::new(df_expr::CastExpr::new(parse_label, DataType::Utf8, None));
-    let is_second_row: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
-        Arc::clone(&id),
-        Operator::Eq,
-        df_expr::lit(2i32),
-    ));
-    let formatted = Arc::new(df_expr::CaseExpr::try_new(
-        None,
-        vec![(is_second_row, format_label)],
-        Some(upper),
-    )?);
-    let inner = function(
-        GetFieldFunc::new().into(),
-        vec![
-            Arc::new(df_expr::Column::new("s", 1)),
-            df_expr::lit("inner"),
-        ],
-    )?;
-    let original = function(
-        GetFieldFunc::new().into(),
-        vec![inner, df_expr::lit("label")],
-    )?;
-    let projection = ProjectionExprs::from(vec![
-        ProjectionExpr::new(id, "id"),
-        ProjectionExpr::new(formatted, "formatted"),
-        ProjectionExpr::new(original, "original"),
-        ProjectionExpr::new(row_index(), "position"),
-    ]);
+    let projection = nested_label_projection(&schema)?;
     let projected = source
         .try_swapping_with_projection(&projection)?
         .ok_or_else(|| anyhow!("projection was not swapped"))?;

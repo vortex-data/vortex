@@ -8,6 +8,7 @@
 //! supplies the logical dtype that Vortex requires without adding implicit casts.
 
 mod projection_fields;
+
 use std::sync::Arc;
 
 use arrow_schema::DataType;
@@ -128,6 +129,10 @@ pub struct ProcessedProjection {
 ///     ) -> DFResult<Option<Expression>> {
 ///         self.0.try_convert(expr, schema)
 ///     }
+///
+///     fn allows_projection_field_pushdown(&self) -> bool {
+///         self.0.allows_projection_field_pushdown()
+///     }
 /// }
 ///
 /// let _converter: Arc<dyn ExpressionConverter> = Arc::new(CustomExpressionConverter(
@@ -183,8 +188,10 @@ pub trait ExpressionConverter: Send + Sync {
 
     /// Allow scans to refine the raw fallback returned by [`Self::split_projection`].
     ///
-    /// Defaults to `false`. Opt in if scans may replace whole struct inputs with the plain fields
-    /// the remaining DataFusion projection needs.
+    /// Opting in allows the scan to read a plain field directly when [`Self::try_convert`] produces
+    /// the equivalent Vortex field read and the original Arrow field can be preserved. The
+    /// default keeps the scan inputs chosen by custom converters, so a converter that wraps
+    /// [`DefaultExpressionConverter`] **must** forward this method to keep the pushdown.
     fn allows_projection_field_pushdown(&self) -> bool {
         false
     }

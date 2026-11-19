@@ -19,6 +19,7 @@ use datafusion_functions::core::getfield::GetFieldFunc;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::ScalarFunctionExpr;
 use datafusion_physical_expr::expressions as df_expr;
+use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::reassign_expr_columns;
 use itertools::Itertools;
 use vortex::dtype::DType;
@@ -38,8 +39,11 @@ use vortex_utils::aliases::hash_map::HashMap;
 use super::ExpressionConverter;
 use super::ProcessedProjection;
 
-/// Refine a raw fallback if it can omit at least one whole struct column. Resolve the actual scan
-/// dtype lazily because the Arrow reference schema can describe stricter nullability than the data.
+/// Refines a raw fallback when it can omit at least one whole struct column.
+///
+/// The Arrow reference schema can promise stricter nullability than the data, so
+/// eligibility also uses the actual dtype returned by `scan_dtype`. The callback runs
+/// only after finding a candidate projection.
 pub(crate) fn push_down_projection_fields(
     projection: ProcessedProjection,
     converter: &dyn ExpressionConverter,
@@ -59,50 +63,9 @@ fn try_push_down_fields(
     scan_dtype: impl FnOnce(&Expression) -> VortexResult<DType>,
     arrow: &ArrowSession,
 ) -> Option<ProcessedProjection> {
-    let raw_schema = &projection.scan_reference_schema;
-    let raw_fields = raw_schema.fields();
-    let raw_columns = projection.scan_projection.children();
-    let options = projection.scan_projection.as_opt::<Pack>()?;
-    if options.nullability.is_nullable()
-        || options.names.len() != raw_fields.len()
-        || raw_columns.len() != raw_fields.len()
-        || !raw_fields
-            .iter()
-            .any(|field| matches!(field.data_type(), DataType::Struct(_)))
-        || !raw_fields.iter().map(|field| field.name()).all_unique()
-        || !options
-            .names
-            .iter()
-            .zip(raw_fields)
-            .zip(raw_columns)
-            .all(|((name, field), expr)| {
-                name.as_ref() == field.name()
-                    && (expr.as_opt::<GetItem>() == Some(name) && expr.child(0) == &root()
-                        || *expr == row_idx::row_idx())
-            })
-    {
-        return None;
-    }
-
+    let raw_columns = raw_projection_columns(projection)?;
     let leftover = &projection.leftover_projection;
-    if !leftover.iter().map(|output| &output.alias).all_unique() {
-        return None;
-    }
-
-    let mut has_field_read = false;
-    for output in leftover.iter() {
-        if output
-            .expr
-            .exists(|expr| {
-                has_field_read |= get_field_function(expr).is_some();
-                Ok(!can_rewrite(expr))
-            })
-            .ok()?
-        {
-            return None;
-        }
-    }
-    if !has_field_read {
+    if !can_rewrite_projection(leftover) {
         return None;
     }
 
@@ -110,73 +73,155 @@ fn try_push_down_fields(
         return None;
     };
 
-    let mut fields = raw_fields.to_vec();
-    let mut columns = raw_columns.to_vec();
-    let mut indices: HashMap<String, usize> = fields
-        .iter()
-        .enumerate()
-        .map(|(index, field)| (field.name().clone(), index))
-        .collect();
-    let leftover = leftover
+    let raw_schema = &projection.scan_reference_schema;
+    let mut scan_columns = ScanColumns::from_raw(raw_schema.fields(), raw_columns);
+    let rewritten = leftover
         .clone()
         .try_map_exprs(|expr| {
-            // The fallback keeps the original column indices until the caller remaps by name.
-            // Assign indices before adding columns so rebuilding a CASE sees distinct inputs.
+            // Assign the raw column indices first so rebuilding a CASE can distinguish
+            // its original columns from the substituted field reads.
             reassign_expr_columns(expr, raw_schema)?
                 .transform_down(|expr| {
                     if get_field_function(&expr).is_none() {
                         return Ok(Transformed::no(expr));
                     }
 
-                    let keep =
-                        || Transformed::new(Arc::clone(&expr), false, TreeNodeRecursion::Jump);
-                    let Some((field, read)) =
+                    let column =
                         convert_field_read(&expr, raw_schema, &scan_fields, converter, arrow)
-                    else {
-                        return Ok(keep());
-                    };
+                            .and_then(|(field, read)| scan_columns.substitute(field, read));
 
-                    // UDFs receive the argument's full Arrow field. Its name must survive the
-                    // rewrite, so a collision with a different read keeps the original expression.
-                    let index = if let Some(&index) = indices.get(field.name()) {
-                        if index < raw_fields.len() || columns[index] != read {
-                            return Ok(keep());
-                        }
-                        index
-                    } else {
-                        let index = columns.len();
-                        indices.insert(field.name().clone(), index);
-                        fields.push(Arc::clone(&field));
-                        columns.push(read);
-                        index
-                    };
-
-                    Ok(Transformed::yes(
-                        Arc::new(df_expr::Column::new(field.name(), index)) as _,
-                    ))
+                    match column {
+                        Some(column) => Ok(Transformed::yes(column)),
+                        None => Ok(Transformed::new(expr, false, TreeNodeRecursion::Jump)),
+                    }
                 })
                 .map(|transformed| transformed.data)
         })
         .ok()?;
 
-    let used = leftover.column_indices();
-    let retained_raw = used.partition_point(|&index| index < raw_fields.len());
-    if retained_raw == raw_fields.len() || retained_raw == used.len() {
+    scan_columns.finish(rewritten, raw_schema)
+}
+
+/// A raw fallback packs unchanged input columns, with a virtual row index if requested.
+fn raw_projection_columns(projection: &ProcessedProjection) -> Option<&[Expression]> {
+    let fields = projection.scan_reference_schema.fields();
+    let columns = projection.scan_projection.children();
+    let pack = projection.scan_projection.as_opt::<Pack>()?;
+    if pack.nullability.is_nullable()
+        || pack.names.len() != fields.len()
+        || columns.len() != fields.len()
+        || !fields
+            .iter()
+            .any(|field| matches!(field.data_type(), DataType::Struct(_)))
+        || !fields.iter().map(|field| field.name()).all_unique()
+    {
         return None;
     }
 
-    let schema = Schema::new_with_metadata(fields, raw_schema.metadata().clone());
-    let scan_reference_schema = schema.project(&used).ok()?;
-    let scan_projection = pack(
-        used.iter()
-            .map(|&index| (schema.field(index).name().clone(), columns[index].clone())),
-        Nullability::NonNullable,
-    );
-    Some(ProcessedProjection {
-        scan_projection,
-        scan_reference_schema,
-        leftover_projection: leftover,
-    })
+    for ((name, field), column) in pack.names.iter().zip(fields).zip(columns) {
+        let direct_column = column.as_opt::<GetItem>() == Some(name) && column.child(0) == &root();
+        if name.as_ref() != field.name() || (!direct_column && *column != row_idx::row_idx()) {
+            return None;
+        }
+    }
+
+    Some(columns)
+}
+
+fn can_rewrite_projection(projection: &ProjectionExprs) -> bool {
+    if !projection.iter().map(|output| &output.alias).all_unique() {
+        return false;
+    }
+
+    let mut has_field_read = false;
+    for output in projection.iter() {
+        let has_unsupported_node = output
+            .expr
+            .exists(|expr| {
+                has_field_read |= get_field_function(expr).is_some();
+                Ok(!can_rewrite(expr))
+            })
+            .unwrap_or(true);
+        if has_unsupported_node {
+            return false;
+        }
+    }
+
+    has_field_read
+}
+
+/// Tracks the Arrow field and scan read at each index in the rewritten projection.
+struct ScanColumns {
+    columns: Vec<(FieldRef, Expression)>,
+    indices: HashMap<String, usize>,
+    /// Substituted fields are appended after this prefix of original columns.
+    raw_field_count: usize,
+}
+
+impl ScanColumns {
+    fn from_raw(fields: &[FieldRef], columns: &[Expression]) -> Self {
+        let indices = fields
+            .iter()
+            .enumerate()
+            .map(|(index, field)| (field.name().clone(), index))
+            .collect();
+        let columns = fields
+            .iter()
+            .cloned()
+            .zip(columns.iter().cloned())
+            .collect();
+
+        Self {
+            columns,
+            indices,
+            raw_field_count: fields.len(),
+        }
+    }
+
+    fn substitute(&mut self, field: FieldRef, read: Expression) -> Option<PhysicalExprRef> {
+        let name = field.name();
+        let index = if let Some(&index) = self.indices.get(name) {
+            // UDFs receive the argument's full Arrow field. Renaming it to resolve a collision
+            // could change the UDF's result, so only reuse a previously substituted read.
+            if index < self.raw_field_count || self.columns[index].1 != read {
+                return None;
+            }
+            index
+        } else {
+            let index = self.columns.len();
+            self.indices.insert(name.clone(), index);
+            self.columns.push((Arc::clone(&field), read));
+            index
+        };
+
+        Some(Arc::new(df_expr::Column::new(name, index)))
+    }
+
+    fn finish(
+        self,
+        leftover_projection: ProjectionExprs,
+        raw_schema: &Schema,
+    ) -> Option<ProcessedProjection> {
+        let used = leftover_projection.column_indices();
+        let retained_raw = used.partition_point(|&index| index < self.raw_field_count);
+        if retained_raw == self.raw_field_count || retained_raw == used.len() {
+            return None;
+        }
+
+        let mut fields = Vec::with_capacity(used.len());
+        let mut reads = Vec::with_capacity(used.len());
+        for index in used {
+            let (field, read) = self.columns.get(index)?;
+            fields.push(Arc::clone(field));
+            reads.push((field.name().clone(), read.clone()));
+        }
+
+        Some(ProcessedProjection {
+            scan_projection: pack(reads, Nullability::NonNullable),
+            scan_reference_schema: Schema::new_with_metadata(fields, raw_schema.metadata().clone()),
+            leftover_projection,
+        })
+    }
 }
 
 /// Allow only expressions whose children describe their input bindings. A lambda or a physical
