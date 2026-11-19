@@ -9,6 +9,8 @@ use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use futures::FutureExt;
@@ -23,12 +25,17 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::expr::Expression;
+use vortex_array::expr::dynamic;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
+use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::stream::SendableArrayStream;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -41,6 +48,7 @@ use vortex_io::filesystem::FileListing;
 use vortex_io::filesystem::FileSystem;
 use vortex_io::filesystem::FileSystemRef;
 use vortex_io::session::RuntimeSession;
+use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::session::LayoutSession;
 use vortex_scan::DataSource;
 use vortex_scan::DataSourceRef;
@@ -280,6 +288,69 @@ async fn open_cuts_parts_on_file_splits(
         // Each worker returns its parts' rows in order within each part.
         assert_eq!(sorted(workers), expected(0..ROWS, filtered));
     }
+    Ok(())
+}
+
+/// A file's parts are its layout splits over the fields the scan reads, as a V1 scan of the same
+/// fields cuts it: no batch crosses one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[cfg_attr(miri, ignore)]
+async fn open_cuts_parts_on_layout_splits() -> VortexResult<()> {
+    let file = open_one_file().await?;
+    let splits = ScanBuilder::new(SESSION.clone(), file.layout_reader()?)
+        .with_projection(n().bind(file.dtype())?)
+        .full_file_splits()?;
+    assert!(splits.len() > 2, "the file has several layout splits");
+
+    let scan = file.plan_data_source().scan(request(true)).await?;
+    let arrays: Vec<ArrayRef> = scan.open()?.worker().try_collect().await?;
+    let mut boundaries = vec![0u64];
+    for array in &arrays {
+        let end = boundaries.last().copied().unwrap_or(0) + array.len() as u64;
+        boundaries.push(end);
+    }
+    for split in splits {
+        assert!(
+            boundaries.contains(&split),
+            "a batch crosses layout split {split}"
+        );
+    }
+    Ok(())
+}
+
+/// A dynamic filter, such as a top-N's bound, prunes a file as a whole before its parts are cut,
+/// as queued work rather than in `open`. The rows follow the bound as it stands when the workers
+/// read, not as it stood when the scan was opened.
+#[rstest]
+#[case::unordered(false)]
+#[case::ordered(true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[cfg_attr(miri, ignore)]
+async fn open_prunes_the_file_first_for_a_dynamic_filter(
+    #[case] ordered: bool,
+) -> VortexResult<()> {
+    let bound = Arc::new(AtomicU32::new(0));
+    let value = Arc::clone(&bound);
+    let filter = dynamic(
+        CompareOperator::Gt,
+        move || Some(value.load(Ordering::Relaxed).into()),
+        DType::Primitive(PType::U32, Nullability::NonNullable),
+        true,
+        n(),
+    );
+    let scan = one_file()
+        .await?
+        .scan(ScanRequest {
+            filter: Some(filter),
+            ..request(ordered)
+        })
+        .await?;
+    let pool = scan.open()?;
+    bound.store(ROWS - 10, Ordering::Relaxed);
+    assert_eq!(
+        sorted(read_pool(pool, 3).await?),
+        (ROWS - 9..ROWS).collect::<Vec<_>>()
+    );
     Ok(())
 }
 

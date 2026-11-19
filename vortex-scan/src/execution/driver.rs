@@ -13,7 +13,6 @@
 
 use std::future;
 use std::num::NonZeroUsize;
-use std::ops::Range;
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -121,7 +120,7 @@ impl ScanDriver {
             rows: scan.rows().clone(),
         };
         let io = scan.io();
-        let root = compose(&scan, scan.rows().clone());
+        let root = compose(&scan);
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map_fn));
         let batches = run_stream(self.handle, root, scope, io, map_fn, inline)
@@ -158,9 +157,10 @@ impl ScanDriver {
     }
 }
 
-/// The planners of a scan's `rows`, composed: with a filter, its pruning plans first over `rows`,
+/// The planners of a scan, composed: with a filter, its pruning plans first over the whole scan,
 /// continuing into the chunks of the rows they keep; without, the chunks directly.
-pub(crate) fn compose(scan: &Arc<PreparedScan>, rows: Range<u64>) -> Box<dyn Planner> {
+fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
+    let rows = scan.rows().clone();
     let chunks = {
         let scan = Arc::clone(scan);
         let rows = rows.clone();

@@ -57,13 +57,19 @@ use crate::selection::Selection;
 /// child's dtype, false for every row of the child.
 pub type FilePruner = Arc<dyn Fn(&BoundExpression) -> VortexResult<bool> + Send + Sync>;
 
+/// The row boundaries an opened scan cuts a child's work at, for the scan's projection and filter,
+/// both bound to the child's dtype: ascending, covering the child's rows. A Vortex file gives its
+/// layout splits over the fields the scan reads, as a V1 scan of the same fields cuts it.
+pub type PlanSplitter =
+    Arc<dyn Fn(&BoundExpression, Option<&BoundExpression>) -> VortexResult<Vec<u64>> + Send + Sync>;
+
 /// A child of a [`PlanDataSource`] whose plan is ready to prepare: its [`ScanInput`] and what the
 /// source knows of it without reading payloads.
 #[derive(Clone)]
 pub struct PlanChild {
     input: ScanInput,
     row_count: Option<u64>,
-    splits: Option<Arc<[u64]>>,
+    splitter: Option<PlanSplitter>,
     pruner: Option<FilePruner>,
 }
 
@@ -75,7 +81,7 @@ impl PlanChild {
         Self {
             input,
             row_count: None,
-            splits: None,
+            splitter: None,
             pruner: None,
         }
     }
@@ -87,11 +93,17 @@ impl PlanChild {
         self
     }
 
-    /// Sets the row boundaries that an opened scan cuts the child's work at, such as the child's
-    /// layout splits, ascending and covering the child's rows. Without them, the work is cut on
-    /// the scan's chunk grid.
-    pub fn with_splits(mut self, splits: Arc<[u64]>) -> Self {
-        self.splits = Some(splits);
+    /// Sets fixed row boundaries that an opened scan cuts the child's work at, whatever it reads,
+    /// ascending and covering the child's rows. Without boundaries, the work is cut on the scan's
+    /// chunk grid.
+    pub fn with_splits(self, splits: Arc<[u64]>) -> Self {
+        self.with_splitter(Arc::new(move |_, _| Ok(splits.to_vec())))
+    }
+
+    /// Sets how an opened scan finds the row boundaries to cut the child's work at, from the
+    /// fields it reads. Without boundaries, the work is cut on the scan's chunk grid.
+    pub fn with_splitter(mut self, splitter: PlanSplitter) -> Self {
+        self.splitter = Some(splitter);
         self
     }
 
@@ -124,8 +136,17 @@ impl PlanChild {
             .sum()
     }
 
-    pub(super) fn splits(&self) -> Option<&[u64]> {
-        self.splits.as_deref()
+    /// The boundaries an opened scan of `projection` and `filter` cuts the child's work at, if the
+    /// child has them.
+    pub(super) fn splits(
+        &self,
+        projection: &BoundExpression,
+        filter: Option<&BoundExpression>,
+    ) -> VortexResult<Option<Vec<u64>>> {
+        self.splitter
+            .as_ref()
+            .map(|splitter| splitter(projection, filter))
+            .transpose()
     }
 
     fn is_pruned(&self, filter: Option<&BoundExpression>) -> VortexResult<bool> {
@@ -389,8 +410,8 @@ pub(super) struct ScanState {
     children: Arc<[PlanSourceChild]>,
     /// The dtype of the scan's output.
     pub(super) dtype: DType,
-    projection: BoundExpression,
-    filter: Option<BoundExpression>,
+    pub(super) projection: BoundExpression,
+    pub(super) filter: Option<BoundExpression>,
     row_range: Option<Range<u64>>,
     pub(super) selection: Selection,
     pub(super) ordered: bool,

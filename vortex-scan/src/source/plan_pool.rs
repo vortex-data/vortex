@@ -6,8 +6,11 @@
 //! This is the V1 layout pool's pattern (`vortex-layout/src/scan/pool.rs`) over the V2 executor,
 //! with plan work for units. A pool's units are parts, rows of a prepared child's plan, and
 //! deferred children not yet expanded. Opening the scan prepares each ready child once, which
-//! plans without reading, and cuts its rows into parts: the child's splits when it has them,
-//! else the scan's chunks. A worker takes parts and keeps up to `split_concurrency` of them
+//! plans without reading, and runs its root up front, which spawns its parts, as develop's V2
+//! DuckDB scan does: a part is the rows between two of the child's splits for the fields the scan
+//! reads, such as a file's layout splits, else one of the scan's chunks. A root whose filter
+//! changes while the scan runs, as a top-N's bound does, prunes the child as a whole before it
+//! spawns parts; it reads zone maps to do so, so it runs as a unit of work instead. A worker takes parts and keeps up to `split_concurrency` of them
 //! in flight, each spawned onto the session's runtime when the worker takes it, as the V1 pool's
 //! splits are, and driven there on a planning run of its own that awaits only its reads: with a
 //! filter, the part's pruning plans first, continuing into the chunks of the rows pruning kept;
@@ -42,10 +45,13 @@ use futures::stream::BoxStream;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
+use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_io::request::IoService;
 use vortex_io::session::RuntimeSessionExt;
 
@@ -54,17 +60,17 @@ use super::plan::PlanChild;
 use super::plan::PlanSourceChild;
 use super::plan::ScanState;
 use super::plan::Unit;
-use crate::execution::driver::compose;
 use crate::execution::planning::driver::Progress;
 use crate::execution::planning::driver::Run;
+use crate::execution::planning::planner::Planner;
 use crate::execution::planning::planner::WorkScope;
-use crate::execution::scan_chunks;
 use crate::pool::RowLimit;
 use crate::pool::SPLITS_IN_FLIGHT_PER_WORKER;
 use crate::pool::ScanPool;
 use crate::pool::ScanPoolRef;
 use crate::pool::trim_to_limit;
 use crate::prepare::PreparedScan;
+use crate::prepare::part_root;
 
 /// One child's prepared scan, shared by the workers running its parts.
 struct PreparedChild {
@@ -72,16 +78,38 @@ struct PreparedChild {
     io: Arc<dyn IoService>,
 }
 
-/// A part of a child: rows of its plan that one worker runs on one planning run.
-type Part = (Arc<PreparedChild>, Range<u64>);
+/// A part of a child: the planner its root spawned for some of its rows, which one worker runs on
+/// a planning run of its own.
+struct Part {
+    child: Arc<PreparedChild>,
+    scope: WorkScope,
+    planner: Box<dyn Planner>,
+}
 
 /// A part's batches, in row order.
 type PartFuture = BoxFuture<'static, VortexResult<Vec<ArrayRef>>>;
 
+/// The parts a child's root spawns, in row order.
+type PartsFuture = BoxFuture<'static, VortexResult<Vec<Part>>>;
+
 /// A child of a pool, in row order.
 enum PoolChild {
-    Prepared(Vec<Part>),
+    /// A child whose root has run, with the parts it spawned.
+    Parts(Vec<Part>),
+    /// A child whose root reads before it spawns parts: it prunes the child as a whole first.
+    Root(PartsFuture),
     Deferred(Arc<dyn DeferredPlanChild>),
+}
+
+impl PoolChild {
+    /// The child's parts once its root has run.
+    fn into_parts(self) -> PartsFuture {
+        match self {
+            Self::Parts(parts) => future::ready(Ok(parts)).boxed(),
+            Self::Root(parts) => parts,
+            Self::Deferred(_) => unreachable!("a deferred child has no root"),
+        }
+    }
 }
 
 /// Opens a pool over the scan's `units`, preparing each of its ready children.
@@ -89,9 +117,7 @@ pub(super) fn open(state: Arc<ScanState>, units: Vec<Unit>) -> VortexResult<Scan
     let mut children = Vec::with_capacity(units.len());
     for unit in units {
         children.push(match state.child(unit.child) {
-            PlanSourceChild::Ready(child) => {
-                PoolChild::Prepared(prepare(&state, child, unit.rows)?)
-            }
+            PlanSourceChild::Ready(child) => prepare(&state, child, unit.rows)?,
             PlanSourceChild::Deferred { child, .. } => PoolChild::Deferred(Arc::clone(child)),
         });
     }
@@ -114,14 +140,7 @@ pub(super) fn open(state: Arc<ScanState>, units: Vec<Unit>) -> VortexResult<Scan
 
     let (sender, receiver) = async_channel::unbounded();
     for child in children {
-        match child {
-            PoolChild::Prepared(parts) => {
-                for part in parts {
-                    send(&sender, Work::Part(part));
-                }
-            }
-            PoolChild::Deferred(child) => send(&sender, Work::Expand(child, sender.clone())),
-        }
+        queue(&sender, child);
     }
     Ok(Arc::new(UnorderedPool {
         dtype,
@@ -131,62 +150,92 @@ pub(super) fn open(state: Arc<ScanState>, units: Vec<Unit>) -> VortexResult<Scan
     }))
 }
 
-/// Prepares the scan of `rows` of `child`, or of the request's rows when `None`, and cuts them
-/// into parts, leaving out parts the selection selects nothing of.
+/// Prepares the scan of `rows` of `child`, or of the request's rows when `None`, once, and runs its
+/// root up front, like the splits of a V1 scan, unless the root reads before it spawns parts.
+///
+/// Parts are cut on the child's splits for the fields the scan reads, when it has them, else on
+/// the scan's chunks. A filter whose value changes while the scan runs, as a top-N's bound does,
+/// prunes the child as a whole first, so a child it rules out takes no worker.
 fn prepare(
     state: &ScanState,
     child: &PlanChild,
     rows: Option<Range<u64>>,
-) -> VortexResult<Vec<Part>> {
+) -> VortexResult<PoolChild> {
     let rows = match rows {
         Some(rows) => rows,
         None => state.child_rows(child)?,
     };
     if rows.is_empty() {
-        return Ok(Vec::new());
+        return Ok(PoolChild::Parts(Vec::new()));
     }
-    let scan = Arc::new(state.builder(child, rows.clone()).prepare()?);
-    let ranges = match child.splits() {
-        Some(splits) => part_ranges(rows, splits),
-        None => scan_chunks(rows, scan.chunk_rows),
-    };
+    let splits = child.splits(&state.projection, state.filter.as_ref())?;
+    let scan = Arc::new(state.builder(child, rows).prepare()?);
+    let dynamic = state
+        .filter
+        .as_ref()
+        .is_some_and(|filter| DynamicExprUpdates::new(filter).is_some());
+    let root = part_root(&scan, splits.as_deref(), dynamic);
     let io = scan.io();
-    let prepared = Arc::new(PreparedChild { scan, io });
-    Ok(ranges
-        .into_iter()
-        .filter(|part| state.selection.row_count_in_range(part) > 0)
-        .map(|part| (Arc::clone(&prepared), part))
-        .collect())
+    let child = Arc::new(PreparedChild { scan, io });
+    let parts = run_root(child, root);
+    if dynamic {
+        return Ok(PoolChild::Root(parts));
+    }
+    let parts = parts
+        .now_or_never()
+        .vortex_expect("a root that only cuts parts reads nothing")?;
+    Ok(PoolChild::Parts(parts))
 }
 
-/// The ranges between adjacent `splits`, clipped to `rows`, leaving out empty ones.
-fn part_ranges(rows: Range<u64>, splits: &[u64]) -> Vec<Range<u64>> {
-    splits
-        .windows(2)
-        .map(|w| w[0].max(rows.start)..w[1].min(rows.end))
-        .filter(|part| part.start < part.end)
-        .collect()
+/// Runs a child's root on a planning run of its own, awaiting only its reads, and returns the
+/// parts it spawns, in row order.
+fn run_root(child: Arc<PreparedChild>, root: Box<dyn Planner>) -> PartsFuture {
+    async move {
+        let mut run = Run::new();
+        run.admit(
+            root,
+            WorkScope {
+                file_ordinal: 0,
+                rows: child.scan.rows().clone(),
+            },
+            child.io.session(),
+        );
+        let mut parts = Vec::new();
+        loop {
+            match run.advance()? {
+                Progress::Spawn(scope, planner) => parts.push(Part {
+                    child: Arc::clone(&child),
+                    scope,
+                    planner,
+                }),
+                Progress::Batch(_) => vortex_bail!("a scan's root produced a batch"),
+                Progress::RootDone(_) if run.live_roots() > 0 => {}
+                Progress::RootDone(_) | Progress::Idle => break,
+                Progress::Waiting => future::poll_fn(|cx| run.poll_completion(cx)).await?,
+            }
+        }
+        Ok(parts)
+    }
+    .boxed()
 }
 
 /// Runs a part on a planning run of its own, awaiting only its reads, and returns its batches in
 /// row order.
-fn run_part((file, rows): Part) -> PartFuture {
+fn run_part(part: Part) -> PartFuture {
     async move {
+        let Part {
+            child,
+            scope,
+            planner,
+        } = part;
         let mut run = Run::new();
-        run.admit(
-            compose(&file.scan, rows.clone()),
-            WorkScope {
-                file_ordinal: 0,
-                rows,
-            },
-            file.io.session(),
-        );
+        run.admit(planner, scope, child.io.session());
         let mut batches = Vec::new();
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => batches.push((batch.scope.rows.start, batch.array)),
-                Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, file.io.session());
+                Progress::Spawn(scope, planner) => {
+                    run.admit(planner, scope, child.io.session());
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => break,
@@ -226,7 +275,12 @@ impl Shared {
         let shared = Arc::clone(self);
         self.state
             .expand_in_order(children)
-            .map(move |child| child.and_then(|child| prepare(&shared.state, &child, None)))
+            .then(
+                move |child| match child.and_then(|child| prepare(&shared.state, &child, None)) {
+                    Ok(child) => child.into_parts(),
+                    Err(err) => future::ready(Err(err)).boxed(),
+                },
+            )
             .boxed()
     }
 
@@ -260,14 +314,29 @@ impl Shared {
 /// A unit of an unordered pool.
 enum Work {
     Part(Part),
-    /// A deferred child, and where to send the units of its children once it is expanded. The
-    /// sender keeps the channel open until they are in it.
+    /// A child's root that reads before it spawns parts, and where to send the parts. The sender
+    /// keeps the channel open until they are in it.
+    Root(PartsFuture, Sender<Work>),
+    /// A deferred child, and where to send the units of its children once it is expanded.
     Expand(Arc<dyn DeferredPlanChild>, Sender<Work>),
 }
 
 fn send(sender: &Sender<Work>, work: Work) {
     // The channel is unbounded and closes only once the pool is dropped, when the work is moot.
     drop(sender.try_send(work));
+}
+
+/// Queues the units of `child`.
+fn queue(sender: &Sender<Work>, child: PoolChild) {
+    match child {
+        PoolChild::Parts(parts) => {
+            for part in parts {
+                send(sender, Work::Part(part));
+            }
+        }
+        PoolChild::Root(parts) => send(sender, Work::Root(parts, sender.clone())),
+        PoolChild::Deferred(child) => send(sender, Work::Expand(child, sender.clone())),
+    }
 }
 
 /// A pool whose workers share its units through a channel.
@@ -282,6 +351,13 @@ impl UnorderedPool {
     fn run(shared: &Arc<Shared>, work: Work) -> PartFuture {
         match work {
             Work::Part(part) => shared.spawn_part(part),
+            Work::Root(parts, sender) => async move {
+                for part in parts.await? {
+                    send(&sender, Work::Part(part));
+                }
+                Ok(Vec::new())
+            }
+            .boxed(),
             Work::Expand(child, sender) => {
                 let shared = Arc::clone(shared);
                 async move {
@@ -291,9 +367,7 @@ impl UnorderedPool {
                                 let Some(child) = shared.state.admit(child)? else {
                                     continue;
                                 };
-                                for part in prepare(&shared.state, &child, None)? {
-                                    send(&sender, Work::Part(part));
-                                }
+                                queue(&sender, prepare(&shared.state, &child, None)?);
                             }
                             PlanSourceChild::Deferred { child, .. } => {
                                 send(&sender, Work::Expand(child, sender.clone()));
@@ -362,13 +436,13 @@ impl ScanPool for OrderedPool {
         let shared = Arc::clone(&self.shared);
         let outputs = stream::iter(children)
             .flat_map(move |child| match child {
-                PoolChild::Prepared(parts) => stream::iter([Ok(parts)]).boxed(),
                 PoolChild::Deferred(child) => {
                     expander.parts_in_order(vec![PlanSourceChild::Deferred {
                         child,
                         byte_size: None,
                     }])
                 }
+                child => stream::once(child.into_parts()).boxed(),
             })
             .flat_map(|parts| match parts {
                 Ok(parts) => stream::iter(parts.into_iter().map(Ok)).left_stream(),
@@ -382,27 +456,5 @@ impl ScanPool for OrderedPool {
             .buffered(self.parts_in_flight)
             .boxed();
         self.shared.output(outputs)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::ops::Range;
-
-    use rstest::rstest;
-
-    use super::part_ranges;
-
-    #[rstest]
-    #[case::whole(0..30, &[0, 10, 20, 30], vec![0..10, 10..20, 20..30])]
-    #[case::clipped(5..25, &[0, 10, 20, 30], vec![5..10, 10..20, 20..25])]
-    #[case::inside_one_split(12..18, &[0, 10, 20, 30], vec![12..18])]
-    #[case::empty(5..5, &[0, 10], vec![])]
-    fn parts_follow_splits(
-        #[case] rows: Range<u64>,
-        #[case] splits: &[u64],
-        #[case] expected: Vec<Range<u64>>,
-    ) {
-        assert_eq!(part_ranges(rows, splits), expected);
     }
 }
