@@ -9,11 +9,9 @@ use arrow_array::DictionaryArray;
 use arrow_array::cast::AsArray;
 use arrow_array::new_empty_array;
 use arrow_array::types::*;
+use arrow_buffer::ArrowNativeType;
 use arrow_schema::DataType;
 use arrow_schema::Field;
-use num_traits::AsPrimitive;
-use num_traits::Bounded;
-use num_traits::ToPrimitive;
 use vortex_array::AnyCanonical;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -28,6 +26,7 @@ use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
@@ -95,16 +94,7 @@ fn to_dictionary<K: ArrowDictionaryKeyType>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef>
 where
-    K::Native: NativePType + Bounded + ToPrimitive,
-    u8: AsPrimitive<K::Native>,
-    u16: AsPrimitive<K::Native>,
-    u32: AsPrimitive<K::Native>,
-    u64: AsPrimitive<K::Native>,
-    i8: AsPrimitive<K::Native>,
-    i16: AsPrimitive<K::Native>,
-    i32: AsPrimitive<K::Native>,
-    i64: AsPrimitive<K::Native>,
-    usize: AsPrimitive<K::Native>,
+    K::Native: NativePType,
 {
     // Keep an existing empty dictionary: canonicalization can discard its codes, and Arrow
     // cannot repack every extension's storage type into a dictionary.
@@ -121,9 +111,6 @@ where
 
     // Execute every leaf before building anything, so an array that cannot be joined costs no more
     // than its decode. The leaves executed so far are kept for that decode.
-    let max_values = K::Native::max_value()
-        .to_usize()
-        .map_or(usize::MAX, |max| max.saturating_add(1));
     let mut leaves = Vec::with_capacity(unexecuted.len());
     let mut num_values = 0usize;
     let mut unexecuted = unexecuted.into_iter();
@@ -142,7 +129,7 @@ where
         leaves.push(leaf);
         let joinable = leaf_values.is_some_and(|leaf_values| {
             num_values += leaf_values;
-            num_values <= max_values
+            keys_index::<K>(num_values)
         });
         if !joinable {
             leaves.extend(unexecuted);
@@ -177,9 +164,8 @@ where
     for leaf in &leaves {
         if let Some(dict) = leaf.as_opt::<Dict>() {
             let leaf_codes = dict.codes().clone().execute::<PrimitiveArray>(ctx)?;
-            let shift: K::Native = base.as_();
             match_each_integer_ptype!(leaf_codes.ptype(), |P| {
-                append_codes(leaf_codes.as_slice::<P>(), shift, &mut codes)
+                append_codes::<P, K>(leaf_codes.as_slice::<P>(), base, &mut codes)
             });
             let leaf_validity = leaf_codes.as_ref().validity()?;
             match &mut joined_validity {
@@ -193,7 +179,11 @@ where
         } else {
             let constant = leaf.as_::<Constant>();
             let valid = !constant.scalar().is_null();
-            let code = if valid { base.as_() } else { K::Native::ZERO };
+            let code = if valid {
+                K::Native::usize_as(base)
+            } else {
+                K::Native::ZERO
+            };
             codes.push_n(code, constant.len());
             match &mut joined_validity {
                 Some(joined) => joined.append_n(valid, constant.len()),
@@ -229,7 +219,7 @@ where
     };
     // SAFETY: `DictionaryArray::try_new` only checks the valid keys. Each valid code of a
     // dictionary was shifted onto the values its leaf contributed, a constant's valid codes point
-    // at its value, and `max_values` bounds the joined values to what `K` can index.
+    // at its value, and `keys_index` bounds the joined values to what `K` can index.
     let dict =
         unsafe { DictionaryArray::<K>::new_unchecked(codes.as_primitive::<K>().clone(), values) };
     Ok(Arc::new(dict))
@@ -247,19 +237,28 @@ fn push_leaves(array: ArrayRef, leaves: &mut Vec<ArrayRef>) {
     }
 }
 
-/// Append `codes` shifted by `base`.
+/// Whether keys of type `K` can index `num_values` values.
+fn keys_index<K: ArrowDictionaryKeyType>(num_values: usize) -> bool {
+    num_values == 0 || K::Native::from_usize(num_values - 1).is_some()
+}
+
+/// Append `codes` shifted by `base`, converted to keys of type `K`.
 ///
 /// Null codes are shifted like the rest instead of being zeroed, which keeps the loop branch-free.
 /// Arrow only requires valid keys to index the values, and the export of a single dictionary has
-/// always passed its null codes through unchanged.
-fn append_codes<P, N>(codes: &[P], base: N, out: &mut BufferMut<N>)
-where
-    P: AsPrimitive<N>,
-    N: ArrowNativeTypeOp,
-{
+/// always passed its null codes through unchanged. A null code may hold any value, so the shift
+/// and the conversion wrap.
+fn append_codes<P: IntegerPType, K: ArrowDictionaryKeyType>(
+    codes: &[P],
+    base: usize,
+    out: &mut BufferMut<K::Native>,
+) {
+    // Truncating `base` and each code to the key width before adding them gives the same key as
+    // adding in `usize`, and keeps the loop in the key width.
+    let base = K::Native::usize_as(base);
     out.reserve(codes.len());
     for (dst, &code) in out.spare_capacity_mut().iter_mut().zip(codes) {
-        dst.write(code.as_().add_wrapping(base));
+        dst.write(K::Native::usize_as(code.as_()).add_wrapping(base));
     }
     // SAFETY: the loop above initialized the first `codes.len()` spare elements.
     unsafe { out.set_len(out.len() + codes.len()) };
@@ -550,6 +549,34 @@ mod tests {
         assert_eq!(
             flat.as_ref(),
             &StringArray::from(expected) as &dyn arrow_array::Array
+        );
+        Ok(())
+    }
+
+    /// `Int8` keys index at most 128 values: chunks with exactly that many join, and one more
+    /// value decodes and hashes them.
+    #[rstest]
+    #[case::joins_at_max(124, 128)]
+    #[case::hashes_past_max(125, 3)]
+    fn int8_keys_join_up_to_max_index(
+        #[case] padding: usize,
+        #[case] exported_values: usize,
+    ) -> VortexResult<()> {
+        let first = utf8_dict(&[0, 1], &["a", "b"])?;
+        let second = utf8_dict(
+            &[0, 1, 2],
+            &[["a", "b"].as_slice(), &vec!["x"; padding]].concat(),
+        )?;
+        let dtype = first.dtype().clone();
+        let chunked = ChunkedArray::try_new(vec![first, second], dtype)?.into_array();
+
+        let actual = execute(chunked, &dict_type(DataType::Int8, DataType::Utf8))?;
+
+        assert_eq!(actual.as_any_dictionary().values().len(), exported_values);
+        let flat = arrow_cast::cast(&actual, &DataType::Utf8)?;
+        assert_eq!(
+            flat.as_ref(),
+            &StringArray::from(vec!["a", "b", "a", "b", "x"]) as &dyn arrow_array::Array
         );
         Ok(())
     }
