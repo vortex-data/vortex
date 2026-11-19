@@ -101,9 +101,10 @@ impl CascadingCompressor {
 
     /// Compresses a child array produced by a cascading scheme.
     ///
-    /// If the cascade budget is exhausted, the canonical array is returned as-is. Otherwise, the
-    /// child context is created by descending and recording the parent scheme + child index, and
-    /// compression proceeds normally.
+    /// If the cascade budget is exhausted, the child is returned as-is, apart from the validity of
+    /// a canonical leaf, which is still compressed. Otherwise, the child context is created by
+    /// descending and recording the parent scheme + child index, and compression proceeds
+    /// normally.
     ///
     /// # Errors
     ///
@@ -118,7 +119,7 @@ impl CascadingCompressor {
     ) -> VortexResult<ArrayRef> {
         if parent_ctx.finished_cascading() {
             trace::cascade_exhausted(parent_id, child_index);
-            return Ok(child.clone());
+            return self.with_compressed_validity(child, exec_ctx);
         }
 
         let canonical = child.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
@@ -141,18 +142,12 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let array = self.compress_leaf_validity(array, exec_ctx)?;
         match array {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
-            Canonical::Bool(bool_array) => self
-                .choose_and_compress(Canonical::Bool(bool_array), compress_ctx, exec_ctx)
-                .map(Selection::into_array),
-            Canonical::Primitive(primitive) => self
-                .choose_and_compress(Canonical::Primitive(primitive), compress_ctx, exec_ctx)
-                .map(Selection::into_array),
-            Canonical::Decimal(decimal) => self
-                .choose_and_compress(Canonical::Decimal(decimal), compress_ctx, exec_ctx)
-                .map(Selection::into_array),
+            leaf @ (Canonical::Bool(_)
+            | Canonical::Primitive(_)
+            | Canonical::Decimal(_)
+            | Canonical::VarBinView(_)) => self.compress_leaf(leaf, compress_ctx, exec_ctx),
             Canonical::Struct(struct_array) => {
                 let fields = struct_array
                     .iter_unmasked_fields()
@@ -225,9 +220,6 @@ impl CascadingCompressor {
                 )?
                 .into_array())
             }
-            Canonical::VarBinView(varbinview) => self
-                .choose_and_compress(Canonical::VarBinView(varbinview), compress_ctx, exec_ctx)
-                .map(Selection::into_array),
             Canonical::Extension(ext_array) => {
                 // Try scheme-based compression first.
                 let selection = self.choose_and_compress(
@@ -266,8 +258,19 @@ impl CascadingCompressor {
                 }
             }
             Canonical::Variant(variant_array) => {
-                let core_storage =
-                    self.compress_physical_slots(variant_array.core_storage(), exec_ctx)?;
+                // Storage under a lazy array, such as a slice, would be written with it.
+                // Executing it yields the storage encoding, which executes to a Variant over
+                // itself, and builds chunks of storage into one.
+                let executed = variant_array
+                    .core_storage()
+                    .clone()
+                    .execute::<VariantArray>(exec_ctx)?;
+                let core_storage = if executed.shredded().is_none() {
+                    executed.core_storage().clone()
+                } else {
+                    variant_array.core_storage().clone()
+                };
+                let core_storage = self.compress_physical_slots(&core_storage, exec_ctx)?;
                 let shredded = variant_array
                     .shredded()
                     .map(|arr| {
@@ -282,6 +285,22 @@ impl CascadingCompressor {
 
                 Ok(VariantArray::try_new(core_storage, shredded)?.into_array())
             }
+        }
+    }
+
+    /// Compresses a bool, primitive, decimal or string leaf with the best scheme.
+    ///
+    /// A scheme that stores the leaf's validity compresses it itself. A leaf no scheme compresses
+    /// keeps its values, and its validity bitmap is compressed on its own.
+    fn compress_leaf(
+        &self,
+        leaf: Canonical,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        match self.choose_and_compress(leaf, compress_ctx, exec_ctx)? {
+            Selection::Compressed(compressed) => Ok(compressed),
+            Selection::Unchanged(array) => self.with_compressed_validity(&array, exec_ctx),
         }
     }
 
@@ -333,7 +352,17 @@ impl CascadingCompressor {
         //
         // Compare valid values directly so even nullable constants avoid distinct-value counting.
         if !compress_ctx.is_sample() && constant::is_constant_for_compression(&array, exec_ctx)? {
-            return constant::compress_as_constant(array, exec_ctx).map(Selection::Compressed);
+            let compressed = constant::compress_as_constant(
+                array.clone(),
+                |validity, exec_ctx| self.compress_validity(validity, exec_ctx),
+                exec_ctx,
+            )?;
+            // The constant encoding hands the array back when it is not smaller.
+            return Ok(if ArrayRef::ptr_eq(&compressed, &array) {
+                Selection::Unchanged(array)
+            } else {
+                Selection::Compressed(compressed)
+            });
         }
 
         // A scheme competes against the bytes the rows reference, not dead bytes in the buffers.

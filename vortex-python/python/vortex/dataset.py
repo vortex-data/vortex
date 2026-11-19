@@ -7,9 +7,10 @@ import warnings
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from functools import reduce
-from typing import final
+from typing import Any, final
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.dataset
 from typing_extensions import override
 
@@ -17,7 +18,7 @@ from ._lib import dataset as _dataset
 from ._lib import file as _file
 from ._lib.runtime import set_worker_threads as _set_worker_threads
 from ._lib.runtime import worker_threads as _worker_threads
-from .arrays import array
+from .arrays import Array, array
 from .arrow.expression import ensure_vortex_expression
 from .expr import Expr, and_
 
@@ -34,6 +35,10 @@ def _temporary_worker_threads(use_threads: bool) -> Generator[None]:
         yield
     finally:
         _set_worker_threads(previous_workers)
+
+
+def _is_strictly_increasing(indices: pyarrow.Array[Any]) -> bool:
+    return len(indices) < 2 or bool(pc.all(pc.greater(indices[1:], indices[:-1])).as_py())  # ty: ignore[invalid-argument-type]
 
 
 def _read_batches_with_temporary_worker_threads(
@@ -180,16 +185,14 @@ class VortexDataset(pyarrow.dataset.Dataset):
             warnings.warn("Vortex does not support cache_metadata. Ignoring cache_metadata setting.")
         del memory_pool
 
+        reader = self._dataset.to_record_batch_reader(
+            columns=columns,
+            row_filter=self._filter_expression(filter),
+            row_range=_row_range,
+            limit=num_rows,
+        )
         with _temporary_worker_threads(use_threads):
-            return (
-                self._dataset.to_array(
-                    columns=columns,
-                    row_filter=self._filter_expression(filter),
-                    row_range=_row_range,
-                )
-                .slice(0, num_rows)
-                .to_arrow_table()
-            )
+            return reader.read_all()
 
     @override
     def join(
@@ -316,7 +319,9 @@ class VortexDataset(pyarrow.dataset.Dataset):
         Parameters
         ----------
         indices : :class:`.pyarrow.Array`
-            A numeric array of absolute indices into `self` indicating which rows to keep.
+            A numeric array of absolute indices into `self` indicating which rows to keep. Rows are
+            returned in the order of `indices`, which may repeat or be unordered. If `filter` is
+            given or this dataset was filtered, `indices` must be strictly increasing.
         columns : list of str
             The columns to keep, identified by name.
         filter : :class:`.pyarrow.dataset.Expression`
@@ -343,13 +348,30 @@ class VortexDataset(pyarrow.dataset.Dataset):
         table : :class:`.pyarrow.Table`
 
         """
-        with _temporary_worker_threads(use_threads):
+        uint_indices: pyarrow.Array[Any] = indices.cast(pa.uint64())
+        row_filter = self._filter_expression(filter)
+
+        def scan(scan_indices: pyarrow.Array[Any]) -> Array:
             return self._dataset.to_array(
                 columns=columns,
-                row_filter=self._filter_expression(filter),
-                indices=array(indices.cast(pa.uint64())),
+                row_filter=row_filter,
+                indices=array(scan_indices),
                 row_range=_row_range,
-            ).to_arrow_table()
+            )
+
+        with _temporary_worker_threads(use_threads):
+            if row_filter is not None or _is_strictly_increasing(uint_indices):
+                return scan(uint_indices).to_arrow_table()
+
+            # The scan needs strictly increasing indices, so scan the sorted distinct rows once and
+            # gather them back into the requested order.
+            if _row_range is not None:
+                start, end = _row_range
+                in_range = pc.and_(pc.greater_equal(uint_indices, start), pc.less(uint_indices, end))  # ty: ignore[no-matching-overload]
+                uint_indices = uint_indices.filter(in_range)
+            distinct = pc.unique(uint_indices)
+            distinct = distinct.take(pc.sort_indices(distinct))
+            return scan(distinct).take(array(pc.index_in(uint_indices, value_set=distinct))).to_arrow_table()
 
     def to_record_batch_reader(
         self,
@@ -551,6 +573,12 @@ class VortexFragment(pyarrow.dataset.Fragment):
         self._dataset = dataset
         self._row_range = _row_range
 
+    def _check_schema(self, schema: pyarrow.Schema | None) -> None:
+        # Engines such as DataFusion pass the dataset schema, which every fragment already reads
+        # with. Any other schema would need a cast that the fragment does not do.
+        if schema is not None and not schema.equals(self._dataset.schema):
+            raise ValueError("schema is not supported, except for the schema of the dataset")
+
     @property
     @override
     def physical_schema(self) -> pyarrow.Schema:
@@ -580,8 +608,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> pyarrow.dataset.Scanner:
         """See :class:`vortex.dataset.VortexDataset.scanner`"""
-        if schema:
-            raise ValueError("schema is not supported")
+        self._check_schema(schema)
         return self._dataset.scanner(
             columns=columns,
             filter=filter,
@@ -610,8 +637,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> Iterator[pyarrow.RecordBatch]:
         """See :class:`vortex.dataset.VortexDataset.to_batches`"""
-        if schema:
-            raise ValueError("schema is not supported")
+        self._check_schema(schema)
         return self._dataset.to_batches(
             columns=columns,
             filter=filter,
@@ -640,8 +666,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> pyarrow.Table:
         """See :class:`vortex.dataset.VortexDataset.to_table`"""
-        if schema:
-            raise ValueError("schema is not supported")
+        self._check_schema(schema)
         return self._dataset.to_table(
             columns=columns,
             filter=filter,

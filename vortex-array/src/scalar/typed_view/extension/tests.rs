@@ -239,33 +239,21 @@ fn test_ext_scalar_ext_dtype() {
 }
 
 #[test]
-fn test_ext_scalar_cast_to_storage() {
+fn test_ext_scalar_rejects_storage_cast() {
     let scalar = Scalar::extension::<TestI32Ext>(
         EmptyMetadata,
         Scalar::primitive(42i32, Nullability::NonNullable),
     );
 
-    // Cast to storage type
-    let casted = scalar
-        .cast(&DType::Primitive(PType::I32, Nullability::NonNullable))
-        .unwrap();
-    assert_eq!(
-        casted.dtype(),
-        &DType::Primitive(PType::I32, Nullability::NonNullable)
+    assert!(
+        scalar
+            .cast(&DType::Primitive(PType::I32, Nullability::NonNullable))
+            .is_err()
     );
-    assert_eq!(casted.as_primitive().typed_value::<i32>(), Some(42));
-
-    // Cast to nullable storage type
-    let casted_nullable = scalar
-        .cast(&DType::Primitive(PType::I32, Nullability::Nullable))
-        .unwrap();
-    assert_eq!(
-        casted_nullable.dtype(),
-        &DType::Primitive(PType::I32, Nullability::Nullable)
-    );
-    assert_eq!(
-        casted_nullable.as_primitive().typed_value::<i32>(),
-        Some(42)
+    assert!(
+        scalar
+            .cast(&DType::Primitive(PType::I32, Nullability::Nullable))
+            .is_err()
     );
 }
 

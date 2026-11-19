@@ -12,6 +12,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::ops::Range;
 
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
@@ -50,6 +51,7 @@ use crate::arrays::runend::compress::runend_encode;
 use crate::arrays::runend::compress::runend_encode_bool;
 use crate::arrays::runend::decompress_bool::runend_decode_bools;
 use crate::arrays::runend::ops::find_physical_index;
+use crate::arrays::runend::ops::find_physical_range;
 use crate::arrays::runend::ops::find_slice_end_index;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -197,6 +199,17 @@ pub trait RunEndArrayExt: TypedArrayRef<RunEnd> {
 
     fn find_slice_end_index(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         find_slice_end_index(self.ends(), index + self.offset(), ctx)
+    }
+
+    /// The physical range of runs covering the logical `range`, found with one probe of the
+    /// ends.
+    fn find_physical_range(
+        &self,
+        range: Range<usize>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Range<usize>> {
+        let offset = self.offset();
+        find_physical_range(self.ends(), range.start + offset..range.end + offset, ctx)
     }
 }
 

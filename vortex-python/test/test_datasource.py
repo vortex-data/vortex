@@ -14,10 +14,13 @@ import pytest
 import ray
 from pyarrow.fs import GcsFileSystem
 from ray.data import read_datasource
+from ray.data._internal.execution.interfaces import TaskContext
+from ray.data._internal.planner.plan_write_op import WRITE_UUID_KWARG_NAME
 from typing_extensions import override
 
 import vortex as vx
 import vortex.expr as ve
+from vortex.ray.datasink import VortexDatasink
 from vortex.ray.datasource import VortexDatasource, partition
 
 from .test_file import record
@@ -175,3 +178,66 @@ def test_url_scheme_of_gcs_is_gs() -> None:
     from vortex.ray.datasource import _url_scheme
 
     assert _url_scheme(GcsFileSystem(anonymous=True)) == "gs"
+
+
+def test_vortex_datasink_writes_and_reads_dataset(ray_init, tmp_path: Path) -> None:
+    output = tmp_path / "output"
+    ds = ray.data.from_items([record(x) for x in range(20)], override_num_blocks=2)
+
+    ds.write_datasink(VortexDatasink(str(output)))
+
+    assert len(list(output.glob("*.vortex"))) == 2
+    actual = read_datasource(VortexDatasource(url=str(output))).sort("index")
+    table = pa.concat_tables(pa.Table.from_pydict(batch) for batch in actual.iter_batches())
+    expected = pa.Table.from_pylist([record(x) for x in range(20)], schema=table.schema)
+    assert table == expected
+
+
+def test_vortex_datasink_writes_arrow_nulls(ray_init, tmp_path: Path) -> None:
+    output = tmp_path / "output"
+    rows = [{"x": 1, "label": "a"}, {"x": None, "label": None}, {"x": 3, "label": "c"}]
+    source = pa.Table.from_pylist(rows)
+
+    ray.data.from_arrow(source).write_datasink(VortexDatasink(str(output)))
+
+    files = sorted(output.glob("*.vortex"))
+    table = pa.concat_tables([vx.open(str(path)).to_arrow().read_all() for path in files])
+    assert table.to_pylist() == rows
+
+
+def test_vortex_datasink_appends_unique_files(ray_init, tmp_path: Path) -> None:
+    output = tmp_path / "output"
+    ds = ray.data.from_items([{"x": 1}])
+
+    ds.write_datasink(VortexDatasink(str(output)))
+    ds.write_datasink(VortexDatasink(str(output)))
+
+    assert len(list(output.glob("*.vortex"))) == 2
+    assert read_datasource(VortexDatasource(url=str(output))).count() == 2
+
+
+def test_vortex_datasink_empty_dataset(ray_init, tmp_path: Path) -> None:
+    output = tmp_path / "output"
+    source = pa.Table.from_batches([], schema=pa.schema([("x", pa.int64())]))
+
+    ray.data.from_arrow(source).write_datasink(VortexDatasink(str(output)))
+
+    assert list(output.glob("*.vortex")) == []
+
+
+def test_vortex_datasink_s3_url(s3_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    writes = {}
+
+    def write(reader: pa.RecordBatchReader, path: str) -> None:
+        writes[path] = reader.read_all()
+
+    monkeypatch.setattr("vortex.ray.datasink.vx_io.write", write)
+    sink = VortexDatasink("s3://ray-datasource-test/data")
+    ctx = TaskContext(task_idx=0, op_name="Write", kwargs={WRITE_UUID_KWARG_NAME: "test"})
+
+    sink.write([pa.Table.from_pylist([{"x": 1}])], ctx)
+
+    path = next(iter(writes))
+    assert path.startswith("s3://ray-datasource-test/data/test_")
+    assert path.endswith(".vortex")
+    assert writes[path].to_pylist() == [{"x": 1}]

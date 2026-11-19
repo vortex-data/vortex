@@ -10,7 +10,6 @@ use std::hash::Hash;
 use std::iter;
 use std::ops::BitOr;
 
-use arrow_buffer::bit_iterator::BitIndexIterator;
 pub use kernel::*;
 use num_traits::Zero;
 pub use prepared::PreparedSet;
@@ -708,10 +707,11 @@ where
             let offset = offsets_slice[i].as_();
             let size = sizes_slice[i].as_();
 
-            // BitIndexIterator yields indices of true bits only. If `.next()` returns
-            // `Some(_)`, at least one element in this list's range matches.
-            let mut set_bits = BitIndexIterator::new(bits.inner(), bits.offset() + offset, size);
-            set_bits.next().is_some()
+            // A set bit means at least one element in this list's range matches.
+            bits.slice(offset..offset + size)
+                .set_indices()
+                .next()
+                .is_some()
         },
         ctx.allocator().clone(),
     )

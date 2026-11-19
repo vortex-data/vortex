@@ -74,6 +74,7 @@ include = [
 
 [dependency-groups]
 dev = [
+    "datafusion>=50.0.0",
     "datasets>=4.0.0,<6",
     "duckdb>=1.1.2",
     "huggingface-hub>=0.34.0",

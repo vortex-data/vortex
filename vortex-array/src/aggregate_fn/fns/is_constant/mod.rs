@@ -644,18 +644,10 @@ mod tests {
     fn test_decimal_is_constant() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
 
-        let array = DecimalArray::new(
-            buffer![0i128, 1i128, 2i128],
-            DecimalDType::new(19, 0),
-            Validity::NonNullable,
-        );
+        let array = DecimalArray::from_iter([0i128, 1i128, 2i128], DecimalDType::new(19, 0));
         assert!(!is_constant(&array.into_array(), &mut ctx)?);
 
-        let array = DecimalArray::new(
-            buffer![100i128, 100i128, 100i128],
-            DecimalDType::new(19, 0),
-            Validity::NonNullable,
-        );
+        let array = DecimalArray::from_iter([100i128, 100i128, 100i128], DecimalDType::new(19, 0));
         assert!(is_constant(&array.into_array(), &mut ctx)?);
         Ok(())
     }

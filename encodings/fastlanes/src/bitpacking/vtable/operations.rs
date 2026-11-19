@@ -3,6 +3,7 @@
 
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::ProbeState;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
@@ -11,29 +12,52 @@ use crate::BitPacked;
 use crate::BitWidthsView;
 use crate::bitpack_decompress;
 use crate::bitpacking::array::BitPackedArrayExt;
+use crate::bitpacking::array::PATCH_SLOTS;
+
 impl OperationsVTable<BitPacked> for BitPacked {
     type ProbeState = ();
+
+    fn probe_scalar(
+        state: &mut ProbeState<'_, BitPacked>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        if !state.is_valid(index, ctx)? {
+            return Ok(Scalar::null(state.array().dtype().clone()));
+        }
+        read_valid(state, index, ctx)
+    }
 
     fn scalar_at(
         array: ArrayView<'_, BitPacked>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        Ok(
-            if let Some(patches) = array.patches()
-                && let Some(patch) = patches.get_patched(index, ctx)?
-            {
-                patch
-            } else {
-                match array.bit_widths() {
-                    BitWidthsView::Global(_) => bitpack_decompress::unpack_single(array, index)?,
-                    BitWidthsView::Blocked(offsets) => {
-                        bitpack_decompress::unpack_single_blocked(array, offsets, index, ctx)?
-                    }
-                }
-            },
-        )
+        read_valid(&mut ProbeState::once(array), index, ctx)
     }
+}
+
+/// Read the valid row at `index`, from the patches if it is patched and unpacking it otherwise.
+fn read_valid(
+    state: &mut ProbeState<'_, BitPacked>,
+    index: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Scalar> {
+    let array = state.array();
+    Ok(
+        if let Some(patches) = array.patches()
+            && let Some(patch) = patches.probe_patched(state, PATCH_SLOTS, index, ctx)?
+        {
+            patch
+        } else {
+            match array.bit_widths() {
+                BitWidthsView::Global(_) => bitpack_decompress::unpack_single(array, index)?,
+                BitWidthsView::Blocked(offsets) => {
+                    bitpack_decompress::unpack_single_blocked(array, offsets, index, ctx)?
+                }
+            }
+        },
+    )
 }
 
 #[cfg(test)]

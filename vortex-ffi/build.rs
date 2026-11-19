@@ -3,9 +3,13 @@
 
 #![expect(clippy::unwrap_used)]
 use std::env;
+use std::fmt::Write;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::exit;
+
+use vortex_edition::EDITION_DECLARATIONS;
+use vortex_edition::declarations::core;
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(vortex_asan)");
@@ -55,8 +59,20 @@ fn main() {
     // Create output directory
     std::fs::create_dir_all(output_file.parent().unwrap()).unwrap();
 
-    // Load config
-    let config = cbindgen::Config::from_file("cbindgen.toml").unwrap();
+    let mut config = cbindgen::Config::from_file("cbindgen.toml").unwrap();
+    let header = config.header.get_or_insert_default();
+    header.push_str("\n// Core edition names accepted by vx_session_enable_edition.\n");
+    for declaration in EDITION_DECLARATIONS {
+        let id = declaration.edition.id;
+        if id.family == core::FAMILY.name {
+            writeln!(
+                header,
+                "#define VX_EDITION_CORE_{:04}_{:02}_{} \"{id}\"",
+                id.year, id.month, id.version
+            )
+            .unwrap();
+        }
+    }
 
     // Generate and write header
     let result = cbindgen::Builder::new()

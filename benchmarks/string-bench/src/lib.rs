@@ -56,6 +56,7 @@ use vortex_bench::IdempotentPath;
 use vortex_bench::datasets::Dataset;
 use vortex_bench::datasets::data_downloads::download_data;
 use vortex_bench::datasets::tpch_l_comment::TPCHLCommentCanonical;
+use vortex_bench::enable_unstable_encodings;
 use vortex_bench::idempotent_async;
 use vortex_cloud::hf::make_hf_store_from_url;
 use vortex_fsst::FSST;
@@ -79,8 +80,11 @@ pub use serialized::*;
 
 /// Session with the available string encodings and their canonicalize kernels
 /// registered for benchmarking.
-pub static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio());
+pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::default().with_tokio();
+    enable_unstable_encodings(&session);
+    session
+});
 
 /// A named string column, canonicalized to a `VarBinViewArray`-backed array,
 /// ready for either benchmark path.

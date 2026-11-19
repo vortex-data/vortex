@@ -34,18 +34,19 @@ jobs:
           targets: "wasm32-wasip1"
           components: "rust-src"
 
-      - name: Build WASM fuzz target
-        run: |
-          cargo +$NIGHTLY_TOOLCHAIN build \
-            --manifest-path fuzz/Cargo.toml \
-            --target wasm32-wasip1 \
-            --no-default-features \
-            --features wasmfuzz \
-            --release \
-            --bin array_ops_wasm
-
-      - name: Install wabt tools
-        run: sudo apt-get update && sudo apt-get install -y wabt
+      # setup-fuzz-linker below sets RUSTFLAGS for mold, so the wasm32 build stays ahead of it.
+      - parallel:
+          - name: Build WASM fuzz target
+            run: |
+              cargo +$NIGHTLY_TOOLCHAIN build \
+                --manifest-path fuzz/Cargo.toml \
+                --target wasm32-wasip1 \
+                --no-default-features \
+                --features wasmfuzz \
+                --release \
+                --bin array_ops_wasm
+          - name: Install wabt tools
+            run: sudo apt-get update && sudo apt-get install -y wabt
 
       - name: Verify WASM exports
         run: |

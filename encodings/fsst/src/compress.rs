@@ -134,10 +134,7 @@ fn compress_varbin_array(
     let mask = strings.validity()?.execute_mask(strings.len(), ctx)?;
     let offsets = strings.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let total_input_bytes = match_each_integer_ptype!(offsets.ptype(), |O| {
-        let off = offsets.as_slice::<O>();
-        let first: usize = off[0].as_();
-        let last: usize = off[off.len() - 1].as_();
-        last - first
+        offsets_byte_span(offsets.as_slice::<O>())
     });
 
     if fsst_output_fits_in_i32_offsets(total_input_bytes) {
@@ -194,6 +191,13 @@ fn train_varbin_array(
     });
 
     Ok(Compressor::train(&lines))
+}
+
+/// Returns the number of bytes spanned by `off`, from its first offset to its last.
+fn offsets_byte_span<O: IntegerPType>(off: &[O]) -> usize {
+    let first: usize = off[0].as_();
+    let last: usize = off[off.len() - 1].as_();
+    last - first
 }
 
 #[inline]

@@ -567,6 +567,7 @@ mod tests {
                     .slice(range),
                 DecimalDType::new(precision, 0),
                 Validity::NonNullable,
+                ctx.execution_ctx(),
             )
         });
         let parts = expected.clone().into_data_parts();
@@ -595,6 +596,7 @@ mod tests {
             parts.values_type,
             parts.decimal_dtype,
             parts.validity,
+            ctx.execution_ctx(),
         )?)
         .into_host(ctx.execution_ctx())
         .await?
