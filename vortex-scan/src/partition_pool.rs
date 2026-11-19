@@ -113,3 +113,139 @@ impl ScanPool for PartitionPool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+    use std::num::NonZeroUsize;
+    use std::sync::Arc;
+
+    use futures::StreamExt;
+    use futures::TryStreamExt;
+    use futures::stream;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::expr::stats::Precision;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::stream::ArrayStreamAdapter;
+    use vortex_array::stream::ArrayStreamExt;
+    use vortex_array::stream::SendableArrayStream;
+    use vortex_error::VortexResult;
+
+    use crate::DataSourceScan;
+    use crate::Partition;
+    use crate::PartitionRef;
+    use crate::PartitionStream;
+
+    fn dtype() -> DType {
+        DType::Primitive(PType::I32, Nullability::NonNullable)
+    }
+
+    /// A scan of `partitions` partitions that only implements the partitions API. Partition `i`
+    /// returns one array of `i + 1` rows.
+    struct PartitionOnlyScan {
+        dtype: DType,
+        partitions: usize,
+    }
+
+    struct ToyPartition {
+        index: usize,
+        dtype: DType,
+    }
+
+    impl Partition for ToyPartition {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn index(&self) -> usize {
+            self.index
+        }
+
+        fn row_count(&self) -> Precision<u64> {
+            Precision::exact(self.index as u64 + 1)
+        }
+
+        fn byte_size(&self) -> Precision<u64> {
+            Precision::Absent
+        }
+
+        fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
+            let array = ConstantArray::new(Scalar::from(1i32), self.index + 1).into_array();
+            Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+                self.dtype,
+                stream::iter([Ok(array)]),
+            )))
+        }
+    }
+
+    impl DataSourceScan for PartitionOnlyScan {
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn partition_count(&self) -> Precision<usize> {
+            Precision::exact(self.partitions)
+        }
+
+        fn partitions(self: Box<Self>) -> PartitionStream {
+            let dtype = self.dtype;
+            // Each partition arrives after the stream has once returned `Pending`, so workers
+            // must wait for one another's polls.
+            stream::iter(0..self.partitions)
+                .then(move |index| {
+                    let dtype = dtype.clone();
+                    async move {
+                        tokio::task::yield_now().await;
+                        Ok(Box::new(ToyPartition { index, dtype }) as PartitionRef)
+                    }
+                })
+                .boxed()
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+    async fn default_open_shares_partitions_between_workers() -> VortexResult<()> {
+        let scan = Box::new(PartitionOnlyScan {
+            dtype: dtype(),
+            partitions: 6,
+        });
+        assert!(scan.ordered());
+        let pool = scan.open()?;
+        let workers = (0..3)
+            .map(|_| {
+                let worker = Arc::clone(&pool).worker();
+                tokio::spawn(async move {
+                    worker
+                        .map_ok(|array| array.len())
+                        .try_collect::<Vec<_>>()
+                        .await
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut lengths = Vec::new();
+        for worker in workers {
+            lengths.extend(worker.await.expect("worker panicked")?);
+        }
+        lengths.sort_unstable();
+        assert_eq!(lengths, [1, 2, 3, 4, 5, 6]);
+        assert!(pool.is_exhausted());
+        assert_eq!(pool.progress(), 1.0);
+        Ok(())
+    }
+
+    #[test]
+    fn default_split_returns_the_scan_whole() -> VortexResult<()> {
+        let scan = Box::new(PartitionOnlyScan {
+            dtype: dtype(),
+            partitions: 6,
+        });
+        let pieces = scan.split(NonZeroUsize::new(4).expect("non-zero"))?;
+        assert_eq!(pieces.len(), 1);
+        assert_eq!(pieces[0].partition_count(), Precision::exact(6usize));
+        Ok(())
+    }
+}

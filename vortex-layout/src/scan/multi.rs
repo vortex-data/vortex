@@ -67,7 +67,6 @@ use crate::LayoutReaderRef;
 use crate::scan::layout::Empty;
 use crate::scan::layout::group_contiguous;
 use crate::scan::limit::RowLimit;
-use crate::scan::pool::DEFAULT_SPLITS_IN_FLIGHT;
 use crate::scan::pool::FileWork;
 use crate::scan::pool::PiecePartition;
 use crate::scan::pool::PoolFile;
@@ -104,7 +103,6 @@ pub struct MultiLayoutDataSource {
     session: VortexSession,
     children: Arc<[MultiLayoutChild]>,
     concurrency: usize,
-    max_splits_in_flight: NonZeroUsize,
 }
 
 pub enum MultiLayoutChild {
@@ -176,7 +174,6 @@ impl MultiLayoutDataSource {
             session: session.clone(),
             children: children.into(),
             concurrency,
-            max_splits_in_flight: DEFAULT_SPLITS_IN_FLIGHT,
         }
     }
 
@@ -214,7 +211,6 @@ impl MultiLayoutDataSource {
                 .map(|(factory, byte_size)| MultiLayoutChild::Deferred { factory, byte_size })
                 .collect(),
             concurrency,
-            max_splits_in_flight: DEFAULT_SPLITS_IN_FLIGHT,
         }
     }
 
@@ -228,15 +224,6 @@ impl MultiLayoutDataSource {
     /// Defaults to the number of available CPU cores.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         self.concurrency = concurrency;
-        self
-    }
-
-    /// Bounds the splits each worker of an opened scan keeps in flight at once; see
-    /// [`LayoutReaderDataSource::with_max_splits_in_flight`].
-    ///
-    /// [`LayoutReaderDataSource::with_max_splits_in_flight`]: crate::scan::layout::LayoutReaderDataSource::with_max_splits_in_flight
-    pub fn with_max_splits_in_flight(mut self, max: NonZeroUsize) -> Self {
-        self.max_splits_in_flight = max;
         self
     }
 }
@@ -346,9 +333,7 @@ impl DataSource for MultiLayoutDataSource {
             row_limit,
             ready,
             deferred,
-            handle: self.session.handle(),
             concurrency: self.concurrency,
-            max_splits_in_flight: self.max_splits_in_flight,
         }))
     }
 
@@ -420,9 +405,7 @@ struct MultiLayoutScan {
     row_limit: Option<RowLimit>,
     ready: VecDeque<LayoutReaderRef>,
     deferred: VecDeque<Arc<dyn LayoutReaderFactory>>,
-    handle: vortex_io::runtime::Handle,
     concurrency: usize,
-    max_splits_in_flight: NonZeroUsize,
 }
 
 impl MultiLayoutScan {
@@ -440,7 +423,6 @@ impl MultiLayoutScan {
                 source_dtype: self.source_dtype,
                 dtype: self.dtype,
                 request: self.request,
-                max_splits_in_flight: self.max_splits_in_flight,
             }),
             children,
             index: 0,
@@ -504,10 +486,9 @@ impl DataSourceScan for MultiLayoutScan {
             row_limit,
             ready,
             deferred,
-            handle,
             concurrency,
-            max_splits_in_flight: _,
         } = *self;
+        let handle = session.handle();
 
         let ordered = request.ordered;
 
@@ -758,7 +739,6 @@ struct ScanContext {
     source_dtype: DType,
     dtype: DType,
     request: BoundScanRequest,
-    max_splits_in_flight: NonZeroUsize,
 }
 
 impl ScanContext {
@@ -991,7 +971,7 @@ impl DataSourceScan for MultiLayoutSplitScan {
             ordered: request.ordered,
             limit: request.limit,
             has_filter: request.has_filter(),
-            max_splits_in_flight: context.max_splits_in_flight,
+            splits_in_flight: request.split_concurrency,
         };
         let prepare: PrepareFile = Arc::new(move |reader| context.start_file(reader));
         Ok(open_pool(options, files, Some(prepare)))
@@ -1171,6 +1151,338 @@ mod tests {
             default_peak > max,
             "the default read {default_peak} at once"
         );
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod pool_tests {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+    use std::task::Context;
+    use std::task::Poll;
+
+    use async_trait::async_trait;
+    use futures::StreamExt;
+    use futures::future::poll_fn;
+    use futures::task::ArcWake;
+    use futures::task::AtomicWaker;
+    use futures::task::noop_waker_ref;
+    use futures::task::waker;
+    use rstest::rstest;
+    use vortex_array::ArrayRef;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::expr::root;
+    use vortex_array::stream::SendableArrayStream;
+    use vortex_error::VortexResult;
+    use vortex_io::runtime::BlockingRuntime;
+    use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_scan::DataSource;
+    use vortex_scan::ScanRequest;
+
+    use super::*;
+    use crate::scan::test::InFlight;
+    use crate::scan::test::TestLayoutReader;
+    use crate::scan::test::collect_scan_values;
+    use crate::scan::test::new_session;
+    use crate::scan::test::read_with_one_worker;
+    use crate::scan::test::read_with_workers;
+    use crate::scan::test::session_with_handle;
+
+    fn plan(
+        source: &MultiLayoutDataSource,
+        request: ScanRequest,
+    ) -> VortexResult<DataSourceScanRef> {
+        futures::executor::block_on(source.scan(request))
+    }
+
+    fn i32_dtype() -> DType {
+        DType::Primitive(PType::I32, Nullability::NonNullable)
+    }
+
+    /// A factory whose open completes only once its gate is released.
+    #[derive(Default)]
+    struct Gate {
+        is_open: AtomicBool,
+        waker: AtomicWaker,
+    }
+
+    impl Gate {
+        fn release(&self) {
+            self.is_open.store(true, Ordering::SeqCst);
+            self.waker.wake();
+        }
+    }
+
+    struct GatedFactory {
+        reader: LayoutReaderRef,
+        gate: Arc<Gate>,
+        opens: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl LayoutReaderFactory for GatedFactory {
+        async fn open(&self) -> VortexResult<Option<LayoutReaderRef>> {
+            self.opens.fetch_add(1, Ordering::SeqCst);
+            poll_fn(|cx| {
+                self.gate.waker.register(cx.waker());
+                if self.gate.is_open.load(Ordering::SeqCst) {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await;
+            Ok(Some(Arc::clone(&self.reader)))
+        }
+    }
+
+    fn gated_factory(reader: TestLayoutReader, gate: &Arc<Gate>) -> Arc<dyn LayoutReaderFactory> {
+        Arc::new(GatedFactory {
+            reader: Arc::new(reader),
+            gate: Arc::clone(gate),
+            opens: Arc::default(),
+        })
+    }
+
+    /// Deferred files of `rows` one-row splits, the `i`th producing `100 * i + row`.
+    fn gated_source(files: usize, rows: u64) -> (MultiLayoutDataSource, Vec<Arc<Gate>>) {
+        let gates: Vec<_> = (0..files).map(|_| Arc::new(Gate::default())).collect();
+        let factories = gates
+            .iter()
+            .enumerate()
+            .map(|(index, gate)| {
+                let base = 100 * i32::try_from(index).expect("few files");
+                gated_factory(
+                    TestLayoutReader::new(rows)
+                        .with_split_size(1)
+                        .with_base(base),
+                    gate,
+                )
+            })
+            .collect();
+        let source =
+            MultiLayoutDataSource::new_deferred(i32_dtype(), factories, vec![], &new_session());
+        (source, gates)
+    }
+
+    #[derive(Default)]
+    struct WakeFlag(AtomicBool);
+
+    impl ArcWake for WakeFlag {
+        fn wake_by_ref(arc_self: &Arc<Self>) {
+            arc_self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    fn poll_worker(
+        worker: &mut SendableArrayStream,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<VortexResult<ArrayRef>>> {
+        worker.poll_next_unpin(cx)
+    }
+
+    /// A deferred file is opened by a worker, and its splits are shared with other workers. A
+    /// worker that finds only an open in progress waits, and is woken when the open adds splits.
+    #[test]
+    fn deferred_file_splits_are_shared_with_waiting_workers() -> VortexResult<()> {
+        let (source, gates) = gated_source(1, 16);
+        let pool = plan(&source, ScanRequest::default())?.open()?;
+        let mut opener = Arc::clone(&pool).worker();
+        let mut waiter = Arc::clone(&pool).worker();
+        let mut noop = Context::from_waker(noop_waker_ref());
+        let flag = Arc::new(WakeFlag::default());
+        let flag_waker = waker(Arc::clone(&flag));
+        let mut flagged = Context::from_waker(&flag_waker);
+
+        // The opener takes the only file and blocks on its open; the waiter finds nothing to take
+        // but an open in progress, so it waits.
+        assert!(poll_worker(&mut opener, &mut noop).is_pending());
+        assert!(poll_worker(&mut waiter, &mut flagged).is_pending());
+        assert!(!pool.is_exhausted());
+
+        gates[0].release();
+        let Poll::Ready(Some(first)) = poll_worker(&mut opener, &mut noop) else {
+            panic!("the opener reads a split of the file it opened");
+        };
+        assert!(flag.0.load(Ordering::SeqCst), "the waiter is woken");
+
+        let waiter_values = collect_scan_values(futures::executor::block_on_stream(waiter))?;
+        let opener_values = collect_scan_values(
+            std::iter::once(first).chain(futures::executor::block_on_stream(opener)),
+        )?;
+        assert!(
+            !waiter_values.is_empty(),
+            "the waiter reads the opened file's splits"
+        );
+        let mut values = [opener_values, waiter_values].concat();
+        values.sort_unstable();
+        assert_eq!(values, (0..16).collect::<Vec<_>>());
+        assert!(pool.is_exhausted());
+        Ok(())
+    }
+
+    /// An ordered worker emits files in file order, even when a later file opens first.
+    #[test]
+    fn ordered_worker_emits_files_in_order() -> VortexResult<()> {
+        let (source, gates) = gated_source(3, 3);
+        let pool = plan(
+            &source,
+            ScanRequest {
+                ordered: true,
+                ..Default::default()
+            },
+        )?
+        .open()?;
+        let mut worker = pool.worker();
+        let mut noop = Context::from_waker(noop_waker_ref());
+        assert!(poll_worker(&mut worker, &mut noop).is_pending());
+        for gate in gates.iter().rev() {
+            gate.release();
+            if !Arc::ptr_eq(gate, &gates[0]) {
+                assert!(poll_worker(&mut worker, &mut noop).is_pending());
+            }
+        }
+        let values = collect_scan_values(futures::executor::block_on_stream(worker))?;
+        assert_eq!(values, [0, 1, 2, 100, 101, 102, 200, 201, 202]);
+        Ok(())
+    }
+
+    /// A limit is shared by every worker and file of an unordered pool.
+    #[test]
+    fn pool_limit_is_shared_across_readers() -> VortexResult<()> {
+        let first: LayoutReaderRef = Arc::new(TestLayoutReader::new(4).with_split_size(1));
+        let gate = Arc::new(Gate::default());
+        gate.release();
+        let source = MultiLayoutDataSource::new_with_first(
+            first,
+            vec![gated_factory(
+                TestLayoutReader::new(4).with_split_size(1).with_base(10),
+                &gate,
+            )],
+            vec![],
+            &new_session(),
+        );
+
+        let pool = plan(
+            &source,
+            ScanRequest {
+                filter: Some(root()),
+                limit: Some(3),
+                ..Default::default()
+            },
+        )?
+        .open()?;
+        let values = read_with_workers(&pool, 3)?.concat();
+
+        assert_eq!(values.len(), 3);
+        Ok(())
+    }
+
+    /// Splitting cuts opened files on their splits and keeps deferred files whole, in order.
+    #[test]
+    fn split_cuts_opened_files_and_keeps_deferred_files_whole() -> VortexResult<()> {
+        let first: LayoutReaderRef = Arc::new(TestLayoutReader::new(6).with_split_size(2));
+        let opens = Arc::new(AtomicUsize::new(0));
+        let gate = Arc::new(Gate::default());
+        gate.release();
+        let source = MultiLayoutDataSource::new_with_first(
+            first,
+            vec![Arc::new(GatedFactory {
+                reader: Arc::new(TestLayoutReader::new(4).with_split_size(2).with_base(100)),
+                gate,
+                opens: Arc::clone(&opens),
+            })],
+            vec![],
+            &new_session(),
+        );
+        let scan = plan(
+            &source,
+            ScanRequest {
+                ordered: true,
+                ..Default::default()
+            },
+        )?;
+        let pieces = scan.split(NonZeroUsize::new(4).expect("non-zero"))?;
+        assert_eq!(opens.load(Ordering::SeqCst), 0, "splitting opens no file");
+        // The opened file's three splits take three pieces; the deferred file stays whole.
+        assert_eq!(pieces.len(), 4);
+
+        let mut values = Vec::new();
+        for piece in pieces {
+            values.extend(read_with_one_worker(piece.open()?)?);
+        }
+        assert_eq!(values, [0, 1, 2, 3, 4, 5, 100, 101, 102, 103]);
+        Ok(())
+    }
+
+    /// A request that selects partitions is split and opened by its partitions, so both paths
+    /// read the same files.
+    #[rstest]
+    #[case::range(Some(1..2), Selection::All)]
+    #[case::selection(
+        None,
+        Selection::IncludeByIndex(
+            vortex_scan::strict_sorted_buffer::StrictSortedBuffer::try_new(
+                vortex_buffer::Buffer::from_iter([1u64])
+            )
+            .expect("sorted")
+        )
+    )]
+    fn selected_partitions_open_by_partition(
+        #[case] partition_range: Option<Range<u64>>,
+        #[case] partition_selection: Selection,
+    ) -> VortexResult<()> {
+        // The partitions path spawns file opens onto the session's runtime.
+        let runtime = SingleThreadRuntime::default();
+        let gate = Arc::new(Gate::default());
+        gate.release();
+        let source = MultiLayoutDataSource::new_with_first(
+            Arc::new(TestLayoutReader::new(3)),
+            vec![gated_factory(TestLayoutReader::new(3).with_base(10), &gate)],
+            vec![],
+            &session_with_handle(runtime.handle()),
+        );
+        let request = ScanRequest {
+            partition_range,
+            partition_selection,
+            ordered: true,
+            ..Default::default()
+        };
+        let pieces = plan(&source, request.clone())?.split(NonZeroUsize::new(4).expect("4"))?;
+        assert_eq!(pieces.len(), 1);
+        let pool = plan(&source, request)?.open()?;
+        let values = collect_scan_values(runtime.block_on_stream(pool.worker()))?;
+        assert_eq!(values, [10, 11, 12]);
+        Ok(())
+    }
+
+    /// A worker reads at most `split_concurrency` splits at once.
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    fn split_concurrency_bounds_each_worker(#[case] max: usize) -> VortexResult<()> {
+        let in_flight = Arc::new(InFlight::default());
+        let reader: LayoutReaderRef = Arc::new(
+            TestLayoutReader::new(64)
+                .with_split_size(1)
+                .with_in_flight(Arc::clone(&in_flight)),
+        );
+        let source = MultiLayoutDataSource::new_with_first(reader, vec![], vec![], &new_session());
+        let pool = plan(
+            &source,
+            ScanRequest {
+                ordered: true,
+                split_concurrency: NonZeroUsize::new(max),
+                ..Default::default()
+            },
+        )?
+        .open()?;
+        assert_eq!(read_with_one_worker(pool)?, (0..64).collect::<Vec<_>>());
+        assert!(in_flight.peak() <= max, "peak {}", in_flight.peak());
         Ok(())
     }
 }

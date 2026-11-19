@@ -4,7 +4,7 @@
 //! The work that the workers of an opened layout scan share.
 //!
 //! A pool's units are the splits of one or more files, and the files not yet opened. A worker
-//! takes units and keeps up to `max_splits_in_flight` of them running on its own thread: it
+//! takes units and keeps up to `splits_in_flight` of them running on its own thread: it
 //! builds a split's task only when it takes the split, and never spawns. Opening a deferred file
 //! is a unit like any other.
 //!
@@ -54,9 +54,9 @@ use crate::scan::tasks::TaskContext;
 /// A scan prepared once and shared by every piece and execution of it.
 pub(crate) type PreparedScan = RepeatedScan<ArrayRef>;
 
-/// The default for the most splits each worker keeps in flight: enough read-ahead that a
-/// worker's thread rarely waits on I/O.
-pub(crate) const DEFAULT_SPLITS_IN_FLIGHT: NonZeroUsize = NonZeroUsize::new(4).unwrap();
+/// The most splits each worker keeps in flight when the request does not say; stands in for the
+/// scan engine's memory budget.
+const SPLITS_IN_FLIGHT_PER_WORKER: usize = 4;
 
 /// One execution of one file's prepared scan.
 pub(crate) struct FileScan {
@@ -115,8 +115,8 @@ pub(crate) struct PoolOptions {
     pub(crate) limit: Option<u64>,
     /// Whether the scan filters rows, so a split's output row count is unknown up front.
     pub(crate) has_filter: bool,
-    /// The most splits each worker keeps in flight.
-    pub(crate) max_splits_in_flight: NonZeroUsize,
+    /// The most splits each worker keeps in flight, or the default when `None`.
+    pub(crate) splits_in_flight: Option<NonZeroUsize>,
 }
 
 /// Opens a pool over `files`, in file order. `prepare` turns an opened deferred file into work.
@@ -130,19 +130,21 @@ pub(crate) fn open_pool(
         Some(limit) if options.has_filter => PoolLimit::Trim(RowLimit::new(limit)),
         Some(limit) => PoolLimit::Reserve(RowLimit::new(limit)),
     };
+    let splits_in_flight = options
+        .splits_in_flight
+        .map_or(SPLITS_IN_FLIGHT_PER_WORKER, NonZeroUsize::get);
     let shared = Arc::new(Shared {
         limit,
         prepare,
         file_share: 1.0 / files.len().max(1) as f64,
         progress: Mutex::new(0.0),
     });
-    let max_splits_in_flight = options.max_splits_in_flight.get();
     if options.ordered {
         return Arc::new(OrderedPool {
             dtype: options.dtype,
             shared,
             files: Mutex::new(Some(files)),
-            max_splits_in_flight,
+            splits_in_flight,
         });
     }
 
@@ -161,7 +163,7 @@ pub(crate) fn open_pool(
         dtype: options.dtype,
         shared,
         receiver,
-        max_splits_in_flight,
+        splits_in_flight,
     })
 }
 
@@ -332,7 +334,7 @@ struct UnorderedPool {
     dtype: DType,
     shared: Arc<Shared>,
     receiver: Receiver<Work>,
-    max_splits_in_flight: usize,
+    splits_in_flight: usize,
 }
 
 impl UnorderedPool {
@@ -363,13 +365,13 @@ impl ScanPool for UnorderedPool {
         let dtype = self.dtype.clone();
         let shared = Arc::clone(&self.shared);
         let runner = Arc::clone(&shared);
-        let max_splits_in_flight = self.max_splits_in_flight;
         let receiver = self.receiver.clone();
+        let splits_in_flight = self.splits_in_flight;
         // The worker holds the pool, so the pool is dropped only after its last worker.
         let outputs = receiver
             .take_while(move |_| future::ready(!self.shared.limit.is_exhausted()))
             .map(move |work| UnorderedPool::run(&runner, work))
-            .buffer_unordered(max_splits_in_flight)
+            .buffer_unordered(splits_in_flight)
             .boxed();
         ArrayStreamExt::boxed(ArrayStreamAdapter::new(
             dtype,
@@ -400,7 +402,7 @@ struct OrderedPool {
     shared: Arc<Shared>,
     /// The files, until the first worker takes them.
     files: Mutex<Option<Vec<PoolFile>>>,
-    max_splits_in_flight: usize,
+    splits_in_flight: usize,
 }
 
 impl ScanPool for OrderedPool {
@@ -433,7 +435,7 @@ impl ScanPool for OrderedPool {
                 Ok(split) => admitter.admit(split),
                 Err(err) => future::ready(Err(err)).boxed(),
             })
-            .buffered(self.max_splits_in_flight)
+            .buffered(self.splits_in_flight)
             .boxed();
         ArrayStreamExt::boxed(ArrayStreamAdapter::new(
             dtype,
