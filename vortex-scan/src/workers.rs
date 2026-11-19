@@ -16,6 +16,7 @@ use futures::Stream;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use vortex_array::ArrayRef;
+use vortex_array::expr::stats::Precision;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
@@ -26,11 +27,15 @@ use vortex_io::runtime::Task;
 use crate::ScanPoolRef;
 use crate::ScanRef;
 
-/// How many pieces an ordered scan is cut into for each worker.
-///
-/// Pieces run ahead of the one being emitted and buffer their output, so smaller pieces bound the
-/// memory held for ordering while still letting `workers` pieces decode at once.
+/// The fewest pieces an ordered scan is cut into for each worker.
 const ORDERED_PIECES_PER_WORKER: usize = 4;
+
+/// The most bytes of source data an ordered piece covers.
+///
+/// Pieces behind the one being emitted run ahead and buffer their whole output, so the memory held
+/// for ordering is about `workers` pieces. Cutting by size keeps that bound fixed however large
+/// the scan is.
+const ORDERED_PIECE_BYTES: u64 = 64 << 20;
 
 /// Runs `scan` on `workers` tasks spawned onto `handle` and returns their output as one stream.
 ///
@@ -52,9 +57,7 @@ pub fn execute_with_workers(
 ) -> VortexResult<SendableArrayStream> {
     let dtype = scan.dtype().clone();
     if scan.ordered() {
-        let pieces = workers
-            .checked_mul(NonZeroUsize::new(ORDERED_PIECES_PER_WORKER).unwrap_or(NonZeroUsize::MIN))
-            .unwrap_or(workers);
+        let pieces = ordered_piece_count(scan.byte_size(), workers);
         let pieces = scan.split(pieces)?;
         let stream = OrderedPieces {
             pending: pieces.into(),
@@ -76,6 +79,17 @@ pub fn execute_with_workers(
     Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
         dtype, stream,
     )))
+}
+
+/// How many pieces to cut an ordered scan of `byte_size` into for `workers` workers.
+fn ordered_piece_count(byte_size: Precision<u64>, workers: NonZeroUsize) -> NonZeroUsize {
+    let by_workers = workers.get().saturating_mul(ORDERED_PIECES_PER_WORKER);
+    let by_size = byte_size
+        .into_inner()
+        .map_or(0, |bytes| bytes.div_ceil(ORDERED_PIECE_BYTES))
+        .try_into()
+        .unwrap_or(usize::MAX);
+    NonZeroUsize::new(by_workers.max(by_size)).unwrap_or(workers)
 }
 
 /// Polls one worker of `pool` to completion, sending its arrays into `output`.
