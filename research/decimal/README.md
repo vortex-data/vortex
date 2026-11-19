@@ -46,11 +46,11 @@ canonical decimal encoding.
   leaves values wider than 64 bits in their canonical array.
 - Decided: the bar of no compute regression applies to the final state. A DecimalByteParts array
   keeps its narrow MSP in memory, and sum, min, and max run on the MSP.
-- Decided: the work lands as 22 PRs in four tracks. Each PR has a brief that a coding agent can
-  implement alone. The integer `Widen` PRs are written from scratch, with a local rewrite as a
-  reference. Generic structural lifting (WD5) and integer compressor narrowing (WR3) remain
-  open. A concrete decimal child still writes as `vortex.decimal`. Writers need an edition
-  that permits `vortex.widen` for all other children ([#11597](https://github.com/vortex-data/vortex/pull/11597)).
+- Existing integer paths keep their representations (D43). DecimalByteParts keeps using
+  integer `Widen` for the narrow MSP. Structural lifting, internal call-site changes, and the
+  integer compressor scheme are deferred. A concrete decimal child still writes as
+  `vortex.decimal`. Writers need an edition that permits `vortex.widen` for all other children
+  ([#11597](https://github.com/vortex-data/vortex/pull/11597)).
 - Arrow has the same decimal model and the same gap at the top of each width. Its width is part
   of the type, and from precision 5 the Vortex widths match the smallest Arrow types.
 - Decided: `vortex.decimal` keeps its wire ID, and the decimal file format does not change.

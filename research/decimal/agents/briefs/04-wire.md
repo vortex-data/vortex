@@ -9,7 +9,8 @@ The briefs below record the original implementation plan. WR1 landed in [#11597]
 the v2 reader change (WR2p) landed in [#11596](https://github.com/vortex-data/vortex/pull/11596). The landed writer keeps the old
 `vortex.decimal` form for a concrete decimal leaf. Other children use `vortex.widen`, and the
 writer returns an error if the selected editions forbid that ID. [#11615](https://github.com/vortex-data/vortex/pull/11615) enabled both IDs
-in `unstable`. The preview (WR2), integer compressor scheme (WR3), and `core` (LT1) remain open.
+in `unstable`. Preview (WR2) and `core` (LT1) remain open. The integer compressor scheme (WR3) is deferred
+under D43.
 
 WR1 needs WD1, CD3, CD4 and CD8a on `develop`. WR3 also needs WD5 and CD7. In practice WD1 to WD5
 and CD3 to CD8a are all on `develop` by then. Integer and decimal `Widen` then exist in memory with

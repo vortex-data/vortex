@@ -12,7 +12,7 @@ This plan tracks [canonical decimals](https://github.com/vortex-data/vortex/issu
 
 ## Progress on 2026-11-19
 
-On [`develop` at `42b2a8c011`](https://github.com/vortex-data/vortex/tree/42b2a8c011),
+On [`develop` at `068257616a`](https://github.com/vortex-data/vortex/tree/068257616a),
 the in-memory change is complete. Every `DecimalArray` has the canonical width of its precision
 ([#11571]), checked constructors reject a valid host value outside the precision ([#11572]), and
 kernels read same-dtype operands at that one width ([#11573]). A narrower physical form is a
@@ -27,9 +27,13 @@ have merged. Both IDs are in the experimental `unstable` edition ([#11615]), whi
 compatibility guarantee. The preview and `core` steps remain open. DecimalByteParts v2 still
 decodes to canonical form for `between` and aggregates when lower parts exist ([#11595]).
 
+The Decimal rollout keeps integer `Widen` for the narrow MSP (D16). Existing integer paths keep
+their current representations. Structural and dictionary rules (WD5), internal call-site
+migration (WD6), and an integer compressor scheme (WR3) are follow-ups (D43).
+
 🟢 **Done** means the change merged into `develop`. 🔵 **Open** means its implementation PR is open.
 🟡 **In progress** means some pieces merged and others are open. ⚪ **Not started** means no
-implementation PR was found. 🟠 **Parked** marks an experiment that closed without merging.
+implementation PR was found. 🟠 **Deferred** marks later work, including experiments that closed without merging.
 ➖ **Dropped** marks work removed from the plan.
 
 ## The PRs
@@ -43,8 +47,8 @@ implementation PR was found. 🟠 **Parked** marks an experiment that closed wit
 | WD2 | 🟢 Done | Integer `Widen` compute benchmarks. [#10888] | WD1 | Medium |
 | WD3 | 🟢 Done | Run aggregates on the integer child. [#10890] | WD2 | Medium |
 | WD4 | 🟢 Done | Forward arithmetic, `between`, `zip`, fills, and casts. [#10891], [#11138] | WD3 | Large |
-| WD5 | ⚪ Not started | Lift structural encodings above `Widen` and use the child for dictionary codes. Related issue [#10748]. | WD4, FX3 | Medium |
-| WD6 | 🟠 Parked | Migrate internal narrowing calls to `encode_values`. The experiment closed without merging. [#10943] | WD1 | Medium |
+| WD5 | 🟠 Deferred | Lift structural encodings above `Widen` and use the child for dictionary codes. Related issue [#10748]. | WD4, FX3 | Medium |
+| WD6 | 🟠 Deferred | Migrate internal narrowing calls to `encode_values`. The experiment closed without merging. [#10943] | WD1 | Medium |
 | CD1 | 🟢 Done | Decimal compute, cast, and export benchmarks. [#10752] | None | Medium |
 | CD2 | 🟢 Done | Compatibility fixtures for old decimal forms. [#10753], [release 0.91.0] | None | Medium |
 | CD3 | 🟢 Done | One precision-to-width mapping and checked Arrow and DuckDB import conversions. [#10897] | None | Medium |
@@ -64,7 +68,7 @@ implementation PR was found. 🟠 **Parked** marks an experiment that closed wit
 | WR1 | 🟢 Done | Read and write `vortex.widen` for integers and decimals. A concrete decimal child still writes `vortex.decimal`. Integer and encoded decimal children require `vortex.widen`. [#11597] | WD1, CD3, CD4, CD8a | Medium |
 | WR2p | 🟢 Done | Reject node buffers and require at least one lower part in a DecimalByteParts v2 node. Its MSP therefore has logical dtype `i64`. [#11596] | None | Small |
 | WR2 | ⚪ Not started | Move both wire formats into a preview edition. [#11615] admits them to `unstable` in the meantime. | WR1, WR2p, CD5, CD7 | Small |
-| WR3 | ⚪ Not started | Design and implement the integer `Narrow` compressor scheme. DecimalByteParts owns decimal narrowing (D33). | WR1, WR2, WD1, WD5 | Large |
+| WR3 | 🟠 Deferred | Design and implement the integer `Narrow` compressor scheme. DecimalByteParts owns decimal narrowing (D33). | WR1, WR2, WD1, WD5 | Large |
 | LT1 | ⚪ Not started | Admit both wire formats to `core` and decide how writers targeting older editions handle `Widen`. | WR2 | Unestimated |
 | LT2 | ➖ Dropped | Decoding a narrow MSP to a decimal `Widen` required a range scan. CD5 keeps it as an integer child instead (D16). | None | Unestimated |
 
@@ -175,8 +179,8 @@ flowchart TD
     class FX1,FX3,WD1,WD2,WD3,WD4,CD1,CD2,REL,CD3,CD3b,CD3c,CD4p,CD4,CD4b,CD6,LT3,CUDA,BASE done
     class CPU,GPU,MUT,CD8a,CD8b,CD8c done
     class WR1,WR2p,UNSTABLE done
-    class WD5,WR2,WR3,LT1 planned
-    class WD6 parked
+    class WR2,LT1 planned
+    class WD5,WD6,WR3 parked
 ```
 
 ## Order of work
@@ -184,10 +188,11 @@ flowchart TD
 1. The in-memory change is done: CD5 and CD7 ([#11459], [#11460]), then [#11574], then CD8a to
    CD8c ([#11571], [#11572], [#11573]).
 2. WR1 ([#11597]) and WR2p ([#11596]) merged. [#11615] enabled both IDs in `unstable`.
-3. WR2 admits both wire formats to preview. Fast `between` and aggregate kernels for v2 with
-   lower parts can follow the `unstable` change. Whether preview waits for them remains open.
-4. WR3 also needs WD5 and a decision about which integers the compressor narrows and at which
-   cascade level. LT1 tracks promotion to `core`.
+3. WR2 admits both wire formats to preview. Whether preview waits for fast `between` and
+   aggregate kernels for arrays with lower parts remains open. Coordinate with the v2 reader
+   changes in [#11442] before fixing the preview contract.
+4. LT1 promotes both formats to `core`, adds compatibility fixtures, and settles how writers
+   targeting older editions handle `Widen`.
 
 ## How to use the briefs
 
@@ -217,7 +222,7 @@ flowchart TD
   not replayed. The WD1 to WD5 stack has its own workflow in the integer brief.
 - Every commit carries `Signed-off-by: Connor Tsui <connor.tsui20@gmail.com>` and no AI co-author
   line.
-- WR3 needs a design pass before an agent starts it. Its brief lists the open questions.
+- WR3 is deferred. Its brief records the design questions for later.
 
 | Brief | PRs |
 | --- | --- |
@@ -240,7 +245,7 @@ flowchart TD
   CD4, CD5 and CD7. The dependency table lists these as hard dependencies.
 - Every call of the deprecated `encode_values` carries `#[expect(deprecated)]` with a
   `TODO(connor)` reason (D28).
-- No `Widen` sits directly above a generic structural encoding after optimization (D25).
+- WD5 records the planned structural normalization rule for future integer adoption (D25, D43).
 - A narrowing copy writes zeros in null slots and fails on a valid value outside the precision
   (D21). Reads without a copy trust the precision and never panic (D14).
 
@@ -325,6 +330,7 @@ flowchart TD
 [#11302]: https://github.com/vortex-data/vortex/pull/11302
 [#11303]: https://github.com/vortex-data/vortex/pull/11303
 [#11354]: https://github.com/vortex-data/vortex/pull/11354
+[#11442]: https://github.com/vortex-data/vortex/pull/11442
 [#11456]: https://github.com/vortex-data/vortex/pull/11456
 [#11457]: https://github.com/vortex-data/vortex/pull/11457
 [#11458]: https://github.com/vortex-data/vortex/pull/11458

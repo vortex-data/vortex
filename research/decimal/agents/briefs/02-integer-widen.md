@@ -5,6 +5,9 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # Integer `Widen` PR briefs: WD1 to WD6
 
+WD5 and WD6 are deferred under D43. Existing integer paths keep their current representation.
+The briefs retain the proposed work for later.
+
 These briefs cover the integer `Widen` track. Each PR is written from scratch from its brief
 (D38). A local rewrite of the closed PRs #10223 and #10332 exists in
 `/Users/connor/spiral/vortex-data/vortex3`. It is a reference, not a base: read its code and tests
