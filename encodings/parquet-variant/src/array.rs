@@ -19,6 +19,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::Variant;
@@ -33,6 +34,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
@@ -43,6 +45,7 @@ use vortex_arrow::ArrowSession;
 use vortex_arrow::ExecuteArrowExt;
 use vortex_arrow::level_validity;
 use vortex_arrow::to_arrow_null_buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -50,6 +53,7 @@ use vortex_error::vortex_err;
 use crate::ParquetVariant;
 use crate::ParquetVariantArray;
 use crate::arrow::prepare_variant_for_export;
+use crate::fold::fold_union;
 
 #[array_slots(ParquetVariant)]
 pub struct ParquetVariantSlots {
@@ -186,10 +190,11 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
 ) -> VortexResult<ArrayRef> {
     if let Some(list_array) = typed_value.as_opt::<List>() {
         // Lists keep their original offsets and validity; only the physical element
-        // representation may need wrapper removal.
-        let elements =
-            logical_shredded_from_parquet_field(metadata, list_array.elements().clone(), ctx)?
-                .unwrap_or_else(|| list_array.elements().clone());
+        // representation may need wrapper removal. An element reads with the metadata of its row.
+        let elements = list_array.elements().clone();
+        let metadata = element_metadata(metadata, list_array.offsets(), elements.len(), ctx)?;
+        let elements = logical_shredded_from_parquet_field(&metadata, elements.clone(), ctx)?
+            .unwrap_or(elements);
         return Ok(ListArray::try_new(
             elements,
             list_array.offsets().clone(),
@@ -335,8 +340,13 @@ fn inferred_shredded_field_validity(
 /// `forward` then `inverse` is structure-preserving for the shapes canonicalization produces;
 /// fields the forward transform omitted (Parquet wrapper shells with no `typed_value`) are served
 /// from the residual `value` and are intentionally not reconstructed here.
+///
+/// Parquet has no union, so a union field is folded into the residual `value` of its shell, which
+/// writes its values with the `metadata` of each row; see [`fold_union`]. Without `metadata`, a
+/// union cannot be rebuilt.
 pub(crate) fn parquet_typed_value_from_logical_shredded(
     shredded: ArrayRef,
+    metadata: Option<&ArrayRef>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     // A shredded list read from a file can be chunked, lazy or a list view, which hides its
@@ -349,7 +359,11 @@ pub(crate) fn parquet_typed_value_from_logical_shredded(
     };
 
     if let Some(list_array) = shredded.as_opt::<List>() {
-        let elements = parquet_shredded_field_from_logical(list_array.elements().clone(), ctx)?;
+        let elements = list_array.elements().clone();
+        let metadata = metadata
+            .map(|metadata| element_metadata(metadata, list_array.offsets(), elements.len(), ctx))
+            .transpose()?;
+        let elements = parquet_shredded_field_from_logical(elements, metadata.as_ref(), ctx)?;
         return Ok(ListArray::try_new(
             elements,
             list_array.offsets().clone(),
@@ -378,7 +392,11 @@ pub(crate) fn parquet_typed_value_from_logical_shredded(
         .zip(struct_array.iter_unmasked_fields())
     {
         names.push(FieldName::from(name.as_ref()));
-        fields.push(parquet_shredded_field_from_logical(field.clone(), ctx)?);
+        fields.push(parquet_shredded_field_from_logical(
+            field.clone(),
+            metadata,
+            ctx,
+        )?);
     }
 
     Ok(StructArray::try_new(
@@ -394,9 +412,18 @@ pub(crate) fn parquet_typed_value_from_logical_shredded(
 /// representation, the inverse of [`logical_shredded_from_parquet_field`].
 fn parquet_shredded_field_from_logical(
     logical_field: ArrayRef,
+    metadata: Option<&ArrayRef>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let len = logical_field.len();
+
+    // A union holds the whole value of the rows it holds, so it folds into a `value`-only shell.
+    if logical_field.dtype().is_union() {
+        let metadata = metadata
+            .ok_or_else(|| vortex_err!("cannot rebuild a shredded union without its metadata"))?;
+        let value = fold_union(logical_field, None, metadata, ctx)?;
+        return value_shell(value, len);
+    }
 
     // A partially shredded field read from a file can be lazy, such as the pack of the columns
     // that store it, which hides that it is a Variant.
@@ -415,10 +442,21 @@ fn parquet_shredded_field_from_logical(
         let value = core.value().cloned().ok_or_else(|| {
             vortex_err!("cannot rebuild Parquet shredded field: partially shredded Variant has no residual value")
         })?;
+
+        if let Some(union) = variant
+            .shredded()
+            .filter(|shredded| shredded.dtype().is_union())
+        {
+            let value = fold_union(union.clone(), Some(value), core.metadata(), ctx)?;
+            return value_shell(value, len);
+        }
+
         let typed_value = variant
             .shredded()
             .cloned()
-            .map(|shredded| parquet_typed_value_from_logical_shredded(shredded, ctx))
+            .map(|shredded| {
+                parquet_typed_value_from_logical_shredded(shredded, Some(core.metadata()), ctx)
+            })
             .transpose()?;
 
         let mut names = vec![FieldName::from("value")];
@@ -437,10 +475,46 @@ fn parquet_shredded_field_from_logical(
     }
 
     // Fully shredded field: rebuild its typed subtree and wrap it in a `typed_value`-only shell.
-    let typed_value = parquet_typed_value_from_logical_shredded(logical_field, ctx)?;
+    let typed_value = parquet_typed_value_from_logical_shredded(logical_field, metadata, ctx)?;
     Ok(StructArray::try_new(
         FieldNames::from_iter([FieldName::from("typed_value")]),
         vec![typed_value],
+        len,
+        Validity::NonNullable,
+    )?
+    .into_array())
+}
+
+/// The metadata of each of the `len` elements of a list with `offsets`: the metadata of the row
+/// that holds it.
+///
+/// An element that no row holds reads the metadata of the first row, as nothing reads it.
+fn element_metadata(
+    metadata: &ArrayRef,
+    offsets: &ArrayRef,
+    len: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let offsets = offsets
+        .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
+        .execute::<PrimitiveArray>(ctx)?;
+
+    let mut rows = BufferMut::<u64>::zeroed(len);
+    for (row, bounds) in offsets.as_slice::<u64>().windows(2).enumerate() {
+        let start = usize::try_from(bounds[0])?;
+        let end = usize::try_from(bounds[1])?;
+        rows.get_mut(start..end)
+            .ok_or_else(|| vortex_err!("list offsets {start}..{end} exceed {len} elements"))?
+            .fill(row as u64);
+    }
+    metadata.take(rows.freeze().into_array())
+}
+
+/// A Parquet shredded field shell that holds only the residual `value`.
+fn value_shell(value: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
+    Ok(StructArray::try_new(
+        FieldNames::from_iter([FieldName::from("value")]),
+        vec![value],
         len,
         Validity::NonNullable,
     )?
@@ -884,7 +958,8 @@ mod tests {
             .clone();
 
         // Inverse transform: rebuild a Parquet `typed_value` and reattach it.
-        let rebuilt_typed_value = parquet_typed_value_from_logical_shredded(logical, &mut ctx)?;
+        let rebuilt_typed_value =
+            parquet_typed_value_from_logical_shredded(logical, None, &mut ctx)?;
         let rebuilt = ParquetVariant::try_new(
             ParquetVariantArrayExt::parquet_variant_validity(&core),
             core.metadata().clone(),

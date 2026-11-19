@@ -60,6 +60,8 @@ use crate::ParquetVariantArrayExt;
 use crate::ParquetVariantArraySlotsExt;
 use crate::array::parquet_typed_value_from_logical_shredded;
 use crate::builder::StorageBuilder;
+use crate::fold::fold_union;
+use crate::shred::has_union;
 
 /// Arrow canonical extension name for Parquet Variant storage.
 const PARQUET_VARIANT_ARROW_EXTENSION_NAME: &str = "arrow.parquet.variant";
@@ -170,6 +172,17 @@ pub(crate) fn prepare_variant_for_export(
     let array = array.execute_until::<ParquetVariantExportable>(ctx)?;
 
     if let Some(variant) = array.as_opt::<Variant>() {
+        if let Some(shredded) = variant
+            .shredded()
+            .filter(|shredded| has_union(shredded.dtype()))
+        {
+            vortex_ensure!(
+                typed_value.is_none(),
+                "multiple levels of Variant shredding are unsupported during Arrow export"
+            );
+            return prepare_union_for_export(variant.core_storage().clone(), shredded.clone(), ctx);
+        }
+
         let typed_value = match variant.shredded() {
             Some(shredded) => {
                 vortex_ensure!(
@@ -178,6 +191,7 @@ pub(crate) fn prepare_variant_for_export(
                 );
                 Some(parquet_typed_value_from_logical_shredded(
                     shredded.clone(),
+                    None,
                     ctx,
                 )?)
             }
@@ -219,6 +233,34 @@ pub(crate) fn prepare_variant_for_export(
     }
 
     vortex_bail!("cannot export Variant without ParquetVariant core storage")
+}
+
+/// Prepares the Variant of `core` storage with a `shredded` child that holds a union.
+///
+/// Parquet has no union, so each union is folded into the residual value of its node, with the
+/// metadata of each row; see [`fold_union`]. The core storage is prepared first for its metadata.
+fn prepare_union_for_export(
+    core: ArrayRef,
+    shredded: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let core = prepare_variant_for_export(core, None, ctx)?;
+    let storage = core.as_::<ParquetVariant>();
+    let metadata = storage.metadata().clone();
+
+    if shredded.dtype().is_union() {
+        let value = fold_union(shredded, storage.value().cloned(), &metadata, ctx)?;
+        return ParquetVariant::try_new(
+            ParquetVariantArrayExt::parquet_variant_validity(&storage),
+            metadata,
+            Some(value),
+            None,
+        )
+        .map(IntoArray::into_array);
+    }
+
+    let typed_value = parquet_typed_value_from_logical_shredded(shredded, Some(&metadata), ctx)?;
+    attach_typed_value(core, Some(typed_value))
 }
 
 /// Prepares every chunk of the `ChunkedArray` `array`, then concatenates their storage into one

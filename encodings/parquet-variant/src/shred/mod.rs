@@ -16,14 +16,17 @@ mod exact;
 mod infer;
 #[cfg(test)]
 mod tests;
+mod union;
 
 pub(crate) use exact::Mismatch;
 pub use infer::InferredShredding;
+pub(crate) use union::has_union;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::VariantArray;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -34,8 +37,9 @@ use crate::ParquetVariantArraySlotsExt;
 
 /// Shreds the unshredded storage `array` by `schema`.
 ///
-/// The result holds the same values as `array`, in Parquet Variant storage with a shredded
-/// child, and is `nullable` or not.
+/// The result holds the same values as `array`, and is `nullable` or not. It is Parquet Variant
+/// storage with a shredded child, unless `schema` holds a union, which Parquet storage cannot
+/// hold. It is then the canonical Variant over that storage.
 pub(crate) fn shred(
     array: &ArrayView<'_, ParquetVariant>,
     schema: &DType,
@@ -62,11 +66,15 @@ pub(crate) fn shred(
     } else {
         validity
     };
-    ParquetVariant::try_new(
+    let storage = ParquetVariant::try_new(
         validity,
         array.metadata().clone(),
         Some(value),
         Some(typed_value),
-    )
-    .map(IntoArray::into_array)
+    )?
+    .into_array();
+    if has_union(schema) {
+        return Ok(storage.execute::<VariantArray>(ctx)?.into_array());
+    }
+    Ok(storage)
 }

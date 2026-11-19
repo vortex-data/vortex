@@ -8,6 +8,8 @@
 //!
 //! - [`VariantShred`] keeps it in the core storage, as Parquet shredding does.
 //! - [`VariantShredStrict`] fails.
+//! - [`VariantShredUnion`] keeps it in the core storage too, but its schema can hold unions, so
+//!   that a value of each type in the union fits.
 
 use std::fmt;
 use std::fmt::Display;
@@ -60,6 +62,37 @@ pub struct VariantShred;
 /// function. An encoding without such a kernel cannot be shredded, and execution fails.
 #[derive(Clone)]
 pub struct VariantShredStrict;
+
+/// Shreds an unshredded Variant by a schema that can hold unions.
+///
+/// A union can be at any position of the schema, and its members can be leaves, structs, lists
+/// and unions. A value goes to the first member that holds all of it: a leaf of its type, a
+/// struct that names each field of the object and holds the value of each, or a list that holds
+/// each element. The core storage keeps a value that no member holds, as [`VariantShred`] keeps
+/// a value that does not fit.
+///
+/// A member holds the whole value, so the core storage has nothing of a value that a member
+/// holds. A union is the only node of the schema whose shredded child is not the typed column
+/// that Parquet shreds into, so a Variant shredded by such a schema is not Parquet storage.
+///
+/// The encoding of the Variant storage does the work, through a kernel that it registers for this
+/// function. An encoding without such a kernel cannot be shredded, and execution fails.
+#[derive(Clone)]
+pub struct VariantShredUnion;
+
+impl VariantShredUnion {
+    /// Creates a lazy shredding of the Variant `input` by `schema`, which can hold unions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a Variant.
+    pub fn try_new(input: ArrayRef, schema: DType) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(
+            VariantShredUnion.bind(VariantShredOptions::new(schema)),
+            [input],
+        )
+    }
+}
 
 impl VariantShredStrict {
     /// Creates a lazy strict shredding of the Variant `input` by `schema`.
@@ -162,6 +195,44 @@ impl ScalarFnVTable for VariantShredStrict {
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("vortex.variant_shred.strict");
+        *ID
+    }
+
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        options.serialize()
+    }
+
+    fn deserialize(&self, metadata: &[u8], session: &VortexSession) -> VortexResult<Self::Options> {
+        VariantShredOptions::deserialize(metadata, session)
+    }
+
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(1)
+    }
+
+    fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
+        input_name(child_idx)
+    }
+
+    fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
+        input_dtype(arg_dtypes)
+    }
+
+    fn execute(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        execute_on_storage(self, options, args, ctx)
+    }
+}
+
+impl ScalarFnVTable for VariantShredUnion {
+    type Options = VariantShredOptions;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("vortex.variant_shred.union");
         *ID
     }
 

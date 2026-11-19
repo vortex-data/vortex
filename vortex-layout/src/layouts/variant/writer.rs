@@ -32,6 +32,7 @@ use vortex_array::scalar_fn::fns::variant_get::VariantPath;
 use vortex_array::scalar_fn::fns::variant_shred::VariantShred;
 use vortex_array::scalar_fn::fns::variant_shred::VariantShredOptions;
 use vortex_array::scalar_fn::fns::variant_shred::VariantShredStrict;
+use vortex_array::scalar_fn::fns::variant_shred::VariantShredUnion;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -121,6 +122,31 @@ impl VariantShreddingPolicy for StrictShredding {
     ) -> VortexResult<Option<ScalarFnRef>> {
         Ok(Some(
             VariantShredStrict.bind(VariantShredOptions::new(self.schema.clone())),
+        ))
+    }
+}
+
+/// Shreds every Variant stream by one schema, which can hold unions; see [`VariantShredUnion`].
+#[derive(Clone, Debug)]
+pub struct UnionShredding {
+    schema: DType,
+}
+
+impl UnionShredding {
+    /// Shreds by `schema`.
+    pub fn new(schema: DType) -> Self {
+        Self { schema }
+    }
+}
+
+impl VariantShreddingPolicy for UnionShredding {
+    fn shredding(
+        &self,
+        _first: &ArrayRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ScalarFnRef>> {
+        Ok(Some(
+            VariantShredUnion.bind(VariantShredOptions::new(self.schema.clone())),
         ))
     }
 }

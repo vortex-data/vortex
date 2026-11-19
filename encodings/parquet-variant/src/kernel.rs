@@ -49,11 +49,13 @@ use vortex_array::scalar_fn::fns::variant_get::VariantPath;
 use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
 use vortex_array::scalar_fn::fns::variant_shred::VariantShred;
 use vortex_array::scalar_fn::fns::variant_shred::VariantShredStrict;
+use vortex_array::scalar_fn::fns::variant_shred::VariantShredUnion;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_json::Json;
@@ -68,6 +70,7 @@ use crate::compute::AllNonDistinctParquetVariant;
 use crate::extract::covers;
 use crate::extract::extract;
 use crate::shred::Mismatch;
+use crate::shred::has_union;
 use crate::shred::shred;
 
 pub(crate) fn initialize(session: &VortexSession) {
@@ -95,6 +98,11 @@ pub(crate) fn initialize(session: &VortexSession) {
         VariantShredStrictKernel,
     );
     kernels.register_execute_parent_kernel(
+        VariantShredUnion.id(),
+        ParquetVariant,
+        VariantShredUnionKernel,
+    );
+    kernels.register_execute_parent_kernel(
         JsonToVariant.id(),
         Extension,
         JsonExtensionToVariantKernel,
@@ -119,6 +127,42 @@ impl ExecuteParentKernel<ParquetVariant> for VariantShredKernel {
         &self,
         array: ArrayView<'_, ParquetVariant>,
         parent: ScalarFnArrayView<'_, VariantShred>,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if child_idx != 0 || array.typed_value().is_some() {
+            return Ok(None);
+        }
+
+        let schema = parent.options.schema();
+        vortex_ensure!(
+            !has_union(schema),
+            "{} shreds into Parquet storage, which has no union, not {schema}",
+            VariantShred.id()
+        );
+        shred(
+            &array,
+            schema,
+            Mismatch::Residual,
+            parent.dtype().is_nullable(),
+            ctx,
+        )
+        .map(Some)
+    }
+}
+
+/// Shreds unshredded storage by a schema that can hold unions. Storage that is shredded already
+/// is left to [`VariantShredUnion`] itself, which rejects it.
+#[derive(Default, Debug)]
+struct VariantShredUnionKernel;
+
+impl ExecuteParentKernel<ParquetVariant> for VariantShredUnionKernel {
+    type Parent = ExactScalarFn<VariantShredUnion>;
+
+    fn execute_parent(
+        &self,
+        array: ArrayView<'_, ParquetVariant>,
+        parent: ScalarFnArrayView<'_, VariantShredUnion>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -156,9 +200,15 @@ impl ExecuteParentKernel<ParquetVariant> for VariantShredStrictKernel {
             return Ok(None);
         }
 
+        let schema = parent.options.schema();
+        vortex_ensure!(
+            !has_union(schema),
+            "{} shreds into Parquet storage, which has no union, not {schema}",
+            VariantShredStrict.id()
+        );
         shred(
             &array,
-            parent.options.schema(),
+            schema,
             Mismatch::Reject,
             parent.dtype().is_nullable(),
             ctx,
