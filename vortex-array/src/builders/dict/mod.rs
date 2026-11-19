@@ -14,7 +14,9 @@ use crate::IntoArray;
 use crate::arrays::DictArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 
@@ -91,23 +93,53 @@ pub fn dict_encoder_in(
 
 /// Encode an array as a `DictArray` subject to the given constraints.
 ///
+/// The codes use the narrowest unsigned integer type that can address the dictionary, so callers
+/// have nothing left to narrow.
+///
 /// Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for external compatibility.
 pub fn dict_encode_with_constraints(
     array: &ArrayRef,
     constraints: &DictConstraints,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<DictArray> {
-    let mut encoder = dict_encoder_in(array, constraints, ctx.allocator().clone());
-    let codes = encoder.encode(array, ctx)?.narrow(ctx)?;
+    // Every row contributes at most one dictionary entry, so the array bounds the dictionary
+    // length whatever the caller asked for. Encoders pick their code width up front from this
+    // bound, so tightening it keeps a one-shot encode from writing `u64` codes for a dictionary
+    // that cannot hold more than a handful of entries.
+    let constraints = DictConstraints {
+        max_bytes: constraints.max_bytes,
+        max_len: constraints.max_len.min(array.len().max(1)),
+    };
+    let mut encoder = dict_encoder_in(array, &constraints, ctx.allocator().clone());
+    let codes = encoder.encode(array, ctx)?;
+    let values = encoder.reset();
+    let codes = narrow_codes(codes, values.len(), ctx)?;
     // SAFETY: The encoding process will produce a value set of codes and values
     // All values in the dictionary are guaranteed to be referenced by at least one code
     // since we build the dictionary from the codes we observe during encoding
     unsafe {
-        Ok(
-            DictArray::new_unchecked(codes.into_array(), encoder.reset())
-                .set_all_values_referenced(true),
-        )
+        Ok(DictArray::new_unchecked(codes.into_array(), values).set_all_values_referenced(true))
     }
+}
+
+/// Narrow codes addressing a `dict_len`-entry dictionary to the smallest type that can hold them.
+///
+/// Encoders hand out consecutive codes and only ever add an entry they immediately use, so the
+/// largest code is `dict_len - 1`. That makes the narrowest code type known without the scan
+/// [`PrimitiveArrayExt::narrow`] would otherwise run over the codes.
+fn narrow_codes(
+    codes: PrimitiveArray,
+    dict_len: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    let ptype = codes_ptype_for_max_len(dict_len as u64);
+    if codes.ptype() == ptype {
+        return Ok(codes);
+    }
+    codes
+        .as_ref()
+        .cast(DType::Primitive(ptype, Nullability::NonNullable))?
+        .execute::<PrimitiveArray>(ctx)
 }
 
 pub fn dict_encode(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<DictArray> {
@@ -120,4 +152,44 @@ pub fn dict_encode(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Dic
         );
     }
     Ok(dict_array)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use rstest::rstest;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use super::dict_encode;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::dict::DictArraySlotsExt;
+    use crate::arrays::primitive::PrimitiveArrayExt;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    /// `narrow_codes` picks the code type from the dictionary length instead of scanning the
+    /// codes, so it must land on the same type a scan would at every width boundary.
+    #[rstest]
+    #[case::empty(0)]
+    #[case::single(1)]
+    #[case::fills_u8(256)]
+    #[case::overflows_u8(257)]
+    #[case::fills_u16(65_536)]
+    #[case::overflows_u16(65_537)]
+    fn codes_are_as_narrow_as_a_scan_makes_them(#[case] distinct: u32) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = PrimitiveArray::from_iter((0..distinct).chain(0..distinct)).into_array();
+
+        let codes = dict_encode(&array, &mut ctx)?
+            .codes()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
+
+        assert_eq!(codes.ptype(), codes.narrow(&mut ctx)?.ptype());
+        Ok(())
+    }
 }
