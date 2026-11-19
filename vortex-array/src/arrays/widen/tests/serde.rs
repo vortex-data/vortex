@@ -268,6 +268,33 @@ fn narrow_decimal_values() -> ArrayRef {
     DecimalArray::from_iter([-123_456i32, 456_789], DecimalDType::new(9, 2)).into_array()
 }
 
+fn narrow_decimal_runs() -> VortexResult<ArrayRef> {
+    Ok(RunEnd::try_new_offset_length(
+        buffer![2u32, 5].into_array(),
+        narrow_decimal_values(),
+        1,
+        3,
+        &mut SESSION.create_execution_ctx(),
+    )?
+    .into_array())
+}
+
+fn serialize_restricted(
+    array: &ArrayRef,
+    allowed_ids: impl IntoIterator<Item = ArrayId>,
+) -> VortexResult<(SerializedArray, ReadContext)> {
+    let ctx = ArrayContext::empty().with_allowed_ids(allowed_ids.into_iter().collect());
+    let mut bytes = ByteBufferMut::empty();
+    for buffer in array.serialize_with_fallback(&ctx, &SESSION, &SerializeOptions::default())? {
+        bytes.extend_from_slice(buffer.as_ref());
+    }
+
+    Ok((
+        SerializedArray::try_from(bytes.freeze())?,
+        ReadContext::new(ctx.to_ids()),
+    ))
+}
+
 #[rstest]
 #[case::dict(
     DictArray::try_new(
@@ -279,15 +306,7 @@ fn narrow_decimal_values() -> ArrayRef {
         narrow_decimal_values(),
     )?.into_array(),
 )]
-#[case::run_end(
-    RunEnd::try_new_offset_length(
-        buffer![2u32, 5].into_array(),
-        narrow_decimal_values(),
-        1,
-        3,
-        &mut SESSION.create_execution_ctx(),
-    )?.into_array(),
-)]
+#[case::run_end(narrow_decimal_runs()?)]
 fn restricted_write_preserves_widen_structure(
     #[case] structured: ArrayRef,
     #[values(false, true)] round_trip_first: bool,
@@ -305,22 +324,15 @@ fn restricted_write_preserves_widen_structure(
         widened.clone()
     };
 
-    let ctx = ArrayContext::empty().with_allowed_ids(
+    let (serialized, read_ctx) = serialize_restricted(
+        &input,
         [
             structure_id,
             ArrayVTable::id(&Decimal),
             ArrayVTable::id(&Primitive),
             ArrayVTable::id(&Bool),
-        ]
-        .into_iter()
-        .collect(),
-    );
-    let mut bytes = ByteBufferMut::empty();
-    for buffer in input.serialize_with_fallback(&ctx, &SESSION, &SerializeOptions::default())? {
-        bytes.extend_from_slice(buffer.as_ref());
-    }
-    let serialized = SerializedArray::try_from(bytes.freeze())?;
-    let read_ctx = ReadContext::new(ctx.to_ids());
+        ],
+    )?;
     assert_eq!(
         read_ctx.resolve(serialized.encoding_id()),
         Some(structure_id)
@@ -335,6 +347,30 @@ fn restricted_write_preserves_widen_structure(
 
     let actual = serialized.decode(widened.dtype(), widened.len(), &read_ctx, &SESSION)?;
     assert_arrays_eq!(actual, widened, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+#[test]
+fn restricted_write_executes_original_when_rewritten_root_is_forbidden() -> VortexResult<()> {
+    let widened = widen_over(
+        narrow_decimal_runs()?,
+        DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable),
+    )?;
+
+    let decimal_id = ArrayVTable::id(&Decimal);
+    let (serialized, read_ctx) =
+        serialize_restricted(&widened, [decimal_id, ArrayVTable::id(&Primitive)])?;
+
+    assert_eq!(
+        read_ctx.resolve(serialized.encoding_id()),
+        Some(decimal_id)
+    );
+    // Executing the original expands the narrow runs first, so Widen can write the narrow leaf.
+    assert_eq!(serialized.buffer(0)?.len(), widened.len() * size_of::<i32>());
+
+    let actual = serialized.decode(widened.dtype(), widened.len(), &read_ctx, &SESSION)?;
+    assert_arrays_eq!(actual, widened, &mut SESSION.create_execution_ctx());
+
     Ok(())
 }
 

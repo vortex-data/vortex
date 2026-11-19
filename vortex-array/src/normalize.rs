@@ -18,7 +18,8 @@ use crate::ArrayContext;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::VortexSessionExecute;
-use crate::arrays::widen::compute::rules::push_decimal_widen_into_values;
+use crate::array::ArraySerialization;
+use crate::arrays::write_parent_reductions;
 use crate::executor::max_iterations;
 use crate::session::ArraySessionExt;
 
@@ -180,14 +181,7 @@ fn normalize_wire_root(
 
     for _ in 0..max_iterations() {
         let session = ctx.session();
-        let serialized = if session.arrays().has_serializer(&array.encoding_id()) {
-            session.array_serialize(&array)?
-        } else {
-            // An execution step may yield a lazy intermediate with no serializer.
-            None
-        };
-
-        match serialized {
+        match serialize_registered(&array, session)? {
             Some(serialized) if target.permits(&serialized.serialized_id) => {
                 return Ok(NormalizedRoot::from_wire(array, serialized.children));
             }
@@ -200,13 +194,15 @@ fn normalize_wire_root(
             None if array.is_canonical() => {
                 vortex_bail!("Array {} does not support serialization", array.encoding_id());
             }
-            _ => {}
+            Some(_) => {
+                if let Some(root) = rewrite_wire_root(&array, target, session)? {
+                    return Ok(root);
+                }
+            }
+            None => {}
         }
 
-        let next = match push_decimal_widen_into_values(&array)? {
-            Some(rewritten) => rewritten,
-            None => array.clone().execute(ctx)?,
-        };
+        let next = array.clone().execute::<ArrayRef>(ctx)?;
         vortex_ensure_eq!(next.dtype(), &dtype);
         vortex_ensure_eq!(next.len(), len);
         next.statistics().inherit_from(array.statistics());
@@ -214,6 +210,44 @@ fn normalize_wire_root(
     }
 
     vortex_bail!("Exceeded execution iteration limit while normalizing for writing")
+}
+
+/// Try one parent reduction per occupied slot. A rejected candidate leaves the source
+/// available for ordinary execution.
+fn rewrite_wire_root(
+    array: &ArrayRef,
+    target: &ArrayContext,
+    session: &VortexSession,
+) -> VortexResult<Option<NormalizedRoot>> {
+    let kernels = write_parent_reductions();
+
+    for (slot_idx, child) in array.slots().iter().enumerate() {
+        let Some(child) = child else { continue };
+        let Some(rewritten) = kernels.reduce_parent(child, array, slot_idx)? else {
+            continue;
+        };
+
+        rewritten.statistics().inherit_from(array.statistics());
+        if let Some(serialized) = serialize_registered(&rewritten, session)?
+            && target.permits(&serialized.serialized_id)
+        {
+            return Ok(Some(NormalizedRoot::from_wire(rewritten, serialized.children)));
+        }
+    }
+
+    Ok(None)
+}
+
+fn serialize_registered(
+    array: &ArrayRef,
+    session: &VortexSession,
+) -> VortexResult<Option<ArraySerialization>> {
+    // An execution step may yield a lazy intermediate with no serializer.
+    if !session.arrays().has_serializer(&array.encoding_id()) {
+        return Ok(None);
+    }
+
+    session.array_serialize(array)
 }
 
 #[cfg(test)]
