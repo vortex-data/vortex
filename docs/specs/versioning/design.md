@@ -131,9 +131,9 @@ A serializer must choose the oldest supported writable format that preserves the
 representation without recompression. A plugin can adapt metadata, buffers, or children to fit an
 older format. Formats retained only for reading, however, are not candidates for writing.
 
-The chosen wire format determines the children its decoder expects, including their order, dtype,
-length, and any layout constraints. A serializer can use an array from any depth in the source
-tree if it fits the expected child position and the complete node preserves the source values.
+The decoder for the chosen wire ID defines the order, dtype, length, and layout of its children.
+A serializer can fill a child position with an array already nested anywhere in the input or
+build one that fits. The complete wire node must decode to the same logical array.
 
 ## Write normalization
 
@@ -154,9 +154,9 @@ After rewrite   Dict(codes, Widen(Decimal(validity)))
 On wire         vortex.dict(codes, vortex.decimal(validity))
 ```
 
-The validity is a direct child of the Decimal wire node. If it needs normalization, the writer
-follows the source slots through the in-memory Decimal leaf, rebuilds that path, and reruns the
-serializer. The final write checks every emitted wire ID, including those of newly built children.
+If the validity needs normalization, the writer finds it by following the in-memory slots from
+`Widen` to `Decimal` to the validity array. It replaces that slot and rebuilds the arrays along the
+path. The serializer runs again because its metadata can depend on the children it writes.
 
 ## Write and read checks
 

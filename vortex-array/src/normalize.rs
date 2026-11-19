@@ -3,15 +3,14 @@
 
 //! Prepares array trees for consumers that support a subset of encodings.
 //!
-//! [`ArrayRef::normalize`] walks source slots using the in-memory consumer's encoding allowlist.
-//! The flat writer used to fail when a serializer chose a forbidden wire ID. It now retries from
-//! the source array using the wire IDs and children chosen by the serializers.
+//! [`ArrayRef::normalize`] checks the in-memory consumer's encoding allowlist. The flat writer
+//! checks the wire IDs chosen by serializers, since a serializer can use a different format
+//! for the same logical array.
 //!
-//! A serializer can emit a deeper source descendant as a direct wire child. Write normalization
-//! matches emitted children to source arrays by pointer identity and rebuilds changed slots along
-//! the matching paths. The serializer runs again because its metadata can describe the arrays it
-//! emits as children. Children constructed by the serializer have to pass the wire-ID check as
-//! emitted.
+//! A serializer can return an array nested several levels inside its input as a wire child.
+//! Write normalization matches those references by pointer identity so it can update the actual
+//! input slots. The writer reruns the serializer because its metadata can depend on the arrays
+//! it chooses as children.
 
 use smallvec::SmallVec;
 use vortex_error::VortexError;
@@ -61,15 +60,15 @@ enum NormalizeTarget<'a> {
 /// A source array whose root can be serialized to the target.
 struct WireRoot {
     array: ArrayRef,
-    /// The emitted children when a serializer projects a different child list. Normalization
-    /// matches those children against source descendants. `None` visits every source slot.
-    projected_children: Option<Vec<ArrayRef>>,
+    /// The wire children to match against arrays in the input. `None` normalizes every
+    /// immediate child.
+    wire_children: Option<Vec<ArrayRef>>,
 }
 
 impl WireRoot {
     fn new(array: ArrayRef, children: Vec<ArrayRef>) -> Self {
-        // Most serializers reuse every source child in order, so a linear comparison suffices.
-        // A serializer that projects children uses a scan of its existing list on the retry.
+        // When the serializer returns the immediate children in order, the traversal can
+        // visit each slot without searching the wire child list.
         let uses_source_children = array.nchildren() == children.len()
             && array
                 .children_iter()
@@ -78,7 +77,7 @@ impl WireRoot {
 
         Self {
             array,
-            projected_children: (!uses_source_children).then_some(children),
+            wire_children: (!uses_source_children).then_some(children),
         }
     }
 
@@ -88,7 +87,7 @@ impl WireRoot {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         self.array.normalize_slots(
-            self.projected_children.as_deref(),
+            self.wire_children.as_deref(),
             NormalizeTarget::Wire { write_context },
             ctx,
         )
@@ -158,7 +157,7 @@ impl ArrayRef {
 
     fn normalize_slots(
         self,
-        projected_children: Option<&[ArrayRef]>,
+        wire_children: Option<&[ArrayRef]>,
         target: NormalizeTarget<'_>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -172,10 +171,9 @@ impl ArrayRef {
                 continue;
             };
 
-            let normalized_child = match projected_children {
+            let normalized_child = match wire_children {
                 Some(children) if !children.iter().any(|emitted| Self::ptr_eq(child, emitted)) => {
-                    // The serializer can skip this source node and emit one of its descendants.
-                    // Follow its slots and rebuild it if one of those descendants changes.
+                    // A wire child can be nested inside this array, so check its slots too.
                     child.clone().normalize_slots(Some(children), target, ctx)?
                 }
                 _ => child.clone().normalize_with_execution(target, ctx)?,

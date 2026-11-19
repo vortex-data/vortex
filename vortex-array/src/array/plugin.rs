@@ -32,11 +32,11 @@ pub struct ArraySerialization {
     pub metadata: Vec<u8>,
     /// Top-level buffers written for this array node.
     pub buffers: Vec<ByteBuffer>,
-    /// The child arrays in the order required by the chosen wire format.
+    /// Child arrays in wire order.
     ///
-    /// The decoder uses the wire format to determine each child's dtype, length, and layout.
-    /// A serializer may reuse a source descendant at any depth or construct a child, as long as
-    /// the array meets the requirements for that position.
+    /// Each array must have the dtype, length, and layout that the decoder expects at its
+    /// position. A serializer can return an array already nested inside its input or build
+    /// a new one to fit the format.
     pub children: Vec<ArrayRef>,
 }
 
