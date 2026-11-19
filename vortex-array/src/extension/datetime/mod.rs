@@ -3,8 +3,12 @@
 
 //! Datetime extension DTypes, compatible with Apache Arrow.
 
+pub(crate) mod convert;
 mod date;
 mod matcher;
+pub(crate) mod operations;
+pub use operations::TemporalRounding;
+
 mod time;
 mod timestamp;
 mod unit;

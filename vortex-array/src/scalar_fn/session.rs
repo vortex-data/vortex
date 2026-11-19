@@ -10,6 +10,7 @@ use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
 
+use crate::extension::datetime::operations::TemporalConvert;
 use crate::scalar_fn::ScalarFnPluginRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::between::Between;
@@ -95,6 +96,7 @@ impl Default for ScalarFnSession {
         this.register(Select);
         this.register(StatFn);
         this.register(Strpos);
+        this.register(TemporalConvert);
         this.register(VariantGet);
         this.register(Zip);
 

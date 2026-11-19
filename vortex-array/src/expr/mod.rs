@@ -116,6 +116,11 @@ pub use exprs::zip_expr;
 pub use lambda::*;
 pub use scope::*;
 
+pub use crate::extension::datetime::operations::change_time_unit;
+pub use crate::extension::datetime::operations::convert_time_zone;
+pub use crate::extension::datetime::operations::timestamp_to_date;
+pub use crate::extension::datetime::operations::timestamp_to_time;
+
 #[cfg(feature = "_test-harness")]
 pub mod test_harness {
     use crate::dtype::DType;

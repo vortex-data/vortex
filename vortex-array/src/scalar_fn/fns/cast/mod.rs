@@ -40,6 +40,11 @@ use crate::dtype::StructFields;
 use crate::expr::BoundExpression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
+use crate::extension::datetime::TemporalMetadata::Date;
+use crate::extension::datetime::TemporalMetadata::Time;
+use crate::extension::datetime::TemporalMetadata::Timestamp;
+use crate::extension::datetime::convert::TemporalCast;
+use crate::extension::datetime::convert::temporal_metadata;
 use crate::proto::expr as pb;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -52,22 +57,30 @@ use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::is_not_null_node;
 
-/// Checks that a cast involving an extension dtype changes only its top-level nullability or
-/// creates typed nulls of a nullable dtype from an untyped [`DType::Null`].
+/// Allows specific top-level temporal conversions, nullability changes, and typed nulls.
 ///
-/// The rule also holds for every extension dtype nested in a struct, list, fixed-size list, or
-/// map, which the cast pairs up the same way as its kernels do. Otherwise a cast could
-/// reinterpret a nested extension that the top-level dtypes do not show.
+/// Nested fields support only nullability changes and typed nulls. A container may expose
+/// unused children to its cast kernel, so a fallible value conversion could see hidden rows.
 ///
 /// Use [`ext_storage`](crate::expr::ext_storage) to extract an extension array's storage.
-pub(crate) fn check_extension_cast(source: &DType, target: &DType) -> VortexResult<()> {
+pub(crate) fn bind_extension_cast(
+    source: &DType,
+    target: &DType,
+) -> VortexResult<Option<TemporalCast>> {
+    let temporal = TemporalCast::classify(source, target);
+    if temporal.is_none() {
+        check_opaque_cast(source, target)?;
+    }
+    Ok(temporal)
+}
+
+fn check_opaque_cast(source: &DType, target: &DType) -> VortexResult<()> {
     if source.is_extension() || target.is_extension() {
         if !source.eq_ignore_nullability(target)
             && !(*source == DType::Null && target.is_nullable())
         {
-            vortex_bail!(
-                "Cannot cast {source} to {target}. Extension casts only allow changes to top-level nullability or creation of typed nulls from Null."
-            );
+            let hint = extension_cast_hint(source, target);
+            vortex_bail!("Cannot cast {source} to {target}.{hint}");
         }
         return Ok(());
     }
@@ -76,10 +89,10 @@ pub(crate) fn check_extension_cast(source: &DType, target: &DType) -> VortexResu
         (
             DType::List(source, _) | DType::FixedSizeList(source, ..),
             DType::List(target, _) | DType::FixedSizeList(target, ..),
-        ) => check_extension_cast(source, target),
+        ) => check_opaque_cast(source, target),
         (DType::Map(source, _), DType::Map(target, _)) => {
-            check_extension_cast(&source.key_dtype(), &target.key_dtype())?;
-            check_extension_cast(&source.value_dtype(), &target.value_dtype())
+            check_opaque_cast(&source.key_dtype(), &target.key_dtype())?;
+            check_opaque_cast(&source.value_dtype(), &target.value_dtype())
         }
         (DType::Struct(source, _), DType::Struct(target, _)) => {
             check_struct_extension_cast(source, target)
@@ -88,20 +101,53 @@ pub(crate) fn check_extension_cast(source: &DType, target: &DType) -> VortexResu
     }
 }
 
-/// [`check_extension_cast`] for each pair of fields that
+fn extension_cast_hint(source: &DType, target: &DType) -> &'static str {
+    if source.is_extension() != target.is_extension() {
+        return " Use ext_storage to access raw extension values.";
+    }
+
+    match (temporal_metadata(source), temporal_metadata(target)) {
+        (Some(Timestamp(_, Some(source_zone))), Some(Timestamp(_, Some(target_zone))))
+            if source_zone != target_zone =>
+        {
+            " Use convert_time_zone to change the time zone while preserving the instant."
+        }
+        (Some(Timestamp(_, source_zone)), Some(Timestamp(_, target_zone)))
+            if source_zone.is_some() != target_zone.is_some() =>
+        {
+            " Use replace_time_zone to add or remove a time zone while preserving wall time."
+        }
+        (Some(Timestamp(..)), Some(Date(_))) => {
+            " Use timestamp_to_date to extract the local calendar date."
+        }
+        (Some(Timestamp(..)), Some(Time(_))) => {
+            " Use timestamp_to_time to extract the local time of day."
+        }
+        (Some(Date(from)), Some(Date(to)))
+        | (Some(Time(from)), Some(Time(to)))
+        | (Some(Timestamp(from, _)), Some(Timestamp(to, _)))
+            if from < to =>
+        {
+            " Use change_time_unit to select an explicit rounding mode."
+        }
+        _ => "",
+    }
+}
+
+/// Check existing extension dtypes for each pair of fields that
 /// [`struct_cast_fields`](crate::arrays::struct_::compute::cast::struct_cast_fields) casts. A
 /// target field that the source lacks becomes nulls, so it reinterprets nothing.
 fn check_struct_extension_cast(source: &StructFields, target: &StructFields) -> VortexResult<()> {
     if source.names() == target.names() {
         for (source, target) in source.fields().zip(target.fields()) {
-            check_extension_cast(&source, &target)?;
+            check_opaque_cast(&source, &target)?;
         }
         return Ok(());
     }
 
     for (name, target) in target.names().iter().zip(target.fields()) {
         if let Some(source) = source.field(name) {
-            check_extension_cast(&source, &target)?;
+            check_opaque_cast(&source, &target)?;
         }
     }
     Ok(())
@@ -177,7 +223,7 @@ impl ScalarFnVTable for Cast {
     }
 
     fn return_dtype(&self, dtype: &DType, arg_dtypes: &[DType]) -> VortexResult<DType> {
-        check_extension_cast(&arg_dtypes[0], dtype)?;
+        let _ = bind_extension_cast(&arg_dtypes[0], dtype)?;
         Ok(dtype.clone())
     }
 
@@ -188,6 +234,9 @@ impl ScalarFnVTable for Cast {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
+        if let Some(cast) = TemporalCast::classify(input.dtype(), target_dtype) {
+            return cast.cast_array(input, target_dtype, ctx);
+        }
 
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
             return input.execute::<ArrayRef>(ctx)?.cast(target_dtype.clone());
@@ -300,6 +349,7 @@ fn cast_constant(array: ArrayView<Constant>, dtype: &DType) -> VortexResult<Opti
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -320,11 +370,57 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::root;
     use crate::expr::test_harness;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::Time;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::literal::Literal;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    const NON_NULLABLE: Nullability = Nullability::NonNullable;
+
+    #[rstest]
+    #[case::coarser_unit(
+        DType::Extension(Timestamp::new_with_tz(
+            TimeUnit::Milliseconds, Some("UTC".into()), NON_NULLABLE,
+        ).erased()),
+        "change_time_unit",
+    )]
+    #[case::change_zone(
+        DType::Extension(Timestamp::new_with_tz(
+            TimeUnit::Nanoseconds, Some("+01:00".into()), NON_NULLABLE,
+        ).erased()),
+        "convert_time_zone",
+    )]
+    #[case::remove_zone(
+        DType::Extension(Timestamp::new(TimeUnit::Nanoseconds, NON_NULLABLE).erased()),
+        "replace_time_zone",
+    )]
+    #[case::date(
+        DType::Extension(Date::new(TimeUnit::Days, NON_NULLABLE).erased()),
+        "timestamp_to_date",
+    )]
+    #[case::time(
+        DType::Extension(Time::new(TimeUnit::Nanoseconds, NON_NULLABLE).erased()),
+        "timestamp_to_time",
+    )]
+    #[case::storage(DType::Primitive(PType::I64, NON_NULLABLE), "ext_storage")]
+    fn test_unsupported_timestamp_cast_suggests_conversion(
+        #[case] target: DType,
+        #[case] function: &str,
+    ) {
+        let input = DType::Extension(
+            Timestamp::new_with_tz(TimeUnit::Nanoseconds, Some("UTC".into()), NON_NULLABLE)
+                .erased(),
+        );
+        let error = cast(root(), target)
+            .bind(&input)
+            .expect_err("the conversion requires a named function");
+        assert!(error.to_string().contains(function), "{error}");
+    }
 
     #[test]
     fn dtype() {

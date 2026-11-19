@@ -110,6 +110,36 @@ message CastOpts {
   vortex.dtype.DType target = 1;
 }
 
+// Options for `vortex.temporal_convert`.
+message TemporalConvertOpts {
+  oneof operation {
+    ChangeUnit change_unit = 1;
+    TimestampToDate timestamp_to_date = 2;
+    TimestampToTime timestamp_to_time = 3;
+    ConvertZone convert_zone = 4;
+  }
+
+  message ChangeUnit {
+    // The temporal dtype metadata's time unit code.
+    uint32 unit = 1;
+    Rounding rounding = 2;
+  }
+
+  enum Rounding {
+    EXACT = 0;
+    TOWARD_ZERO = 1;
+    FLOOR = 2;
+    NEAREST_TIES_AWAY_FROM_ZERO = 3;
+  }
+
+  message TimestampToDate {}
+  message TimestampToTime {}
+
+  message ConvertZone {
+    string time_zone = 1;
+  }
+}
+
 message FieldNames {
   repeated string names = 1;
 }

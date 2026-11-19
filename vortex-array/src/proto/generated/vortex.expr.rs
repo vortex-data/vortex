@@ -187,6 +187,85 @@ pub struct CastOpts {
     #[prost(message, optional, tag = "1")]
     pub target: ::core::option::Option<super::dtype::DType>,
 }
+/// Options for `vortex.temporal_convert`.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct TemporalConvertOpts {
+    #[prost(oneof = "temporal_convert_opts::Operation", tags = "1, 2, 3, 4")]
+    pub operation: ::core::option::Option<temporal_convert_opts::Operation>,
+}
+/// Nested message and enum types in `TemporalConvertOpts`.
+pub mod temporal_convert_opts {
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct ChangeUnit {
+        /// The temporal dtype metadata's time unit code.
+        #[prost(uint32, tag = "1")]
+        pub unit: u32,
+        #[prost(enumeration = "Rounding", tag = "2")]
+        pub rounding: i32,
+    }
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct TimestampToDate {}
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct TimestampToTime {}
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct ConvertZone {
+        #[prost(string, tag = "1")]
+        pub time_zone: ::prost::alloc::string::String,
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum Rounding {
+        Exact = 0,
+        TowardZero = 1,
+        Floor = 2,
+        NearestTiesAwayFromZero = 3,
+    }
+    impl Rounding {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Exact => "EXACT",
+                Self::TowardZero => "TOWARD_ZERO",
+                Self::Floor => "FLOOR",
+                Self::NearestTiesAwayFromZero => "NEAREST_TIES_AWAY_FROM_ZERO",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "EXACT" => Some(Self::Exact),
+                "TOWARD_ZERO" => Some(Self::TowardZero),
+                "FLOOR" => Some(Self::Floor),
+                "NEAREST_TIES_AWAY_FROM_ZERO" => Some(Self::NearestTiesAwayFromZero),
+                _ => None,
+            }
+        }
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Operation {
+        #[prost(message, tag = "1")]
+        ChangeUnit(ChangeUnit),
+        #[prost(message, tag = "2")]
+        TimestampToDate(TimestampToDate),
+        #[prost(message, tag = "3")]
+        TimestampToTime(TimestampToTime),
+        #[prost(message, tag = "4")]
+        ConvertZone(ConvertZone),
+    }
+}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct FieldNames {
     #[prost(string, repeated, tag = "1")]
