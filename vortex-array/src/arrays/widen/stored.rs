@@ -50,21 +50,19 @@ impl WidenArray {
         wrap_values(stored, dtype)
     }
 
-    /// Returns the integer array that a writer stores for `array`: the values of an integer
-    /// [`WidenArray`], and `array` itself otherwise.
+    /// Returns the narrower child of an integer [`WidenArray`] at the root of `array`.
     ///
-    /// This is the inverse of [`Self::from_stored_integer`]. A writer stores the result and records
-    /// its dtype, and the reader passes the decoded child and the fixed dtype to that function.
+    /// The writer records the child's dtype. On read, [`Self::from_stored_integer`] restores the
+    /// dtype the caller's encoding expects.
     ///
-    /// Only a `Widen` at the root of `array` counts. A caller **must** keep the `Widen` at the
-    /// root, for example by taking the values of the `Widen` instead of wrapping it in a lazy take.
-    /// Otherwise the result keeps the fixed dtype and still holds the `Widen`, which does not
-    /// serialize, because an integer `Widen` has no wire form yet (#10733).
+    /// All other inputs are returned as-is. If an integer `Widen` sits below another encoding,
+    /// it stays in the result and the writer needs permission to emit `vortex.widen` when edition
+    /// checks are enabled. To keep `Widen` at the root during a take, take rows from its child and
+    /// wrap the result in `Widen`.
     pub fn to_stored_integer(array: &ArrayRef) -> ArrayRef {
-        // TODO(connor)[Widen]: Find a `Widen` below a structural encoding too, and return that
-        // encoding over the narrow values, for example `Dict(codes, values)` for
-        // `Dict(codes, Widen(values))`. Callers keep the `Widen` at the root by hand today. That
-        // stops working when optimizer rules move a `Widen` below structural encodings (#10748).
+        // TODO(connor)[Widen]: Extract the narrower values through encodings such as `Dict`.
+        // When the optimizer moves `Widen` below a `Dict`, the writer needs to keep the codes
+        // and store the narrower dictionary values (#10748).
         match array.as_opt::<Widen>() {
             Some(widen) if widen.dtype().is_int() => widen.values().clone(),
             _ => array.clone(),

@@ -178,17 +178,18 @@ async fn test_eof_values() {
     assert_eq!(V1_FOOTER_FBS_SIZE, 32);
 }
 
-// Optional encodings affect both compression choices and the registry stored in the footer.
+// Optional encodings can change compression choices. The footer lists every permitted wire ID,
+// so adding one can increase the file size for the same input.
 #[rstest]
 #[case::default(
     BtrBlocksCompressorBuilder::from_session(&SESSION),
-    if cfg!(feature = "zstd") { 70_012 } else { 69_948 }
+    if cfg!(feature = "zstd") { 70_044 } else { 69_980 }
 )]
 #[cfg_attr(
     feature = "zstd",
     case::compact(
         BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-        55_096
+        55_128
     )
 )]
 #[tokio::test]
@@ -298,6 +299,42 @@ async fn test_decimal_widen_default_writer_roundtrip(
     let actual = write_read_roundtrip(array).await?;
 
     assert_arrays_eq!(actual, expected, &mut ctx);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_integer_widen_file_round_trip() -> VortexResult<()> {
+    let values = buffer![-7i8, 0, 42].into_array();
+    let array = WidenArray::try_new(values, DType::from(PType::I64))?.into_array();
+    let mut file_bytes = ByteBufferMut::empty();
+
+    // Bypass compression so the writer sees the Widen supplied by the caller.
+    SESSION
+        .write_options()
+        .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+        .write(&mut file_bytes, array.to_array_stream())
+        .await?;
+
+    let actual = SESSION
+        .open_options()
+        .open_buffer(file_bytes)?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?;
+
+    assert!(
+        actual
+            .depth_first_traversal()
+            .any(|array| array.is::<Widen>())
+    );
+    assert_arrays_eq!(
+        actual,
+        buffer![-7i64, 0, 42].into_array(),
+        &mut SESSION.create_execution_ctx()
+    );
 
     Ok(())
 }
