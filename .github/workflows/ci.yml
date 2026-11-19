@@ -100,7 +100,7 @@ jobs:
       # benchmarks-database fact row. The golden vectors are a frozen artifact (see the note inside
       # the JSON); this job fails if a change to scripts/_measurement_id.py drifts the hash, which
       # would break ON CONFLICT idempotency against the rows already in production.
-      - name: Pytest - measurement_id, benchmark reporting, ingestion and CodSpeed shards
+      - name: Pytest - measurement_id, benchmark reporting, ingestion, CodSpeed shards and agent checks
         if: "!cancelled()"
         run: |
           uv run --no-project --with pytest --with pandas --with numpy --with orjson \
@@ -109,7 +109,8 @@ jobs:
               scripts/tests/test_benchmark_reporting.py scripts/tests/test_post_ingest.py \
               scripts/tests/test_refresh_bench_site.py \
               scripts/tests/test_codspeed_shards.py \
-              scripts/tests/test_sample_file_trees.py
+              scripts/tests/test_sample_file_trees.py \
+              scripts/tests/test_agent_checks.py
 
   python-test:
     name: "Python (test)"
