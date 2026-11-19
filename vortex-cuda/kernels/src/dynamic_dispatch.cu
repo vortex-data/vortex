@@ -278,9 +278,15 @@ __device__ inline void widen_inplace(DESTINATION *dst, uint32_t len) {
     __syncthreads();
 }
 
+// Splitting 32- and 64-bit lanes gives every thread of a block one slice of a chunk.
+static_assert(FL_LANES<uint32_t> * LANE_SLICES<uint32_t> == BLOCK_SIZE);
+static_assert(FL_LANES<uint64_t> * LANE_SLICES<uint64_t> == BLOCK_SIZE);
+
 /// FastLanes cooperative unpack — all threads in the block scatter-write
-/// decoded elements into `dst`. Caller must issue __syncthreads() before
-/// any thread reads from `dst`.
+/// decoded elements into `dst`. Work is distributed over (chunk, slice, lane)
+/// so that every thread decodes even when a chunk has fewer lanes than the
+/// block has threads. Caller must issue __syncthreads() before any thread
+/// reads from `dst`.
 template <typename T>
 __device__ inline void bitunpack(const T *__restrict packed,
                                  T *__restrict dst,
@@ -296,17 +302,24 @@ __device__ inline void bitunpack(const T *__restrict packed,
     static_assert((ELEMENTS_PER_BLOCK % FL_CHUNK) == 0);
     const uint32_t n_chunks = (chunk_len + dst_off + FL_CHUNK - 1) / FL_CHUNK;
 
-    for (uint32_t c = 0; c < n_chunks; ++c) {
-        const T *src_chunk = packed + (first_block + c) * words_per_block;
-        T *chunk_dst = dst + c * FL_CHUNK;
-        for (uint32_t lane = threadIdx.x; lane < FL_LANES<T>; lane += blockDim.x) {
-            bit_unpack_lane<T>(src_chunk, chunk_dst, 0, lane, bw);
-        }
-        // Apply BitPacked patches inline, matching the standalone kernel pattern.
-        if (src.params.bitunpack.patches_ptr != 0) {
-            __syncthreads();
-            const auto &patches = *reinterpret_cast<const GPUPatches *>(src.params.bitunpack.patches_ptr);
-            scatter_patches_chunk<T>(patches, chunk_dst, first_block + c);
+    constexpr uint32_t work_per_chunk = FL_LANES<T> * LANE_SLICES<T>;
+    for (uint32_t work = threadIdx.x; work < n_chunks * work_per_chunk; work += blockDim.x) {
+        const uint32_t c = work / work_per_chunk;
+        const uint32_t lane = work % FL_LANES<T>;
+        const uint32_t slice = (work % work_per_chunk) / FL_LANES<T>;
+        bit_unpack_lane_slice<T>(packed + (first_block + c) * words_per_block,
+                                 dst + c * FL_CHUNK,
+                                 lane,
+                                 bw,
+                                 slice);
+    }
+
+    // Apply BitPacked patches once every chunk has decoded, matching the standalone kernel pattern.
+    if (src.params.bitunpack.patches_ptr != 0) {
+        __syncthreads();
+        const auto &patches = *reinterpret_cast<const GPUPatches *>(src.params.bitunpack.patches_ptr);
+        for (uint32_t c = 0; c < n_chunks; ++c) {
+            scatter_patches_chunk<T>(patches, dst + c * FL_CHUNK, first_block + c);
         }
     }
 }
