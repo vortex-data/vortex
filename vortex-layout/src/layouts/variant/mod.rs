@@ -32,6 +32,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 pub use writer::FixedShredding;
 pub use writer::NoShredding;
+pub use writer::StrictShredding;
 pub use writer::VariantShreddingPolicy;
 pub use writer::VariantStrategy;
 

@@ -41,6 +41,7 @@ use crate::scalar_fn::fns::strpos::Strpos;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_pack::VariantPack;
 use crate::scalar_fn::fns::variant_shred::VariantShred;
+use crate::scalar_fn::fns::variant_shred::VariantShredStrict;
 use crate::scalar_fn::fns::zip::Zip;
 
 /// Registry of scalar function vtables.
@@ -100,6 +101,7 @@ impl Default for ScalarFnSession {
         this.register(VariantGet);
         this.register(VariantPack);
         this.register(VariantShred);
+        this.register(VariantShredStrict);
         this.register(Zip);
 
         this

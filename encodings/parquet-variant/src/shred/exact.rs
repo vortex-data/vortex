@@ -58,6 +58,7 @@ use crate::extract::bytes_at;
 use crate::extract::read_uint;
 
 /// Primitive type ids that [`crate::extract`] does not read.
+const NULL: u8 = 0;
 const TRUE: u8 = 1;
 const FALSE: u8 = 2;
 const DOUBLE: u8 = 7;
@@ -74,6 +75,15 @@ const TIMESTAMP_NANOS: u8 = 18;
 const TIMESTAMP_NTZ_NANOS: u8 = 19;
 const UUID: u8 = 20;
 
+/// What happens to a value that does not fit the schema.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Mismatch {
+    /// The value stays in the residual binary value, as the Parquet specification requires.
+    Residual,
+    /// Shredding fails.
+    Reject,
+}
+
 /// Shreds the values of unshredded storage by `schema`.
 ///
 /// `metadata` and `value` are the storage children, and `valid` the rows that hold a value.
@@ -83,10 +93,17 @@ pub(super) fn shred(
     value: &VarBinViewArray,
     valid: &Mask,
     schema: &DType,
+    mismatch: Mismatch,
     allocator: &BufferAllocatorRef,
 ) -> VortexResult<(ArrayRef, ArrayRef)> {
     let mut names = Vec::new();
-    let mut shredder = Shredder::new(schema, &mut names, value.len(), allocator)?;
+    let mut shredder = Shredder::new(
+        schema,
+        Node::root(schema, mismatch),
+        &mut names,
+        value.len(),
+        allocator,
+    )?;
     let mut cache = FieldCache::new(&names);
 
     for idx in 0..value.len() {
@@ -97,16 +114,78 @@ pub(super) fn shred(
 
         let malformed = || vortex_err!("Variant value of row {idx} is malformed");
         let fields = cache.resolve(metadata, idx).ok_or_else(malformed)?;
-        shredder
-            .append(&fields, bytes_at(value, idx))
-            .ok_or_else(malformed)?;
+        match shredder.append(&fields, bytes_at(value, idx)) {
+            Ok(()) => {}
+            Err(Fail::Malformed) => return Err(malformed()),
+            Err(Fail::Rejected(reason)) => vortex_bail!("Variant value of row {idx} {reason}"),
+        }
     }
 
     shredder.finish()
 }
 
+/// Why a value could not be appended.
+enum Fail {
+    /// The bytes are cut short or do not decode.
+    Malformed,
+    /// The value does not fit the schema, and the shredding rejects it.
+    Rejected(String),
+}
+
+/// Turns a value that is missing because bytes do not decode into [`Fail::Malformed`].
+trait OrMalformed<T> {
+    fn or_malformed(self) -> Result<T, Fail>;
+}
+
+impl<T> OrMalformed<T> for Option<T> {
+    #[inline]
+    fn or_malformed(self) -> Result<T, Fail> {
+        self.ok_or(Fail::Malformed)
+    }
+}
+
+/// Where a node is in the schema, and what happens to a value that does not fit it.
+struct Node {
+    /// The path of the node, such as `$.commit.rev` or `$.tags[]`.
+    path: String,
+    /// The schema of the node.
+    schema: DType,
+    mismatch: Mismatch,
+}
+
+impl Node {
+    fn root(schema: &DType, mismatch: Mismatch) -> Self {
+        Self {
+            path: "$".to_string(),
+            schema: schema.clone(),
+            mismatch,
+        }
+    }
+
+    /// The node of `schema` at `path` below this node.
+    fn child(&self, path: String, schema: &DType) -> Self {
+        Self {
+            path,
+            schema: schema.clone(),
+            mismatch: self.mismatch,
+        }
+    }
+
+    fn rejects(&self) -> bool {
+        self.mismatch == Mismatch::Reject
+    }
+
+    fn reject(&self) -> Fail {
+        Fail::Rejected(format!(
+            "at `{}` does not fit the shredding schema {}",
+            self.path, self.schema
+        ))
+    }
+}
+
 /// The `value` and `typed_value` columns of one node of the schema.
 struct Shredder {
+    node: Node,
     /// The binary values that are not in `typed`.
     value: VarBinViewBuilder,
     typed: Typed,
@@ -186,6 +265,7 @@ impl Shredder {
     /// `names`. The strings and binaries are allocated by `allocator`.
     fn new(
         schema: &DType,
+        node: Node,
         names: &mut Vec<FieldName>,
         capacity: usize,
         allocator: &BufferAllocatorRef,
@@ -207,9 +287,10 @@ impl Shredder {
             DType::Struct(struct_fields, _) => {
                 let mut fields = Vec::with_capacity(struct_fields.nfields());
                 for (name, field) in struct_fields.names().iter().zip(struct_fields.fields()) {
+                    let child = node.child(format!("{}.{name}", node.path), &field);
                     names.push(name.clone());
                     let name = names.len() - 1;
-                    fields.push((name, Self::new(&field, names, capacity, allocator)?));
+                    fields.push((name, Self::new(&field, child, names, capacity, allocator)?));
                 }
                 Typed::Object(Box::new(ObjectShredder {
                     names: struct_fields.names().clone(),
@@ -224,7 +305,13 @@ impl Shredder {
                 offsets.push(0);
                 Typed::List(Box::new(ListShredder {
                     offsets,
-                    elements: Self::new(element, names, capacity, allocator)?,
+                    elements: Self::new(
+                        element,
+                        node.child(format!("{}[]", node.path), element),
+                        names,
+                        capacity,
+                        allocator,
+                    )?,
                     validity: BitBufferMut::with_capacity(capacity),
                 }))
             }
@@ -235,6 +322,7 @@ impl Shredder {
         };
 
         Ok(Self {
+            node,
             value: binary_builder(capacity, allocator),
             typed,
         })
@@ -247,10 +335,18 @@ impl Shredder {
         self.typed.append_null();
     }
 
-    /// Appends `value`, the bytes of a value followed by any other bytes. Returns `None` for
-    /// bytes that are cut short or do not decode.
-    fn append(&mut self, fields: &Fields<'_>, value: &[u8]) -> Option<()> {
-        let value = value.get(..value_len(value)?)?;
+    /// Appends `value`, the bytes of a value followed by any other bytes.
+    fn append(&mut self, fields: &Fields<'_>, value: &[u8]) -> Result<(), Fail> {
+        let value = value
+            .get(..value_len(value).or_malformed()?)
+            .or_malformed()?;
+
+        // A shredding that rejects keeps nothing in the residual. A Variant null holds no
+        // value, so it is stored as one that is missing.
+        if self.node.rejects() && header(value) == Some((PRIMITIVE, NULL)) {
+            self.append_missing();
+            return Ok(());
+        }
 
         let taken = match &mut self.typed {
             Typed::Utf8(builder) => {
@@ -274,17 +370,21 @@ impl Shredder {
             Typed::I64(leaf) => push(leaf, integer(value)),
             Typed::F32(leaf) => push(leaf, float(value)),
             Typed::F64(leaf) => push(leaf, double(value)),
-            Typed::Object(object) => return object.append(fields, value, &mut self.value),
-            Typed::List(list) => return list.append(fields, value, &mut self.value),
+            Typed::Object(object) => {
+                return object.append(fields, value, &mut self.value, &self.node);
+            }
+            Typed::List(list) => return list.append(fields, value, &mut self.value, &self.node),
         };
 
         if taken {
             self.value.append_null();
+        } else if self.node.rejects() {
+            return Err(self.node.reject());
         } else {
             self.typed.append_null();
             self.value.append_value(value);
         }
-        Some(())
+        Ok(())
     }
 
     /// The `value` and `typed_value` columns.
@@ -353,22 +453,26 @@ impl ObjectShredder {
         fields: &Fields<'_>,
         value: &[u8],
         residual: &mut VarBinViewBuilder,
-    ) -> Option<()> {
-        let Some(object) = Object::new(value)? else {
+        node: &Node,
+    ) -> Result<(), Fail> {
+        let Some(object) = Object::new(value).or_malformed()? else {
+            if node.rejects() {
+                return Err(node.reject());
+            }
             self.append_null();
             residual.append_value(value);
-            return Some(());
+            return Ok(());
         };
 
         self.taken.clear();
         self.taken.resize(object.len(), false);
         let mut shredded = 0;
         for (name, field) in &mut self.fields {
-            match fields.position(&object, *name)? {
+            match fields.position(&object, *name).or_malformed()? {
                 Some(position) => {
-                    *self.taken.get_mut(position)? = true;
+                    *self.taken.get_mut(position).or_malformed()? = true;
                     shredded += 1;
-                    field.append(fields, object.value(position)?)?;
+                    field.append(fields, object.value(position).or_malformed()?)?;
                 }
                 None => field.append_missing(),
             }
@@ -380,10 +484,10 @@ impl ObjectShredder {
         } else if shredded == 0 {
             residual.append_value(value);
         } else {
-            write_object(&object, &self.taken, &mut self.residual)?;
+            write_object(&object, &self.taken, &mut self.residual).or_malformed()?;
             residual.append_value(&self.residual);
         }
-        Some(())
+        Ok(())
     }
 
     fn finish(self) -> VortexResult<ArrayRef> {
@@ -416,21 +520,27 @@ impl ListShredder {
         fields: &Fields<'_>,
         value: &[u8],
         residual: &mut VarBinViewBuilder,
-    ) -> Option<()> {
-        let Some(list) = Elements::new(value)? else {
+        node: &Node,
+    ) -> Result<(), Fail> {
+        let Some(list) = Elements::new(value).or_malformed()? else {
+            if node.rejects() {
+                return Err(node.reject());
+            }
             self.append_null();
             residual.append_value(value);
-            return Some(());
+            return Ok(());
         };
 
         for idx in 0..list.len() {
-            self.elements.append(fields, list.element(idx)?)?;
+            self.elements
+                .append(fields, list.element(idx).or_malformed()?)?;
         }
         let end = self.offsets.last().copied().unwrap_or_default();
-        self.offsets.push(end + u64::try_from(list.len()).ok()?);
+        self.offsets
+            .push(end + u64::try_from(list.len()).ok().or_malformed()?);
         self.validity.append(true);
         residual.append_null();
-        Some(())
+        Ok(())
     }
 
     fn finish(self) -> VortexResult<ArrayRef> {

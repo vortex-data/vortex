@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The `vortex.variant_shred` scalar function.
+//! The scalar functions that shred an unshredded Variant by a schema.
+//!
+//! Each function is one shredding behaviour, and differs only in what happens to a value that
+//! does not fit the schema:
+//!
+//! - [`VariantShred`] keeps it in the core storage, as Parquet shredding does.
+//! - [`VariantShredStrict`] fails.
 
 use std::fmt;
 use std::fmt::Display;
@@ -44,6 +50,31 @@ use crate::scalar_fn::ScalarFnVTableExt;
 #[derive(Clone)]
 pub struct VariantShred;
 
+/// Shreds an unshredded Variant by a schema, and fails on a value that does not fit it.
+///
+/// A value fits the schema as for [`VariantShred`], and a Variant null fits every position of
+/// it. So the shredded child holds every value at the paths that the schema names, and the core
+/// storage holds only the object fields that the schema does not name.
+///
+/// The encoding of the Variant storage does the work, through a kernel that it registers for this
+/// function. An encoding without such a kernel cannot be shredded, and execution fails.
+#[derive(Clone)]
+pub struct VariantShredStrict;
+
+impl VariantShredStrict {
+    /// Creates a lazy strict shredding of the Variant `input` by `schema`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `input` is not a Variant.
+    pub fn try_new(input: ArrayRef, schema: DType) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(
+            VariantShredStrict.bind(VariantShredOptions::new(schema)),
+            [input],
+        )
+    }
+}
+
 impl VariantShred {
     /// Creates a lazy shredding of the Variant `input` by `schema`.
     ///
@@ -71,6 +102,15 @@ impl VariantShredOptions {
     pub fn schema(&self) -> &DType {
         &self.schema
     }
+
+    fn serialize(&self) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(pb::DType::try_from(&self.schema)?.encode_to_vec()))
+    }
+
+    fn deserialize(metadata: &[u8], session: &VortexSession) -> VortexResult<Self> {
+        let dtype = pb::DType::decode(metadata)?;
+        Ok(Self::new(DType::from_proto(&dtype, session)?))
+    }
 }
 
 impl Display for VariantShredOptions {
@@ -88,14 +128,11 @@ impl ScalarFnVTable for VariantShred {
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(pb::DType::try_from(&options.schema)?.encode_to_vec()))
+        options.serialize()
     }
 
     fn deserialize(&self, metadata: &[u8], session: &VortexSession) -> VortexResult<Self::Options> {
-        let dtype = pb::DType::decode(metadata)?;
-        Ok(VariantShredOptions::new(DType::from_proto(
-            &dtype, session,
-        )?))
+        VariantShredOptions::deserialize(metadata, session)
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -103,49 +140,106 @@ impl ScalarFnVTable for VariantShred {
     }
 
     fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
-        match child_idx {
-            0 => ChildName::from("input"),
-            _ => unreachable!("Invalid child index {child_idx} for VariantShred expression"),
-        }
+        input_name(child_idx)
     }
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
-        vortex_ensure!(
-            arg_dtypes[0].is_variant(),
-            "VariantShred input must be a Variant, found {}",
-            arg_dtypes[0]
-        );
-        Ok(arg_dtypes[0].clone())
+        input_dtype(arg_dtypes)
     }
 
-    /// Hands the core storage of the input to the kernel of its encoding.
-    ///
-    /// The kernels are keyed on the storage encodings. An input that is a canonical Variant, or
-    /// a lazy array over one, reaches this point first.
     fn execute(
         &self,
         options: &Self::Options,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let input = args.get(0)?;
-        let variant = input.clone().execute::<VariantArray>(ctx)?;
-        vortex_ensure!(
-            variant.shredded().is_none(),
-            "VariantShred takes a Variant that is not shredded"
-        );
-
-        let core = variant.core_storage();
-        if core.encoding_id() == input.encoding_id() {
-            vortex_bail!(
-                "Variant storage {} has no kernel to shred it",
-                core.encoding_id()
-            );
-        }
-        VariantShred::try_new(core.clone(), options.schema.clone())?
-            .into_array()
-            .execute::<ArrayRef>(ctx)
+        execute_on_storage(self, options, args, ctx)
     }
+}
+
+impl ScalarFnVTable for VariantShredStrict {
+    type Options = VariantShredOptions;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("vortex.variant_shred.strict");
+        *ID
+    }
+
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        options.serialize()
+    }
+
+    fn deserialize(&self, metadata: &[u8], session: &VortexSession) -> VortexResult<Self::Options> {
+        VariantShredOptions::deserialize(metadata, session)
+    }
+
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(1)
+    }
+
+    fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
+        input_name(child_idx)
+    }
+
+    fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
+        input_dtype(arg_dtypes)
+    }
+
+    fn execute(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        execute_on_storage(self, options, args, ctx)
+    }
+}
+
+fn input_name(child_idx: usize) -> ChildName {
+    match child_idx {
+        0 => ChildName::from("input"),
+        _ => unreachable!("Invalid child index {child_idx} for a Variant shredding"),
+    }
+}
+
+/// A shredding returns a Variant of the dtype of its `input`.
+fn input_dtype(arg_dtypes: &[DType]) -> VortexResult<DType> {
+    vortex_ensure!(
+        arg_dtypes[0].is_variant(),
+        "A Variant shredding input must be a Variant, found {}",
+        arg_dtypes[0]
+    );
+    Ok(arg_dtypes[0].clone())
+}
+
+/// Hands the core storage of the input to the kernel of its encoding for `shredding`.
+///
+/// The kernels are keyed on the storage encodings. An input that is a canonical Variant, or a
+/// lazy array over one, reaches this point first.
+fn execute_on_storage<V: ScalarFnVTable<Options = VariantShredOptions>>(
+    shredding: &V,
+    options: &VariantShredOptions,
+    args: &dyn ExecutionArgs,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let input = args.get(0)?;
+    let variant = input.clone().execute::<VariantArray>(ctx)?;
+    vortex_ensure!(
+        variant.shredded().is_none(),
+        "A Variant shredding takes a Variant that is not shredded"
+    );
+
+    let core = variant.core_storage();
+    if core.encoding_id() == input.encoding_id() {
+        vortex_bail!(
+            "Variant storage {} has no kernel for {}",
+            core.encoding_id(),
+            shredding.id()
+        );
+    }
+    ScalarFnArray::try_new(shredding.bind(options.clone()), [core.clone()])?
+        .into_array()
+        .execute::<ArrayRef>(ctx)
 }
 
 #[cfg(test)]
