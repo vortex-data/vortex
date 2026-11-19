@@ -70,6 +70,7 @@ use vortex_spatial::scalar_fn::intersects::SpatialIntersects;
 use crate::SESSION;
 use crate::convert::dtype::FromLogicalType;
 use crate::convert::table_filter::dynamic_filter_expr;
+use crate::convert::time_zone::align_time_zones;
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb;
@@ -396,6 +397,7 @@ fn try_from_bound_function(
 pub fn try_from_bound_expression(
     value: &ExpressionRef,
     fields: &[DuckdbField],
+    scope_dtype: &DType,
 ) -> VortexResult<Option<Expression>> {
     try_from_expression_inner(
         value,
@@ -403,7 +405,9 @@ pub fn try_from_bound_expression(
             col_sub: None,
             fields: Some(fields),
         },
-    )
+    )?
+    .map(|expr| align_time_zones(expr, scope_dtype))
+    .transpose()
 }
 
 pub(super) fn try_from_bound_expression_with_col_sub(

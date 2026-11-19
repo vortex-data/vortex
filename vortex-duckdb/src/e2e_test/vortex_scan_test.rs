@@ -29,6 +29,7 @@ use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::validity::Validity;
@@ -36,6 +37,7 @@ use vortex::buffer::buffer;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::encodings::fastlanes::RLEData;
+use vortex::extension::datetime::TimeUnit;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -1434,4 +1436,56 @@ fn test_vortex_scan_v2_matches_v1(#[case] query: &str) -> Result<()> {
 
     assert_eq!(v2?, v1);
     Ok(())
+}
+
+/// Rows `0..5000` with the timestamp of row `i` at `i` seconds after 2020-01-01 10:00:00 UTC, in
+/// the given time zone. Every row with `i % 7 == 3` is null.
+async fn write_zoned_timestamp_file(tz: &str) -> NamedTempFile {
+    let timestamps = PrimitiveArray::from_option_iter(
+        (0..5000i64).map(|i| (i % 7 != 3).then_some(1_577_872_800_000_000 + i * 1_000_000)),
+    );
+    let timestamps = TemporalArray::new_timestamp(
+        timestamps.into_array(),
+        TimeUnit::Microseconds,
+        Some(tz.into()),
+    );
+    let ids = PrimitiveArray::from_iter(0..5000i64);
+    write_vortex_file([("id", ids.into_array()), ("t", timestamps.into_array())].into_iter()).await
+}
+
+/// DuckDB's `TIMESTAMPTZ` has no time zone, so its constants compare with a column in any zone.
+#[rstest]
+#[case::equal("count(*)", "WHERE t = TIMESTAMPTZ '2020-01-01 10:00:01+00'", 1)]
+#[case::greater_or_equal("count(*)", "WHERE t >= TIMESTAMPTZ '2020-01-01 10:00:01+00'", 4285)]
+#[case::between(
+    "count(*)",
+    "WHERE t BETWEEN TIMESTAMPTZ '2020-01-01 10:00:01+00' AND TIMESTAMPTZ '2020-01-01 10:00:09+00'",
+    8
+)]
+#[case::in_list(
+    "count(*)",
+    "WHERE t IN (TIMESTAMPTZ '2020-01-01 10:00:01+00', TIMESTAMPTZ '2020-01-01 10:00:05+00')",
+    2
+)]
+#[case::complex_filter(
+    "count(*)",
+    "WHERE t >= TIMESTAMPTZ '2020-01-01 10:00:01+00' OR id = 0",
+    4286
+)]
+#[case::top_n("id", "ORDER BY t DESC NULLS LAST LIMIT 1", 4999)]
+fn test_vortex_scan_zoned_timestamp_filters(
+    #[case] projection: &str,
+    #[case] clause: &str,
+    #[case] expected: i64,
+    #[values("UTC", "America/New_York")] tz: &str,
+) {
+    let file = RUNTIME.block_on(write_zoned_timestamp_file(tz));
+
+    let actual = scan_vortex_file_single_row::<i64, i64>(
+        file,
+        &format!("SELECT {projection} FROM ? {clause}"),
+        0,
+    );
+
+    assert_eq!(actual, expected);
 }
