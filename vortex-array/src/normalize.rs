@@ -3,8 +3,9 @@
 
 //! Prepares array trees for consumers that support a subset of encodings.
 //!
-//! In-memory consumers check the encoding of each array. Writers check the wire ID chosen by
-//! each serializer, since a serializer may reuse an older wire representation.
+//! [`ArrayRef::normalize`] walks source slots using the in-memory consumer's encoding allowlist.
+//! The flat writer used to fail when a serializer chose a forbidden wire ID. It now retries from
+//! the source array using the wire IDs and children chosen by the serializers.
 //!
 //! A serializer can emit a deeper source descendant as a direct wire child. Write normalization
 //! matches emitted children to source arrays by pointer identity and rebuilds changed slots along

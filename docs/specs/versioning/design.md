@@ -131,22 +131,20 @@ A serializer must choose the oldest supported writable format that preserves the
 representation without recompression. A plugin can adapt metadata, buffers, or children to fit an
 older format. Formats retained only for reading, however, are not candidates for writing.
 
-The serializer makes that choice before the writer checks edition permissions. If a wire ID is
-forbidden, the flat file writer normalizes the source array and tries serialization again.
-Normalization can rewrite or execute source arrays. For example, if the target allows a dictionary
-but disallows the encoding of its value table, the writer can keep the codes and execute just the
-table.
+The flat file writer used to serialize the tree chosen by the plugins and fail if any node had a
+forbidden wire ID. The writer now retries from the source array when it sees a forbidden wire ID.
+It tries a structural rewrite before taking an execution step. For example, if the target allows
+a dictionary, the writer can keep the codes and prepare just the value table.
 
-The serializer's child list describes the wire tree. For example, `DecimalByteParts` v1 can store
-a narrow integer child directly and record its type in metadata. In memory, that child can be a
-`Sequence` under a `Widen` in the most significant part slot. The `Sequence` is a grandchild of
-`DecimalByteParts` in memory and a direct child in the proposed wire tree.
+Consider a `DecimalByteParts` array whose most significant part is a `Widen` over a narrow
+`Sequence`. The v1 serializer emits the `Sequence` directly and records its narrow type in
+metadata. The `Sequence` is a grandchild in memory and a direct child in the proposed wire tree.
 
-If the target forbids `vortex.sequence`, normalization follows the source slots through `Widen`
-and executes the sequence at its narrow integer width. The writer rebuilds the changed
-source slots and reruns the serializer so it can generate matching metadata and children. A child
-constructed by the serializer has no source slot to rewrite. The write fails if a serializer still
-emits a forbidden wire ID.
+Previously, this write failed if the target forbade `vortex.sequence`. Now normalization follows
+the source slots through `Widen` and executes the `Sequence` at its narrow integer width. It
+rebuilds the `Widen` and `DecimalByteParts` source arrays along that path. The serializer then
+emits the narrow primitive child and regenerates its metadata. A child constructed by the
+serializer has no source slot to rewrite, so its emitted wire ID still has to be permitted.
 
 ## Write and read checks
 
