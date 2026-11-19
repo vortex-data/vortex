@@ -197,8 +197,9 @@ flowchart TD
    changes in [#11442] before fixing the preview contract.
 4. LT1 promotes both formats to `core` and adds compatibility fixtures.
 
-[Restricted-edition writes](02-design.md#writing-to-restricted-editions) use wire IDs to decide
-which subtrees need rewriting or execution.
+Draft [#11637] uses wire IDs to decide which subtrees need rewriting or execution. It also
+adds the decimal `Widen` rewrites for `Dict` and `RunEnd`. See
+[Restricted-edition writes](02-design.md#writing-to-restricted-editions).
 
 ## How to use the briefs
 
@@ -357,3 +358,4 @@ which subtrees need rewriting or execution.
 [#11635]: https://github.com/vortex-data/vortex/pull/11635
 [release 0.91.0]: https://github.com/vortex-data/vortex/releases/tag/0.91.0
 [Reader on develop]: https://github.com/vortex-data/vortex/blob/3ebf68d239da461c7bdd4ac6bcda0220727d8d44/vortex-array/src/arrays/decimal/vtable/plugin/mod.rs#L10-L17
+[#11637]: https://github.com/vortex-data/vortex/pull/11637
