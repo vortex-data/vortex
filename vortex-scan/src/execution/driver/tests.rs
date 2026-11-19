@@ -6,6 +6,7 @@ use std::thread;
 
 use futures::TryStreamExt;
 use parking_lot::Mutex;
+use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -77,8 +78,11 @@ async fn in_memory_source_uses_preparation_filter_projection_and_driver() -> Vor
 
 /// Per-batch output mapping must run on the driver's tasks: on the thread
 /// polling the stream it is serialised, which is what slowed the decompress benchmark down.
+#[rstest]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn batches_are_mapped_off_the_polling_thread() -> VortexResult<()> {
+async fn prepared_batches_are_mapped_off_the_polling_thread(
+    #[values(0, 2)] concurrency: usize,
+) -> VortexResult<()> {
     let polling = thread::current().id();
     let mapped_on = Arc::new(Mutex::new(Vec::new()));
     let map_fn = {
@@ -89,7 +93,12 @@ async fn batches_are_mapped_off_the_polling_thread() -> VortexResult<()> {
         }
     };
 
-    let batches: Vec<ArrayRef> = driver().run_mapped(builder(), map_fn).try_collect().await?;
+    let builder = builder();
+    let driver = ScanDriver::new(builder.session().handle(), concurrency, true);
+    let batches: Vec<ArrayRef> = driver
+        .run_prepared(builder.prepare()?, map_fn)
+        .try_collect()
+        .await?;
 
     let mapped_on = mapped_on.lock();
     assert!(!batches.is_empty());
