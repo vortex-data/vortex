@@ -1176,10 +1176,15 @@ mod tests {
         }
     }
 
+    /// The values of each test partition.
+    const TEST_PARTITIONS: [&[i32]; 2] = [&[0, 1], &[100, 101]];
+
+    /// A scan of some of [`TEST_PARTITIONS`], which splits into one piece per partition.
     struct TestScan {
         dtype: DType,
         limit: Option<u64>,
         polls: Arc<AtomicUsize>,
+        partitions: Vec<usize>,
     }
 
     impl DataSourceScan for TestScan {
@@ -1188,17 +1193,36 @@ mod tests {
         }
 
         fn partition_count(&self) -> Precision<usize> {
-            Precision::Exact(2)
+            Precision::Exact(self.partitions.len())
+        }
+
+        fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
+            if n.get() < self.partitions.len() {
+                return Ok(vec![self]);
+            }
+            Ok(self
+                .partitions
+                .iter()
+                .map(|&partition| {
+                    Box::new(TestScan {
+                        dtype: self.dtype.clone(),
+                        limit: self.limit,
+                        polls: Arc::clone(&self.polls),
+                        partitions: vec![partition],
+                    }) as DataSourceScanRef
+                })
+                .collect())
         }
 
         fn partitions(self: Box<Self>) -> PartitionStream {
             let limit = self
                 .limit
                 .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
-            let partitions: Vec<VortexResult<PartitionRef>> = [&[0, 1][..], &[100, 101][..]]
-                .into_iter()
-                .enumerate()
-                .map(|(index, values)| {
+            let partitions: Vec<VortexResult<PartitionRef>> = self
+                .partitions
+                .iter()
+                .map(|&index| {
+                    let values = TEST_PARTITIONS[index];
                     // Ordered partitions enforce their own limit; the adapter must enforce the
                     // global limit when it concatenates their outputs.
                     let values = &values[..limit.unwrap_or(values.len()).min(values.len())];
@@ -1231,6 +1255,7 @@ mod tests {
                 dtype: self.dtype.clone(),
                 limit: request.limit,
                 polls: Arc::clone(&self.polls),
+                partitions: vec![0, 1],
             }))
         }
 
@@ -1364,8 +1389,9 @@ mod tests {
 
         // Without sibling state a partition scans on its own and reads only its piece.
         let direct = |partition| source.open(partition, Arc::new(TaskContext::default()));
-        assert_eq!(values(direct(0)?.try_collect().await?), [0, 1, 100, 101]);
-        assert!(values(direct(1)?.try_collect().await?).is_empty());
+        assert_eq!(values(direct(0)?.try_collect().await?), [0, 1]);
+        assert_eq!(values(direct(1)?.try_collect().await?), [100, 101]);
+        assert!(values(direct(2)?.try_collect().await?).is_empty());
         Ok(())
     }
 
@@ -1405,16 +1431,19 @@ mod tests {
             .collect()
     }
 
-    /// With work stealing off, each output partition reads one contiguous piece in order, and
+    /// With work stealing off, each output partition reads its own piece in order, and
     /// partitions beyond the piece count return no rows.
     #[tokio::test]
     async fn without_work_stealing_partitions_read_split_pieces() -> anyhow::Result<()> {
-        let (data_source, session, schema) = split_file_source().await?;
-        let source = VortexDataSource::builder(data_source, session)
-            .with_arrow_schema(schema)
+        let data_source: DataSourceRef = Arc::new(TestDataSource {
+            dtype: test_dtype(),
+            polls: Arc::default(),
+            scans: Arc::default(),
+        });
+        let source = VortexDataSource::builder(data_source, VortexSession::default())
             .build()
             .await?
-            .repartitioned(8, 0, None)?
+            .repartitioned(4, 0, None)?
             .expect("repartitioning supported");
         let plan = Arc::new(DataSourceExec::new(source)) as Arc<dyn ExecutionPlan>;
         let mut config = datafusion::prelude::SessionConfig::new();
@@ -1425,20 +1454,14 @@ mod tests {
         let context = Arc::new(TaskContext::default().with_session_config(config));
 
         let mut partitions = Vec::new();
-        for partition in 0..8 {
+        for partition in 0..4 {
             let batches: Vec<RecordBatch> = plan
                 .execute(partition, Arc::clone(&context))?
                 .try_collect()
                 .await?;
             partitions.push(partition_values(&batches));
         }
-        let pieces: Vec<_> = partitions.iter().filter(|p| !p.is_empty()).collect();
-        assert!(pieces.len() > 1, "expected several pieces: {partitions:?}");
-        assert!(partitions[pieces.len()..].iter().all(Vec::is_empty));
-        assert_eq!(
-            pieces.into_iter().flatten().copied().collect::<Vec<_>>(),
-            (0..12).collect::<Vec<_>>()
-        );
+        assert_eq!(partitions, [vec![0, 1], vec![100, 101], vec![], vec![]]);
         Ok(())
     }
 
