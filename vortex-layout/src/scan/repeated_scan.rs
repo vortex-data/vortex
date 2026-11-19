@@ -83,6 +83,12 @@ pub struct RepeatedScan<A> {
 /// Split tasks for one scan execution.
 pub type ScanTasks<A> = Vec<BoxFuture<'static, VortexResult<Option<A>>>>;
 
+/// One split's future and the rows it covers.
+pub(crate) struct SplitTask<A> {
+    pub(crate) row_range: Range<u64>,
+    pub(crate) task: BoxFuture<'static, VortexResult<Option<A>>>,
+}
+
 /// A function applied to each projected split array.
 type MapFn<A> = Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>;
 
@@ -117,6 +123,18 @@ impl<A: 'static + Send> RepeatedScan<A> {
     /// Scans with row limits must use [`Self::execute_stream`] so the scan can coordinate the
     /// limit across splits.
     pub fn execute(&self, row_range: Option<Range<u64>>) -> VortexResult<ScanTasks<A>> {
+        Ok(self
+            .execute_splits(row_range)?
+            .into_iter()
+            .map(|split| split.task)
+            .collect())
+    }
+
+    /// Like [`Self::execute`], but pairs each split future with the rows it covers.
+    pub(crate) fn execute_splits(
+        &self,
+        row_range: Option<Range<u64>>,
+    ) -> VortexResult<Vec<SplitTask<A>>> {
         if self.limit.is_some() {
             vortex_bail!("Split futures do not support row limits; use a scan stream or iterator");
         }
@@ -127,7 +145,11 @@ impl<A: 'static + Send> RepeatedScan<A> {
             return Ok(Vec::new());
         }
         masks
-            .map(|mask| Ok(map_split(split_exec(&ctx, mask)?, &self.map_fn)))
+            .map(|mask| {
+                let row_range = mask.row_range();
+                let task = map_split(split_exec(&ctx, mask)?, &self.map_fn);
+                Ok(SplitTask { row_range, task })
+            })
             .collect()
     }
 

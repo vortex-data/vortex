@@ -243,9 +243,11 @@ pub trait Partition: 'static + Send {
     /// Executes the partition, returning an array stream.
     ///
     /// This method must be fast. The returned stream should be lazy — all non-trivial work
-    /// (I/O, decoding, filtering) must be deferred to when the stream is polled. Expensive
-    /// operations should be spawned onto the runtime to enable parallel execution across
-    /// threads.
+    /// (I/O, decoding, filtering) must be deferred to when the stream is polled. A partition
+    /// that holds several units of work should spawn them onto the runtime so they run in
+    /// parallel. A partition that is a single unit, such as one layout split, may do its work
+    /// on the task that polls the stream; the host then gets parallelism by polling several
+    /// partitions at once.
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream>;
 }
 

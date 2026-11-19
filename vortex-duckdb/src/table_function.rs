@@ -11,7 +11,6 @@ use std::sync::atomic::Ordering;
 
 #[cfg(unix)]
 use custom_labels::CURRENT_LABELSET;
-use futures::future::BoxFuture;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
@@ -24,6 +23,7 @@ use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
+use vortex::array::stream::SendableArrayStream;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -42,6 +42,7 @@ use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::proto::expr as expr_pb;
 use vortex::scalar::Scalar;
+use vortex::scan::ScanRequest;
 use vortex::scan::planning::driver::Run;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -182,6 +183,8 @@ impl<'a> TableInitInput<'a> {
 }
 
 pub struct GlobalState {
+    /// The request the V1 scan sends to each file's Scan API source.
+    pub scan_request: ScanRequest,
     pub projection: BoundExpression,
     pub filter: Filter,
     pub file_row_number_column_pos: Option<usize>,
@@ -205,8 +208,8 @@ assert_impl_all!(GlobalState: Send, Sync);
 
 /// A unit of scan work that one thread takes at a time.
 pub enum Split {
-    /// A V1 scan task yielding one array, or `None` if the filter removed every row.
-    V1(BoxFuture<'static, VortexResult<Option<ArrayRef>>>),
+    /// The stream of a Scan API partition of the file: one layout split of a V1 scan.
+    V1(SendableArrayStream),
     /// Chunks of the file's V2 scan, taken by the thread until the scan has none left.
     V2,
 }
@@ -352,8 +355,16 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         "table function scan input"
     );
 
+    let scan_request = ScanRequest {
+        projection: projection.clone(),
+        filter: filter.expression.clone(),
+        row_range: filter.row_range.clone(),
+        selection: filter.row_selection.clone(),
+        ..ScanRequest::default()
+    };
     let projection = optimize_and_bind(projection, &bind_data.dtype)?;
     Ok(GlobalState {
+        scan_request,
         projection,
         filter,
         aggregates: bind_data.aggregates.clone(),

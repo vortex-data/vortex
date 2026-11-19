@@ -7,6 +7,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
+use futures::StreamExt as _;
+use futures::TryStreamExt as _;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::array::ArrayRef;
@@ -20,6 +22,7 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
+use vortex::expr::stats::Precision;
 use vortex::file::Footer;
 use vortex::file::multi::MultiFileSession;
 use vortex::file::multi::open_cached;
@@ -31,10 +34,12 @@ use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReaderRef;
+use vortex::layout::scan::layout::LayoutReaderDataSource;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanFile;
 use vortex::mask::Mask;
+use vortex::scan::DataSource as _;
 use vortex::session::SessionExt as _;
 
 use crate::REGISTRY;
@@ -209,55 +214,75 @@ pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexR
 }
 
 /// Called once per file by one thread under file-local lock. Determines
-/// whether the opened file should be skipped. If this function returns false,
+/// whether the opened file should be skipped. If this function returns true,
 /// duckdb closes the file and doesn't call reader_try_initialize_scan on it.
+///
+/// Planning the file's scan is non-trivial work so we prefer doing it here
+/// under file lock and not in reader_try_initialize_scan under global lock.
 pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> VortexResult<bool> {
-    if file.can_skip(&global.filter)? {
-        // DuckDB releases a skipped file under the global lock. Here only the
-        // file-local lock is held, so drop the scan state now.
-        file.scan_state = None;
+    if global.scan_v2 {
+        initialize_v2(file, global)
+    } else {
+        initialize_v1(file, global)
+    }
+}
+
+/// Plans the file's V1 scan through the Scan API. Each partition is one
+/// layout split, which a thread claims whole.
+fn initialize_v1(file: &mut OpenFileReader, global: &GlobalState) -> VortexResult<bool> {
+    let source = LayoutReaderDataSource::new(Arc::clone(file.reader()), SESSION.clone())
+        .with_layout_split_partitions();
+    let partitions = RUNTIME.block_on(async {
+        let scan = source.scan(global.scan_request.clone()).await?;
+        scan.partitions().try_collect::<Vec<_>>().await
+    })?;
+    let mut splits = partitions
+        .into_iter()
+        .filter(|partition| !matches!(partition.row_count(), Precision::Exact(0)))
+        .map(|partition| partition.execute().map(Split::V1))
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    if splits.is_empty() {
+        skip_file(file);
         return Ok(true);
     }
-
-    // Getting splits, or planning a V2 scan, is non-trivial work so we prefer
-    // doing it here under file lock and not in reader_try_initialize_scan under
-    // global lock.
-    if global.scan_v2 {
-        let state = file.scan_state();
-        let splits = ScanBuilder::new(SESSION.clone(), Arc::clone(&state.reader))
-            .with_projection(global.projection.clone())
-            .with_some_filter(global.filter.filter.clone())
-            .full_file_splits()?;
-        let dynamic = global
-            .filter
-            .filter
-            .as_ref()
-            .is_some_and(|filter| DynamicExprUpdates::new(filter).is_some());
-        let scan = FileScan::try_new(v2_builder(state, global), &splits, dynamic)?;
-        if state.v2.set(scan).is_err() {
-            vortex_panic!("file initialized twice");
-        }
-        return Ok(false);
-    }
-
-    let reader = Arc::clone(file.reader());
-    let filter = &global.filter;
-    let builder = ScanBuilder::new(SESSION.clone(), reader)
-        .with_projection(global.projection.clone())
-        .with_some_filter(filter.filter.clone())
-        .with_selection(filter.row_selection.clone());
-    let scan = builder.prepare()?;
-    let mut splits: Vec<Split> = scan
-        .execute(filter.row_range.clone())?
-        .into_iter()
-        .map(Split::V1)
-        .collect();
 
     // threads take last element of file.splits so we need to reverse
     splits.reverse();
     file.total_splits = splits.len();
     file.splits = splits;
     Ok(false)
+}
+
+fn initialize_v2(file: &mut OpenFileReader, global: &GlobalState) -> VortexResult<bool> {
+    if file.can_skip(&global.filter)? {
+        skip_file(file);
+        return Ok(true);
+    }
+
+    let state = file.scan_state();
+    let splits = ScanBuilder::new(SESSION.clone(), Arc::clone(&state.reader))
+        .with_projection(global.projection.clone())
+        .with_some_filter(global.filter.filter.clone())
+        .full_file_splits()?;
+    let dynamic = global
+        .filter
+        .filter
+        .as_ref()
+        .is_some_and(|filter| DynamicExprUpdates::new(filter).is_some());
+    let scan = FileScan::try_new(v2_builder(state, global), &splits, dynamic)?;
+    if state.v2.set(scan).is_err() {
+        vortex_panic!("file initialized twice");
+    }
+    Ok(false)
+}
+
+/// Releases the scan state of a file that DuckDB will skip.
+///
+/// DuckDB releases a skipped file under the global lock. Here only the
+/// file-local lock is held, so drop the scan state now.
+fn skip_file(file: &mut OpenFileReader) {
+    file.scan_state = None;
 }
 
 /// The V2 scan of the file's rows that the scan's row range and selection keep.
@@ -287,9 +312,18 @@ enum SplitItem {
 fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
     match local.split.take() {
         None => Ok(SplitItem::Done),
-        Some(Split::V1(task)) => Ok(RUNTIME
-            .block_on(task)?
-            .map_or(SplitItem::Empty, SplitItem::Array)),
+        Some(Split::V1(mut stream)) => {
+            let Some(array) = RUNTIME.block_on(stream.next()) else {
+                return Ok(SplitItem::Done);
+            };
+            let array = array?;
+            local.split = Some(Split::V1(stream));
+            Ok(if array.is_empty() {
+                SplitItem::Empty
+            } else {
+                SplitItem::Array(array)
+            })
+        }
         Some(Split::V2) => {
             let file = local.file.as_ref().vortex_expect("split without a file");
             let scan = file

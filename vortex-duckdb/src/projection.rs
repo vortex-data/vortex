@@ -190,6 +190,9 @@ impl Projection {
 }
 
 pub struct Filter {
+    /// The conjunction of the pushed-down filters, as the Scan API takes it.
+    pub expression: Option<Expression>,
+    /// `expression` bound to the scan's dtype.
     pub filter: Option<BoundExpression>,
     pub row_selection: Selection,
     pub row_range: Option<Range<u64>>,
@@ -257,11 +260,14 @@ impl Filter {
             }
         };
 
-        let filter = and_collect(table_filter_exprs)
+        let expression = and_collect(table_filter_exprs);
+        let filter = expression
+            .as_ref()
             .map(|expr| expr.bind(dtype)?.optimize_recursive())
             .transpose()?;
 
         let out = Self {
+            expression,
             filter,
             row_selection,
             row_range,

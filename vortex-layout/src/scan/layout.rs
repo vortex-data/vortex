@@ -12,8 +12,11 @@ use std::task::Poll;
 use async_trait::async_trait;
 use futures::FutureExt;
 use futures::Stream;
+use futures::future;
+use futures::future::BoxFuture;
 use futures::stream;
 use futures::stream::StreamExt;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
@@ -50,8 +53,18 @@ use crate::scan::scan_builder::ScanBuilder;
 pub struct LayoutReaderDataSource {
     reader: LayoutReaderRef,
     session: VortexSession,
-    split_max_row_count: u64,
+    partitioning: Partitioning,
     metrics: Option<ScanMetrics>,
+}
+
+/// How a [`LayoutReaderDataSource`] cuts a scan into partitions.
+#[derive(Clone, Copy)]
+enum Partitioning {
+    /// Partitions of at most this many rows. Each runs its own [`ScanBuilder`] stream, which
+    /// keeps several of its layout splits in flight on the session's runtime.
+    MaxRows(u64),
+    /// One partition per layout split, polled on the task that polls its stream.
+    LayoutSplits,
 }
 
 impl LayoutReaderDataSource {
@@ -65,7 +78,7 @@ impl LayoutReaderDataSource {
         Self {
             reader,
             session,
-            split_max_row_count: u64::MAX,
+            partitioning: Partitioning::MaxRows(u64::MAX),
             metrics: None,
         }
     }
@@ -76,7 +89,21 @@ impl LayoutReaderDataSource {
     /// physical layout alignment and I/O pipelining. This controls the engine-level
     /// parallelism granularity, not the I/O granularity.
     pub fn with_split_max_row_count(mut self, row_count: u64) -> Self {
-        self.split_max_row_count = row_count;
+        self.partitioning = Partitioning::MaxRows(row_count);
+        self
+    }
+
+    /// Makes each layout split of the scanned fields its own partition, for hosts that run one
+    /// partition per thread and want the splits a V1 scan would otherwise run internally.
+    ///
+    /// The scan is prepared once, in [`DataSource::scan`], and its partitions share that
+    /// preparation. A partition's stream does its split's work on the task that polls it and
+    /// spawns nothing, so the host gets parallelism by polling several partitions at once.
+    ///
+    /// A scan with a limit keeps one partition for the whole range: its splits must share the
+    /// limit, which a split polled on its own cannot do.
+    pub fn with_layout_split_partitions(mut self) -> Self {
+        self.partitioning = Partitioning::LayoutSplits;
         self
     }
 
@@ -117,7 +144,9 @@ impl DataSource for LayoutReaderDataSource {
 
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
         let total_rows = self.reader.row_count();
-        let row_range = scan_request.row_range.unwrap_or(0..total_rows);
+        let row_range = scan_request.row_range.map_or(0..total_rows, |range| {
+            range.start.min(total_rows)..range.end.min(total_rows)
+        });
 
         let projection = scan_request
             .projection
@@ -188,6 +217,21 @@ impl DataSource for LayoutReaderDataSource {
             }
         }
 
+        let split_size = match self.partitioning {
+            Partitioning::LayoutSplits if scan_request.limit.is_none() => {
+                return self.layout_split_scan(
+                    dtype,
+                    projection,
+                    filter,
+                    row_range,
+                    scan_request.selection,
+                    scan_request.ordered,
+                );
+            }
+            Partitioning::LayoutSplits => u64::MAX,
+            Partitioning::MaxRows(row_count) => row_count,
+        };
+
         // Only unordered scans share a limit across external partitions: reservation order is
         // completion order, which an ordered scan cannot accept. Ordered partitions each apply
         // the limit locally and the engine trims the concatenated result.
@@ -209,12 +253,115 @@ impl DataSource for LayoutReaderDataSource {
             metrics: self.metrics.clone(),
             next_row: row_range.start,
             end_row: row_range.end,
-            split_size: self.split_max_row_count,
+            split_size,
         }))
     }
 
     async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
         Ok(StatsSet::default())
+    }
+}
+
+impl LayoutReaderDataSource {
+    /// Prepares one V1 scan over `row_range` and makes each of its layout splits a partition.
+    fn layout_split_scan(
+        &self,
+        dtype: DType,
+        projection: BoundExpression,
+        filter: Option<BoundExpression>,
+        row_range: Range<u64>,
+        selection: Selection,
+        ordered: bool,
+    ) -> VortexResult<DataSourceScanRef> {
+        let is_filtered = filter.is_some();
+        let scan = ScanBuilder::new(self.session.clone(), Arc::clone(&self.reader))
+            .with_projection(projection)
+            .with_some_filter(filter)
+            .with_row_range(row_range)
+            .with_selection(selection.clone())
+            .with_ordered(ordered)
+            .with_some_scan_metrics(self.metrics.clone())
+            .prepare()?;
+        let partitions = scan
+            .execute_splits(None)?
+            .into_iter()
+            .map(|split| {
+                let rows = selection.row_count_in_range(&split.row_range);
+                LayoutSplitPartition {
+                    dtype: dtype.clone(),
+                    row_count: if is_filtered {
+                        Precision::inexact(rows)
+                    } else {
+                        Precision::exact(rows)
+                    },
+                    row_range: split.row_range,
+                    task: split.task,
+                }
+            })
+            .collect();
+        Ok(Box::new(LayoutSplitScan { dtype, partitions }))
+    }
+}
+
+/// The partitions of a scan prepared once, one per layout split.
+struct LayoutSplitScan {
+    dtype: DType,
+    partitions: Vec<LayoutSplitPartition>,
+}
+
+impl DataSourceScan for LayoutSplitScan {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn partition_count(&self) -> Precision<usize> {
+        Precision::exact(self.partitions.len())
+    }
+
+    fn partitions(self: Box<Self>) -> PartitionStream {
+        stream::iter(
+            self.partitions
+                .into_iter()
+                .map(|partition| Ok(Box::new(partition) as PartitionRef)),
+        )
+        .boxed()
+    }
+}
+
+/// One layout split of a prepared V1 scan.
+struct LayoutSplitPartition {
+    dtype: DType,
+    row_range: Range<u64>,
+    row_count: Precision<u64>,
+    /// The split's work: it yields the split's array, or `None` when the filter removes every
+    /// row. It spawns nothing.
+    task: BoxFuture<'static, VortexResult<Option<ArrayRef>>>,
+}
+
+impl Partition for LayoutSplitPartition {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    #[expect(clippy::cast_possible_truncation)]
+    fn index(&self) -> usize {
+        // Row range is unique per split
+        self.row_range.start as usize
+    }
+
+    fn row_count(&self) -> Precision<u64> {
+        self.row_count
+    }
+
+    fn byte_size(&self) -> Precision<u64> {
+        Precision::Absent
+    }
+
+    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
+        let arrays = stream::once(self.task).filter_map(|array| future::ready(array.transpose()));
+        Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+            self.dtype, arrays,
+        )))
     }
 }
 
@@ -460,6 +607,7 @@ mod tests {
     use futures::TryStreamExt;
     use rstest::rstest;
     use vortex_array::expr::root;
+    use vortex_array::expr::stats::Precision;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::BlockingRuntime;
@@ -552,6 +700,44 @@ mod tests {
                 [4 * execution, 0, 0, 4 * execution, 0]
             );
         }
+        Ok(())
+    }
+
+    /// Layout-split partitions follow the reader's splits, and a row range past the end of the
+    /// source is clamped to it.
+    #[test]
+    fn layout_split_partitions_follow_splits() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let reader = TestLayoutReader::new(10).with_split_size(4);
+        let source =
+            LayoutReaderDataSource::new(Arc::new(reader), session).with_layout_split_partitions();
+
+        let scan = runtime.block_on(source.scan(ScanRequest {
+            row_range: Some(0..20),
+            ..Default::default()
+        }))?;
+        let partitions = runtime.block_on(scan.partitions().try_collect::<Vec<_>>())?;
+        let row_counts = partitions
+            .iter()
+            .map(|partition| partition.row_count())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            row_counts,
+            [
+                Precision::exact(4u64),
+                Precision::exact(4u64),
+                Precision::exact(2u64)
+            ]
+        );
+
+        let mut values = Vec::new();
+        for partition in partitions {
+            values.extend(collect_scan_values(
+                runtime.block_on_stream(partition.execute()?),
+            )?);
+        }
+        assert_eq!(values, (0..10).collect::<Vec<i32>>());
         Ok(())
     }
 
