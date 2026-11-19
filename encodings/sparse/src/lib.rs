@@ -7,6 +7,8 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
+pub use plugin::sparse_v1_id;
+pub use plugin::sparse_v2_id;
 use vortex_array::AnyCanonical;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
@@ -413,6 +415,17 @@ impl Sparse {
     ) -> VortexResult<ArrayRef> {
         SparseData::encode(array, fill_value, ctx)
     }
+
+    /// Encode the given array as a [`SparseArray`] whose patches carry chunk offsets.
+    ///
+    /// See [`SparseData::encode_with_chunk_offsets`].
+    pub fn encode_with_chunk_offsets(
+        array: &ArrayRef,
+        fill_value: Option<Scalar>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        SparseData::encode_with_chunk_offsets(array, fill_value, ctx)
+    }
 }
 
 impl SparseData {
@@ -500,6 +513,28 @@ impl SparseData {
         fill_value: Option<Scalar>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        Self::encode_impl(array, fill_value, false, ctx)
+    }
+
+    /// Like [`encode`](Self::encode), but the patches also carry chunk offsets, so a reader can
+    /// find one chunk's patches without scanning the others.
+    ///
+    /// Such arrays serialize under the experimental [`sparse_v2_id`], which writers only accept
+    /// when an enabled edition permits it.
+    pub fn encode_with_chunk_offsets(
+        array: &ArrayRef,
+        fill_value: Option<Scalar>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        Self::encode_impl(array, fill_value, true, ctx)
+    }
+
+    fn encode_impl(
+        array: &ArrayRef,
+        fill_value: Option<Scalar>,
+        with_chunk_offsets: bool,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         if let Some(fill_value) = fill_value.as_ref()
             && !array.dtype().eq_ignore_nullability(fill_value.dtype())
         {
@@ -539,14 +574,16 @@ impl SparseData {
                     .map(|&v| v.try_into().vortex_expect("indices must fit in u32"))
                     .collect(),
             };
-            let chunk_offsets = patch_chunk_offsets(&non_null_indices, array.len(), ctx)?;
+            let chunk_offsets = with_chunk_offsets
+                .then(|| patch_chunk_offsets(&non_null_indices, array.len(), ctx))
+                .transpose()?;
 
             return Sparse::try_new_with_chunk_offsets(
                 non_null_indices.into_array(),
                 non_null_values,
                 array.len(),
                 Scalar::null(array.dtype().clone()),
-                Some(chunk_offsets),
+                chunk_offsets,
                 ctx,
             )
             .map(IntoArray::into_array);
@@ -589,13 +626,15 @@ impl SparseData {
             Mask::Values(values) => values.indices().iter().map(|v| *v as u64).collect(),
         };
 
-        let chunk_offsets = patch_chunk_offsets(&indices, array.len(), ctx)?;
+        let chunk_offsets = with_chunk_offsets
+            .then(|| patch_chunk_offsets(&indices, array.len(), ctx))
+            .transpose()?;
         Sparse::try_new_with_chunk_offsets(
             indices.into_array(),
             non_top_values,
             array.len(),
             fill,
-            Some(chunk_offsets),
+            chunk_offsets,
             ctx,
         )
         .map(IntoArray::into_array)
@@ -1051,7 +1090,8 @@ mod test {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array = with_outliers(len, outliers);
-        let encoded = Sparse::encode(&array, Some(Scalar::from(7i32)), &mut ctx)?;
+        let encoded =
+            Sparse::encode_with_chunk_offsets(&array, Some(Scalar::from(7i32)), &mut ctx)?;
         assert_eq!(chunk_offsets(&encoded)?, expected);
         assert_arrays_eq!(encoded, array, &mut ctx);
         Ok(())
@@ -1064,7 +1104,7 @@ mod test {
             (0..3000).map(|row| [5, 1500, 1600, 2999].contains(&row).then_some(row)),
         )
         .into_array();
-        let encoded = Sparse::encode(&array, None, &mut ctx)?;
+        let encoded = Sparse::encode_with_chunk_offsets(&array, None, &mut ctx)?;
         assert_eq!(chunk_offsets(&encoded)?, [0, 1, 3]);
         assert_arrays_eq!(encoded, array, &mut ctx);
         Ok(())
@@ -1083,7 +1123,8 @@ mod test {
         // Slicing and single-value lookups both use the chunk offsets to find patches.
         let mut ctx = SESSION.create_execution_ctx();
         let array = with_outliers(3000, &[5, 1023, 1024, 1500, 1600, 2999]);
-        let encoded = Sparse::encode(&array, Some(Scalar::from(7i32)), &mut ctx)?;
+        let encoded =
+            Sparse::encode_with_chunk_offsets(&array, Some(Scalar::from(7i32)), &mut ctx)?;
         let sliced = encoded.slice(range.clone())?;
         let expected = array.slice(range)?;
         assert_arrays_eq!(sliced, expected, &mut ctx);
@@ -1096,6 +1137,22 @@ mod test {
         Ok(())
     }
 
+    /// Serializes and decodes `array`, returning the wire ID of its root.
+    fn serde_roundtrip(array: &ArrayRef) -> VortexResult<(ArrayId, ArrayRef)> {
+        let context = ArrayContext::empty();
+        let serialized = array.serialize(&context, &SESSION, &SerializeOptions::default())?;
+        let mut bytes = ByteBufferMut::empty();
+        for buffer in serialized {
+            bytes.extend_from_slice(buffer.as_ref());
+        }
+        let serialized = SerializedArray::try_from(bytes.freeze())?;
+        let ids = context.to_ids();
+        let serialized_id = ids[usize::from(serialized.encoding_id())];
+        let decoded =
+            serialized.decode(array.dtype(), array.len(), &ReadContext::new(ids), &SESSION)?;
+        Ok((serialized_id, decoded))
+    }
+
     #[rstest]
     #[case::unsliced(0..3000)]
     #[case::sliced_past_a_patch_mid_chunk(1550..3000)]
@@ -1104,28 +1161,33 @@ mod test {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array = with_outliers(3000, &[5, 1500, 1600, 2999]);
-        let encoded = Sparse::encode(&array, Some(Scalar::from(7i32)), &mut ctx)?;
+        let encoded =
+            Sparse::encode_with_chunk_offsets(&array, Some(Scalar::from(7i32)), &mut ctx)?;
         // Run the slice kernel directly: a lazy slice would serialize as a different encoding.
         let encoded =
             <Sparse as SliceKernel>::slice(encoded.as_::<Sparse>(), range.clone(), &mut ctx)?
                 .vortex_expect("sparse slice kernel always returns an array");
         let expected_offsets = chunk_offsets(&encoded)?;
 
-        let context = ArrayContext::empty();
-        let serialized = encoded.serialize(&context, &SESSION, &SerializeOptions::default())?;
-        let mut bytes = ByteBufferMut::empty();
-        for buffer in serialized {
-            bytes.extend_from_slice(buffer.as_ref());
-        }
-        let decoded = SerializedArray::try_from(bytes.freeze())?.decode(
-            encoded.dtype(),
-            encoded.len(),
-            &ReadContext::new(context.to_ids()),
-            &SESSION,
-        )?;
+        let (serialized_id, decoded) = serde_roundtrip(&encoded)?;
 
+        assert_eq!(serialized_id, sparse_v2_id());
         assert_eq!(chunk_offsets(&decoded)?, expected_offsets);
         assert_arrays_eq!(decoded, array.slice(range)?, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_serde_without_chunk_offsets_writes_v1() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = with_outliers(3000, &[5, 1500, 1600, 2999]);
+        let encoded = Sparse::encode(&array, Some(Scalar::from(7i32)), &mut ctx)?;
+
+        let (serialized_id, decoded) = serde_roundtrip(&encoded)?;
+
+        assert_eq!(serialized_id, sparse_v1_id());
+        assert!(decoded.as_::<Sparse>().patches().chunk_offsets().is_none());
+        assert_arrays_eq!(decoded, array, &mut ctx);
         Ok(())
     }
 }

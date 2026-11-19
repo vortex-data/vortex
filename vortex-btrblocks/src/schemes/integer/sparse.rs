@@ -32,11 +32,18 @@ use crate::CompressorContext;
 use crate::GenerateStatsOptions;
 use crate::Scheme;
 use crate::SchemeExt;
-use crate::schemes::patches::compress_sparse_chunk_offsets;
+use crate::schemes::sparse_chunk_offsets::ChunkOffsetsScheme;
+use crate::schemes::sparse_chunk_offsets::WithChunkOffsets;
+use crate::schemes::sparse_chunk_offsets::compress_chunk_offsets;
+use crate::schemes::sparse_chunk_offsets::encode_sparse;
+use crate::schemes::sparse_chunk_offsets::refine_sparse;
 
 /// Sparse encoding for single-value-dominated arrays.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct SparseScheme;
+
+/// The variant of [`SparseScheme`] that writes patch chunk offsets.
+static WITH_CHUNK_OFFSETS: WithChunkOffsets<SparseScheme> = WithChunkOffsets(SparseScheme);
 
 impl Scheme for SparseScheme {
     fn scheme_name(&self) -> &'static str {
@@ -57,9 +64,9 @@ impl Scheme for SparseScheme {
         }
     }
 
-    /// Children: values=0, indices=1, chunk_offsets=2.
+    /// Children: values=0, indices=1.
     fn num_children(&self) -> usize {
-        3
+        2
     }
 
     /// Sparse indices (child 1) are monotonically increasing positions with all unique values.
@@ -130,12 +137,29 @@ impl Scheme for SparseScheme {
         ))
     }
 
+    fn refine(&self, allowed: &dyn Fn(&ArrayId) -> bool) -> &dyn Scheme {
+        refine_sparse(self, &WITH_CHUNK_OFFSETS, allowed)
+    }
+
     fn compress(
         &self,
         compressor: &CascadingCompressor,
         data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        self.compress_sparse(compressor, data, compress_ctx, exec_ctx, false)
+    }
+}
+
+impl ChunkOffsetsScheme for SparseScheme {
+    fn compress_sparse(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+        with_chunk_offsets: bool,
     ) -> VortexResult<ArrayRef> {
         let len = data.array_len();
         let stats = data.integer_stats(exec_ctx);
@@ -161,13 +185,14 @@ impl Scheme for SparseScheme {
             .into_array());
         }
 
-        let sparse_encoded = Sparse::encode(
+        let sparse_encoded = encode_sparse(
             array,
             Some(Scalar::primitive_value(
                 most_frequent_value,
                 most_frequent_value.ptype(),
                 array.dtype().nullability(),
             )),
+            with_chunk_offsets,
             exec_ctx,
         )?;
 
@@ -200,12 +225,11 @@ impl Scheme for SparseScheme {
                 exec_ctx,
             )?;
 
-            let chunk_offsets = compress_sparse_chunk_offsets(
+            let chunk_offsets = compress_chunk_offsets(
                 compressor,
                 sparse.patches().chunk_offsets().as_ref(),
                 &compress_ctx,
-                self.id(),
-                2,
+                self,
                 exec_ctx,
             )?;
 

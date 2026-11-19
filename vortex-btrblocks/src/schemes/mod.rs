@@ -14,6 +14,7 @@ pub mod fixed_size_list;
 pub mod temporal;
 
 pub(crate) mod patches;
+pub(crate) mod sparse_chunk_offsets;
 
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;

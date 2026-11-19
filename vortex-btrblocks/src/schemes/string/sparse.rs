@@ -29,13 +29,21 @@ use crate::Scheme;
 use crate::SchemeExt;
 use crate::schemes::integer::IntDictScheme;
 use crate::schemes::integer::SparseScheme as IntSparseScheme;
-use crate::schemes::patches::compress_sparse_chunk_offsets;
+use crate::schemes::sparse_chunk_offsets::ChunkOffsetsScheme;
+use crate::schemes::sparse_chunk_offsets::WithChunkOffsets;
+use crate::schemes::sparse_chunk_offsets::compress_chunk_offsets;
+use crate::schemes::sparse_chunk_offsets::encode_sparse;
+use crate::schemes::sparse_chunk_offsets::refine_sparse;
 
 /// Sparse encoding for null-dominated arrays.
 ///
 /// This is the same as the integer `SparseScheme`, but we only use this for null-dominated arrays.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct NullDominatedSparseScheme;
+
+/// The variant of [`NullDominatedSparseScheme`] that writes patch chunk offsets.
+static WITH_CHUNK_OFFSETS: WithChunkOffsets<NullDominatedSparseScheme> =
+    WithChunkOffsets(NullDominatedSparseScheme);
 
 impl Scheme for NullDominatedSparseScheme {
     fn scheme_name(&self) -> &'static str {
@@ -50,9 +58,9 @@ impl Scheme for NullDominatedSparseScheme {
         vec![Sparse.id()]
     }
 
-    /// Children: indices=0, chunk_offsets=1.
+    /// Children: indices=0.
     fn num_children(&self) -> usize {
-        2
+        1
     }
 
     /// The indices of a null-dominated sparse array should not be sparse-encoded again.
@@ -100,6 +108,10 @@ impl Scheme for NullDominatedSparseScheme {
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(before as f64 / after as f64))
     }
 
+    fn refine(&self, allowed: &dyn Fn(&ArrayId) -> bool) -> &dyn Scheme {
+        refine_sparse(self, &WITH_CHUNK_OFFSETS, allowed)
+    }
+
     fn compress(
         &self,
         compressor: &CascadingCompressor,
@@ -107,8 +119,21 @@ impl Scheme for NullDominatedSparseScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        self.compress_sparse(compressor, data, compress_ctx, exec_ctx, false)
+    }
+}
+
+impl ChunkOffsetsScheme for NullDominatedSparseScheme {
+    fn compress_sparse(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+        with_chunk_offsets: bool,
+    ) -> VortexResult<ArrayRef> {
         // We pass None as we only run this pathway for NULL-dominated string arrays.
-        let sparse_encoded = Sparse::encode(data.array(), None, exec_ctx)?;
+        let sparse_encoded = encode_sparse(data.array(), None, with_chunk_offsets, exec_ctx)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             // Compress the indices only (not the values for strings).
@@ -126,12 +151,11 @@ impl Scheme for NullDominatedSparseScheme {
                 exec_ctx,
             )?;
 
-            let chunk_offsets = compress_sparse_chunk_offsets(
+            let chunk_offsets = compress_chunk_offsets(
                 compressor,
                 sparse.patches().chunk_offsets().as_ref(),
                 &compress_ctx,
-                self.id(),
-                1,
+                self,
                 exec_ctx,
             )?;
 

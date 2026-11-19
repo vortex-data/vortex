@@ -33,7 +33,10 @@ use crate::schemes::integer::IntDictScheme;
 use crate::schemes::integer::IntRLEScheme;
 use crate::schemes::integer::RunEndScheme;
 use crate::schemes::integer::SparseScheme as IntSparseScheme;
-use crate::schemes::patches::compress_sparse_chunk_offsets;
+use crate::schemes::sparse_chunk_offsets::ChunkOffsetsScheme;
+use crate::schemes::sparse_chunk_offsets::WithChunkOffsets;
+use crate::schemes::sparse_chunk_offsets::compress_chunk_offsets;
+use crate::schemes::sparse_chunk_offsets::refine_sparse;
 
 /// The smallest estimated ratio of the dense list's size to the sparse one's worth encoding for.
 const MIN_ESTIMATED_RATIO: f64 = 1.1;
@@ -41,6 +44,10 @@ const MIN_ESTIMATED_RATIO: f64 = 1.1;
 /// Sparse encoding of a fixed-size list that stores only its valid rows.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct FixedSizeListSparseScheme;
+
+/// The variant of [`FixedSizeListSparseScheme`] that writes patch chunk offsets.
+static WITH_CHUNK_OFFSETS: WithChunkOffsets<FixedSizeListSparseScheme> =
+    WithChunkOffsets(FixedSizeListSparseScheme);
 
 impl Scheme for FixedSizeListSparseScheme {
     fn scheme_name(&self) -> &'static str {
@@ -55,9 +62,9 @@ impl Scheme for FixedSizeListSparseScheme {
         vec![Sparse.id()]
     }
 
-    /// Children: values=0, indices=1, chunk_offsets=2.
+    /// Children: values=0, indices=1.
     fn num_children(&self) -> usize {
-        3
+        2
     }
 
     /// Sparse indices (child 1) are monotonically increasing positions with all unique values.
@@ -111,12 +118,29 @@ impl Scheme for FixedSizeListSparseScheme {
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(ratio))
     }
 
+    fn refine(&self, allowed: &dyn Fn(&ArrayId) -> bool) -> &dyn Scheme {
+        refine_sparse(self, &WITH_CHUNK_OFFSETS, allowed)
+    }
+
     fn compress(
         &self,
         compressor: &CascadingCompressor,
         data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        self.compress_sparse(compressor, data, compress_ctx, exec_ctx, false)
+    }
+}
+
+impl ChunkOffsetsScheme for FixedSizeListSparseScheme {
+    fn compress_sparse(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+        with_chunk_offsets: bool,
     ) -> VortexResult<ArrayRef> {
         let array = data.array();
         let mask = validity_mask(array, exec_ctx)?;
@@ -133,7 +157,9 @@ impl Scheme for FixedSizeListSparseScheme {
             .iter()
             .map(|&idx| idx as u64)
             .collect::<Buffer<u64>>();
-        let chunk_offsets = patch_chunk_offsets(&indices, array.len(), exec_ctx)?;
+        let chunk_offsets = with_chunk_offsets
+            .then(|| patch_chunk_offsets(&indices, array.len(), exec_ctx))
+            .transpose()?;
         let indices = PrimitiveArray::new(indices, Validity::NonNullable).narrow(exec_ctx)?;
         let compressed_indices = compressor.compress_child(
             &indices.into_array(),
@@ -143,12 +169,11 @@ impl Scheme for FixedSizeListSparseScheme {
             exec_ctx,
         )?;
 
-        let chunk_offsets = compress_sparse_chunk_offsets(
+        let chunk_offsets = compress_chunk_offsets(
             compressor,
-            Some(&chunk_offsets),
+            chunk_offsets.as_ref(),
             &compress_ctx,
-            self.id(),
-            2,
+            self,
             exec_ctx,
         )?;
 

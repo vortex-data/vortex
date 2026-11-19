@@ -32,7 +32,11 @@ use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
-use crate::schemes::patches::compress_sparse_chunk_offsets;
+use crate::schemes::sparse_chunk_offsets::ChunkOffsetsScheme;
+use crate::schemes::sparse_chunk_offsets::WithChunkOffsets;
+use crate::schemes::sparse_chunk_offsets::compress_chunk_offsets;
+use crate::schemes::sparse_chunk_offsets::encode_sparse;
+use crate::schemes::sparse_chunk_offsets::refine_sparse;
 
 /// Run-end encoding for boolean arrays with long runs.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -93,6 +97,9 @@ impl Scheme for BoolRunEndScheme {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct BoolSparseScheme;
 
+/// The variant of [`BoolSparseScheme`] that writes patch chunk offsets.
+static WITH_CHUNK_OFFSETS: WithChunkOffsets<BoolSparseScheme> = WithChunkOffsets(BoolSparseScheme);
+
 impl Scheme for BoolSparseScheme {
     fn scheme_name(&self) -> &'static str {
         "vortex.bool.sparse"
@@ -106,9 +113,9 @@ impl Scheme for BoolSparseScheme {
         vec![Sparse.id()]
     }
 
-    /// Children: indices=0, chunk_offsets=1.
+    /// Children: indices=0.
     fn num_children(&self) -> usize {
-        2
+        1
     }
 
     fn expected_compression_ratio(
@@ -126,6 +133,10 @@ impl Scheme for BoolSparseScheme {
         ))
     }
 
+    fn refine(&self, allowed: &dyn Fn(&ArrayId) -> bool) -> &dyn Scheme {
+        refine_sparse(self, &WITH_CHUNK_OFFSETS, allowed)
+    }
+
     fn compress(
         &self,
         compressor: &CascadingCompressor,
@@ -133,9 +144,27 @@ impl Scheme for BoolSparseScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        self.compress_sparse(compressor, data, compress_ctx, exec_ctx, false)
+    }
+}
+
+impl ChunkOffsetsScheme for BoolSparseScheme {
+    fn compress_sparse(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+        with_chunk_offsets: bool,
+    ) -> VortexResult<ArrayRef> {
         let stats = data.bool_stats(exec_ctx);
         let fill = stats.true_count() > stats.value_count() / 2;
-        let encoded = Sparse::encode(data.array(), Some(Scalar::from(fill)), exec_ctx)?;
+        let encoded = encode_sparse(
+            data.array(),
+            Some(Scalar::from(fill)),
+            with_chunk_offsets,
+            exec_ctx,
+        )?;
         let Some(sparse) = encoded.as_opt::<Sparse>() else {
             return Ok(encoded);
         };
@@ -152,12 +181,11 @@ impl Scheme for BoolSparseScheme {
             0,
             exec_ctx,
         )?;
-        let chunk_offsets = compress_sparse_chunk_offsets(
+        let chunk_offsets = compress_chunk_offsets(
             compressor,
             sparse.patches().chunk_offsets().as_ref(),
             &compress_ctx,
-            self.id(),
-            1,
+            self,
             exec_ctx,
         )?;
         Sparse::try_new_with_chunk_offsets(

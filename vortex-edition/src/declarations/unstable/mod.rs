@@ -34,6 +34,7 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[
         EditionMember::array(&"fastlanes.delta"),
         EditionMember::array(&"vortex.decimal_byte_parts.v2"),
+        EditionMember::array(&"vortex.sparse.v2"),
         EditionMember::array(&"vortex.widen"),
     ],
 };
