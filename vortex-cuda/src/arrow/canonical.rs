@@ -9,6 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use futures::future::join;
+use futures::future::join_all;
 use tracing::error;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
@@ -51,6 +52,7 @@ use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::encodings::fsst::FSST;
+use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
@@ -1253,9 +1255,51 @@ async fn export_struct(
         dictionary: None,
     };
 
-    for field in fields.iter() {
-        let (arrow_field, _) = export_array(field.clone(), ctx).await?;
-        pending.children.push(arrow_field);
+    // Export the fields concurrently, each on its own stream, so that while one field waits for
+    // a readback (e.g. a string total that sizes its output) the others keep the GPU busy.
+    let mut field_ctxs = fields
+        .iter()
+        .map(|_| ctx.fork())
+        .collect::<VortexResult<Vec<_>>>()?;
+    let exports = join_all(fields.iter().zip(field_ctxs.iter_mut()).map(
+        |(field, field_ctx)| async move {
+            let (arrow_field, _) = export_array(field.clone(), field_ctx).await?;
+            // Release the field if a sibling fails or the join is cancelled.
+            let exported = PendingArrowChildren {
+                children: vec![arrow_field],
+                dictionary: None,
+            };
+            let done = field_ctx
+                .stream()
+                .record_event(None)
+                .map_err(|err| vortex_err!("Failed to record CUDA field export event: {err}"));
+            Ok::<_, VortexError>((exported, done))
+        },
+    ))
+    .await;
+
+    // Keep every exported field for release before reporting the first error.
+    let mut first_error = None;
+    let mut field_events = Vec::with_capacity(fields.len());
+    for export in exports {
+        match export {
+            Ok((mut exported, done)) => {
+                pending.children.append(&mut exported.children);
+                field_events.push(done);
+            }
+            Err(err) => {
+                first_error.get_or_insert(err);
+            }
+        }
+    }
+    if let Some(err) = first_error {
+        return Err(err);
+    }
+    // The struct's sync event, recorded on this stream, must cover every field's stream.
+    for done in field_events {
+        ctx.stream()
+            .wait(&done?)
+            .map_err(|err| vortex_err!("Failed to wait for CUDA field export: {err}"))?;
     }
 
     let mut private_data =
