@@ -258,18 +258,22 @@ def test_polars_fill_null_string_literal(tmp_path):
     assert actual["id"].to_list() == [1]
 
 
-def test_datetime_predicate_pushdown(tmp_path):
+@pytest.mark.parametrize("unit", ["ms", "us"])
+@pytest.mark.parametrize("zone", ["UTC", "Europe/Amsterdam"])
+def test_datetime_predicate_pushdown(tmp_path, unit, zone):
     table = pa.table(
         {
             "id": [0, 1, 2],
             "value": pa.array(
-                [datetime(2026, 9, day, tzinfo=UTC) for day in [16, 17, 18]],
-                type=pa.timestamp("us", tz="UTC"),
+                [datetime(2026, 9, day, tzinfo=ZoneInfo(zone)) for day in [16, 17, 18]],
+                type=pa.timestamp(unit, tz=zone),
             ),
         }
     )
     array = vx.array(table)
-    predicate = pl.col("value") >= datetime(2026, 9, 17, tzinfo=UTC)
+    # Polars 1.x serializes this literal as a cast to a naive datetime followed by
+    # `replace_time_zone`, and Polars 2.x as a plain literal.
+    predicate = pl.col("value") >= pl.lit(datetime(2026, 9, 17, tzinfo=ZoneInfo(zone)), dtype=pl.Datetime(unit, zone))
     pushed, residual = decompose_predicate(predicate, array)
     assert pushed is not None
     assert residual is None

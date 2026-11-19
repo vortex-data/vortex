@@ -164,6 +164,8 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         return ve.zip_(*[_polars_to_vortex(node[k]) for k in ("predicate", "truthy", "falsy")])
     if "Column" in expr:
         return ve.column(expr["Column"])
+    if "Cast" in expr:
+        return _cast_datetime_literal(expr["Cast"])
 
     # See https://github.com/pola-rs/polars/pull/21849
     if "Scalar" in expr:
@@ -349,6 +351,29 @@ def _ipc_values(raw: list[int]) -> pa.Array[pa.Scalar[Any]]:
 
 def _datetime_literal(data: list[Any]) -> ve.Expr:
     value, unit, tz = data
+    return _temporal_literal(value, _datetime_type(unit, tz))
+
+
+def _cast_datetime_literal(node: dict[str, Any]) -> ve.Expr:
+    """Fold a Polars cast of a datetime literal into the literal.
+
+    Polars 1.x serializes a time zone aware datetime literal as its wall-clock time labelled UTC,
+    cast to a naive datetime, and then given its time zone with ``replace_time_zone``. Vortex does
+    not cast between temporal dtypes, so the cast is applied to the literal here. Like Polars,
+    Arrow changes the time zone without changing the stored value. Unlike Polars, it rejects a
+    change of unit that loses precision, which leaves that predicate to Polars.
+    """
+    try:
+        value, unit, tz = node["expr"]["Literal"]["Scalar"]["Datetime"]
+        target_unit, target_tz = node["dtype"]["Literal"]["Datetime"]
+    except (KeyError, TypeError, ValueError) as e:
+        raise NotImplementedError(f"Unsupported Polars cast: {node}") from e
+
+    array = pa.array([value], type=_datetime_type(unit, tz)).cast(_datetime_type(target_unit, target_tz))
+    return _arrow_literal(array)
+
+
+def _datetime_type(unit: str, tz: str | dict[str, str] | None) -> pa.TimestampType:
     units: dict[str, Literal["s", "ms", "us", "ns"]] = {
         "Nanoseconds": "ns",
         "Microseconds": "us",
@@ -359,9 +384,14 @@ def _datetime_literal(data: list[Any]) -> ve.Expr:
         raise NotImplementedError(f"Unsupported Polars date time unit: {unit}")
     if isinstance(tz, dict):
         tz = tz["inner"]
-    return _temporal_literal(value, pa.timestamp(units[unit], tz=tz))
+    return pa.timestamp(units[unit], tz=tz)
 
 
 def _temporal_literal(value: int | None, arrow_type: pa.DataType) -> ve.Expr:
-    array = Array.from_arrow(pa.array([value], type=arrow_type))
-    return ve.literal(array.dtype, array.scalar_at(0))
+    return _arrow_literal(pa.array([value], type=arrow_type))
+
+
+def _arrow_literal(array: pa.Array[pa.Scalar[Any]]) -> ve.Expr:
+    """A Vortex literal of the one value in ``array``."""
+    vortex_array = Array.from_arrow(array)
+    return ve.literal(vortex_array.dtype, vortex_array.scalar_at(0))
