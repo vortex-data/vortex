@@ -78,7 +78,6 @@ use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
 
-use arrow_schema::Field;
 use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use datafusion_common::ColumnStatistics;
@@ -118,7 +117,6 @@ use futures::stream;
 use futures::stream::BoxStream;
 use parking_lot::Mutex;
 use tokio::sync::OnceCell;
-use vortex::array::ArrayRef;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::dtype::Nullability;
@@ -132,12 +130,12 @@ use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::expr::stats::Precision;
 use vortex::expr::transform::replace;
-use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::DataSourceRef;
 use vortex::scan::DataSourceScanRef;
 use vortex::scan::ScanRequest;
 use vortex::scan::pool::ScanPoolRef;
 use vortex::session::VortexSession;
+use vortex_arrow::ArrowArrayStreamExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -147,7 +145,6 @@ use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::schema::calculate_physical_schema;
 use crate::convert::stats::stats_set_to_df;
-use crate::convert::to_record_batch;
 
 /// Builder for [`VortexDataSource`].
 ///
@@ -521,7 +518,10 @@ impl VortexDataSource {
         } else {
             let data_source = Arc::clone(&self.data_source);
             let request = self.scan_request();
-            let arrays = stream::once(async move {
+            let session = self.session.clone();
+            let schema = Arc::clone(&self.projected_schema);
+            let concurrency = self.conversion_concurrency();
+            let batches = stream::once(async move {
                 let work = execution
                     .work
                     .get_or_init(|| execution.start(data_source, request))
@@ -540,13 +540,13 @@ impl VortexDataSource {
                 };
                 // Output partitions beyond the scan's pieces have nothing to read.
                 VortexResult::Ok(match worker {
-                    Some(worker) => worker.left_stream(),
-                    None => stream::empty().right_stream(),
+                    Some(worker) => worker.to_arrow(&session, Some(schema), concurrency),
+                    None => stream::empty().boxed(),
                 })
             })
             .try_flatten()
             .boxed();
-            self.batch_stream(arrays, partition, metrics.clone())?
+            self.batch_stream(batches, partition)?
         };
         Ok(Box::pin(OutputPartitionStream {
             schema: Arc::clone(&self.leftover_schema),
@@ -555,24 +555,23 @@ impl VortexDataSource {
         }))
     }
 
-    fn batch_stream(
-        &self,
-        arrays: BoxStream<'static, VortexResult<ArrayRef>>,
-        partition: usize,
-        metrics: BaselineMetrics,
-    ) -> DFResult<SendableRecordBatchStream> {
-        let projected_schema = Arc::clone(&self.projected_schema);
-        let projected_target_field = Arc::new(Field::new_struct(
-            "",
-            projected_schema.fields().clone(),
-            false,
-        ));
-        let session = self.session.clone();
-        let conversion_concurrency = if self.output_partition_count() == 1 {
+    /// How many arrays each output partition converts to Arrow at once: one when several
+    /// partitions already convert in parallel, or the target parallelism for a single one.
+    fn conversion_concurrency(&self) -> NonZeroUsize {
+        let concurrency = if self.output_partition_count() == 1 {
             self.target_parallelism
         } else {
             1
         };
+        NonZeroUsize::new(concurrency).unwrap_or(NonZeroUsize::MIN)
+    }
+
+    fn batch_stream(
+        &self,
+        batches: BoxStream<'static, VortexResult<RecordBatch>>,
+        partition: usize,
+    ) -> DFResult<SendableRecordBatchStream> {
+        let projected_schema = Arc::clone(&self.projected_schema);
         let limit = self.limit;
 
         // Pre-build the leftover projector (if any) so we can apply it after batch conversion.
@@ -582,19 +581,8 @@ impl VortexDataSource {
             .map(|proj| proj.make_projector(&self.projected_schema))
             .transpose()?;
 
-        let handle = session.handle();
-        let stream = arrays
-            .map(move |result| {
-                let session = session.clone();
-                let target_field = Arc::clone(&projected_target_field);
-                let metrics = metrics.intermediate();
-                handle.spawn_cpu(move || {
-                    let _timer = metrics.elapsed_compute().timer();
-                    to_record_batch(result?, &target_field, &session)
-                })
-            })
-            .buffered(conversion_concurrency)
-            .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))));
+        let stream =
+            batches.map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))));
 
         // With one output partition DataFusion drops its own limit operator once `with_fetch`
         // accepts the limit, so the fetch must be exact here. With several, the fetch bounds each
@@ -1014,6 +1002,7 @@ mod tests {
     use arrow_array::cast::AsArray;
     use arrow_array::types::Int32Type;
     use arrow_schema::DataType;
+    use arrow_schema::Field;
     use async_trait::async_trait;
     use datafusion::prelude::SessionContext;
     use datafusion_datasource::source::DataSourceExec;
