@@ -7,6 +7,7 @@ pub mod layout;
 mod limit;
 pub mod metrics;
 pub mod multi;
+mod pool;
 pub mod repeated_scan;
 pub mod scan_builder;
 pub mod split_by;

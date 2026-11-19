@@ -13,6 +13,7 @@ use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 
+use crate::DataSourceScanRef;
 use crate::PartitionStream;
 
 /// A shared reference to a [`ScanPool`].
@@ -32,17 +33,20 @@ pub trait ScanPool: 'static + Send + Sync {
     fn worker(self: Arc<Self>) -> SendableArrayStream;
 }
 
-/// A pool whose workers take partitions one at a time from a shared partition stream.
-pub(crate) struct PartitionPool {
+/// A pool whose workers take partitions one at a time from a scan's shared partition stream.
+///
+/// This is the default [`open`](crate::DataSourceScan::open) of every scan.
+pub struct PartitionPool {
     dtype: DType,
     partitions: Mutex<PartitionStream>,
 }
 
 impl PartitionPool {
-    pub(crate) fn new(dtype: DType, partitions: PartitionStream) -> Self {
+    /// Opens a pool over the partitions of `scan`.
+    pub fn new(scan: DataSourceScanRef) -> Self {
         Self {
-            dtype,
-            partitions: Mutex::new(partitions),
+            dtype: scan.dtype().clone(),
+            partitions: Mutex::new(scan.partitions()),
         }
     }
 }
