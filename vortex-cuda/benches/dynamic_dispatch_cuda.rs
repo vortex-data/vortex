@@ -265,15 +265,30 @@ fn bench_for_bitpacked(c: &mut Criterion) {
 // ---------------------------------------------------------------------------
 // Benchmark: Dict(codes=BitPacked, values=Primitive)
 // ---------------------------------------------------------------------------
+
+/// Every block of the fused kernel decodes the whole dictionary into shared memory, so larger
+/// dictionaries measure the cost of input stages relative to the output.
 fn bench_dict_bp_codes(c: &mut Criterion) {
+    bench_dict_bp_codes_with::<u32>(c, 256, 8, "cuda/dict_256vals_bp8bw_codes/dispatch_u32");
+    bench_dict_bp_codes_with::<u32>(c, 1024, 10, "cuda/dict_1024vals_bp10bw_codes/dispatch_u32");
+    bench_dict_bp_codes_with::<u32>(c, 4096, 12, "cuda/dict_4096vals_bp12bw_codes/dispatch_u32");
+    bench_dict_bp_codes_with::<u64>(c, 4096, 12, "cuda/dict_4096vals_bp12bw_codes/dispatch_u64");
+}
+
+fn bench_dict_bp_codes_with<T: DeviceRepr + NativePType + From<u32>>(
+    c: &mut Criterion,
+    dict_size: usize,
+    dict_bit_width: u8,
+    name: &str,
+) {
     let mut group = c.benchmark_group("cuda");
 
-    let dict_size: usize = 256;
-    let dict_bit_width: u8 = 8;
-    let dict_values: Vec<u32> = (0..dict_size as u32).map(|i| i * 1000 + 42).collect();
+    let dict_values: Vec<T> = (0..dict_size as u32)
+        .map(|i| <T as From<u32>>::from(i * 1000 + 42))
+        .collect();
 
     for (len, len_str) in BENCH_SIZES {
-        group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
+        group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
         let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
@@ -284,24 +299,20 @@ fn bench_dict_bp_codes(c: &mut Criterion) {
         let dict = DictArray::new(codes_bp.into_array(), values_prim.into_array());
         let array = dict.into_array();
 
-        group.bench_with_input(
-            BenchmarkId::new("cuda/dict_256vals_bp8bw_codes/dispatch_u32", len_str),
-            len,
-            |b, &n| {
-                let mut cuda_ctx =
-                    CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
+        group.bench_with_input(BenchmarkId::new(name, len_str), len, |b, &n| {
+            let mut cuda_ctx =
+                CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
 
-                let mut bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+            let mut bench_runner = BenchRunner::<T>::new(&array, n, &mut cuda_ctx);
 
-                b.iter_custom(|iters| {
-                    let mut total_time = Duration::ZERO;
-                    for _ in 0..iters {
-                        total_time += bench_runner.run(&mut cuda_ctx);
-                    }
-                    total_time
-                });
-            },
-        );
+            b.iter_custom(|iters| {
+                let mut total_time = Duration::ZERO;
+                for _ in 0..iters {
+                    total_time += bench_runner.run(&mut cuda_ctx);
+                }
+                total_time
+            });
+        });
     }
 
     group.finish();
@@ -310,10 +321,15 @@ fn bench_dict_bp_codes(c: &mut Criterion) {
 // ---------------------------------------------------------------------------
 // Benchmark: RunEnd(ends=Prim, values=Prim)
 // ---------------------------------------------------------------------------
-fn bench_runend(c: &mut Criterion) {
-    let mut group = c.benchmark_group("cuda");
 
-    let num_runs: usize = 100;
+/// Every block of the fused kernel decodes all run ends and values into shared memory.
+fn bench_runend(c: &mut Criterion) {
+    bench_runend_with(c, 100, "cuda/runend_100runs/dispatch_u32");
+    bench_runend_with(c, 1024, "cuda/runend_1024runs/dispatch_u32");
+}
+
+fn bench_runend_with(c: &mut Criterion, num_runs: usize, name: &str) {
+    let mut group = c.benchmark_group("cuda");
 
     for (len, len_str) in BENCH_SIZES {
         group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
@@ -328,24 +344,20 @@ fn bench_runend(c: &mut Criterion) {
         let re = RunEnd::new(ends_arr, values_arr, &mut ctx);
         let array = re.into_array();
 
-        group.bench_with_input(
-            BenchmarkId::new("cuda/runend_100runs/dispatch_u32", len_str),
-            len,
-            |b, &n| {
-                let mut cuda_ctx =
-                    CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
+        group.bench_with_input(BenchmarkId::new(name, len_str), len, |b, &n| {
+            let mut cuda_ctx =
+                CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
 
-                let mut bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+            let mut bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
-                b.iter_custom(|iters| {
-                    let mut total_time = Duration::ZERO;
-                    for _ in 0..iters {
-                        total_time += bench_runner.run(&mut cuda_ctx);
-                    }
-                    total_time
-                });
-            },
-        );
+            b.iter_custom(|iters| {
+                let mut total_time = Duration::ZERO;
+                for _ in 0..iters {
+                    total_time += bench_runner.run(&mut cuda_ctx);
+                }
+                total_time
+            });
+        });
     }
 
     group.finish();
