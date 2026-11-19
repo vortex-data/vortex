@@ -36,7 +36,7 @@ jobs:
           - suite: tests
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-large/volume=200gb/image=ubuntu26-full-x64-pre-v2/tag=rust-coverage-suite-{1}', github.run_id, matrix.suite)
+          && format('runs-on={0}/runner=amd64-large/volume=200gb/image=ubuntu26-full-x64-pre-v2/tag=rust-coverage-suite-{1}', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'), matrix.suite)
           || 'ubuntu-latest' }}
     env:
       RUSTFLAGS: "-Cinstrument-coverage -A warnings"
@@ -113,7 +113,7 @@ jobs:
       id-token: write
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=cxx-coverage', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=cxx-coverage', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -158,7 +158,7 @@ jobs:
     name: "Rust tests (${{ matrix.sanitizer }})"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-test-sanitizer', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-test-sanitizer', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:
@@ -238,7 +238,7 @@ jobs:
       RUST_LIB_BACKTRACE: 0
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/tag=rust-ffi-test-sanitizer', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/tag=rust-ffi-test-sanitizer', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -287,7 +287,7 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/tag=rust-miri', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/tag=rust-miri', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:
