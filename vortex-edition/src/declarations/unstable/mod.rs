@@ -31,5 +31,8 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         immutable: false,
         min_library_version: None,
     },
-    added: &[EditionMember::array(&"fastlanes.delta")],
+    added: &[
+        EditionMember::array(&"fastlanes.delta"),
+        EditionMember::layout(&"vortex.ext"),
+    ],
 };

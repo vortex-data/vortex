@@ -3,6 +3,7 @@
 
 use std::any::Any;
 
+use vortex_array::dtype::extension::ExtId;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::ArcSwapMap;
@@ -18,6 +19,7 @@ use crate::LayoutPluginRef;
 use crate::LayoutSerialization;
 use crate::layouts::chunked::Chunked;
 use crate::layouts::dict::Dict;
+use crate::layouts::extension::Extension;
 use crate::layouts::flat::Flat;
 use crate::layouts::indexed::Indexed;
 use crate::layouts::list::List;
@@ -35,6 +37,9 @@ pub struct LayoutSession {
     registry: LayoutRegistry,
     /// Serializers keyed by the in-memory layout ID.
     serializers: LayoutRegistry,
+    /// The extension types opted into the extension layout, see
+    /// [`decompose_extension`](Self::decompose_extension).
+    decomposed_extensions: ArcSwapMap<ExtId, ()>,
 }
 
 impl LayoutSession {
@@ -65,6 +70,25 @@ impl LayoutSession {
     fn serializer(&self, id: &LayoutId) -> Option<LayoutPluginRef> {
         self.serializers.get(id)
     }
+
+    /// Opts the extension type `id` into the experimental
+    /// [extension layout](crate::layouts::extension).
+    ///
+    /// The default write strategy of `vortex-file` writes a column of an opted-in type as an
+    /// extension layout over its decomposed storage, when the enabled editions include that layout.
+    /// It writes columns of every other extension type as leaves, so their statistics are computed
+    /// over the extension values. A type opts in when readers query its storage fields, rather
+    /// than its values.
+    pub fn decompose_extension(&self, id: ExtId) {
+        self.decomposed_extensions.insert(id, ());
+    }
+
+    /// Returns the extension types opted into the extension layout with
+    /// [`decompose_extension`](Self::decompose_extension).
+    pub fn decomposed_extensions(&self) -> Vec<ExtId> {
+        self.decomposed_extensions
+            .read(|extensions| extensions.keys().copied().collect())
+    }
 }
 
 impl Default for LayoutSession {
@@ -72,6 +96,7 @@ impl Default for LayoutSession {
         let this = Self {
             registry: LayoutRegistry::default(),
             serializers: LayoutRegistry::default(),
+            decomposed_extensions: ArcSwapMap::default(),
         };
 
         // Register the built-in layout encodings.
@@ -83,6 +108,7 @@ impl Default for LayoutSession {
         this.register(&Dict as &dyn LayoutPlugin);
         this.register(&List as &dyn LayoutPlugin);
         this.register(&Indexed as &dyn LayoutPlugin);
+        this.register(&Extension as &dyn LayoutPlugin);
         this
     }
 }

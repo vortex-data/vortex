@@ -15,7 +15,9 @@ immutable = false
 arrays = [
     "fastlanes.delta",
 ]
-layouts = []
+layouts = [
+    "vortex.ext",
+]
 dtypes = []
 aggregates = []
 
@@ -25,6 +27,8 @@ aggregates = []
 arrays = [
     "fastlanes.delta",
 ]
-layouts = []
+layouts = [
+    "vortex.ext",
+]
 dtypes = []
 aggregates = []
