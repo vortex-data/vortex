@@ -501,7 +501,7 @@ fn embedding_runs(bencher: Bencher, dimension: usize) {
 
 // The same runs appended to a builder through a lazy take, as an Arrow export of a fixed-size-list
 // take does.
-#[divan::bench(args = [768, 1024, 1536])]
+#[divan::bench(args = [1024])]
 fn embedding_runs_append(bencher: Bencher, dimension: usize) {
     let (packed, indices) = embedding_runs_fixture(dimension, PType::U32, 16);
     mark_optimized(&packed, &SESSION).unwrap();
