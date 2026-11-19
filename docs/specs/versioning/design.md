@@ -135,8 +135,18 @@ The serializer makes that choice before the writer checks edition permissions. I
 forbidden, the flat file writer normalizes the source array and tries serialization again.
 Normalization can rewrite or execute source arrays. For example, if the target allows a dictionary
 but disallows the encoding of its value table, the writer can keep the codes and execute just the
-table. Each serializer regenerates its metadata and children from the normalized array. The write
-fails if a serializer still emits a forbidden wire ID, including one for a child it synthesizes.
+table.
+
+The serializer's child list describes the wire tree. For example, `DecimalByteParts` v1 can store
+a narrow integer child directly and record its type in metadata. In memory, that child can be a
+`Sequence` under a `Widen` in the most significant part slot. The `Sequence` is a grandchild of
+`DecimalByteParts` in memory and a direct child in the proposed wire tree.
+
+If the target forbids `vortex.sequence`, normalization follows the source slots through `Widen`
+and executes the sequence at its narrow integer width. The writer rebuilds the changed
+source slots and reruns the serializer so it can generate matching metadata and children. A child
+constructed by the serializer has no source slot to rewrite. The write fails if a serializer still
+emits a forbidden wire ID.
 
 ## Write and read checks
 

@@ -5,6 +5,12 @@
 //!
 //! In-memory consumers check the encoding of each array. Writers check the wire ID chosen by
 //! each serializer, since a serializer may reuse an older wire representation.
+//!
+//! A serializer can emit a deeper source descendant as a direct wire child. Write normalization
+//! matches emitted children to source arrays by pointer identity and rebuilds changed slots along
+//! the matching paths. The serializer then runs on the rebuilt array so that its metadata, buffers,
+//! and children agree. Children constructed by the serializer have to pass the wire-ID check as
+//! emitted.
 
 use smallvec::SmallVec;
 use vortex_error::VortexError;
@@ -167,8 +173,8 @@ impl ArrayRef {
 
             let normalized_child = match projected_children {
                 Some(children) if !children.iter().any(|emitted| Self::ptr_eq(child, emitted)) => {
-                    // A plugin can expose a descendant while omitting its in-memory parent.
-                    // Walk through the parent without applying wire rules to that parent.
+                    // This child can be a wrapper that the wire format skips. Follow its slots
+                    // to find emitted descendants and rebuild the wrapper if a slot changes.
                     child.clone().normalize_slots(Some(children), target, ctx)?
                 }
                 _ => child.clone().normalize_with_execution(target, ctx)?,
