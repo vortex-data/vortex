@@ -364,12 +364,12 @@ fn restricted_write_executes_original_when_rewrite_is_forbidden(
     let decimal_id = ArrayVTable::id(&Decimal);
     let (serialized, read_ctx) = serialize_restricted(&widened, [decimal_id, allowed_id])?;
 
-    assert_eq!(
-        read_ctx.resolve(serialized.encoding_id()),
-        Some(decimal_id)
-    );
+    assert_eq!(read_ctx.resolve(serialized.encoding_id()), Some(decimal_id));
     // Executing the original expands the narrow runs first, so Widen can write the narrow leaf.
-    assert_eq!(serialized.buffer(0)?.len(), widened.len() * size_of::<i32>());
+    assert_eq!(
+        serialized.buffer(0)?.len(),
+        widened.len() * size_of::<i32>()
+    );
 
     let actual = serialized.decode(widened.dtype(), widened.len(), &read_ctx, &SESSION)?;
     assert_arrays_eq!(actual, widened, &mut SESSION.create_execution_ctx());

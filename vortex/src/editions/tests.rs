@@ -692,7 +692,8 @@ fn restricted_write_normalizes_decimal_byte_parts_stored_msp() -> VortexResult<(
 
     let parts_id = decimal_byte_parts_v1_id();
     let primitive_id = ArrayVTable::id(&Primitive);
-    let ctx = ArrayContext::empty().with_allowed_ids([parts_id, primitive_id].into_iter().collect());
+    let ctx =
+        ArrayContext::empty().with_allowed_ids([parts_id, primitive_id].into_iter().collect());
     let buffers = array.serialize_with_fallback(&ctx, &session, &SerializeOptions::default())?;
     let mut bytes = ByteBufferMut::empty();
     for buffer in buffers {

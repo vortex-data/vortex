@@ -103,8 +103,8 @@ impl ArrayParentReduceRule<RunEnd> for WidenRunEndValues {
             return Ok(None);
         }
 
-        let values = WidenArray::try_new(run_end.values().clone(), widen.dtype().clone())?
-            .into_array();
+        let values =
+            WidenArray::try_new(run_end.values().clone(), widen.dtype().clone())?.into_array();
         let slots = RunEndSlots {
             ends: run_end.ends().clone(),
             values,

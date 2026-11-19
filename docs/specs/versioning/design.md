@@ -131,12 +131,32 @@ A serializer must choose the oldest supported writable format that preserves the
 representation without recompression. A plugin can adapt metadata, buffers, or children to fit an
 older format. Formats retained only for reading, however, are not candidates for writing.
 
-The serializer makes that choice before the writer checks edition permissions. If a wire ID is
-forbidden, the flat file writer normalizes the source array and tries serialization again.
-Normalization can rewrite or execute source arrays. For example, if the target allows a dictionary
-but disallows the encoding of its value table, the writer can keep the codes and execute just the
-table. Each serializer regenerates its metadata and children from the normalized array. The write
-fails if a serializer still emits a forbidden wire ID, including one for a child it synthesizes.
+The decoder for the chosen wire ID defines the order, dtype, length, and layout of its children.
+A serializer can fill a child position with an array already nested anywhere in the input or
+build one that fits. The complete wire node must decode to the same logical array.
+
+## Write normalization
+
+Previously, the flat writer failed on a forbidden wire ID. It now retries from the source array,
+trying a rewrite before execution.
+
+For example, `Widen(Dict(...))` used to fail when an edition allowed `vortex.dict` and
+`vortex.decimal` but forbade `vortex.widen`. The retry can move `Widen` into the dictionary's value
+table and keep the codes.
+
+Older Decimal arrays could store a narrow buffer at a wider logical precision. The legacy
+`vortex.decimal` format records the buffer width separately from the logical dtype, so it can
+carry a narrow Decimal leaf's buffer and its validity in one wire node.
+
+```text
+In memory       Widen(Dict(codes, Decimal(validity)))
+After rewrite   Dict(codes, Widen(Decimal(validity)))
+On wire         vortex.dict(codes, vortex.decimal(validity))
+```
+
+If the validity needs normalization, the writer finds it by following the in-memory slots from
+`Widen` to `Decimal` to the validity array. It replaces that slot and rebuilds the arrays along the
+path. The serializer runs again because its metadata can depend on the children it writes.
 
 ## Write and read checks
 

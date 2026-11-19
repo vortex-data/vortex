@@ -1040,7 +1040,8 @@ mod tests {
         let array = PrimitiveArray::from_iter([1i32, 2, 3, 4]).into_array();
 
         SERIALIZER_CALLS.store(0, Ordering::Relaxed);
-        let buffers = array.serialize_with_fallback(&ctx, &session, &SerializeOptions::default())?;
+        let buffers =
+            array.serialize_with_fallback(&ctx, &session, &SerializeOptions::default())?;
         let serialized = read_serialized_array(buffers)?;
         assert_eq!(SERIALIZER_CALLS.load(Ordering::Relaxed), 1);
         assert_eq!(
@@ -1114,7 +1115,8 @@ mod tests {
         let struct_id = ArrayVTable::id(&Struct);
         let primitive_id = ArrayVTable::id(&Primitive);
         let ctx = restricted_context(&[struct_id, primitive_id]);
-        let buffers = array.serialize_with_fallback(&ctx, &SESSION, &SerializeOptions::default())?;
+        let buffers =
+            array.serialize_with_fallback(&ctx, &SESSION, &SerializeOptions::default())?;
         let serialized = read_serialized_array(buffers)?;
         let read_ctx = ReadContext::new(ctx.to_ids());
         assert_eq!(read_ctx.resolve(serialized.encoding_id()), Some(struct_id));
