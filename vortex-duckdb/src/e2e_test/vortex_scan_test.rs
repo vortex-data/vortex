@@ -1435,3 +1435,67 @@ fn test_vortex_scan_v2_matches_v1(#[case] query: &str) -> Result<()> {
     assert_eq!(v2?, v1);
     Ok(())
 }
+
+/// Joins two aggregates over the same file, filtered by `first` and `second`, which DuckDB may
+/// compute once when its common-subplan optimizer finds the two scans equal. Returns the query
+/// result and its plan.
+fn query_two_scans(first: &str, second: &str) -> Result<(i64, String)> {
+    let file = RUNTIME.block_on(async {
+        let names = VarBinViewArray::from_iter_str(["a", "bb", "ccc", "dddd", "eeeee"]);
+        write_single_column_vortex_file("name", names).await
+    });
+    let conn = database_connection();
+    let table = format!("'{}'", file.path().to_string_lossy());
+    let query = format!(
+        "WITH a AS (SELECT length(name) % 2 AS k, count(*) AS c FROM {table} WHERE {first} GROUP BY k), \
+         b AS (SELECT length(name) % 2 AS k, count(*) AS c FROM {table} WHERE {second} GROUP BY k) \
+         SELECT CAST(sum(a.c) * 10 + sum(b.c) AS BIGINT) FROM a JOIN b ON a.k = b.k"
+    );
+    let result = conn.query(&query)?;
+    let chunk = result.into_iter().next().unwrap();
+    let value = chunk.get_vector(0).as_slice_with_len::<i64>(1)[0];
+
+    let mut plan = String::new();
+    for mut chunk in conn.query(&format!("EXPLAIN {query}"))? {
+        let len = chunk.len().as_();
+        let vector = chunk.get_vector_mut(1);
+        for value in unsafe { vector.as_slice_mut::<duckdb_string_t>(len) } {
+            plan.push_str(&String::from_duckdb_value(value));
+        }
+    }
+    Ok((value, plan))
+}
+
+// Vortex evaluates these filters itself, so they live only in its bind data, which an equal
+// signature of the two scans would ignore.
+#[rstest]
+#[case::like(
+    "name LIKE '%b%' OR name LIKE '%c%' OR name LIKE '%d%' OR name LIKE '%e%'",
+    "name LIKE '%d%' OR name LIKE '%e%'"
+)]
+#[case::contains(
+    "contains(name, 'b') OR contains(name, 'c') OR contains(name, 'd') OR contains(name, 'e')",
+    "contains(name, 'd') OR contains(name, 'e')"
+)]
+#[case::not_like(
+    "name NOT LIKE 'a'",
+    "name NOT LIKE '%b%' AND name NOT LIKE '%c%' AND name NOT LIKE 'a'"
+)]
+fn test_scans_with_different_pushed_filters_are_not_shared(
+    #[case] first: &str,
+    #[case] second: &str,
+) -> Result<()> {
+    let (value, _) = query_two_scans(first, second)?;
+    // The first filter keeps lengths 2..=5, two rows of each parity, the second lengths 4 and 5.
+    assert_eq!(value, 2 * 2 * 10 + 2);
+    Ok(())
+}
+
+#[test]
+fn test_equal_scans_are_shared() -> Result<()> {
+    let filter = "name NOT LIKE 'a'";
+    let (value, plan) = query_two_scans(filter, filter)?;
+    assert_eq!(value, 2 * 2 * 10 + 2 * 2);
+    assert!(plan.contains("CTE"), "equal scans were not shared:\n{plan}");
+    Ok(())
+}
