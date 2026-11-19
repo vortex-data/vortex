@@ -48,7 +48,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 use super::ExpressionConverter;
 use super::ProcessedProjection;
 use super::is_infallible;
-use super::raw_filtered_projection;
 use crate::row_index::RowIndex;
 
 /// The prefix of the names of scan columns that hold pushed-down subexpressions.
@@ -60,23 +59,16 @@ const PUSHED_PREFIX: &str = "__vortex_expr_";
 /// projection on every row that the scan returns, so the scan evaluates each converted expression
 /// whole, and the largest convertible subexpressions of the others.
 ///
-/// Returns `None` when DataFusion would evaluate a lambda over the scan output. DataFusion numbers
-/// lambda parameters after the columns of the input schema, so the caller reads the raw input
-/// columns instead, which never outnumber them.
+/// Returns `None` when DataFusion would still evaluate a lambda over the scan output, one that no
+/// subexpression evaluated in the scan contains. DataFusion numbers lambda parameters after the
+/// columns of the input schema, so the caller reads the raw input columns instead, which never
+/// outnumber them.
 pub(super) fn split_projection_partially<C: ExpressionConverter + ?Sized>(
     converter: &C,
     source_projection: &ProjectionExprs,
     converted: Vec<Option<Expression>>,
     input_schema: &Schema,
 ) -> DFResult<Option<ProcessedProjection>> {
-    let unconverted = source_projection
-        .iter()
-        .zip(&converted)
-        .filter(|(_, converted)| converted.is_none())
-        .map(|(projection, _)| &projection.expr);
-    if contains_lambda(unconverted)? {
-        return Ok(None);
-    }
     let mut scan = ScanColumns::new(converter, input_schema);
     let leftover = source_projection
         .iter()
@@ -86,6 +78,9 @@ pub(super) fn split_projection_partially<C: ExpressionConverter + ?Sized>(
             Ok(ProjectionExpr::new(expr, projection.alias.clone()))
         })
         .collect::<DFResult<Vec<_>>>()?;
+    if contains_lambda(leftover.iter().map(|projection| &projection.expr))? {
+        return Ok(None);
+    }
     Ok(Some(scan.finish(leftover.into())))
 }
 
@@ -96,20 +91,15 @@ pub(super) fn split_projection_partially<C: ExpressionConverter + ?Sized>(
 /// So the scan evaluates only infallible subexpressions of either. Returns the residual filters
 /// rewritten to read the scan output.
 ///
-/// When an expression contains a lambda, falls back to [`raw_filtered_projection`], for the reason
-/// given on [`split_projection_partially`].
-pub(crate) fn split_filtered_projection<C: ExpressionConverter + ?Sized>(
+/// When DataFusion would still evaluate a lambda over the scan output, falls back to
+/// [`ExpressionConverter::no_pushdown_filtered_projection`], for the reason given on
+/// [`split_projection_partially`].
+pub(super) fn split_filtered_projection<C: ExpressionConverter + ?Sized>(
     converter: &C,
     projection: ProjectionExprs,
     residual_filters: Vec<Arc<dyn PhysicalExpr>>,
     input_schema: &Schema,
 ) -> DFResult<(ProcessedProjection, Vec<Arc<dyn PhysicalExpr>>)> {
-    let exprs = residual_filters
-        .iter()
-        .chain(projection.iter().map(|projection| &projection.expr));
-    if contains_lambda(exprs)? {
-        return raw_filtered_projection(projection, residual_filters, input_schema);
-    }
     let mut scan = ScanColumns::new(converter, input_schema);
     let rewritten_filters = residual_filters
         .iter()
@@ -122,6 +112,16 @@ pub(crate) fn split_filtered_projection<C: ExpressionConverter + ?Sized>(
             Ok(ProjectionExpr::new(expr, projection.alias.clone()))
         })
         .collect::<DFResult<Vec<_>>>()?;
+    let exprs = rewritten_filters
+        .iter()
+        .chain(leftover.iter().map(|projection| &projection.expr));
+    if contains_lambda(exprs)? {
+        return converter.no_pushdown_filtered_projection(
+            projection,
+            residual_filters,
+            input_schema,
+        );
+    }
     Ok((scan.finish(leftover.into()), rewritten_filters))
 }
 
@@ -203,6 +203,15 @@ impl<'a, C: ExpressionConverter + ?Sized> ScanColumns<'a, C> {
             && (evaluation == Evaluation::EveryRow || is_infallible(&converted))
         {
             return self.push(expr, converted);
+        }
+        // A function that applies a lambda stays in DataFusion whole, so the caller reads the raw
+        // input columns. Its lambda reads parameters that the scan cannot supply.
+        if expr
+            .children()
+            .iter()
+            .any(|child| child.is::<df_expr::LambdaExpr>())
+        {
+            return Ok(Arc::clone(expr));
         }
         let children = expr
             .children()

@@ -72,8 +72,6 @@ use vortex_utils::parallelism::get_available_parallelism;
 use crate::VortexAccessPlan;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
-use crate::convert::exprs::raw_filtered_projection;
-use crate::convert::exprs::split_filtered_projection;
 use crate::convert::schema::calculate_physical_schema;
 use crate::convert::to_record_batch;
 use crate::metrics::PARTITION_LABEL;
@@ -439,14 +437,17 @@ impl FileOpener for VortexOpener {
                 };
                 (processed, residual_filters)
             } else if projection_pushdown {
-                split_filtered_projection(
-                    expr_converter.as_ref(),
+                expr_converter.split_filtered_projection(
                     projection,
                     residual_filters,
                     &this_file_schema,
                 )?
             } else {
-                raw_filtered_projection(projection, residual_filters, &this_file_schema)?
+                expr_converter.no_pushdown_filtered_projection(
+                    projection,
+                    residual_filters,
+                    &this_file_schema,
+                )?
             };
             let residual_filter = conjunction_opt(residual_filters);
 
@@ -903,6 +904,10 @@ mod tests {
     use rstest::rstest;
     use vortex::VortexSessionDefault;
     use vortex::buffer::Buffer;
+    use vortex::dtype::Nullability;
+    use vortex::expr::get_item;
+    use vortex::expr::pack;
+    use vortex::expr::root;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
@@ -918,6 +923,7 @@ mod tests {
     use crate::VortexSource;
     use crate::convert::exprs::DefaultExpressionConverter;
     use crate::persistent::reader::DefaultVortexReaderFactory;
+    use crate::tests::RecordingConverter;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
@@ -1337,14 +1343,10 @@ mod tests {
         Ok(())
     }
 
-    /// A residual filter and the projection after it both read nested fields from the scan output,
-    /// whether the scan evaluates the field access or DataFusion reads the whole struct.
-    #[rstest]
-    #[tokio::test]
-    async fn test_residual_filter_with_nested_projection(
-        #[values(false, true)] projection_pushdown: bool,
-        #[values(false, true)] scan_v2: bool,
-    ) -> anyhow::Result<()> {
+    /// Writes `{a: i32, s: {b: i32, c: utf8}}` and returns an opener for it whose filter
+    /// `s.b % 2 = 0` stays residual, since the default converter does not support `%`, and whose
+    /// projection is `upper(s.c) AS shout, a`.
+    async fn residual_filter_opener() -> anyhow::Result<(VortexOpener, PartitionedFile)> {
         let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let s = StructArray::try_new(
             vec![
@@ -1368,7 +1370,6 @@ mod tests {
         let size =
             write_arrow_to_vortex(Arc::clone(&store), "nested.vortex", batch.clone()).await?;
         let schema = batch.schema();
-        // The default converter does not support `%`, so the filter stays residual.
         let filter = logical2physical(&(get_field(col("s"), "b") % lit(2)).eq(lit(0)), &schema);
         let mut opener = make_opener(store, TableSchema::from(Arc::clone(&schema)), Some(filter));
         opener.projection = ProjectionExprs::from(vec![
@@ -1378,24 +1379,57 @@ mod tests {
             ),
             ProjectionExpr::new(logical2physical(&col("a"), &schema), "a"),
         ]);
+        Ok((opener, PartitionedFile::new("nested.vortex", size)))
+    }
+
+    /// The rows of [`residual_filter_opener`] that its filter keeps.
+    const RESIDUAL_FILTER_ROWS: [&str; 6] = [
+        "+-------+----+",
+        "| shout | a  |",
+        "+-------+----+",
+        "| X     | 20 |",
+        "| Z     | 40 |",
+        "+-------+----+",
+    ];
+
+    /// A residual filter and the projection after it both read nested fields from the scan output,
+    /// whether the scan evaluates the field access or DataFusion reads the whole struct.
+    #[rstest]
+    #[tokio::test]
+    async fn test_residual_filter_with_nested_projection(
+        #[values(false, true)] projection_pushdown: bool,
+        #[values(false, true)] scan_v2: bool,
+    ) -> anyhow::Result<()> {
+        let (mut opener, file) = residual_filter_opener().await?;
         opener.projection_pushdown = projection_pushdown;
         opener.scan_v2 = scan_v2;
-        let batches = opener
-            .open(PartitionedFile::new("nested.vortex", size))?
-            .await?
-            .try_collect::<Vec<_>>()
-            .await?;
-        assert_batches_eq!(
-            [
-                "+-------+----+",
-                "| shout | a  |",
-                "+-------+----+",
-                "| X     | 20 |",
-                "| Z     | 40 |",
-                "+-------+----+",
-            ],
-            &batches
+        let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+        assert_batches_eq!(RESIDUAL_FILTER_ROWS, &batches);
+        Ok(())
+    }
+
+    /// A converter that keeps projections in DataFusion keeps them there after a residual filter
+    /// too: the scan reads the raw columns that the filter and the projection read.
+    #[rstest]
+    #[tokio::test]
+    async fn test_residual_filter_follows_converter_projection_split(
+        #[values(false, true)] scan_v2: bool,
+    ) -> anyhow::Result<()> {
+        let (mut opener, file) = residual_filter_opener().await?;
+        let converter = Arc::new(RecordingConverter::without_projection_pushdown(
+            SESSION.clone(),
+        ));
+        opener.expression_converter = Arc::clone(&converter) as _;
+        opener.projection_pushdown = true;
+        opener.scan_v2 = scan_v2;
+        let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+        assert_batches_eq!(RESIDUAL_FILTER_ROWS, &batches);
+
+        let expected = pack(
+            [("a", get_item("a", root())), ("s", get_item("s", root()))],
+            Nullability::NonNullable,
         );
+        assert_eq!(*converter.scan_projections.lock(), [expected]);
         Ok(())
     }
 
