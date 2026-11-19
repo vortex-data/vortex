@@ -308,17 +308,16 @@ fn temporal_to_duckdb(temporal: TemporalMetadata) -> VortexResult<LogicalType> {
             TimeUnit::Seconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S,
             _ => vortex_bail!("Invalid TimeUnit {} for timestamp", unit),
         },
-        // TIMESTAMP_TZ's timezone is a display unit, time is stored in UTC
-        // microseconds
-        TemporalMetadata::Timestamp(unit, Some(_)) => {
-            if unit != &TimeUnit::Microseconds {
-                vortex_bail!(
-                    "Invalid TimeUnit {} for timestamp_tz, must be Microseconds",
-                    unit
-                );
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
-        }
+        // A zoned timestamp's timezone is a display unit, time is stored in UTC
+        // microseconds or nanoseconds
+        TemporalMetadata::Timestamp(unit, Some(_)) => match unit {
+            TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ_NS,
+            TimeUnit::Microseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ,
+            _ => vortex_bail!(
+                "Invalid TimeUnit {} for timestamp_tz, must be Microseconds or Nanoseconds",
+                unit
+            ),
+        },
         TemporalMetadata::Date(unit) => match unit {
             TimeUnit::Days => DUCKDB_TYPE::DUCKDB_TYPE_DATE,
             _ => vortex_bail!("Invalid TimeUnit {} for date", unit),
@@ -619,22 +618,35 @@ mod tests {
     }
 
     #[test]
-    fn test_timestamp_with_timezone() {
+    fn test_timestamp_with_timezone() -> VortexResult<()> {
         use vortex::extension::datetime::TimeUnit;
 
-        let dtype = DType::Extension(
-            Timestamp::new_with_tz(
+        let test_cases = [
+            (
+                TimeUnit::Nanoseconds,
+                cpp::DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ_NS,
+            ),
+            (
                 TimeUnit::Microseconds,
-                Some("UTC".into()),
-                Nullability::NonNullable,
-            )
-            .erased(),
-        );
+                cpp::DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ,
+            ),
+        ];
 
-        assert_eq!(
-            LogicalType::try_from(&dtype).unwrap().as_type_id(),
-            cpp::DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
-        );
+        for (time_unit, expected_type) in test_cases {
+            let dtype = DType::Extension(
+                Timestamp::new_with_tz(time_unit, Some("UTC".into()), Nullability::NonNullable)
+                    .erased(),
+            );
+            let logical_type = LogicalType::try_from(&dtype)?;
+
+            assert_eq!(logical_type.as_type_id(), expected_type);
+            assert_eq!(
+                DType::from_logical_type(&logical_type, Nullability::NonNullable)?,
+                dtype
+            );
+        }
+
+        Ok(())
     }
 
     #[test]
@@ -649,6 +661,17 @@ mod tests {
         // Invalid TIME time unit
         let dtype =
             DType::Extension(Time::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased());
+        assert!(LogicalType::try_from(&dtype).is_err());
+
+        // Invalid zoned TIMESTAMP time unit
+        let dtype = DType::Extension(
+            Timestamp::new_with_tz(
+                TimeUnit::Milliseconds,
+                Some("UTC".into()),
+                Nullability::NonNullable,
+            )
+            .erased(),
+        );
         assert!(LogicalType::try_from(&dtype).is_err());
     }
 

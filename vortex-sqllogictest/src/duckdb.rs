@@ -327,6 +327,7 @@ impl std::fmt::Display for ValueDisplayAdapter {
             | ExtractedValue::TimestampMs(_)
             | ExtractedValue::TimestampS(_)
             | ExtractedValue::TimestampTz(_)
+            | ExtractedValue::TimestampTzNs(_)
             | ExtractedValue::List(_)
             | ExtractedValue::Unsupported(_) => write!(f, "{}", self.0),
         }
