@@ -11,7 +11,6 @@ use std::sync::atomic::Ordering;
 
 #[cfg(unix)]
 use custom_labels::CURRENT_LABELSET;
-use futures::future::BoxFuture;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
@@ -24,6 +23,7 @@ use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
+use vortex::array::stream::SendableArrayStream;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -42,7 +42,6 @@ use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::proto::expr as expr_pb;
 use vortex::scalar::Scalar;
-use vortex::scan::planning::driver::Run;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::SESSION;
@@ -183,6 +182,8 @@ impl<'a> TableInitInput<'a> {
 
 pub struct GlobalState {
     pub projection: BoundExpression,
+    /// The projection before binding, for scans that bind it against each file.
+    pub projection_expr: Expression,
     pub filter: Filter,
     pub file_row_number_column_pos: Option<usize>,
     /// Whether the scan runs on the planner-driven V2 executor.
@@ -203,29 +204,21 @@ pub struct AggregateState {
 }
 assert_impl_all!(GlobalState: Send, Sync);
 
-/// A unit of scan work that one thread takes at a time.
-pub enum Split {
-    /// A V1 scan task yielding one array, or `None` if the filter removed every row.
-    V1(BoxFuture<'static, VortexResult<Option<ArrayRef>>>),
-    /// Chunks of the file's V2 scan, taken by the thread until the scan has none left.
-    V2,
-}
-
 /// field position, accumulator
 pub type Partials = Vec<(usize, Box<dyn DynAccumulator>)>;
 
 /// Per-thread scan state
 pub struct LocalState {
     pub exporter: Option<ArrayExporter>,
-    pub split: Option<Split>,
+    /// The worker of the file's pool that this thread polls, inline.
+    pub(crate) worker: Option<SendableArrayStream>,
     /// The scan state of the file that this thread scans.
     pub(crate) file: Option<Arc<FileScanState>>,
-    /// Scan states that this thread no longer uses. They are dropped outside
+    /// Scan states and workers that this thread no longer uses. They are dropped outside
     /// DuckDB's global multi-file lock; see `OpenFileReader`.
     pub(crate) retired_files: Vec<Arc<FileScanState>>,
-    /// The planning run on which this thread runs the chunks of V2 scans.
-    pub(crate) run: Run,
-    /// Chunks of a V2 batch that this thread has yet to export, in reverse order.
+    pub(crate) retired_workers: Vec<SendableArrayStream>,
+    /// Chunks of an array that this thread has yet to export, in reverse order.
     pub(crate) pending: Vec<ArrayRef>,
 
     /// Empty for non-aggregate scan
@@ -352,9 +345,11 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         "table function scan input"
     );
 
+    let projection_expr = projection.clone();
     let projection = optimize_and_bind(projection, &bind_data.dtype)?;
     Ok(GlobalState {
         projection,
+        projection_expr,
         filter,
         aggregates: bind_data.aggregates.clone(),
         has_count_star,
@@ -427,10 +422,10 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
     LocalState {
         exporter: None,
         partials,
-        split: None,
+        worker: None,
         file: None,
         retired_files: Vec::new(),
-        run: Run::new(),
+        retired_workers: Vec::new(),
         pending: Vec::new(),
         finished: false,
     }

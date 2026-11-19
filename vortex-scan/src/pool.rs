@@ -4,11 +4,15 @@
 //! Pools of work that host threads share by each polling a worker.
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use async_lock::Mutex;
 use futures::StreamExt;
 use futures::stream;
 use vortex_array::dtype::DType;
+use vortex_array::expr::stats::Precision;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
@@ -31,6 +35,20 @@ pub trait ScanPool: 'static + Send + Sync {
     /// spawns tasks of its own. Dropping a worker before it ends gives up the work it had taken,
     /// so a host drops a worker early only when it abandons the scan.
     fn worker(self: Arc<Self>) -> SendableArrayStream;
+
+    /// The fraction of the pool's work that workers have taken, from 0.0 to 1.0, for a host's
+    /// progress bar. Never blocks.
+    fn progress(&self) -> f64 {
+        0.0
+    }
+
+    /// Whether workers have taken every unit of the pool, so a new worker would return nothing.
+    ///
+    /// A host that moves threads between pools uses it to stop starting workers on a drained
+    /// pool. `false` is always a safe answer. Never blocks.
+    fn is_exhausted(&self) -> bool {
+        false
+    }
 }
 
 /// A pool whose workers take partitions one at a time from a scan's shared partition stream.
@@ -39,14 +57,25 @@ pub trait ScanPool: 'static + Send + Sync {
 pub struct PartitionPool {
     dtype: DType,
     partitions: Mutex<PartitionStream>,
+    /// The scan's partition count, if it has an upper bound.
+    partition_count: Option<usize>,
+    taken: AtomicUsize,
+    exhausted: AtomicBool,
 }
 
 impl PartitionPool {
     /// Opens a pool over the partitions of `scan`.
     pub fn new(scan: DataSourceScanRef) -> Self {
+        let partition_count = match scan.partition_count() {
+            Precision::Exact(count) | Precision::Inexact(count) => Some(count),
+            Precision::Absent => None,
+        };
         Self {
             dtype: scan.dtype().clone(),
             partitions: Mutex::new(scan.partitions()),
+            partition_count,
+            taken: AtomicUsize::new(0),
+            exhausted: AtomicBool::new(false),
         }
     }
 }
@@ -59,7 +88,11 @@ impl ScanPool for PartitionPool {
     fn worker(self: Arc<Self>) -> SendableArrayStream {
         let dtype = self.dtype.clone();
         let partitions = stream::unfold(self, |pool| async move {
-            let next = pool.partitions.lock().await.next().await?;
+            let Some(next) = pool.partitions.lock().await.next().await else {
+                pool.exhausted.store(true, Ordering::Release);
+                return None;
+            };
+            pool.taken.fetch_add(1, Ordering::Relaxed);
             Some((next, pool))
         });
         let arrays = partitions.flat_map(|partition| {
@@ -69,6 +102,22 @@ impl ScanPool for PartitionPool {
             }
         });
         ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, arrays))
+    }
+
+    fn progress(&self) -> f64 {
+        if self.exhausted.load(Ordering::Acquire) {
+            return 1.0;
+        }
+        match self.partition_count {
+            Some(count) if count > 0 => {
+                (self.taken.load(Ordering::Relaxed) as f64 / count as f64).clamp(0.0, 1.0)
+            }
+            _ => 0.0,
+        }
+    }
+
+    fn is_exhausted(&self) -> bool {
+        self.exhausted.load(Ordering::Acquire)
     }
 }
 

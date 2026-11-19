@@ -273,10 +273,6 @@ impl Shared {
         }
     }
 
-    #[expect(
-        dead_code,
-        reason = "read by ScanPool::progress, which arrives with its first host"
-    )]
     fn progress(&self) -> f64 {
         if self.limit.is_exhausted() {
             return 1.0;
@@ -385,6 +381,15 @@ impl ScanPool for UnorderedPool {
             limit_output(outputs, shared),
         ))
     }
+
+    fn progress(&self) -> f64 {
+        self.shared.progress()
+    }
+
+    fn is_exhausted(&self) -> bool {
+        // Pending opens hold senders, so the channel closes only once every split is in it.
+        self.shared.limit.is_exhausted() || (self.receiver.is_closed() && self.receiver.is_empty())
+    }
 }
 
 impl Drop for UnorderedPool {
@@ -440,6 +445,14 @@ impl ScanPool for OrderedPool {
             dtype,
             limit_output(outputs, Arc::clone(&self.shared)),
         ))
+    }
+
+    fn progress(&self) -> f64 {
+        self.shared.progress()
+    }
+
+    fn is_exhausted(&self) -> bool {
+        self.shared.limit.is_exhausted() || self.files.lock().is_none()
     }
 }
 

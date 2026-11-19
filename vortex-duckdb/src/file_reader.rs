@@ -7,6 +7,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
+use futures::StreamExt;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::array::ArrayRef;
@@ -31,10 +32,15 @@ use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReaderRef;
+use vortex::layout::scan::layout::LayoutReaderDataSource;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::v2::PartPool;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanFile;
 use vortex::mask::Mask;
+use vortex::scan::DataSource as _;
+use vortex::scan::ScanRequest;
+use vortex::scan::pool::ScanPoolRef;
 use vortex::session::SessionExt as _;
 
 use crate::REGISTRY;
@@ -48,11 +54,9 @@ use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
 use crate::projection::Filter;
 use crate::projection::extract_schema_from_dtype;
-use crate::scan_v2::FileScan;
 use crate::table_function::BindState;
 use crate::table_function::GlobalState;
 use crate::table_function::LocalState;
-use crate::table_function::Split;
 use crate::table_function::convert_result;
 
 // See src/table_function.rs for definition of table function state machine.
@@ -111,17 +115,14 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
 }
 
 pub struct OpenFileReader {
-    /// The layout reader and conversion cache of the file. `None` after the file is skipped or
-    /// all its splits are taken.
+    /// The layout reader, pool and conversion cache of the file. `None` after the file is
+    /// skipped or every thread has left it.
     ///
     /// DuckDB releases its last reference to a file while it holds the global lock of the
     /// multi-file scan, and dropping this state takes long. So every local state that scans the
     /// file holds a reference too, and the file gives its own reference to a local state before
     /// DuckDB releases the file. The last local state drops the state outside the lock.
     scan_state: Option<Arc<FileScanState>>,
-    /// File splits stored in inverse order
-    pub splits: Vec<Split>,
-    total_splits: usize,
 }
 
 /// The state of an open file that the threads scanning it share.
@@ -129,10 +130,20 @@ pub struct FileScanState {
     reader: LayoutReaderRef,
     /// The file as the V2 executor reads it.
     scan_file: ScanFile,
-    /// The file's V2 scan, which every thread scanning the file drives. Set when the file is
-    /// initialized for a V2 scan.
-    v2: OnceLock<FileScan>,
+    /// The pool of the file's scan, whose workers the threads scanning the file poll. Set when
+    /// the file is initialized.
+    pool: OnceLock<ScanPoolRef>,
+    /// Set once a worker of the pool has ended, so the pool has no work left for a new thread.
+    finished: AtomicBool,
     cache: ConversionCache,
+}
+
+impl FileScanState {
+    /// Whether a thread joining the file would find work.
+    fn has_work(&self) -> bool {
+        !self.finished.load(Ordering::Acquire)
+            && self.pool.get().is_some_and(|pool| !pool.is_exhausted())
+    }
 }
 
 impl OpenFileReader {
@@ -146,11 +157,10 @@ impl OpenFileReader {
             scan_state: Some(Arc::new(FileScanState {
                 reader: file.layout_reader()?,
                 scan_file,
-                v2: OnceLock::new(),
+                pool: OnceLock::new(),
+                finished: AtomicBool::new(false),
                 cache: ConversionCache::default(),
             })),
-            splits: vec![],
-            total_splits: 0,
         })
     }
 
@@ -219,11 +229,10 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         return Ok(true);
     }
 
-    // Getting splits, or planning a V2 scan, is non-trivial work so we prefer
-    // doing it here under file lock and not in reader_try_initialize_scan under
-    // global lock.
-    if global.scan_v2 {
-        let state = file.scan_state();
+    // Opening the file's pool is non-trivial work so we prefer doing it here under file lock
+    // and not in reader_try_initialize_scan under global lock.
+    let state = file.scan_state();
+    let pool = if global.scan_v2 {
         let splits = ScanBuilder::new(SESSION.clone(), Arc::clone(&state.reader))
             .with_projection(global.projection.clone())
             .with_some_filter(global.filter.filter.clone())
@@ -233,30 +242,24 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
             .filter
             .as_ref()
             .is_some_and(|filter| DynamicExprUpdates::new(filter).is_some());
-        let scan = FileScan::try_new(v2_builder(state, global), &splits, dynamic)?;
-        if state.v2.set(scan).is_err() {
-            vortex_panic!("file initialized twice");
-        }
-        return Ok(false);
+        let pool = RUNTIME.block_on(PartPool::open(v2_builder(state, global), &splits, dynamic))?;
+        Arc::new(pool) as ScanPoolRef
+    } else {
+        let filter = &global.filter;
+        let request = ScanRequest {
+            projection: global.projection_expr.clone(),
+            filter: filter.expr.clone(),
+            row_range: filter.row_range.clone(),
+            selection: filter.row_selection.clone(),
+            ordered: false,
+            ..ScanRequest::default()
+        };
+        let source = LayoutReaderDataSource::new(Arc::clone(&state.reader), SESSION.clone());
+        RUNTIME.block_on(source.scan(request))?.open()?
+    };
+    if state.pool.set(pool).is_err() {
+        vortex_panic!("file initialized twice");
     }
-
-    let reader = Arc::clone(file.reader());
-    let filter = &global.filter;
-    let builder = ScanBuilder::new(SESSION.clone(), reader)
-        .with_projection(global.projection.clone())
-        .with_some_filter(filter.filter.clone())
-        .with_selection(filter.row_selection.clone());
-    let scan = builder.prepare()?;
-    let mut splits: Vec<Split> = scan
-        .execute(filter.row_range.clone())?
-        .into_iter()
-        .map(Split::V1)
-        .collect();
-
-    // threads take last element of file.splits so we need to reverse
-    splits.reverse();
-    file.total_splits = splits.len();
-    file.splits = splits;
     Ok(false)
 }
 
@@ -274,54 +277,47 @@ fn v2_builder(state: &FileScanState, global: &GlobalState) -> V2ScanBuilder {
         .with_row_range(rows)
 }
 
-/// What a thread's split yields next.
-enum SplitItem {
-    /// The split has no more rows.
+/// What a thread's worker yields next.
+enum WorkerItem {
+    /// The worker has no more rows.
     Done,
-    /// The split produced no rows this time but may produce more.
+    /// The worker produced no rows this time but may produce more.
     Empty,
     Array(ArrayRef),
 }
 
-/// Takes the next array of the thread's split, keeping the split while it has more to yield.
-fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
-    match local.split.take() {
-        None => Ok(SplitItem::Done),
-        Some(Split::V1(task)) => Ok(RUNTIME
-            .block_on(task)?
-            .map_or(SplitItem::Empty, SplitItem::Array)),
-        Some(Split::V2) => {
-            let file = local.file.as_ref().vortex_expect("split without a file");
-            let scan = file
-                .v2
-                .get()
-                .vortex_expect("V2 split of a file without a V2 scan");
-            let array = match local.pending.pop() {
-                Some(array) => array,
-                None => {
-                    let Some(array) = scan.next_array(&mut local.run)? else {
-                        return Ok(SplitItem::Done);
-                    };
-                    // A V2 batch can join chunks of several layout chunks. Canonicalizing it
-                    // would decode their dictionaries, so export each chunk on its own, as a V1
-                    // scan yields them.
-                    match array.as_opt::<Chunked>() {
-                        Some(chunked) => {
-                            local.pending.extend(chunked.chunks().into_iter().rev());
-                            local.pending.pop().unwrap_or(array)
-                        }
-                        None => array,
-                    }
-                }
+/// Takes the next array of the thread's worker, polling it inline on this thread.
+fn next_worker_item(local: &mut LocalState) -> VortexResult<WorkerItem> {
+    let array = match local.pending.pop() {
+        Some(array) => array,
+        None => {
+            let Some(worker) = local.worker.as_mut() else {
+                return Ok(WorkerItem::Done);
             };
-            local.split = Some(Split::V2);
-            Ok(if array.is_empty() {
-                SplitItem::Empty
-            } else {
-                SplitItem::Array(array)
-            })
+            let Some(array) = RUNTIME.block_on(worker.next()).transpose()? else {
+                // A worker ends only once its pool has no work left.
+                if let Some(file) = &local.file {
+                    file.finished.store(true, Ordering::Release);
+                }
+                local.retired_workers.extend(local.worker.take());
+                return Ok(WorkerItem::Done);
+            };
+            // An array can join chunks of several layout chunks. Canonicalizing it would decode
+            // their dictionaries, so export each chunk on its own.
+            match array.as_opt::<Chunked>() {
+                Some(chunked) => {
+                    local.pending.extend(chunked.chunks().into_iter().rev());
+                    local.pending.pop().unwrap_or(array)
+                }
+                None => array,
+            }
         }
-    }
+    };
+    Ok(if array.is_empty() {
+        WorkerItem::Empty
+    } else {
+        WorkerItem::Array(array)
+    })
 }
 
 /// Called by all threads under global lock. If this function returns true,
@@ -333,24 +329,19 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
 /// the global lock. It only moves references between the file and the local
 /// state, and reader_scan drops the retired ones.
 pub fn reader_try_initialize_scan(file: &mut OpenFileReader, local: &mut LocalState) -> bool {
-    // A V2 scan's threads take chunks from the file's scan until it has spawned
-    // them all, so the file has work for another thread until then.
-    let v2 = file
-        .scan_state
-        .as_ref()
-        .and_then(|state| state.v2.get())
-        .map(|scan| (!scan.is_exhausted()).then_some(Split::V2));
-    let Some(split) = v2.unwrap_or_else(|| file.splits.pop()) else {
+    let Some(scan_state) = file.scan_state.as_ref().filter(|state| state.has_work()) else {
         // DuckDB releases the file after this call, under the global lock.
         // Give the reference of the file to this thread so it drops outside.
         local.retired_files.extend(file.scan_state.take());
         return false;
     };
+    let pool = Arc::clone(
+        scan_state
+            .pool
+            .get()
+            .vortex_expect("file has work but no pool"),
+    );
 
-    let scan_state = file
-        .scan_state
-        .as_ref()
-        .vortex_expect("file has splits but no scan state");
     if !local
         .file
         .as_ref()
@@ -360,7 +351,9 @@ pub fn reader_try_initialize_scan(file: &mut OpenFileReader, local: &mut LocalSt
         local.retired_files.extend(previous);
     }
 
-    local.split = Some(split);
+    // Starting a worker only clones the pool's handles, so it is cheap under the global lock.
+    let previous = local.worker.replace(pool.worker());
+    local.retired_workers.extend(previous);
     true
 }
 
@@ -372,7 +365,8 @@ pub fn reader_scan(
     local: &mut LocalState,
     chunk: &mut DataChunkRef,
 ) -> VortexResult<bool> {
-    // No lock is held here, so drop the scan states of files this thread left.
+    // No lock is held here, so drop the workers and scan states of files this thread left.
+    local.retired_workers.clear();
     local.retired_files.clear();
 
     if !global.aggregates.is_empty() {
@@ -380,11 +374,11 @@ pub fn reader_scan(
     }
 
     if local.exporter.is_none() {
-        let array = match next_split_item(local)? {
-            SplitItem::Done => return Ok(false),
-            // split is filtered
-            SplitItem::Empty => return Ok(true),
-            SplitItem::Array(array) => array,
+        let array = match next_worker_item(local)? {
+            WorkerItem::Done => return Ok(false),
+            // the array is filtered
+            WorkerItem::Empty => return Ok(true),
+            WorkerItem::Array(array) => array,
         };
         let mut ctx = SESSION.create_execution_ctx();
         let array = convert_result(array, &mut ctx)?;
@@ -401,11 +395,11 @@ pub fn reader_scan(
 }
 
 fn reader_scan_aggregate(global: &GlobalState, local: &mut LocalState) -> VortexResult<bool> {
-    let array = match next_split_item(local)? {
-        SplitItem::Done => return Ok(false),
-        // split is filtered
-        SplitItem::Empty => return Ok(true),
-        SplitItem::Array(array) => array,
+    let array = match next_worker_item(local)? {
+        WorkerItem::Done => return Ok(false),
+        // the array is filtered
+        WorkerItem::Empty => return Ok(true),
+        WorkerItem::Array(array) => array,
     };
 
     let mut ctx = SESSION.create_execution_ctx();
@@ -453,13 +447,12 @@ pub fn reader_get_statistics(
 /// Called from a separate thread (not related to threads for Vortex
 /// table function) under global lock.
 pub fn reader_get_progress_in_file(file: &OpenFileReader) -> f64 {
-    if let Some(scan) = file.scan_state.as_ref().and_then(|state| state.v2.get()) {
-        return scan.progress();
-    }
-    let total = file.total_splits;
-    let left = file.splits.len();
-    let denom = total + (total == 0) as usize;
-    100.0 * (total - left) as f64 / denom as f64
+    let progress = file
+        .scan_state
+        .as_ref()
+        .and_then(|state| state.pool.get())
+        .map_or(1.0, |pool| pool.progress());
+    100.0 * progress
 }
 
 /// Called by one thread in planning phase
