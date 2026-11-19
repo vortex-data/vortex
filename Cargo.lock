@@ -12296,13 +12296,19 @@ name = "vortex-protobuf"
 version = "0.1.0"
 dependencies = [
  "arrow-schema 59.3.2",
+ "codspeed-divan-compat",
  "futures",
  "insta",
+ "mimalloc",
+ "parking_lot",
  "prost 0.14.6",
  "prost-reflect",
  "prost-types",
  "protox",
+ "rand 0.10.4",
  "rstest",
+ "serde_json",
+ "simdutf8",
  "vortex-array",
  "vortex-arrow",
  "vortex-buffer",
@@ -12310,9 +12316,12 @@ dependencies = [
  "vortex-error",
  "vortex-file",
  "vortex-io",
+ "vortex-json",
  "vortex-layout",
  "vortex-mask",
  "vortex-session",
+ "vortex-utils",
+ "zstd 0.14.4",
 ]
 
 [[package]]

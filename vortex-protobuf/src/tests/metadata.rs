@@ -3,18 +3,21 @@
 
 //! Metadata serialization, canonicalization and validation.
 
+use std::sync::Arc;
+
 use prost::Message;
 use prost_reflect::DescriptorPool;
 use prost_types::DescriptorProto;
+use prost_types::FileDescriptorProto;
 use prost_types::FileDescriptorSet;
 use rstest::rstest;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtDTypePlugin;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use super::LEGACY_PROTO;
 use super::RECURSIVE_PROTO;
 use super::TEST_PROTO;
 use super::UNRELATED_PROTO;
@@ -22,10 +25,18 @@ use super::all_types_dtype;
 use super::compile;
 use super::message;
 use super::protobuf_dtype;
+use crate::JsonMapping;
 use crate::MAPPING_VERSION;
+use crate::MAX_RECURSION_DEPTH;
+use crate::MappingOptions;
 use crate::Protobuf;
 use crate::ProtobufMetadata;
+use crate::TimestampMapping;
+use crate::WrapperMapping;
 use crate::metadata::SerializedMetadata;
+use crate::options::SerializedOptions;
+use crate::pool::CAPACITY;
+use crate::pool::PoolCache;
 
 /// The schema of `shop.Order`, which the cases of [`test_metadata_ignores_unrelated_changes`] and
 /// [`test_metadata_differs_by_reachable_types`] change.
@@ -139,6 +150,73 @@ fn test_metadata_serialization_round_trip() -> VortexResult<()> {
 
     let restored = Protobuf.deserialize(&bytes, dtype.storage_dtype().clone())?;
     assert_eq!(restored, dtype.erased());
+    Ok(())
+}
+
+/// The options survive serialization, and the default options are left out of the bytes.
+#[rstest]
+#[case::defaults(MappingOptions::default(), false)]
+#[case::all_options(
+    MappingOptions {
+        preserve_unknown_fields: true,
+        max_recursion_depth: Some(3),
+        wrappers: WrapperMapping::Primitive,
+        timestamps: TimestampMapping::Nanoseconds,
+        json: JsonMapping::Text,
+    },
+    true
+)]
+fn test_metadata_options_round_trip(
+    #[case] options: MappingOptions,
+    #[case] stored: bool,
+) -> VortexResult<()> {
+    let descriptor = message(&[TEST_PROTO, UNRELATED_PROTO], "test.AllTypes")?;
+    let metadata = ProtobufMetadata::try_new_with_options(&descriptor, options.clone())?;
+    let bytes = Protobuf.serialize_metadata(&metadata)?;
+    assert_eq!(
+        SerializedMetadata::decode(bytes.as_slice())?
+            .options
+            .is_some(),
+        stored
+    );
+
+    let decoded = Protobuf.deserialize_metadata(&bytes)?;
+    assert_eq!(decoded, metadata);
+    assert_eq!(decoded.options(), &options);
+    assert_eq!(
+        decoded == ProtobufMetadata::try_new(&descriptor)?,
+        options == MappingOptions::default()
+    );
+    Ok(())
+}
+
+/// Version 1 metadata, written before the mapping had options, loads with the storage dtype that
+/// version 1 derives, which version 2 derives with the default options. It serializes back to the
+/// same bytes, so files keep their metadata.
+#[rstest]
+#[case::proto3(&[TEST_PROTO, UNRELATED_PROTO], "test.AllTypes")]
+#[case::proto2(&[LEGACY_PROTO], "legacy.Legacy")]
+fn test_version_1_metadata_loads(
+    #[case] sources: &[(&str, &str)],
+    #[case] name: &str,
+) -> VortexResult<()> {
+    let current = metadata(sources, name)?;
+    let bytes = SerializedMetadata {
+        mapping_version: 1,
+        message_name: name.to_owned(),
+        descriptor_set: current.descriptor_set().to_vec(),
+        options: None,
+    }
+    .encode_to_vec();
+    let version_1 = Protobuf.deserialize_metadata(&bytes)?;
+
+    assert_eq!(version_1.mapping_version(), 1);
+    assert_eq!(version_1.options(), &MappingOptions::default());
+    assert_ne!(version_1, current);
+    assert_eq!(Protobuf.serialize_metadata(&version_1)?, bytes);
+    let storage = Protobuf::storage_dtype(&current);
+    assert_eq!(Protobuf::storage_dtype(&version_1), storage);
+    Protobuf.deserialize(&bytes, storage)?;
     Ok(())
 }
 
@@ -259,8 +337,9 @@ fn test_metadata_debug_summarizes_descriptor_set() -> VortexResult<()> {
         .clone();
     let debug = format!("{metadata:?}");
     let expected = format!(
-        "ProtobufMetadata {{ mapping_version: 1, message_name: \"test.AllTypes\", \
-         descriptor_set: <{} bytes, hash ",
+        "ProtobufMetadata {{ mapping_version: 2, options: {:?}, message_name: \
+         \"test.AllTypes\", descriptor_set: <{} bytes, hash ",
+        MappingOptions::default(),
         metadata.descriptor_set().len()
     );
     assert!(debug.starts_with(&expected), "{debug}");
@@ -278,18 +357,17 @@ fn test_metadata_debug_summarizes_descriptor_set() -> VortexResult<()> {
     "recursive.Holder",
     "recursive.Ping -> recursive.Pong -> recursive.Ping"
 )]
-fn test_validate_rejects_recursive_messages(
+fn test_metadata_rejects_recursive_messages(
     #[case] name: &str,
     #[case] cycle: &str,
 ) -> VortexResult<()> {
-    let metadata = ProtobufMetadata::try_new(&message(&[RECURSIVE_PROTO], name)?)?;
-    let error = ExtDType::<Protobuf>::try_new(metadata, Nullability::NonNullable)
+    let error = ProtobufMetadata::try_new(&message(&[RECURSIVE_PROTO], name)?)
         .err()
         .ok_or_else(|| vortex_err!("{name} was accepted"))?;
 
     assert!(
         error.to_string().contains(&format!(
-            "Recursive protobuf messages are not supported: {cycle}"
+            "Recursive protobuf messages need the max_recursion_depth mapping option: {cycle}"
         )),
         "{error}"
     );
@@ -298,18 +376,48 @@ fn test_validate_rejects_recursive_messages(
 
 #[rstest]
 #[case::unknown_mapping_version(
-    2,
+    3,
     "test.AllTypes",
-    "Unsupported protobuf storage mapping version 2"
+    None,
+    "Unsupported protobuf storage mapping version 3, expected 1 to 2"
+)]
+#[case::missing_mapping_version(
+    0,
+    "test.AllTypes",
+    None,
+    "Unsupported protobuf storage mapping version 0"
 )]
 #[case::missing_root_message(
     MAPPING_VERSION,
     "test.Missing",
+    None,
     "does not define the root message \"test.Missing\""
+)]
+#[case::options_in_version_1(
+    1,
+    "test.AllTypes",
+    Some(MappingOptions::default().serialize()),
+    "Protobuf storage mapping version 1 has no options"
+)]
+#[case::unknown_option_value(
+    MAPPING_VERSION,
+    "test.AllTypes",
+    Some(SerializedOptions { timestamps: 7, ..MappingOptions::default().serialize() }),
+    "Unknown protobuf timestamp mapping 7"
+)]
+#[case::recursion_depth_out_of_range(
+    MAPPING_VERSION,
+    "test.AllTypes",
+    Some(SerializedOptions {
+        max_recursion_depth: Some(MAX_RECURSION_DEPTH + 1),
+        ..MappingOptions::default().serialize()
+    }),
+    "max_recursion_depth 101 exceeds the limit of 100"
 )]
 fn test_deserialize_rejects_invalid_metadata(
     #[case] mapping_version: u32,
     #[case] message_name: &str,
+    #[case] options: Option<SerializedOptions>,
     #[case] expected: &str,
 ) -> VortexResult<()> {
     let dtype = all_types_dtype(Nullability::NonNullable)?;
@@ -317,6 +425,7 @@ fn test_deserialize_rejects_invalid_metadata(
         mapping_version,
         message_name: message_name.to_owned(),
         descriptor_set: dtype.metadata().descriptor_set().to_vec(),
+        options,
     }
     .encode_to_vec();
 
@@ -343,6 +452,64 @@ fn test_deserialize_rejects_mismatched_storage() -> VortexResult<()> {
             .to_string()
             .contains("vortex.protobuf storage must be {f_double=f64, "),
         "{error}"
+    );
+    Ok(())
+}
+
+/// Metadata of one schema share the cached pool and descriptor set bytes, however the schema was
+/// compiled and whether the metadata was created or deserialized.
+#[test]
+fn test_metadata_shares_cached_pool() -> VortexResult<()> {
+    let created = metadata(&[TEST_PROTO, UNRELATED_PROTO], "test.AllTypes")?;
+    let recompiled = metadata(&[TEST_PROTO], "test.AllTypes")?;
+    let deserialized = Protobuf.deserialize_metadata(&Protobuf.serialize_metadata(&created)?)?;
+
+    for other in [&recompiled, &deserialized] {
+        assert_eq!(other.message_descriptor(), created.message_descriptor());
+        assert_eq!(
+            other.descriptor_set().as_ptr(),
+            created.descriptor_set().as_ptr()
+        );
+    }
+    Ok(())
+}
+
+/// The pool cache keeps a bounded number of descriptor sets and drops the least recently used.
+#[test]
+fn test_pool_cache_drops_least_recently_used() -> VortexResult<()> {
+    let descriptor_set = |index: usize| -> VortexResult<(Vec<u8>, DescriptorPool)> {
+        let set = FileDescriptorSet {
+            file: vec![FileDescriptorProto {
+                name: Some(format!("file{index}.proto")),
+                ..Default::default()
+            }],
+        };
+        let bytes = set.encode_to_vec();
+        let pool = DescriptorPool::decode(bytes.as_slice())
+            .map_err(|err| vortex_err!("invalid descriptor set: {err}"))?;
+        Ok((bytes, pool))
+    };
+
+    let mut cache = PoolCache::default();
+    let sets = (0..=CAPACITY)
+        .map(descriptor_set)
+        .collect::<VortexResult<Vec<_>>>()?;
+    for (bytes, pool) in &sets[..CAPACITY] {
+        cache.insert(Arc::from(bytes.as_slice()), pool.clone());
+    }
+    // The first set is used again, so the second one is the least recently used.
+    let (first, _) = &sets[0];
+    assert!(cache.get(first).is_some());
+    let (last, last_pool) = &sets[CAPACITY];
+    let (_, inserted) = cache.insert(Arc::from(last.as_slice()), last_pool.clone());
+    assert_eq!(&inserted, last_pool);
+
+    assert!(cache.get(first).is_some());
+    assert!(cache.get(&sets[1].0).is_none());
+    assert!(
+        sets[2..]
+            .iter()
+            .all(|(bytes, _)| cache.get(bytes).is_some())
     );
     Ok(())
 }

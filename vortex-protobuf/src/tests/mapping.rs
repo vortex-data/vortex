@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Snapshots of the storage dtypes that mapping version 1 derives.
+//! Snapshots of the storage dtypes that the default mapping options derive.
 
 use insta::assert_snapshot;
 use vortex_array::dtype::DType;
@@ -10,19 +10,8 @@ use vortex_error::VortexResult;
 
 use super::LEGACY_PROTO;
 use super::all_types_dtype;
+use super::describe_fields;
 use super::protobuf_dtype;
-
-/// Lists the fields of a struct dtype, one per line.
-fn describe_fields(dtype: &DType) -> String {
-    let fields = dtype.as_struct_fields();
-    fields
-        .names()
-        .iter()
-        .zip(fields.fields())
-        .map(|(name, dtype)| format!("{name}: {dtype}"))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
 
 #[test]
 fn test_storage_dtype_proto3() -> VortexResult<()> {

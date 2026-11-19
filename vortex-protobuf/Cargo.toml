@@ -16,22 +16,30 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+parking_lot = { workspace = true }
 prost = { workspace = true }
 prost-reflect = { workspace = true }
 prost-types = { workspace = true }
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+simdutf8 = { workspace = true }
 vortex-array = { workspace = true, default-features = false }
 vortex-buffer = { workspace = true }
 vortex-edition = { workspace = true }
 vortex-error = { workspace = true, default-features = false }
+vortex-json = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
 
 [dev-dependencies]
 arrow-schema = { workspace = true }
+divan = { workspace = true }
 futures = { workspace = true }
 insta = { workspace = true }
+mimalloc = { workspace = true }
 protox = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, default-features = false, features = [
     "_test-harness",
@@ -39,3 +47,9 @@ vortex-array = { workspace = true, default-features = false, features = [
 vortex-arrow = { workspace = true }
 vortex-file = { workspace = true }
 vortex-io = { workspace = true }
+zstd = { workspace = true }
+
+[[bench]]
+name = "protobuf"
+harness = false
+test = false

@@ -58,7 +58,14 @@ use super::TEST_PROTO;
 use super::UNRELATED_PROTO;
 use super::build;
 use super::codec::sample_messages;
+use super::decode_rows;
 use super::message;
+use super::protobuf_dtype_with;
+use super::varint_field;
+use super::well_known::KNOWN_PROTO;
+use super::well_known::dedicated;
+use super::well_known::known_messages;
+use crate::MappingOptions;
 use crate::Protobuf;
 use crate::ProtobufDecoder;
 use crate::ProtobufMetadata;
@@ -395,6 +402,51 @@ fn test_file_filters_on_leaf_field(
         assert!(keep.true_count() > 0 && keep.true_count() < ORDERS);
         let expected = table.filter(keep)?.apply(&projection)?;
         assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    })
+}
+
+/// Protobuf columns with unknown fields and the dedicated forms of well-known types, which hold
+/// nested timestamp and JSON extension columns, read back from a file, and so do their fields.
+#[rstest]
+fn test_file_round_trip_with_mapping_options(
+    #[values(Executor::Reader, Executor::Planner)] executor: Executor,
+) -> VortexResult<()> {
+    block_on(|handle| async move {
+        let session = file_session(handle.clone(), false)?;
+        let options = MappingOptions {
+            preserve_unknown_fields: true,
+            ..dedicated()
+        };
+        let dtype = protobuf_dtype_with(
+            &[KNOWN_PROTO],
+            "known.Known",
+            Nullability::Nullable,
+            options,
+        )?;
+        let samples = known_messages(dtype.metadata().message_descriptor())?;
+        let rows = (0..4 * samples.len())
+            .map(|row| {
+                (row % 5 != 4).then(|| {
+                    [
+                        samples[row % samples.len()].as_slice(),
+                        &varint_field(99, 7),
+                    ]
+                    .concat()
+                })
+            })
+            .collect::<Vec<_>>();
+        let table = StructArray::from_fields(&[("msg", decode_rows(&dtype, &rows)?)])?.into_array();
+        let file = write(&session, &table).await?;
+
+        let mut ctx = session.create_execution_ctx();
+        let actual = scan(&file, executor, handle.clone(), &root(), None).await?;
+        assert_arrays_eq!(actual, table, &mut ctx);
+        for path in ["created", "attributes", "int32_value", "$unknown"] {
+            let field = protobuf_field(path, get_item("msg", root()));
+            let actual = scan(&file, executor, handle.clone(), &field, None).await?;
+            assert_arrays_eq!(actual, table.clone().apply(&field)?, &mut ctx);
+        }
         Ok(())
     })
 }

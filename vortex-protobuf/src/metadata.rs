@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Metadata of the protobuf extension dtype: the message schema and the storage mapping version.
+//! Metadata of the protobuf extension dtype: the message schema, the storage mapping version and
+//! the mapping options.
 
-use std::collections::BTreeSet;
 use std::fmt;
 use std::hash::DefaultHasher;
 use std::hash::Hash;
@@ -11,18 +11,27 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use prost::Message;
-use prost_reflect::DescriptorPool;
-use prost_reflect::Kind;
 use prost_reflect::MessageDescriptor;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use crate::MappingOptions;
 use crate::canonical::canonical_descriptor_set;
+use crate::mapping::MessagePlan;
+use crate::options::SerializedOptions;
+use crate::pool::descriptor_pool;
 
 /// The storage mapping version that this crate writes.
-pub const MAPPING_VERSION: u32 = 1;
+///
+/// Version 1 maps every schema as version 2 does with the default [`MappingOptions`], and has no
+/// options. This crate reads both versions, and in both rejects a schema whose storage would have
+/// more than 100,000 fields.
+pub const MAPPING_VERSION: u32 = 2;
+
+/// The first mapping version that has options.
+const OPTIONS_VERSION: u32 = 2;
 
 /// The schema of a protobuf extension dtype.
 ///
@@ -35,16 +44,24 @@ pub const MAPPING_VERSION: u32 = 1;
 /// independent of how the caller's descriptor set was produced or ordered and of what else its
 /// files declare.
 ///
-/// Equality and hashing use only the serialized parts: the mapping version, the root message name
-/// and the descriptor set bytes. The parsed [`MessageDescriptor`] is kept for fast access.
+/// The [`MappingOptions`] record the choices of the storage mapping, so the storage dtype is a
+/// function of the metadata.
+///
+/// Equality and hashing use only the serialized parts: the mapping version, the options, the root
+/// message name and the descriptor set bytes. The parsed [`MessageDescriptor`] and the storage
+/// plan are kept for fast access.
 #[derive(Clone)]
 pub struct ProtobufMetadata {
     /// The version of the mapping from the message schema to the Vortex storage dtype.
     mapping_version: u32,
+    /// The choices of the storage mapping.
+    options: MappingOptions,
     /// The root message, resolved in a pool built from `descriptor_set`.
     descriptor: MessageDescriptor,
     /// The serialized descriptor set that defines the root message.
     descriptor_set: Arc<[u8]>,
+    /// How the root message is stored.
+    plan: Arc<MessagePlan>,
 }
 
 /// The serialized form of [`ProtobufMetadata`].
@@ -59,39 +76,75 @@ pub(crate) struct SerializedMetadata {
     /// See [`ProtobufMetadata::descriptor_set`].
     #[prost(bytes = "vec", tag = "3")]
     pub(crate) descriptor_set: Vec<u8>,
+    /// See [`ProtobufMetadata::options`], absent for the default options and in version 1.
+    #[prost(message, optional, tag = "4")]
+    pub(crate) options: Option<SerializedOptions>,
 }
 
 impl ProtobufMetadata {
-    /// Creates metadata for messages of type `descriptor` with the current [`MAPPING_VERSION`].
+    /// Creates metadata for messages of type `descriptor` with the current [`MAPPING_VERSION`]
+    /// and the default [`MappingOptions`].
     ///
     /// # Errors
     ///
-    /// Returns an error if the canonical descriptor set does not define the message, which can
-    /// only happen if the descriptor's pool is inconsistent.
+    /// Returns an error if the message is recursive, which needs the
+    /// [`max_recursion_depth`](MappingOptions::max_recursion_depth) option, if its storage would
+    /// have more than 100,000 fields, or if the canonical descriptor set does not define the
+    /// message, which can only happen if the descriptor's pool is inconsistent.
     pub fn try_new(descriptor: &MessageDescriptor) -> VortexResult<Self> {
+        Self::try_new_with_options(descriptor, MappingOptions::default())
+    }
+
+    /// Creates metadata for messages of type `descriptor` with the current [`MAPPING_VERSION`]
+    /// and the given options.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the options are out of range, if the message is recursive and the
+    /// options set no [`max_recursion_depth`](MappingOptions::max_recursion_depth), if its storage
+    /// would have more than 100,000 fields, or if the canonical descriptor set does not define the
+    /// message, which can only happen if the descriptor's pool is inconsistent.
+    pub fn try_new_with_options(
+        descriptor: &MessageDescriptor,
+        options: MappingOptions,
+    ) -> VortexResult<Self> {
         let descriptor_set = canonical_descriptor_set(descriptor).encode_to_vec();
         Self::from_parts(
             MAPPING_VERSION,
+            options,
             descriptor.full_name(),
-            descriptor_set.into(),
+            &descriptor_set,
         )
     }
 
-    /// Resolves the root message `message_name` in the serialized `descriptor_set`.
+    /// Resolves the root message `message_name` in the serialized `descriptor_set` and plans its
+    /// storage.
+    ///
+    /// The pool comes from the process-wide cache, so the same descriptor set is parsed once.
     fn from_parts(
         mapping_version: u32,
+        options: MappingOptions,
         message_name: &str,
-        descriptor_set: Arc<[u8]>,
+        descriptor_set: &[u8],
     ) -> VortexResult<Self> {
-        let pool = DescriptorPool::decode(descriptor_set.as_ref())
-            .map_err(|err| vortex_err!("Invalid protobuf descriptor set: {err}"))?;
+        if !(1..=MAPPING_VERSION).contains(&mapping_version) {
+            vortex_bail!(
+                "Unsupported protobuf storage mapping version {mapping_version}, expected 1 to \
+                 {MAPPING_VERSION}"
+            );
+        }
+        options.validate()?;
+        let (descriptor_set, pool) = descriptor_pool(descriptor_set)?;
         let descriptor = pool.get_message_by_name(message_name).ok_or_else(|| {
             vortex_err!("Protobuf descriptor set does not define the root message {message_name:?}")
         })?;
+        let plan = MessagePlan::try_new(&descriptor, &options)?;
         Ok(Self {
             mapping_version,
+            options,
             descriptor,
             descriptor_set,
+            plan: Arc::new(plan),
         })
     }
 
@@ -102,10 +155,19 @@ impl ProtobufMetadata {
         let serialized = SerializedMetadata::decode(bytes).map_err(|err| {
             VortexError::from(err).with_context("Invalid protobuf extension metadata")
         })?;
+        let options = match &serialized.options {
+            Some(_) if serialized.mapping_version < OPTIONS_VERSION => vortex_bail!(
+                "Protobuf storage mapping version {} has no options",
+                serialized.mapping_version
+            ),
+            Some(options) => MappingOptions::deserialize(options)?,
+            None => MappingOptions::default(),
+        };
         Self::from_parts(
             serialized.mapping_version,
+            options,
             &serialized.message_name,
-            serialized.descriptor_set.into(),
+            &serialized.descriptor_set,
         )
     }
 
@@ -115,24 +177,24 @@ impl ProtobufMetadata {
             mapping_version: self.mapping_version,
             message_name: self.message_name().to_owned(),
             descriptor_set: self.descriptor_set.to_vec(),
+            options: (self.options != MappingOptions::default()).then(|| self.options.serialize()),
         }
         .encode_to_vec()
-    }
-
-    /// Checks that this crate supports the mapping version and that the message is not recursive.
-    pub(crate) fn validate(&self) -> VortexResult<()> {
-        if self.mapping_version != MAPPING_VERSION {
-            vortex_bail!(
-                "Unsupported protobuf storage mapping version {}, expected {MAPPING_VERSION}",
-                self.mapping_version
-            );
-        }
-        ensure_not_recursive(&self.descriptor, &mut Vec::new(), &mut BTreeSet::new())
     }
 
     /// The version of the mapping from the message schema to the Vortex storage dtype.
     pub fn mapping_version(&self) -> u32 {
         self.mapping_version
+    }
+
+    /// The choices of the storage mapping.
+    pub fn options(&self) -> &MappingOptions {
+        &self.options
+    }
+
+    /// How the root message is stored.
+    pub(crate) fn plan(&self) -> &MessagePlan {
+        &self.plan
     }
 
     /// The fully qualified name of the root message, such as `my.package.Event`.
@@ -143,9 +205,10 @@ impl ProtobufMetadata {
     /// The descriptor of the root message.
     ///
     /// The descriptor belongs to a pool built from [`descriptor_set`](Self::descriptor_set), not
-    /// to the pool of the descriptor that created the metadata. Descriptors of different pools are
-    /// never equal, and neither are messages of their types, even when the schemas match. Compare
-    /// such messages by their encoded bytes, or decode them with this descriptor.
+    /// to the pool of the descriptor that created the metadata. Metadata of the same schema share
+    /// that pool while a process-wide cache holds it. Descriptors of different pools are never
+    /// equal, and neither are messages of their types, even when the schemas match. Compare such
+    /// messages by their encoded bytes, or decode them with this descriptor.
     pub fn message_descriptor(&self) -> &MessageDescriptor {
         &self.descriptor
     }
@@ -160,6 +223,7 @@ impl ProtobufMetadata {
 impl PartialEq for ProtobufMetadata {
     fn eq(&self, other: &Self) -> bool {
         self.mapping_version == other.mapping_version
+            && self.options == other.options
             && self.message_name() == other.message_name()
             && self.descriptor_set == other.descriptor_set
     }
@@ -170,6 +234,7 @@ impl Eq for ProtobufMetadata {}
 impl Hash for ProtobufMetadata {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.mapping_version.hash(state);
+        self.options.hash(state);
         self.message_name().hash(state);
         self.descriptor_set.hash(state);
     }
@@ -179,6 +244,7 @@ impl fmt::Debug for ProtobufMetadata {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProtobufMetadata")
             .field("mapping_version", &self.mapping_version)
+            .field("options", &self.options)
             .field("message_name", &self.message_name())
             .field(
                 "descriptor_set",
@@ -204,37 +270,4 @@ impl fmt::Display for ProtobufMetadata {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.message_name())
     }
-}
-
-/// Fails if `message` contains itself, directly or through other messages.
-///
-/// `path` holds the messages from the root down to `message`, and `checked` holds messages whose
-/// fields are already known to be free of cycles.
-fn ensure_not_recursive(
-    message: &MessageDescriptor,
-    path: &mut Vec<MessageDescriptor>,
-    checked: &mut BTreeSet<String>,
-) -> VortexResult<()> {
-    if checked.contains(message.full_name()) {
-        return Ok(());
-    }
-    if let Some(start) = path.iter().position(|ancestor| ancestor == message) {
-        let cycle = path[start..]
-            .iter()
-            .chain([message])
-            .map(MessageDescriptor::full_name)
-            .collect::<Vec<_>>()
-            .join(" -> ");
-        vortex_bail!("Recursive protobuf messages are not supported: {cycle}");
-    }
-
-    path.push(message.clone());
-    for field in message.fields() {
-        if let Kind::Message(child) = field.kind() {
-            ensure_not_recursive(&child, path, checked)?;
-        }
-    }
-    path.pop();
-    checked.insert(message.full_name().to_owned());
-    Ok(())
 }

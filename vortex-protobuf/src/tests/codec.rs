@@ -483,6 +483,20 @@ fn test_native_value_converts_to_message() -> VortexResult<()> {
     Ok(())
 }
 
+/// A `test.AllTypes` message whose `double` and `float` fields with implicit presence hold `-0.0`.
+///
+/// `prost-reflect` does not write `-0.0`, which equals the default zero, so the message sets
+/// `f_double` (field 1, 64-bit) and `f_float` (field 2, 32-bit) by hand.
+fn negative_zero_message() -> Vec<u8> {
+    [
+        [0x09].as_slice(),
+        &(-0.0f64).to_le_bytes(),
+        &[0x15],
+        &(-0.0f32).to_le_bytes(),
+    ]
+    .concat()
+}
+
 /// A `double` or `float` field with implicit presence keeps a `-0.0` from the wire, which
 /// equals its default zero.
 #[test]
@@ -490,15 +504,7 @@ fn test_decode_keeps_negative_zero() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let dtype = all_types_dtype(Nullability::NonNullable)?;
     let descriptor = dtype.metadata().message_descriptor();
-    // Encoders do not write `-0.0`, so the message sets `f_double` (field 1, 64-bit) and
-    // `f_float` (field 2, 32-bit) by hand.
-    let bytes = [
-        [0x09].as_slice(),
-        &(-0.0f64).to_le_bytes(),
-        &[0x15],
-        &(-0.0f32).to_le_bytes(),
-    ]
-    .concat();
+    let bytes = negative_zero_message();
     let array = decode_messages(&dtype, [bytes.as_slice()])?;
 
     let f_double = array
@@ -514,6 +520,29 @@ fn test_decode_keeps_negative_zero() -> VortexResult<()> {
     assert_eq!(
         native_message(&dtype, &array, 0, &mut ctx)?,
         parse(descriptor, &bytes)?
+    );
+    Ok(())
+}
+
+/// The encoders write a `-0.0` of a field with implicit presence, so that it survives a round
+/// trip.
+#[test]
+fn test_encode_keeps_negative_zero() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let dtype = all_types_dtype(Nullability::NonNullable)?;
+    let bytes = negative_zero_message();
+    let array = decode_messages(&dtype, [bytes.as_slice()])?;
+
+    let encoded = encoded_messages(&encode_messages(&array, &mut ctx)?)?;
+    assert_eq!(encoded[0].as_slice(), bytes.as_slice());
+    let scalar = array.execute_scalar(0, &mut ctx)?;
+    let extension = scalar.as_extension();
+    let storage = extension
+        .value()
+        .ok_or_else(|| vortex_err!("message 0 is null"))?;
+    assert_eq!(
+        Protobuf::unpack_native(&dtype, storage)?.encode_to_vec()?,
+        bytes
     );
     Ok(())
 }

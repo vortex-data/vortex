@@ -13,13 +13,15 @@ use vortex_session::VortexSession;
 
 use crate::Protobuf;
 
-/// Returns the ids of the extension dtypes that `session` may write.
+/// Returns the ids of the extension dtypes that `session` may write, in sorted order.
 fn writable_dtypes(session: &VortexSession) -> Vec<String> {
-    session
+    let mut ids = session
         .enabled_component_ids(ComponentKind::DType)
         .iter()
         .map(|id| id.as_str().to_owned())
-        .collect()
+        .collect::<Vec<_>>();
+    ids.sort();
+    ids
 }
 
 #[test]
@@ -30,9 +32,11 @@ fn test_initialize_declares_unstable_membership() -> VortexResult<()> {
     crate::initialize(&session);
     validate_edition(&session.editions(), &UNSTABLE)?;
 
-    assert!(writable_dtypes(&session).is_empty());
+    // JSON, which protobuf columns hold under the JSON text mapping, has its own edition, which
+    // initializing JSON support enables.
+    assert_eq!(writable_dtypes(&session), ["vortex.json"]);
     session.enable_edition(UNSTABLE)?;
-    assert_eq!(writable_dtypes(&session), [Protobuf::ID]);
+    assert_eq!(writable_dtypes(&session), ["vortex.json", Protobuf::ID]);
     Ok(())
 }
 

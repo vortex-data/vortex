@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Decoding serialized protobuf messages into Vortex arrays.
+//! The decoder that the fast decoder replaced, kept as a test oracle.
+//!
+//! It parses each message into a `prost-reflect` [`DynamicMessage`] and appends its fields to
+//! Vortex builders. `prost-reflect` follows protobuf parse semantics except that it rejects a
+//! value whose wire type does not match its field, and keeps numbers that a closed enum does not
+//! define. It knows only the storage mapping of the default options.
 
 use prost_reflect::DynamicMessage;
 use prost_reflect::FieldDescriptor;
@@ -26,111 +31,57 @@ use vortex_array::memory::BufferAllocatorRef;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::Protobuf;
-use crate::mapping::FieldShape;
 use crate::mapping::MAP_ENTRY_FIELDS;
 
-/// Decodes serialized protobuf messages into an array of the extension dtype `dtype`.
-///
-/// This is a shorthand for a [`ProtobufDecoder`] that appends every message.
-///
-/// # Errors
-///
-/// Returns an error if a message is not a valid encoding of the dtype's message type.
-pub fn decode_messages<'a>(
+/// Decodes serialized protobuf messages, or nulls, into an array of the extension dtype `dtype`
+/// through `prost-reflect`.
+pub(super) fn oracle_decode<'a>(
     dtype: &ExtDType<Protobuf>,
-    messages: impl IntoIterator<Item = &'a [u8]>,
+    messages: impl IntoIterator<Item = Option<&'a [u8]>>,
 ) -> VortexResult<ArrayRef> {
-    let messages = messages.into_iter();
-    let mut decoder = ProtobufDecoder::with_capacity(dtype, messages.size_hint().0);
+    let descriptor = dtype.metadata().message_descriptor();
+    let mut root = MessageColumn::new(descriptor, dtype.storage_dtype().nullability(), 0);
     for message in messages {
-        decoder.append_message(message)?;
-    }
-    decoder.finish()
-}
-
-/// Builds an array of a protobuf extension dtype from serialized messages.
-///
-/// Each appended message is decoded and its fields are appended to one builder per storage
-/// column. A field that is absent from a message becomes null if it has explicit presence, and
-/// takes its protobuf default value otherwise.
-pub struct ProtobufDecoder {
-    /// The extension dtype of the result.
-    dtype: ExtDType<Protobuf>,
-    /// The columns of the root message.
-    root: MessageColumn,
-}
-
-impl ProtobufDecoder {
-    /// Creates a decoder for arrays of the extension dtype `dtype`.
-    pub fn new(dtype: &ExtDType<Protobuf>) -> Self {
-        Self::with_capacity(dtype, 0)
-    }
-
-    /// Creates a decoder with room for `capacity` messages.
-    pub fn with_capacity(dtype: &ExtDType<Protobuf>, capacity: usize) -> Self {
-        Self {
-            dtype: dtype.clone(),
-            root: MessageColumn::new(
-                dtype.metadata().message_descriptor(),
-                dtype.storage_dtype().nullability(),
-                capacity,
-            ),
+        match message {
+            Some(message) => {
+                root.append_message(&DynamicMessage::decode(descriptor.clone(), message)?)?
+            }
+            None => root.append_defaults(1),
         }
     }
+    Ok(ExtensionArray::try_new(dtype.clone().erased(), root.finish()?)?.into_array())
+}
 
-    /// Appends one serialized message.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `message` is not a valid encoding of the dtype's message type. The
-    /// decoder is unchanged in that case.
-    pub fn append_message(&mut self, message: &[u8]) -> VortexResult<()> {
-        let descriptor = self.dtype.metadata().message_descriptor();
-        let message = DynamicMessage::decode(descriptor.clone(), message).map_err(|err| {
-            VortexError::from(err).with_context(format!(
-                "Invalid serialized {} message",
-                descriptor.full_name()
-            ))
-        })?;
-        self.root.append_message(&message)
-    }
+/// The cardinality of a field, with the kinds of its values.
+enum OracleShape {
+    /// A singular field.
+    Single(Kind),
+    /// A `repeated` field that is not a map.
+    List(Kind),
+    /// A `map<K, V>` field.
+    Map {
+        /// The kind of the map keys.
+        key: Kind,
+        /// The kind of the map values.
+        value: Kind,
+    },
+}
 
-    /// Appends a null message.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the dtype is not nullable.
-    pub fn append_null(&mut self) -> VortexResult<()> {
-        if !self.dtype.storage_dtype().is_nullable() {
-            vortex_bail!("Cannot append a null message to a non-nullable protobuf array");
+impl OracleShape {
+    /// Classifies `field` by cardinality.
+    fn of(field: &FieldDescriptor) -> Self {
+        match field.kind() {
+            Kind::Message(entry) if field.is_map() => Self::Map {
+                key: entry.map_entry_key_field().kind(),
+                value: entry.map_entry_value_field().kind(),
+            },
+            kind if field.is_list() => Self::List(kind),
+            kind => Self::Single(kind),
         }
-        self.root.append_defaults(1);
-        Ok(())
-    }
-
-    /// The number of messages appended so far.
-    pub fn len(&self) -> usize {
-        self.root.len
-    }
-
-    /// Whether no messages were appended.
-    pub fn is_empty(&self) -> bool {
-        self.root.len == 0
-    }
-
-    /// Finishes the array of all appended messages.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the decoded storage does not match the dtype, which indicates a bug.
-    pub fn finish(self) -> VortexResult<ArrayRef> {
-        let storage = self.root.finish()?;
-        Ok(ExtensionArray::try_new(self.dtype.erased(), storage)?.into_array())
     }
 }
 
@@ -161,14 +112,14 @@ enum Column {
 impl Column {
     /// Creates the column of `field`.
     fn for_field(field: &FieldDescriptor, capacity: usize) -> Self {
-        let elements = match FieldShape::of(field) {
-            FieldShape::Single(kind) => {
+        let elements = match OracleShape::of(field) {
+            OracleShape::Single(kind) => {
                 return Self::for_kind(&kind, field.supports_presence().into(), capacity);
             }
-            FieldShape::List(kind) => {
+            OracleShape::List(kind) => {
                 ListElements::Values(Box::new(Self::for_kind(&kind, NON_NULLABLE, capacity)))
             }
-            FieldShape::Map { key, value } => ListElements::Entries {
+            OracleShape::Map { key, value } => ListElements::Entries {
                 keys: Box::new(Self::for_kind(&key, NON_NULLABLE, capacity)),
                 values: Box::new(Self::for_kind(&value, NON_NULLABLE, capacity)),
             },
