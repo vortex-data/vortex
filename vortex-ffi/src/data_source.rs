@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::c_void;
+use std::num::NonZeroUsize;
 use std::ptr;
 use std::slice;
 use std::sync::Arc;
@@ -60,6 +61,10 @@ pub struct vx_data_source_options {
     pub paths: *const vx_view,
     /// Number of entries in "paths".
     pub paths_len: usize,
+    /// The most splits a scan of this data source decodes at once, across all
+    /// workers of its pool. 0 selects the default, which scales with the
+    /// machine's cores. Lower it to bound the memory held by decoding.
+    pub max_splits_in_flight: usize,
 }
 
 #[cfg(test)]
@@ -68,6 +73,7 @@ impl Default for vx_data_source_options {
         vx_data_source_options {
             paths: ptr::null(),
             paths_len: 0,
+            max_splits_in_flight: 0,
         }
     }
 }
@@ -114,6 +120,10 @@ unsafe fn data_source_new(
 
     let paths = unsafe { slice::from_raw_parts(opts.paths, opts.paths_len) };
     let mut data_source = MultiFileDataSource::new(session.clone());
+    if let Some(max) = NonZeroUsize::new(opts.max_splits_in_flight) {
+        data_source =
+            data_source.with_open_options(move |options| options.with_max_splits_in_flight(max));
+    }
     for path in paths {
         let glob = unsafe { path.as_str() }?;
         // Object-store URLs get an explicit filesystem; anything else is a local glob.
@@ -308,6 +318,7 @@ mod tests {
             let opts = vx_data_source_options {
                 paths: &raw const url,
                 paths_len: 1,
+                ..Default::default()
             };
             let ds = vx_data_source_new(session, &raw const opts, &raw mut error);
             assert!(ds.is_null());
@@ -336,6 +347,7 @@ mod tests {
             let opts = vx_data_source_options {
                 paths: &raw const path,
                 paths_len: 1,
+                ..Default::default()
             };
 
             let mut error = ptr::null_mut();
@@ -377,6 +389,7 @@ mod tests {
             let opts = vx_data_source_options {
                 paths: paths.as_ptr(),
                 paths_len: paths.len(),
+                ..Default::default()
             };
 
             let mut error = ptr::null_mut();

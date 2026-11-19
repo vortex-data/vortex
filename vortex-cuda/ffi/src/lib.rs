@@ -49,8 +49,8 @@ use vortex_ffi::vx_array_sink;
 use vortex_ffi::vx_array_sink_open_file_with_strategy;
 use vortex_ffi::vx_dtype;
 use vortex_ffi::vx_error;
-use vortex_ffi::vx_partition;
-use vortex_ffi::vx_partition_into_array_stream;
+use vortex_ffi::vx_scan_worker;
+use vortex_ffi::vx_scan_worker_into_array_stream;
 use vortex_ffi::vx_session;
 use vortex_ffi::vx_session_new_with;
 use vortex_ffi::vx_session_ref;
@@ -506,33 +506,34 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_export_arrow_device(
     })
 }
 
-/// Scan a Vortex partition as an Arrow C Device stream.
+/// Read a Vortex scan worker as an Arrow C Device stream.
 ///
-/// Consumes `partition`, even on error. Return codes and output ownership follow
+/// `worker` is a `vx_scan_worker` from `vx_scan_pool_worker` or `vx_scan_execute`. Consumes
+/// `worker`, even on error. Return codes and output ownership follow
 /// `vx_cuda_scan_path_arrow_device_stream`.
 ///
 /// # Safety
 ///
-/// `session` must be a valid borrowed handle created by `vortex-ffi`. `partition` must be an owned
-/// partition handle created by `vortex-ffi`. `out_stream` must be a valid writable pointer. If
+/// `session` must be a valid borrowed handle created by `vortex-ffi`. `worker` must be an owned
+/// worker handle created by `vortex-ffi`. `out_stream` must be a valid writable pointer. If
 /// `error_out` is non-null, it must be valid for writing one error pointer.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_cuda_partition_scan_arrow_device_stream(
+pub unsafe extern "C-unwind" fn vx_cuda_scan_worker_arrow_device_stream(
     session: *const vx_session,
-    partition: *mut vx_partition,
+    worker: *mut vx_scan_worker,
     out_stream: *mut ArrowDeviceArrayStream,
     error_out: *mut *mut vx_error,
 ) -> c_int {
     try_or(error_out, VX_CUDA_ERR, || {
-        vortex_ensure!(!partition.is_null(), "null vx_partition");
+        vortex_ensure!(!worker.is_null(), "null vx_scan_worker");
 
-        // SAFETY: The caller transfers ownership of this non-null partition handle.
-        let array_stream = unsafe { vx_partition_into_array_stream(partition) }?;
+        // SAFETY: The caller transfers ownership of this non-null worker handle.
+        let array_stream = unsafe { vx_scan_worker_into_array_stream(worker) }?;
         vortex_ensure!(!out_stream.is_null(), "null ArrowDeviceArrayStream output");
 
         // SAFETY: The caller supplies a live borrowed session handle.
         let session = session_with_cuda(unsafe { vx_session_ref(session) }?);
-        // Drive the stream on the same runtime the partition's scan spawned its work onto.
+        // Drive the stream on the runtime the worker does its I/O on.
         let device_stream = array_stream.export_device_array_stream(session, ffi_runtime())?;
 
         // SAFETY: The output is non-null and the caller guarantees writable storage.

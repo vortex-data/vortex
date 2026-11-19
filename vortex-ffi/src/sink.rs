@@ -397,6 +397,7 @@ mod tests {
             let opts = vx_data_source_options {
                 paths: &raw const path,
                 paths_len: 1,
+                ..Default::default()
             };
             let ds = vx_data_source_new(session, &raw const opts, &raw mut error);
             assert!(ds.is_null());

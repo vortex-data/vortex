@@ -35,8 +35,8 @@ pub use error::vx_error;
 pub use error::vx_error_free;
 pub use error::vx_error_message;
 pub use log::vx_log_level;
-pub use scan::vx_partition;
-pub use scan::vx_partition_into_array_stream;
+pub use scan::vx_scan_worker;
+pub use scan::vx_scan_worker_into_array_stream;
 pub use session::vx_session;
 pub use session::vx_session_free;
 pub use session::vx_session_new_with;
@@ -155,9 +155,9 @@ pub extern "C" fn vx_runtime_worker_count() -> usize {
 /// Return the shared FFI runtime for layered FFI crates that drive Vortex streams produced through
 /// `vortex-ffi`.
 ///
-/// Streams from `vortex-ffi` partitions spawn their scan work onto this runtime's executor, so a
-/// consumer crate (for example `vortex-cuda`'s Arrow device stream export) must drive them on this
-/// same runtime rather than a private one.
+/// Scan workers do their I/O on this runtime, and `vx_scan_execute` spawns its workers onto it, so
+/// a consumer crate (for example `vortex-cuda`'s Arrow device stream export) must drive their
+/// streams on this same runtime rather than a private one.
 pub fn ffi_runtime() -> &'static CurrentThreadRuntime {
     &RUNTIME
 }

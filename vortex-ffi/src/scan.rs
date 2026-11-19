@@ -3,6 +3,7 @@
 
 use core::slice;
 use std::ffi::c_int;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::ptr;
 use std::sync::Arc;
@@ -26,15 +27,16 @@ use vortex::expr::root;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::arrow::RecordBatchIteratorAdapter;
 use vortex::scan::DataSource;
-use vortex::scan::DataSourceScan;
-use vortex::scan::Partition;
-use vortex::scan::PartitionStream;
+use vortex::scan::ScanPoolRef;
+use vortex::scan::ScanRef;
 use vortex::scan::ScanRequest;
+use vortex::scan::execute_with_workers;
 use vortex::scan::selection::Selection;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
 
+use crate::POOL;
 use crate::RUNTIME;
 use crate::array::vx_array;
 use crate::box_wrapper;
@@ -46,44 +48,50 @@ use crate::error::vx_error;
 use crate::expression::vx_expression;
 use crate::session::vx_session;
 
-pub enum VxScan {
-    Pending(Box<dyn DataSourceScan>),
-    Started(PartitionStream),
-    Finished,
-}
 box_wrapper!(
-    /// A vx_scan is a single traversal of a vx_data_source with projections and
-    /// filters. A vx_scan can be consumed only once.
-    VxScan,
+    /// A planned scan of a vx_data_source with projections and filters.
+    ///
+    /// A scan does no I/O until it runs. Either open it into a vx_scan_pool with vx_scan_open,
+    /// cut it into independent pieces with vx_scan_split, or run it on the runtime's threads with
+    /// vx_scan_execute. Each of these consumes the scan.
+    ScanRef,
     vx_scan
 );
 
-pub enum VxPartitionScan {
-    Pending(Box<dyn Partition>),
-    Started(SendableArrayStream),
-    Finished,
-}
 box_wrapper!(
-    /// A vx_partition is an independent unit of work. Call vx_partition_next
-    /// repeatedly to retrieve arrays, then free the partition with
-    /// vx_partition_free.
-    VxPartitionScan,
-    vx_partition
+    /// An opened scan whose work any number of workers share.
+    ///
+    /// Each unit of work is read by exactly one worker, and all workers of a pool share its row
+    /// limit. vx_scan_pool_worker may be called from any thread, at any time.
+    ScanPoolRef,
+    vx_scan_pool
 );
 
-/// Consume an owned partition pointer for layered FFI crates and return its Vortex array stream.
+box_wrapper!(
+    /// A stream of a scan's arrays.
+    ///
+    /// A worker of a vx_scan_pool does its work on the thread that calls vx_scan_worker_next (or
+    /// reads its Arrow stream); it never runs on other threads. Drive each worker from one thread
+    /// at a time.
+    Option<SendableArrayStream>,
+    vx_scan_worker
+);
+
+/// Consume an owned worker pointer for layered FFI crates and return its Vortex array stream.
+///
+/// Drive the stream on [`crate::ffi_runtime`].
 ///
 /// # Safety
 ///
-/// `partition` must be a non-null owned partition handle created by `vortex-ffi`. This function
+/// `worker` must be a non-null owned worker handle created by `vortex-ffi`. This function
 /// consumes the handle; callers must not use or free it after calling this function.
-pub unsafe fn vx_partition_into_array_stream(
-    partition: *mut vx_partition,
+pub unsafe fn vx_scan_worker_into_array_stream(
+    worker: *mut vx_scan_worker,
 ) -> VortexResult<SendableArrayStream> {
-    vortex_ensure!(!partition.is_null(), "null vx_partition");
-    match *vx_partition::into_box(partition) {
-        VxPartitionScan::Pending(partition) => partition.execute(),
-        _ => vortex_bail!("partition already being consumed"),
+    vortex_ensure!(!worker.is_null(), "null vx_scan_worker");
+    match *vx_scan_worker::into_box(worker) {
+        Some(stream) => Ok(stream),
+        None => vortex_bail!("worker already exhausted"),
     }
 }
 
@@ -147,8 +155,7 @@ pub enum vx_estimate_type {
     VX_ESTIMATE_INEXACT = 2,
 }
 
-/// Used for estimating number of partitions in a data source or number of rows
-/// in a partition.
+/// An estimate of a count, such as the number of rows a scan returns.
 #[repr(C)]
 #[cfg_attr(test, derive(Default))]
 pub struct vx_estimate {
@@ -207,9 +214,6 @@ fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
         selection,
         ordered,
         limit,
-        partition_selection: Selection::All,
-        partition_range: None,
-        split_concurrency: None,
     })
 }
 
@@ -229,39 +233,26 @@ fn write_estimate<T: Into<u64>>(estimate: Precision<T>, out: &mut vx_estimate) {
     }
 }
 
-/// Scan a data source.
+/// Plan a scan of a data source.
 ///
-/// A scan may be consumed only once.
-/// "options" and "estimate" may be NULL.
-///
-/// If "options" is NULL, all rows and columns are returned.
-/// If "estimate" is not NULL, the estimated partition count is written to
-/// *estimate before returning.
+/// Planning reads metadata only. "options" may be NULL, in which case all rows
+/// and columns are returned.
 ///
 /// Returns NULL and writes an error to "*err" on failure.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_data_source_scan(
     data_source: *const vx_data_source,
     options: *const vx_scan_options,
-    estimate: *mut vx_estimate,
     err: *mut *mut vx_error,
 ) -> *mut vx_scan {
     try_or(err, ptr::null_mut(), || {
         let request = scan_request(options)?;
-        RUNTIME.block_on(async {
-            let scan = vx_data_source::as_ref(data_source).scan(request).await?;
-            if !estimate.is_null() {
-                write_estimate(scan.partition_count().map(|v| v as u64), unsafe {
-                    &mut *estimate
-                });
-            }
-            Ok(vx_scan::new(VxScan::Pending(scan)))
-        })
+        let scan = RUNTIME.block_on(vx_data_source::as_ref(data_source).scan(request))?;
+        Ok(vx_scan::new(scan))
     })
 }
 
-/// Return scan's dtype.
-/// This function will fail if called after vx_scan_next_partition.
+/// Return the dtype of the arrays the scan returns.
 /// On error returns NULL and sets "err".
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_scan_dtype(
@@ -269,105 +260,179 @@ pub unsafe extern "C-unwind" fn vx_scan_dtype(
     err: *mut *mut vx_error,
 ) -> *const vx_dtype {
     try_or(err, ptr::null(), || {
-        let scan = vx_scan::as_ref(scan);
-        let VxScan::Pending(scan) = scan else {
-            vortex_bail!("dtype unavailable: scan already started");
-        };
-        Ok(vx_dtype::new(scan.dtype().clone()))
+        Ok(vx_dtype::new(vx_scan::as_ref(scan).dtype().clone()))
     })
 }
 
-/// Return an partition from a scan.
-///
-/// On success returns a partition.
-/// On exhaustion (no more partitions in scan) returns NULL but doesn't set
-/// "err".
-/// On error returns NULL and sets "err".
-///
-/// This function is thread-unsafe. Callers running a multi-threaded pipeline
-/// should synchronise on calls to this function and dispatch each produced
-/// partition to a dedicated worker thread.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_scan_next_partition(
-    scan: *mut vx_scan,
-    err: *mut *mut vx_error,
-) -> *mut vx_partition {
-    let scan = vx_scan::as_mut(scan);
-    let scan = &mut *scan;
-    unsafe {
-        let ptr = scan as *mut VxScan;
-
-        let on_finish = || -> VortexResult<*mut vx_partition> {
-            ptr::write(ptr, VxScan::Finished);
-            Ok(ptr::null_mut())
-        };
-
-        let on_stream = |mut stream: PartitionStream| -> VortexResult<*mut vx_partition> {
-            match RUNTIME.block_on(stream.next()) {
-                Some(partition) => {
-                    let partition = VxPartitionScan::Pending(partition?);
-                    let partition = vx_partition::new(partition);
-                    ptr::write(ptr, VxScan::Started(stream));
-                    Ok(partition)
-                }
-                None => on_finish(),
-            }
-        };
-
-        let owned = ptr::replace(ptr, VxScan::Finished);
-        try_or_default(err, || match owned {
-            VxScan::Pending(scan) => on_stream(scan.partitions()),
-            VxScan::Started(stream) => on_stream(stream),
-            VxScan::Finished => on_finish(),
-        })
-    }
-}
-
-/// Get partition's estimated row count.
-/// Must be called before the first call to vx_partition_next.
+/// Write an estimate of the number of rows the scan returns to "*count".
 ///
 /// On success, returns 0.
-/// On error, return 1 and sets "error".
+/// On error, returns 1 and sets "err".
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_partition_row_count(
-    partition: *const vx_partition,
+pub unsafe extern "C-unwind" fn vx_scan_row_count(
+    scan: *const vx_scan,
     count: *mut vx_estimate,
     err: *mut *mut vx_error,
 ) -> c_int {
     try_or(err, 1, || {
-        let partition = vx_partition::as_ref(partition);
-        let VxPartitionScan::Pending(partition) = partition else {
-            vortex_bail!("row count unavailable: partition already started");
-        };
-        write_estimate(partition.row_count(), unsafe { &mut *count });
+        vortex_ensure!(!count.is_null(), "null count");
+        write_estimate(vx_scan::as_ref(scan).row_count(), unsafe { &mut *count });
         Ok(0)
     })
 }
 
-/// Scan partition to ArrowArrayStream.
-/// Consumes partition fully: subsequent calls to vx_partition_scan_arrow or
-/// vx_partition_next are undefined behaviour.
-/// This call blocks current thread until underlying stream is fully consumed.
+/// Cut a scan into at most "n" independent scans, in row order.
 ///
-/// Caller must not free partition after calling this function.
+/// Consumes "scan", even on error. Writes the pieces to "out", which must point
+/// to an array of at least "n" vx_scan pointers, and returns how many it wrote.
+/// Together the pieces read exactly what "scan" reads. A scan that cannot be cut
+/// (for example one with a limit) is returned as a single piece. Splitting reads
+/// metadata only.
+///
+/// On error returns 0 and sets "err".
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_scan_split(
+    scan: *mut vx_scan,
+    n: usize,
+    out: *mut *mut vx_scan,
+    err: *mut *mut vx_error,
+) -> usize {
+    let scan = *vx_scan::into_box(scan);
+    try_or(err, 0, || {
+        vortex_ensure!(!out.is_null(), "null output array");
+        let Some(n) = NonZeroUsize::new(n) else {
+            vortex_bail!("cannot split a scan into zero pieces");
+        };
+        let pieces = scan.split(n)?;
+        vortex_ensure!(pieces.len() <= n.get(), "scan split into too many pieces");
+        let out = unsafe { slice::from_raw_parts_mut(out, n.get()) };
+        let count = pieces.len();
+        for (slot, piece) in out.iter_mut().zip(pieces) {
+            *slot = vx_scan::new(piece);
+        }
+        Ok(count)
+    })
+}
+
+/// Open a scan for execution.
+///
+/// Consumes "scan", even on error. Opening is cheap: all I/O happens when the
+/// pool's workers are driven.
+///
+/// On error returns NULL and sets "err".
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_scan_open(
+    scan: *mut vx_scan,
+    err: *mut *mut vx_error,
+) -> *mut vx_scan_pool {
+    let scan = *vx_scan::into_box(scan);
+    try_or(err, ptr::null_mut(), || Ok(vx_scan_pool::new(scan.open()?)))
+}
+
+/// Run a scan on the runtime's threads and return its arrays as one stream.
+///
+/// Consumes "scan", even on error. Runs "workers" workers as tasks on the shared
+/// runtime, which makes progress on the threads set with
+/// vx_runtime_set_worker_threads and on any thread inside a Vortex call. "workers"
+/// of 0 runs one worker per runtime thread, or one if the runtime has none. An
+/// ordered scan returns its rows in row order.
+///
+/// Read the returned stream with vx_scan_worker_next or
+/// vx_scan_worker_scan_arrow from one thread at a time.
+///
+/// On error returns NULL and sets "err".
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_scan_execute(
+    scan: *mut vx_scan,
+    workers: usize,
+    err: *mut *mut vx_error,
+) -> *mut vx_scan_worker {
+    let scan = *vx_scan::into_box(scan);
+    try_or(err, ptr::null_mut(), || {
+        let workers = NonZeroUsize::new(workers)
+            .unwrap_or_else(|| NonZeroUsize::new(POOL.worker_count()).unwrap_or(NonZeroUsize::MIN));
+        let stream = execute_with_workers(scan, workers, &RUNTIME.handle())?;
+        Ok(vx_scan_worker::new(Some(stream)))
+    })
+}
+
+/// Return true once every unit of the pool's work has been handed to a worker.
+///
+/// Workers may still be producing arrays. A host uses this to stop adding
+/// threads to a pool that has nothing left to hand out.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_scan_pool_is_exhausted(pool: *const vx_scan_pool) -> bool {
+    vx_scan_pool::as_ref(pool).is_exhausted()
+}
+
+/// Create a new worker of a pool.
+///
+/// Thread-safe: any number of threads may create workers of the same pool at
+/// any time. The worker keeps the pool's work alive, so the pool may be freed
+/// before its workers. A worker ends once the pool has no work left for it.
+///
+/// On error returns NULL and sets "err".
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_scan_pool_worker(
+    pool: *const vx_scan_pool,
+    err: *mut *mut vx_error,
+) -> *mut vx_scan_worker {
+    try_or(err, ptr::null_mut(), || {
+        let pool = Arc::clone(vx_scan_pool::as_ref(pool));
+        Ok(vx_scan_worker::new(Some(pool.worker())))
+    })
+}
+
+/// Return the next array of a worker.
+///
+/// Blocks the calling thread, which does the worker's work.
+/// On success returns an array.
+/// When the worker is exhausted returns NULL without setting "err", and keeps
+/// doing so on later calls.
+/// On error returns NULL and sets "err".
+///
+/// Not thread-safe: drive each worker from one thread at a time.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_scan_worker_next(
+    worker: *mut vx_scan_worker,
+    err: *mut *mut vx_error,
+) -> *const vx_array {
+    let worker = vx_scan_worker::as_mut(worker);
+    try_or_default(err, || {
+        let Some(stream) = worker.as_mut() else {
+            return Ok(ptr::null());
+        };
+        match RUNTIME.block_on(stream.next()) {
+            Some(array) => Ok(vx_array::new(array?)),
+            None => {
+                *worker = None;
+                Ok(ptr::null())
+            }
+        }
+    })
+}
+
+/// Consume a worker into an ArrowArrayStream.
+///
+/// Consumes "worker", even on error: do not free it after calling this function.
+/// Each call to the stream's get_next blocks the calling thread, which does the
+/// worker's work.
 ///
 /// On success, sets "stream" and returns 0.
-/// On error, sets "err" and returns 1, freeing the partition.
+/// On error, sets "err" and returns 1.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_partition_scan_arrow(
+pub unsafe extern "C-unwind" fn vx_scan_worker_scan_arrow(
     session: *const vx_session,
-    partition: *mut vx_partition,
+    worker: *mut vx_scan_worker,
     stream: *mut FFI_ArrowArrayStream,
     err: *mut *mut vx_error,
 ) -> c_int {
+    let worker = *vx_scan_worker::into_box(worker);
     try_or(err, 1, || {
-        let partition = match *vx_partition::into_box(partition) {
-            VxPartitionScan::Pending(partition) => partition,
-            _ => vortex_bail!(
-                "Can't consume partition into ArrowArrayStream: partition already being consumed"
-            ),
+        vortex_ensure!(!stream.is_null(), "null ArrowArrayStream");
+        let Some(array_stream) = worker else {
+            vortex_bail!("Can't consume worker into ArrowArrayStream: worker already exhausted");
         };
-        let array_stream = partition.execute()?;
         let dtype = array_stream.dtype();
 
         let session = vx_session::as_ref(session);
@@ -395,48 +460,6 @@ pub unsafe extern "C-unwind" fn vx_partition_scan_arrow(
         };
         Ok(0)
     })
-}
-
-/// Return an array from a partition.
-///
-/// On success returns an array.
-/// On exhaustion (no more arrays in partition) returns NULL but doesn't set
-/// "err".
-/// On error return NULL and sets "err".
-///
-/// This function is not thread-safe: call from one thread per partition.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_partition_next(
-    partition: *mut vx_partition,
-    err: *mut *mut vx_error,
-) -> *const vx_array {
-    let partition = vx_partition::as_mut(partition);
-    unsafe {
-        let ptr = partition as *mut VxPartitionScan;
-
-        let on_finish = || -> VortexResult<*const vx_array> {
-            ptr::write(ptr, VxPartitionScan::Finished);
-            Ok(ptr::null_mut())
-        };
-
-        let on_stream = |mut stream: SendableArrayStream| -> VortexResult<*const vx_array> {
-            match RUNTIME.block_on(stream.next()) {
-                Some(array) => {
-                    let array = vx_array::new(array?);
-                    ptr::write(ptr, VxPartitionScan::Started(stream));
-                    Ok(array)
-                }
-                None => on_finish(),
-            }
-        };
-
-        let owned = ptr::replace(ptr, VxPartitionScan::Finished);
-        try_or_default(err, || match owned {
-            VxPartitionScan::Pending(partition) => on_stream(partition.execute()?),
-            VxPartitionScan::Started(stream) => on_stream(stream),
-            VxPartitionScan::Finished => on_finish(),
-        })
-    }
 }
 
 // Object store error: Generic LocalFileSystem error: Unable to convert
@@ -477,17 +500,26 @@ mod tests {
     use crate::expression::vx_expression_root;
     use crate::scalar::vx_scalar_free;
     use crate::scalar::vx_scalar_new_u64;
+    use crate::data_source::vx_data_source;
     use crate::scan::vx_data_source_scan;
     use crate::scan::vx_estimate;
     use crate::scan::vx_estimate_type;
-    use crate::scan::vx_partition_free;
-    use crate::scan::vx_partition_next;
-    use crate::scan::vx_partition_row_count;
+    use crate::scan::vx_scan;
+    use crate::scan::vx_scan_execute;
     use crate::scan::vx_scan_free;
-    use crate::scan::vx_scan_next_partition;
+    use crate::scan::vx_scan_open;
     use crate::scan::vx_scan_options;
+    use crate::scan::vx_scan_pool_free;
+    use crate::scan::vx_scan_pool_is_exhausted;
+    use crate::scan::vx_scan_pool_worker;
+    use crate::scan::vx_scan_row_count;
+    use crate::scan::vx_scan_split;
+    use crate::scan::vx_scan_worker;
+    use crate::scan::vx_scan_worker_free;
+    use crate::scan::vx_scan_worker_next;
     use crate::scan::vx_scan_selection;
     use crate::scan::vx_scan_selection_include;
+    use crate::session::vx_session;
     use crate::session::vx_session_free;
     use crate::session::vx_session_new;
     use crate::sink::vx_array_sink_close;
@@ -495,14 +527,19 @@ mod tests {
     use crate::sink::vx_array_sink_push;
     use crate::string::vx_view;
     use crate::tests::SAMPLE_ROWS;
+    use crate::tests::assert_error;
     use crate::tests::assert_no_error;
     use crate::tests::write_sample;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
-    /// Perform a scan with options over a sample file, return owned read array and
-    /// original generated array for the sample file.
-    fn scan(options: *const vx_scan_options) -> (*const vx_array, StructArray) {
+    /// Open a data source over a fresh sample file.
+    unsafe fn sample_source() -> (
+        *const vx_session,
+        NamedTempFile,
+        StructArray,
+        *const vx_data_source,
+    ) {
         unsafe {
             let session = vx_session_new();
             let (sample, struct_array) = write_sample(session);
@@ -510,37 +547,93 @@ mod tests {
             let ds_options = vx_data_source_options {
                 paths: &raw const path,
                 paths_len: 1,
+                ..Default::default()
             };
 
             let mut error = ptr::null_mut();
             let ds = vx_data_source_new(session, &raw const ds_options, &raw mut error);
             assert_no_error(error);
             assert!(!ds.is_null());
+            (session, sample, struct_array, ds)
+        }
+    }
 
+    unsafe fn plan(ds: *const vx_data_source, options: *const vx_scan_options) -> *mut vx_scan {
+        unsafe {
             let mut error = ptr::null_mut();
-            let scan = vx_data_source_scan(ds, options, ptr::null_mut(), &raw mut error);
+            let scan = vx_data_source_scan(ds, options, &raw mut error);
             assert_no_error(error);
             assert!(!scan.is_null());
+            scan
+        }
+    }
 
-            let partition = vx_scan_next_partition(scan, &raw mut error);
+    /// Drain a worker, returning the arrays it yields. Frees the worker.
+    unsafe fn drain(worker: *mut vx_scan_worker) -> Vec<*const vx_array> {
+        unsafe {
+            let mut error = ptr::null_mut();
+            let mut arrays = Vec::new();
+            loop {
+                let array = vx_scan_worker_next(worker, &raw mut error);
+                assert_no_error(error);
+                if array.is_null() {
+                    break;
+                }
+                arrays.push(array);
+            }
+            // An exhausted worker keeps returning NULL.
+            assert!(vx_scan_worker_next(worker, &raw mut error).is_null());
             assert_no_error(error);
-            assert!(!partition.is_null());
+            vx_scan_worker_free(worker);
+            arrays
+        }
+    }
 
-            let array = vx_partition_next(partition, &raw mut error);
-            assert_no_error(error);
-            assert!(!array.is_null());
+    /// The `age` column (row index) of each array, concatenated.
+    unsafe fn ages(arrays: &[*const vx_array]) -> Vec<u64> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut out = Vec::new();
+        for &ptr in arrays {
+            let age = vx_array::as_ref(ptr)
+                .clone()
+                .execute::<StructArray>(&mut ctx)
+                .unwrap()
+                .unmasked_field_by_name("age")
+                .unwrap()
+                .clone()
+                .execute::<PrimitiveArray>(&mut ctx)
+                .unwrap();
+            out.extend_from_slice(age.as_slice::<u64>());
+            unsafe { vx_array_free(ptr) };
+        }
+        out
+    }
 
-            assert!(vx_partition_next(partition, &raw mut error).is_null());
-            assert_no_error(error);
-            assert!(vx_partition_next(partition, &raw mut error).is_null());
-            assert_no_error(error);
+    /// Perform a scan with options over a sample file, return owned read array and
+    /// original generated array for the sample file.
+    fn scan(options: *const vx_scan_options) -> (*const vx_array, StructArray) {
+        unsafe {
+            let (session, _sample, struct_array, ds) = sample_source();
+            let scan = plan(ds, options);
 
-            vx_partition_free(partition);
-            vx_scan_free(scan);
+            let mut error = ptr::null_mut();
+            let pool = vx_scan_open(scan, &raw mut error);
+            assert_no_error(error);
+            assert!(!pool.is_null());
+
+            let worker = vx_scan_pool_worker(pool, &raw mut error);
+            assert_no_error(error);
+            assert!(!worker.is_null());
+
+            let mut arrays = drain(worker);
+            assert_eq!(arrays.len(), 1);
+            assert!(vx_scan_pool_is_exhausted(pool));
+
+            vx_scan_pool_free(pool);
             vx_data_source_free(ds);
             vx_session_free(session);
 
-            (array, struct_array)
+            (arrays.remove(0), struct_array)
         }
     }
 
@@ -619,14 +712,14 @@ mod tests {
             let ds_options = vx_data_source_options {
                 paths: &raw const path,
                 paths_len: 1,
+                ..Default::default()
             };
             let ds = vx_data_source_new(session, &raw const ds_options, &raw mut error);
             assert_no_error(error);
-            let scan = vx_data_source_scan(ds, ptr::null(), ptr::null_mut(), &raw mut error);
+            let scan = plan(ds, ptr::null());
+            let worker = vx_scan_execute(scan, 1, &raw mut error);
             assert_no_error(error);
-            let partition = vx_scan_next_partition(scan, &raw mut error);
-            assert_no_error(error);
-            let array = vx_partition_next(partition, &raw mut error);
+            let array = vx_scan_worker_next(worker, &raw mut error);
             assert_no_error(error);
 
             let field = vx_array_get_field(array, 0, &raw mut error);
@@ -635,8 +728,7 @@ mod tests {
 
             vx_array_free(field);
             vx_array_free(array);
-            vx_partition_free(partition);
-            vx_scan_free(scan);
+            vx_scan_worker_free(worker);
             vx_data_source_free(ds);
             vx_session_free(session);
         }
@@ -833,36 +925,142 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_row_count() {
         unsafe {
-            let session = vx_session_new();
-            let (sample, _) = write_sample(session);
-            let path = vx_view::from_str(sample.path().to_str().unwrap());
-            let ds_options = vx_data_source_options {
-                paths: &raw const path,
-                paths_len: 1,
-            };
+            let (session, _sample, _, ds) = sample_source();
+            let scan = plan(ds, ptr::null());
 
             let mut error = ptr::null_mut();
-            let ds = vx_data_source_new(session, &raw const ds_options, &raw mut error);
-            assert_no_error(error);
-
-            let mut error = ptr::null_mut();
-            let scan_ptr = vx_data_source_scan(ds, ptr::null(), ptr::null_mut(), &raw mut error);
-            assert_no_error(error);
-
-            let mut error = ptr::null_mut();
-            let partition = vx_scan_next_partition(scan_ptr, &raw mut error);
-            assert_no_error(error);
-            assert!(!partition.is_null());
-
-            let mut count: vx_estimate = std::mem::zeroed();
-            let result = vx_partition_row_count(partition, &raw mut count, &raw mut error);
+            let mut count = vx_estimate::default();
+            let result = vx_scan_row_count(scan, &raw mut count, &raw mut error);
             assert_no_error(error);
             assert_eq!(result, 0);
-            assert!(matches!(count.r#type, vx_estimate_type::VX_ESTIMATE_EXACT));
+            assert_eq!(count.r#type, vx_estimate_type::VX_ESTIMATE_EXACT);
             assert_eq!(count.estimate, SAMPLE_ROWS as u64);
 
-            vx_partition_free(partition);
-            vx_scan_free(scan_ptr);
+            vx_scan_free(scan);
+            vx_data_source_free(ds);
+            vx_session_free(session);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_workers_share_a_pool() {
+        unsafe {
+            let (session, _sample, _, ds) = sample_source();
+            let scan = plan(ds, ptr::null());
+            let mut error = ptr::null_mut();
+            let pool = vx_scan_open(scan, &raw mut error);
+            assert_no_error(error);
+
+            let first = vx_scan_pool_worker(pool, &raw mut error);
+            assert_no_error(error);
+            let second = vx_scan_pool_worker(pool, &raw mut error);
+            assert_no_error(error);
+            // Workers outlive the pool handle.
+            vx_scan_pool_free(pool);
+
+            let mut rows = ages(&drain(first));
+            rows.extend(ages(&drain(second)));
+            rows.sort_unstable();
+            assert_eq!(rows, (0..SAMPLE_ROWS as u64).collect::<Vec<_>>());
+
+            vx_data_source_free(ds);
+            vx_session_free(session);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_limit_is_shared_by_workers() {
+        unsafe {
+            let (session, _sample, _, ds) = sample_source();
+            let opts = vx_scan_options {
+                limit: 50,
+                ..Default::default()
+            };
+            let scan = plan(ds, &raw const opts);
+            let mut error = ptr::null_mut();
+            let pool = vx_scan_open(scan, &raw mut error);
+            assert_no_error(error);
+            let first = vx_scan_pool_worker(pool, &raw mut error);
+            assert_no_error(error);
+            let second = vx_scan_pool_worker(pool, &raw mut error);
+            assert_no_error(error);
+            vx_scan_pool_free(pool);
+
+            let rows = ages(&drain(first)).len() + ages(&drain(second)).len();
+            assert_eq!(rows, 50);
+
+            vx_data_source_free(ds);
+            vx_session_free(session);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_split_pieces_cover_the_scan_in_order() {
+        unsafe {
+            let (session, _sample, _, ds) = sample_source();
+            let scan = plan(ds, ptr::null());
+            let mut error = ptr::null_mut();
+            let mut pieces = [ptr::null_mut::<vx_scan>(); 4];
+            let count = vx_scan_split(scan, pieces.len(), pieces.as_mut_ptr(), &raw mut error);
+            assert_no_error(error);
+            assert!((1..=pieces.len()).contains(&count));
+
+            let mut rows = Vec::new();
+            for &piece in &pieces[..count] {
+                let pool = vx_scan_open(piece, &raw mut error);
+                assert_no_error(error);
+                let worker = vx_scan_pool_worker(pool, &raw mut error);
+                assert_no_error(error);
+                vx_scan_pool_free(pool);
+                let mut piece_rows = ages(&drain(worker));
+                piece_rows.sort_unstable();
+                rows.extend(piece_rows);
+            }
+            assert_eq!(rows, (0..SAMPLE_ROWS as u64).collect::<Vec<_>>());
+
+            vx_data_source_free(ds);
+            vx_session_free(session);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_split_into_zero_pieces_fails() {
+        unsafe {
+            let (session, _sample, _, ds) = sample_source();
+            let scan = plan(ds, ptr::null());
+            let mut error = ptr::null_mut();
+            let mut piece = ptr::null_mut::<vx_scan>();
+            assert_eq!(vx_scan_split(scan, 0, &raw mut piece, &raw mut error), 0);
+            assert_error(error);
+            assert!(piece.is_null());
+
+            vx_data_source_free(ds);
+            vx_session_free(session);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_execute_ordered_keeps_row_order() {
+        unsafe {
+            let (session, _sample, _, ds) = sample_source();
+            let opts = vx_scan_options {
+                ordered: true,
+                ..Default::default()
+            };
+            let scan = plan(ds, &raw const opts);
+            let mut error = ptr::null_mut();
+            let stream = vx_scan_execute(scan, 4, &raw mut error);
+            assert_no_error(error);
+            assert_eq!(
+                ages(&drain(stream)),
+                (0..SAMPLE_ROWS as u64).collect::<Vec<_>>()
+            );
+
             vx_data_source_free(ds);
             vx_session_free(session);
         }
