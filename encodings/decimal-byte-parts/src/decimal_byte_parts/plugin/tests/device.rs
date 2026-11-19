@@ -73,11 +73,7 @@ impl DeviceBuffer for TestDeviceBuffer {
 #[case::narrow(18, true)]
 #[case::equal(9, true)]
 #[case::wider_legacy(4, false)]
-fn read_device_msp(
-    #[case] precision: u8,
-    #[case] accepted: bool,
-    #[values(false, true)] v2: bool,
-) -> VortexResult<()> {
+fn read_device_msp(#[case] precision: u8, #[case] accepted: bool) -> VortexResult<()> {
     let msp = PrimitiveArray::from_buffer_handle(
         BufferHandle::new_device(Arc::new(TestDeviceBuffer(
             buffer![99i32; 3].into_byte_buffer(),
@@ -87,7 +83,7 @@ fn read_device_msp(
     )
     .into_array();
 
-    let result = deserialize_stored_msp(msp, DecimalDType::new(precision, 0), v2, &session());
+    let result = deserialize_stored_msp(msp, DecimalDType::new(precision, 0), &session());
     if accepted {
         let array = result?;
         let array = array

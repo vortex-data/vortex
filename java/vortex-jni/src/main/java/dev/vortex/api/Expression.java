@@ -435,7 +435,8 @@ public final class Expression {
      * {@code withNull} is set. One native call builds the whole list, so a list of thousands of values, such as the
      * keys of a runtime join filter, costs no Java object per value.
      *
-     * <p>The elements are nullable only when {@code withNull} is set.
+     * <p>The elements are nullable only when {@code withNull} is set. For a date, time or timestamp element type, each
+     * value is a count of that type's unit, as in {@link #literalTimestamp(long, TimeUnit, String)}.
      */
     public static Expression literalLongList(Expression elementType, boolean withNull, long[] values) {
         return new Expression(NativeExpression.literalListI64(values, elementType.nativePointer(), withNull, withNull));
