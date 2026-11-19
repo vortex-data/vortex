@@ -14,10 +14,21 @@ use datafusion::arrow::buffer::NullBuffer;
 use datafusion_common::assert_batches_eq;
 use datafusion_common::create_array;
 use datafusion_expr::col;
+use datafusion_expr::registry::FunctionRegistry;
 use datafusion_functions::expr_fn::get_field;
+use datafusion_functions_nested::planner::FieldAccessPlanner;
 use rstest::rstest;
+use vortex::VortexSessionDefault;
+use vortex::dtype::Nullability;
+use vortex::expr::get_item;
+use vortex::expr::pack;
+use vortex::expr::root;
+use vortex::session::VortexSession;
 
+use crate::VortexFormatFactory;
+use crate::VortexTableOptions;
 use crate::common_tests::TestSessionContext;
+use crate::tests::RecordingConverter;
 
 /// Schema: {id: Int64, outer: {inner: {leaf: Utf8, value: Int64}, extra: Int64}}
 fn make_nested_batch(parent_nulls: bool) -> RecordBatch {
@@ -168,5 +179,77 @@ async fn test_nested_struct_null_parent_projection() -> anyhow::Result<()> {
         ],
         &result
     );
+    Ok(())
+}
+
+/// A projection that mixes nested fields with an unsupported function over one of them reads only
+/// those fields in the scan, once each, and DataFusion applies the function to the scan output.
+///
+/// The fields follow the converter's nested field access, as they do when the scan evaluates the
+/// whole projection: a null `outer` or `inner` makes the fields under it null.
+#[rstest]
+#[tokio::test]
+async fn test_mixed_projection_reads_needed_fields(
+    #[values(false, true)] scan_v2: bool,
+) -> anyhow::Result<()> {
+    let converter = Arc::new(RecordingConverter::new(VortexSession::default()));
+    let options = VortexTableOptions {
+        projection_pushdown: true,
+        scan_v2,
+        ..Default::default()
+    };
+    let factory = VortexFormatFactory::new()
+        .with_options(options)
+        .with_expression_converter(Arc::clone(&converter) as _);
+    let mut ctx = TestSessionContext::new_with_factory(Arc::new(factory));
+    // The workspace builds DataFusion without its nested expressions, which plan SQL field access.
+    ctx.session
+        .register_expr_planner(Arc::new(FieldAccessPlanner))?;
+    ctx.write_arrow_batch("files/nested.vortex", &make_nested_batch(true))
+        .await?;
+    ctx.session
+        .sql("CREATE EXTERNAL TABLE nested STORED AS vortex LOCATION '/files/'")
+        .await?;
+
+    let batches = ctx
+        .session
+        .sql(
+            "SELECT id, upper(\"outer\"['inner']['leaf']) AS shout, \
+             \"outer\"['inner']['leaf'] AS leaf, \"outer\"['extra'] AS extra \
+             FROM nested ORDER BY id",
+        )
+        .await?
+        .collect()
+        .await?;
+    assert_batches_eq!(
+        [
+            "+----+-------+------+-------+",
+            "| id | shout | leaf | extra |",
+            "+----+-------+------+-------+",
+            "| 1  | A     | a    | 100   |",
+            "| 2  |       |      |       |",
+            "| 3  |       |      | 300   |",
+            "+----+-------+------+-------+",
+        ],
+        &batches
+    );
+
+    let outer = get_item("outer", root());
+    let expected = pack(
+        [
+            ("id", get_item("id", root())),
+            (
+                "__vortex_expr_0",
+                get_item("leaf", get_item("inner", outer.clone())),
+            ),
+            ("__vortex_expr_1", get_item("extra", outer)),
+        ],
+        Nullability::NonNullable,
+    );
+    let scan_projections = converter.scan_projections.lock();
+    assert!(!scan_projections.is_empty());
+    for projection in scan_projections.iter() {
+        assert_eq!(projection, &expected);
+    }
     Ok(())
 }
