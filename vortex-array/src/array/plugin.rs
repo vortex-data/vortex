@@ -32,12 +32,11 @@ pub struct ArraySerialization {
     pub metadata: Vec<u8>,
     /// Top-level buffers written for this array node.
     pub buffers: Vec<ByteBuffer>,
-    /// The arrays that the decoder expects as children of this wire node, in order.
+    /// The child arrays in the order required by the chosen wire format.
     ///
-    /// A serializer can skip a source node when the wire format already carries the information
-    /// needed to decode it. Legacy `vortex.decimal` stores the buffer width in metadata, so
-    /// `Widen(Decimal(validity))` can use one wire node with `validity` as its direct child.
-    /// A serializer can also construct a child to fit the wire format.
+    /// The decoder uses the wire format to determine each child's dtype, length, and layout.
+    /// A serializer may reuse a source descendant at any depth or construct a child, as long as
+    /// the array meets the requirements for that position.
     pub children: Vec<ArrayRef>,
 }
 

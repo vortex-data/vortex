@@ -131,28 +131,32 @@ A serializer must choose the oldest supported writable format that preserves the
 representation without recompression. A plugin can adapt metadata, buffers, or children to fit an
 older format. Formats retained only for reading, however, are not candidates for writing.
 
-The flat file writer used to serialize the tree chosen by the plugins and fail if any node had a
-forbidden wire ID. The writer now retries from the source array when it sees a forbidden wire ID.
-It tries a structural rewrite before taking an execution step.
+The chosen wire format determines the children its decoder expects, including their order, dtype,
+length, and any layout constraints. A serializer can use an array from any depth in the source
+tree if it fits the expected child position and the complete node preserves the source values.
 
-The legacy `vortex.decimal` format records the stored integer type in the node metadata. The
-enclosing format supplies the logical decimal dtype, which includes precision and scale. Keeping
-these separate let older writers use a narrower buffer than the logical precision's canonical
-width. A `DecimalArray` now has the canonical width for its precision in memory, and
-`Widen(Decimal(...))` represents a narrower buffer. The legacy format already allows that width
-difference, so the writer can reuse the Decimal leaf's buffer and validity in a single
-`vortex.decimal` node.
+## Write normalization
 
-For example, a core edition can permit `vortex.dict` and `vortex.decimal` while forbidding
-`vortex.widen`. Previously, `Widen(Dict(codes, values))` needed `vortex.widen` and the write failed.
-The writer can now rewrite it to `Dict(codes, Widen(values))`. When the values are a narrow Decimal
-leaf, the file keeps the dictionary codes and stores the value buffer as legacy `vortex.decimal`.
+Previously, the flat writer failed on a forbidden wire ID. It now retries from the source array,
+trying a rewrite before execution.
 
-If that Decimal leaf stores its validity as an array, the serializer emits the validity as a
-direct child of the `vortex.decimal` node. In the source array, the validity is a grandchild of
-`Widen`, reached through the Decimal leaf's slot. When the validity needs normalization, the writer
-follows those source slots, rebuilds the affected arrays, and reruns the serializer so the metadata
-and children match. A child constructed by the serializer has to pass the wire-ID check as emitted.
+For example, `Widen(Dict(...))` used to fail when an edition allowed `vortex.dict` and
+`vortex.decimal` but forbade `vortex.widen`. The retry can move `Widen` into the dictionary's value
+table and keep the codes.
+
+Older Decimal arrays could store a narrow buffer at a wider logical precision. The legacy
+`vortex.decimal` format records the buffer width separately from the logical dtype, so it can
+carry a narrow Decimal leaf's buffer and its validity in one wire node.
+
+```text
+In memory       Widen(Dict(codes, Decimal(validity)))
+After rewrite   Dict(codes, Widen(Decimal(validity)))
+On wire         vortex.dict(codes, vortex.decimal(validity))
+```
+
+The validity is a direct child of the Decimal wire node. If it needs normalization, the writer
+follows the source slots through the in-memory Decimal leaf, rebuilds that path, and reruns the
+serializer. The final write checks every emitted wire ID, including those of newly built children.
 
 ## Write and read checks
 
