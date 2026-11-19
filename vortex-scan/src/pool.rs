@@ -26,9 +26,10 @@ pub trait ScanPool: 'static + Send + Sync {
     /// Returns a new worker: a stream its caller polls inline, on its own thread.
     ///
     /// Workers take work from the pool until none is left, so together they return every row of
-    /// the scan exactly once. A host may start any number of workers, at any time. A worker never
-    /// spawns tasks of its own. Dropping a worker before it ends gives up the work it had taken,
-    /// so a host drops a worker early only when it abandons the scan.
+    /// the scan exactly once. A host may start any number of workers, at any time. A worker may
+    /// spawn its work onto the session's runtime, so its splits decode concurrently and their I/O
+    /// starts early, but it starts no threads of its own. Dropping a worker before it ends gives
+    /// up the work it had taken, so a host drops a worker early only when it abandons the scan.
     fn worker(self: Arc<Self>) -> SendableArrayStream;
 }
 
