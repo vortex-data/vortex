@@ -9,8 +9,8 @@
 //!
 //! A serializer can emit a deeper source descendant as a direct wire child. Write normalization
 //! matches emitted children to source arrays by pointer identity and rebuilds changed slots along
-//! the matching paths. The serializer then runs on the rebuilt array so that its metadata, buffers,
-//! and children agree. Children constructed by the serializer have to pass the wire-ID check as
+//! the matching paths. The serializer runs again because its metadata can describe the arrays it
+//! emits as children. Children constructed by the serializer have to pass the wire-ID check as
 //! emitted.
 
 use smallvec::SmallVec;
