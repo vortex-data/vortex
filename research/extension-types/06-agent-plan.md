@@ -472,6 +472,9 @@ Branch `ct/ext-bloom-eq` from `ct/ext-claims-types`. The same agent runs it afte
 
 ### Task U1: one cast rule
 
+Merged in [#11599](https://github.com/vortex-data/vortex/pull/11599). `Cast::try_new` rejects casts that reinterpret storage.
+The steps below record the original task.
+
 Branch `ct/ext-no-storage-casts` from `origin/develop`. Check `vortex-array`, `vortex-arrow`.
 
 Read the U1 section of [`04-urgent-changes.md`](04-urgent-changes.md) and EXT-C1 to EXT-C3 and
@@ -558,6 +561,9 @@ Read issue [#8848](https://github.com/vortex-data/vortex/issues/8848) with `gh i
 - [ ] **Step 6: Commit** "Return an error for an invalid lazy struct field dtype".
 
 ### Task SN3: Arrow import drops masked nulls below every nested level
+
+Merged in [#11617](https://github.com/vortex-data/vortex/pull/11617), which normalized each level's declared nullability and replaced
+[#11602](https://github.com/vortex-data/vortex/pull/11602). The steps below describe the superseded ancestor-mask approach.
 
 Branch `ct/arrow-import-masked-nulls` from `origin/develop`. The same agent runs it after SF.
 Check `vortex-arrow`.
@@ -724,6 +730,8 @@ pub fn validate_extension_values(array: &ArrayRef, ctx: &mut ExecutionCtx) -> Vo
 - [ ] **Step 6: Commit** "Check extension values on import and in strict reads".
 
 ### Task CL3: claim checks in the conformance harness
+
+Open in [#11604](https://github.com/vortex-data/vortex/pull/11604), stacked on [#11600](https://github.com/vortex-data/vortex/pull/11600) and using the harness from [#11601](https://github.com/vortex-data/vortex/pull/11601).
 
 Branch `ct/ext-claim-conformance`. CL3 needs CL1, CL2 and NU. Build the base from local
 `ct/ext-claims-types`: apply `CL2.patch` with `git apply --index`, then `NU-full.patch` with

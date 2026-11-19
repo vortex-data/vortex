@@ -11,7 +11,7 @@ TY2 fixes its finding instead (see the U9 section). TY2 is the aggregate PR of t
 2026-11-17, which replaced SP4. Finding IDs refer to
 [`agents/findings.md`](agents/findings.md). On 2026-10-29, every change was still needed on
 `develop` at `1d09649bbd`, and the line numbers in this part are for that commit. U5 merged in
-#11015 on 2026-10-30. U2, U3, U4, U6, U7 and U8 merged on 2026-11-02. U1 has no PR yet.
+#11015 on 2026-10-30. U2, U3, U4, U6, U7 and U8 merged on 2026-11-02. U1 merged in [#11599](https://github.com/vortex-data/vortex/pull/11599).
 
 | ID | Change | Fixes | Visible effect |
 | --- | --- | --- | --- |
@@ -198,7 +198,7 @@ On 2026-11-04, the PRs for part 4 stand as follows:
   updates. It also makes the export of a non-temporal extension scalar as a bare DataFusion
   `ScalarValue` an error. So item 1 of "Order constraints" in part 5 holds.
 - U9 closed without a merge as #11188 on 2026-11-04. Issue #11243 tracks EXT-A3 until TY2.
-- U1 has no PR yet. The Arrow export that lands before it (AX) is the open draft #11224.
+- U1 merged in [#11599](https://github.com/vortex-data/vortex/pull/11599) after the Arrow export (AX) landed in [#11224](https://github.com/vortex-data/vortex/pull/11224).
 
 Three more PRs touch this work:
 

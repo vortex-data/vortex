@@ -17,7 +17,7 @@ itself. So the claims land first, and each function family then switches to them
 
 | Phase | Content | Depends on |
 | --- | --- | --- |
-| 0 | Urgent fixes U1 to U8, the path-consistency test helper, and fixes outside part 4: the `Timestamp` range (#10953), the `Date` display (EXT-V10), the spatial nested nullability (EXT-N2), imports that fail on nested nulls (X29, SN2 and SN3), and a dtype error in a lazily parsed struct field (SF) | Nothing |
+| 0 | Urgent fixes U1 to U8, the path-consistency test helper, and fixes outside part 4: the `Timestamp` range (#10953), the `Date` display (EXT-V10), the spatial nested nullability (EXT-N2), normalization of nested Arrow nulls (X29, SN2 and SN3), and a dtype error in a lazily parsed struct field (SF) | Nothing |
 | 1 | The storage declaration: `storage_dtype`, `validate_metadata`, strict reads, the move of storage facts into the metadata, and `ExtensionArray::new_unchecked` | U4 and U5, both merged, and the spatial validator fix SN1 |
 | 2 | Claims: `Claim`, `DType::holds`, `ExtVTable::claims`, the check in `ExtDType::try_new`, the claims of the repository types, and the conformance checks (CL1 to CL3) | 1 (SD, merged) |
 | 3 | Typing in each function: compare, `between` and `DynamicComparison` (TY1), the aggregates (TY2), `list_contains` (TY3) and the row encoding (TY4) check their claims in `return_dtype` and run on storage. Then the hardening of `BoundExpression` (TY5) | 2 (CL2) |
@@ -26,27 +26,22 @@ itself. So the claims land first, and each function family then switches to them
 | 6 | Value checks: the value check of `try_new` and the strict read mode | 0, 1 |
 | 7 | Boundaries: the Arrow default export and import of Vortex IDs, and converters for DataFusion, DuckDB, Python and JNI | Nothing |
 
-Phases 0 and 1 are mostly done. The open PRs of phase 0 (U1, SF and SN3) and NU of phase 1 are
-independent of the claims, so they can run in parallel with phase 2. Phase 2 is small, and it
-changes no behavior: nothing reads the claims until phase 3. Phase 3 is the critical step. Each of
-its PRs turns on typing for one family, so from then on that family treats extension types as
-opaque unless they claim what it needs. Phase 4 needs only the claims, so it runs in parallel with
-phase 3. Phase 6 runs in parallel with phases 2 to 4. Phase 5 waits for XQ10.
-
-Each storage path and each rule of phase 5 builds its results with `ExtensionArray::new_unchecked`
-when legal input gives legal output. That constructor already exists, with a contract that covers
-only the storage dtype. NU adds `validate_array` and the conformance harness, and phase 6 adds the
-value check to `try_new` and makes `new_unchecked` promise legal values.
+The storage declaration, cast fix, and Arrow import changes have merged. The schema decode fix
+(SF) is open in [#11578]. The claims API (CL1) is open in [#11579], and draft [#11600] adds the
+built-in claims and their use in functions and statistics (CL2, TY1 to TY5, ST1, and ST2).
+Draft [#11601] covers the validation hook, constructor and import checks, and optional strict
+scan mode (NU, VC1, and VC2). Draft [#11604] checks claim conformance (CL3) and builds on the
+claim checks and validation harness. The type-rule and cast work still needs to resolve XQ10.
 
 ## Dependency graph
 
 The graph shows every change of the extension type work, grouped by phase, with its state on
-2026-11-17. Green nodes merged, yellow nodes have an open PR, and white nodes have no PR yet. A red
+2026-11-19. Green nodes merged, yellow nodes have an open PR, and white nodes have no PR yet. A red
 node waits for a design decision. A gray node was dropped or closed without a merge. A solid arrow
 is a hard dependency: the later change must not land first. A dashed arrow is an order rule or a
 soft dependency, and a label such as "item 4" names the rule in "Order constraints". A dotted line
 without an arrow links an open PR that changes the same code, so the two need coordination. Each
-node is one PR, and its ID is the ID of that PR in the PR plans of
+node is a plan item, and its ID is the ID of that item in the PR plans of
 [#11114](https://github.com/vortex-data/vortex/issues/11114) and
 [#11115](https://github.com/vortex-data/vortex/issues/11115).
 
@@ -71,14 +66,14 @@ flowchart TD
         AX["AX Arrow export with metadata, from phase 7<br/>#11224, follow-ups #11300, #11301, #11351, #11304"]:::merged
         RT["RT Arrow round-trip fixes and conformance tests<br/>#11360, #11361"]:::merged
         FUZZ["Arrow extension transport fuzzing<br/>#11514"]:::merged
-        SF["SF dtype error in a lazily parsed struct field<br/>issue #8848"]
-        U1["U1 no storage casts"]
+        SF["SF dtype error in a lazily parsed struct field<br/>#11578"]:::open
+        U1["U1 no storage casts<br/>#11599"]:::merged
         TS["TS Timestamp accepts every i64, DateTimeParts days<br/>#10953"]:::merged
         V10["V10 Date display fallback<br/>#11187"]:::merged
         SN1["SN1 spatial validators reject nullable nested levels<br/>#11183"]:::merged
         DP["DP dictionary peel before the Arrow importers<br/>#11185"]:::merged
         SN2["SN2 Arrow importers of known types convert or fail<br/>#11223"]:::merged
-        SN3["SN3 Arrow import drops masked nulls below every nested level"]
+        SN3["SN3 normalize nulls at non-nullable Arrow levels<br/>#11617"]:::merged
     end
     PC --> U2
     U2 -->|"item 1, lands together"| DF
@@ -92,7 +87,7 @@ flowchart TD
 
     subgraph PH1["Phase 1"]
         SD["SD storage declaration and strict reads<br/>storage_dtype, validate_metadata, facts in metadata<br/>#11184"]:::merged
-        NU["NU validate_array, conformance harness"]
+        NU["NU validate_array, conformance harness<br/>#11601"]:::open
     end
     U4 -->|"item 3"| SD
     U5 --> SD
@@ -100,21 +95,22 @@ flowchart TD
     SD --> NU
 
     subgraph PH2["Phase 2: claims"]
-        CL1["CL1 Claim, DType::holds, ExtVTable::claims,<br/>require_claim, the Opaque test type"]
-        CL2["CL2 claims of the repository types"]
-        CL3["CL3 claim conformance checks,<br/>DecimalLike and Refined test types"]
+        CL1["CL1 Claim, DType::holds, ExtVTable::claims,<br/>require_claim, the Opaque test type<br/>#11579"]:::open
+        CL2["CL2 claims of the repository types<br/>#11600"]:::open
+        CL3["CL3 claim conformance checks,<br/>DecimalLike and Refined test types<br/>#11604"]:::open
         FD["FD ExtensionUse and hardcoded lists<br/>#11186, replaced by X36"]:::dropped
     end
     SD --> CL1
     CL1 --> CL2
     CL1 --> CL3
+    NU --> CL3
 
     subgraph PH3["Phase 3: typing in each function"]
-        TY1["TY1 compare, between, DynamicComparison,<br/>DuckDB filter pushdown decision"]
-        TY2["TY2 aggregates check claims, no storage adapter,<br/>zone map writers, fixes #11243"]
-        TY3["TY3 list_contains needs Eq"]
-        TY4["TY4 row encoding accepts Ord extension types"]
-        TY5["TY5 private BoundExpression variants"]
+        TY1["TY1 compare, between, DynamicComparison,<br/>DuckDB filter pushdown decision<br/>#11600"]:::open
+        TY2["TY2 aggregates check claims, no storage adapter,<br/>zone map writers, fixes #11243<br/>#11600"]:::open
+        TY3["TY3 list_contains needs Eq<br/>#11600"]:::open
+        TY4["TY4 row encoding accepts Ord extension types<br/>#11600"]:::open
+        TY5["TY5 private BoundExpression variants<br/>#11600"]:::open
         U9["U9 dropped, TY2 fixes EXT-A3<br/>#11243"]:::dropped
     end
     CL2 -->|"item 8"| TY1
@@ -128,8 +124,8 @@ flowchart TD
     TY2 -.->|"item 5"| PO["Any PartialOrd change for Scalar, XQ8"]
 
     subgraph PH4["Phase 4: statistics"]
-        ST1["ST1 readers ignore min and max without Ord,<br/>NaN guard, engine statistics"]
-        ST2["ST2 bloom filter needs Eq"]
+        ST1["ST1 readers ignore min and max without Ord,<br/>NaN guard, engine statistics<br/>#11600"]:::open
+        ST2["ST2 bloom filter needs Eq<br/>#11600"]:::open
     end
     CL2 --> ST1
     CL2 --> ST2
@@ -144,8 +140,8 @@ flowchart TD
     RU2 --> RU3
 
     subgraph PH6["Phase 6"]
-        VC1["VC1 value check in try_new"]
-        VC2["VC2 strict read mode and value checks on import"]
+        VC1["VC1 value check in try_new<br/>#11601"]:::open
+        VC2["VC2 strict read mode and value checks on import<br/>#11601"]:::open
     end
     U3 --> VC1
     NU --> VC1
@@ -213,7 +209,7 @@ breaks something that works today. Those parts must land together, or in a fixed
    target type an error, for example `Int64` for a timestamp column in the Python
    `to_arrow_array(arrow_type=...)`. The export with metadata gives those callers a path that loses
    nothing. AX ([#11224](https://github.com/vortex-data/vortex/pull/11224)) merged on 2026-11-05,
-   so this order holds, and U1 can start.
+   and U1 ([#11599]) merged on 2026-11-19.
 3. Phase 1 builds on U4 and U5. U4 ([#11012](https://github.com/vortex-data/vortex/pull/11012),
    merged as `b9b02f6288`) changed `with_nullability` and the documentation of `validate_dtype`,
    which the storage declaration replaced in #11184. U5
@@ -298,22 +294,17 @@ the other's changes. The changes of phase 3 are small in each file, so they port
   extension types normalize supported layouts and reject malformed data (X29).
   [#11223](https://github.com/vortex-data/vortex/pull/11223) merged on 2026-11-17. It builds on DP,
   which peels dictionaries before the importers run so the result stays `Dict(codes, Ext(values))`.
-- Arrow imports pass visible rows through structs, lists, large lists, and fixed-size lists. This
-  lets the importer drop nulls under a null parent and still reject visible nulls at a non-nullable
-  level. The extension importer boundary still needs one rebuild because `ArrowImportVTable`
-  carries no visibility. [#11497](https://github.com/vortex-data/vortex/pull/11497) landed the
-  fixed-size list fix on 2026-11-16. [#11464](https://github.com/vortex-data/vortex/pull/11464)
-  made a successful plugin import final after checking the dtype and length. Map entries import
-  as a plain struct, and their keys and values still use plugins.
-- SN3 covers visibility below list views, maps, run-end arrays, and dictionaries. Those levels
-  still treat every child slot as visible, so a masked null at a non-nullable level can fail
-  import. SN3 also gives masked dictionary keys a valid target when `new_null_array` builds keys
-  outside the values. SN3 covers the canonical recursion of `ArrowSession` (decided on
-  2026-11-17). Two paths remain for follow-ups. The Arrow rebuild before an extension importer
-  does not pass visibility below list views, maps, run-end arrays, or dictionaries, and an empty
-  dictionary there would need a placeholder in the importer's own storage form. The public
-  functions in `vortex_arrow::convert` read Arrow nulls directly and pass no visibility.
-- SF returns an error for a dtype that fails to decode in a lazily parsed struct field. Today
+- [#11464](https://github.com/vortex-data/vortex/pull/11464) made a successful plugin import final after checking the dtype and
+  length. Map entries import as a plain struct, and their keys and values still use plugins.
+- SN3 merged on 2026-11-19 as [#11617], replacing closed [#11602] and
+  the ancestor masks of SN2 and [#11497](https://github.com/vortex-data/vortex/pull/11497). Both import paths normalize each level
+  according to its declared nullability. A non-nullable leaf fills nulls with the storage zero,
+  including visible slots. A non-nullable container drops its validity and keeps its children.
+  A non-nullable dictionary redirects null keys to entry zero and supplies an entry if needed.
+- U1 merged on 2026-11-19 as [#11599]. Casts involving extension types may change
+  nullability or build typed nulls from `Null`. `Cast::try_new` checks this when the expression is
+  built. Callers can use `ext_storage` when they want to cast or export the storage itself.
+- SF is open in [#11578] and returns an error for a dtype that fails to decode in a lazily parsed struct field. Today
   `StructFields::fields()` calls `vortex_expect` on a fallible decode, so a crafted file panics
   when its footer is read ([#8848](https://github.com/vortex-data/vortex/issues/8848)). The fix
   decodes the whole file schema once when a file opens, in the `vortex-file` footer deserializer
@@ -327,11 +318,8 @@ the other's changes. The changes of phase 3 are small in each file, so they port
   the documentation of `validate_dtype` states that its result must not depend on the top-level
   nullability. #11012 merged in this form on 2026-11-02. An earlier version validated every dtype
   for both nullabilities, and the maintainer rejected it.
-- Land the Arrow part of phase 7 before U1 ("Order constraints", item 2). The DataFusion literal
-  path changed in #11067, which merged right after U2 (item 1).
-- Some existing code depends on a leak, for example a comparison of an extension column with a
-  storage literal. The full test suite finds these callers. Fix each one with an explicit
-  `ext_storage`.
+- The DataFusion literal path changed in #11067, which merged right after U2
+  ("Order constraints", item 1).
 
 ## Phase 1: storage declaration
 
@@ -354,14 +342,13 @@ records the state of `new_unchecked`.
   the stored storage dtype.
 - Metadata-first constructors take these facts and the top-level nullability. Storage-based
   constructors use `try_from_storage` to rebuild the metadata and check the declared storage.
-- The generic extension cast changes only the top-level nullability (X30).
+- The generic extension cast changes top-level nullability or builds typed nulls (X30, [#11599]).
 - `ExtVTable` documents the storage declaration, metadata validation, and the total-domain rule
   for nested nullability (X26).
 - Add `validate_array` to `ExtVTable`, with a default that checks each value through
   `validate_scalar_value`. Phase 6 builds on it.
-- `ExtensionArray::new_unchecked` already exists, and `try_new` and the builder call it. Its
-  contract covers only the storage dtype. Phase 6 makes it promise legal values and adds the debug
-  check, because a debug check now would reject constructions that `develop` accepts.
+- `ExtensionArray::new_unchecked` already exists with a storage dtype contract. Phase 6
+  extends that contract to cover visible values.
 - Add a conformance harness for `ExtVTable` implementations. It checks the metadata round trip
   through the serialized bytes and the stored storage, and that a `validate_array` override agrees
   with the default. CL3 adds the checks for claims.
@@ -466,8 +453,7 @@ cast, which phase 5 decides (XQ10). U1 removes the storage reinterpretation firs
 - Add `ExtVTable::rules`, written over `ReduceNode` (X20). The optimizer and the executor find the
   rules through the dtype. A rule of the type wins over the storage path of the function.
 - Implement the casts of #8570 as rules that the types own (C1). A cast exists only if a rule covers
-  it, and every cast is exact (C2). `Cast::new` becomes fallible, because typing rejects casts that
-  no rule covers.
+  it, and every cast is exact (C2). U1 made `Cast::try_new` fallible ([#11599]).
 - Add `Timestamp` unit casts to a finer unit with overflow checks, and the same for `Date` and
   `Time`. A unit cast builds its result with `ExtensionArray::new_unchecked`, because legal input
   gives legal output.
@@ -477,18 +463,19 @@ cast, which phase 5 decides (XQ10). U1 removes the storage reinterpretation firs
 
 ## Phase 6: value checks
 
-- Make `ExtensionArray::try_new` check values with `validate_array`. Move kernels, builders and
-  rules that keep legal values onto `new_unchecked`, which then promises legal values
-  ([`agents/design-notes.md`](agents/design-notes.md), section 8).
-- Imports from Arrow, DuckDB, FFI and Python call `try_new`. File reads run only the structural
-  `validate` (X23). Add the optional strict read mode.
-- Add faster overrides of `validate_array` where a type has one, for example `Time`. `Timestamp`
-  has no value check (X31).
-- Building a scalar from an array keeps the check of U3, because file data can hold illegal values.
-- The value check reads only non-null slots. The storage encoding decides what a null slot holds.
-- Imports of a known type fail on values outside the domain of the type, for example a `Time` of
-  more than one day. The structural part of X29 lands earlier, with the spatial fix of phase 0:
-  imports convert children that are marked nullable but hold no nulls, and fail on nested nulls.
+Draft [#11601] proposes these checks:
+
+- `ExtensionArray::try_new` validates values through `ExtVTable::validate_array`. `Time`, `Uuid`,
+  and WKB provide faster implementations.
+- Kernels that retain values use `new_unchecked`. Visible values must be legal or carried
+  unchanged from an extension array of the same dtype, because ordinary file reads check only
+  structure.
+- Imports from Arrow, DuckDB, FFI, and Python validate at the root, where they can skip slots
+  hidden by null ancestors or unused by visible rows. A visible `Time` value of more than one
+  day fails validation. Arrow nullability normalization already runs during structural import
+  ([#11617]).
+- File reads keep their structural check (X23). The new scan option lets callers check
+  extension values as well.
 
 ## Phase 7: boundaries
 
@@ -633,3 +620,12 @@ place these phases in a larger graph of type work. Three points affect the order
 
 The decimal-like reference type of CL3 compares the storage paths of phase 3 with the built-in
 `Decimal`.
+
+[#11578]: https://github.com/vortex-data/vortex/pull/11578
+[#11579]: https://github.com/vortex-data/vortex/pull/11579
+[#11599]: https://github.com/vortex-data/vortex/pull/11599
+[#11600]: https://github.com/vortex-data/vortex/pull/11600
+[#11601]: https://github.com/vortex-data/vortex/pull/11601
+[#11602]: https://github.com/vortex-data/vortex/pull/11602
+[#11604]: https://github.com/vortex-data/vortex/pull/11604
+[#11617]: https://github.com/vortex-data/vortex/pull/11617
