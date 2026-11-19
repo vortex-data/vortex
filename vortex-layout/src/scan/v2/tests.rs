@@ -19,15 +19,21 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::expr::eq;
+use vortex_array::expr::ext_storage;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::is_null;
@@ -67,11 +73,13 @@ use crate::layouts::zoned::writer::ZonedLayoutOptions;
 use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::scan::arrow::to_record_batch;
 use crate::scan::scan_builder::ScanBuilder as V1ScanBuilder;
+use crate::segments::CountingSegmentSource;
 use crate::segments::SegmentSource;
 use crate::segments::TestSegments;
 use crate::sequence::SequenceId;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt as _;
+use crate::test::TestPoint;
 use crate::test::new_session;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -108,26 +116,71 @@ fn table_chunk(start: usize) -> VortexResult<ArrayRef> {
     .into_array())
 }
 
+/// A chunk of `CHUNK_ROWS` rows starting at row `start`: an integer column and a nullable
+/// extension column whose struct storage holds the row and ten times the row.
+fn point_chunk(start: usize) -> VortexResult<ArrayRef> {
+    points_chunk(start, true, Nullability::Nullable)
+}
+
+/// [`point_chunk`] with a non-nullable extension column.
+fn non_nullable_point_chunk(start: usize) -> VortexResult<ArrayRef> {
+    points_chunk(start, true, Nullability::NonNullable)
+}
+
+/// [`point_chunk`] with the storage struct in place of the extension column.
+fn plain_point_chunk(start: usize) -> VortexResult<ArrayRef> {
+    points_chunk(start, false, Nullability::Nullable)
+}
+
+fn points_chunk(start: usize, extension: bool, nullability: Nullability) -> VortexResult<ArrayRef> {
+    let rows = start..start + CHUNK_ROWS;
+    let ids = Buffer::from_iter(
+        rows.clone()
+            .map(|row| i32::try_from(row).unwrap_or(i32::MAX)),
+    );
+    let tens = Buffer::from_iter(
+        rows.clone()
+            .map(|row| i64::try_from(10 * row).unwrap_or(i64::MAX)),
+    );
+    let validity = match nullability {
+        Nullability::NonNullable => Validity::NonNullable,
+        Nullability::Nullable => Validity::from_iter(rows.map(|row| row % 5 != 0)),
+    };
+    let storage = StructArray::try_new(
+        FieldNames::from(["a", "b"]),
+        [ids.clone().into_array(), tens.into_array()],
+        CHUNK_ROWS,
+        validity,
+    )?;
+    let points = if extension {
+        ExtensionArray::try_new(TestPoint::dtype(nullability), storage.into_array())?.into_array()
+    } else {
+        storage.into_array()
+    };
+    Ok(StructArray::from_fields(&[("id", ids.into_array()), ("point", points)])?.into_array())
+}
+
 /// Writes `CHUNKS` table chunks with `strategy`.
 async fn write(
     session: &VortexSession,
     strategy: &dyn LayoutStrategy,
 ) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
-    write_chunks(session, strategy, CHUNKS).await
+    write_chunks(session, strategy, table_chunk, CHUNKS).await
 }
 
-/// Writes `count` table chunks with `strategy`.
+/// Writes `count` chunks made by `chunk`, called with each chunk's first row, with `strategy`.
 async fn write_chunks(
     session: &VortexSession,
     strategy: &dyn LayoutStrategy,
+    chunk: fn(usize) -> VortexResult<ArrayRef>,
     count: usize,
 ) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
     let segments = Arc::new(TestSegments::default());
     let (mut sequence_id, eof) = SequenceId::root().split();
     let chunks = (0..count)
-        .map(|chunk| Ok((sequence_id.advance(), table_chunk(chunk * CHUNK_ROWS)?)))
+        .map(|index| Ok((sequence_id.advance(), chunk(index * CHUNK_ROWS)?)))
         .collect::<Vec<_>>();
-    let dtype = table_chunk(0)?.dtype().clone();
+    let dtype = chunk(0)?.dtype().clone();
     let layout = strategy
         .write_stream(
             ArrayContext::empty().into(),
@@ -145,12 +198,12 @@ fn chunked_flat() -> Arc<dyn LayoutStrategy> {
 }
 
 /// Every column is shredded into its own chunked leaves.
-fn table() -> Arc<dyn LayoutStrategy> {
-    Arc::new(TableStrategy::new(chunked_flat(), chunked_flat()))
+fn table_strategy() -> TableStrategy {
+    TableStrategy::new(chunked_flat(), chunked_flat())
 }
 
 /// Every column is shredded into chunked leaves with zone statistics.
-fn zoned_table() -> Arc<dyn LayoutStrategy> {
+fn zoned_table_strategy() -> TableStrategy {
     let zoned = ZonedStrategy::new(
         ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
         FlatLayoutStrategy::default(),
@@ -159,7 +212,15 @@ fn zoned_table() -> Arc<dyn LayoutStrategy> {
             ..Default::default()
         },
     );
-    Arc::new(TableStrategy::new(chunked_flat(), Arc::new(zoned)))
+    TableStrategy::new(chunked_flat(), Arc::new(zoned))
+}
+
+fn table() -> Arc<dyn LayoutStrategy> {
+    Arc::new(table_strategy())
+}
+
+fn zoned_table() -> Arc<dyn LayoutStrategy> {
+    Arc::new(zoned_table_strategy())
 }
 
 /// A [`ScanFile`] over test segments. They have no byte offsets, and the scan fetches them by id,
@@ -492,6 +553,178 @@ async fn projection_skips_unsupported_unselected_layouts() -> VortexResult<()> {
             .with_projection(get_item("ints", root()).bind(layout.dtype())?))
     })
     .await
+}
+
+fn point_storage(field: &str) -> Expression {
+    get_item(field, ext_storage(get_item("point", root())))
+}
+
+/// Extension columns written with the extension layout scan the same on both executors, and as
+/// the expressions evaluate over the input.
+#[rstest]
+#[case::field(point_storage("a"), None)]
+#[case::values(get_item("point", root()), None)]
+#[case::is_null(is_null(get_item("point", root())), None)]
+#[case::mixed(
+    pack(
+        [("a", point_storage("a")), ("point", get_item("point", root()))],
+        Nullability::NonNullable,
+    ),
+    None,
+)]
+#[case::filter_field(get_item("id", root()), Some(gt(point_storage("a"), lit(2500i32))))]
+#[case::filter_values(
+    get_item("point", root()),
+    Some(and(
+        gt(point_storage("a"), lit(995i32)),
+        lt(point_storage("b"), lit(20_500i64)),
+    ))
+)]
+#[case::filter_is_null(point_storage("b"), Some(is_null(get_item("point", root()))))]
+#[tokio::test]
+async fn extension_layout_matches_v1(
+    #[values(false, true)] zoned: bool,
+    #[case] projection: Expression,
+    #[case] filter: Option<Expression>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let strategy = if zoned {
+        zoned_table_strategy()
+    } else {
+        table_strategy()
+    }
+    .with_extension_layout([TestPoint.id()]);
+    let (segments, layout) = write_chunks(&session, &strategy, point_chunk, CHUNKS).await?;
+    let dtype = layout.dtype().clone();
+    let make = || -> VortexResult<ScanBuilder> {
+        Ok(builder(&session, &segments, &layout)?
+            .with_projection(projection.bind(&dtype)?)
+            .with_some_filter(
+                filter
+                    .as_ref()
+                    .map(|filter| filter.bind(&dtype))
+                    .transpose()?,
+            ))
+    };
+    assert_same_as_v1(&session, make).await?;
+
+    let input = ChunkedArray::try_new(
+        (0..CHUNKS)
+            .map(|chunk| point_chunk(chunk * CHUNK_ROWS))
+            .collect::<VortexResult<Vec<_>>>()?,
+        layout.dtype().clone(),
+    )?
+    .into_array();
+    let mut ctx = session.create_execution_ctx();
+    let input = match &filter {
+        Some(filter) => {
+            let mask = input
+                .clone()
+                .apply(filter)?
+                .fill_null(false)?
+                .execute::<Mask>(&mut ctx)?;
+            input.filter(mask)?
+        }
+        None => input,
+    };
+    let expected = input.apply(&projection)?;
+    let scan = make()?;
+    let actual = collect_scan(scan.dtype().clone(), scan).await?;
+    assert_arrays_eq!(actual, expected, &mut ctx);
+    Ok(())
+}
+
+/// Filtering a storage field through `ext_storage` returns the same rows and reads the same
+/// segments as filtering the same field of a plain struct column.
+#[rstest]
+#[tokio::test]
+async fn extension_filter_prunes_like_struct(#[values(false, true)] v2: bool) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let strategy = zoned_table_strategy().with_extension_layout([TestPoint.id()]);
+    let mut scans = Vec::new();
+    for (chunk, point) in [
+        (
+            point_chunk as fn(usize) -> VortexResult<ArrayRef>,
+            ext_storage(get_item("point", root())),
+        ),
+        (plain_point_chunk, get_item("point", root())),
+    ] {
+        let (segments, layout) = write_chunks(&session, &strategy, chunk, CHUNKS).await?;
+        let source = Arc::new(CountingSegmentSource::new(segments));
+        let projection = get_item("id", root()).bind(layout.dtype())?;
+        let filter = gt(get_item("a", point), lit(3500i32)).bind(layout.dtype())?;
+        let dtype = projection.dtype().clone();
+        let rows = if v2 {
+            let segments: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&source);
+            let scan = builder(&session, &segments, &layout)?
+                .with_projection(projection)
+                .with_some_filter(Some(filter));
+            collect_scan(dtype, scan).await?
+        } else {
+            let reader = layout.new_reader(
+                "".into(),
+                Arc::<CountingSegmentSource>::clone(&source),
+                &session,
+                &Default::default(),
+            )?;
+            let scan = V1ScanBuilder::new(session.clone(), reader)
+                .with_projection(projection)
+                .with_filter(filter);
+            collect(dtype, scan.into_stream()?).await?
+        };
+        scans.push((rows, source.requests()));
+    }
+
+    let mut ctx = session.create_execution_ctx();
+    assert_arrays_eq!(scans[0].0, scans[1].0, &mut ctx);
+    assert_eq!(scans[0].1, scans[1].1);
+    Ok(())
+}
+
+/// Projecting one storage field of an extension column reads the segments of that field, plus
+/// those of the storage validity when the extension is nullable.
+///
+/// The planner does not push an expression through the assembly of a nullable struct yet, so with
+/// a nullable extension it reads every storage column. A plain nullable struct column reads the
+/// same segments, so the extension layout adds no reads of its own.
+#[rstest]
+#[case::v1(false, non_nullable_point_chunk, point_storage("a"), 1)]
+#[case::v1_nullable(false, point_chunk, point_storage("a"), 2)]
+#[case::v1_nullable_struct(false, plain_point_chunk, get_item("a", get_item("point", root())), 2)]
+#[case::v2(true, non_nullable_point_chunk, point_storage("a"), 1)]
+#[case::v2_nullable(true, point_chunk, point_storage("a"), 3)]
+#[case::v2_nullable_struct(true, plain_point_chunk, get_item("a", get_item("point", root())), 3)]
+#[tokio::test]
+async fn extension_field_projection_reads(
+    #[case] v2: bool,
+    #[case] chunk: fn(usize) -> VortexResult<ArrayRef>,
+    #[case] projection: Expression,
+    #[case] columns_read: usize,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let strategy = table_strategy().with_extension_layout([TestPoint.id()]);
+    let (segments, layout) = write_chunks(&session, &strategy, chunk, CHUNKS).await?;
+    let source = Arc::new(CountingSegmentSource::new(segments));
+    let projection = projection.bind(layout.dtype())?;
+    let dtype = projection.dtype().clone();
+    let actual = if v2 {
+        let segments: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&source);
+        let scan = builder(&session, &segments, &layout)?.with_projection(projection);
+        collect_scan(dtype, scan).await?
+    } else {
+        let reader = layout.new_reader(
+            "".into(),
+            Arc::<CountingSegmentSource>::clone(&source),
+            &session,
+            &Default::default(),
+        )?;
+        let scan = V1ScanBuilder::new(session.clone(), reader).with_projection(projection);
+        collect(dtype, scan.into_stream()?).await?
+    };
+
+    assert_eq!(actual.len(), CHUNKS * CHUNK_ROWS);
+    assert_eq!(source.requests(), columns_read * CHUNKS);
+    Ok(())
 }
 
 #[test]
