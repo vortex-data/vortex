@@ -67,7 +67,7 @@ implementation PR was found. 🟠 **Deferred** marks later work, including exper
 | CD8c | 🟢 Done | Remove mixed-width decimal code for operands of the same dtype. [#11573] | CD8a | Medium |
 | WR1 | 🟢 Done | Read and write `vortex.widen` for integers and decimals. A concrete decimal child still writes `vortex.decimal`. Integer and encoded decimal children require `vortex.widen`. [#11597] | WD1, CD3, CD4, CD8a | Medium |
 | WR2p | 🟢 Done | Reject node buffers and require at least one lower part in a DecimalByteParts v2 node. Its MSP therefore has logical dtype `i64`. [#11596] | None | Small |
-| WR2 | ⚪ Not started | Move both wire formats into a preview edition. [#11615] admits them to `unstable` in the meantime. | WR1, WR2p, CD5, CD7 | Small |
+| WR2 | 🔵 Open | Draft [#11635] moves both wire formats from `unstable` to `preview2026.11.0`. | WR1, WR2p, CD5, CD7 | Small |
 | WR3 | 🟠 Deferred | Design and implement the integer `Narrow` compressor scheme. DecimalByteParts owns decimal narrowing (D33). | WR1, WR2, WD1, WD5 | Large |
 | LT1 | ⚪ Not started | Admit both wire formats to `core` and decide how writers targeting older editions handle `Widen`. | WR2 | Unestimated |
 | LT2 | ➖ Dropped | Decoding a narrow MSP to a decimal `Widen` required a range scan. CD5 keeps it as an integer child instead (D16). | None | Unestimated |
@@ -117,7 +117,7 @@ flowchart TD
         WR1["WR1 Wire format #11597"]
         WR2p["WR2p v2 reader check #11596"]
         UNSTABLE["Experimental edition #11615"]
-        WR2["WR2 Preview edition"]
+        WR2["WR2 Preview edition #11635"]
         WR3["WR3 Integer Narrow scheme"]
         LT1["LT1 Core edition"]
     end
@@ -179,7 +179,8 @@ flowchart TD
     class FX1,FX3,WD1,WD2,WD3,WD4,CD1,CD2,REL,CD3,CD3b,CD3c,CD4p,CD4,CD4b,CD6,LT3,CUDA,BASE done
     class CPU,GPU,MUT,CD8a,CD8b,CD8c done
     class WR1,WR2p,UNSTABLE done
-    class WR2,LT1 planned
+    class WR2 openPR
+    class LT1 planned
     class WD5,WD6,WR3 parked
 ```
 
@@ -188,7 +189,7 @@ flowchart TD
 1. The in-memory change is done: CD5 and CD7 ([#11459], [#11460]), then [#11574], then CD8a to
    CD8c ([#11571], [#11572], [#11573]).
 2. WR1 ([#11597]) and WR2p ([#11596]) merged. [#11615] enabled both IDs in `unstable`.
-3. WR2 admits both wire formats to preview. Whether preview waits for fast `between` and
+3. Draft [#11635] moves both wire formats to `preview2026.11.0`. Whether preview waits for fast `between` and
    aggregate kernels for arrays with lower parts remains open. Coordinate with the v2 reader
    changes in [#11442] before fixing the preview contract.
 4. LT1 promotes both formats to `core`, adds compatibility fixtures, and settles how writers
@@ -347,5 +348,6 @@ flowchart TD
 [#11596]: https://github.com/vortex-data/vortex/pull/11596
 [#11597]: https://github.com/vortex-data/vortex/pull/11597
 [#11615]: https://github.com/vortex-data/vortex/pull/11615
+[#11635]: https://github.com/vortex-data/vortex/pull/11635
 [release 0.91.0]: https://github.com/vortex-data/vortex/releases/tag/0.91.0
 [Reader on develop]: https://github.com/vortex-data/vortex/blob/3ebf68d239da461c7bdd4ac6bcda0220727d8d44/vortex-array/src/arrays/decimal/vtable/plugin/mod.rs#L10-L17
