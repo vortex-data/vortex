@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Builder for constructing a [`MultiDataSource`] from multiple Vortex files.
+//! Builder for constructing a [`UnionDataSource`] from multiple Vortex files.
 
 mod session;
 mod uri;
@@ -24,8 +24,8 @@ use vortex_io::filesystem::FileListing;
 use vortex_io::filesystem::FileSystemRef;
 use vortex_scan::DataSource;
 use vortex_scan::DataSourceRef;
-use vortex_scan::multi::DataSourceFactory;
-use vortex_scan::multi::MultiDataSource;
+use vortex_scan::union::DeferredDataSource;
+use vortex_scan::union::UnionDataSource;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
@@ -33,7 +33,7 @@ use crate::VortexFile;
 use crate::VortexOpenOptions;
 
 /// A builder that discovers multiple Vortex files from glob patterns and constructs a
-/// [`MultiDataSource`] to scan them as a single data source.
+/// [`UnionDataSource`] to scan them as a single data source.
 ///
 /// Each file is scanned through its own [`VortexFile::data_source`], so each file's partition
 /// runs on the planner-driven scan unless the file has a list layout.
@@ -123,8 +123,8 @@ impl MultiFileDataSource {
     /// Build the [`DataSource`].
     ///
     /// Discovers files via glob, opens the first file eagerly to determine the schema,
-    /// and creates lazy factories for the remaining files.
-    pub async fn build(self) -> VortexResult<MultiDataSource> {
+    /// and defers opening the remaining files.
+    pub async fn build(self) -> VortexResult<UnionDataSource> {
         if self.glob_sources.is_empty() {
             vortex_bail!("MultiFileDataSource requires at least one glob pattern");
         }
@@ -180,20 +180,20 @@ impl MultiFileDataSource {
 
         let byte_sizes: Vec<Option<u64>> = all_files.iter().map(|(file, _)| file.size).collect();
 
-        let factories: Vec<Arc<dyn DataSourceFactory>> = all_files[1..]
+        let deferred: Vec<Arc<dyn DeferredDataSource>> = all_files[1..]
             .iter()
             .map(|(file, fs)| {
-                Arc::new(VortexFileSourceFactory {
+                Arc::new(DeferredVortexFile {
                     fs: Arc::clone(fs),
                     file: file.clone(),
                     session: self.session.clone(),
                     open_options_fn: Arc::clone(&self.open_options_fn),
-                }) as Arc<dyn DataSourceFactory>
+                }) as Arc<dyn DeferredDataSource>
             })
             .collect();
 
         let inner =
-            MultiDataSource::new_with_first(first_source, factories, byte_sizes, &self.session);
+            UnionDataSource::new_with_first(first_source, deferred, byte_sizes, &self.session);
 
         debug!(file_count, dtype = %inner.dtype(), "built MultiFileDataSource");
 
@@ -273,8 +273,8 @@ pub async fn open_cached(
     Ok(file)
 }
 
-/// A [`DataSourceFactory`] that lazily opens a single Vortex file and returns its data source.
-struct VortexFileSourceFactory {
+/// A [`DeferredDataSource`] that lazily opens a single Vortex file and returns its data source.
+struct DeferredVortexFile {
     fs: FileSystemRef,
     file: FileListing,
     session: VortexSession,
@@ -282,7 +282,7 @@ struct VortexFileSourceFactory {
 }
 
 #[async_trait]
-impl DataSourceFactory for VortexFileSourceFactory {
+impl DeferredDataSource for DeferredVortexFile {
     async fn open(&self) -> VortexResult<Option<DataSourceRef>> {
         let file = open_file(
             &self.fs,
@@ -500,7 +500,7 @@ mod tests {
         Ok(())
     }
 
-    /// Each file is a partition, indexed by its position in the glob order.
+    /// Each file is a unit whose partitions are indexed by its position in the glob order.
     #[tokio::test]
     async fn test_build_scans_each_file_as_a_partition() -> VortexResult<()> {
         let session = VortexSession::empty()

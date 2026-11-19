@@ -2703,7 +2703,7 @@ async fn data_source_scans_list_layouts_with_the_layout_reader() -> VortexResult
     assert!(has_list_layout);
     assert!(!file.planned_scan_supported()?);
 
-    let planned = scan_source(&file.planned_data_source(), ScanRequest::default()).await;
+    let planned = scan_source(&file.plan_data_source(), ScanRequest::default()).await;
     let error = planned.expect_err("the planner-driven executor rejects list layouts");
     assert!(error.to_string().contains("vortex.plan.list_pack"));
 

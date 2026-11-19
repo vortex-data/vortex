@@ -357,6 +357,7 @@ impl BoundScanRequest {
             ordered,
             limit,
             split_concurrency,
+            target_partitions: _,
         } = request;
 
         Ok(Self {

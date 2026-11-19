@@ -73,22 +73,23 @@ pub struct ScanInput {
 ///
 /// An unordered scan without a limit over a known row range is split into contiguous row ranges
 /// of near-equal length, one partition each, so engines that parallelise by partition spread a
-/// single input across their workers. The split count is the available parallelism, or
-/// [`with_max_partitions`](Self::with_max_partitions), bounded so that no partition covers fewer
-/// than 65,536 rows. Ordered and limited scans, and scans whose row range is
-/// unknown, have one partition covering the request's row range. Partition `i` has
-/// [`index`](Partition::index) `i`, which the request's `partition_range` and
-/// `partition_selection` select by.
+/// single input across their workers. The split count is the request's
+/// [`target_partitions`](ScanRequest::target_partitions), or else the available parallelism,
+/// bounded so that no partition covers fewer than 65,536 rows. Ordered and limited scans, and
+/// scans whose row range is unknown, have one partition covering the request's row range.
+///
+/// The source is one selectable unit: every partition has [`index`](Partition::index) 0, so a
+/// request's `partition_range` and `partition_selection` either select all of a scan's partitions
+/// or none of them.
 ///
 /// A partition's [`execute`](Partition::execute) runs the planner-driven scan of its rows with a
 /// [`ScanDriver`] on the session's runtime and applies the request's limit.
 #[derive(Clone)]
-pub struct PlannedDataSource {
+pub struct PlanDataSource {
     session: VortexSession,
     input: ScanInput,
     row_count: Precision<u64>,
     byte_size: Precision<u64>,
-    max_partitions: Option<NonZeroUsize>,
 }
 
 /// The fewest rows a split partition covers.
@@ -97,7 +98,7 @@ pub struct PlannedDataSource {
 /// in per-partition setup than it gains in parallelism.
 const MIN_PARTITION_ROWS: u64 = 65_536;
 
-impl PlannedDataSource {
+impl PlanDataSource {
     /// A source scanning `input` with `session`. Without a cache, the input gets a fresh one that
     /// all of the source's scans share.
     pub fn new(session: VortexSession, mut input: ScanInput) -> Self {
@@ -107,14 +108,7 @@ impl PlannedDataSource {
             input,
             row_count: Precision::Absent,
             byte_size: Precision::Absent,
-            max_partitions: None,
         }
-    }
-
-    /// Caps the number of partitions a scan is split into, in place of the available parallelism.
-    pub fn with_max_partitions(mut self, max_partitions: NonZeroUsize) -> Self {
-        self.max_partitions = Some(max_partitions);
-        self
     }
 
     /// Sets the exact row count of the input, which scans and partitions report.
@@ -139,13 +133,14 @@ impl PlannedDataSource {
         &self.session
     }
 
-    /// The row ranges an unordered, unlimited scan of `row_range` splits into, or `None` when the
-    /// scan keeps one partition.
+    /// The row ranges an unordered, unlimited scan of `row_range` splits into, aiming for
+    /// `target_partitions`, or `None` when the scan keeps one partition.
     fn split_range(
         &self,
         row_range: Option<&Range<u64>>,
         ordered: bool,
         limit: Option<u64>,
+        target_partitions: Option<NonZeroUsize>,
     ) -> Option<Vec<Range<u64>>> {
         if ordered || limit.is_some() {
             return None;
@@ -153,14 +148,14 @@ impl PlannedDataSource {
         let rows = row_range
             .cloned()
             .or_else(|| self.row_count.as_exact().map(|count| 0..count))?;
-        let max_partitions = self.max_partitions.map_or_else(
+        let target_partitions = target_partitions.map_or_else(
             || get_available_parallelism().unwrap_or(1),
             NonZeroUsize::get,
         );
         let len = rows.end - rows.start;
         let count = len
             .div_ceil(MIN_PARTITION_ROWS)
-            .min(max_partitions as u64)
+            .min(target_partitions as u64)
             .max(1);
         Some(
             (0..count)
@@ -172,7 +167,7 @@ impl PlannedDataSource {
 }
 
 #[async_trait]
-impl DataSource for PlannedDataSource {
+impl DataSource for PlanDataSource {
     fn dtype(&self) -> &DType {
         &self.input.dtype
     }
@@ -199,34 +194,33 @@ impl DataSource for PlannedDataSource {
             (Some(rows), Some(count)) => Some(rows.start.min(count)..rows.end.min(count)),
             (rows, _) => rows,
         };
-        if request.limit == Some(0) || row_range.as_ref().is_some_and(Range::is_empty) {
-            return Ok(Box::new(PlannedScan {
+        // The source is the single unit 0, so a request that does not select it scans nothing.
+        let selected = request
+            .partition_range
+            .as_ref()
+            .is_none_or(|range| range.contains(&0))
+            && request.partition_selection.row_count_in_range(&(0..1)) == 1;
+        if !selected || request.limit == Some(0) || row_range.as_ref().is_some_and(Range::is_empty)
+        {
+            return Ok(Box::new(PlanScan {
                 dtype,
                 partitions: Vec::new(),
             }));
         }
-        let ranges = match self.split_range(row_range.as_ref(), request.ordered, request.limit) {
+        let ranges = match self.split_range(
+            row_range.as_ref(),
+            request.ordered,
+            request.limit,
+            request.target_partitions,
+        ) {
             Some(ranges) => ranges.into_iter().map(Some).collect(),
             None => vec![row_range],
         };
         let partitions = ranges
             .into_iter()
-            .enumerate()
-            .filter(|(index, _)| {
-                let index = *index as u64;
-                request
-                    .partition_range
-                    .as_ref()
-                    .is_none_or(|range| range.contains(&index))
-                    && request
-                        .partition_selection
-                        .row_count_in_range(&(index..index + 1))
-                        == 1
-            })
-            .map(|(index, row_range)| PlannedPartition {
+            .map(|row_range| PlanPartition {
                 session: self.session.clone(),
                 input: self.input.clone(),
-                index,
                 row_count: self.row_count,
                 projection: projection.clone(),
                 filter: filter.clone(),
@@ -237,7 +231,7 @@ impl DataSource for PlannedDataSource {
                 split_concurrency: request.split_concurrency,
             })
             .collect();
-        Ok(Box::new(PlannedScan { dtype, partitions }))
+        Ok(Box::new(PlanScan { dtype, partitions }))
     }
 
     async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
@@ -245,12 +239,12 @@ impl DataSource for PlannedDataSource {
     }
 }
 
-struct PlannedScan {
+struct PlanScan {
     dtype: DType,
-    partitions: Vec<PlannedPartition>,
+    partitions: Vec<PlanPartition>,
 }
 
-impl DataSourceScan for PlannedScan {
+impl DataSourceScan for PlanScan {
     fn dtype(&self) -> &DType {
         &self.dtype
     }
@@ -269,11 +263,10 @@ impl DataSourceScan for PlannedScan {
     }
 }
 
-/// The rows of a [`PlannedDataSource`] that one partition of a scan reads.
-struct PlannedPartition {
+/// The rows of a [`PlanDataSource`] that one partition of a scan reads.
+struct PlanPartition {
     session: VortexSession,
     input: ScanInput,
-    index: usize,
     row_count: Precision<u64>,
     projection: BoundExpression,
     filter: Option<BoundExpression>,
@@ -284,7 +277,7 @@ struct PlannedPartition {
     split_concurrency: Option<NonZeroUsize>,
 }
 
-impl PlannedPartition {
+impl PlanPartition {
     fn builder(self) -> ScanBuilder {
         let mut builder = ScanBuilder::new(self.session, self.input)
             .with_projection(self.projection)
@@ -297,13 +290,13 @@ impl PlannedPartition {
     }
 }
 
-impl Partition for PlannedPartition {
+impl Partition for PlanPartition {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
     fn index(&self) -> usize {
-        self.index
+        0
     }
 
     fn row_count(&self) -> Precision<u64> {

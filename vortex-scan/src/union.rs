@@ -4,8 +4,8 @@
 //! A [`DataSource`] that scans several child [`DataSource`]s as one.
 //!
 //! The children may be of any format: each one plans, prunes and executes its own scan, and the
-//! multi source concatenates their partitions. A child is either opened up front or deferred to a
-//! [`DataSourceFactory`] that opens it during the scan, so a source over many files reads only
+//! union source concatenates their partitions. A child is either opened up front or deferred to a
+//! [`DeferredDataSource`] that opens it during the scan, so a source over many files reads only
 //! the first footer before it is scanned.
 //!
 //! # Partitions
@@ -15,6 +15,9 @@
 //! request's `partition_range` and `partition_selection` select children by that ordinal before
 //! any deferred child is opened, so an unselected child is never opened. A child whose scan
 //! yields several partitions gives all of them its ordinal.
+//!
+//! A request's [`target_partitions`](ScanRequest::target_partitions) is divided evenly across the
+//! selected children, rounding up, so each child aims for at least one partition.
 //!
 //! # Limits
 //!
@@ -30,6 +33,7 @@
 
 use std::any::Any;
 use std::future;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -68,19 +72,19 @@ use crate::selection::Selection;
 /// Concurrency for opening deferred children when the machine's parallelism is unknown.
 const DEFAULT_CONCURRENCY: usize = 8;
 
-/// Opens a child of a [`MultiDataSource`] during a scan.
+/// Opens a child of a [`UnionDataSource`] during a scan.
 ///
 /// Implementations open the underlying data, such as a file and its footer. They return `None`
 /// when the child should be skipped altogether.
 #[async_trait]
-pub trait DataSourceFactory: 'static + Send + Sync {
+pub trait DeferredDataSource: 'static + Send + Sync {
     /// Opens the child, or returns `None` if it should be skipped.
     async fn open(&self) -> VortexResult<Option<DataSourceRef>>;
 }
 
-/// A child of a [`MultiDataSource`].
+/// A child of a [`UnionDataSource`].
 #[derive(Clone)]
-pub enum MultiDataSourceChild {
+pub enum UnionChild {
     /// A child that is already open.
     Opened {
         /// The child's data source.
@@ -88,16 +92,16 @@ pub enum MultiDataSourceChild {
         /// The child's on-storage size in bytes, if known.
         byte_size: Option<u64>,
     },
-    /// A child opened by its factory when a scan reaches it.
+    /// A child that is opened when a scan reaches it.
     Deferred {
         /// Opens the child's data source.
-        factory: Arc<dyn DataSourceFactory>,
+        deferred: Arc<dyn DeferredDataSource>,
         /// The child's on-storage size in bytes, if known.
         byte_size: Option<u64>,
     },
 }
 
-impl MultiDataSourceChild {
+impl UnionChild {
     /// The child's on-storage size in bytes, if known.
     pub fn byte_size(&self) -> Option<u64> {
         match self {
@@ -110,29 +114,28 @@ impl MultiDataSourceChild {
 ///
 /// See the [module documentation](self) for how partitions, limits and dtypes behave.
 #[derive(Clone)]
-pub struct MultiDataSource {
+pub struct UnionDataSource {
     dtype: DType,
     session: VortexSession,
-    children: Arc<[MultiDataSourceChild]>,
+    children: Arc<[UnionChild]>,
     concurrency: usize,
 }
 
-impl MultiDataSource {
-    /// A source whose first child is open and whose remaining children are opened by their
-    /// factories during scans.
+impl UnionDataSource {
+    /// A source whose first child is open and whose remaining children are opened during scans.
     ///
     /// The first child determines the dtype. `byte_sizes` holds the on-storage size of each
     /// child, first then remaining, or `None` where unknown. It must be empty or have
     /// `1 + remaining.len()` entries.
     pub fn new_with_first(
         first: DataSourceRef,
-        remaining: Vec<Arc<dyn DataSourceFactory>>,
+        remaining: Vec<Arc<dyn DeferredDataSource>>,
         byte_sizes: Vec<Option<u64>>,
         session: &VortexSession,
     ) -> Self {
         let dtype = first.dtype().clone();
         let mut sizes = sizes_or_unknown(byte_sizes, 1 + remaining.len()).into_iter();
-        let first = MultiDataSourceChild::Opened {
+        let first = UnionChild::Opened {
             source: first,
             byte_size: sizes.next().flatten(),
         };
@@ -141,8 +144,8 @@ impl MultiDataSource {
                 remaining
                     .into_iter()
                     .zip_eq(sizes)
-                    .map(|(factory, byte_size)| MultiDataSourceChild::Deferred {
-                        factory,
+                    .map(|(deferred, byte_size)| UnionChild::Deferred {
+                        deferred,
                         byte_size,
                     }),
             )
@@ -150,27 +153,30 @@ impl MultiDataSource {
         Self::new(dtype, children, session)
     }
 
-    /// A source whose children are all opened by their factories during scans.
+    /// A source whose children are all opened during scans.
     ///
     /// The dtype is given, so no child is opened before a scan reaches it. `byte_sizes` holds the
     /// on-storage size of each child, or `None` where unknown. It must be empty or have
-    /// `factories.len()` entries.
+    /// `deferred.len()` entries.
     pub fn new_deferred(
         dtype: DType,
-        factories: Vec<Arc<dyn DataSourceFactory>>,
+        deferred: Vec<Arc<dyn DeferredDataSource>>,
         byte_sizes: Vec<Option<u64>>,
         session: &VortexSession,
     ) -> Self {
-        let sizes = sizes_or_unknown(byte_sizes, factories.len());
-        let children = factories
+        let sizes = sizes_or_unknown(byte_sizes, deferred.len());
+        let children = deferred
             .into_iter()
             .zip_eq(sizes)
-            .map(|(factory, byte_size)| MultiDataSourceChild::Deferred { factory, byte_size })
+            .map(|(deferred, byte_size)| UnionChild::Deferred {
+                deferred,
+                byte_size,
+            })
             .collect();
         Self::new(dtype, children, session)
     }
 
-    fn new(dtype: DType, children: Arc<[MultiDataSourceChild]>, session: &VortexSession) -> Self {
+    fn new(dtype: DType, children: Arc<[UnionChild]>, session: &VortexSession) -> Self {
         Self {
             dtype,
             session: session.clone(),
@@ -187,7 +193,7 @@ impl MultiDataSource {
     }
 
     /// The children, in partition-index order.
-    pub fn children(&self) -> &[MultiDataSourceChild] {
+    pub fn children(&self) -> &[UnionChild] {
         &self.children
     }
 }
@@ -238,7 +244,7 @@ fn extrapolate(known: impl Iterator<Item = Precision<u64>>, total: usize) -> Pre
 }
 
 #[async_trait]
-impl DataSource for MultiDataSource {
+impl DataSource for UnionDataSource {
     fn dtype(&self) -> &DType {
         &self.dtype
     }
@@ -246,8 +252,8 @@ impl DataSource for MultiDataSource {
     /// The sum of the opened children's row counts, extrapolated over the deferred children.
     fn row_count(&self) -> Precision<u64> {
         let opened = self.children.iter().map(|child| match child {
-            MultiDataSourceChild::Opened { source, .. } => source.row_count(),
-            MultiDataSourceChild::Deferred { .. } => Precision::Absent,
+            UnionChild::Opened { source, .. } => source.row_count(),
+            UnionChild::Deferred { .. } => Precision::Absent,
         });
         extrapolate(opened, self.children.len())
     }
@@ -267,7 +273,7 @@ impl DataSource for MultiDataSource {
         _data: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<PartitionRef> {
-        vortex_bail!("MultiDataSource partitions are not yet serializable")
+        vortex_bail!("UnionDataSource partitions are not yet serializable")
     }
 
     async fn scan(&self, request: ScanRequest) -> VortexResult<DataSourceScanRef> {
@@ -275,7 +281,7 @@ impl DataSource for MultiDataSource {
         // itself, so a filter that does not bind fails the child's scan, not this one.
         let dtype = request.projection.bind(&self.dtype)?.dtype().clone();
 
-        let children = self
+        let children: Vec<_> = self
             .children
             .iter()
             .enumerate()
@@ -300,8 +306,10 @@ impl DataSource for MultiDataSource {
             ordered,
             limit,
             split_concurrency,
+            target_partitions,
         } = request;
-        // Partitions are selected by child above, so every selected child scans in full.
+        // Partitions are selected by child above, so every selected child scans in full, and the
+        // selected children share the partition hint.
         let request = ScanRequest {
             projection,
             filter,
@@ -312,9 +320,10 @@ impl DataSource for MultiDataSource {
             ordered,
             limit,
             split_concurrency,
+            target_partitions: target_partitions.map(|target| child_target(target, children.len())),
         };
 
-        Ok(Box::new(MultiScan {
+        Ok(Box::new(UnionScan {
             dtype,
             source_dtype: self.dtype.clone(),
             request,
@@ -328,6 +337,11 @@ impl DataSource for MultiDataSource {
     async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
         Ok(StatsSet::default())
     }
+}
+
+/// The share of a scan's `target` partitions each of its `children` aims for, rounded up.
+fn child_target(target: NonZeroUsize, children: usize) -> NonZeroUsize {
+    NonZeroUsize::new(target.get().div_ceil(children.max(1))).unwrap_or(NonZeroUsize::MIN)
 }
 
 /// Whether `request` selects the child with this ordinal.
@@ -371,17 +385,17 @@ fn is_exhausted(budget: Option<&RowBudget>) -> bool {
     budget.is_some_and(RowBudget::is_exhausted)
 }
 
-struct MultiScan {
+struct UnionScan {
     dtype: DType,
     source_dtype: DType,
     request: ScanRequest,
     budget: Option<RowBudget>,
-    children: Vec<(usize, MultiDataSourceChild)>,
+    children: Vec<(usize, UnionChild)>,
     handle: Handle,
     concurrency: usize,
 }
 
-impl DataSourceScan for MultiScan {
+impl DataSourceScan for UnionScan {
     fn dtype(&self) -> &DType {
         &self.dtype
     }
@@ -431,7 +445,7 @@ impl DataSourceScan for MultiScan {
                     scan.partitions()
                         .map(move |partition| {
                             partition.map(|inner| {
-                                Box::new(MultiPartition {
+                                Box::new(UnionPartition {
                                     inner,
                                     index: ordinal,
                                     budget: budget.clone(),
@@ -453,19 +467,19 @@ impl DataSourceScan for MultiScan {
 
 /// Opens the child with this ordinal if it is deferred, checks its dtype and plans its scan.
 ///
-/// Returns `None` if the child's factory skips it.
+/// Returns `None` if the deferred child skips itself.
 async fn scan_child(
     ordinal: usize,
-    child: MultiDataSourceChild,
+    child: UnionChild,
     dtype: DType,
     request: ScanRequest,
 ) -> VortexResult<Option<DataSourceScanRef>> {
     let source = match child {
-        MultiDataSourceChild::Opened { source, .. } => source,
-        MultiDataSourceChild::Deferred { factory, .. } => {
-            let opened = factory
+        UnionChild::Opened { source, .. } => source,
+        UnionChild::Deferred { deferred, .. } => {
+            let opened = deferred
                 .open()
-                .instrument(tracing::info_span!("DataSourceFactory::open", ordinal))
+                .instrument(tracing::info_span!("DeferredDataSource::open", ordinal))
                 .await?;
             let Some(source) = opened else {
                 return Ok(None);
@@ -476,20 +490,20 @@ async fn scan_child(
     vortex_ensure_eq!(
         source.dtype(),
         &dtype,
-        "child {ordinal} of a multi data source has another dtype"
+        "child {ordinal} of a union data source has another dtype"
     );
     source.scan(request).await.map(Some)
 }
 
 /// A partition of a child, reporting the child's ordinal as its index and taking its rows from
 /// the scan's shared budget, if any.
-struct MultiPartition {
+struct UnionPartition {
     inner: PartitionRef,
     index: usize,
     budget: Option<RowBudget>,
 }
 
-impl Partition for MultiPartition {
+impl Partition for UnionPartition {
     fn as_any(&self) -> &dyn Any {
         self
     }

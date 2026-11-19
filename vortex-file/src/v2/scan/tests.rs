@@ -171,12 +171,12 @@ async fn placed_files_scan_like_buffered_ones() -> VortexResult<()> {
     Ok(())
 }
 
-/// A file's planned data source scans the rows the request asks for, as a V2 scan built from
+/// A file's plan data source scans the rows the request asks for, as a V2 scan built from
 /// the file directly does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn planned_data_source_scans_like_the_file() -> VortexResult<()> {
+async fn plan_data_source_scans_like_the_file() -> VortexResult<()> {
     let file = file().await?;
-    let source = file.planned_data_source();
+    let source = file.plan_data_source();
     assert_eq!(source.row_count(), Precision::exact(file.row_count()));
 
     let request = || ScanRequest {

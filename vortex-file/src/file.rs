@@ -30,7 +30,7 @@ use vortex_layout::segments::UsageSegmentSource;
 use vortex_scan::DataSourceRef;
 use vortex_scan::prepare::ScanCache;
 use vortex_scan::prepare::SegmentLocation;
-use vortex_scan::source::PlannedDataSource;
+use vortex_scan::source::PlanDataSource;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -151,7 +151,7 @@ impl VortexFile {
     ///
     /// Repeated calls to [`layout_reader`](Self::layout_reader) and [`scan`](Self::scan), and to
     /// [`data_source`](Self::data_source) for a file it scans with the layout reader, will share the
-    /// same reader tree. Repeated V2 scans of [`scan_file`](Self::scan_file), and so of the planned
+    /// same reader tree. Repeated V2 scans of [`scan_file`](Self::scan_file), and so of the plan
     /// data sources, will share its segment locations and a [`ScanCache`].
     pub fn with_caching(self) -> Self {
         let scan_cache = FileScanCache {
@@ -284,14 +284,14 @@ impl VortexFile {
     /// Create a [`DataSource`](vortex_scan::DataSource) from this file for scanning.
     ///
     /// Scans run on the planner-driven executor, as with
-    /// [`planned_data_source`](Self::planned_data_source), unless the file has a layout that
+    /// [`plan_data_source`](Self::plan_data_source), unless the file has a layout that
     /// executor cannot read yet. Such files are scanned by a [`LayoutReaderDataSource`] over the
     /// file's [layout reader](Self::layout_reader) instead. Either way, a scan whose filter the
     /// file-level statistics prove false reads nothing, and stored footer aggregates are available
     /// through the source statistics methods without reading payloads.
     pub fn data_source(&self) -> VortexResult<DataSourceRef> {
         if self.planned_scan_supported()? {
-            return Ok(self.planned_data_source());
+            return Ok(self.plan_data_source());
         }
 
         let reader = self.layout_reader()?;
@@ -328,8 +328,8 @@ impl VortexFile {
     /// A scan whose filter the file-level statistics prove false has no partitions. Stored footer
     /// aggregates are available through the source statistics methods. Opening the source reads
     /// nothing and builds no layout reader.
-    pub fn planned_data_source(&self) -> DataSourceRef {
-        let source = PlannedDataSource::new(self.session.clone(), self.scan_file().into())
+    pub fn plan_data_source(&self) -> DataSourceRef {
+        let source = PlanDataSource::new(self.session.clone(), self.scan_file().into())
             .with_row_count(self.row_count());
         Arc::new(
             FileDataSource::new(source, self.file_stats().cloned())

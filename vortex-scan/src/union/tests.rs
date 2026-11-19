@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::num::NonZeroUsize;
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -8,6 +10,7 @@ use std::sync::atomic::Ordering;
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use parking_lot::Mutex;
 use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::VortexSessionExecute;
@@ -29,8 +32,8 @@ use vortex_io::request::SegmentReader;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
-use super::DataSourceFactory;
-use super::MultiDataSource;
+use super::DeferredDataSource;
+use super::UnionDataSource;
 use crate::DataSource;
 use crate::DataSourceRef;
 use crate::DataSourceScanRef;
@@ -39,7 +42,7 @@ use crate::ScanRequest;
 use crate::execution::pipeline::synthetic::RowSource;
 use crate::plan::LazyPlanRef;
 use crate::selection::Selection;
-use crate::source::PlannedDataSource;
+use crate::source::PlanDataSource;
 use crate::source::ScanInput;
 use crate::source::SegmentFuture;
 use crate::source::SegmentId;
@@ -68,16 +71,16 @@ fn child(rows: usize) -> DataSourceRef {
         reader: SegmentReader::Opaque(Arc::new(NoSegments)),
         cache: None,
     };
-    Arc::new(PlannedDataSource::new(session(), input).with_row_count(rows as u64))
+    Arc::new(PlanDataSource::new(session(), input).with_row_count(rows as u64))
 }
 
-/// Opens its source, counting the opens; a factory without a source skips its child.
-struct CountingFactory {
+/// Opens its source, counting the opens; a deferred child without a source skips itself.
+struct CountingDeferred {
     source: Option<DataSourceRef>,
     opens: AtomicUsize,
 }
 
-impl CountingFactory {
+impl CountingDeferred {
     fn new(source: Option<DataSourceRef>) -> Arc<Self> {
         Arc::new(Self {
             source,
@@ -91,7 +94,7 @@ impl CountingFactory {
 }
 
 #[async_trait]
-impl DataSourceFactory for CountingFactory {
+impl DeferredDataSource for CountingDeferred {
     async fn open(&self) -> VortexResult<Option<DataSourceRef>> {
         self.opens.fetch_add(1, Ordering::Relaxed);
         Ok(self.source.clone())
@@ -99,22 +102,22 @@ impl DataSourceFactory for CountingFactory {
 }
 
 /// A source over children of the given row counts, the first opened and the rest deferred.
-fn multi(rows: &[usize]) -> (MultiDataSource, Vec<Arc<CountingFactory>>) {
-    let factories: Vec<_> = rows[1..]
+fn union_of(rows: &[usize]) -> (UnionDataSource, Vec<Arc<CountingDeferred>>) {
+    let deferred: Vec<_> = rows[1..]
         .iter()
-        .map(|&rows| CountingFactory::new(Some(child(rows))))
+        .map(|&rows| CountingDeferred::new(Some(child(rows))))
         .collect();
-    let source = MultiDataSource::new_with_first(
+    let source = UnionDataSource::new_with_first(
         child(rows[0]),
-        factories.iter().map(|f| Arc::clone(f) as _).collect(),
+        deferred.iter().map(|f| Arc::clone(f) as _).collect(),
         vec![],
         &session(),
     );
-    (source, factories)
+    (source, deferred)
 }
 
 async fn partitions(
-    source: &MultiDataSource,
+    source: &UnionDataSource,
     request: ScanRequest,
 ) -> VortexResult<Vec<PartitionRef>> {
     source.scan(request).await?.partitions().try_collect().await
@@ -138,7 +141,7 @@ async fn execute(partitions: Vec<PartitionRef>) -> VortexResult<Vec<(usize, Vec<
 }
 
 async fn scan_all(
-    source: &MultiDataSource,
+    source: &UnionDataSource,
     request: ScanRequest,
 ) -> VortexResult<Vec<(usize, Vec<u64>)>> {
     execute(partitions(source, request).await?).await
@@ -149,7 +152,7 @@ async fn scan_all(
 #[case::ordered(true)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn scans_every_child(#[case] ordered: bool) -> VortexResult<()> {
-    let (source, _) = multi(&[3, 5, 2]);
+    let (source, _) = union_of(&[3, 5, 2]);
     let request = ScanRequest {
         ordered,
         ..Default::default()
@@ -168,7 +171,7 @@ async fn scans_every_child(#[case] ordered: bool) -> VortexResult<()> {
 
 #[tokio::test]
 async fn ordered_scans_yield_children_in_order() -> VortexResult<()> {
-    let (source, _) = multi(&[3, 5, 2, 4]);
+    let (source, _) = union_of(&[3, 5, 2, 4]);
     let partitions = partitions(
         &source,
         ScanRequest {
@@ -184,7 +187,7 @@ async fn ordered_scans_yield_children_in_order() -> VortexResult<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn children_apply_the_request() -> VortexResult<()> {
-    let (source, _) = multi(&[6, 8]);
+    let (source, _) = union_of(&[6, 8]);
     let values = scan_all(
         &source,
         ScanRequest {
@@ -217,9 +220,9 @@ fn indices(indices: &[u64]) -> StrictSortedBuffer<u64> {
 })]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unselected_children_are_not_opened(#[case] request: ScanRequest) -> VortexResult<()> {
-    let (source, factories) = multi(&[3, 5, 2, 4]);
+    let (source, deferred) = union_of(&[3, 5, 2, 4]);
     assert_eq!(scan_all(&source, request).await?, vec![(2, vec![0, 1])]);
-    let opens: Vec<usize> = factories.iter().map(|f| f.opens()).collect();
+    let opens: Vec<usize> = deferred.iter().map(|f| f.opens()).collect();
     assert_eq!(opens, vec![0, 1, 0]);
     Ok(())
 }
@@ -232,7 +235,7 @@ async fn unselected_children_are_not_opened(#[case] request: ScanRequest) -> Vor
 async fn unordered_limit_is_shared_across_children(
     #[case] filter: Option<vortex_array::expr::Expression>,
 ) -> VortexResult<()> {
-    let (source, _) = multi(&[5, 5, 5]);
+    let (source, _) = union_of(&[5, 5, 5]);
     let values = scan_all(
         &source,
         ScanRequest {
@@ -250,7 +253,7 @@ async fn unordered_limit_is_shared_across_children(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ordered_limit_applies_to_each_child() -> VortexResult<()> {
-    let (source, _) = multi(&[5, 5, 5]);
+    let (source, _) = union_of(&[5, 5, 5]);
     let values = scan_all(
         &source,
         ScanRequest {
@@ -269,12 +272,12 @@ async fn ordered_limit_applies_to_each_child() -> VortexResult<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn skipped_children_have_no_partitions() -> VortexResult<()> {
-    let skipped = CountingFactory::new(None);
-    let source = MultiDataSource::new_with_first(
+    let skipped = CountingDeferred::new(None);
+    let source = UnionDataSource::new_with_first(
         child(3),
         vec![
             Arc::clone(&skipped) as _,
-            CountingFactory::new(Some(child(2))) as _,
+            CountingDeferred::new(Some(child(2))) as _,
         ],
         vec![],
         &session(),
@@ -306,9 +309,9 @@ impl DataSource for OtherDType {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_child_with_another_dtype_is_an_error() -> VortexResult<()> {
     let other: DataSourceRef = Arc::new(OtherDType(DType::Bool(Nullability::NonNullable)));
-    let source = MultiDataSource::new_with_first(
+    let source = UnionDataSource::new_with_first(
         child(3),
-        vec![CountingFactory::new(Some(other)) as _],
+        vec![CountingDeferred::new(Some(other)) as _],
         vec![],
         &session(),
     );
@@ -334,7 +337,7 @@ async fn a_child_with_another_dtype_is_an_error() -> VortexResult<()> {
 /// A filter that does not bind fails the children's scans, not the source's.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn filter_binding_errors_are_deferred() -> VortexResult<()> {
-    let (source, _) = multi(&[3, 2]);
+    let (source, _) = union_of(&[3, 2]);
     let scan = source
         .scan(ScanRequest {
             filter: Some(eq(root(), lit(67_i32))),
@@ -349,7 +352,7 @@ async fn filter_binding_errors_are_deferred() -> VortexResult<()> {
 
 #[tokio::test]
 async fn projection_binding_errors_fail_the_scan() {
-    let (source, _) = multi(&[3]);
+    let (source, _) = union_of(&[3]);
     let scan = source
         .scan(ScanRequest {
             projection: vortex_array::expr::get_item("missing", root()),
@@ -359,14 +362,14 @@ async fn projection_binding_errors_fail_the_scan() {
     assert!(scan.is_err());
 }
 
-fn deferred(byte_sizes: Vec<Option<u64>>) -> MultiDataSource {
-    let factories = byte_sizes
+fn deferred(byte_sizes: Vec<Option<u64>>) -> UnionDataSource {
+    let deferred = byte_sizes
         .iter()
-        .map(|_| CountingFactory::new(None) as _)
+        .map(|_| CountingDeferred::new(None) as _)
         .collect();
-    MultiDataSource::new_deferred(
+    UnionDataSource::new_deferred(
         DType::Bool(Nullability::NonNullable),
-        factories,
+        deferred,
         byte_sizes,
         &session(),
     )
@@ -385,10 +388,90 @@ fn byte_size_precision(#[case] sizes: Vec<Option<u64>>, #[case] expected: Precis
 #[case::all_opened(&[4], Precision::exact(4u64))]
 #[case::deferred_extrapolates(&[4, 1, 1], Precision::inexact(12u64))]
 fn row_count_precision(#[case] rows: &[usize], #[case] expected: Precision<u64>) {
-    assert_eq!(multi(rows).0.row_count(), expected);
+    assert_eq!(union_of(rows).0.row_count(), expected);
 }
 
 #[test]
 fn deferred_row_counts_are_absent() {
     assert_eq!(deferred(vec![None]).row_count(), Precision::Absent);
+}
+
+/// Records the partition hint of each request it scans, scanning a small child.
+struct RecordsTarget {
+    inner: DataSourceRef,
+    targets: Mutex<Vec<Option<NonZeroUsize>>>,
+}
+
+impl RecordsTarget {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            inner: child(2),
+            targets: Mutex::new(Vec::new()),
+        })
+    }
+
+    fn targets(&self) -> Vec<Option<usize>> {
+        self.targets
+            .lock()
+            .iter()
+            .map(|target| target.map(NonZeroUsize::get))
+            .collect()
+    }
+}
+
+#[async_trait]
+impl DataSource for RecordsTarget {
+    fn dtype(&self) -> &DType {
+        self.inner.dtype()
+    }
+
+    async fn scan(&self, request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+        self.targets.lock().push(request.target_partitions);
+        self.inner.scan(request).await
+    }
+
+    async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
+        Ok(StatsSet::default())
+    }
+}
+
+/// The hint is divided across the children the request selects, rounding up, and every child
+/// aims for at least one partition. Deferred children count once their ordinal is selected.
+#[rstest]
+#[case::even(3, Some(6), None, Some(2))]
+#[case::rounds_up(3, Some(4), None, Some(2))]
+#[case::at_least_one(3, Some(1), None, Some(1))]
+#[case::selected_only(4, Some(4), Some(1..3), Some(2))]
+#[case::none(3, None, None, None)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn target_partitions_are_divided_across_selected_children(
+    #[case] children: usize,
+    #[case] target: Option<usize>,
+    #[case] partition_range: Option<Range<u64>>,
+    #[case] expected: Option<usize>,
+) -> VortexResult<()> {
+    let recorders: Vec<_> = (0..children).map(|_| RecordsTarget::new()).collect();
+    let source = UnionDataSource::new_with_first(
+        Arc::clone(&recorders[0]) as _,
+        recorders[1..]
+            .iter()
+            .map(|recorder| CountingDeferred::new(Some(Arc::clone(recorder) as _)) as _)
+            .collect(),
+        vec![],
+        &session(),
+    );
+    let request = ScanRequest {
+        target_partitions: target.and_then(NonZeroUsize::new),
+        partition_range: partition_range.clone(),
+        ..Default::default()
+    };
+    scan_all(&source, request).await?;
+    for (ordinal, recorder) in recorders.iter().enumerate() {
+        let selected = partition_range
+            .as_ref()
+            .is_none_or(|range| range.contains(&(ordinal as u64)));
+        let expected = if selected { vec![expected] } else { vec![] };
+        assert_eq!(recorder.targets(), expected, "child {ordinal}");
+    }
+    Ok(())
 }
