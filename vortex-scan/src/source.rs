@@ -29,6 +29,7 @@ pub use vortex_io::segments::SegmentId;
 pub use vortex_io::segments::SegmentSource;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::DataSource;
 use crate::DataSourceScan;
@@ -70,12 +71,18 @@ pub struct ScanInput {
 /// lower its data to plans. Every scan of the source shares the input's [`ScanCache`], so scans
 /// that overlap in time plan the input and register its reader once.
 ///
-/// A scan of the source has one partition covering the request's row range, clamped to the
-/// input's rows when the row count is known. The partition has [`index`](Partition::index) 0, so a
-/// request's `partition_range` and `partition_selection` either select it or leave the scan with
-/// no partitions.
+/// An unordered scan without a limit over a known row range is split into contiguous row ranges
+/// of near-equal length, one partition each, so engines that parallelise by partition spread a
+/// single input across their workers. The split count is the request's
+/// [`target_partitions`](ScanRequest::target_partitions), or else the available parallelism,
+/// capped at one partition per 65,536 rows, rounded up. Ordered and limited scans, and scans
+/// whose row range is unknown, have one partition covering the request's row range.
 ///
-/// The partition's [`execute`](Partition::execute) runs the planner-driven scan of its rows with a
+/// The source is one selectable unit: every partition has [`index`](Partition::index) 0, so a
+/// request's `partition_range` and `partition_selection` either select all of a scan's partitions
+/// or none of them.
+///
+/// A partition's [`execute`](Partition::execute) runs the planner-driven scan of its rows with a
 /// [`ScanDriver`] on the session's runtime and applies the request's limit.
 #[derive(Clone)]
 pub struct PlanDataSource {
@@ -84,6 +91,12 @@ pub struct PlanDataSource {
     row_count: Precision<u64>,
     byte_size: Precision<u64>,
 }
+
+/// The fewest rows a split partition covers.
+///
+/// Each partition prepares, plans and drives its own scan, so splitting a small range costs more
+/// in per-partition setup than it gains in parallelism.
+const MIN_PARTITION_ROWS: u64 = 65_536;
 
 impl PlanDataSource {
     /// A source scanning `input` with `session`. Without a cache, the input gets a fresh one that
@@ -118,6 +131,38 @@ impl PlanDataSource {
     /// The session scans of this source run with.
     pub fn session(&self) -> &VortexSession {
         &self.session
+    }
+
+    /// The row ranges an unordered, unlimited scan of `row_range` splits into, aiming for
+    /// `target_partitions`, or `None` when the scan keeps one partition.
+    fn split_range(
+        &self,
+        row_range: Option<&Range<u64>>,
+        ordered: bool,
+        limit: Option<u64>,
+        target_partitions: Option<NonZeroUsize>,
+    ) -> Option<Vec<Range<u64>>> {
+        if ordered || limit.is_some() {
+            return None;
+        }
+        let rows = row_range
+            .cloned()
+            .or_else(|| self.row_count.as_exact().map(|count| 0..count))?;
+        let target_partitions = target_partitions.map_or_else(
+            || get_available_parallelism().unwrap_or(1),
+            NonZeroUsize::get,
+        );
+        let len = rows.end - rows.start;
+        let count = len
+            .div_ceil(MIN_PARTITION_ROWS)
+            .min(target_partitions as u64)
+            .max(1);
+        Some(
+            (0..count)
+                .map(|i| rows.start + len * i / count..rows.start + len * (i + 1) / count)
+                .filter(|range| !range.is_empty())
+                .collect(),
+        )
     }
 }
 
@@ -162,22 +207,31 @@ impl DataSource for PlanDataSource {
                 partitions: Vec::new(),
             }));
         }
-        let partition = PlanPartition {
-            session: self.session.clone(),
-            input: self.input.clone(),
-            row_count: self.row_count,
-            projection,
-            filter,
-            row_range,
-            selection: request.selection,
-            ordered: request.ordered,
-            limit: request.limit,
-            split_concurrency: request.split_concurrency,
+        let ranges = match self.split_range(
+            row_range.as_ref(),
+            request.ordered,
+            request.limit,
+            request.target_partitions,
+        ) {
+            Some(ranges) => ranges.into_iter().map(Some).collect(),
+            None => vec![row_range],
         };
-        Ok(Box::new(PlanScan {
-            dtype,
-            partitions: vec![partition],
-        }))
+        let partitions = ranges
+            .into_iter()
+            .map(|row_range| PlanPartition {
+                session: self.session.clone(),
+                input: self.input.clone(),
+                row_count: self.row_count,
+                projection: projection.clone(),
+                filter: filter.clone(),
+                row_range,
+                selection: request.selection.clone(),
+                ordered: request.ordered,
+                limit: request.limit,
+                split_concurrency: request.split_concurrency,
+            })
+            .collect();
+        Ok(Box::new(PlanScan { dtype, partitions }))
     }
 
     async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
