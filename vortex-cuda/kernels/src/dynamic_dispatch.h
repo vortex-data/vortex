@@ -175,6 +175,7 @@ struct SourceOp {
 ///   - ALP: encoded int → float (e.g. i32 → f32, i64 → f64)
 ///   - DICT: codes type → values type (e.g. u8 → u32)
 ///   - CAST: current type → requested output type
+///   - EXTEND: narrow integer → wider integer of the same signedness
 ///
 /// The plan builder uses `output_ptype` to determine the element width
 /// for shared memory allocation and to propagate type information
@@ -199,12 +200,19 @@ union ScalarParams {
     struct DictParams {
         uint32_t values_smem_byte_offset; // byte offset to decoded dict values in smem
     } dict;
+
+    /// Extend the low bits of a narrower integer to the output type: sign-extend
+    /// signed sources, zero-extend unsigned ones. Integer ops before it are
+    /// correct modulo the source width, so it runs last.
+    struct ExtendParams {
+        enum PTypeTag source_ptype; // narrower integer type being extended
+    } extend;
 };
 
 struct ScalarOp {
-    enum ScalarOpCode { FOR, ZIGZAG, ALP, DICT, CAST } op_code;
+    enum ScalarOpCode { FOR, ZIGZAG, ALP, DICT, CAST, EXTEND } op_code;
     /// The PType this op produces. For type-preserving ops (FOR, ZIGZAG) this
-    /// equals the input PType. For type-changing ops (ALP, DICT, CAST) this is
+    /// equals the input PType. For type-changing ops (ALP, DICT, CAST, EXTEND) this is
     /// the new output PType.
     enum PTypeTag output_ptype;
     union ScalarParams params;
