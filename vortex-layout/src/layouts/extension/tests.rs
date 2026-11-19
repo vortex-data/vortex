@@ -396,6 +396,24 @@ async fn plan_pushes_storage_reads_down() -> VortexResult<()> {
     Ok(())
 }
 
+/// Over nullable storage, the plan of a storage field projection reads that field and the storage
+/// validity, which nulls the field where the extension value is null.
+#[tokio::test]
+async fn plan_pushes_nullable_storage_reads_down() -> VortexResult<()> {
+    let (_, layout) = write(&point_table(), vec![table(Nullability::Nullable)?]).await?;
+    let plan = EvalPlan::try_new(point_storage("a").bind(layout.dtype())?, layout.new_plan()?)?;
+
+    insta::assert_snapshot!(optimize(plan.into_plan(), &SESSION)?.display_tree(), @"
+    root: vortex.plan.eval(i32?, rows=6) expr=vortex.mask($.0, $.1)
+      child: vortex.plan.pack({0=i32, 1=bool}, rows=6)
+        0: vortex.plan.filter(i32, rows=6)
+          child: vortex.plan.segment_scan(i32, rows=6)
+        1: vortex.plan.filter(bool, rows=6)
+          child: vortex.plan.segment_scan(bool, rows=6)
+    ");
+    Ok(())
+}
+
 /// A filter on a storage field plans zone pruning over the zone map of that field, reading only
 /// metadata.
 #[tokio::test]

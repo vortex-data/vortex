@@ -19,7 +19,9 @@ layouts = [
     "vortex.ext",
 ]
 dtypes = []
-aggregates = []
+aggregates = [
+    "vortex.all_non_nan",
+]
 
 # The edition's full membership: the members above, plus every member of earlier
 # editions of the family.
@@ -31,4 +33,6 @@ layouts = [
     "vortex.ext",
 ]
 dtypes = []
-aggregates = []
+aggregates = [
+    "vortex.all_non_nan",
+]

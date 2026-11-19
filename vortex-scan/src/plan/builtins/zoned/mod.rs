@@ -12,6 +12,12 @@ use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
+use vortex_array::aggregate_fn::fns::all_null::AllNull;
+use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
+use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
+use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::StructArray;
@@ -476,6 +482,24 @@ pub fn is_zone_pruning(eval: &Plan<Eval>) -> VortexResult<bool> {
         Ok(Transformed::no(expression))
     })?;
     Ok(eval.dtype().is_boolean() && contains_stat && !contains_root)
+}
+
+/// Whether a statistic of `aggregate_fn` over a column also holds, if less tightly, for the column
+/// with some of its values replaced by nulls.
+///
+/// Min and max bound the non-null values, which such a replacement only removes, and so does
+/// whether no value is NaN, or whether every value is null. Pruning proofs read these statistics
+/// only in that direction: a zone whose maximum is at most 5 holds no value above 5, and a looser
+/// maximum proves less. The fields of a nullable struct hold values in rows where the struct is
+/// null, so these statistics of a field also hold for the field as read through the struct.
+/// Counts do not: a field's null count misses the rows where only the struct is null.
+pub fn holds_under_masking(aggregate_fn: &AggregateFnRef) -> bool {
+    aggregate_fn.is::<Min>()
+        || aggregate_fn.is::<Max>()
+        || aggregate_fn.is::<BoundedMin>()
+        || aggregate_fn.is::<BoundedMax>()
+        || aggregate_fn.is::<AllNonNan>()
+        || aggregate_fn.is::<AllNull>()
 }
 
 /// Replaces a zoned data plan by its data: a scan reads the data through it and never its zone
