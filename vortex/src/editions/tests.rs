@@ -633,65 +633,41 @@ async fn btrblocks_respects_enabled_array_encodings() -> VortexResult<()> {
     Ok(())
 }
 
-/// An explicitly supplied strategy is not reconfigured by the writer. Its unsupported output is
-/// still caught by the serialization context.
+/// An unrestricted BtrBlocks strategy can select encodings outside the writer's edition.
 #[tokio::test]
-async fn explicit_btrblocks_strategy_is_not_reconfigured() -> VortexResult<()> {
+async fn unrestricted_btrblocks_writes_with_restricted_editions() -> VortexResult<()> {
     let session = writer_test_session()?;
     let strategy = WriteStrategyBuilder::from_session(&session)
         .with_btrblocks_builder(BtrBlocksCompressorBuilder::from_session(&session).unrestricted())
         .build();
     let mut buffer = ByteBufferMut::empty();
+    let array = sequential_integers().into_array();
 
-    let error = session
+    session
         .write_options()
         .with_strategy(strategy)
-        .write(
-            &mut buffer,
-            sequential_integers().into_array().to_array_stream(),
-        )
-        .await
-        .err()
-        .ok_or_else(|| vortex_err!("explicit BtrBlocks strategy was unexpectedly reconfigured"))?;
-    assert!(
-        error
-            .to_string()
-            .contains("Serialized array ID vortex.sequence not permitted by ctx"),
-        "unexpected error: {error}"
-    );
+        .write(&mut buffer, array.clone().to_array_stream())
+        .await?;
 
-    Ok(())
+    assert_written_values(&session, buffer, array).await
 }
 
-/// Compressors operate on the current in-memory array model and do not interpret edition wire
-/// IDs. The serialization context is the final compatibility boundary and rejects a compressor
-/// result whose serialized ID is not enabled.
 #[tokio::test]
-async fn serialization_context_rejects_unsupported_compressor_output() -> VortexResult<()> {
+async fn writer_executes_disallowed_sequence() -> VortexResult<()> {
     let session = writer_test_session()?;
     let strategy = WriteStrategyBuilder::from_session(&session)
         .with_compressor(forbidden_sequence_compressor)
         .build();
     let mut buffer = ByteBufferMut::empty();
+    let array = sequential_integers().into_array();
 
-    let error = session
+    session
         .write_options()
         .with_strategy(strategy)
-        .write(
-            &mut buffer,
-            sequential_integers().into_array().to_array_stream(),
-        )
-        .await
-        .err()
-        .ok_or_else(|| vortex_err!("Sequence unexpectedly had a permitted wire variant"))?;
-    assert!(
-        error
-            .to_string()
-            .contains("Serialized array ID vortex.sequence not permitted by ctx"),
-        "unexpected error: {error}"
-    );
+        .write(&mut buffer, array.clone().to_array_stream())
+        .await?;
 
-    Ok(())
+    assert_written_values(&session, buffer, array).await
 }
 
 /// The same compressor output is writable when its wire ID is enabled, without configuring the

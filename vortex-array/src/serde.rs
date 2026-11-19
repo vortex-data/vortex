@@ -17,6 +17,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -26,8 +27,13 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::ArrayContext;
 use crate::ArrayRef;
 use crate::ArraySlots;
+use crate::Canonical;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::VortexSessionExecute;
 use crate::array::ArrayDeserialization;
 use crate::array::ArrayId;
+use crate::array::ArraySerialization;
 use crate::array::new_foreign_array;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -36,6 +42,7 @@ use crate::flatbuffers::FlatBuffer;
 use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::array as fba;
 use crate::flatbuffers::array::Compression;
+use crate::optimizer::Optimizer;
 use crate::optimizer::mark_decoded_optimized;
 use crate::session::ArraySessionExt;
 use crate::stats::Precision;
@@ -69,9 +76,35 @@ impl ArrayRef {
         session: &VortexSession,
         options: &SerializeOptions,
     ) -> VortexResult<Vec<ByteBuffer>> {
-        // Resolve the wire representation once. Serializers may choose historical IDs and may
-        // provide downgraded buffers or children that differ from the in-memory array tree.
-        let root = ArrayNodeFlatBuffer::try_new(ctx, session, self)?;
+        self.serialize_with_policy(ctx, session, options, DisallowedWireId::Reject)
+    }
+
+    /// Serialize an array, rewriting or executing subtrees whose wire IDs are disallowed.
+    ///
+    /// The serializer chooses the wire ID first, so a permitted legacy representation can reuse
+    /// its buffers. If the target still disallows the canonical representation, the write fails.
+    pub fn serialize_with_fallback(
+        &self,
+        ctx: &ArrayContext,
+        session: &VortexSession,
+        options: &SerializeOptions,
+    ) -> VortexResult<Vec<ByteBuffer>> {
+        self.serialize_with_policy(
+            ctx,
+            session,
+            options,
+            DisallowedWireId::RewriteOrExecute { context: None },
+        )
+    }
+
+    fn serialize_with_policy(
+        &self,
+        ctx: &ArrayContext,
+        session: &VortexSession,
+        options: &SerializeOptions,
+        mut policy: DisallowedWireId,
+    ) -> VortexResult<Vec<ByteBuffer>> {
+        let root = ArrayNodeFlatBuffer::try_new_with_policy(ctx, session, self, &mut policy)?;
         let array_buffers = root.array.buffers();
 
         // Allocate result buffers, including a possible padding buffer for each.
@@ -160,6 +193,92 @@ impl ArrayRef {
     }
 }
 
+enum DisallowedWireId {
+    Reject,
+    RewriteOrExecute {
+        // Snapshot execution kernels only when a wire ID needs a fallback.
+        context: Option<ExecutionCtx>,
+    },
+}
+
+fn serialize_node(session: &VortexSession, array: &ArrayRef) -> VortexResult<ArraySerialization> {
+    session.array_serialize(array)?.ok_or_else(|| {
+        vortex_err!("Array {} does not support serialization", array.encoding_id())
+    })
+}
+
+fn disallowed_wire_id(id: ArrayId) -> VortexError {
+    vortex_err!("Serialized array ID {id} not permitted by ctx")
+}
+
+impl DisallowedWireId {
+    fn resolve(
+        &mut self,
+        ctx: &ArrayContext,
+        session: &VortexSession,
+        source: &ArrayRef,
+    ) -> VortexResult<ArraySerialization> {
+        let serialization = serialize_node(session, source)?;
+        let Self::RewriteOrExecute { context } = self else {
+            return Ok(serialization);
+        };
+        let rejected_id = serialization.serialized_id;
+        if ctx.permits(&rejected_id) {
+            return Ok(serialization);
+        }
+
+        drop(serialization);
+        let execution = context.get_or_insert_with(|| session.create_execution_ctx());
+        retry_serialization(ctx, session, source, rejected_id, execution)
+    }
+}
+
+fn retry_serialization(
+    ctx: &ArrayContext,
+    session: &VortexSession,
+    source: &ArrayRef,
+    mut rejected_id: ArrayId,
+    execution: &mut ExecutionCtx,
+) -> VortexResult<ArraySerialization> {
+    // Decoded nodes are marked as optimized. Retry the root so a previously written wrapper can
+    // still move below a structural encoding.
+    let reduced = Optimizer::new(execution.reduce_parent_kernels()).optimize_root(source.clone())?;
+
+    // A containing wire node supplies the dtype, including nullability, to the child reader.
+    let candidate = if reduced.dtype() == source.dtype() {
+        &reduced
+    } else {
+        source
+    };
+    if !ArrayRef::ptr_eq(candidate, source)
+        && session.arrays().has_serializer(&candidate.encoding_id())
+        && let Some(serialization) = session.array_serialize(candidate)?
+    {
+        rejected_id = serialization.serialized_id;
+        if ctx.permits(&rejected_id) {
+            return Ok(serialization);
+        }
+    }
+
+    if candidate.is_canonical() {
+        return Err(disallowed_wire_id(rejected_id));
+    }
+
+    let canonical = candidate
+        .clone()
+        .execute::<Canonical>(execution)?
+        .into_array();
+    vortex_ensure_eq!(canonical.dtype(), source.dtype());
+    vortex_ensure_eq!(canonical.len(), source.len());
+
+    let serialization = serialize_node(session, &canonical)?;
+    if !ctx.permits(&serialization.serialized_id) {
+        return Err(disallowed_wire_id(serialization.serialized_id));
+    }
+
+    Ok(serialization)
+}
+
 #[derive(Clone, Debug)]
 struct ArraySerializationTree {
     source: ArrayRef,
@@ -170,17 +289,17 @@ struct ArraySerializationTree {
 }
 
 impl ArraySerializationTree {
-    fn try_new(session: &VortexSession, source: &ArrayRef) -> VortexResult<Self> {
-        let Some(serialization) = session.array_serialize(source)? else {
-            vortex_bail!(
-                "Array {} does not support serialization",
-                source.encoding_id()
-            );
-        };
+    fn try_new(
+        ctx: &ArrayContext,
+        session: &VortexSession,
+        source: &ArrayRef,
+        policy: &mut DisallowedWireId,
+    ) -> VortexResult<Self> {
+        let serialization = policy.resolve(ctx, session, source)?;
         let children = serialization
             .children
             .iter()
-            .map(|child| Self::try_new(session, child))
+            .map(|child| Self::try_new(ctx, session, child, policy))
             .collect::<VortexResult<Vec<_>>>()?;
 
         Ok(Self {
@@ -227,7 +346,16 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         session: &'a VortexSession,
         array: &ArrayRef,
     ) -> VortexResult<Self> {
-        let array = ArraySerializationTree::try_new(session, array)?;
+        Self::try_new_with_policy(ctx, session, array, &mut DisallowedWireId::Reject)
+    }
+
+    fn try_new_with_policy(
+        ctx: &'a ArrayContext,
+        session: &'a VortexSession,
+        array: &ArrayRef,
+        policy: &mut DisallowedWireId,
+    ) -> VortexResult<Self> {
+        let array = ArraySerializationTree::try_new(ctx, session, array, policy)?;
         let n_buffers_recursive = array.nbuffers_recursive();
         if n_buffers_recursive > u16::MAX as usize {
             vortex_bail!(
@@ -251,12 +379,10 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         array: &ArraySerializationTree,
         buffer_idx: u16,
     ) -> VortexResult<WIPOffset<fba::ArrayNode<'fb>>> {
-        let encoding_idx = self.ctx.intern(&array.serialized_id).ok_or_else(|| {
-            vortex_err!(
-                "Serialized array ID {} not permitted by ctx",
-                array.serialized_id
-            )
-        })?;
+        let encoding_idx = self
+            .ctx
+            .intern(&array.serialized_id)
+            .ok_or_else(|| disallowed_wire_id(array.serialized_id))?;
 
         let metadata = Some(fbb.create_vector(array.metadata.as_slice()));
 
@@ -796,6 +922,9 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::RunEnd;
+    use crate::arrays::Struct;
+    use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -998,6 +1127,40 @@ mod tests {
             .serialize(&ctx, &session, &SerializeOptions::default())
             .expect_err("the serialized ID is not permitted");
         assert!(error.to_string().contains("not permitted by ctx"));
+
+        let error = array
+            .serialize_with_fallback(&ctx, &session, &SerializeOptions::default())
+            .expect_err("canonical execution cannot change the plugin's wire ID");
+        assert!(error.to_string().contains("not permitted by ctx"));
+        Ok(())
+    }
+
+    #[test]
+    fn serialization_fallback_executes_only_the_disallowed_child() -> VortexResult<()> {
+        let mut exec = SESSION.create_execution_ctx();
+        let runs = RunEnd::try_new(
+            PrimitiveArray::from_iter([2u32, 5]).into_array(),
+            PrimitiveArray::from_iter([10i32, 20]).into_array(),
+            &mut exec,
+        )?;
+        let array = StructArray::from_fields(&[("x", runs.into_array())])?.into_array();
+        let struct_id = ArrayVTable::id(&Struct);
+        let primitive_id = ArrayVTable::id(&Primitive);
+        let ctx = restricted_context(&[struct_id, primitive_id]);
+        let mut bytes = ByteBufferMut::empty();
+        for buffer in array.serialize_with_fallback(&ctx, &SESSION, &SerializeOptions::default())? {
+            bytes.extend_from_slice(buffer.as_ref());
+        }
+
+        let serialized = SerializedArray::try_from(bytes.freeze())?;
+        let read_ctx = ReadContext::new(ctx.to_ids());
+        assert_eq!(read_ctx.resolve(serialized.encoding_id()), Some(struct_id));
+        assert_eq!(
+            read_ctx.resolve(serialized.child(0).encoding_id()),
+            Some(primitive_id)
+        );
+        let actual = serialized.decode(array.dtype(), array.len(), &read_ctx, &SESSION)?;
+        assert_arrays_eq!(actual, array, &mut exec);
         Ok(())
     }
 

@@ -359,8 +359,9 @@ impl<'a> Optimizer<'a> {
 
     /// Runs the reduce and parent-reduce rules on the root of `current_array` to fixpoint.
     ///
-    /// The nodes each rewrite built are optimized before the next pass.
-    fn optimize_root(&mut self, mut current_array: ArrayRef) -> VortexResult<ArrayRef> {
+    /// This also tries rules on roots marked as optimized, so write preparation can revisit
+    /// decoded nodes. The nodes each rewrite builds are optimized before the next pass.
+    pub(crate) fn optimize_root(&mut self, mut current_array: ArrayRef) -> VortexResult<ArrayRef> {
         let mut any_optimizations = false;
 
         trace_op!(record_optimize_start(&current_array));

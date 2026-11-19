@@ -110,12 +110,14 @@ plugin available.
 
 ## Write errors
 
-The writer rejects forbidden formats in arrays, children, layouts, nested extension dtypes, and
-stored aggregate functions.
+The file writer first tries the wire format chosen by each array's serializer. If the selected
+editions disallow it, the writer tries structural rewrites, then executes the remaining rejected
+array or child into canonical form. This may expand a compressed array. The write fails if the
+result still needs a disallowed wire ID.
 
-Selecting an edition restricts the permitted output, but does not automatically reconfigure a custom
-strategy or compressor. Those implementations must therefore construct permitted representations
-themselves. The default compressor's filtering is described in [Compression](design.md#compression).
+The writer also checks layout, nested extension dtype, and stored aggregate IDs. Custom strategies
+and compressors keep their own configuration, so they can still produce layouts the target edition
+disallows. See [Compression](design.md#compression) for how the default compressor picks schemes.
 
 When a write fails because a format is forbidden, choose a permitted representation or strategy.
 Alternatively, select a later edition after confirming that the readers meet its requirements.
