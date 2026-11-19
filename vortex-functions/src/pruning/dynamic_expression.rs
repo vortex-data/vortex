@@ -40,8 +40,8 @@ use crate::dynamic_expression::DynamicExpressionOptions;
 use crate::dynamic_expression::DynamicExpressionSource;
 use crate::dynamic_expression::input_field_name;
 
-/// Which stats proof a [`StatsProofSource`] builds.
-#[derive(Clone, Copy, Debug)]
+/// Which stats proof a rewrite builds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum StatsProof {
     Falsify,
     Satisfy,
@@ -213,6 +213,10 @@ impl StatsRewriteRule for DynamicExpressionStatsRewrite {
         DynamicExpression.id()
     }
 
+    fn is_cacheable(&self) -> bool {
+        false
+    }
+
     fn falsify(
         &self,
         expr: &BoundExpression,
@@ -288,6 +292,28 @@ mod tests {
                 .bind(scope)
             }
         }
+    }
+
+    #[test]
+    fn session_does_not_keep_dynamic_predicates() -> VortexResult<()> {
+        let session = VortexSession::empty().with::<StatsSession>();
+        let threshold = Arc::new(Threshold::default());
+        let dtype = DType::struct_(
+            [("a", DType::Primitive(PType::U64, Nullability::NonNullable))],
+            Nullability::NonNullable,
+        );
+
+        let predicate = dynamic_expression(
+            Arc::clone(&threshold) as Arc<dyn DynamicExpressionSource>,
+            [col("a")],
+        )
+        .bind(&dtype)?;
+        assert!(predicate.falsify(&session)?.is_some());
+        assert!(predicate.satisfy(&session)?.is_some());
+        drop(predicate);
+
+        assert_eq!(Arc::strong_count(&threshold), 1);
+        Ok(())
     }
 
     #[test]
