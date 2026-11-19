@@ -113,6 +113,7 @@ use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::file_stats::AggregateStats;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+use vortex_layout::layouts::list::List;
 use vortex_layout::layouts::struct_::StructStrategy;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
@@ -121,6 +122,9 @@ use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::DEFAULT_MAX_SPLIT_ROWS;
 use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::session::LayoutSession;
+use vortex_scan::DataSourceRef;
+use vortex_scan::PartitionRef;
+use vortex_scan::ScanRequest;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 use vortex_session::registry::Id;
@@ -2592,6 +2596,147 @@ async fn file_data_source_returns_mergeable_partials() -> VortexResult<()> {
         accumulator.final_scalar()?,
         Scalar::primitive(12_i64, Nullability::Nullable)
     );
+    Ok(())
+}
+
+/// Scans `source` and concatenates the rows of all its partitions, returning how many partitions
+/// the scan had.
+async fn scan_source(
+    source: &DataSourceRef,
+    request: ScanRequest,
+) -> VortexResult<(usize, ArrayRef)> {
+    let scan = source.scan(request).await?;
+    let dtype = scan.dtype().clone();
+    let partitions: Vec<PartitionRef> = scan.partitions().try_collect().await?;
+    let partition_count = partitions.len();
+    let mut chunks = Vec::new();
+    for partition in partitions {
+        chunks.push(partition.execute()?.read_all().await?);
+    }
+    Ok((
+        partition_count,
+        ChunkedArray::try_new(chunks, dtype)?.into_array(),
+    ))
+}
+
+/// A file whose statistics rule out a filter is scanned with no partitions, which the layout
+/// reader's source never returns, so this also shows the file is scanned on the planner-driven
+/// executor.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[cfg_attr(miri, ignore)]
+async fn data_source_prunes_files_with_statistics() -> VortexResult<()> {
+    let array = StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3, 4, 5].into_array())])?
+        .into_array();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_file_statistics(pruning_aggregate_fns())
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+    assert!(file.planned_scan_supported()?);
+    let source = file.data_source()?;
+    let request = |filter: Expression| ScanRequest {
+        projection: get_item("numbers", root()),
+        filter: Some(filter),
+        ordered: true,
+        ..Default::default()
+    };
+
+    let pruned = source
+        .scan(request(gt(get_item("numbers", root()), lit(10u32))))
+        .await?;
+    assert_eq!(
+        pruned.dtype(),
+        &DType::Primitive(PType::U32, Nullability::NonNullable)
+    );
+    assert_eq!(pruned.partition_count(), Precision::exact(0usize));
+    assert_eq!(pruned.partitions().try_collect::<Vec<_>>().await?.len(), 0);
+
+    let (partitions, actual) =
+        scan_source(&source, request(gt(get_item("numbers", root()), lit(3u32)))).await?;
+    assert_eq!(partitions, 1);
+    assert_arrays_eq!(
+        actual,
+        buffer![4u32, 5].into_array(),
+        &mut SESSION.create_execution_ctx()
+    );
+
+    // A filter that does not bind is not pruned away: the scan reports the error.
+    assert!(
+        source
+            .scan(request(gt(get_item("missing", root()), lit(10u32))))
+            .await
+            .is_err()
+    );
+    Ok(())
+}
+
+/// A file with a list layout, which the planner-driven executor cannot read yet, is scanned with
+/// the layout reader instead, list column included.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[cfg_attr(miri, ignore)]
+async fn data_source_scans_list_layouts_with_the_layout_reader() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let lists = ListArray::try_new(
+        buffer![1i32, 2, 3, 4, 5, 6].into_array(),
+        buffer![0u32, 2, 5, 5, 6].into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?
+    .into_array();
+    let array = StructArray::from_fields(&[
+        ("numbers", buffer![1i32, 2, 3, 4].into_array()),
+        ("lists", lists),
+    ])?
+    .into_array();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let mut has_list_layout = false;
+    for layout in file.footer().layout().depth_first_traversal() {
+        has_list_layout |= layout?.is::<List>();
+    }
+    assert!(has_list_layout);
+    assert!(!file.planned_scan_supported()?);
+
+    let planned = scan_source(&file.plan_data_source(), ScanRequest::default()).await;
+    let error = planned.expect_err("the planner-driven executor rejects list layouts");
+    assert!(error.to_string().contains("vortex.plan.list_pack"));
+
+    let (_, actual) = scan_source(&file.data_source()?, ScanRequest::default()).await?;
+    assert_arrays_eq!(actual, array, &mut ctx);
+    Ok(())
+}
+
+/// A file with list columns but no list layout is scanned on the planner-driven executor.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[cfg_attr(miri, ignore)]
+async fn data_source_scans_flat_lists_with_the_planner() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let lists = ListArray::try_new(
+        buffer![1i32, 2, 3, 4, 5, 6].into_array(),
+        buffer![0u32, 2, 5, 5, 6].into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?
+    .into_array();
+    let array = StructArray::from_fields(&[("lists", lists)])?.into_array();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+    assert!(file.planned_scan_supported()?);
+
+    let (partitions, actual) = scan_source(&file.data_source()?, ScanRequest::default()).await?;
+    assert_eq!(partitions, 1);
+    assert_arrays_eq!(actual, array, &mut ctx);
     Ok(())
 }
 
