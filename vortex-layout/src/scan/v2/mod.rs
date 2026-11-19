@@ -28,10 +28,6 @@ use vortex_session::VortexSession;
 use crate::LayoutRef;
 use crate::segments::SegmentSource;
 
-mod pool;
-
-pub use pool::PartPool;
-
 // Match the scan executor's row grid so byte partitions and scan chunks stay aligned.
 const ROW_BLOCK_SIZE: usize = 8192;
 

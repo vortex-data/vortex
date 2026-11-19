@@ -42,6 +42,7 @@ use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::proto::expr as expr_pb;
 use vortex::scalar::Scalar;
+use vortex::scan::planning::driver::Run;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::SESSION;
@@ -204,20 +205,29 @@ pub struct AggregateState {
 }
 assert_impl_all!(GlobalState: Send, Sync);
 
+/// The scan work that one thread does on a file.
+pub enum Split {
+    /// A worker of the file's scan pool, which the thread polls inline until it ends.
+    Worker(SendableArrayStream),
+    /// Chunks of the file's V2 scan, taken by the thread until the scan has none left.
+    V2,
+}
+
 /// field position, accumulator
 pub type Partials = Vec<(usize, Box<dyn DynAccumulator>)>;
 
 /// Per-thread scan state
 pub struct LocalState {
     pub exporter: Option<ArrayExporter>,
-    /// The worker of the file's pool that this thread polls, inline.
-    pub(crate) worker: Option<SendableArrayStream>,
+    pub split: Option<Split>,
     /// The scan state of the file that this thread scans.
     pub(crate) file: Option<Arc<FileScanState>>,
     /// Scan states and workers that this thread no longer uses. They are dropped outside
     /// DuckDB's global multi-file lock; see `OpenFileReader`.
     pub(crate) retired_files: Vec<Arc<FileScanState>>,
-    pub(crate) retired_workers: Vec<SendableArrayStream>,
+    pub(crate) retired_splits: Vec<Split>,
+    /// The planning run on which this thread runs the chunks of V2 scans.
+    pub(crate) run: Run,
     /// Chunks of an array that this thread has yet to export, in reverse order.
     pub(crate) pending: Vec<ArrayRef>,
 
@@ -422,10 +432,11 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
     LocalState {
         exporter: None,
         partials,
-        worker: None,
+        split: None,
         file: None,
         retired_files: Vec::new(),
-        retired_workers: Vec::new(),
+        retired_splits: Vec::new(),
+        run: Run::new(),
         pending: Vec::new(),
         finished: false,
     }
