@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Assembling lists from their offsets, validity and elements.
+
 use std::borrow::Cow;
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::EmptyMetadata;
@@ -10,14 +13,21 @@ use vortex_array::dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
+use self::execute::ListSource;
+use crate::execution::operators::UNBOUNDED;
+use crate::execution::pipeline::Chain;
+use crate::execution::pipeline::Compiler;
 use crate::plan::Plan;
 use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanSlots;
 use crate::plan::PlanVTable;
+
+pub(crate) mod execute;
 
 const ELEMENTS: usize = 0;
 const OFFSETS: usize = 1;
@@ -122,6 +132,46 @@ impl PlanVTable for ListPack {
             _ => Cow::Owned(format!("slot[{slot}]")),
         }
     }
+
+    /// Reads the offsets from the first selected list to one past the last, and the validity
+    /// of the selected lists, whole. The elements of the selected non-null lists are only known
+    /// once the offsets are read, so the list's source compiles them then.
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
+        let (Some(first), Some(last)) = (mask.first(), mask.last()) else {
+            return Ok(None);
+        };
+        let mask = mask.slice(first..last + 1);
+        let rows = rows.start + u64::try_from(first)?..rows.start + u64::try_from(last + 1)?;
+        let offsets = plan.offsets()?;
+        let mut chains = vec![
+            compiler
+                .compile(
+                    &offsets,
+                    rows.start..rows.end + 1,
+                    &Mask::new_true(mask.len() + 1),
+                )?
+                .ok_or_else(|| vortex_err!("List offsets compiled to no rows"))?,
+        ];
+        if let Some(validity) = plan.validity()? {
+            chains.push(
+                compiler
+                    .compile(&validity, rows, &mask)?
+                    .ok_or_else(|| vortex_err!("List validity compiled to no rows"))?,
+            );
+        }
+        let source = ListSource::new(
+            plan.elements()?,
+            offsets.dtype().clone(),
+            plan.dtype().nullability(),
+            mask,
+        );
+        Ok(Some(compiler.join_with(chains, |_| UNBOUNDED, source)))
+    }
 }
 
 fn validate_slots(dtype: &DType, row_count: u64, slots: &PlanSlots) -> VortexResult<()> {
@@ -178,3 +228,6 @@ fn validate_slots(dtype: &DType, row_count: u64, slots: &PlanSlots) -> VortexRes
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
