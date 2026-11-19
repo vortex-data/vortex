@@ -27,6 +27,7 @@ use vortex_io::runtime::single::SingleThreadRuntime;
 use vortex_io::session::RuntimeSession;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
+use vortex_scan::pool::ScanPoolRef;
 use vortex_session::VortexSession;
 
 use crate::ArrayFuture;
@@ -70,6 +71,7 @@ pub struct TestLayoutReader {
     projection_masks: Option<Arc<Mutex<Vec<usize>>>>,
     filter_exprs: Option<Arc<Mutex<Vec<BoundExpression>>>>,
     in_flight: Option<Arc<InFlight>>,
+    yields: fn(u64) -> usize,
 }
 
 /// Counts projections running at once, and the most that ever were.
@@ -101,6 +103,7 @@ impl TestLayoutReader {
             projection_masks: None,
             filter_exprs: None,
             in_flight: None,
+            yields: |_| 0,
         }
     }
 
@@ -134,6 +137,13 @@ impl TestLayoutReader {
     /// once before finishing, so others that the scan has started get to run alongside it.
     pub fn with_in_flight(mut self, in_flight: Arc<InFlight>) -> Self {
         self.in_flight = Some(in_flight);
+        self
+    }
+
+    /// Makes the projection of the split starting at row `start` yield `yields(start)` times
+    /// before it finishes, so tests can make splits complete out of row order.
+    pub fn with_yields(mut self, yields: fn(u64) -> usize) -> Self {
+        self.yields = yields;
         self
     }
 
@@ -261,8 +271,12 @@ impl LayoutReader for TestLayoutReader {
         let projection_masks = self.projection_masks.clone();
         let fail = self.fail_projection || (self.fail_first_projection && row_range.start == 0);
         let in_flight = self.in_flight.clone();
+        let yields = (self.yields)(row_range.start);
 
         Ok(Box::pin(async move {
+            for _ in 0..yields {
+                tokio::task::yield_now().await;
+            }
             if let Some(in_flight) = &in_flight {
                 let now = in_flight.now.fetch_add(1, Ordering::SeqCst) + 1;
                 in_flight.peak.fetch_max(now, Ordering::SeqCst);
@@ -311,6 +325,28 @@ where
         values.extend(primitive.into_buffer::<i32>());
     }
     Ok(values)
+}
+
+/// Reads `pool` with `workers` workers, each polled on its own thread, returning each worker's
+/// values in the order it yielded them.
+pub fn read_with_workers(pool: &ScanPoolRef, workers: usize) -> VortexResult<Vec<Vec<i32>>> {
+    std::thread::scope(|scope| {
+        let handles = (0..workers)
+            .map(|_| {
+                let worker = Arc::clone(pool).worker();
+                scope.spawn(move || collect_scan_values(futures::executor::block_on_stream(worker)))
+            })
+            .collect::<Vec<_>>();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("worker thread panicked"))
+            .collect()
+    })
+}
+
+/// Reads `pool` with a single worker polled on the calling thread.
+pub fn read_with_one_worker(pool: ScanPoolRef) -> VortexResult<Vec<i32>> {
+    collect_scan_values(futures::executor::block_on_stream(pool.worker()))
 }
 
 /// Let already-spawned scan tasks run to completion after the stream has been dropped.

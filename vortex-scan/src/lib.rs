@@ -223,6 +223,16 @@ pub trait DataSourceScan: 'static + Send + IntoDataSourceScanRef {
     /// Returns a stream of partitions to be processed.
     fn partitions(self: Box<Self>) -> PartitionStream;
 
+    /// Estimates the rows this scan returns, from plan-time state only.
+    fn row_count(&self) -> Precision<u64> {
+        Precision::Absent
+    }
+
+    /// Estimates the bytes this scan reads, before any filter, from plan-time state only.
+    fn byte_size(&self) -> Precision<u64> {
+        Precision::Absent
+    }
+
     /// Cuts the scan into at most `n` scans that together read the same rows, in order.
     ///
     /// Splitting reads metadata only. The result is never empty. A scan that cannot be cut
@@ -236,8 +246,9 @@ pub trait DataSourceScan: 'static + Send + IntoDataSourceScanRef {
     ///
     /// The default pool hands out the scan's partitions, each to the next worker that asks.
     fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
-        let dtype = self.dtype().clone();
-        Ok(Arc::new(PartitionPool::new(dtype, self.partitions())))
+        Ok(Arc::new(PartitionPool::new(
+            self.into_data_source_scan_ref(),
+        )))
     }
 }
 
