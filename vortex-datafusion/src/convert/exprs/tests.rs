@@ -4,10 +4,10 @@
 use std::sync::Arc;
 
 use arrow_array::Array;
+use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::BooleanArray;
 use arrow_array::DictionaryArray;
 use arrow_array::FixedSizeBinaryArray;
-use arrow_array::FixedSizeListArray;
 use arrow_array::Int8Array;
 use arrow_array::Int32Array;
 use arrow_array::Int64Array;
@@ -19,7 +19,6 @@ use arrow_array::StructArray;
 use arrow_array::UInt8Array;
 use arrow_array::UInt32Array;
 use arrow_array::UInt64Array;
-use arrow_array::types::Float32Type;
 use arrow_array::types::Float64Type;
 use arrow_array::types::Int32Type;
 use arrow_array::types::Int64Type;
@@ -62,6 +61,8 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::PType;
 use vortex::encodings::uuid::Uuid;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::expr::between;
 use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::scalar::Scalar;
@@ -70,8 +71,12 @@ use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::cast::Cast;
 use vortex::scalar_fn::fns::list_contains::ListContains;
 use vortex::scalar_fn::fns::literal::Literal;
+use vortex::session::registry::CachedId;
+use vortex::session::registry::Id;
 use vortex_array::assert_arrays_eq;
-use vortex_tensor::vector::ARROW_VECTOR_EXTENSION_NAME;
+use vortex_arrow::ArrowImport;
+use vortex_arrow::ArrowImportVTable;
+use vortex_arrow::ArrowSession;
 
 use super::*;
 use crate::common_tests::TestSessionContext;
@@ -861,23 +866,56 @@ fn test_literal_preserves_extension_metadata(
     Ok(())
 }
 
-/// A literal whose field an Arrow importer accepts but whose value it rejects, here a vector with a
-/// null element, stays in DataFusion instead of failing the conversion.
+const REJECT_VALUE_EXTENSION_NAME: &str = "test.reject_value";
+static REJECT_VALUE_ID: CachedId = CachedId::new(REJECT_VALUE_EXTENSION_NAME);
+
+/// An Arrow importer that accepts every field with its extension name and rejects every value.
+#[derive(Debug)]
+struct ValueRejectingImporter;
+
+impl ArrowImportVTable for ValueRejectingImporter {
+    fn arrow_ext_id(&self) -> Id {
+        *REJECT_VALUE_ID
+    }
+
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
+        session
+            .from_arrow_datatype(field.data_type(), field.is_nullable().into())
+            .map(Some)
+    }
+
+    fn from_arrow_array(
+        &self,
+        _array: ArrowArrayRef,
+        _field: &Field,
+        _dtype: &DType,
+        _session: &ArrowSession,
+    ) -> VortexResult<ArrowImport> {
+        vortex_bail!("{REJECT_VALUE_EXTENSION_NAME} rejects every value")
+    }
+}
+
+/// A literal whose field an Arrow importer accepts but whose value it rejects stays in DataFusion
+/// instead of failing the conversion.
 #[test]
 fn test_literal_rejected_by_importer_is_unsupported() -> anyhow::Result<()> {
     let session = VortexSession::default();
-    vortex_tensor::initialize(&session);
-    let vector =
-        FixedSizeListArray::from_iter_primitive::<Float32Type, _, _>([Some([Some(1.0), None])], 2);
-    let field = Field::new("v", vector.data_type().clone(), false).with_metadata(
+    session
+        .arrow()
+        .register_importer(Arc::new(ValueRejectingImporter));
+    let field = Field::new("v", DataType::Int32, false).with_metadata(
         [(
             EXTENSION_TYPE_NAME_KEY.to_string(),
-            ARROW_VECTOR_EXTENSION_NAME.to_string(),
+            REJECT_VALUE_EXTENSION_NAME.to_string(),
         )]
         .into(),
     );
     let literal = Arc::new(df_expr::Literal::new_with_metadata(
-        ScalarValue::FixedSizeList(Arc::new(vector)),
+        ScalarValue::Int32(Some(1)),
         Some(FieldMetadata::new_from_field(&field)),
     )) as Arc<dyn PhysicalExpr>;
 
