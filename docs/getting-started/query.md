@@ -1,4 +1,4 @@
-# Explore and Query
+# Explore and query
 
 ## Browse
 

@@ -10,30 +10,21 @@ use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Dict;
-use vortex_array::arrays::DictArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::dict::DictArrayExt;
-use vortex_array::arrays::dict::DictArraySlotsExt;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_array::builders::dict::dict_encode;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use super::bytes_candidate::bytes_dictionary_estimate;
+use super::bytes_candidate::compress_bytes_dictionary;
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
-use crate::scheme::DeferredEstimate;
 use crate::scheme::DescendantExclusion;
-use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
-use crate::stats::GenerateStatsOptions;
 
 /// Dictionary encoding for low-cardinality binary values.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -50,12 +41,6 @@ impl Scheme for BinaryDictScheme {
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
         vec![Dict.id()]
-    }
-
-    fn stats_options(&self) -> GenerateStatsOptions {
-        GenerateStatsOptions {
-            count_distinct_values: true,
-        }
     }
 
     /// Children: values=0, codes=1.
@@ -77,27 +62,11 @@ impl Scheme for BinaryDictScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
+        _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
-        exec_ctx: &mut ExecutionCtx,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        let stats = data.varbinview_stats(exec_ctx);
-
-        if stats.value_count() == 0 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
-        }
-
-        let estimated_distinct_values_count = stats.estimated_distinct_count().vortex_expect(
-            "this must be present since `DictScheme` declared that we need distinct values",
-        );
-
-        // If > 50% of the values are distinct, skip dictionary scheme.
-        if estimated_distinct_values_count > stats.value_count() / 2 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
-        }
-
-        // Let sampling determine the expected ratio.
-        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+        bytes_dictionary_estimate(&BinaryDictScheme)
     }
 
     fn compress(
@@ -107,29 +76,6 @@ impl Scheme for BinaryDictScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let dict = dict_encode(data.array(), exec_ctx)?;
-
-        // Values = child 0.
-        let compressed_values =
-            compressor.compress_child(dict.values(), &compress_ctx, self.id(), 0, exec_ctx)?;
-
-        // Codes = child 1.
-        let narrowed_codes = dict
-            .codes()
-            .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?
-            .into_array();
-        let compressed_codes =
-            compressor.compress_child(&narrowed_codes, &compress_ctx, self.id(), 1, exec_ctx)?;
-
-        // SAFETY: compressing codes or values does not alter the invariants.
-        unsafe {
-            Ok(
-                DictArray::new_unchecked(compressed_codes, compressed_values)
-                    .set_all_values_referenced(dict.has_all_values_referenced())
-                    .into_array(),
-            )
-        }
+        compress_bytes_dictionary(&BinaryDictScheme, compressor, data, compress_ctx, exec_ctx)
     }
 }

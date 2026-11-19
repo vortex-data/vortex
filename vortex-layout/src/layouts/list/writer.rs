@@ -289,15 +289,16 @@ fn canonicalize_to_list_parts(
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<ListDataParts> {
     let canonical = array.execute_until::<AnyList>(exec_ctx)?;
-    if let Some(list) = canonical.as_opt::<List>() {
-        // A sliced list keeps its parent's whole `elements`, but `global_offsets` assumes each
-        // chunk's offsets span exactly `[0, elements.len()]`.
-        Ok(list.reset_offsets(false, exec_ctx)?.into_data_parts())
+    let list = if let Some(list) = canonical.as_opt::<List>() {
+        list.into_owned()
     } else if let Some(view) = canonical.as_opt::<ListView>() {
-        Ok(list_from_list_view(view.into_owned(), exec_ctx)?.into_data_parts())
+        list_from_list_view(view.into_owned(), exec_ctx)?
     } else {
         unreachable!("AnyList matcher guarantees List or ListView")
-    }
+    };
+    // Sliced lists can retain unused elements, and rebuilding a list view can leave a lazy
+    // elements slice. Normalize both before passing their children to serializing strategies.
+    Ok(list.reset_offsets(false, exec_ctx)?.into_data_parts())
 }
 
 /// Rebase a chunk's local `offsets` into global `u64` positions for the whole-column `offsets`

@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Chunk pruning for spatial filters, using the per-chunk [`GeometryAabb`] axis-aligned
-//! bounding box (AABB).
+//! File and zone pruning for spatial filters, using the [`GeometryAabb`] axis-aligned
+//! bounding box (AABB) statistic.
 //!
 //! One module per predicate. To prune a new one: recover the geometry column and the constant
-//! (symmetric predicates can use `geometry_and_constant`), reduce the constant to its box with
-//! `query_aabb`, build the proof over `aabb_stat` from the box-relation builders (`min_dist_sq`,
-//! `max_dist_sq`), and register the rule in [`crate::initialize`]. No new statistic or
-//! file-format change is needed.
+//! with `geometry_and_constant` (preserving operand order for asymmetric predicates), reduce the
+//! constant with `query_aabb`, build the proof over `aabb_stat`, and register the rule in
+//! [`crate::initialize`]. No new statistic or file-format change is needed.
 
+mod contains;
 mod distance;
 mod intersects;
 #[cfg(test)]
 mod test_harness;
 
+pub use contains::SpatialContainsPrune;
 pub use distance::SpatialDistancePrune;
 use geo::BoundingRect;
 use geo::Rect as SpatialRect;
@@ -34,6 +35,7 @@ use vortex_array::expr::bound::lit;
 use vortex_array::expr::bound::lt;
 use vortex_array::expr::bound::lt_eq;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
@@ -44,22 +46,19 @@ use crate::aggregate_fn::GeometryAabb;
 use crate::extension::is_native_geometry;
 use crate::extension::single_geometry;
 
-/// Splits a symmetric two-operand spatial predicate into the scope-rooted geometry column and the
-/// constant operand's scalar.
+/// Splits a two-operand spatial predicate into the geometry column and the constant operand's scalar.
 ///
 /// `None` means the rule must decline: the expression doesn't have the `f(column, constant)`
-/// shape (in either operand order), or the column's dtype carries no [`GeometryAabb`] statistic.
-/// An asymmetric predicate (e.g. a future contains) must recover which operand is the column
-/// itself instead of calling this.
+/// shape (in either operand order), or the column's dtype does not support [`GeometryAabb`].
+/// Asymmetric predicates must also check which operand is the column when choosing their proof.
 fn geometry_and_constant(
     expr: &BoundExpression,
 ) -> VortexResult<Option<(&BoundExpression, &Scalar)>> {
-    // The predicate is symmetric, so the column (scope root) and the constant may be on either
-    // side.
+    // Zone predicates use the column as their root; file predicates refer to it through fields.
     let (lhs, rhs) = (expr.child(0), expr.child(1));
-    let (geom, constant) = if lhs.is_root() {
+    let (geom, constant) = if is_column(lhs) {
         (lhs, rhs)
-    } else if rhs.is_root() {
+    } else if is_column(rhs) {
         (rhs, lhs)
     } else {
         return Ok(None);
@@ -72,6 +71,13 @@ fn geometry_and_constant(
     }
 
     Ok(constant.as_opt::<Literal>().map(|scalar| (geom, scalar)))
+}
+
+fn is_column(mut expr: &BoundExpression) -> bool {
+    while expr.is::<GetItem>() {
+        expr = expr.child(0);
+    }
+    expr.is_root()
 }
 
 /// The 2D bounding box of a constant geometry of any type, or `None` for one without an extent
@@ -93,10 +99,10 @@ fn query_aabb(
     Ok(single_geometry(constant, &mut exec)?.bounding_rect())
 }
 
-/// The chunk's AABB statistic, as the storage struct with `xmin`/`ymin`/`xmax`/`ymax` fields.
+/// The scope's AABB statistic, as the storage struct with `xmin`/`ymin`/`xmax`/`ymax` fields.
 ///
-/// A chunk written without the statistic reads as null here; every proof built on top must let
-/// that null propagate to its root, where the zone map keeps the chunk.
+/// A missing statistic reads as null here; every proof built on top must let that null
+/// propagate to its root, keeping the file or zone.
 fn aabb_stat(geom: &BoundExpression) -> BoundExpression {
     // `ext_storage` unwraps the native `geoarrow.box` stat value to its backing struct, so
     // proofs can `get_item` the coordinate fields.

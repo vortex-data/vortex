@@ -7,6 +7,7 @@
 //! device allocation or kernel work.
 
 use std::ops::Range;
+use std::sync::LazyLock;
 
 use itertools::zip_eq;
 use tracing::trace;
@@ -20,6 +21,7 @@ use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex::array::arrays::slice::SliceArraySlotsExt;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::optimizer::kernels::ArrayKernelsExt;
 use vortex::array::patches::Patches;
 use vortex::array::validity::Validity;
 use vortex::dtype::PType;
@@ -46,6 +48,7 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::scalar_fn::ScalarFnVTable;
 use vortex::scalar_fn::fns::cast::Cast;
+use vortex::session::VortexSession;
 
 use super::CudaDispatchPlan;
 use super::MaterializedStage;
@@ -130,6 +133,8 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
             _ => false,
         };
     }
+    // TODO(connor): Add Widen fusion after fixing sign extension of signed narrow BitPacked and
+    // FoR children in dynamic_dispatch.cu. Those paths currently zero-extend to the output width.
     (id == FoR.id() && array.as_::<FoR>().references().is_global())
         || id == ZigZag.id()
         || id == Primitive.id()
@@ -267,6 +272,18 @@ pub enum DispatchPlan {
     /// or shared memory limit exceeded).
     Unfused,
 }
+/// A session holding the parent-reduce rules of the encodings the plan builder walks.
+///
+/// Plans are built without a session, so slices are resolved with the rules these encodings
+/// register by default.
+static PLAN_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty();
+    vortex::encodings::alp::initialize(&session);
+    vortex::encodings::fastlanes::initialize(&session);
+    vortex::encodings::sequence::initialize(&session);
+    vortex::encodings::zigzag::initialize(&session);
+    session
+});
 
 /// A fused plan: stages, source buffers and shared-memory.
 ///
@@ -565,7 +582,7 @@ impl FusedPlan {
         let slice_arr = array.as_::<Slice>();
         let child = slice_arr.child().clone();
 
-        if let Some(reduced) = child.reduce_parent(&array, 0)? {
+        if let Some(reduced) = PLAN_SESSION.kernels().reduce_parent(&child, &array, 0)? {
             return self.walk(reduced, pending_subtrees);
         }
 

@@ -28,6 +28,8 @@ use serde::Serialize;
 use statpopgen::StatPopGenBenchmark;
 use tpcds::TpcDsBenchmark;
 use tpch::benchmark::TpcHBenchmark;
+use tpch_nested::Shape;
+use tpch_nested::TpcHNestedBenchmark;
 pub use utils::file::*;
 pub use utils::logging::*;
 use vortex::compressor::BtrBlocksCompressorBuilder;
@@ -62,6 +64,7 @@ pub mod spatialbench;
 pub mod statpopgen;
 pub mod tpcds;
 pub mod tpch;
+pub mod tpch_nested;
 pub mod utils;
 pub mod v3;
 pub mod vector_dataset;
@@ -79,6 +82,7 @@ use vortex::editions::EditionFamily;
 use vortex::editions::EditionId;
 use vortex::editions::EditionMember;
 use vortex::editions::EditionSessionExt;
+use vortex::editions::UNSTABLE;
 pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
@@ -114,6 +118,16 @@ static UNSTABLE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[EditionMember::layout(&"vortex.list")],
 };
 
+/// Enables the [`UNSTABLE`] edition on `session`, so its compressor may also choose the unstable
+/// encodings.
+///
+/// Every benchmark session calls this, so benchmarks measure Vortex files written with them.
+pub fn enable_unstable_encodings(session: &VortexSession) {
+    session
+        .enable_edition(UNSTABLE)
+        .vortex_expect("unstable edition is registered");
+}
+
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
@@ -124,6 +138,7 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
         .register_edition(&UNSTABLE_BENCH_DECLARATION)
         .vortex_expect("bench edition declaration is valid");
+    enable_unstable_encodings(&session);
     session
 });
 
@@ -394,6 +409,8 @@ pub enum BenchmarkArg {
     TpcH,
     #[clap(name = "tpcds")]
     TpcDS,
+    #[clap(name = "tpch-nested")]
+    TpcHNested,
     #[clap(name = "statpopgen")]
     StatPopGen,
     #[clap(name = "fineweb")]
@@ -448,6 +465,15 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             let scale_factor = opts.get(SCALE_FACTOR_KEY).unwrap_or(DEFAULT_SCALE_FACTOR);
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
             let benchmark = TpcDsBenchmark::new(scale_factor.to_string(), remote_data_dir)?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::TpcHNested => {
+            enable_unstable_bench_edition();
+            let scale_factor = opts.get(SCALE_FACTOR_KEY).unwrap_or(DEFAULT_SCALE_FACTOR);
+            let shape = opts.get_as::<Shape>("shape").unwrap_or_default();
+            let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
+            let benchmark =
+                TpcHNestedBenchmark::new(scale_factor.to_string(), shape, remote_data_dir)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::StatPopGen => {

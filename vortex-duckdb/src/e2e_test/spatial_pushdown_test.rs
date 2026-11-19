@@ -14,6 +14,7 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::dtype::extension::ExtDType;
+use vortex_spatial::extension::Dimension;
 use vortex_spatial::extension::Point;
 use vortex_spatial::extension::SpatialMetadata;
 
@@ -59,8 +60,11 @@ fn native_point_file() -> NamedTempFile {
         let storage = StructArray::from_fields(&[("x", xs), ("y", ys)])
             .unwrap()
             .into_array();
-        let dtype = ExtDType::<Point>::try_new(SpatialMetadata::default(), storage.dtype().clone())
-            .unwrap();
+        let dtype = ExtDType::<Point>::try_new(
+            SpatialMetadata::default().with_dimension(Dimension::Xy),
+            storage.dtype().nullability(),
+        )
+        .unwrap();
         let points = ExtensionArray::new(dtype.erased(), storage).into_array();
 
         let file = NamedTempFile::with_suffix(".vortex").unwrap();

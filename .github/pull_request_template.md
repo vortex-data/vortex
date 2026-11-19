@@ -1,21 +1,22 @@
-## Summary
-
-- Tracking Issue: #000
-
 <!--
-Explain the rationale for this change and its impact. Is it part of a longer effort, or a bigger change? Larger PRs deserve larger summaries, and there is no need to duplicate an attached issue or discussion, but clarity is preferred over brevity.
+If you link a related issue, put it on the first line. Use `- Closes: #N` if this PR resolves
+the issue or `- Tracking Issue: #N` if the issue tracks the work or gives reviewers context.
 
-Link the tracked effort or open issue above, or delete the line if there is none.
--->
-
-## Changes
-
-<!--
-Summarize what changed and why, calling out the important parts when the PR spans many crates. Describe how the change is tested (only if new tests have been added).
+For complex changes and changes that need context from other work, ask the author to create a
+tracking issue if one is missing.
 -->
 
 <!--
-## API Changes
+Replace this comment with why the change is needed and why this approach was chosen, usually
+in 1-3 sentences of plain prose. Reviewers can read the diff to see what changed. Summarize what
+changed only when the diff is large enough that reviewers need guidance on where to focus.
+Link relevant design documents. If supporting documentation is needed but missing, tell the
+user to create it. The title and description become the squash commit message.
 
-Uncomment this section if there are user-facing changes, such as a broken public API or a change in the behavior of an engine integration. A breaking change also needs the `changelog/break` label.
+Leave out file lists, new-API inventories, and the checks you ran: reviewers have the diff and CI.
+Add one line each, only if they apply:
+- a breaking or behaviour change (add `changelog/break` only for breaking changes)
+- a headline benchmark result (post full tables as a comment)
+- manual testing beyond automated tests and CI, and what it showed
+- `Stacked on #N`
 -->

@@ -65,7 +65,7 @@ impl FoRReferences<'_> {
     }
 }
 
-pub trait FoRArrayExt: FoRArraySlotsExt {
+pub trait FoRArrayExt: TypedArrayRef<crate::FoR> {
     /// The array's references.
     fn references(&self) -> FoRReferences<'_> {
         match (&self.global_reference, self.blocked_references()) {

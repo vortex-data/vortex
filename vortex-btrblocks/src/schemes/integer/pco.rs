@@ -9,9 +9,11 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Primitive;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
@@ -54,17 +56,18 @@ impl Scheme for PcoScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        Ok(vortex_pco::Pco::from_primitive(
-            data.array_as_primitive(),
-            pco::DEFAULT_COMPRESSION_LEVEL,
-            8192,
-            exec_ctx,
-        )?
-        .into_array())
+        let input = compressor.with_compressed_validity(data.array(), exec_ctx)?;
+        let input = input
+            .as_opt::<Primitive>()
+            .vortex_expect("compressing the validity keeps a primitive leaf primitive");
+        Ok(
+            vortex_pco::Pco::from_primitive(input, pco::DEFAULT_COMPRESSION_LEVEL, 8192, exec_ctx)?
+                .into_array(),
+        )
     }
 }

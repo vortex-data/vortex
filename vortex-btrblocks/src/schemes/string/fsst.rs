@@ -75,7 +75,7 @@ impl Scheme for FSSTScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let utf8 = data.array_as_varbinview().into_owned().into_array();
+        let utf8 = compressor.with_compressed_validity(data.array(), exec_ctx)?;
         let compressor_fsst = fsst_train_compressor(&utf8, exec_ctx)?;
         let fsst = fsst_compress(&utf8, &compressor_fsst, exec_ctx)?;
 

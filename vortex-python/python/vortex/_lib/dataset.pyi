@@ -21,6 +21,7 @@ class VortexDataset:
         indices: Array | None = None,
         split_by: int | None = None,
         row_range: tuple[int, int] | None = None,
+        limit: int | None = None,
     ) -> pyarrow.RecordBatchReader: ...
     def count_rows(
         self,

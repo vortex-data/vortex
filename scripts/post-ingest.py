@@ -218,6 +218,10 @@ _RECORD_FIELDS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
         ),
         frozenset({"env_triple"}),
     ),
+    "file_size": (
+        frozenset({"commit_sha", "benchmark", "scale_factor", "format", "file", "value_bytes"}),
+        frozenset(),
+    ),
 }
 
 _MEASUREMENT_ID_MODULE: ModuleType | None = None
@@ -418,6 +422,14 @@ _FIELD_TYPES: dict[str, tuple[tuple[str, str], ...]] = {
         ("bytes_scanned", "i64"),
         ("iterations", "i32"),
         ("env_triple", "opt_str"),
+    ),
+    "file_size": (
+        ("commit_sha", "str"),
+        ("benchmark", "str"),
+        ("scale_factor", "str"),
+        ("format", "str"),
+        ("file", "str"),
+        ("value_bytes", "i64"),
     ),
 }
 
@@ -719,6 +731,43 @@ def _insert_vector_search(conn, mid: int, r: dict) -> bool:
     )
 
 
+def _file_size_id(mid_mod, r: dict) -> int:
+    """Compute the `file_sizes` primary key."""
+    return mid_mod.measurement_id_file_size(
+        commit_sha=r["commit_sha"],
+        benchmark=r["benchmark"],
+        scale_factor=r["scale_factor"],
+        format=r["format"],
+        file=r["file"],
+    )
+
+
+def _insert_file_size(conn, mid: int, r: dict) -> bool:
+    """Upsert a `file_sizes` row."""
+    return _upsert_returning_was_update(
+        conn,
+        """
+        INSERT INTO file_sizes (
+            measurement_id, commit_sha, benchmark, scale_factor,
+            format, file, value_bytes
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (measurement_id) DO UPDATE SET
+            commit_sha   = excluded.commit_sha,
+            value_bytes  = excluded.value_bytes
+        RETURNING (xmax = 0) AS inserted
+        """,
+        (
+            mid,
+            r["commit_sha"],
+            r["benchmark"],
+            r["scale_factor"],
+            r["format"],
+            r["file"],
+            r["value_bytes"],
+        ),
+    )
+
+
 # Dispatch from a record's `kind` to its per-table primary key and upsert. Keyed identically to
 # `_RECORD_FIELDS`; the three maps are wired together when adding a fact table.
 _MEASUREMENT_ID = {
@@ -727,6 +776,7 @@ _MEASUREMENT_ID = {
     "compression_size": _compression_size_id,
     "random_access_time": _random_access_time_id,
     "vector_search_run": _vector_search_run_id,
+    "file_size": _file_size_id,
 }
 
 _APPLY_RECORD = {
@@ -735,6 +785,7 @@ _APPLY_RECORD = {
     "compression_size": _insert_compression_size,
     "random_access_time": _insert_random_access,
     "vector_search_run": _insert_vector_search,
+    "file_size": _insert_file_size,
 }
 
 

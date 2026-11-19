@@ -3,11 +3,14 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
+use crate::arrays::Dict;
+use crate::arrays::Slice;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::dict::TakeReduceAdaptor;
@@ -17,39 +20,43 @@ use crate::arrays::slice::SliceReduceAdaptor;
 use crate::arrays::struct_::StructArrayExt;
 use crate::arrays::struct_::compute::cast::struct_cast_fields;
 use crate::builtins::ArrayBuiltins;
-use crate::matcher::Matcher;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::validity::Validity;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<Struct> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&StructGetItemRule),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Struct)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Struct)),
-    ParentRuleSet::lift(&TakeReduceAdaptor(Struct)),
-]);
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Cast, Struct, const { &StructCastRule });
+    kernels.register_reduce_parent_rule(GetItem, Struct, const { &StructGetItemRule });
+    kernels.register_reduce_parent_rule(MaskFn, Struct, const { &MaskReduceAdaptor(Struct) });
+    kernels.register_reduce_parent_rule(Slice, Struct, const { &SliceReduceAdaptor(Struct) });
+    kernels.register_reduce_parent_rule(Dict, Struct, const { &TakeReduceAdaptor(Struct) });
+}
 
-pub(crate) fn struct_cast_reduce_parent(
-    child: &ArrayRef,
-    parent: &ArrayRef,
-    _child_idx: usize,
-) -> VortexResult<Option<ArrayRef>> {
-    let Some(array) = child.as_opt::<Struct>() else {
-        return Ok(None);
-    };
-    let Some(parent) = ExactScalarFn::<Cast>::try_match(parent) else {
-        return Ok(None);
-    };
+/// Casts a struct by casting its fields, when the cast only changes what the validity can hold.
+#[derive(Debug)]
+struct StructCastRule;
 
-    if array.dtype() == parent.options {
-        return Ok(Some(array.array().clone()));
+impl ArrayParentReduceRule<Struct> for StructCastRule {
+    type Parent = ExactScalarFn<Cast>;
+
+    fn reduce_parent(
+        &self,
+        array: ArrayView<'_, Struct>,
+        parent: ScalarFnArrayView<'_, Cast>,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if array.dtype() == parent.options {
+            return Ok(Some(array.array().clone()));
+        }
+
+        reduce_struct_cast(array, parent)
     }
-
-    reduce_struct_cast(array, parent)
 }
 
 fn reduce_struct_cast(
@@ -222,8 +229,10 @@ mod tests {
             Nullability::NonNullable,
         );
 
+        // Without the session-registered rule the cast stays a scalar function.
+        let session = VortexSession::empty().with_some(KernelSession::empty());
         let cast = source.cast(target).unwrap();
-        let optimized = cast.optimize().unwrap();
+        let optimized = cast.optimize_ctx(&session).unwrap();
         assert!(optimized.is::<ScalarFn>());
     }
 

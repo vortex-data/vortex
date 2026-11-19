@@ -52,9 +52,10 @@ jobs:
                 '.github/workflows/docs-build.yml',
                 '.github/workflows/docs-preview.yml',
                 '.github/workflows/deploy-vercel.yml',
+                '.github/workflows/web-build.yml',
               ]);
               eligible = files.some(file => [file.filename, file.previous_filename].some(
-                path => path && (path.startsWith('docs/') ||
+                path => path && (path.startsWith('docs/') || path.startsWith('vortex-web/') ||
                   path.startsWith('.github/vercel-cli/') || workflows.has(path)),
               ));
             }
@@ -71,11 +72,22 @@ jobs:
       cancel-in-progress: true
     uses: ./.github/workflows/docs-build.yml
 
+  web:
+    name: Build Explorer preview
+    needs: changes
+    if: needs.changes.outputs.eligible == 'true'
+    permissions:
+      contents: read
+    concurrency:
+      group: docs-preview-web-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    uses: ./.github/workflows/web-build.yml
+
   # Each Vercel deployment has its own URL, so a stale build cannot replace
   # a newer preview, and the PR needs no recheck before publishing.
   publish:
     name: Publish preview
-    needs: build
+    needs: [build, web]
     permissions:
       contents: read
       deployments: write
@@ -85,6 +97,6 @@ jobs:
     secrets: inherit
     with:
       environment: vercel-docs
-      artifact-ids: ${{ needs.build.outputs.artifact-id }}
+      artifact-ids: ${{ needs.build.outputs.artifact-id }},${{ needs.web.outputs.artifact-id }}
       config: docs/vercel-output-config.json
       pages-html-handling: true

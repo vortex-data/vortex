@@ -3,7 +3,6 @@
 
 use std::hash::Hasher;
 
-use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -18,36 +17,31 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::varbin::VarBinArrayExt;
-use crate::arrays::varbin::VarBinArraySlotsExt;
 use crate::arrays::varbin::VarBinData;
 use crate::arrays::varbin::VarBinSlots;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::match_each_varbin_builder;
-use crate::serde::ArrayChildren;
-use crate::validity::Validity;
 pub(crate) mod canonical;
 mod kernel;
 mod operations;
+mod plugin;
 mod validity;
 
 use canonical::varbin_to_canonical;
 use vortex_session::VortexSession;
 
 use crate::EqMode;
-use crate::arrays::varbin::compute::rules::PARENT_RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 
@@ -155,77 +149,8 @@ impl VTable for VarBin {
         ))
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            VarBinMetadata {
-                offsets_ptype: PType::try_from(array.offsets().dtype())
-                    .vortex_expect("Must be a valid PType") as i32,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = VarBinMetadata::decode(metadata)?;
-        let offsets_ptype = metadata.get_offsets_ptype()?;
-        let validity = if children.len() == 1 {
-            Validity::from(dtype.nullability())
-        } else if children.len() == 2 {
-            let validity = children.get(1, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!("Expected 1 or 2 children, got {}", children.len());
-        };
-
-        let offsets = children.get(
-            0,
-            &DType::Primitive(offsets_ptype, Nullability::NonNullable),
-            len + 1,
-        )?;
-
-        if buffers.len() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
-        }
-        let bytes = buffers[0].clone().try_to_host_sync()?;
-
-        let data = VarBinData::try_build(
-            offsets.clone(),
-            bytes,
-            dtype.clone(),
-            validity.clone(),
-            &mut session.create_execution_ctx(),
-        )?;
-        let slots = VarBinData::make_slots(offsets, &validity, len);
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            slots,
-        ))
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         VarBinSlots::NAMES[idx].to_string()
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn append_to_builder(
@@ -296,6 +221,8 @@ mod tests {
     use super::VarBin;
     use super::VarBinMetadata;
     use crate::ArrayRef;
+    use crate::array::ArrayDeserialization;
+    use crate::array::ArrayPlugin;
     use crate::array::VTable;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -307,12 +234,16 @@ mod tests {
     fn test_deserialize_rejects_unknown_offsets_ptype() -> VortexResult<()> {
         let metadata = VarBinMetadata { offsets_ptype: 11 }.encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
-        let result = VarBin.deserialize(
-            &DType::Utf8(Nullability::NonNullable),
-            0,
-            &metadata,
-            &[],
-            &children,
+        let result = ArrayPlugin::deserialize(
+            &VarBin,
+            ArrayDeserialization::new(
+                VTable::id(&VarBin),
+                &DType::Utf8(Nullability::NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
             &SESSION,
         );
         assert!(result.is_err_and(|err| {

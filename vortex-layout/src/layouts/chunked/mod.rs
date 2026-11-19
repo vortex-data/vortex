@@ -27,9 +27,9 @@ use crate::LayoutRef;
 use crate::VTable;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::reader::ChunkedReader;
+use crate::lowering::slots_from_layout;
 use crate::plan::physical::ConcatPlan;
 use crate::plan::physical::PlanRef;
-use crate::plan::physical::PlanSlots;
 use crate::segments::SegmentSource;
 
 /// Chunked layout vtable.
@@ -114,7 +114,7 @@ impl VTable for Chunked {
                 layout.dtype().clone(),
                 layout.row_count(),
                 row_offsets.into(),
-                PlanSlots::from_layout(&layout.to_layout()),
+                slots_from_layout(&layout.to_layout()),
             )
         };
         Ok(plan.into_plan())

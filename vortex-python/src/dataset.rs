@@ -187,13 +187,14 @@ impl PyVortexDataset {
         self_.to_array_inner(self_.py(), columns, row_filter, indices, row_range)
     }
 
-    #[pyo3(signature = (*, columns = None, row_filter = None, split_by = None, row_range = None))]
+    #[pyo3(signature = (*, columns = None, row_filter = None, split_by = None, row_range = None, limit = None))]
     pub fn to_record_batch_reader(
         self_: PyRef<Self>,
         columns: Option<Vec<ProjectionColumn>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
         split_by: Option<usize>,
         row_range: Option<(u64, u64)>,
+        limit: Option<u64>,
     ) -> PyVortexResult<Py<PyAny>> {
         let vxf = &self_.vxf;
         let projection = projection_from_python(columns, vxf.dtype())?;
@@ -209,6 +210,7 @@ impl PyVortexDataset {
             .scan()?
             .with_projection(projection)
             .with_some_filter(filter)
+            .with_some_limit(limit)
             .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or_default());
         if let Some((l, r)) = row_range {
             scan = scan.with_row_range(l..r);

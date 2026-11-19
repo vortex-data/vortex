@@ -21,7 +21,7 @@ use vortex_cuda_driver::CudaSlice;
 use vortex_cuda_driver::CudaStream;
 use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::ValidAsZeroBits;
-use vortex_cuda_driver::result::stream;
+use vortex_cuda_driver::stream;
 use vortex_cuda_driver::sys::CUresult;
 use vortex_cuda_driver::sys::CUstream;
 
@@ -288,6 +288,7 @@ mod tests {
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::array::validity::Validity;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
@@ -364,14 +365,14 @@ mod tests {
 
     #[crate::test]
     async fn test_slice_device_bool_preserves_device_buffer() -> VortexResult<()> {
-        let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
+        let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let bits = ctx
             .stream()
             .copy_to_device(vec![0b1010_1100_u8, 0b0110_1001, 0b1100_0011])?
             .await?;
         let array = BoolArray::new_handle(bits, 3, 18, Validity::NonNullable).into_array();
 
-        let sliced = array.slice(7..16)?;
+        let sliced = array.slice(7..16)?.optimize_ctx(ctx.execution_ctx())?;
 
         assert_eq!(sliced.len(), 9);
         assert!(sliced.buffer_handles()[0].is_on_device());
