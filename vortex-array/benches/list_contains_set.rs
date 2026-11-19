@@ -117,7 +117,7 @@ fn i64_random(bencher: Bencher, set_len: usize) {
 }
 
 /// Lengths of sets too sparse for a bitmap over their whole span.
-const SPARSE_SET_LENS: &[usize] = &[32, 256];
+const SPARSE_SET_LENS: &[usize] = &[256];
 
 #[divan::bench(args = SPARSE_SET_LENS)]
 fn i64_sparse_span_2_24(bencher: Bencher, set_len: usize) {
