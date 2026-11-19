@@ -31,11 +31,11 @@ use vortex_array::expr::root;
 use vortex_array::expr::variant_get;
 use vortex_functions::variant_get::VariantPath;
 use vortex_functions::variant_shred::VariantShred;
+use vortex_functions::variant_shred::VariantShredStrict;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_layout::layouts::variant::VariantShreddingPolicy;
 use vortex_session::VortexSession;
 
 use super::InferredShredding;
@@ -443,6 +443,77 @@ fn shredding_keeps_the_integers(#[case] path: &[&str]) -> VortexResult<()> {
         get(shredded()?, path, int64)?,
         expected,
         &mut SESSION.create_execution_ctx()
+    );
+    Ok(())
+}
+
+fn shred_strictly(array: ArrayRef, dtype: DType) -> VortexResult<ArrayRef> {
+    VariantShredStrict::try_new(array, dtype)?
+        .into_array()
+        .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())
+}
+
+/// A strict shredding fails on a value that does not fit the schema, and says where it is.
+#[rstest]
+// `commit.rev` of the first row is a string.
+#[case::leaf(ROWS.map(Some).to_vec(), object(&[("commit", object(&[("rev", int(PType::I64))]))]), "row 0 at `$.commit.rev`")]
+#[case::object(vec![Some(r#"{"commit":{"rev":1}}"#), Some(r#"{"commit":5}"#)], object(&[("commit", object(&[("rev", int(PType::I64))]))]), "row 1 at `$.commit`")]
+#[case::list(vec![Some(r#"{"tags":["x"]}"#), Some(r#"{"tags":"x"}"#)], object(&[("tags", list(utf8()))]), "row 1 at `$.tags`")]
+#[case::element(vec![Some(r#"{"tags":["x",1]}"#)], object(&[("tags", list(utf8()))]), "row 0 at `$.tags[]`")]
+fn strict_shredding_rejects_a_value_that_does_not_fit(
+    #[case] rows: Vec<Option<&str>>,
+    #[case] schema: DType,
+    #[case] reason: &str,
+) -> VortexResult<()> {
+    let Err(error) = shred_strictly(from_json(rows)?, schema) else {
+        return Err(vortex_err!("a value that does not fit was shredded"));
+    };
+    assert!(error.to_string().contains(reason), "{error}");
+    Ok(())
+}
+
+/// A strict shredding of values that fit the schema keeps every value, and stores none of the
+/// shredded paths in the residual. A Variant null fits, as a missing value.
+#[test]
+fn strict_shredding_keeps_values_that_fit() -> VortexResult<()> {
+    let array = from_json([
+        Some(r#"{"kind":"commit","commit":{"collection":"post","rev":"a"}}"#),
+        Some(r#"{"kind":"identity","n":null}"#),
+        Some(r#"{"kind":null,"commit":{"collection":"like"}}"#),
+        None,
+    ])?;
+    let schema = object(&[
+        ("commit", object(&[("collection", utf8())])),
+        ("kind", utf8()),
+    ]);
+    let shredded = shred_strictly(array.clone(), schema)?;
+
+    for path in [&["kind"][..], &["commit", "collection"], &["commit", "rev"]] {
+        let expected = get(array.clone(), path, utf8())?
+            .execute::<VarBinViewArray>(&mut SESSION.create_execution_ctx())?;
+        assert_arrays_eq!(
+            get(shredded.clone(), path, utf8())?,
+            expected,
+            &mut SESSION.create_execution_ctx()
+        );
+    }
+
+    // No value of `kind` is left in its residual.
+    let kind = storage(shredded)?
+        .as_::<ParquetVariant>()
+        .typed_value()
+        .ok_or_else(|| vortex_err!("not shredded"))?
+        .clone()
+        .execute::<StructArray>(&mut SESSION.create_execution_ctx())?
+        .unmasked_field_by_name("kind")?
+        .clone()
+        .execute::<StructArray>(&mut SESSION.create_execution_ctx())?;
+    let residual = kind.unmasked_field_by_name("value")?.clone();
+    assert!(
+        residual
+            .validity()?
+            .execute_mask(residual.len(), &mut SESSION.create_execution_ctx())?
+            .all_false()
     );
     Ok(())
 }

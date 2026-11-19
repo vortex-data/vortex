@@ -72,6 +72,7 @@ pub fn initialize(session: &VortexSession) {
     scalar_fns.register(strpos::Strpos);
     scalar_fns.register(variant_pack::VariantPack);
     scalar_fns.register(variant_shred::VariantShred);
+    scalar_fns.register(variant_shred::VariantShredStrict);
 }
 
 /// A scalar function has a negative cost if applying it to an array and

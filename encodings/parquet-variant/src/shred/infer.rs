@@ -12,6 +12,10 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
+use vortex_array::scalar_fn::ScalarFnRef;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::fns::variant_shred::VariantShred;
+use vortex_array::scalar_fn::fns::variant_shred::VariantShredOptions;
 use vortex_arrow::ArrowExportOptions;
 use vortex_error::VortexResult;
 use vortex_layout::layouts::variant::VariantShreddingPolicy;
@@ -74,7 +78,27 @@ impl InferredShredding {
 }
 
 impl VariantShreddingPolicy for InferredShredding {
-    fn schema(&self, first: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<DType>> {
+    /// Shreds by the inferred schema, and keeps a value that does not fit it in the core
+    /// storage, as Parquet shredding does.
+    fn shredding(
+        &self,
+        first: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ScalarFnRef>> {
+        Ok(self
+            .schema(first, ctx)?
+            .map(|schema| VariantShred.bind(VariantShredOptions::new(schema))))
+    }
+}
+
+impl InferredShredding {
+    /// The schema inferred from a sample of the `first` chunk, or `None` if no field is worth
+    /// shredding.
+    pub(crate) fn schema(
+        &self,
+        first: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<DType>> {
         let storage = prepare_variant_for_export(first.clone(), None, ctx)?;
         let variants = storage
             .as_::<ParquetVariant>()

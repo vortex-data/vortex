@@ -44,6 +44,11 @@ use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_functions::variant_get::VariantGet;
+use vortex_functions::variant_get::VariantPath;
+use vortex_functions::variant_get::VariantPathElement;
+use vortex_functions::variant_shred::VariantShred;
+use vortex_functions::variant_shred::VariantShredStrict;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
@@ -66,6 +71,7 @@ use crate::ParquetVariantArraySlotsExt;
 use crate::compute::AllNonDistinctParquetVariant;
 use crate::extract::covers;
 use crate::extract::extract;
+use crate::shred::Mismatch;
 use crate::shred::shred;
 
 pub(crate) fn initialize(session: &VortexSession) {
@@ -87,6 +93,11 @@ pub(crate) fn initialize(session: &VortexSession) {
     );
     kernels.register_execute_parent_kernel(VariantGet.id(), ParquetVariant, VariantGetKernel);
     kernels.register_execute_parent_kernel(VariantShred.id(), ParquetVariant, VariantShredKernel);
+    kernels.register_execute_parent_kernel(
+        VariantShredStrict.id(),
+        ParquetVariant,
+        VariantShredStrictKernel,
+    );
     kernels.register_execute_parent_kernel(
         JsonToVariant.id(),
         Extension,
@@ -122,6 +133,37 @@ impl ExecuteParentKernel<ParquetVariant> for VariantShredKernel {
         shred(
             &array,
             parent.options.schema(),
+            Mismatch::Residual,
+            parent.dtype().is_nullable(),
+            ctx,
+        )
+        .map(Some)
+    }
+}
+
+/// Shreds unshredded storage, and fails on a value that does not fit the schema. Storage that
+/// is shredded already is left to [`VariantShredStrict`] itself, which rejects it.
+#[derive(Default, Debug)]
+struct VariantShredStrictKernel;
+
+impl ExecuteParentKernel<ParquetVariant> for VariantShredStrictKernel {
+    type Parent = ExactScalarFn<VariantShredStrict>;
+
+    fn execute_parent(
+        &self,
+        array: ArrayView<'_, ParquetVariant>,
+        parent: ScalarFnArrayView<'_, VariantShredStrict>,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if child_idx != 0 || array.typed_value().is_some() {
+            return Ok(None);
+        }
+
+        shred(
+            &array,
+            parent.options.schema(),
+            Mismatch::Reject,
             parent.dtype().is_nullable(),
             ctx,
         )

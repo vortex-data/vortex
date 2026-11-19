@@ -17,6 +17,7 @@ mod infer;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use exact::Mismatch;
 pub use infer::InferredShredding;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -38,6 +39,7 @@ use crate::ParquetVariantArraySlotsExt;
 pub(crate) fn shred(
     array: &ArrayView<'_, ParquetVariant>,
     schema: &DType,
+    mismatch: Mismatch,
     nullable: bool,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
@@ -51,7 +53,8 @@ pub(crate) fn shred(
     let metadata = array.metadata().clone().execute::<VarBinViewArray>(ctx)?;
     let value = value.clone().execute::<VarBinViewArray>(ctx)?;
 
-    let (value, typed_value) = exact::shred(&metadata, &value, &valid, schema, ctx.allocator())?;
+    let (value, typed_value) =
+        exact::shred(&metadata, &value, &valid, schema, mismatch, ctx.allocator())?;
 
     let validity = array.validity()?;
     let validity = if nullable {
