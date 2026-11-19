@@ -474,12 +474,13 @@ impl ArrowImportVTable for ParquetVariant {
         }
 
         let arrow_variant = ArrowVariantArray::try_new(array.as_struct())?;
-        let imported = if dtype.is_nullable() {
-            ParquetVariant::from_arrow_variant_nullable(&arrow_variant, session)?
-        } else {
-            ParquetVariant::from_arrow_variant(&arrow_variant, session)?
-        };
-        Ok(ArrowImport::Imported(imported.into_array()))
+        let imported = ParquetVariant::from_arrow_variant_with_nullability(
+            &arrow_variant,
+            dtype.is_nullable(),
+            session,
+        )?;
+
+        Ok(ArrowImport::Imported(imported))
     }
 }
 
@@ -491,6 +492,7 @@ mod tests {
     use arrow_array::ArrayRef as ArrowArrayRef;
     use arrow_array::StructArray;
     use arrow_array::cast::AsArray;
+    use arrow_buffer::NullBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
@@ -834,6 +836,27 @@ mod tests {
         let exported = exported.as_struct();
 
         assert_struct_arrays_eq(exported, &storage);
+        Ok(())
+    }
+
+    #[rstest]
+    fn test_import_non_nullable_variant_keeps_storage_under_null_row(
+        session: VortexSession,
+    ) -> VortexResult<()> {
+        let storage = arrow_variant_storage();
+        let field = arrow_variant_field(&storage);
+        let arrow = StructArray::try_new(
+            storage.fields().clone(),
+            storage.columns().to_vec(),
+            Some(NullBuffer::from(vec![true, false, true])),
+        )?;
+
+        let imported = session.arrow().from_arrow_array(Arc::new(arrow), &field)?;
+        let expected = ParquetVariant::from_arrow_variant(
+            &ArrowVariantArray::try_new(&storage)?,
+            &session.arrow(),
+        )?;
+        assert_arrays_eq!(imported, expected, &mut session.create_execution_ctx());
         Ok(())
     }
 
