@@ -68,18 +68,6 @@ struct FileScanCache {
     plans: ScanCache,
 }
 
-fn segment_locations(footer: &Footer) -> Arc<[SegmentLocation]> {
-    footer
-        .segment_specs_with_metadata()
-        .iter()
-        .map(|spec| SegmentLocation {
-            offset: spec.offset,
-            length: spec.length,
-            alignment: spec.alignment,
-        })
-        .collect()
-}
-
 fn layout_reader(
     segment_source: Arc<dyn SegmentSource>,
     footer: &Footer,
@@ -131,7 +119,7 @@ impl VortexFile {
     /// [`scan_file`](Self::scan_file) will share its segment locations and a [`ScanCache`].
     pub fn with_caching(self) -> Self {
         let scan_cache = FileScanCache {
-            locations: segment_locations(&self.footer),
+            locations: self.footer.segment_locations(),
             plans: ScanCache::default(),
         };
         Self {
@@ -286,7 +274,7 @@ impl VortexFile {
     pub fn scan_file(&self) -> ScanFile {
         let (locations, cache) = match &self.scan_cache {
             Some(cache) => (Arc::clone(&cache.locations), Some(cache.plans.clone())),
-            None => (segment_locations(&self.footer), None),
+            None => (self.footer.segment_locations(), None),
         };
         ScanFile {
             layout: Arc::clone(self.footer.layout()),

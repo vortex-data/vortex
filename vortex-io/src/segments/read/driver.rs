@@ -12,13 +12,13 @@ use pin_project_lite::pin_project;
 use tracing::trace;
 use vortex_buffer::Alignment;
 use vortex_error::VortexExpect;
-use vortex_io::CoalesceConfig;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::read::ReadRequest;
-use crate::read::RequestId;
-use crate::read::request::CoalescedRequest;
-use crate::read::request::IoRequest;
+use super::ReadRequest;
+use super::RequestId;
+use super::request::CoalescedRequest;
+use super::request::IoRequest;
+use crate::CoalesceConfig;
 use crate::segments::ReadEvent;
 use crate::segments::RequestMetrics;
 
@@ -348,7 +348,7 @@ mod tests {
     use vortex_metrics::MetricsRegistry;
 
     use super::*;
-    use crate::read::request::IoRequestInner;
+    use crate::segments::read::request::IoRequestInner;
 
     fn create_request(
         id: usize,

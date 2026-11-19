@@ -22,6 +22,7 @@ use crate::execution::SegmentLocation;
 use crate::execution::pipeline::ReadId;
 use crate::execution::pipeline::Scan;
 use crate::execution::pipeline::Turn;
+use crate::execution::segment_target;
 use crate::planning::planner::State;
 use crate::source::SegmentId;
 
@@ -150,7 +151,7 @@ impl ScanAdaptor {
         Ok(request::IoRequest {
             intent: IoIntent::Fetch,
             request: request::IoRequestId(id),
-            target: location.target(),
+            target: segment_target(&location),
         })
     }
 
