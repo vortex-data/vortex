@@ -26,6 +26,7 @@ pub mod arrays;
 pub mod execution;
 pub mod plan;
 pub mod planning;
+pub mod pool;
 pub mod prepare;
 pub mod row_mask;
 pub mod selection;
@@ -39,6 +40,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
+use pool::PartitionPool;
+use pool::ScanPoolRef;
 use selection::Selection;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
@@ -204,8 +207,13 @@ impl Default for ScanRequest {
 /// A boxed data source scan.
 pub type DataSourceScanRef = Box<dyn DataSourceScan>;
 
-/// A data source scan produces partitions that can be executed to read data from the source.
-pub trait DataSourceScan: 'static + Send {
+/// A data source scan reads data from the source.
+///
+/// A host reads a scan in one of two ways. It [splits](Self::split) the scan into independent
+/// pieces when each piece must be read on its own, such as by another process or with a declared
+/// order. Otherwise it [opens](Self::open) the scan into a pool and has each of its threads poll a
+/// worker of that pool.
+pub trait DataSourceScan: 'static + Send + IntoDataSourceScanRef {
     /// The returned dtype of the scan.
     fn dtype(&self) -> &DType;
 
@@ -214,6 +222,35 @@ pub trait DataSourceScan: 'static + Send {
 
     /// Returns a stream of partitions to be processed.
     fn partitions(self: Box<Self>) -> PartitionStream;
+
+    /// Cuts the scan into at most `n` scans that together read the same rows, in order.
+    ///
+    /// Splitting reads metadata only. The result is never empty. A scan that cannot be cut
+    /// returns itself as the one piece, which is the default.
+    fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
+        let _ = n;
+        Ok(vec![self.into_data_source_scan_ref()])
+    }
+
+    /// Opens the scan into a pool that host threads share by each polling a worker.
+    ///
+    /// The default pool hands out the scan's partitions, each to the next worker that asks.
+    fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
+        let dtype = self.dtype().clone();
+        Ok(Arc::new(PartitionPool::new(dtype, self.partitions())))
+    }
+}
+
+/// Converts a boxed scan into a [`DataSourceScanRef`]. Implemented for every scan.
+pub trait IntoDataSourceScanRef {
+    /// Returns this scan as a [`DataSourceScanRef`].
+    fn into_data_source_scan_ref(self: Box<Self>) -> DataSourceScanRef;
+}
+
+impl<T: DataSourceScan> IntoDataSourceScanRef for T {
+    fn into_data_source_scan_ref(self: Box<Self>) -> DataSourceScanRef {
+        self
+    }
 }
 
 /// A reference-counted partition.
