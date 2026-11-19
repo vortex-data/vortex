@@ -193,13 +193,13 @@ async fn test_eof_values() {
 #[rstest]
 #[case::default(
     BtrBlocksCompressorBuilder::from_session(&SESSION),
-    if cfg!(feature = "zstd") { 70_044 } else { 69_980 }
+    if cfg!(feature = "zstd") { 70_068 } else { 70_004 }
 )]
 #[cfg_attr(
     feature = "zstd",
     case::compact(
         BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-        55_128
+        55_152
     )
 )]
 #[tokio::test]
@@ -2832,6 +2832,43 @@ async fn test_object_store_deferred_publication(#[case] rows: u64) -> VortexResu
         .open_buffer(ByteBuffer::copy_from(bytes))?;
     let actual = file.scan()?.into_array_stream()?.read_all().await?;
     assert_arrays_eq!(actual, array, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+#[rstest]
+#[tokio::test]
+async fn file_statistics_record_longest_strings(
+    #[values(false, true)] nested: bool,
+) -> VortexResult<()> {
+    let names = (0..10_000u32).map(|i| (i % 7 != 0).then(|| format!("name {}", i % 1_000)));
+    let array = StructArray::from_fields(&[
+        ("keys", PrimitiveArray::from_iter(0..10_000u32).into_array()),
+        (
+            "names",
+            VarBinViewArray::from_iter_nullable_str(names).into_array(),
+        ),
+    ])?
+    .into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    let mut options = SESSION
+        .write_options()
+        .with_file_statistics(pruning_aggregate_fns());
+    if nested {
+        options = options.include_nested_statistics();
+    }
+    let mut writer = options.writer(&mut buf, array.dtype().clone());
+    writer.push(array.slice(0..5_000)?).await?;
+    writer.push(array.slice(5_000..10_000)?).await?;
+    writer.finish().await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let file_stats = file
+        .file_stats()
+        .vortex_expect("file statistics were written");
+    assert_eq!(file_stats.max_length(0), None);
+    assert_eq!(file_stats.max_length(1), Some("name 999".len() as u64));
+
     Ok(())
 }
 

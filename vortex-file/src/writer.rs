@@ -472,16 +472,22 @@ impl VortexWriteOptions {
         let statistics = if omit_statistics {
             None
         } else if write_nested_statistics {
-            Some(FileStatistics::new_with_dtype(
-                file_stats.aggregate_stats()?.into(),
-                file_stats.legacy_aggregate_stats()?.into(),
-                &dtype,
-            ))
+            Some(
+                FileStatistics::new_with_dtype(
+                    file_stats.aggregate_stats()?.into(),
+                    file_stats.legacy_aggregate_stats()?.into(),
+                    &dtype,
+                )
+                .with_max_lengths(file_stats.max_lengths().into()),
+            )
         } else {
-            Some(FileStatistics::new_legacy_only(
-                file_stats.legacy_aggregate_stats()?.into(),
-                &dtype,
-            ))
+            Some(
+                FileStatistics::new_legacy_only(
+                    file_stats.legacy_aggregate_stats()?.into(),
+                    &dtype,
+                )
+                .with_max_lengths(file_stats.legacy_max_lengths().into()),
+            )
         };
         let mut footer = Footer::new(
             Arc::clone(&layout),

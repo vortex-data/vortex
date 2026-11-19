@@ -1044,6 +1044,7 @@ impl<'a> FileStatistics<'a> {
   pub const VT_AGGREGATE_SETS: ::flatbuffers::VOffsetT = 8;
   pub const VT_ENTRY_SETS: ::flatbuffers::VOffsetT = 10;
   pub const VT_PARTIALS: ::flatbuffers::VOffsetT = 12;
+  pub const VT_MAX_LENGTHS: ::flatbuffers::VOffsetT = 14;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -1055,6 +1056,7 @@ impl<'a> FileStatistics<'a> {
     args: &'args FileStatisticsArgs<'args>
   ) -> ::flatbuffers::WIPOffset<FileStatistics<'bldr>> {
     let mut builder = FileStatisticsBuilder::new(_fbb);
+    if let Some(x) = args.max_lengths { builder.add_max_lengths(x); }
     if let Some(x) = args.partials { builder.add_partials(x); }
     if let Some(x) = args.entry_sets { builder.add_entry_sets(x); }
     if let Some(x) = args.aggregate_sets { builder.add_aggregate_sets(x); }
@@ -1127,6 +1129,16 @@ impl<'a> FileStatistics<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u8>>>(FileStatistics::VT_PARTIALS, None)}
   }
+  /// One more than the byte length of the longest non-null value of each string or binary
+  /// entry, in `entry_sets` order, or in `field_stats` order for files without `entry_sets`,
+  /// where 0 means unknown. Absent in files written without these lengths.
+  #[inline]
+  pub fn max_lengths(&self) -> Option<::flatbuffers::Vector<'a, u64>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u64>>>(FileStatistics::VT_MAX_LENGTHS, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for FileStatistics<'_> {
@@ -1140,6 +1152,7 @@ impl ::flatbuffers::Verifiable for FileStatistics<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<AggregateSet>>>>("aggregate_sets", Self::VT_AGGREGATE_SETS, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u16>>>("entry_sets", Self::VT_ENTRY_SETS, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u8>>>("partials", Self::VT_PARTIALS, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u64>>>("max_lengths", Self::VT_MAX_LENGTHS, false)?
      .finish();
     Ok(())
   }
@@ -1150,6 +1163,7 @@ pub struct FileStatisticsArgs<'a> {
     pub aggregate_sets: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<AggregateSet<'a>>>>>,
     pub entry_sets: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u16>>>,
     pub partials: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u8>>>,
+    pub max_lengths: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u64>>>,
 }
 impl<'a> Default for FileStatisticsArgs<'a> {
   #[inline]
@@ -1160,6 +1174,7 @@ impl<'a> Default for FileStatisticsArgs<'a> {
       aggregate_sets: None,
       entry_sets: None,
       partials: None,
+      max_lengths: None,
     }
   }
 }
@@ -1190,6 +1205,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> FileStatisticsBuilder<'a, 'b,
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(FileStatistics::VT_PARTIALS, partials);
   }
   #[inline]
+  pub fn add_max_lengths(&mut self, max_lengths: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u64>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(FileStatistics::VT_MAX_LENGTHS, max_lengths);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> FileStatisticsBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     FileStatisticsBuilder {
@@ -1212,6 +1231,7 @@ impl ::core::fmt::Debug for FileStatistics<'_> {
       ds.field("aggregate_sets", &self.aggregate_sets());
       ds.field("entry_sets", &self.entry_sets());
       ds.field("partials", &self.partials());
+      ds.field("max_lengths", &self.max_lengths());
       ds.finish()
   }
 }

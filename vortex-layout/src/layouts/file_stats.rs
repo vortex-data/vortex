@@ -26,7 +26,9 @@ use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldName;
@@ -41,6 +43,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -349,6 +352,9 @@ fn fills_legacy_stat_slot(aggregate_fn: &AggregateFnRef) -> bool {
 /// Accumulates write-time statistics for a single file column.
 struct StatsAccumulator {
     aggregates: Vec<(AggregateFnRef, AccumulatorRef)>,
+    /// The byte length of the longest non-null value of a string or binary column, `None` for
+    /// other columns.
+    max_length: Option<u64>,
 }
 
 impl StatsAccumulator {
@@ -356,6 +362,7 @@ impl StatsAccumulator {
     fn empty() -> Self {
         Self {
             aggregates: Vec::new(),
+            max_length: None,
         }
     }
 
@@ -399,12 +406,18 @@ impl StatsAccumulator {
             }
         }
 
-        Self { aggregates }
+        Self {
+            max_length: (!aggregates.is_empty() && is_varlen_dtype(dtype)).then_some(0),
+            aggregates,
+        }
     }
 
     fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         for (_, accumulator) in &mut self.aggregates {
             accumulator.accumulate(array, ctx)?;
+        }
+        if let Some(max_length) = &mut self.max_length {
+            *max_length = (*max_length).max(longest_value(array, ctx)?);
         }
         Ok(())
     }
@@ -418,7 +431,16 @@ impl StatsAccumulator {
         {
             accumulator.merge_from(other.as_mut())?;
         }
+        if let (Some(max_length), Some(other)) = (&mut self.max_length, other.max_length) {
+            *max_length = (*max_length).max(other);
+        }
         Ok(())
+    }
+
+    /// One more than the byte length of the longest non-null string or binary value, or 0 when
+    /// unknown.
+    fn max_length_plus_one(&self) -> u64 {
+        self.max_length.map_or(0, |length| length + 1)
     }
 
     /// Returns the accumulated aggregates that `allowed` permits.
@@ -449,6 +471,23 @@ pub(crate) fn contains_variant(dtype: &DType) -> bool {
         DType::Extension(ext) => contains_variant(ext.storage_dtype()),
         _ => false,
     }
+}
+
+/// The byte length of the longest non-null value of a string or binary `array`.
+fn longest_value(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
+    let array = array.clone().execute::<VarBinViewArray>(ctx)?;
+    let views = array.views();
+    let longest = match array.validity()?.execute_mask(array.len(), ctx)? {
+        Mask::AllTrue(_) => views.iter().map(BinaryView::len).max(),
+        Mask::AllFalse(_) => None,
+        Mask::Values(valid) => views
+            .iter()
+            .zip(valid.bit_buffer().iter())
+            .filter(|&(_, valid)| valid)
+            .map(|(view, _)| view.len())
+            .max(),
+    };
+    Ok(longest.map_or(0, u64::from))
 }
 
 fn supports_file_stats(dtype: &DType) -> bool {
@@ -793,6 +832,32 @@ impl StatsNode {
         }
     }
 
+    /// Appends `value` of each of this node's entries, 0 for unrecorded ones, in the same
+    /// post-order as [`postorder_stats_layout`].
+    fn collect_entry_values(&self, value: &impl Fn(&StatsAccumulator) -> u64, out: &mut Vec<u64>) {
+        match self {
+            Self::Skipped | Self::LegacyOnly(_) => {}
+            Self::Unrecorded { entries } => out.extend(iter::repeat_n(0, *entries)),
+            Self::Leaf(acc) => out.push(value(acc)),
+            Self::Container { children, own } => {
+                for (_, child) in children {
+                    child.collect_entry_values(value, out);
+                }
+                own.collect_entry_values(value, out);
+            }
+        }
+    }
+
+    /// Returns `value` of this node's accumulator over its own, undecomposed dtype, as the legacy
+    /// layout records it for a top-level field, or 0 if there is none.
+    fn legacy_entry_value(&self, value: &impl Fn(&StatsAccumulator) -> u64) -> u64 {
+        match self {
+            Self::Skipped | Self::Unrecorded { .. } => 0,
+            Self::Leaf(acc) | Self::LegacyOnly(acc) => value(acc),
+            Self::Container { own, .. } => own.legacy_entry_value(value),
+        }
+    }
+
     /// Returns this node's stats over its own, undecomposed dtype, as the legacy layout records
     /// them for a top-level field, leaving out the aggregates `allowed` rejects.
     fn legacy_aggregate_stats(
@@ -931,6 +996,41 @@ impl FileStatsAccumulator {
             .lock()
             .collect_aggregate_stats(&allowed, &mut out)?;
         Ok(out)
+    }
+
+    /// Returns one more than the byte length of the longest non-null value of every string or
+    /// binary entry in the post-order nested layout (see [`postorder_stats_layout`]), where 0 means
+    /// unknown. Empty if the accumulator was built without nested stats.
+    pub fn max_lengths(&self) -> Vec<u64> {
+        let mut out = Vec::new();
+        if self.write_nested_stats {
+            self.root
+                .lock()
+                .collect_entry_values(&StatsAccumulator::max_length_plus_one, &mut out);
+        }
+        out
+    }
+
+    /// Returns one more than the byte length of the longest non-null value of every string or
+    /// binary entry of the legacy top-level-fields-only layout, where 0 means unknown.
+    pub fn legacy_max_lengths(&self) -> Vec<u64> {
+        let root = self.root.lock();
+        let fields = match &*root {
+            StatsNode::Container { children, .. } => {
+                children.iter().map(|(_, child)| child).collect()
+            }
+            node => vec![node],
+        };
+        fields
+            .into_iter()
+            .map(|node| {
+                if self.write_legacy_stats {
+                    node.legacy_entry_value(&StatsAccumulator::max_length_plus_one)
+                } else {
+                    0
+                }
+            })
+            .collect()
     }
 
     /// Returns the legacy top-level-fields-only aggregates (one per top-level struct field, or a
