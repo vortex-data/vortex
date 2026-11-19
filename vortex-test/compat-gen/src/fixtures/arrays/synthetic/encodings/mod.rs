@@ -28,6 +28,8 @@ mod rle;
 mod runend;
 mod sequence;
 mod sparse;
+#[expect(dead_code, reason = "Unused until `vortex.sparse.v2` joins an edition")]
+mod sparse_v2;
 mod zigzag;
 mod zstd;
 
@@ -59,6 +61,8 @@ pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
         Box::new(runend::RunEndFixture),
         Box::new(sequence::SequenceFixture),
         Box::new(sparse::SparseFixture),
+        // Re-enable once `vortex.sparse.v2` joins an edition
+        // Box::new(sparse_v2::SparseV2Fixture),
         Box::new(zstd::ZstdFixture),
         Box::new(zigzag::ZigZagFixture),
         Box::new(constant::ConstantFixture),
