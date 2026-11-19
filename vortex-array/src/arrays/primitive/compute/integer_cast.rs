@@ -23,6 +23,7 @@ use std::mem::MaybeUninit;
 use std::slice;
 
 use num_traits::CheckedMul;
+use vortex_buffer::Alignment;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -88,6 +89,10 @@ impl IntegerType {
             Self::I128 => 16,
             Self::I256 => 32,
         }
+    }
+
+    fn alignment(self) -> Alignment {
+        match_each_integer_type!(self, |T| { Alignment::of::<T>() })
     }
 
     /// The inclusive range of the type.
@@ -329,7 +334,9 @@ impl IntegerCast {
             let (min, max) = match self.source_check() {
                 SourceCheck::AllFit => self.from.range(),
                 SourceCheck::NoneFit => {
-                    return mask.first().map_or_else(|| Ok(values.clone()), Err);
+                    return mask
+                        .first()
+                        .map_or_else(|| Ok(resize(values, self.from, self.to)), Err);
                 }
                 SourceCheck::Range { min, max, .. } => (min, max),
             };
@@ -489,7 +496,9 @@ fn all_valid_pairs<A: Copy, B: Copy>(
 pub(crate) fn resize(values: &ByteBuffer, from: IntegerType, to: IntegerType) -> ByteBuffer {
     let (from_width, to_width) = (from.byte_width(), to.byte_width());
     if from_width == to_width {
-        return values.clone();
+        // The source may record a weaker alignment than its pointer has, and the target's
+        // constructor checks the recorded one. This copies only if the pointer is misaligned.
+        return values.clone().aligned(to.alignment());
     }
     let signed = |width| match width {
         1 => IntegerType::I8,

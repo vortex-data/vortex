@@ -461,6 +461,7 @@ mod test {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_buffer::Alignment;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -478,6 +479,7 @@ mod test {
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::buffer::BufferHandle;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
@@ -902,6 +904,35 @@ mod test {
             .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?;
         let error = casted.execute::<DecimalArray>(&mut ctx).unwrap_err();
         assert!(error.to_string().contains("does not fit in precision"));
+        Ok(())
+    }
+
+    /// A buffer that only records byte alignment still casts when its pointer is aligned.
+    #[rstest]
+    #[case::unscaled(DecimalDType::new(9, 0), [1, 2])]
+    #[case::scaled(DecimalDType::new(9, 2), [100, 200])]
+    fn cast_integer_with_unrecorded_alignment_to_same_width_decimal(
+        #[case] decimal_dtype: DecimalDType,
+        #[case] expected: [i32; 2],
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let bytes = buffer![1u32, 2]
+            .into_byte_buffer()
+            .aligned(Alignment::none());
+        let source = PrimitiveArray::from_buffer_handle(
+            BufferHandle::new_host(bytes),
+            PType::U32,
+            Validity::NonNullable,
+        );
+
+        let casted = source
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?;
+        assert_arrays_eq!(
+            casted,
+            DecimalArray::from_iter(expected, decimal_dtype),
+            &mut ctx
+        );
         Ok(())
     }
 
