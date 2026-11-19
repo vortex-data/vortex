@@ -448,6 +448,32 @@ public final class NativeIOBridgeTest {
     }
 
     /** Registers {@code readable} through the file-metadata or data-source JNI entry point. */
+    @Test
+    public void testSplitsCoverEveryRow() throws IOException {
+        Path path = tempDir.resolve("bridge_splits.vortex");
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        writePeopleFile(session, allocator, path);
+
+        try (FileChannelReadable readable = new FileChannelReadable(path)) {
+            assertSplitsCoverRows(NativeFiles.splits(session, readable), 3);
+            assertSplitsCoverRows(NativeFiles.splits(session, readable, List.of("name")), 3);
+            // A column that the file does not hold is ignored, so the splits follow every column.
+            assertArrayEquals(
+                    NativeFiles.splits(session, readable), NativeFiles.splits(session, readable, List.of("missing")));
+        }
+    }
+
+    private static void assertSplitsCoverRows(long[] boundaries, long rows) {
+        assertTrue(boundaries.length >= 2, "a file with rows has at least one split");
+        assertEquals(0, boundaries[0]);
+        assertEquals(rows, boundaries[boundaries.length - 1]);
+
+        for (int i = 1; i < boundaries.length; i++) {
+            assertTrue(boundaries[i - 1] < boundaries[i], "splits are not empty and are in order");
+        }
+    }
+
     private static void registerReadable(boolean metadata, Session session, NativeReadable readable) {
         if (metadata) {
             assertEquals(2, NativeFiles.readStatistics(session, readable).size());

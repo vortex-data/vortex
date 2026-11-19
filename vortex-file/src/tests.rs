@@ -47,6 +47,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
@@ -3078,7 +3079,7 @@ async fn test_large_flat_chunk_scan_subdivides_splits() -> VortexResult<()> {
     let (file, values) = large_flat_file().await?;
 
     // Sub-division caps each split at DEFAULT_MAX_SPLIT_ROWS while tiling the file exactly.
-    let splits = file.splits()?;
+    let splits = file.splits(&[FieldMask::All])?;
     assert!(splits.len() > 1, "expected sub-divided splits: {splits:?}");
     assert!(
         splits
@@ -3207,7 +3208,7 @@ async fn test_string_chunks_stay_fine_grained_under_split_cap() -> VortexResult<
 
     let file = SESSION.open_options().open_buffer(buf)?;
 
-    let splits = file.splits()?;
+    let splits = file.splits(&[FieldMask::All])?;
     assert!(
         splits.len() > 1,
         "expected multiple natural chunks: {splits:?}"
@@ -3726,5 +3727,48 @@ async fn null_dominated_clustered_f32_writes() -> VortexResult<()> {
         .write_options()
         .write(&mut ByteBufferMut::empty(), stream)
         .await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_splits_follow_only_the_masked_fields() -> VortexResult<()> {
+    // The strings chunk at a few thousand rows, and the integers fit in one chunk. The splits of
+    // the integer column alone must not follow the chunks of the strings.
+    const N_ROWS: usize = 40_000;
+    let strings = VarBinArray::from_iter(
+        (0..N_ROWS).map(|i| Some(format!("{i:0>120}"))),
+        DType::Utf8(Nullability::Nullable),
+    )
+    .into_array();
+    let numbers = Buffer::from_iter(0..N_ROWS as i32).into_array();
+    let st = StructArray::from_fields(&[("s", strings), ("n", numbers)])?.into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, st.to_array_stream())
+        .await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    let strings_only = file.splits(&[FieldMask::Prefix(FieldPath::from_name("s"))])?;
+    let numbers_only = file.splits(&[FieldMask::Prefix(FieldPath::from_name("n"))])?;
+
+    assert!(
+        strings_only.len() > 1,
+        "expected multiple string chunks: {strings_only:?}"
+    );
+    assert!(
+        numbers_only.len() < strings_only.len(),
+        "the splits of `n` should not follow the chunks of `s`: {numbers_only:?}"
+    );
+
+    for splits in [&strings_only, &numbers_only] {
+        assert_eq!(splits.first().map(|r| r.start), Some(0));
+        assert_eq!(splits.last().map(|r| r.end), Some(N_ROWS as u64));
+        assert!(splits.windows(2).all(|w| w[0].end == w[1].start));
+    }
+
     Ok(())
 }
