@@ -1401,6 +1401,41 @@ fn query_i64_column(path: &str, query: &str) -> Result<Vec<i64>> {
     Ok(values)
 }
 
+#[test]
+fn test_same_path_rewrite_invalidates_cached_footer() -> Result<()> {
+    let file = create_temp_file();
+    let path = file.path().to_string_lossy().into_owned();
+    let cases: &[(&[i32], i64, i64)] = &[(&[1], 1, 1), (&[2], 1, 2), (&[2, 3], 2, 5)];
+    let mut lengths = Vec::new();
+
+    for (index, (values, expected_count, expected_sum)) in cases.iter().enumerate() {
+        RUNTIME.block_on(async {
+            let values = PrimitiveArray::from_iter(values.iter().copied()).into_array();
+            let array = StructArray::from_fields(&[("a", values)])
+                .unwrap()
+                .into_array();
+            let mut output = async_fs::File::create(&path).await.unwrap();
+            SESSION
+                .write_options()
+                .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+                .write(&mut output, array.to_array_stream())
+                .await
+                .unwrap();
+        });
+        lengths.push(std::fs::metadata(&path)?.len());
+        if index == 1 {
+            assert_eq!(lengths[1], lengths[0], "test requires a same-size rewrite");
+        }
+
+        // Each query uses a new connection, but the process-global Vortex session retains footers.
+        let count = query_i64_column(&path, "SELECT count(*) FROM ?")?;
+        let sum = query_i64_column(&path, "SELECT sum(a) FROM ?")?;
+        assert_eq!(count, vec![*expected_count]);
+        assert_eq!(sum, vec![*expected_sum]);
+    }
+    Ok(())
+}
+
 #[rstest]
 #[case::filtered_count("SELECT count(*) FROM ? WHERE b < 100")]
 #[case::filtered_max("SELECT max(a) FROM ? WHERE b BETWEEN 300 AND 310")]

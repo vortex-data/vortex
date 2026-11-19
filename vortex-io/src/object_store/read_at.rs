@@ -28,6 +28,7 @@ use crate::CoalesceConfig;
 use crate::ReadAtRequest;
 use crate::ReadAtStream;
 use crate::VortexReadAt;
+use crate::filesystem::FileListing;
 use crate::runtime::Handle;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::std_file::read_exact_at;
@@ -44,6 +45,8 @@ pub struct ObjectStoreReadAt {
     allocator: BufferAllocatorRef,
     concurrency: usize,
     coalesce_config: Option<CoalesceConfig>,
+    version: Option<String>,
+    known_size: Option<u64>,
 }
 
 impl ObjectStoreReadAt {
@@ -73,7 +76,18 @@ impl ObjectStoreReadAt {
             allocator,
             concurrency: DEFAULT_CONCURRENCY,
             coalesce_config: Some(CoalesceConfig::object_storage()),
+            version: None,
+            known_size: None,
         }
+    }
+
+    pub(crate) fn with_listing_metadata(mut self, listing: &FileListing) -> Self {
+        self.version = listing
+            .version
+            .as_ref()
+            .map(|version| version.as_str().to_owned());
+        self.known_size = listing.size;
+        self
     }
 
     /// Set the concurrency for this source.
@@ -89,11 +103,20 @@ impl ObjectStoreReadAt {
     }
 }
 
+fn object_get_options(range: std::ops::Range<u64>, version: Option<String>) -> GetOptions {
+    GetOptions {
+        range: Some(GetRange::Bounded(range)),
+        version,
+        ..Default::default()
+    }
+}
+
 async fn read_object_store_range(
     store: Arc<dyn ObjectStore>,
     path: ObjectPath,
     io_handle: Handle,
     allocator: BufferAllocatorRef,
+    version: Option<String>,
     request: ReadAtRequest,
 ) -> VortexResult<BufferHandle> {
     let ReadAtRequest {
@@ -107,13 +130,7 @@ async fn read_object_store_range(
     unsafe { buffer.set_len(length) };
 
     let response = store
-        .get_opts(
-            &path,
-            GetOptions {
-                range: Some(GetRange::Bounded(range.clone())),
-                ..Default::default()
-            },
-        )
+        .get_opts(&path, object_get_options(range.clone(), version))
         .await?;
 
     let buffer = match response.payload {
@@ -173,6 +190,9 @@ impl VortexReadAt for ObjectStoreReadAt {
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        if let Some(size) = self.known_size {
+            return async move { Ok(size) }.boxed();
+        }
         let store = Arc::clone(&self.store);
         let path = self.path.clone();
         async move {
@@ -195,6 +215,7 @@ impl VortexReadAt for ObjectStoreReadAt {
         let path = self.path.clone();
         let handle = self.handle.clone();
         let allocator = self.allocator.clone();
+        let version = self.version.clone();
         let io_handle = handle.clone();
         handle
             .spawn_io(read_object_store_range(
@@ -202,6 +223,7 @@ impl VortexReadAt for ObjectStoreReadAt {
                 path,
                 io_handle,
                 allocator,
+                version,
                 ReadAtRequest::new(offset, length, alignment),
             ))
             .boxed()
@@ -216,6 +238,7 @@ impl VortexReadAt for ObjectStoreReadAt {
         let path = self.path.clone();
         let handle = self.handle.clone();
         let allocator = self.allocator.clone();
+        let version = self.version.clone();
         let concurrency = self.concurrency.max(1);
         let (mut send, recv) = mpsc::channel(concurrency);
         let io_handle = handle.clone();
@@ -229,9 +252,12 @@ impl VortexReadAt for ObjectStoreReadAt {
                 let path = path.clone();
                 let io_handle = io_handle.clone();
                 let allocator = allocator.clone();
+                let version = version.clone();
                 async move {
-                    let result =
-                        read_object_store_range(store, path, io_handle, allocator, request).await;
+                    let result = read_object_store_range(
+                        store, path, io_handle, allocator, version, request,
+                    )
+                    .await;
                     (request, result)
                 }
             });
@@ -270,6 +296,16 @@ mod tests {
     use crate::runtime::Executor;
 
     const TEST_DATA: &[u8] = b"object store test data";
+
+    #[test]
+    fn read_options_include_the_listed_object_version() {
+        let options = object_get_options(2..5, Some("version-1".to_string()));
+        assert_eq!(options.version.as_deref(), Some("version-1"));
+        match options.range {
+            Some(GetRange::Bounded(range)) => assert_eq!(range, 2..5),
+            other => panic!("unexpected range: {other:?}"),
+        }
+    }
 
     #[derive(Default)]
     struct CountingExecutor {

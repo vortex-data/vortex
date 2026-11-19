@@ -105,6 +105,17 @@ fn registry_for(properties: &HashMap<String, String>) -> Arc<Registry> {
     }))
 }
 
+pub(crate) fn footer_cache_key(
+    url: &Url,
+    properties: &HashMap<String, String>,
+    path: &str,
+) -> String {
+    let store_key = url_cache_key(url, properties);
+    // Length-prefix the store identity so delimiters in properties or paths cannot blur the
+    // boundary.
+    format!("{}:{}{}", store_key.len(), store_key, path)
+}
+
 fn url_cache_key(url: &Url, properties: &HashMap<String, String>) -> String {
     let mut sorted_props: Vec<_> = properties.iter().collect();
     sorted_props.sort_by_key(|(k, _)| *k);
@@ -181,6 +192,33 @@ mod tests {
         write!(&mut debug_str, "{store:?}").map_err(|e| vortex_err!("{e}"))?;
         assert!(debug_str.contains("eu-central-9"), "{debug_str}");
         assert!(debug_str.contains("localhost:9000"), "{debug_str}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_footer_cache_key_scoped_to_store_and_path() -> VortexResult<()> {
+        let url = parse("s3://bucket-a/data.vortex")?;
+        let other_bucket = parse("s3://bucket-b/data.vortex")?;
+        let properties = HashMap::from_iter([(
+            "aws_endpoint".to_string(),
+            "http://localhost:9000".to_string(),
+        )]);
+        let other_properties = HashMap::from_iter([(
+            "aws_endpoint".to_string(),
+            "http://localhost:9001".to_string(),
+        )]);
+
+        let key = footer_cache_key(&url, &properties, "data.vortex");
+        assert_eq!(key, footer_cache_key(&url, &properties, "data.vortex"));
+        assert_ne!(
+            key,
+            footer_cache_key(&other_bucket, &properties, "data.vortex")
+        );
+        assert_ne!(
+            key,
+            footer_cache_key(&url, &other_properties, "data.vortex")
+        );
+        assert_ne!(key, footer_cache_key(&url, &properties, "other.vortex"));
         Ok(())
     }
 

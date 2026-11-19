@@ -14,6 +14,7 @@ use futures::StreamExt;
 use futures::stream;
 use futures::stream::BoxStream;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::VortexReadAt;
 use crate::filesystem::FileListing;
@@ -49,6 +50,7 @@ fn walk(dir: &Path, out: &mut Vec<FileListing>) -> io::Result<()> {
             out.push(FileListing {
                 path: entry.path().to_string_lossy().into_owned(),
                 size: Some(metadata.len()),
+                version: None,
             });
         }
     }
@@ -79,6 +81,7 @@ impl FileSystem for StdFileSystem {
                 Ok(metadata) if metadata.is_file() => Ok(Some(FileListing {
                     path,
                     size: Some(metadata.len()),
+                    version: None,
                 })),
                 Ok(_) => Ok(None),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -87,9 +90,13 @@ impl FileSystem for StdFileSystem {
             .await
     }
 
-    async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+    async fn open_read(&self, file: &FileListing) -> VortexResult<Arc<dyn VortexReadAt>> {
+        vortex_ensure!(
+            file.version.is_none(),
+            "StdFileSystem does not provide file versions"
+        );
         let handle = self.handle.clone();
-        let path = path.to_owned();
+        let path = file.path.clone();
         let reader = self
             .handle
             .spawn_blocking(move || FileReadAt::open(path, handle))

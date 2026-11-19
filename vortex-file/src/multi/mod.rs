@@ -22,6 +22,7 @@ use vortex_error::vortex_bail;
 use vortex_io::VortexReadAt;
 use vortex_io::filesystem::FileListing;
 use vortex_io::filesystem::FileSystemRef;
+use vortex_io::filesystem::FileVersion;
 use vortex_layout::LayoutReaderRef;
 use vortex_layout::scan::multi::LayoutReaderFactory;
 use vortex_layout::scan::multi::MultiLayoutDataSource;
@@ -233,44 +234,85 @@ async fn open_file(
 ) -> VortexResult<VortexFile> {
     tracing::trace!(path = %file.path, "opening vortex file");
 
-    let source = fs.open_read(&file.path).await?;
-    let key = source.uri().is_none().then_some(file.path.as_str());
-    open_cached(session, key, source, file.size, open_options_fn).await
+    let source = fs.open_read(file).await?;
+    let cache_key = fs.cache_key(file);
+    let key = cache_key
+        .as_deref()
+        .or_else(|| file.version.is_none().then_some(file.path.as_str()));
+    open_cached_with_version(
+        session,
+        key,
+        source,
+        file.size,
+        file.version.as_ref(),
+        open_options_fn,
+    )
+    .await
 }
 
-/// Open a Vortex file and cache its footer on the session.
-/// Subsequent calls to this function will reuse the footer from cache.
+/// Open a Vortex file without reusing or populating the session footer cache.
 ///
 /// "key" is the optional cache key provided by user. If it's not found,
-/// source.uri() is probed. If there's no uri(), open_cached errors.
+/// source.uri() is probed. If there's no uri(), this function errors.
+///
+/// Use [`open_cached_with_version`] when a strong file version is available. Without one, reusing a
+/// path-keyed footer could silently read a previous version of a rewritten file.
 pub async fn open_cached(
     session: &VortexSession,
-    mut key: Option<&str>,
+    key: Option<&str>,
     source: Arc<dyn VortexReadAt>,
     file_size: Option<u64>,
     open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
 ) -> VortexResult<VortexFile> {
+    open_cached_with_version(session, key, source, file_size, None, open_options_fn).await
+}
+
+/// Open a Vortex file, reusing its session-cached footer only for the same file version.
+///
+/// "key" is the optional cache key provided by user. A versioned open without an explicit key
+/// bypasses both cache lookup and insertion, because `source.uri()` is only a debugging identifier
+/// and need not include the backing store's identity. Explicit keys must include that identity.
+/// A missing file version also disables both
+/// cache operations; in that case the key handling is identical to [`open_cached`]. The source
+/// must be opened from the listing that supplied the version, with its reads pinned to that version.
+pub async fn open_cached_with_version(
+    session: &VortexSession,
+    mut key: Option<&str>,
+    source: Arc<dyn VortexReadAt>,
+    file_size: Option<u64>,
+    file_version: Option<&FileVersion>,
+    open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
+) -> VortexResult<VortexFile> {
     let uri = source.uri().cloned();
-    if key.is_none() {
-        key = uri.as_deref();
+    if file_version.is_none() {
+        if key.is_none() {
+            key = uri.as_deref();
+        }
+        if key.is_none() {
+            vortex_bail!("Missing cache key");
+        }
     }
-    let Some(key) = key else {
-        vortex_bail!("Missing cache key");
-    };
 
     let mut options = open_options_fn(session.open_options());
     if let Some(size) = file_size {
         options = options.with_file_size(size);
     }
 
+    if let Some(version) = file_version
+        && let Some(key) = key
+        && let Some(footer) = session.multi_file().get_footer(key, version)
     {
-        if let Some(footer) = session.multi_file().get_footer(key) {
-            options = options.with_footer(footer);
-        }
+        options = options.with_footer(footer);
     }
 
     let file = options.open(source).await?;
-    session.multi_file().put_footer(key, file.footer().clone());
+    if let Some(version) = file_version
+        && let Some(key) = key
+    {
+        session
+            .multi_file()
+            .put_footer(key, file.footer().clone(), version);
+    }
     Ok(file)
 }
 
@@ -300,8 +342,13 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
 #[cfg(test)]
 mod tests {
     use std::fmt;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
+    use futures::future::BoxFuture;
     use vortex_array::IntoArray;
+    use vortex_array::buffer::BufferHandle;
+    use vortex_buffer::Alignment;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
@@ -313,6 +360,32 @@ mod tests {
 
     use super::*;
     use crate::WriteOptionsSessionExt;
+
+    #[derive(Clone)]
+    struct CountingReadAt {
+        bytes: ByteBuffer,
+        reads: Arc<AtomicUsize>,
+    }
+
+    impl VortexReadAt for CountingReadAt {
+        fn concurrency(&self) -> usize {
+            1
+        }
+
+        fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+            self.bytes.size()
+        }
+
+        fn read_at(
+            &self,
+            offset: u64,
+            length: usize,
+            alignment: Alignment,
+        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            self.bytes.read_at(offset, length, alignment)
+        }
+    }
 
     struct MetadataFileSystem {
         bytes: ByteBuffer,
@@ -334,11 +407,16 @@ mod tests {
             Ok((path == "metadata.vortex").then_some(FileListing {
                 path: path.to_string(),
                 size: Some(self.bytes.len() as u64),
+                version: Some(FileVersion::new("metadata-v1")),
             }))
         }
 
-        async fn open_read(&self, _path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+        async fn open_read(&self, _file: &FileListing) -> VortexResult<Arc<dyn VortexReadAt>> {
             Ok(Arc::new(self.bytes.clone()))
+        }
+
+        fn cache_key(&self, file: &FileListing) -> Option<String> {
+            Some(format!("metadata:{}", file.path))
         }
 
         async fn delete(&self, _path: &str) -> VortexResult<()> {
@@ -367,6 +445,7 @@ mod tests {
         let listing = FileListing {
             path: "metadata.vortex".to_string(),
             size: None,
+            version: Some(FileVersion::new("metadata-v1")),
         };
         let default_options = |options: VortexOpenOptions| options;
         let metadata_options = |options: VortexOpenOptions| options.include_metadata();
@@ -402,6 +481,228 @@ mod tests {
         assert_cached_footer_metadata_order(false).await
     }
 
+    #[tokio::test]
+    async fn test_open_cached_reuses_only_matching_file_version() -> VortexResult<()> {
+        let session = VortexSession::empty()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with::<MultiFileSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+
+        let mut before = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(&mut before, buffer![1u32].into_array().to_array_stream())
+            .await?;
+        let before = ByteBuffer::from(before);
+        let reads = Arc::new(AtomicUsize::new(0));
+        let source = Arc::new(CountingReadAt {
+            bytes: before.clone(),
+            reads: Arc::clone(&reads),
+        }) as Arc<dyn VortexReadAt>;
+        let version = FileVersion::new("version-1");
+        let file = open_cached_with_version(
+            &session,
+            Some("versioned.vortex"),
+            Arc::clone(&source),
+            Some(before.len() as u64),
+            Some(&version),
+            &|options| options,
+        )
+        .await?;
+        assert_eq!(file.row_count(), 1);
+        let first_reads = reads.load(Ordering::SeqCst);
+        assert!(first_reads > 0);
+
+        let file = open_cached_with_version(
+            &session,
+            Some("versioned.vortex"),
+            source,
+            Some(before.len() as u64),
+            Some(&version),
+            &|options| options,
+        )
+        .await?;
+        assert_eq!(file.row_count(), 1);
+        assert_eq!(reads.load(Ordering::SeqCst), first_reads);
+
+        let mut after = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(
+                &mut after,
+                buffer![2u32, 3u32].into_array().to_array_stream(),
+            )
+            .await?;
+        let after = ByteBuffer::from(after);
+        let file = open_cached_with_version(
+            &session,
+            Some("versioned.vortex"),
+            Arc::new(after.clone()),
+            Some(after.len() as u64),
+            Some(&FileVersion::new("version-2")),
+            &|options| options,
+        )
+        .await?;
+        assert_eq!(file.row_count(), 2);
+        Ok(())
+    }
+
+    #[derive(Clone)]
+    struct UriReadAt {
+        bytes: ByteBuffer,
+        uri: Arc<str>,
+    }
+
+    impl VortexReadAt for UriReadAt {
+        fn concurrency(&self) -> usize {
+            1
+        }
+
+        fn uri(&self) -> Option<&Arc<str>> {
+            Some(&self.uri)
+        }
+
+        fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+            self.bytes.size()
+        }
+
+        fn read_at(
+            &self,
+            offset: u64,
+            length: usize,
+            alignment: Alignment,
+        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+            self.bytes.read_at(offset, length, alignment)
+        }
+    }
+
+    struct UnkeyedFileSystem {
+        bytes: ByteBuffer,
+        expose_uri: bool,
+    }
+
+    impl fmt::Debug for UnkeyedFileSystem {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("UnkeyedFileSystem").finish()
+        }
+    }
+
+    #[async_trait]
+    impl FileSystem for UnkeyedFileSystem {
+        fn list(&self, _prefix: &str) -> stream::BoxStream<'_, VortexResult<FileListing>> {
+            stream::empty().boxed()
+        }
+
+        async fn head(&self, path: &str) -> VortexResult<Option<FileListing>> {
+            Ok((path == "shared.vortex").then_some(FileListing {
+                path: path.to_string(),
+                size: Some(self.bytes.len() as u64),
+                version: Some(FileVersion::new("shared-version")),
+            }))
+        }
+
+        async fn open_read(&self, file: &FileListing) -> VortexResult<Arc<dyn VortexReadAt>> {
+            let source: Arc<dyn VortexReadAt> = if self.expose_uri {
+                Arc::new(UriReadAt {
+                    bytes: self.bytes.clone(),
+                    uri: Arc::from(file.path.as_str()),
+                })
+            } else {
+                Arc::new(self.bytes.clone())
+            };
+            Ok(source)
+        }
+
+        async fn delete(&self, _path: &str) -> VortexResult<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_versioned_open_without_cache_key_never_uses_relative_uri() -> VortexResult<()> {
+        let session = VortexSession::empty()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with::<MultiFileSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+
+        let mut out_a = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_metadata_segment("k", ByteBuffer::copy_from(b"bucket-a"))
+            .write(&mut out_a, buffer![1u32].into_array().to_array_stream())
+            .await?;
+        let mut out_b = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_metadata_segment("k", ByteBuffer::copy_from(b"bucket-b"))
+            .write(&mut out_b, buffer![2u32].into_array().to_array_stream())
+            .await?;
+        let size = out_a.len() as u64;
+        assert_eq!(size, out_b.len() as u64);
+
+        let fs_a: FileSystemRef = Arc::new(UnkeyedFileSystem {
+            bytes: ByteBuffer::from(out_a),
+            expose_uri: true,
+        });
+        let fs_b: FileSystemRef = Arc::new(UnkeyedFileSystem {
+            bytes: ByteBuffer::from(out_b),
+            expose_uri: true,
+        });
+        let listing = FileListing {
+            path: "shared.vortex".to_string(),
+            size: Some(size),
+            version: Some(FileVersion::new("shared-version")),
+        };
+        let include = |options: VortexOpenOptions| options.include_metadata();
+
+        let file_a = open_file(&fs_a, &listing, &session, &include).await?;
+        let file_b = open_file(&fs_b, &listing, &session, &include).await?;
+
+        assert_eq!(
+            file_a.metadata_segment("k").map(ByteBuffer::as_slice),
+            Some(b"bucket-a".as_slice())
+        );
+        assert_eq!(
+            file_b.metadata_segment("k").map(ByteBuffer::as_slice),
+            Some(b"bucket-b".as_slice())
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_unversioned_open_without_uri_uses_listing_path() -> VortexResult<()> {
+        let session = VortexSession::empty()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with::<MultiFileSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+
+        let mut output = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(&mut output, buffer![1u32].into_array().to_array_stream())
+            .await?;
+        let size = output.len() as u64;
+        let fs: FileSystemRef = Arc::new(UnkeyedFileSystem {
+            bytes: ByteBuffer::from(output),
+            expose_uri: false,
+        });
+        let listing = FileListing {
+            path: "anonymous.vortex".to_string(),
+            size: Some(size),
+            version: None,
+        };
+
+        let file = open_file(&fs, &listing, &session, &|options| options).await?;
+        assert_eq!(file.row_count(), 1);
+        Ok(())
+    }
+
     struct TwoFileSystem {
         a: ByteBuffer,
         b: ByteBuffer,
@@ -428,15 +729,20 @@ mod tests {
             Ok(Some(FileListing {
                 path: path.to_string(),
                 size: Some(size as u64),
+                version: Some(FileVersion::new(format!("{path}-v1"))),
             }))
         }
 
-        async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
-            let bytes = match path {
+        async fn open_read(&self, file: &FileListing) -> VortexResult<Arc<dyn VortexReadAt>> {
+            let bytes = match file.path.as_str() {
                 "b.vortex" => self.b.clone(),
                 _ => self.a.clone(),
             };
             Ok(Arc::new(bytes))
+        }
+
+        fn cache_key(&self, file: &FileListing) -> Option<String> {
+            Some(format!("two-file:{}", file.path))
         }
 
         async fn delete(&self, _path: &str) -> VortexResult<()> {
@@ -477,10 +783,12 @@ mod tests {
         let a_listing = FileListing {
             path: "a.vortex".to_string(),
             size: None,
+            version: Some(FileVersion::new("a.vortex-v1")),
         };
         let b_listing = FileListing {
             path: "b.vortex".to_string(),
             size: None,
+            version: Some(FileVersion::new("b.vortex-v1")),
         };
         let fa = open_file(&fs, &a_listing, &session, &include).await?;
         let fb = open_file(&fs, &b_listing, &session, &include).await?;
