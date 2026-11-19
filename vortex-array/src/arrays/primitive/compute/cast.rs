@@ -876,6 +876,35 @@ mod test {
         Ok(())
     }
 
+    /// Scaling up into storage of the source's width multiplies and range-checks in one pass.
+    #[test]
+    fn cast_same_width_integer_to_scaled_decimal() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(9, 2);
+
+        let casted = PrimitiveArray::new(
+            buffer![i32::MAX, 42, -9_999_999],
+            Validity::from_iter([false, true, true]),
+        )
+        .into_array()
+        .cast(DType::Decimal(decimal_dtype, Nullability::Nullable))?;
+        assert_arrays_eq!(
+            casted,
+            DecimalArray::from_option_iter(
+                [None, Some(4_200i32), Some(-999_999_900)],
+                decimal_dtype
+            ),
+            &mut ctx
+        );
+
+        let casted = PrimitiveArray::from_iter([10_000_000u32, 3])
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?;
+        let error = casted.execute::<DecimalArray>(&mut ctx).unwrap_err();
+        assert!(error.to_string().contains("does not fit in precision"));
+        Ok(())
+    }
+
     #[test]
     fn cast_integer_to_decimal_checks_precision() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();

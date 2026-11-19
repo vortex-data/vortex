@@ -15,6 +15,9 @@
 //! - [`IntegerCast::convert`] then cannot fail. It divides in the source type, resizes from the
 //!   source type to the target type, and multiplies in the target type. Resizing only depends on
 //!   the widths (and the source's signedness when widening), and each arithmetic step on one type.
+//!
+//! A multiply between types of equal width skips the resize: one kernel per source type checks
+//! the range and writes the products in the same pass.
 
 use std::mem::MaybeUninit;
 use std::slice;
@@ -317,6 +320,24 @@ impl IntegerCast {
             })?;
             return Ok(resize(&quotients, self.from, self.to));
         }
+
+        if let Rescale::Multiply(factor) = self.rescale()
+            && self.from.byte_width() == self.to.byte_width()
+        {
+            // At equal widths the products have the same bits in either type, so multiply in the
+            // source type while checking the range, in one pass into a new buffer.
+            let (min, max) = match self.source_check() {
+                SourceCheck::AllFit => self.from.range(),
+                SourceCheck::NoneFit => {
+                    return mask.first().map_or_else(|| Ok(values.clone()), Err);
+                }
+                SourceCheck::Range { min, max, .. } => (min, max),
+            };
+            return match_each_integer_type!(self.from, |T| {
+                multiply_within::<T>(values_as(values), mask, min, max, factor)
+            });
+        }
+
         if let Some(index) = self.first_misfit(values, mask) {
             return Err(index);
         }
@@ -331,6 +352,7 @@ impl IntegerCast {
         let len = values.len() / self.from.byte_width();
         match self.rescale() {
             Rescale::None => resize(values, self.from, self.to),
+            // `cast` multiplies between types of equal width, so `resize` returns a new buffer.
             Rescale::Multiply(factor) => {
                 let mut values = resize(values, self.from, self.to).into_mut();
                 match_each_integer_type!(self.to, |T| {
@@ -523,6 +545,42 @@ fn multiply_in_place<T: IntegerValue>(values: &mut [T], factor: i256) {
     for v in values {
         *v = v.wrapping_mul(factor);
     }
+}
+
+/// Multiplies `values` by `factor`, or returns the index of the first valid value outside
+/// `[min, max]`. The bounds fit `T`, and the factor wraps to `T`.
+#[inline(never)]
+fn multiply_within<T: IntegerValue>(
+    values: &[T],
+    mask: &Mask,
+    min: i256,
+    max: i256,
+    factor: i256,
+) -> Result<ByteBuffer, usize> {
+    let (min, max, factor) = (T::from_i256(min), T::from_i256(max), T::from_i256(factor));
+    let fits = |v: T| (min <= v) & (v <= max);
+
+    let len = values.len();
+    let mut out = BufferMut::<T>::with_capacity(len);
+    let mut all_fit = true;
+    for (src, dst) in values
+        .chunks(64)
+        .zip(out.spare_capacity_mut()[..len].chunks_mut(64))
+    {
+        let mut chunk_fits = true;
+        for (&v, d) in src.iter().zip(dst) {
+            chunk_fits &= fits(v);
+            d.write(v.wrapping_mul(factor));
+        }
+        all_fit &= chunk_fits;
+    }
+    // SAFETY: the loop initialized every lane.
+    unsafe { out.set_len(len) };
+
+    if all_fit || all_valid_lanes(values, mask, fits) {
+        return Ok(out.freeze().into_byte_buffer());
+    }
+    Err(first_misfit_index(values, mask, &fits).vortex_expect("some valid value does not fit"))
 }
 
 /// Divides `values` by `divisor`, or returns the index of the first valid value that is not a
