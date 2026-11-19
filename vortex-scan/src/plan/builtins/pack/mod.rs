@@ -339,8 +339,9 @@ impl PackPlan {
 ///
 /// Over a nullable struct, the partition rules read a field as `mask(field, validity)`, so the
 /// pruned struct reads the validity alongside the fields and the expression above it still sees
-/// a field as null wherever the struct is null. Nested field reads and statistics above such a
-/// mask move below it, so a later rewrite pushes them into the field's plan.
+/// a field as null wherever the struct is null. Nested field reads, statistics and strict functions
+/// that cannot fail above such a mask move below it, so a later rewrite pushes them into the
+/// field's plan.
 #[derive(Debug)]
 pub(crate) struct ExpressionPackRule;
 

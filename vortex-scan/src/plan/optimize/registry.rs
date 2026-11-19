@@ -9,6 +9,7 @@ use vortex_session::VortexSession;
 use super::rules::*;
 use crate::plan::Concat;
 use crate::plan::Eval;
+use crate::plan::ListPack;
 use crate::plan::Pack;
 use crate::plan::PlanRef;
 use crate::plan::Take;
@@ -17,6 +18,7 @@ use crate::plan::builtins::EvalEvalRule;
 use crate::plan::builtins::EvalIdentityRule;
 use crate::plan::builtins::EvalPackRule;
 use crate::plan::builtins::ExpressionConcatRule;
+use crate::plan::builtins::ExpressionListPackRule;
 use crate::plan::builtins::ExpressionPackRule;
 use crate::plan::builtins::ExpressionTakeRule;
 use crate::plan::builtins::ExpressionZonedRule;
@@ -42,12 +44,15 @@ static EXPRESSION_PACK_RULE: PlanParentReduceRuleAdapter<Pack, ExpressionPackRul
     PlanParentReduceRuleAdapter::new(ExpressionPackRule);
 static EXPRESSION_ZONED_RULE: PlanParentReduceRuleAdapter<Zoned, ExpressionZonedRule> =
     PlanParentReduceRuleAdapter::new(ExpressionZonedRule);
+static EXPRESSION_LIST_PACK_RULE: PlanParentReduceRuleAdapter<ListPack, ExpressionListPackRule> =
+    PlanParentReduceRuleAdapter::new(ExpressionListPackRule);
 static PARENT_RULES: PlanParentRuleSet = PlanParentRuleSet::new(&[
     &PlanParentReduceRuleAdapter::new(EvalEvalRule),
     &EXPRESSION_CONCAT_RULE,
     &EXPRESSION_TAKE_RULE,
     &EXPRESSION_PACK_RULE,
     &EXPRESSION_ZONED_RULE,
+    &EXPRESSION_LIST_PACK_RULE,
 ]);
 
 /// Attempts a static rewrite for `plan`.

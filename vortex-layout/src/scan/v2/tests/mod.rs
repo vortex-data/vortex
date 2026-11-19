@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod lists;
+
 use std::future::poll_fn;
 use std::num::NonZeroUsize;
 use std::ops::Range;
@@ -32,6 +34,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::expr::Expression;
+use vortex_array::expr::Lambda;
 use vortex_array::expr::and;
 use vortex_array::expr::cast;
 use vortex_array::expr::checked_add;
@@ -41,12 +44,16 @@ use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::is_not_null;
 use vortex_array::expr::is_null;
+use vortex_array::expr::list_contains;
+use vortex_array::expr::list_length;
+use vortex_array::expr::list_transform;
 use vortex_array::expr::lit;
 use vortex_array::expr::lt;
 use vortex_array::expr::not;
 use vortex_array::expr::or;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
+use vortex_array::expr::var;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Alignment;
@@ -173,7 +180,8 @@ fn points_chunk(start: usize, extension: bool, nullability: Nullability) -> Vort
 /// every seventh.
 ///
 /// `x` is the row, `y` ten times the row and `list` holds the row twice. The fields keep their
-/// values in rows where a struct above them is null.
+/// values in rows where a struct above them is null, except that a list there holds `i64::MAX` in
+/// place of its second row, which overflows when added to.
 fn message_chunk(start: usize) -> VortexResult<ArrayRef> {
     let mut ctx = SESSION.create_execution_ctx();
     let rows = start..start + CHUNK_ROWS;
@@ -191,11 +199,17 @@ fn message_chunk(start: usize) -> VortexResult<ArrayRef> {
         CHUNK_ROWS,
         Validity::from_iter(rows.clone().map(|row| row % 7 != 0)),
     )?;
-    let elements = Buffer::from_iter(
-        rows.clone()
-            .flat_map(|row| [row, row])
-            .map(|row| i64::try_from(row).unwrap_or(i64::MAX)),
-    );
+    let elements = Buffer::from_iter(rows.clone().flat_map(|row| {
+        let value = i64::try_from(row).unwrap_or(i64::MAX);
+        [
+            value,
+            if row.is_multiple_of(5) {
+                i64::MAX
+            } else {
+                value
+            },
+        ]
+    }));
     let offsets = Buffer::from_iter((0..=CHUNK_ROWS).map(|i| u32::try_from(2 * i).unwrap_or(0)));
     let list = ListArray::try_new(
         elements.into_array(),
@@ -675,27 +689,63 @@ async fn arrow_stream_projects_across_chunks() -> VortexResult<()> {
     Ok(())
 }
 
-/// V2 rejects list layouts: their element ranges are only known once their offsets are read.
+/// List layouts scan the same on both executors, over row ranges, row indices and filters, whose
+/// rows of lists map to the elements the offsets of those lists give.
+#[rstest]
+#[case::whole(root(), None, None, None)]
+#[case::row_range(get_item("lists", root()), None, Some(250..3_100), None)]
+#[case::row_indices(
+    get_item("lists", root()),
+    None,
+    None,
+    Some(&[0, 1, 999, 1000, 2500, 3999][..])
+)]
+#[case::filter(
+    get_item("lists", root()),
+    Some(gt(get_item("ints", root()), lit(1500i32))),
+    Some(900..3_100),
+    None
+)]
+#[case::filter_on_lists(
+    get_item("ints", root()),
+    Some(list_contains(get_item("lists", root()), lit(4001i64))),
+    None,
+    None
+)]
+#[case::lengths(list_length(get_item("lists", root())), None, Some(10..20), None)]
 #[tokio::test]
-async fn list_layouts_return_an_error() -> VortexResult<()> {
+async fn list_layouts_match_v1(
+    #[values(false, true)] zoned: bool,
+    #[case] projection: Expression,
+    #[case] filter: Option<Expression>,
+    #[case] row_range: Option<Range<u64>>,
+    #[case] rows: Option<&'static [u64]>,
+) -> VortexResult<()> {
     let session = new_session().with_tokio();
-    let strategy = TableStrategy::new(chunked_flat(), chunked_flat()).with_list_layout();
-    let (segments, layout) = write(&session, &strategy).await?;
-    let error = run_scan(builder(&session, &segments, &layout)?)
-        .await
-        .expect_err("V2 must reject an unsupported layout");
-    assert!(error.to_string().contains("vortex.plan.list_pack"));
-    Ok(())
-}
-
-#[tokio::test]
-async fn projection_skips_unsupported_unselected_layouts() -> VortexResult<()> {
-    let session = new_session().with_tokio();
-    let strategy = TableStrategy::new(chunked_flat(), chunked_flat()).with_list_layout();
+    let strategy = if zoned {
+        zoned_table_strategy()
+    } else {
+        table_strategy()
+    }
+    .with_list_layout();
     let (segments, layout) = write(&session, &strategy).await?;
     assert_same_as_v1(&session, || {
-        Ok(builder(&session, &segments, &layout)?
-            .with_projection(get_item("ints", root()).bind(layout.dtype())?))
+        let mut builder = builder(&session, &segments, &layout)?
+            .with_projection(projection.bind(layout.dtype())?)
+            .with_some_filter(
+                filter
+                    .as_ref()
+                    .map(|filter| filter.bind(layout.dtype()))
+                    .transpose()?,
+            );
+        if let Some(row_range) = row_range.clone() {
+            builder = builder.with_row_range(row_range);
+        }
+        if let Some(rows) = rows {
+            builder =
+                builder.with_row_indices(StrictSortedBuffer::try_new(Buffer::copy_from(rows))?);
+        }
+        Ok(builder)
     })
     .await
 }
@@ -745,10 +795,25 @@ fn msg(field: &str) -> Expression {
     get_item(field, get_item("msg", root()))
 }
 
-/// A nullable struct with a list field, written with the list layout, scans on the planner-driven
-/// executor whenever the scan reads no list. Its fields are null wherever a struct above them is.
+/// A nullable struct with a list field, written with the list layout, scans the same on both
+/// executors, also where the scan reads the list. Its fields are null wherever a struct above them
+/// is.
 #[rstest]
 #[case::sibling_of_list(msg("x"), None)]
+#[case::list(msg("list"), None)]
+#[case::list_length(list_length(msg("list")), None)]
+#[case::list_transform(
+    list_transform(msg("list"), Lambda::new(["x"], gt(var("x"), lit(2500i64)))?),
+    None
+)]
+#[case::fallible_list_transform(
+    list_transform(
+        msg("list"),
+        Lambda::new(["x"], checked_add(var("x"), lit(1i64)))?,
+    ),
+    None
+)]
+#[case::filter_on_list(get_item("id", root()), Some(list_contains(msg("list"), lit(2500i64))))]
 #[case::nested_nullable(get_item("y", msg("inner")), None)]
 #[case::struct_validity(is_null(get_item("msg", root())), None)]
 #[case::pack(
@@ -847,8 +912,8 @@ async fn pruning_beneath_a_nullable_struct_keeps_rows_of_any_filter(
 /// A filter the bounds of the field cannot prune reads its zone map and, in each of the four
 /// zones, the field, the validity of `s` and `id`: 13 segments. The pruned filter holds only in
 /// zone 0, so it reads the three there alone. The classic scan still reads `id` in every zone. A
-/// float field prunes too: its zone map records whether each zone holds no NaN, which the bounds
-/// of a float need.
+/// float field prunes too: its zone map records the NaN count of each zone, and a count of zero
+/// proves what the bounds of a float need, that the zone holds no NaN.
 #[rstest]
 #[case::v1(false, hidden_values_chunk, s_a(), lit(100i64), lit(10_000_000i64), 7)]
 #[case::v2(true, hidden_values_chunk, s_a(), lit(100i64), lit(10_000_000i64), 4)]

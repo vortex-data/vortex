@@ -4,6 +4,7 @@
 //! Protobuf columns in Vortex files written with the default write strategy.
 
 use std::fmt::Write as _;
+use std::sync::Arc;
 
 use futures::TryStreamExt;
 use prost::Message;
@@ -19,12 +20,17 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::expr::Expression;
+use vortex_array::expr::Lambda;
 use vortex_array::expr::fill_null;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
+use vortex_array::expr::list_contains;
+use vortex_array::expr::list_length;
+use vortex_array::expr::list_transform;
 use vortex_array::expr::lit;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
+use vortex_array::expr::var;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
@@ -50,6 +56,8 @@ use vortex_layout::VTable;
 use vortex_layout::layouts::extension::Extension;
 use vortex_layout::layouts::list::List;
 use vortex_layout::layouts::struct_::Struct;
+use vortex_layout::scan::metrics::ScanUsage;
+use vortex_layout::scan::metrics::ScanUsageSnapshot;
 use vortex_layout::scan::v2::ScanBuilder as PlannedScanBuilder;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -113,8 +121,9 @@ enum Executor {
     Planner,
 }
 
-/// A session that writes protobuf columns with the default write strategy, which then uses the
-/// extension layout. With `list_layout`, it also uses the list layout.
+/// A session that writes protobuf columns with the default write strategy and the unstable
+/// edition, which then uses the extension layout. With `list_layout`, it also uses the list layout,
+/// so a repeated message field is written as one column per field of the message.
 fn file_session(handle: Handle, list_layout: bool) -> VortexResult<VortexSession> {
     let session = VortexSession::empty().with_handle(handle);
     for family in EDITION_FAMILIES {
@@ -126,7 +135,7 @@ fn file_session(handle: Handle, list_layout: bool) -> VortexResult<VortexSession
     vortex_file::register_default_encodings(&session);
     crate::initialize(&session);
     if list_layout {
-        // No edition includes the list layout yet, so the test adds it to the unstable edition.
+        // No edition includes the list layout, so the test adds it to the unstable edition.
         session.editions().declare_inclusion(EditionInclusion::new(
             ComponentKind::Layout,
             &List.id(),
@@ -253,6 +262,29 @@ async fn scan(
     }
 }
 
+/// Scans `file` as [`scan`] does, and counts the segments the scan reads.
+async fn scan_counting(
+    file: &VortexFile,
+    executor: Executor,
+    handle: Handle,
+    projection: &Expression,
+    filter: Option<&Expression>,
+) -> VortexResult<(ArrayRef, ScanUsageSnapshot)> {
+    let usage = Arc::new(ScanUsage::default());
+    let file = file.clone().with_usage(Arc::clone(&usage));
+    let array = scan(&file, executor, handle, projection, filter).await?;
+    Ok((array, usage.snapshot()))
+}
+
+/// The `field` of every item of each order: `list_transform(items, x -> x.field)`, which is how
+/// DataFusion's `array_transform` reaches Vortex.
+fn item_field(field: &str) -> VortexResult<Expression> {
+    Ok(list_transform(
+        protobuf_field("items", get_item("msg", root())),
+        Lambda::new(["x"], get_item(field, var("x")))?,
+    ))
+}
+
 /// Whether `layout` splits a value into columns: a struct, list or extension layout.
 fn is_structural(layout: &LayoutRef) -> bool {
     let id = layout.encoding_id();
@@ -287,7 +319,7 @@ fn write_columns(layout: &LayoutRef, depth: usize, out: &mut String) -> VortexRe
 }
 
 /// The writer splits a protobuf column into one column per message field, including the fields of
-/// nested messages and of the messages in a repeated field.
+/// nested messages and, with the list layout, of the messages in a repeated field.
 #[test]
 fn test_file_splits_message_fields() -> VortexResult<()> {
     block_on(|handle| async move {
@@ -316,6 +348,7 @@ fn test_file_splits_message_fields() -> VortexResult<()> {
 /// Every protobuf value reads back from a file, with and without the list layout.
 #[rstest]
 fn test_file_round_trip(
+    #[values(Executor::Reader, Executor::Planner)] executor: Executor,
     #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
     #[values(false, true)] list_layout: bool,
 ) -> VortexResult<()> {
@@ -334,23 +367,17 @@ fn test_file_round_trip(
         let table = StructArray::from_fields(&[("msg", msg)])?.into_array();
         let file = write(&session, &table).await?;
 
-        let actual = scan(&file, Executor::Reader, handle, &root(), None).await?;
+        let actual = scan(&file, executor, handle, &root(), None).await?;
         assert_arrays_eq!(actual, table, &mut session.create_execution_ctx());
         Ok(())
     })
 }
 
 /// Reading one message field through the field helper matches evaluating it in memory.
-///
-/// The planner-driven scan cannot read a field of a nullable struct that has a list layout field
-/// yet, as it cannot compile list layouts, so it reads files without the list layout.
 #[rstest]
-#[case::reader(Executor::Reader, false)]
-#[case::reader_list_layout(Executor::Reader, true)]
-#[case::planner(Executor::Planner, false)]
 fn test_file_reads_field(
-    #[case] executor: Executor,
-    #[case] list_layout: bool,
+    #[values(Executor::Reader, Executor::Planner)] executor: Executor,
+    #[values(false, true)] list_layout: bool,
     #[values("id", "address", "address.city", "items")] path: &str,
 ) -> VortexResult<()> {
     block_on(|handle| async move {
@@ -371,12 +398,9 @@ fn test_file_reads_field(
 
 /// A filter on a leaf message field keeps the rows that the same filter keeps in memory.
 #[rstest]
-#[case::reader(Executor::Reader, false)]
-#[case::reader_list_layout(Executor::Reader, true)]
-#[case::planner(Executor::Planner, false)]
 fn test_file_filters_on_leaf_field(
-    #[case] executor: Executor,
-    #[case] list_layout: bool,
+    #[values(Executor::Reader, Executor::Planner)] executor: Executor,
+    #[values(false, true)] list_layout: bool,
 ) -> VortexResult<()> {
     block_on(|handle| async move {
         let session = file_session(handle.clone(), list_layout)?;
@@ -413,7 +437,7 @@ fn test_file_round_trip_with_mapping_options(
     #[values(Executor::Reader, Executor::Planner)] executor: Executor,
 ) -> VortexResult<()> {
     block_on(|handle| async move {
-        let session = file_session(handle.clone(), false)?;
+        let session = file_session(handle.clone(), true)?;
         let options = MappingOptions {
             preserve_unknown_fields: true,
             ..dedicated()
@@ -447,6 +471,81 @@ fn test_file_round_trip_with_mapping_options(
             let actual = scan(&file, executor, handle.clone(), &field, None).await?;
             assert_arrays_eq!(actual, table.clone().apply(&field)?, &mut ctx);
         }
+        Ok(())
+    })
+}
+
+/// Reading one field of every item of a repeated message field matches evaluating it in memory,
+/// and reads that field's column, not the other item columns.
+///
+/// The list layout reads the offsets for the lengths, so reading the SKUs and then the quantities
+/// reads exactly what reading the whole items and then the lengths reads.
+#[rstest]
+fn test_file_reads_repeated_message_field(
+    #[values(Executor::Reader, Executor::Planner)] executor: Executor,
+    #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+) -> VortexResult<()> {
+    block_on(|handle| async move {
+        let session = file_session(handle.clone(), true)?;
+        let table = orders_table(nullability)?;
+        let file = write(&session, &table).await?;
+        let mut ctx = session.create_execution_ctx();
+
+        let skus = item_field("sku")?;
+        let (actual, skus_read) =
+            scan_counting(&file, executor, handle.clone(), &skus, None).await?;
+        assert_arrays_eq!(actual, table.clone().apply(&skus)?, &mut ctx);
+
+        let quantities = item_field("quantity")?;
+        let (actual, quantities_read) =
+            scan_counting(&file, executor, handle.clone(), &quantities, None).await?;
+        assert_arrays_eq!(actual, table.clone().apply(&quantities)?, &mut ctx);
+
+        let items = protobuf_field("items", get_item("msg", root()));
+        let (_, items_read) = scan_counting(&file, executor, handle.clone(), &items, None).await?;
+        let lengths = list_length(items);
+        let (_, lengths_read) = scan_counting(&file, executor, handle, &lengths, None).await?;
+        assert!(skus_read.segments_requested < items_read.segments_requested);
+        assert_eq!(
+            skus_read.segments_requested + quantities_read.segments_requested,
+            items_read.segments_requested + lengths_read.segments_requested
+        );
+        Ok(())
+    })
+}
+
+/// A filter on the SKUs of the items keeps the rows that the same filter keeps in memory, and reads
+/// no more than projecting the SKUs and ids does, so it does not read the item quantities.
+#[rstest]
+fn test_file_filters_on_repeated_message_field(
+    #[values(Executor::Reader, Executor::Planner)] executor: Executor,
+    #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+) -> VortexResult<()> {
+    block_on(|handle| async move {
+        let session = file_session(handle.clone(), true)?;
+        let table = orders_table(nullability)?;
+        let file = write(&session, &table).await?;
+
+        let id = get_item("id", root());
+        let filter = list_contains(item_field("sku")?, lit("sku-4001-1"));
+        let (actual, filter_read) =
+            scan_counting(&file, executor, handle.clone(), &id, Some(&filter)).await?;
+
+        let mut ctx = session.create_execution_ctx();
+        let keep = table
+            .clone()
+            .apply(&fill_null(filter, lit(false)))?
+            .execute::<Mask>(&mut ctx)?;
+        assert_eq!(keep.true_count(), 1);
+        assert_arrays_eq!(actual, table.clone().filter(keep)?.apply(&id)?, &mut ctx);
+
+        let ids_and_skus = pack(
+            [("id", id), ("skus", item_field("sku")?)],
+            Nullability::NonNullable,
+        );
+        let (_, projection_read) =
+            scan_counting(&file, executor, handle, &ids_and_skus, None).await?;
+        assert!(filter_read.segments_requested <= projection_read.segments_requested);
         Ok(())
     })
 }
