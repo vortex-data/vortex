@@ -209,12 +209,13 @@ fn cast_to_decimal(
         .into_array());
     }
     let casted = cast.cast(values, &valid_values).map_err(error)?;
-    Ok(DecimalArray::new_handle(
+    // Every valid value has been checked against the precision, so skip the constructor's scan.
+    Ok(DecimalArray::try_new_handle_from_trusted_values(
         BufferHandle::new_host(casted),
         values_type,
         decimal_dtype,
         validity,
-    )
+    )?
     .into_array())
 }
 
@@ -603,11 +604,7 @@ mod test {
         assert_eq!(casted.buffer::<i32>().as_ref(), &[42, -7]);
         assert_arrays_eq!(
             &casted,
-            DecimalArray::new(
-                buffer![42i32, -7],
-                DecimalDType::new(9, 0),
-                Validity::NonNullable
-            ),
+            DecimalArray::from_iter([42i32, -7], DecimalDType::new(9, 0)),
             &mut ctx
         );
         Ok(())
@@ -633,11 +630,7 @@ mod test {
         assert_eq!(casted.buffer::<i32>().as_ptr(), source_ptr);
         assert_arrays_eq!(
             &casted,
-            DecimalArray::new(
-                buffer![42i32, -7],
-                DecimalDType::new(9, 0),
-                Validity::NonNullable
-            ),
+            DecimalArray::from_iter([42i32, -7], DecimalDType::new(9, 0)),
             &mut ctx
         );
         Ok(())

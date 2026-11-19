@@ -66,8 +66,8 @@ fn cast_u16_to_u32(bencher: Bencher, n: usize) {
         });
 }
 
-/// Narrowing fallible cast that goes through `try_map_with_mask`. Inputs are bounded
-/// so every value fits, isolating the kernel's per-lane checked-cast overhead.
+/// Narrowing cast that has to check the values fit the target range first. Inputs are bounded
+/// so every value fits.
 #[divan::bench(args = SIZES)]
 fn cast_u32_to_u8(bencher: Bencher, n: usize) {
     let mut rng = StdRng::seed_from_u64(42);

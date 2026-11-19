@@ -33,6 +33,7 @@ use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
+use crate::dtype::NativePType;
 use crate::executor::max_iterations;
 use crate::match_each_integer_ptype;
 
@@ -389,22 +390,33 @@ fn list_view_group_ranges(
     let sizes = groups.sizes().cast(offsets.dtype().clone())?;
 
     let ranges = match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
-        let offsets = offsets.clone().execute::<Buffer<O>>(ctx)?;
-        let sizes = sizes.execute::<Buffer<O>>(ctx)?;
-        offsets
-            .as_ref()
-            .iter()
-            .zip(sizes.as_ref().iter())
-            .map(|(offset, size)| {
-                (
-                    offset.to_usize().vortex_expect("Offset value is not usize"),
-                    size.to_usize().vortex_expect("Size value is not usize"),
-                )
-            })
-            .collect::<Vec<_>>()
-    });
+        execute_group_ranges::<O>(offsets, sizes, ctx)
+    })?;
 
     Ok(GroupRanges::ListView { ranges })
+}
+
+fn execute_group_ranges<O: NativePType + ArrowNativeType>(
+    offsets: &ArrayRef,
+    sizes: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<(usize, usize)>> {
+    let offsets = offsets.clone().execute::<Buffer<O>>(ctx)?;
+    let sizes = sizes.execute::<Buffer<O>>(ctx)?;
+    Ok(collect_group_ranges(&offsets, &sizes))
+}
+
+fn collect_group_ranges<O: ArrowNativeType>(offsets: &[O], sizes: &[O]) -> Vec<(usize, usize)> {
+    offsets
+        .iter()
+        .zip(sizes)
+        .map(|(offset, size)| {
+            (
+                offset.to_usize().vortex_expect("Offset value is not usize"),
+                size.to_usize().vortex_expect("Size value is not usize"),
+            )
+        })
+        .collect()
 }
 
 fn fixed_size_list_group_ranges(groups: &FixedSizeListArray) -> GroupRanges {

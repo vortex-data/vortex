@@ -8,9 +8,9 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::filter::FilterKernel;
-use vortex_array::arrays::filter::filter_chunked;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_buffer::filter::filter_chunked;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -44,7 +44,8 @@ impl FilterKernel for Delta {
                 &mut deltas,
                 ctx,
             )?;
-            filter_chunked(&chunks, array.offset(), values, ctx.allocator()).into_byte_buffer()
+            filter_chunked(&chunks, array.offset(), values.selection(), ctx.allocator())
+                .into_byte_buffer()
         });
         Ok(Some(
             PrimitiveArray::from_byte_buffer(filtered, ptype, validity).into_array(),

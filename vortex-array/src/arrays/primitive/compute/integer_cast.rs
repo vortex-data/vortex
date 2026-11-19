@@ -22,6 +22,7 @@ use std::slice;
 use num_traits::CheckedMul;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
@@ -256,11 +257,9 @@ impl IntegerCast {
                 self.max.checked_mul(&factor).unwrap_or(i256::MAX),
                 (remainder == Remainder::Reject).then_some(factor),
             ),
-            // Only zero survives multiplying by, or dividing exactly by, an overflowing factor;
-            // every value truncates to zero.
-            (Rescale::Zero, Remainder::Truncate) if self.scale_delta < 0 => {
-                (i256::MIN, i256::MAX, None)
-            }
+            // Only zero survives multiplying by, or dividing by, a factor that overflows i256. The
+            // scalar cast rejects every other value too, even where the quotient would truncate
+            // to zero.
             (Rescale::Zero, _) => (i256::ZERO, i256::ZERO, None),
         }
     }
@@ -296,17 +295,7 @@ impl IntegerCast {
             SourceCheck::Range { min, max, divisor } => (min, max, divisor),
         };
         match_each_integer_type!(self.from, |T| {
-            let values = values_as::<T>(values);
-            let (min, max) = (T::from_i256(min), T::from_i256(max));
-            match divisor {
-                None => first_misfit(values, mask, |v| (min <= v) & (v <= max)),
-                Some(divisor) => {
-                    let divisor = T::from_i256(divisor);
-                    first_misfit(values, mask, |v| {
-                        (min <= v) & (v <= max) & (v.rem(divisor) == T::default())
-                    })
-                }
-            }
+            first_outside::<T>(values_as(values), mask, min, max, divisor)
         })
     }
 
@@ -324,13 +313,7 @@ impl IntegerCast {
             // Exact division needs the quotients, so divide once and check that the quotient
             // multiplies back to the value, rather than dividing again for the remainder.
             let quotients = match_each_integer_type!(self.from, |T| {
-                divide_exactly::<T>(
-                    values_as(values),
-                    mask,
-                    T::from_i256(min),
-                    T::from_i256(max),
-                    T::from_i256(divisor),
-                )
+                divide_exactly::<T>(values_as(values), mask, min, max, divisor)
             })?;
             return Ok(resize(&quotients, self.from, self.to));
         }
@@ -351,7 +334,7 @@ impl IntegerCast {
             Rescale::Multiply(factor) => {
                 let mut values = resize(values, self.from, self.to).into_mut();
                 match_each_integer_type!(self.to, |T| {
-                    multiply_in_place::<T>(values_as_mut(&mut values), T::from_i256(factor));
+                    multiply_in_place::<T>(values_as_mut(&mut values), factor);
                 });
                 values.freeze()
             }
@@ -365,6 +348,27 @@ impl IntegerCast {
             Rescale::Divide(_) | Rescale::Zero => match_each_integer_type!(self.to, |T| {
                 BufferMut::<T>::zeroed(len).freeze().into_byte_buffer()
             }),
+        }
+    }
+}
+
+/// Returns the index of the first valid value that is outside `[min, max]` or, given a divisor,
+/// is not a multiple of it. The bounds and divisor fit `T`.
+fn first_outside<T: IntegerValue>(
+    values: &[T],
+    mask: &Mask,
+    min: i256,
+    max: i256,
+    divisor: Option<i256>,
+) -> Option<usize> {
+    let (min, max) = (T::from_i256(min), T::from_i256(max));
+    match divisor {
+        None => first_misfit(values, mask, |v| (min <= v) & (v <= max)),
+        Some(divisor) => {
+            let divisor = T::from_i256(divisor);
+            first_misfit(values, mask, |v| {
+                (min <= v) & (v <= max) & (v.rem(divisor) == T::default())
+            })
         }
     }
 }
@@ -514,7 +518,8 @@ fn convert<A: IntegerValue, B: IntegerValue>(src: &[A], dst: &mut [MaybeUninit<B
 }
 
 #[inline(never)]
-fn multiply_in_place<T: IntegerValue>(values: &mut [T], factor: T) {
+fn multiply_in_place<T: IntegerValue>(values: &mut [T], factor: i256) {
+    let factor = T::from_i256(factor);
     for v in values {
         *v = v.wrapping_mul(factor);
     }
@@ -526,10 +531,11 @@ fn multiply_in_place<T: IntegerValue>(values: &mut [T], factor: T) {
 fn divide_exactly<T: IntegerValue>(
     values: &[T],
     mask: &Mask,
-    min: T,
-    max: T,
-    divisor: T,
+    min: i256,
+    max: i256,
+    divisor: i256,
 ) -> Result<ByteBuffer, usize> {
+    let (min, max, divisor) = (T::from_i256(min), T::from_i256(max), T::from_i256(divisor));
     let quotients = divide(values, divisor);
     let fits = |v: T, q: T| (min <= v) & (v <= max) & (q.wrapping_mul(divisor) == v);
     if all_valid_pairs(values, values_as::<T>(&quotients), mask, fits) {
@@ -556,7 +562,7 @@ fn values_as<T: IntegerValue>(values: &ByteBuffer) -> &[T] {
     unsafe { slice::from_raw_parts(values.as_ptr().cast::<T>(), values.len() / size_of::<T>()) }
 }
 
-fn values_as_mut<T: IntegerValue>(values: &mut vortex_buffer::ByteBufferMut) -> &mut [T] {
+fn values_as_mut<T: IntegerValue>(values: &mut ByteBufferMut) -> &mut [T] {
     // SAFETY: as for `values_as`; the buffer came from a `BufferMut<T>`.
     unsafe {
         slice::from_raw_parts_mut(

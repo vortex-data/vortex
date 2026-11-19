@@ -15,17 +15,16 @@ use tempfile::NamedTempFile;
 use vortex::VortexSessionDefault;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::assert_arrays_eq;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
 use vortex::buffer::ByteBufferMut;
-use vortex::dtype::DecimalDType;
 use vortex::dtype::NativePType;
 use vortex::error::VortexError;
 use vortex::error::vortex_err;
@@ -515,17 +514,13 @@ fn assert_terminal(
 fn test_scan_dtype_export_errors_and_panics_are_terminal() -> VortexResult<()> {
     let session = session()?;
     for failure in ["scan", "dtype", "export", "panic"] {
-        let seed = if failure == "export" {
-            DecimalArray::from_iter([1i64], DecimalDType::new(10, 2)).into_array()
-        } else {
-            primitive([1i32])
-        };
+        let seed = primitive([1i32]);
         let mut handle = batches(&session, vec![seed.clone()])?;
         let bad = match failure {
             "scan" | "panic" => Err(vortex_err!("injected scan failure")),
             "dtype" => Ok(primitive([1i64])),
-            // Same logical decimal dtype, but its physical storage requires unsupported narrowing.
-            "export" => Ok(DecimalArray::from_iter([1i128], DecimalDType::new(10, 2)).into_array()),
+            // The cast has the stream's dtype. Its first value overflows when export executes it.
+            "export" => Ok(primitive([i64::MAX, 0]).cast(seed.dtype().clone())?),
             _ => unreachable!(),
         };
         let polls = Arc::new(AtomicUsize::new(0));
@@ -544,7 +539,7 @@ fn test_scan_dtype_export_errors_and_panics_are_terminal() -> VortexResult<()> {
         let message = match failure {
             "scan" => "injected scan failure",
             "dtype" => "logical dtype changed",
-            "export" => "narrowing would require",
+            "export" => "exceeds target range",
             "panic" => "injected polling panic",
             _ => unreachable!(),
         };

@@ -39,6 +39,7 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::BitPackedArrayExt;
+use crate::BitPackedArraySlotsExt;
 use crate::BitPackedData;
 use crate::BitPackedDataParts;
 use crate::BitWidths;
@@ -199,7 +200,7 @@ impl VTable for BitPacked {
         require_validity!(array, BitPackedSlots::VALIDITY_CHILD);
         require_opt_child!(
             array,
-            array.slots()[BitPackedSlots::BLOCK_OFFSETS].as_ref(),
+            array.block_offsets(),
             BitPackedSlots::BLOCK_OFFSETS => Primitive
         );
 

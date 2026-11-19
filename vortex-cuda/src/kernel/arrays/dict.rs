@@ -297,12 +297,14 @@ async fn execute_dict_decimal_typed<
     })?;
 
     let output_device = CudaDeviceBuffer::new(output_slice)?;
-    Ok(Canonical::Decimal(DecimalArray::new_handle(
-        BufferHandle::new_device(Arc::new(output_device)),
-        V::DECIMAL_TYPE,
-        output_dtype.into_decimal_opt().vortex_expect("is decimal"),
-        output_validity,
-    )))
+    Ok(Canonical::Decimal(
+        DecimalArray::try_new_handle_from_trusted_values(
+            BufferHandle::new_device(Arc::new(output_device)),
+            V::DECIMAL_TYPE,
+            output_dtype.into_decimal_opt().vortex_expect("is decimal"),
+            output_validity,
+        )?,
+    ))
 }
 
 /// Dictionary array decompression for string (UTF-8/Binary) values.
@@ -790,6 +792,7 @@ mod tests {
             decimal.values_type(),
             decimal.decimal_dtype(),
             decimal.validity()?,
+            &mut SESSION.create_execution_ctx(),
         ))
     }
 

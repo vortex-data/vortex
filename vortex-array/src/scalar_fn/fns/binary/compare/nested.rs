@@ -34,15 +34,16 @@ use crate::arrays::MapArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::decimal::widened_buffer;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::map::MapArraySlotsExt;
 use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
+use crate::dtype::NativeDecimalType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
+use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::binary::compare::compare_validity;
@@ -164,14 +165,12 @@ fn build_values_comparator(
         DType::Primitive(ptype, _) => {
             match_each_native_ptype!(*ptype, |T| { primitive_comparator::<T>(lhs, rhs, ctx)? })
         }
-        DType::Decimal(..) => {
+        DType::Decimal(dtype, _) => {
             let lhs = lhs.clone().execute::<DecimalArray>(ctx)?;
             let rhs = rhs.clone().execute::<DecimalArray>(ctx)?;
-            let common = lhs.values_type().max(rhs.values_type());
-            crate::match_each_decimal_value_type!(common, |W| {
-                let lhs = widened_buffer::<W>(&lhs);
-                let rhs = widened_buffer::<W>(&rhs);
-                Box::new(move |i: usize, j: usize| lhs[i].cmp(&rhs[j])) as RowComparator
+
+            match_each_decimal_value_type!(dtype.canonical_values_type(), |T| {
+                decimal_comparator::<T>(&lhs, &rhs)
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
@@ -256,6 +255,15 @@ fn primitive_comparator<T: NativePType>(
         .execute::<PrimitiveArray>(ctx)?
         .into_buffer::<T>();
     Ok(Box::new(move |i, j| lhs[i].total_compare(rhs[j])))
+}
+
+fn decimal_comparator<T: NativeDecimalType>(
+    lhs: &DecimalArray,
+    rhs: &DecimalArray,
+) -> RowComparator {
+    let lhs = lhs.buffer::<T>();
+    let rhs = rhs.buffer::<T>();
+    Box::new(move |i, j| lhs[i].cmp(&rhs[j]))
 }
 
 /// Materialize an integer array as `usize` values for `O(1)` row access.

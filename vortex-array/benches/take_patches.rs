@@ -15,6 +15,8 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PiecewiseSequenceArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
@@ -121,6 +123,19 @@ fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
         });
 }
 
+const PIECEWISE_RUN_LENGTHS: &[usize] = &[1, 16, 256];
+
+#[divan::bench(args = PIECEWISE_RUN_LENGTHS)]
+fn take_piecewise(bencher: Bencher, run_length: usize) {
+    let mut rng = StdRng::seed_from_u64(0);
+    let patches = fixture(ARRAY_LEN, 0.1, &mut rng);
+    let indices = piecewise_indices(patches.array_len(), run_length, &mut rng);
+
+    bencher
+        .with_inputs(|| (&patches, &indices, SESSION.create_execution_ctx()))
+        .bench_refs(|(patches, indices, ctx)| patches.take(indices, ctx));
+}
+
 fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
     let mut ctx = SESSION.create_execution_ctx();
     let indices = (0..len)
@@ -179,6 +194,27 @@ fn indices(array_len: usize, n_indices: usize, rng: &mut StdRng) -> ArrayRef {
     let indices =
         Buffer::from_iter((0..n_indices).map(|_| rng.random_range(0..(array_len as u64))))
             .into_array();
+    mark_optimized(&indices, &SESSION).unwrap();
+
+    indices
+}
+
+/// Ascending runs of `run_length` contiguous indices covering half of `array_len`.
+fn piecewise_indices(array_len: usize, run_length: usize, rng: &mut StdRng) -> ArrayRef {
+    let slots = array_len / run_length;
+    let starts = (0..slots)
+        .filter(|_| rng.random_bool(0.5))
+        .map(|slot| (slot * run_length) as u64)
+        .collect::<Buffer<u64>>();
+    let count = starts.len();
+    let indices = PiecewiseSequenceArray::try_new(
+        starts.into_array(),
+        ConstantArray::new(run_length as u64, count).into_array(),
+        ConstantArray::new(1u64, count).into_array(),
+        count * run_length,
+    )
+    .unwrap()
+    .into_array();
     mark_optimized(&indices, &SESSION).unwrap();
 
     indices
