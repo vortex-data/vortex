@@ -29,9 +29,9 @@ use vortex_io::request::IoIntent;
 use vortex_io::request::IoOwnerId;
 use vortex_io::request::IoRequest;
 use vortex_io::request::IoRequestId;
-use vortex_io::request::IoResult;
 use vortex_io::request::IoSource;
 use vortex_io::request::IoTarget;
+use vortex_io::segments::SegmentId;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -130,13 +130,9 @@ impl ScriptedPlanner {
 }
 
 impl IoConsumer for ScriptedPlanner {
-    fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
-        self.log.push(format!(
-            "deliver {} {} {}",
-            self.name,
-            request.0,
-            result.kind()
-        ));
+    fn set_io_result(&mut self, request: IoRequestId, _result: BufferHandle) {
+        self.log
+            .push(format!("deliver {} {}", self.name, request.0));
         let position = self.position;
         if let Some(PlannerStep::Await(ids)) = self.script.get(position)
             && self.pending.is_none()
@@ -225,13 +221,9 @@ impl ScriptedMorsel {
 }
 
 impl IoConsumer for ScriptedMorsel {
-    fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
-        self.log.push(format!(
-            "deliver {} {} {}",
-            self.name,
-            request.0,
-            result.kind()
-        ));
+    fn set_io_result(&mut self, request: IoRequestId, _result: BufferHandle) {
+        self.log
+            .push(format!("deliver {} {}", self.name, request.0));
         let position = self.position;
         let Some(pending) = self.pending.as_mut() else {
             panic!(
@@ -281,7 +273,6 @@ impl Morsel for ScriptedMorsel {
 
 enum Canned {
     Bytes(ByteBuffer),
-    Size(u64),
     Fail(String),
 }
 
@@ -316,16 +307,11 @@ impl RecordingIoSource {
         }
     }
 
-    /// Answers a range at `offset` with `bytes`.
-    pub fn canned_bytes(&self, offset: u64, bytes: ByteBuffer) {
+    /// Answers segment `id` with `bytes`.
+    pub fn canned_bytes(&self, id: u32, bytes: ByteBuffer) {
         self.canned
             .lock()
-            .insert(IoTarget::range(offset, bytes.len()), Canned::Bytes(bytes));
-    }
-
-    /// Answers `target` with a size regardless of what it asked for, to test the driver's check.
-    pub fn answer_with_size(&self, target: IoTarget, size: u64) {
-        self.canned.lock().insert(target, Canned::Size(size));
+            .insert(IoTarget::segment(SegmentId::from(id)), Canned::Bytes(bytes));
     }
 
     pub fn fail(&self, target: IoTarget, message: &str) {
@@ -351,16 +337,13 @@ impl RecordingIoSource {
 impl IoSource for RecordingIoSource {
     fn submit(&self, work: IoOwnerId, batch: Vec<IoRequest>) -> VortexResult<()> {
         for request in batch {
-            self.submissions.lock().push((work, request));
+            self.submissions.lock().push((work, request.clone()));
             if request.intent != IoIntent::Fetch {
                 continue;
             }
-            self.performed.lock().push(request.target);
+            self.performed.lock().push(request.target.clone());
             let result = match self.canned.lock().get(&request.target) {
-                Some(Canned::Bytes(bytes)) => {
-                    Ok(IoResult::Bytes(BufferHandle::new_host(bytes.clone())))
-                }
-                Some(Canned::Size(size)) => Ok(IoResult::Size(*size)),
+                Some(Canned::Bytes(bytes)) => Ok(BufferHandle::new_host(bytes.clone())),
                 Some(Canned::Fail(message)) => Err(vortex_err!("{message}")),
                 None => Err(vortex_err!("no canned answer for {:?}", request.target)),
             };

@@ -8,13 +8,13 @@ use std::sync::Arc;
 use std::vec::IntoIter;
 
 use rustc_hash::FxHashSet;
+use vortex_array::buffer::BufferHandle;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_io::request::IoConsumer;
 use vortex_io::request::IoIntent;
 use vortex_io::request::IoRequestId;
-use vortex_io::request::IoResult;
 use vortex_mask::Mask;
 
 use super::PreparedScan;
@@ -83,7 +83,7 @@ impl PrunePlanner {
 }
 
 impl IoConsumer for PrunePlanner {
-    fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
+    fn set_io_result(&mut self, request: IoRequestId, result: BufferHandle) {
         if let Some(adaptor) = &mut self.active {
             adaptor.set_io_result(request, result);
         }
@@ -118,7 +118,7 @@ impl Planner for PrunePlanner {
             let mut batch = Vec::new();
             let mut seen = FxHashSet::default();
             hint(
-                &self.scan.locations,
+                self.scan.source.id(),
                 &mut self.next_hint,
                 IoIntent::Prefetch,
                 &segments,
@@ -170,7 +170,11 @@ impl Planner for PrunePlanner {
             )?
             .with_row_offset(self.scan.row_offset)
             .with_value_cache(self.scan.values.clone());
-            self.active = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
+            self.active = Some(ScanAdaptor::new(
+                scan,
+                Arc::clone(&self.scan.locations),
+                self.scan.source.id(),
+            ));
             return Ok(PlannerOutput::Continue);
         }
         // Every pruning plan has run: the planner this one continues into gets the kept rows.

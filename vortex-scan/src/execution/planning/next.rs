@@ -27,10 +27,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::buffer::BufferHandle;
     use vortex_error::vortex_bail;
     use vortex_io::request::IoConsumer;
     use vortex_io::request::IoRequestId;
-    use vortex_io::request::IoResult;
 
     use super::*;
     use crate::planning::planner::PlannerOutput;
@@ -39,7 +39,7 @@ mod tests {
     struct Finished;
 
     impl IoConsumer for Finished {
-        fn set_io_result(&mut self, _request: IoRequestId, _result: IoResult) {}
+        fn set_io_result(&mut self, _request: IoRequestId, _result: BufferHandle) {}
     }
 
     impl Planner for Finished {

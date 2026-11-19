@@ -23,6 +23,7 @@ use std::task::Context;
 use std::task::Poll;
 
 use vortex_array::ArrayRef;
+use vortex_array::buffer::BufferHandle;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -32,11 +33,10 @@ use vortex_io::request::IoConsumer;
 use vortex_io::request::IoIntent;
 use vortex_io::request::IoOwnerId;
 use vortex_io::request::IoRequestId;
-use vortex_io::request::IoResult;
 use vortex_io::request::IoSource;
-use vortex_io::request::IoTarget;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::planning::morsel::Morsel;
 use crate::planning::morsel::MorselOutput;
@@ -97,8 +97,8 @@ struct Work {
     path: Vec<u64>,
     /// The parent continuation sorts after all previously emitted child subtrees.
     next_child: u64,
-    /// Published `Fetch` requests not yet delivered, with the target each must be answered with.
-    outstanding: HashMap<IoRequestId, IoTarget>,
+    /// Published `Fetch` requests not yet delivered.
+    outstanding: HashSet<IoRequestId>,
 }
 
 impl Work {
@@ -130,16 +130,13 @@ impl Work {
         }
     }
 
-    /// Checks `result` against the outstanding request it answers and hands it to the item.
-    fn deliver(&mut self, request: IoRequestId, result: IoResult) -> VortexResult<()> {
-        let Some(target) = self.outstanding.remove(&request) else {
+    /// Checks that `request` is outstanding and hands its result to the item.
+    fn deliver(&mut self, request: IoRequestId, result: BufferHandle) -> VortexResult<()> {
+        if !self.outstanding.remove(&request) {
             vortex_bail!(
                 "completion for {request:?} of {:?}, which is not outstanding",
                 self.id
             );
-        };
-        if !result.matches(&target) {
-            vortex_bail!("IO source answered {target:?} with {}", result.kind());
         }
         self.consumer().set_io_result(request, result);
         Ok(())
@@ -391,7 +388,7 @@ impl Run {
             item,
             path,
             next_child: 0,
-            outstanding: HashMap::default(),
+            outstanding: HashSet::default(),
         });
         self.queue.insert(work);
     }
@@ -490,12 +487,7 @@ impl Run {
             vortex_bail!("compute() published an empty batch");
         }
         for request in &batch {
-            if request.intent == IoIntent::Fetch
-                && work
-                    .outstanding
-                    .insert(request.request, request.target)
-                    .is_some()
-            {
+            if request.intent == IoIntent::Fetch && !work.outstanding.insert(request.request) {
                 vortex_bail!(
                     "fetch {:?} of {:?} was published while it is outstanding",
                     request.request,

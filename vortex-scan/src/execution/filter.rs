@@ -7,6 +7,7 @@ use std::sync::Arc;
 use bit_vec::BitVec;
 use rustc_hash::FxHashSet;
 use vortex_array::VortexSessionExecute;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
@@ -19,19 +20,18 @@ use vortex_io::request::IoConsumer;
 use vortex_io::request::IoIntent;
 use vortex_io::request::IoRequest;
 use vortex_io::request::IoRequestId;
-use vortex_io::request::IoResult;
+use vortex_io::request::IoTarget;
+use vortex_io::request::SourceId;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use super::FILTERED_ROWS_PER_CHUNK;
 use super::PreparedScan;
-use super::SegmentLocation;
 use super::SelectedRows;
 use super::adaptor::AdaptorStep;
 use super::adaptor::Piece;
 use super::adaptor::ScanAdaptor;
 use super::projection::ProjectionPlanner;
-use super::segment_target;
 use crate::execution::filter_expr::FilterExpr;
 use crate::execution::pipeline::Scan;
 use crate::execution::pipeline::Split;
@@ -215,7 +215,7 @@ impl FilterPlanner {
 
 /// Publishes a hint for each of `segments` not in `seen`, and adds it there.
 pub(super) fn hint(
-    locations: &[SegmentLocation],
+    source: SourceId,
     next_hint: &mut u32,
     intent: IoIntent,
     segments: &[SegmentId],
@@ -229,7 +229,8 @@ pub(super) fn hint(
         batch.push(IoRequest {
             intent,
             request: IoRequestId(*next_hint),
-            target: segment_target(&locations[*segment as usize]),
+            source,
+            target: IoTarget::segment(segment),
         });
         *next_hint -= 1;
     }
@@ -242,7 +243,7 @@ pub(super) fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<
 }
 
 impl IoConsumer for FilterPlanner {
-    fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
+    fn set_io_result(&mut self, request: IoRequestId, result: BufferHandle) {
         if let Some((_, _, adaptor)) = &mut self.active {
             adaptor.set_io_result(request, result);
         }
@@ -288,9 +289,9 @@ impl Planner for FilterPlanner {
             )?;
             let mut batch = Vec::new();
             let mut seen = FxHashSet::default();
-            let locations = &self.scan.locations;
+            let source = self.scan.source.id();
             hint(
-                locations,
+                source,
                 &mut self.next_hint,
                 IoIntent::Prefetch,
                 &predicates,
@@ -298,7 +299,7 @@ impl Planner for FilterPlanner {
                 &mut batch,
             );
             hint(
-                locations,
+                source,
                 &mut self.next_hint,
                 IoIntent::Announce,
                 &projection,
@@ -379,7 +380,11 @@ impl Planner for FilterPlanner {
             self.active = Some((
                 index,
                 version,
-                ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)),
+                ScanAdaptor::new(
+                    scan,
+                    Arc::clone(&self.scan.locations),
+                    self.scan.source.id(),
+                ),
             ));
             return Ok(PlannerOutput::Continue);
         }
