@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub(crate) mod execute;
+mod mask;
 
 use std::borrow::Cow;
 use std::iter;
@@ -31,6 +32,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use self::mask::lift_masks;
 use crate::execution::operators::OnceSource;
 use crate::execution::operators::PackSource;
 use crate::execution::operators::WrapStage;
@@ -307,18 +309,16 @@ fn validate_validity_child(expected_row_count: u64, child: &PlanRef) -> VortexRe
 }
 
 impl PackPlan {
-    /// Rebuilds this plan with only `fields`, which must be a subset of the current fields.
+    /// Builds a non-nullable struct of `fields`, each a slot of this plan or an expression over
+    /// one.
     ///
-    /// Pruning is only sound for a non-nullable struct: dropping a field of a nullable struct
-    /// would drop the validity child that the remaining fields depend on.
+    /// The result drops the validity of a nullable struct. An expression over a nullable struct
+    /// partitions its validity into a field of its own wherever the struct's nulls are observable,
+    /// so a pruned struct carries the validity exactly when the expression reads it.
     pub(crate) fn with_pruned_fields(
         &self,
         fields: Vec<(FieldName, PlanRef)>,
     ) -> VortexResult<Self> {
-        vortex_ensure!(
-            !self.dtype().is_nullable(),
-            "Cannot prune fields from a nullable Pack"
-        );
         let struct_fields = StructFields::from_iter(
             fields
                 .iter()
@@ -336,6 +336,11 @@ impl PackPlan {
 }
 
 /// Pushes an expression into the referenced fields of a [`Pack`], pruning the rest.
+///
+/// Over a nullable struct, the partition rules read a field as `mask(field, validity)`, so the
+/// pruned struct reads the validity alongside the fields and the expression above it still sees
+/// a field as null wherever the struct is null. Nested field reads and statistics above such a
+/// mask move below it, so a later rewrite pushes them into the field's plan.
 #[derive(Debug)]
 pub(crate) struct ExpressionPackRule;
 
@@ -349,10 +354,6 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         _child_idx: usize,
         session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
-        if child.dtype().is_nullable() {
-            return Ok(None);
-        }
-
         let expression = parent.expression();
         let fields = child.fields();
         if fields.nfields() == 0 {
@@ -373,8 +374,15 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
             combiner,
             partitions,
         } = partitioned;
+        let combiner = if child.dtype().is_nullable() {
+            lift_masks(combiner)?
+        } else {
+            combiner
+        };
 
-        let mut fields_changed = partitions.len() != fields.nfields();
+        // The combiner reads a non-nullable struct, which a nullable child never is.
+        let mut fields_changed =
+            child.dtype().is_nullable() || partitions.len() != fields.nfields();
         let mut pruned_fields = Vec::with_capacity(partitions.len());
         for (position, partition) in partitions.into_iter().enumerate() {
             fields_changed |= partition.slot != Pack::FIELDS_OFFSET + position;

@@ -274,6 +274,7 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use vortex_array::ArrayContext;
+    use vortex_array::aggregate_fn::fns::null_count::NullCount;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::validity::Validity;
@@ -295,8 +296,21 @@ mod tests {
     use crate::test::SESSION;
     use crate::test::new_session;
 
-    /// Write a single-field struct with zoned fields, returning whether the field got a zone map.
-    fn field_has_zone_map(validity: Validity) -> VortexResult<bool> {
+    /// Whether `layout` is a zone map that records null counts.
+    ///
+    /// A field beneath a nullable struct records no counts, which the rows where only the struct
+    /// is null make wrong, so this tells the leaves below a nullable struct from the others.
+    fn counts_nulls(layout: &LayoutRef) -> bool {
+        layout.as_opt::<Zoned>().is_some_and(|zoned| {
+            zoned
+                .aggregate_fns()
+                .iter()
+                .any(|aggregate_fn| aggregate_fn.is::<NullCount>())
+        })
+    }
+
+    /// Write a single-field struct with zoned fields, returning the layout of the field.
+    fn write_field(validity: Validity) -> VortexResult<LayoutRef> {
         let strategy = StructStrategy::new(
             Arc::new(FlatLayoutStrategy::default()),
             Arc::new(ZonedStrategy::new(
@@ -332,7 +346,7 @@ mod tests {
         })?;
 
         // The validity child, when present, precedes the fields.
-        Ok(layout.children()?[usize::from(is_nullable)].is::<Zoned>())
+        Ok(Arc::clone(&layout.children()?[usize::from(is_nullable)]))
     }
 
     /// Write `array` through a [`TableStrategy`] with zoned leaves, returning the layout.
@@ -366,17 +380,19 @@ mod tests {
 
     #[test]
     fn non_nullable_struct_fields_get_a_zone_map() -> VortexResult<()> {
-        assert!(field_has_zone_map(Validity::NonNullable)?);
+        assert!(counts_nulls(&write_field(Validity::NonNullable)?));
         Ok(())
     }
 
-    /// The field holds values in rows the struct nulls out, so no aggregate over it is exact for
-    /// the logical column and no zone map is written.
+    /// The field holds values in rows the struct nulls out, which keep its bounds valid but make
+    /// its counts wrong, so its zone map records only bounds.
     #[test]
-    fn nullable_struct_fields_get_no_zone_map() -> VortexResult<()> {
-        assert!(!field_has_zone_map(Validity::Array(
+    fn nullable_struct_fields_get_a_zone_map_of_bounds() -> VortexResult<()> {
+        let field = write_field(Validity::Array(
             BoolArray::from_iter([false, true, true]).into_array(),
-        ))?);
+        ))?;
+        assert!(field.is::<Zoned>());
+        assert!(!counts_nulls(&field));
         Ok(())
     }
 
@@ -396,10 +412,10 @@ mod tests {
         )?;
         let layout = write_table(outer_nullable)?;
         let inner = &layout.children()?[1];
-        assert!(!inner.children()?[0].is::<Zoned>());
+        assert!(!counts_nulls(&inner.children()?[0]));
 
-        // Non-nullable outer struct: a leaf beside the nullable inner struct keeps its zone map,
-        // the leaf below it loses it.
+        // Non-nullable outer struct: a leaf beside the nullable inner struct keeps its counts, the
+        // leaf below it loses them.
         let inner_nullable = StructArray::try_from_iter([
             ("sibling", buffer![1, 2, 3].into_array()),
             (
@@ -413,8 +429,8 @@ mod tests {
         ])?;
         let layout = write_table(inner_nullable)?;
         let children = layout.children()?;
-        assert!(children[0].is::<Zoned>());
-        assert!(!children[1].children()?[1].is::<Zoned>());
+        assert!(counts_nulls(&children[0]));
+        assert!(!counts_nulls(&children[1].children()?[1]));
         Ok(())
     }
 
@@ -447,10 +463,10 @@ mod tests {
         let layout = write_table(root)?;
         // Skip the root's validity child, then walk every non-nullable level to the leaf.
         let leaf = descend(&layout.children()?[1], DEPTH)?;
-        assert!(!leaf.is::<Zoned>());
+        assert!(!counts_nulls(&leaf));
 
         // Non-nullable levels above, a nullable struct in the middle, non-nullable levels below.
-        // A leaf above the nullable level keeps its zone map, the leaf below it does not.
+        // A leaf above the nullable level keeps its counts, the leaf below it does not.
         let middle = StructArray::try_from_iter_with_validity(
             [("below", nest(buffer![1, 2, 3].into_array(), DEPTH)?)],
             some_nulls(),
@@ -467,10 +483,10 @@ mod tests {
         let layout = write_table(root)?;
         let holder = descend(&layout, DEPTH)?;
         let holder_children = holder.children()?;
-        assert!(holder_children[0].is::<Zoned>());
+        assert!(counts_nulls(&holder_children[0]));
         // The nullable middle struct's children are `[validity, below]`.
         let leaf = descend(&holder_children[1].children()?[1], DEPTH)?;
-        assert!(!leaf.is::<Zoned>());
+        assert!(!counts_nulls(&leaf));
         Ok(())
     }
 

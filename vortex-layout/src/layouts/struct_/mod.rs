@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod reader;
+mod unmask;
 pub mod writer;
 
 use std::sync::Arc;

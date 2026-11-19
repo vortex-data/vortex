@@ -29,16 +29,22 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
+use vortex_array::expr::cast;
+use vortex_array::expr::checked_add;
 use vortex_array::expr::eq;
 use vortex_array::expr::ext_storage;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
+use vortex_array::expr::is_not_null;
 use vortex_array::expr::is_null;
 use vortex_array::expr::lit;
 use vortex_array::expr::lt;
+use vortex_array::expr::not;
+use vortex_array::expr::or;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_array::validity::Validity;
@@ -67,6 +73,8 @@ use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
+use crate::layouts::repartition::RepartitionStrategy;
+use crate::layouts::repartition::RepartitionWriterOptions;
 use crate::layouts::row_idx::row_idx;
 use crate::layouts::table::TableStrategy;
 use crate::layouts::zoned::writer::ZonedLayoutOptions;
@@ -160,6 +168,131 @@ fn points_chunk(start: usize, extension: bool, nullability: Nullability) -> Vort
     Ok(StructArray::from_fields(&[("id", ids.into_array()), ("point", points)])?.into_array())
 }
 
+/// A chunk of `CHUNK_ROWS` rows starting at row `start`, shaped like a protobuf message column:
+/// `{id, msg: {x, inner: {y}?, list}?}`, where `msg` is null at every fifth row and `inner` at
+/// every seventh.
+///
+/// `x` is the row, `y` ten times the row and `list` holds the row twice. The fields keep their
+/// values in rows where a struct above them is null.
+fn message_chunk(start: usize) -> VortexResult<ArrayRef> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let rows = start..start + CHUNK_ROWS;
+    let ids = Buffer::from_iter(
+        rows.clone()
+            .map(|row| i32::try_from(row).unwrap_or(i32::MAX)),
+    );
+    let tens = Buffer::from_iter(
+        rows.clone()
+            .map(|row| i64::try_from(10 * row).unwrap_or(i64::MAX)),
+    );
+    let inner = StructArray::try_new(
+        FieldNames::from(["y"]),
+        [tens.into_array()],
+        CHUNK_ROWS,
+        Validity::from_iter(rows.clone().map(|row| row % 7 != 0)),
+    )?;
+    let elements = Buffer::from_iter(
+        rows.clone()
+            .flat_map(|row| [row, row])
+            .map(|row| i64::try_from(row).unwrap_or(i64::MAX)),
+    );
+    let offsets = Buffer::from_iter((0..=CHUNK_ROWS).map(|i| u32::try_from(2 * i).unwrap_or(0)));
+    let list = ListArray::try_new(
+        elements.into_array(),
+        offsets.into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?;
+    let msg = StructArray::try_new(
+        FieldNames::from(["x", "inner", "list"]),
+        [
+            ids.clone().into_array(),
+            inner.into_array(),
+            list.into_array(),
+        ],
+        CHUNK_ROWS,
+        Validity::from_iter(rows.map(|row| row % 5 != 0)),
+    )?;
+    Ok(
+        StructArray::from_fields(&[("id", ids.into_array()), ("msg", msg.into_array())])?
+            .into_array(),
+    )
+}
+
+/// A chunk of `CHUNK_ROWS` rows starting at row `start`: `{id, s: {a}?}` with a non-nullable `a`
+/// that holds values in rows where `s` is null, like a proto3 scalar in an absent message.
+///
+/// Chunk `k` is the `k`-th zone of a zoned layout. `a` is the row wherever `s` is valid. `s` is null
+/// in all of zone 1 and in the odd rows of zone 2, where `a` holds 1,000,000 plus the row: values
+/// that no read through `s` returns but that the zone map of `a` sees.
+fn hidden_values_chunk(start: usize) -> VortexResult<ArrayRef> {
+    let rows = start..start + CHUNK_ROWS;
+    let valid = |row: usize| match row / CHUNK_ROWS {
+        1 => false,
+        2 => row.is_multiple_of(2),
+        _ => true,
+    };
+    let ids = Buffer::from_iter(
+        rows.clone()
+            .map(|row| i32::try_from(row).unwrap_or(i32::MAX)),
+    );
+    let values = Buffer::from_iter(rows.clone().map(|row| {
+        let value = if valid(row) { row } else { 1_000_000 + row };
+        i64::try_from(value).unwrap_or(i64::MAX)
+    }));
+    let s = StructArray::try_new(
+        FieldNames::from(["a"]),
+        [values.into_array()],
+        CHUNK_ROWS,
+        Validity::from_iter(rows.map(valid)),
+    )?;
+    Ok(StructArray::from_fields(&[("id", ids.into_array()), ("s", s.into_array())])?.into_array())
+}
+
+/// A table chunk of `id` and a nullable struct `s` of `{small: i64, x: i64, y: i64, f: f64}`, which
+/// is null where it is in [`hidden_values_chunk`].
+///
+/// Where `s` is valid, `small` and `x` hold `row % 100`, `y` holds 50 and `f` holds `row + 0.5`.
+/// Where it is null, they hold values that no read through `s` returns: `small` holds `i64::MAX`,
+/// which is outside the range of `i8` and overflows when added to, `x` is below every `y`, and `f`
+/// is above every visible `f`.
+fn masked_fields_chunk(start: usize) -> VortexResult<ArrayRef> {
+    let rows = start..start + CHUNK_ROWS;
+    let valid = |row: usize| match row / CHUNK_ROWS {
+        1 => false,
+        2 => row.is_multiple_of(2),
+        _ => true,
+    };
+    let field = |visible: fn(i64) -> i64, hidden: fn(i64) -> i64| {
+        Buffer::from_iter(rows.clone().map(|row| {
+            let value = i64::try_from(row).unwrap_or(i64::MAX);
+            if valid(row) {
+                visible(value)
+            } else {
+                hidden(value)
+            }
+        }))
+        .into_array()
+    };
+    let f = Buffer::from_iter(rows.clone().map(|row| {
+        let value = f64::from(u32::try_from(row).unwrap_or(u32::MAX));
+        if valid(row) { value + 0.5 } else { 1e9 + value }
+    }));
+    let s = StructArray::try_new(
+        FieldNames::from(["small", "x", "y", "f"]),
+        [
+            field(|row| row % 100, |_| i64::MAX),
+            field(|row| row % 100, |_| -1_000_000),
+            field(|_| 50, |_| 1_000_000),
+            f.into_array(),
+        ],
+        CHUNK_ROWS,
+        Validity::from_iter(rows.clone().map(valid)),
+    )?;
+    let ids = Buffer::from_iter(rows.map(|row| i32::try_from(row).unwrap_or(i32::MAX)));
+    Ok(StructArray::from_fields(&[("id", ids.into_array()), ("s", s.into_array())])?.into_array())
+}
+
 /// Writes `CHUNKS` table chunks with `strategy`.
 async fn write(
     session: &VortexSession,
@@ -203,6 +336,9 @@ fn table_strategy() -> TableStrategy {
 }
 
 /// Every column is shredded into chunked leaves with zone statistics.
+///
+/// Leaves are repartitioned into zones of `CHUNK_ROWS` rows first, as the file writer does, since a
+/// list layout writes its elements in chunks as long as the lists they hold.
 fn zoned_table_strategy() -> TableStrategy {
     let zoned = ZonedStrategy::new(
         ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
@@ -212,7 +348,16 @@ fn zoned_table_strategy() -> TableStrategy {
             ..Default::default()
         },
     );
-    TableStrategy::new(chunked_flat(), Arc::new(zoned))
+    let repartition = RepartitionStrategy::new(
+        zoned,
+        RepartitionWriterOptions {
+            block_size_minimum: 0,
+            block_len_multiple: CHUNK_ROWS,
+            block_size_target: None,
+            canonicalize: false,
+        },
+    );
+    TableStrategy::new(chunked_flat(), Arc::new(repartition))
 }
 
 fn table() -> Arc<dyn LayoutStrategy> {
@@ -587,36 +732,210 @@ async fn extension_layout_matches_v1(
     #[case] projection: Expression,
     #[case] filter: Option<Expression>,
 ) -> VortexResult<()> {
-    let session = new_session().with_tokio();
     let strategy = if zoned {
         zoned_table_strategy()
     } else {
         table_strategy()
     }
     .with_extension_layout([TestPoint.id()]);
-    let (segments, layout) = write_chunks(&session, &strategy, point_chunk, CHUNKS).await?;
+    assert_matches_v1_and_input(&strategy, point_chunk, &projection, filter.as_ref()).await
+}
+
+fn msg(field: &str) -> Expression {
+    get_item(field, get_item("msg", root()))
+}
+
+/// A nullable struct with a list field, written with the list layout, scans on the planner-driven
+/// executor whenever the scan reads no list. Its fields are null wherever a struct above them is.
+#[rstest]
+#[case::sibling_of_list(msg("x"), None)]
+#[case::nested_nullable(get_item("y", msg("inner")), None)]
+#[case::struct_validity(is_null(get_item("msg", root())), None)]
+#[case::pack(
+    pack(
+        [("id", get_item("id", root())), ("x", msg("x"))],
+        Nullability::NonNullable,
+    ),
+    None,
+)]
+#[case::filter_field(get_item("id", root()), Some(gt(msg("x"), lit(2500i32))))]
+#[case::filter_nested(msg("x"), Some(lt(get_item("y", msg("inner")), lit(20_500i64))))]
+#[case::filter_nested_null(msg("x"), Some(is_null(get_item("y", msg("inner")))))]
+#[tokio::test]
+async fn nullable_struct_beside_a_list_matches_v1(
+    #[values(false, true)] zoned: bool,
+    #[case] projection: Expression,
+    #[case] filter: Option<Expression>,
+) -> VortexResult<()> {
+    let strategy = if zoned {
+        zoned_table_strategy()
+    } else {
+        table_strategy()
+    }
+    .with_list_layout();
+    assert_matches_v1_and_input(&strategy, message_chunk, &projection, filter.as_ref()).await
+}
+
+fn s_a() -> Expression {
+    get_item("a", get_item("s", root()))
+}
+
+/// Zone maps beneath a nullable struct prune filters on its fields without losing rows.
+///
+/// The zones of `s.a` see the values it holds where `s` is null, which no read through `s`
+/// returns. Bounds over them are only looser, so `s.a > 2500` reads zone 1 and finds no row
+/// there. A null count over them would be 0 in zones 1 and 2, where `is_null(s.a)` holds, so the
+/// zone map records none (#9205).
+#[rstest]
+#[case::gt(gt(s_a(), lit(2500i64)))]
+#[case::lt(lt(s_a(), lit(100i64)))]
+#[case::hidden_value(eq(s_a(), lit(1_001_500i64)))]
+#[case::not(not(gt(s_a(), lit(500i64))))]
+#[case::is_null(is_null(s_a()))]
+#[case::is_not_null(is_not_null(s_a()))]
+#[case::is_null_or_lt(or(is_null(s_a()), lt(s_a(), lit(10i64))))]
+#[tokio::test]
+async fn pruning_beneath_a_nullable_struct_keeps_every_row(
+    #[case] filter: Expression,
+) -> VortexResult<()> {
+    assert_matches_v1_and_input(
+        &zoned_table_strategy(),
+        hidden_values_chunk,
+        &get_item("id", root()),
+        Some(&filter),
+    )
+    .await
+}
+
+fn s_field(name: &str) -> Expression {
+    get_item(name, get_item("s", root()))
+}
+
+/// Pruning beneath a nullable struct keeps every row, also where the zone map statistics of a
+/// field feed a function that fails on the values the struct hides, where a filter compares two
+/// fields of the struct, and for a float field, whose bounds prune only with a proof that the zone
+/// holds no NaN.
+#[rstest]
+#[case::cast(gt(
+    cast(s_field("small"), DType::Primitive(PType::I8, Nullability::Nullable)),
+    lit(5i8)
+))]
+#[case::cast_lt(lt(
+    cast(s_field("small"), DType::Primitive(PType::I8, Nullability::Nullable)),
+    lit(5i8)
+))]
+#[case::overflow(gt(checked_add(s_field("small"), lit(1i64)), lit(95i64)))]
+#[case::two_fields(gt(s_field("x"), s_field("y")))]
+#[case::float_gt(gt(s_field("f"), lit(1500.0f64)))]
+#[case::float_lt(lt(s_field("f"), lit(100.0f64)))]
+#[case::float_not(not(gt(s_field("f"), lit(500.0f64))))]
+#[tokio::test]
+async fn pruning_beneath_a_nullable_struct_keeps_rows_of_any_filter(
+    #[case] filter: Expression,
+) -> VortexResult<()> {
+    assert_matches_v1_and_input(
+        &zoned_table_strategy(),
+        masked_fields_chunk,
+        &get_item("id", root()),
+        Some(&filter),
+    )
+    .await
+}
+
+/// A filter on a field beneath a nullable struct reads only the zones its bounds keep.
+///
+/// A filter the bounds of the field cannot prune reads its zone map and, in each of the four
+/// zones, the field, the validity of `s` and `id`: 13 segments. The pruned filter holds only in
+/// zone 0, so it reads the three there alone. The classic scan still reads `id` in every zone. A
+/// float field prunes too: its zone map records whether each zone holds no NaN, which the bounds
+/// of a float need.
+#[rstest]
+#[case::v1(false, hidden_values_chunk, s_a(), lit(100i64), lit(10_000_000i64), 7)]
+#[case::v2(true, hidden_values_chunk, s_a(), lit(100i64), lit(10_000_000i64), 4)]
+#[case::v1_float(
+    false,
+    masked_fields_chunk,
+    s_field("f"),
+    lit(100.0f64),
+    lit(1e12f64),
+    7
+)]
+#[case::v2_float(
+    true,
+    masked_fields_chunk,
+    s_field("f"),
+    lit(100.0f64),
+    lit(1e12f64),
+    4
+)]
+#[tokio::test]
+async fn pruning_beneath_a_nullable_struct_skips_zones(
+    #[case] v2: bool,
+    #[case] chunk: fn(usize) -> VortexResult<ArrayRef>,
+    #[case] field: Expression,
+    #[case] pruned: Expression,
+    #[case] unpruned: Expression,
+    #[case] pruned_requests: usize,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_chunks(&session, &zoned_table_strategy(), chunk, CHUNKS).await?;
+    let mut requests = Vec::new();
+    for filter in [lt(field.clone(), pruned), lt(field, unpruned)] {
+        let source = Arc::new(CountingSegmentSource::new(Arc::clone(&segments)));
+        let projection = get_item("id", root()).bind(layout.dtype())?;
+        let filter = filter.bind(layout.dtype())?;
+        let dtype = projection.dtype().clone();
+        if v2 {
+            let segments: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&source);
+            let scan = builder(&session, &segments, &layout)?
+                .with_projection(projection)
+                .with_some_filter(Some(filter));
+            collect_scan(dtype, scan).await?;
+        } else {
+            let reader = layout.new_reader(
+                "".into(),
+                Arc::<CountingSegmentSource>::clone(&source),
+                &session,
+                &Default::default(),
+            )?;
+            let scan = V1ScanBuilder::new(session.clone(), reader)
+                .with_projection(projection)
+                .with_filter(filter);
+            collect(dtype, scan.into_stream()?).await?;
+        }
+        requests.push(source.requests());
+    }
+    assert_eq!(requests, [pruned_requests, 13]);
+    Ok(())
+}
+
+/// Writes `CHUNKS` chunks made by `chunk` with `strategy`, then scans them with `projection` and
+/// `filter` on both executors. Checks both return what the expressions return over the input.
+async fn assert_matches_v1_and_input(
+    strategy: &dyn LayoutStrategy,
+    chunk: fn(usize) -> VortexResult<ArrayRef>,
+    projection: &Expression,
+    filter: Option<&Expression>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_chunks(&session, strategy, chunk, CHUNKS).await?;
     let dtype = layout.dtype().clone();
     let make = || -> VortexResult<ScanBuilder> {
         Ok(builder(&session, &segments, &layout)?
             .with_projection(projection.bind(&dtype)?)
-            .with_some_filter(
-                filter
-                    .as_ref()
-                    .map(|filter| filter.bind(&dtype))
-                    .transpose()?,
-            ))
+            .with_some_filter(filter.map(|filter| filter.bind(&dtype)).transpose()?))
     };
     assert_same_as_v1(&session, make).await?;
 
     let input = ChunkedArray::try_new(
         (0..CHUNKS)
-            .map(|chunk| point_chunk(chunk * CHUNK_ROWS))
+            .map(|index| chunk(index * CHUNK_ROWS))
             .collect::<VortexResult<Vec<_>>>()?,
         layout.dtype().clone(),
     )?
     .into_array();
     let mut ctx = session.create_execution_ctx();
-    let input = match &filter {
+    let input = match filter {
         Some(filter) => {
             let mask = input
                 .clone()
@@ -627,7 +946,7 @@ async fn extension_layout_matches_v1(
         }
         None => input,
     };
-    let expected = input.apply(&projection)?;
+    let expected = input.apply(projection)?;
     let scan = make()?;
     let actual = collect_scan(scan.dtype().clone(), scan).await?;
     assert_arrays_eq!(actual, expected, &mut ctx);
@@ -682,18 +1001,15 @@ async fn extension_filter_prunes_like_struct(#[values(false, true)] v2: bool) ->
 }
 
 /// Projecting one storage field of an extension column reads the segments of that field, plus
-/// those of the storage validity when the extension is nullable.
-///
-/// The planner does not push an expression through the assembly of a nullable struct yet, so with
-/// a nullable extension it reads every storage column. A plain nullable struct column reads the
-/// same segments, so the extension layout adds no reads of its own.
+/// those of the storage validity when the extension is nullable. A plain nullable struct column
+/// reads the same segments, so the extension layout adds no reads of its own.
 #[rstest]
 #[case::v1(false, non_nullable_point_chunk, point_storage("a"), 1)]
 #[case::v1_nullable(false, point_chunk, point_storage("a"), 2)]
 #[case::v1_nullable_struct(false, plain_point_chunk, get_item("a", get_item("point", root())), 2)]
 #[case::v2(true, non_nullable_point_chunk, point_storage("a"), 1)]
-#[case::v2_nullable(true, point_chunk, point_storage("a"), 3)]
-#[case::v2_nullable_struct(true, plain_point_chunk, get_item("a", get_item("point", root())), 3)]
+#[case::v2_nullable(true, point_chunk, point_storage("a"), 2)]
+#[case::v2_nullable_struct(true, plain_point_chunk, get_item("a", get_item("point", root())), 2)]
 #[tokio::test]
 async fn extension_field_projection_reads(
     #[case] v2: bool,

@@ -15,6 +15,7 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
 use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
@@ -29,6 +30,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_scan::plan::holds_under_masking;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -110,36 +112,43 @@ impl LayoutStrategy for ZonedStrategy {
         mut eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
-        let aggregate_fns = self
+        let mut aggregate_fns = self
             .options
             .aggregate_fns
             .clone()
             .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype(), session));
-        // Fields of a nullable struct are written unmasked, so every aggregate over them sees
-        // values the logical column does not contain: counts come out wrong and min/max come out
-        // wider than the truth. Zone maps hold exact values only, so until the aggregates are
-        // computed over the masked values no zone map is written for such a field.
+        // Fields of a nullable struct are written unmasked: a field holds values in rows where the
+        // struct is null, which reads through the struct return as nulls. A bound over them, such
+        // as a max, still bounds the field as read, only less tightly, and so does whether no value
+        // is NaN. A count does not: the null count misses the rows where only the struct is null,
+        // so a zone it shows without nulls can still hold rows where `is_null(s.a)` is true. Such a
+        // field records only the statistics that hold under masking, with whether a zone holds no
+        // NaN in place of its NaN count, and no legacy zone map, whose statistics are fixed.
         //
-        // TODO(joe): write zone maps for fields under a nullable struct. The struct validity has
-        //  to travel with each chunk, since repartitioning below the struct writer re-chunks the
-        //  stream, and the aggregates then run over `chunk.mask(validity)` while the data child
-        //  still receives the unmasked chunk.
-        if ctx.has_nullable_ancestor() {
-            return self
-                .child
-                .write_stream(ctx, segment_sink, stream, eof, session)
-                .await;
+        // TODO(joe): record every aggregate for fields under a nullable struct. The struct
+        //  validity has to travel with each chunk, since repartitioning below the struct writer
+        //  re-chunks the stream, and the aggregates then run over `chunk.mask(validity)` while the
+        //  data child still receives the unmasked chunk.
+        let nullable_ancestor = ctx.has_nullable_ancestor();
+        if nullable_ancestor {
+            aggregate_fns = aggregates_under_masking(&aggregate_fns, &ctx);
         }
 
         // Readers before `vortex.zoned` only know the legacy `vortex.stats` layout. If the write
         // does not permit either layout, the column gets no zone map.
         if !ctx.allows_layout(&Zoned.id()) {
-            if ctx.allows_layout(&LegacyStats.id()) {
+            if ctx.allows_layout(&LegacyStats.id()) && !nullable_ancestor {
                 return self
                     .write_legacy_stream(ctx, segment_sink, stream, eof, session)
                     .await;
             }
 
+            return self
+                .child
+                .write_stream(ctx, segment_sink, stream, eof, session)
+                .await;
+        }
+        if aggregate_fns.is_empty() {
             return self
                 .child
                 .write_stream(ctx, segment_sink, stream, eof, session)
@@ -313,6 +322,32 @@ impl ZonedStrategy {
     }
 }
 
+/// Returns the aggregates of `aggregate_fns` that a field beneath a nullable struct records: those
+/// whose statistics [hold under masking](holds_under_masking), and whether a zone holds no NaN in
+/// place of a NaN count, where `ctx` allows it.
+///
+/// Float bounds prune only with a proof that the zone holds no NaN, so without it no comparison of
+/// a float field beneath a nullable struct would prune.
+fn aggregates_under_masking(
+    aggregate_fns: &[AggregateFnRef],
+    ctx: &LayoutWriterContext,
+) -> Arc<[AggregateFnRef]> {
+    let all_non_nan = AllNonNan.bind(EmptyOptions);
+    let replaces_nan_count = ctx.allows_aggregate(&all_non_nan.id());
+    let mut kept = Vec::with_capacity(aggregate_fns.len());
+    for aggregate_fn in aggregate_fns {
+        let aggregate_fn = if replaces_nan_count && aggregate_fn.is::<NanCount>() {
+            &all_non_nan
+        } else {
+            aggregate_fn
+        };
+        if holds_under_masking(aggregate_fn) && !kept.contains(aggregate_fn) {
+            kept.push(aggregate_fn.clone());
+        }
+    }
+    kept.into()
+}
+
 fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[AggregateFnRef]> {
     let (max, min) = match dtype {
         DType::Utf8(_) | DType::Binary(_) => (
@@ -424,6 +459,15 @@ mod tests {
                 ..Default::default()
             },
         );
+        write_layout_with(&strategy, ctx)
+    }
+
+    /// Write three zones of primitives with `strategy` through `ctx`, returning the resulting
+    /// layout.
+    fn write_layout_with(
+        strategy: &ZonedStrategy,
+        ctx: LayoutWriterContext,
+    ) -> VortexResult<LayoutRef> {
         let (ptr, eof) = SequenceId::root().split();
         let stream = ChunkedArray::from_iter([
             buffer![1, 2, 3].into_array(),
@@ -463,14 +507,79 @@ mod tests {
         Ok(())
     }
 
-    /// A field of a nullable struct is written unmasked, so no aggregate over it is exact and no
-    /// zone map is written.
+    /// A field of a nullable struct holds values in rows the struct nulls out. They loosen its
+    /// bounds but falsify its counts, so its zone map records only the bounds.
     #[test]
-    fn a_nullable_ancestor_writes_no_zone_map() -> VortexResult<()> {
-        let layout =
-            write_layout(LayoutWriterContext::new(ArrayContext::empty()).with_nullable_ancestor())?;
-        assert!(!layout.is::<Zoned>());
+    fn a_nullable_ancestor_records_only_bounds() -> VortexResult<()> {
+        let written =
+            write_zones(LayoutWriterContext::new(ArrayContext::empty()).with_nullable_ancestor())?;
+        assert_eq!(written, [Max.id().to_string(), Min.id().to_string()]);
         Ok(())
+    }
+
+    /// A legacy zone map records a fixed set of statistics, counts among them, so a field of a
+    /// nullable struct gets none.
+    #[test]
+    fn a_nullable_ancestor_writes_no_legacy_zone_map() -> VortexResult<()> {
+        let ctx = LayoutWriterContext::new(ArrayContext::empty())
+            .with_allowed_layouts(HashSet::from_iter([LegacyStats.id()]));
+        assert!(write_layout(ctx.clone())?.is::<LegacyStats>());
+        assert!(!write_layout(ctx.with_nullable_ancestor())?.is::<LegacyStats>());
+        Ok(())
+    }
+
+    /// Explicitly requested counts are dropped under a nullable ancestor like the default ones,
+    /// and a field left with no bound gets no zone map.
+    #[test]
+    fn a_nullable_ancestor_without_bounds_writes_no_zone_map() -> VortexResult<()> {
+        let strategy = ZonedStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ZonedLayoutOptions {
+                block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
+                aggregate_fns: Some([NullCount.bind(EmptyOptions)].into()),
+                ..Default::default()
+            },
+        );
+        let ctx = LayoutWriterContext::new(ArrayContext::empty()).with_nullable_ancestor();
+        assert!(!write_layout_with(&strategy, ctx)?.is::<Zoned>());
+        Ok(())
+    }
+
+    /// Beneath a nullable struct, a float field records whether each zone holds no NaN in place
+    /// of its NaN count, which float bounds need to prune, where the context permits it. An
+    /// integer field holds no NaN, so it records only its bounds.
+    #[rstest]
+    #[case::float(PType::F64, true, true)]
+    #[case::float_not_permitted(PType::F64, false, false)]
+    #[case::integer(PType::I32, true, false)]
+    fn a_nullable_ancestor_records_whether_floats_hold_no_nan(
+        #[case] ptype: PType,
+        #[case] permitted: bool,
+        #[case] records: bool,
+    ) {
+        let dtype = DType::from(ptype);
+        let mut ctx = LayoutWriterContext::new(ArrayContext::empty()).with_nullable_ancestor();
+        if !permitted {
+            ctx = ctx.with_allowed_aggregates(HashSet::from_iter([
+                Min.id(),
+                Max.id(),
+                NanCount.id(),
+                NullCount.id(),
+            ]));
+        }
+        let aggregate_fns =
+            aggregates_under_masking(&default_zoned_aggregate_fns(&dtype, &SESSION), &ctx);
+        let recorded = AggregateStatsAccumulator::new(&dtype, &aggregate_fns)
+            .aggregate_fns()
+            .iter()
+            .map(|aggregate_fn| aggregate_fn.id().to_string())
+            .collect::<Vec<_>>();
+        let mut expected = vec![Max.id().to_string(), Min.id().to_string()];
+        if records {
+            expected.push(AllNonNan.id().to_string());
+        }
+        assert_eq!(recorded, expected);
     }
 
     #[test]

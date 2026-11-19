@@ -135,8 +135,10 @@ impl LayoutWriterContext {
     ///
     /// Container writers store their children unmasked: a field holds a value even in rows where
     /// the containing struct is null, and the struct's validity is written separately. Statistics
-    /// computed over such a child therefore see values the logical column does not contain, so
-    /// writers that record statistics must omit them rather than record inexact values.
+    /// computed over such a child therefore see values the logical column does not contain.
+    /// Writers that record statistics must record only those that stay correct for the logical
+    /// column, such as bounds on its values, which these values only loosen. Counts do not stay
+    /// correct: a null count misses the rows where only the container is null.
     pub fn with_nullable_ancestor(mut self) -> Self {
         self.nullable_ancestor = true;
         self
