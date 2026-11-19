@@ -7,6 +7,7 @@
 //! each serializer, since a serializer may reuse an older wire representation.
 
 use smallvec::SmallVec;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
@@ -21,12 +22,12 @@ use crate::VortexSessionExecute;
 use crate::array::ArraySerialization;
 use crate::arrays::write_parent_reductions;
 use crate::executor::max_iterations;
+use crate::serde::WireRejection;
 use crate::session::ArraySessionExt;
 
 /// Options for normalizing an array.
 pub struct NormalizeOptions<'a> {
-    /// The set of allowed array encodings (in addition to the canonical ones) that are permitted
-    /// in the normalized array.
+    /// The in-memory encoding IDs the caller accepts in addition to canonical encodings.
     pub allowed: &'a HashSet<Id>,
     /// The operation to perform when a non-allowed encoding is encountered.
     pub operation: Operation<'a>,
@@ -42,19 +43,24 @@ pub enum Operation<'a> {
 
 #[derive(Clone, Copy)]
 enum NormalizeTarget<'a> {
-    InMemory(&'a HashSet<Id>),
-    Wire(&'a ArrayContext),
+    InMemory {
+        allowed_encoding_ids: &'a HashSet<Id>,
+    },
+    Wire {
+        write_context: &'a ArrayContext,
+    },
 }
 
-struct NormalizedRoot {
+/// A source array whose root can be serialized to the target.
+struct WireRoot {
     array: ArrayRef,
-    /// When the serializer projects a different child list, visit only source slots it emits.
-    /// `None` visits every source slot.
+    /// The emitted children when a serializer projects a different child list. Normalization
+    /// matches those children against source descendants. `None` visits every source slot.
     projected_children: Option<Vec<ArrayRef>>,
 }
 
-impl NormalizedRoot {
-    fn from_wire(array: ArrayRef, children: Vec<ArrayRef>) -> Self {
+impl WireRoot {
+    fn new(array: ArrayRef, children: Vec<ArrayRef>) -> Self {
         // Most serializers reuse every source child in order, so a linear comparison suffices.
         // A serializer that projects children uses a scan of its existing list on the retry.
         let uses_source_children = array.nchildren() == children.len()
@@ -69,10 +75,16 @@ impl NormalizedRoot {
         }
     }
 
-    fn visits(&self, child: &ArrayRef) -> bool {
-        self.projected_children.as_ref().is_none_or(|children| {
-            children.iter().any(|written| ArrayRef::ptr_eq(child, written))
-        })
+    fn normalize_children(
+        self,
+        write_context: &ArrayContext,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        self.array.normalize_slots(
+            self.projected_children.as_deref(),
+            NormalizeTarget::Wire { write_context },
+            ctx,
+        )
     }
 }
 
@@ -85,9 +97,12 @@ impl ArrayRef {
                 self.normalize_with_error(options.allowed)?;
                 Ok(self)
             }
-            Operation::Execute(ctx) => {
-                self.normalize_with_execution(NormalizeTarget::InMemory(options.allowed), ctx)
-            }
+            Operation::Execute(ctx) => self.normalize_with_execution(
+                NormalizeTarget::InMemory {
+                    allowed_encoding_ids: options.allowed,
+                },
+                ctx,
+            ),
         }
     }
 
@@ -105,11 +120,11 @@ impl ArrayRef {
     /// Normalize the source array before retrying a write rejected by the wire allowlist.
     pub(crate) fn normalize_for_write(
         self,
-        target: &ArrayContext,
+        write_context: &ArrayContext,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
         self.normalize_with_execution(
-            NormalizeTarget::Wire(target),
+            NormalizeTarget::Wire { write_context },
             &mut session.create_execution_ctx(),
         )
     }
@@ -119,29 +134,56 @@ impl ArrayRef {
         target: NormalizeTarget<'_>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let root = target.normalize_root(self, ctx)?;
-        let slots = root.array.slots();
+        match target {
+            NormalizeTarget::InMemory {
+                allowed_encoding_ids,
+            } => {
+                let mut array = self;
+                while !array.is_allowed_encoding(allowed_encoding_ids) {
+                    array = array.execute(ctx)?;
+                }
+
+                array.normalize_slots(None, target, ctx)
+            }
+            NormalizeTarget::Wire { write_context } => normalize_wire(self, write_context, ctx),
+        }
+    }
+
+    fn normalize_slots(
+        self,
+        projected_children: Option<&[ArrayRef]>,
+        target: NormalizeTarget<'_>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let slots = self.slots();
         let mut normalized_slots = SmallVec::with_capacity(slots.len());
         let mut changed = false;
 
         for slot in slots {
-            let Some(child) = slot.as_ref().filter(|child| root.visits(child)) else {
-                normalized_slots.push(slot.clone());
+            let Some(child) = slot else {
+                normalized_slots.push(None);
                 continue;
             };
 
-            let normalized_child = child.clone().normalize_with_execution(target, ctx)?;
-            changed |= !ArrayRef::ptr_eq(child, &normalized_child);
+            let normalized_child = match projected_children {
+                Some(children) if !children.iter().any(|emitted| Self::ptr_eq(child, emitted)) => {
+                    // A plugin can expose a descendant while omitting its in-memory parent.
+                    // Walk through the parent without applying wire rules to that parent.
+                    child.clone().normalize_slots(Some(children), target, ctx)?
+                }
+                _ => child.clone().normalize_with_execution(target, ctx)?,
+            };
+            changed |= !Self::ptr_eq(child, &normalized_child);
             normalized_slots.push(Some(normalized_child));
         }
 
         if !changed {
-            return Ok(root.array);
+            return Ok(self);
         }
 
         // SAFETY: each replacement is the same source slot after a physical rewrite or
         // execution. Both preserve its logical values. `with_slots` checks shape and dtype.
-        unsafe { root.array.with_slots(normalized_slots) }
+        unsafe { self.with_slots(normalized_slots) }
     }
 
     fn is_allowed_encoding(&self, allowed: &HashSet<Id>) -> bool {
@@ -149,54 +191,34 @@ impl ArrayRef {
     }
 }
 
-impl NormalizeTarget<'_> {
-    fn normalize_root(
-        self,
-        mut array: ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<NormalizedRoot> {
-        match self {
-            Self::InMemory(allowed) => {
-                while !array.is_allowed_encoding(allowed) {
-                    array = array.execute(ctx)?;
-                }
-
-                Ok(NormalizedRoot {
-                    array,
-                    projected_children: None,
-                })
-            }
-            Self::Wire(target) => normalize_wire_root(array, target, ctx),
-        }
-    }
-}
-
-fn normalize_wire_root(
+fn normalize_wire(
     mut array: ArrayRef,
-    target: &ArrayContext,
+    write_context: &ArrayContext,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<NormalizedRoot> {
+) -> VortexResult<ArrayRef> {
     let dtype = array.dtype().clone();
     let len = array.len();
 
     for _ in 0..max_iterations() {
         let session = ctx.session();
-        match serialize_registered(&array, session)? {
-            Some(serialized) if target.permits(&serialized.serialized_id) => {
-                return Ok(NormalizedRoot::from_wire(array, serialized.children));
+        match serialize_if_registered(&array, session)? {
+            Some(serialized) if write_context.permits(&serialized.serialized_id) => {
+                return WireRoot::new(array, serialized.children)
+                    .normalize_children(write_context, ctx);
             }
             Some(serialized) if array.is_canonical() => {
-                vortex_bail!(
-                    "Serialized array ID {} not permitted by ctx",
-                    serialized.serialized_id
-                );
+                return Err(VortexError::external(WireRejection::DisallowedId(
+                    serialized.serialized_id,
+                )));
             }
             None if array.is_canonical() => {
-                vortex_bail!("Array {} does not support serialization", array.encoding_id());
+                return Err(VortexError::external(WireRejection::UnsupportedArray(
+                    array.encoding_id(),
+                )));
             }
             Some(_) => {
-                if let Some(root) = rewrite_wire_root(&array, target, session)? {
-                    return Ok(root);
+                if let Some(rewritten) = try_rewrite_wire_root(&array, write_context, ctx)? {
+                    return Ok(rewritten);
                 }
             }
             None => {}
@@ -214,11 +236,11 @@ fn normalize_wire_root(
 
 /// Try one parent reduction per occupied slot. A rejected candidate leaves the source
 /// available for ordinary execution.
-fn rewrite_wire_root(
+fn try_rewrite_wire_root(
     array: &ArrayRef,
-    target: &ArrayContext,
-    session: &VortexSession,
-) -> VortexResult<Option<NormalizedRoot>> {
+    write_context: &ArrayContext,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
     let kernels = write_parent_reductions();
 
     for (slot_idx, child) in array.slots().iter().enumerate() {
@@ -228,17 +250,52 @@ fn rewrite_wire_root(
         };
 
         rewritten.statistics().inherit_from(array.statistics());
-        if let Some(serialized) = serialize_registered(&rewritten, session)?
-            && target.permits(&serialized.serialized_id)
-        {
-            return Ok(Some(NormalizedRoot::from_wire(rewritten, serialized.children)));
+        let Some(serialized) = serialize_if_registered(&rewritten, ctx.session())? else {
+            continue;
+        };
+        if !write_context.permits(&serialized.serialized_id) {
+            continue;
+        }
+
+        let root = WireRoot::new(rewritten, serialized.children);
+        let normalized = match root.normalize_children(write_context, ctx) {
+            Ok(normalized) => normalized,
+            Err(error) if WireRejection::from_error(&error).is_some() => continue,
+            Err(error) => return Err(error),
+        };
+
+        // Rebuilding the source can change the wire representation or leave a forbidden
+        // child synthesized by the serializer. Verify the candidate before committing to it.
+        if wire_tree_is_permitted(&normalized, write_context, ctx.session())? {
+            return Ok(Some(normalized));
         }
     }
 
     Ok(None)
 }
 
-fn serialize_registered(
+fn wire_tree_is_permitted(
+    array: &ArrayRef,
+    write_context: &ArrayContext,
+    session: &VortexSession,
+) -> VortexResult<bool> {
+    let Some(serialized) = serialize_if_registered(array, session)? else {
+        return Ok(false);
+    };
+    if !write_context.permits(&serialized.serialized_id) {
+        return Ok(false);
+    }
+
+    for child in serialized.children {
+        if !wire_tree_is_permitted(&child, write_context, session)? {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
+}
+
+fn serialize_if_registered(
     array: &ArrayRef,
     session: &VortexSession,
 ) -> VortexResult<Option<ArraySerialization>> {

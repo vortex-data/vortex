@@ -180,10 +180,10 @@ impl ArrayRef {
             Err(error) => error,
         };
 
-        if !error
-            .source()
-            .is_some_and(|source| source.is::<DisallowedWireId>())
-        {
+        if !matches!(
+            WireRejection::from_error(&error),
+            Some(WireRejection::DisallowedId(_))
+        ) {
             return Err(error);
         }
 
@@ -193,15 +193,27 @@ impl ArrayRef {
 }
 
 #[derive(Debug)]
-struct DisallowedWireId(ArrayId);
+pub(crate) enum WireRejection {
+    DisallowedId(ArrayId),
+    UnsupportedArray(ArrayId),
+}
 
-impl Display for DisallowedWireId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Serialized array ID {} not permitted by ctx", self.0)
+impl WireRejection {
+    pub(crate) fn from_error(error: &VortexError) -> Option<&Self> {
+        error.source()?.downcast_ref()
     }
 }
 
-impl Error for DisallowedWireId {}
+impl Display for WireRejection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DisallowedId(id) => write!(f, "Serialized array ID {id} not permitted by ctx"),
+            Self::UnsupportedArray(id) => write!(f, "Array {id} does not support serialization"),
+        }
+    }
+}
+
+impl Error for WireRejection {}
 
 #[derive(Clone, Debug)]
 struct ArraySerializationTree {
@@ -213,17 +225,30 @@ struct ArraySerializationTree {
 }
 
 impl ArraySerializationTree {
-    fn try_new(session: &VortexSession, source: &ArrayRef) -> VortexResult<Self> {
+    fn try_new(
+        ctx: &ArrayContext,
+        session: &VortexSession,
+        source: &ArrayRef,
+    ) -> VortexResult<Self> {
         let Some(serialization) = session.array_serialize(source)? else {
             vortex_bail!(
                 "Array {} does not support serialization",
                 source.encoding_id()
             );
         };
+
+        // Reject a node before resolving children that normalization may discard. Leaf IDs
+        // are checked when interned, since they have no children that can mask the rejection.
+        if !serialization.children.is_empty() && !ctx.permits(&serialization.serialized_id) {
+            return Err(VortexError::external(WireRejection::DisallowedId(
+                serialization.serialized_id,
+            )));
+        }
+
         let children = serialization
             .children
             .iter()
-            .map(|child| Self::try_new(session, child))
+            .map(|child| Self::try_new(ctx, session, child))
             .collect::<VortexResult<Vec<_>>>()?;
 
         Ok(Self {
@@ -270,7 +295,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         session: &'a VortexSession,
         array: &ArrayRef,
     ) -> VortexResult<Self> {
-        let array = ArraySerializationTree::try_new(session, array)?;
+        let array = ArraySerializationTree::try_new(ctx, session, array)?;
         let n_buffers_recursive = array.nbuffers_recursive();
         if n_buffers_recursive > u16::MAX as usize {
             vortex_bail!(
@@ -294,10 +319,9 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         array: &ArraySerializationTree,
         buffer_idx: u16,
     ) -> VortexResult<WIPOffset<fba::ArrayNode<'fb>>> {
-        let encoding_idx = self
-            .ctx
-            .intern(&array.serialized_id)
-            .ok_or_else(|| VortexError::external(DisallowedWireId(array.serialized_id)))?;
+        let encoding_idx = self.ctx.intern(&array.serialized_id).ok_or_else(|| {
+            VortexError::external(WireRejection::DisallowedId(array.serialized_id))
+        })?;
 
         let metadata = Some(fbb.create_vector(array.metadata.as_slice()));
 

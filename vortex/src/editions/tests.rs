@@ -3,7 +3,9 @@
 
 use std::sync::LazyLock;
 
+use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -11,17 +13,22 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::WidenArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::serde::SerializeOptions;
+use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::Stat;
 use vortex_array::stream::ArrayStreamExt;
@@ -29,6 +36,8 @@ use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
+use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
 use vortex_edition::ComponentKind;
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
@@ -52,6 +61,7 @@ use vortex_layout::session::LayoutSession;
 use vortex_sequence::Sequence;
 use vortex_session::VortexSession;
 use vortex_session::registry::Id;
+use vortex_session::registry::ReadContext;
 
 use super::CORE_2025_05_0;
 use super::CORE_2025_10_0;
@@ -668,6 +678,39 @@ async fn writer_executes_disallowed_sequence() -> VortexResult<()> {
         .await?;
 
     assert_written_values(&session, buffer, array).await
+}
+
+#[test]
+fn restricted_write_normalizes_decimal_byte_parts_stored_msp() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    vortex_decimal_byte_parts::initialize(&session);
+    vortex_sequence::initialize(&session);
+
+    let narrow = forbidden_sequence(8)?;
+    let msp = WidenArray::try_new(narrow, PType::I64.into())?.into_array();
+    let array = DecimalByteParts::try_new(msp, DecimalDType::new(19, 2))?.into_array();
+
+    let parts_id = decimal_byte_parts_v1_id();
+    let primitive_id = ArrayVTable::id(&Primitive);
+    let ctx = ArrayContext::empty().with_allowed_ids([parts_id, primitive_id].into_iter().collect());
+    let buffers = array.serialize_with_fallback(&ctx, &session, &SerializeOptions::default())?;
+    let mut bytes = ByteBufferMut::empty();
+    for buffer in buffers {
+        bytes.extend_from_slice(buffer.as_ref());
+    }
+
+    let serialized = SerializedArray::try_from(bytes.freeze())?;
+    let read_ctx = ReadContext::new(ctx.to_ids());
+    assert_eq!(read_ctx.resolve(serialized.encoding_id()), Some(parts_id));
+
+    let msp = serialized.child(0);
+    assert_eq!(read_ctx.resolve(msp.encoding_id()), Some(primitive_id));
+    assert_eq!(msp.buffer(0)?.len(), array.len() * size_of::<i32>());
+
+    let actual = serialized.decode(array.dtype(), array.len(), &read_ctx, &session)?;
+    assert_arrays_eq!(actual, array, &mut session.create_execution_ctx());
+
+    Ok(())
 }
 
 /// The same compressor output is writable when its wire ID is enabled, without configuring the
