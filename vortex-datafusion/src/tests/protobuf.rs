@@ -6,16 +6,11 @@
 
 use std::sync::Arc;
 
-use arrow_schema::Schema;
 use datafusion::physical_plan::collect;
 use datafusion::physical_plan::displayable;
-use datafusion_common::Result as DFResult;
 use datafusion_common::assert_batches_eq;
 use datafusion_expr::registry::FunctionRegistry;
 use datafusion_functions_nested::planner::FieldAccessPlanner;
-use datafusion_physical_expr::PhysicalExpr;
-use datafusion_physical_expr::projection::ProjectionExprs;
-use parking_lot::Mutex;
 use prost::Message;
 use prost_reflect::DynamicMessage;
 use prost_reflect::MessageDescriptor;
@@ -33,7 +28,6 @@ use vortex::dtype::Nullability;
 use vortex::dtype::extension::ExtDType;
 use vortex::editions::EditionSessionExt;
 use vortex::editions::UNSTABLE;
-use vortex::expr::Expression;
 use vortex::expr::get_item;
 use vortex::expr::pack;
 use vortex::expr::root;
@@ -51,7 +45,7 @@ use crate::VortexTableOptions;
 use crate::common_tests::TestSessionContext;
 use crate::convert::DefaultExpressionConverter;
 use crate::convert::ExpressionConverter;
-use crate::convert::ProcessedProjection;
+use crate::tests::RecordingConverter;
 
 /// A schema with a nested message and a repeated message.
 const ORDER_PROTO: (&str, &str) = (
@@ -89,37 +83,6 @@ impl FileResolver for OrderSchema {
         } else {
             Err(protox::Error::file_not_found(name))
         }
-    }
-}
-
-/// Converts expressions with the default converter and records each scan projection.
-struct RecordingConverter {
-    inner: DefaultExpressionConverter,
-    scan_projections: Mutex<Vec<Expression>>,
-}
-
-impl ExpressionConverter for RecordingConverter {
-    fn try_convert(
-        &self,
-        expr: &Arc<dyn PhysicalExpr>,
-        schema: &Schema,
-    ) -> DFResult<Option<Expression>> {
-        self.inner.try_convert(expr, schema)
-    }
-
-    fn split_projection(
-        &self,
-        source_projection: ProjectionExprs,
-        input_schema: &Schema,
-        output_schema: &Schema,
-    ) -> DFResult<ProcessedProjection> {
-        let processed =
-            self.inner
-                .split_projection(source_projection, input_schema, output_schema)?;
-        self.scan_projections
-            .lock()
-            .push(processed.scan_projection.clone());
-        Ok(processed)
     }
 }
 
@@ -259,10 +222,7 @@ async fn test_protobuf_fields_are_read_in_scan(
     #[values(false, true)] scan_v2: bool,
 ) -> anyhow::Result<()> {
     let session = protobuf_session()?;
-    let converter = Arc::new(RecordingConverter {
-        inner: DefaultExpressionConverter::new(session.clone()),
-        scan_projections: Mutex::default(),
-    });
+    let converter = Arc::new(RecordingConverter::new(session.clone()));
     let ctx = orders_table(
         &session,
         session.clone(),
@@ -301,6 +261,70 @@ async fn test_protobuf_fields_are_read_in_scan(
             ("id", get_item("id", root())),
             ("order_id", protobuf_field("id", msg.clone())),
             ("city", protobuf_field("address.city", msg)),
+        ],
+        Nullability::NonNullable,
+    );
+    let scan_projections = converter.scan_projections.lock();
+    assert!(!scan_projections.is_empty());
+    for projection in scan_projections.iter() {
+        assert_eq!(projection, &expected);
+    }
+    Ok(())
+}
+
+/// A projection that mixes message fields with an unsupported function over one of them reads only
+/// those fields in the scan, once each, and DataFusion applies the function to the scan output.
+///
+/// The field read under `upper` follows the converter's nested field access, like the fields read
+/// on their own: an absent `address`, or a null message, makes `city` and `zip` null.
+#[rstest]
+#[tokio::test]
+async fn test_protobuf_mixed_projection_reads_needed_fields(
+    #[values(false, true)] scan_v2: bool,
+) -> anyhow::Result<()> {
+    let session = protobuf_session()?;
+    let converter = Arc::new(RecordingConverter::new(session.clone()));
+    let ctx = orders_table(
+        &session,
+        session.clone(),
+        scan_v2,
+        Arc::clone(&converter) as _,
+    )
+    .await?;
+
+    let batches = ctx
+        .session
+        .sql(
+            "SELECT id, upper(msg['address']['city']) AS shout, msg['address']['city'] AS city, \
+             msg['address']['zip'] AS zip FROM orders ORDER BY id",
+        )
+        .await?
+        .collect()
+        .await?;
+    assert_batches_eq!(
+        [
+            "+----+--------+--------+-------+",
+            "| id | shout  | city   | zip   |",
+            "+----+--------+--------+-------+",
+            "| 1  | BERLIN | Berlin | 10115 |",
+            "| 2  | LISBON | Lisbon | 1100  |",
+            "| 3  |        |        |       |",
+            "| 4  | OSLO   | Oslo   | 150   |",
+            "| 5  |        |        |       |",
+            "+----+--------+--------+-------+",
+        ],
+        &batches
+    );
+
+    let msg = get_item("msg", root());
+    let expected = pack(
+        [
+            ("id", get_item("id", root())),
+            (
+                "__vortex_expr_0",
+                protobuf_field("address.city", msg.clone()),
+            ),
+            ("__vortex_expr_1", protobuf_field("address.zip", msg)),
         ],
         Nullability::NonNullable,
     );

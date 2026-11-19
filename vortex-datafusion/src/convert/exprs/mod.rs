@@ -83,6 +83,10 @@ use vortex_arrow::ArrowSessionExt;
 
 use crate::row_index::RowIndex;
 
+mod partial;
+
+pub(crate) use partial::split_filtered_projection;
+
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
     /// Projection evaluated by the Vortex scan.
@@ -143,8 +147,17 @@ pub trait ExpressionConverter: Send + Sync {
     /// Split a projection into Vortex expressions that can be pushed down and leftover
     /// DataFusion projections that need to be evaluated after the scan.
     ///
-    /// If any expression is unsupported, evaluate the complete projection in DataFusion
-    /// over deduplicated raw inputs. This avoids mixing input names with output aliases.
+    /// When every expression converts, the scan evaluates the whole projection. Otherwise the
+    /// scan evaluates each converted expression and the largest convertible subexpressions of the
+    /// others that read its input, such as field access under an unsupported function, under
+    /// generated names. DataFusion evaluates the rest over the scan output, so a wide struct column
+    /// is not read whole for one field. Converting a subexpression applies its conversion's
+    /// semantics, including [`DefaultExpressionConverter`]'s nested field access.
+    ///
+    /// An expression or subexpression whose conversion fails stays in DataFusion, like an
+    /// unsupported one, and DataFusion reports any error when it evaluates it. Duplicate aliases,
+    /// and a lambda that would stay in DataFusion, evaluate the complete projection in DataFusion
+    /// over deduplicated raw inputs.
     fn split_projection(
         &self,
         source_projection: ProjectionExprs,
@@ -159,13 +172,26 @@ pub trait ExpressionConverter: Send + Sync {
         {
             return self.no_pushdown_projection(source_projection, input_schema);
         }
-        let mut scan_projection = Vec::with_capacity(source_projection.as_ref().len());
-        for projection in source_projection.as_ref() {
-            let Some(expr) = self.try_convert(&projection.expr, input_schema)? else {
-                return self.no_pushdown_projection(source_projection, input_schema);
+        let converted = source_projection
+            .iter()
+            .map(|projection| partial::try_convert_or_keep(self, &projection.expr, input_schema))
+            .collect_vec();
+        if converted.iter().any(Option::is_none) {
+            return match partial::split_projection_partially(
+                self,
+                &source_projection,
+                converted,
+                input_schema,
+            )? {
+                Some(processed) => Ok(processed),
+                None => self.no_pushdown_projection(source_projection, input_schema),
             };
-            scan_projection.push((projection.alias.clone(), expr));
         }
+        let scan_projection = source_projection
+            .iter()
+            .zip(converted.into_iter().flatten())
+            .map(|(projection, expr)| (projection.alias.clone(), expr))
+            .collect_vec();
         // The output schema names its fields after the projection aliases.
         let output_indices = (0..scan_projection.len()).collect_vec();
         Ok(ProcessedProjection {
@@ -242,6 +268,28 @@ pub(crate) fn raw_projection(
         scan_reference_schema: Schema::new_with_metadata(fields, schema.metadata().clone()),
         leftover_projection,
     })
+}
+
+/// Read the raw columns of a projection and of the residual filters that DataFusion evaluates
+/// before it, returning the filters unchanged.
+pub(crate) fn raw_filtered_projection(
+    projection: ProjectionExprs,
+    residual_filters: Vec<Arc<dyn PhysicalExpr>>,
+    input_schema: &Schema,
+) -> DFResult<(ProcessedProjection, Vec<Arc<dyn PhysicalExpr>>)> {
+    let mut indices = projection.column_indices();
+    indices.extend(
+        residual_filters
+            .iter()
+            .flat_map(collect_columns)
+            .map(|column| column.index()),
+    );
+    indices.sort_unstable();
+    indices.dedup();
+    Ok((
+        raw_projection(&indices, input_schema, projection)?,
+        residual_filters,
+    ))
 }
 
 /// Why an expression was not converted.
@@ -793,18 +841,20 @@ impl DefaultExpressionConverter {
             let mut source_field = source.return_field(schema)?;
             let mut names = Vec::with_capacity(paths.len());
             for path in paths {
+                if self.is_unknown_extension(&source_field)? {
+                    return Err(Unconverted::Unsupported);
+                }
+                // Access into another type, such as a map, whose keys need not be strings, is
+                // valid but unsupported, so the path is checked only for a struct.
+                let DataType::Struct(fields) = source_field.data_type() else {
+                    return Err(Unconverted::Unsupported);
+                };
                 let name = path
                     .downcast_ref::<df_expr::Literal>()
                     .and_then(|literal| literal.value().try_as_str().flatten())
                     .ok_or_else(|| {
                         exec_datafusion_err!("get_field path must be a non-null string literal")
                     })?;
-                if self.is_unknown_extension(&source_field)? {
-                    return Err(Unconverted::Unsupported);
-                }
-                let DataType::Struct(fields) = source_field.data_type() else {
-                    return Err(Unconverted::Unsupported);
-                };
                 let (_, field) = fields.find(name).ok_or_else(|| {
                     exec_datafusion_err!("get_field references missing field {name}")
                 })?;

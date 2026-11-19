@@ -72,7 +72,8 @@ use vortex_utils::parallelism::get_available_parallelism;
 use crate::VortexAccessPlan;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
-use crate::convert::exprs::raw_projection;
+use crate::convert::exprs::raw_filtered_projection;
+use crate::convert::exprs::split_filtered_projection;
 use crate::convert::schema::calculate_physical_schema;
 use crate::convert::to_record_batch;
 use crate::metrics::PARTITION_LABEL;
@@ -410,7 +411,6 @@ impl FileOpener for VortexOpener {
                     })
                     .map(|(_, expression)| expression.clone()),
             );
-            let residual_filter = conjunction_opt(residual_filters);
             let native_filter = and_collect(native_filters)
                 .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
                 .transpose()
@@ -418,30 +418,37 @@ impl FileOpener for VortexOpener {
                     exec_datafusion_err!("Couldn't bind Vortex scan filter in {}: {e}", file.path())
                 })?;
 
-            // Residual filters must see raw inputs before computed projections or aliases.
-            let ProcessedProjection {
-                scan_projection,
-                scan_reference_schema,
-                leftover_projection,
-            } = if let Some(residual) = &residual_filter {
-                let mut indices = projection.column_indices();
-                indices.extend(
-                    collect_columns(residual)
-                        .iter()
-                        .map(|column| column.index()),
-                );
-                indices.sort_unstable();
-                indices.dedup();
-                raw_projection(&indices, &this_file_schema, projection)?
+            // Residual filters run before the projection, so both read the scan output rather than
+            // computed projections or aliases.
+            let (
+                ProcessedProjection {
+                    scan_projection,
+                    scan_reference_schema,
+                    leftover_projection,
+                },
+                residual_filters,
+            ) = if residual_filters.is_empty() {
+                let processed = if projection_pushdown {
+                    expr_converter.split_projection(
+                        projection,
+                        &this_file_schema,
+                        output_schema.as_ref(),
+                    )?
+                } else {
+                    expr_converter.no_pushdown_projection(projection, &this_file_schema)?
+                };
+                (processed, residual_filters)
             } else if projection_pushdown {
-                expr_converter.split_projection(
+                split_filtered_projection(
+                    expr_converter.as_ref(),
                     projection,
+                    residual_filters,
                     &this_file_schema,
-                    output_schema.as_ref(),
                 )?
             } else {
-                expr_converter.no_pushdown_projection(projection, &this_file_schema)?
+                raw_filtered_projection(projection, residual_filters, &this_file_schema)?
             };
+            let residual_filter = conjunction_opt(residual_filters);
 
             // The schema of the stream returned from the vortex scan.
             // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
@@ -857,6 +864,7 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::Fields;
     use arrow_schema::SchemaRef;
+    use datafusion::arrow::array::ArrayRef;
     use datafusion::arrow::array::DictionaryArray;
     use datafusion::arrow::array::Int32Array;
     use datafusion::arrow::array::RecordBatch;
@@ -882,6 +890,8 @@ mod tests {
     use datafusion_execution::cache::default_cache::DefaultCache;
     use datafusion_execution::object_store::ObjectStoreUrl;
     use datafusion_expr::Operator;
+    use datafusion_functions::expr_fn::get_field;
+    use datafusion_functions::expr_fn::upper;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::projection::ProjectionExpr;
@@ -1322,6 +1332,68 @@ mod tests {
             .await?;
         assert_batches_eq!(
             ["+----+", "| a  |", "+----+", "| 20 |", "| 40 |", "+----+"],
+            &batches
+        );
+        Ok(())
+    }
+
+    /// A residual filter and the projection after it both read nested fields from the scan output,
+    /// whether the scan evaluates the field access or DataFusion reads the whole struct.
+    #[rstest]
+    #[tokio::test]
+    async fn test_residual_filter_with_nested_projection(
+        #[values(false, true)] projection_pushdown: bool,
+        #[values(false, true)] scan_v2: bool,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let s = StructArray::try_new(
+            vec![
+                Field::new("b", DataType::Int32, false),
+                Field::new("c", DataType::Utf8, false),
+            ]
+            .into(),
+            vec![
+                Arc::new(Int32Array::from(vec![1, 2, 3, 4])),
+                Arc::new(StringArray::from(vec!["w", "x", "y", "z"])),
+            ],
+            None,
+        )?;
+        let batch = RecordBatch::try_from_iter([
+            (
+                "a",
+                Arc::new(Int32Array::from(vec![10, 20, 30, 40])) as ArrayRef,
+            ),
+            ("s", Arc::new(s) as ArrayRef),
+        ])?;
+        let size =
+            write_arrow_to_vortex(Arc::clone(&store), "nested.vortex", batch.clone()).await?;
+        let schema = batch.schema();
+        // The default converter does not support `%`, so the filter stays residual.
+        let filter = logical2physical(&(get_field(col("s"), "b") % lit(2)).eq(lit(0)), &schema);
+        let mut opener = make_opener(store, TableSchema::from(Arc::clone(&schema)), Some(filter));
+        opener.projection = ProjectionExprs::from(vec![
+            ProjectionExpr::new(
+                logical2physical(&upper(get_field(col("s"), "c")), &schema),
+                "shout",
+            ),
+            ProjectionExpr::new(logical2physical(&col("a"), &schema), "a"),
+        ]);
+        opener.projection_pushdown = projection_pushdown;
+        opener.scan_v2 = scan_v2;
+        let batches = opener
+            .open(PartitionedFile::new("nested.vortex", size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert_batches_eq!(
+            [
+                "+-------+----+",
+                "| shout | a  |",
+                "+-------+----+",
+                "| X     | 20 |",
+                "| Z     | 40 |",
+                "+-------+----+",
+            ],
             &batches
         );
         Ok(())

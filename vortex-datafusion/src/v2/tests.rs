@@ -7,6 +7,8 @@ use anyhow::anyhow;
 use arrow_array::ArrayRef;
 use arrow_array::Int32Array;
 use arrow_array::RecordBatch;
+use arrow_array::StringArray;
+use arrow_array::StructArray;
 use arrow_array::cast::AsArray;
 use arrow_array::types::Int32Type;
 use arrow_schema::DataType;
@@ -25,11 +27,16 @@ use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::source::DataSource;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::Operator;
+use datafusion_expr::ScalarUDF;
+use datafusion_functions::core::getfield::GetFieldFunc;
+use datafusion_functions::string::upper::UpperFunc;
 use datafusion_physical_expr::PhysicalExpr;
+use datafusion_physical_expr::ScalarFunctionExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_plan::ExecutionPlan;
+use datafusion_physical_plan::displayable;
 use datafusion_physical_plan::expressions as df_expr;
 use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
@@ -577,5 +584,74 @@ async fn test_build_rejects_extension_column_over_plain() -> anyhow::Result<()> 
         "{error}"
     );
 
+    Ok(())
+}
+
+/// A projection that mixes a nested field with an unsupported function over it reads the field in
+/// the scan once, and DataFusion applies the function to the scan output.
+#[tokio::test]
+async fn mixed_projection_reads_needed_fields() -> anyhow::Result<()> {
+    let fields = vec![
+        Field::new("a", DataType::Utf8, true),
+        Field::new("b", DataType::Int32, true),
+    ];
+    let s = StructArray::try_new(
+        fields.into(),
+        vec![
+            Arc::new(StringArray::from(vec![Some("x"), None, Some("z")])),
+            Arc::new(Int32Array::from(vec![10, 20, 30])),
+        ],
+        None,
+    )?;
+    let batch = RecordBatch::try_from_iter([
+        ("id", Arc::new(Int32Array::from(vec![1, 2, 3])) as ArrayRef),
+        ("s", Arc::new(s) as ArrayRef),
+    ])?;
+    let schema = batch.schema();
+    let source = vortex_source_from_batch(batch).await?;
+
+    let function = |udf: ScalarUDF, args| -> anyhow::Result<Arc<dyn PhysicalExpr>> {
+        Ok(Arc::new(ScalarFunctionExpr::try_new(
+            Arc::new(udf),
+            args,
+            &schema,
+            Arc::new(ConfigOptions::new()),
+        )?))
+    };
+    let a = function(
+        GetFieldFunc::new().into(),
+        vec![Arc::new(df_expr::Column::new("s", 1)), df_expr::lit("a")],
+    )?;
+    let projection = ProjectionExprs::from(vec![
+        ProjectionExpr::new(Arc::new(df_expr::Column::new("id", 0)), "id"),
+        ProjectionExpr::new(
+            function(UpperFunc::new().into(), vec![Arc::clone(&a)])?,
+            "shout",
+        ),
+        ProjectionExpr::new(a, "a"),
+    ]);
+    let projected = source
+        .try_swapping_with_projection(&projection)?
+        .ok_or_else(|| anyhow!("projection was not swapped"))?;
+    let plan = Arc::new(DataSourceExec::new(projected)) as Arc<dyn ExecutionPlan>;
+    let display = displayable(plan.as_ref()).one_line().to_string();
+    assert!(
+        display.contains("projection=pack(id: $.id, __vortex_expr_0: $.s.a)"),
+        "{display}"
+    );
+
+    let batches = datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await?;
+    assert_batches_eq!(
+        [
+            "+----+-------+---+",
+            "| id | shout | a |",
+            "+----+-------+---+",
+            "| 1  | X     | x |",
+            "| 2  |       |   |",
+            "| 3  | Z     | z |",
+            "+----+-------+---+",
+        ],
+        &batches
+    );
     Ok(())
 }
