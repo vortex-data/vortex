@@ -48,7 +48,8 @@ impl FusedChain {
     /// input of a block program. Returns `child` back otherwise.
     ///
     /// `child` is a canonical primitive array, an array with a block source, or an array whose own
-    /// op transforms a canonical primitive child.
+    /// op transforms a canonical primitive child. The executor checked on the way down that both
+    /// arrays are primitive, non-empty and of one length.
     pub(crate) fn start(
         child: ArrayRef,
         parent: &ArrayRef,
@@ -56,9 +57,6 @@ impl FusedChain {
         validity: &Validity,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Result<Self, ArrayRef>> {
-        if fusable_ptype(parent).is_none() || fusable_ptype(&child).is_none() || child.is_empty() {
-            return Ok(Err(child));
-        }
         vortex_ensure_eq!(
             child.len(),
             parent.len(),

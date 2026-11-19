@@ -602,7 +602,12 @@ fn disabled_fusion_runs_level_wise() -> VortexResult<()> {
 #[test]
 fn empty_arrays_do_not_fuse() -> VortexResult<()> {
     let (counter, _) = counter(0, 0, 0);
-    assert!(!fused(add(add(counter)))?.contains("fuse "));
+    // Decided on the way down: an empty spine runs as a plain slot.
+    assert_eq!(
+        fused(add(add(counter)))?,
+        "ExecuteSlot slot=0 parent=vortex.test.op(i32, len=0) child=vortex.test.op(i32, len=0)
+ExecuteSlot slot=0 parent=vortex.test.op(i32, len=0) child=vortex.test.counter(i32, len=0)"
+    );
     Ok(())
 }
 
@@ -664,7 +669,12 @@ fn parents_with_kernels_are_not_fused() -> VortexResult<()> {
     let (counter, _) = counter(0, 2000, 0);
     let mut ctx = session.create_execution_ctx();
     let traced = trace_op(|| add(add(counter)).execute::<PrimitiveArray>(&mut ctx))?;
-    assert!(!traced.trace.to_string().contains("fuse "));
+    // Decided on the way down: neither spine request can fuse, so both run as plain slots.
+    assert_eq!(
+        fusion_lines(&traced.trace.to_string()),
+        "ExecuteSlot slot=0 parent=vortex.test.op(i32, len=2000) child=vortex.test.op(i32, len=2000)
+ExecuteSlot slot=0 parent=vortex.test.op(i32, len=2000) child=vortex.test.counter(i32, len=2000)"
+    );
     assert_arrays_eq!(
         traced.output,
         PrimitiveArray::from_iter(2..2002i32),
