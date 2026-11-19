@@ -43,3 +43,7 @@ harness = false
 [[bench]]
 name = "alp_rd_take_chunked"
 harness = false
+
+[[bench]]
+name = "alp_fsl_take"
+harness = false
