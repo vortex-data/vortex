@@ -51,6 +51,7 @@ use vortex::scalar_fn::fns::cast::Cast;
 use vortex::session::VortexSession;
 
 use super::CudaDispatchPlan;
+use super::MAX_PLAN_BYTES;
 use super::MaterializedStage;
 use super::PTypeTag;
 use super::PTypeTag_PTYPE_F32;
@@ -58,6 +59,7 @@ use super::PTypeTag_PTYPE_F64;
 use super::SMEM_TILE_SIZE;
 use super::ScalarOp;
 use super::SourceOp;
+use super::packed_plan_size;
 use super::ptype_to_tag;
 use super::tag_to_ptype;
 use crate::CudaBufferExt;
@@ -342,6 +344,7 @@ impl DispatchPlan {
     /// - **RunEnd** with nullable ends is rejected (garbage values break the
     ///   binary search). RunEnd with ends wider than values is also rejected.
     /// - Validity is propagated from the root array to the output.
+    /// - Plans that exceed the shared memory limit or `MAX_PLAN_BYTES` fall back to `Unfused`.
     /// - Unrecognized encodings fall back to `Unfused`.
     pub fn new(array: &ArrayRef, mode: CudaDispatchMode) -> VortexResult<Self> {
         if mode == CudaDispatchMode::Auto && has_standalone_kernel(array) {
@@ -357,7 +360,7 @@ impl DispatchPlan {
             Err(_) => return Ok(Self::Unfused),
         };
 
-        if plan.exceeds_shared_mem_limit() {
+        if plan.exceeds_shared_mem_limit() || plan.exceeds_plan_size_limit() {
             return Ok(Self::Unfused);
         }
 
@@ -435,6 +438,22 @@ impl FusedPlan {
                 required,
                 limit = Self::MAX_SHARED_MEM_BYTES,
                 "shared memory limit exceeded, falling back to unfused dispatch"
+            );
+            return true;
+        }
+        false
+    }
+
+    /// Returns `true` if the packed plan does not fit the `DispatchPlanParam` kernel parameter,
+    /// logging a trace message when it does not.
+    fn exceeds_plan_size_limit(&self) -> bool {
+        let required =
+            packed_plan_size(self.stages.iter().map(|(stage, ..)| stage.scalar_ops.len()));
+        if required > MAX_PLAN_BYTES as usize {
+            trace!(
+                required,
+                limit = MAX_PLAN_BYTES,
+                "plan size limit exceeded, falling back to unfused dispatch"
             );
             return true;
         }

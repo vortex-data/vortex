@@ -8,7 +8,8 @@
 ///
 /// ## Stage plan
 ///
-/// The plan is packed as a variable-length byte buffer.
+/// The plan is packed as a variable-length byte buffer, passed to the kernel
+/// by value in a `DispatchPlanParam` kernel parameter.
 ///
 /// Layout (contiguous bytes):
 ///   [PlanHeader]
@@ -233,6 +234,19 @@ struct __attribute__((aligned(8))) PlanHeader {
     uint8_t num_stages;
     enum PTypeTag output_ptype; // PType of the final output array
     uint16_t plan_size_bytes;   // total size of the packed plan including this header
+};
+
+/// Capacity of `DispatchPlanParam` in bytes. Plans larger than this are not
+/// fused. Typical plans take 100-200 bytes, and kernel parameters are limited
+/// to 4 KB in total.
+#define MAX_PLAN_BYTES 1024
+
+/// The packed plan, passed to the kernel by value as a `__grid_constant__`
+/// parameter. Passing the plan by value avoids allocating and copying a
+/// device buffer for every launch, and threads read it through the constant
+/// cache. Bytes past `PlanHeader::plan_size_bytes` are unused.
+struct __attribute__((aligned(8))) DispatchPlanParam {
+    uint8_t bytes[MAX_PLAN_BYTES];
 };
 
 #ifdef __cplusplus

@@ -8,7 +8,7 @@
 // Vortex arrays are stored as nested encodings — e.g. ALP(FoR(BitPacked))
 // or Dict(codes=BitPacked, values=FoR(BitPacked)). This kernel walks
 // such a tree in a single launch by decomposing it into a linear sequence
-// of stages described by a packed plan buffer on the device.
+// of stages described by a packed plan passed as a kernel parameter.
 //
 // Each block produces ELEMENTS_PER_BLOCK output elements. Input stages
 // are fully decoded per block (every block independently decodes the
@@ -697,14 +697,14 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
     extern "C" __global__ void __launch_bounds__(BLOCK_SIZE, 32)                                             \
         dynamic_dispatch_##suffix(Type *__restrict output,                                                   \
                                   uint64_t array_len,                                                        \
-                                  const uint8_t *__restrict packed_plan) {                                   \
-        dynamic_dispatch<Type, false>(output, array_len, packed_plan);                                       \
+                                  const __grid_constant__ struct DispatchPlanParam plan) {                   \
+        dynamic_dispatch<Type, false>(output, array_len, plan.bytes);                                        \
     }                                                                                                        \
     extern "C" __global__ void __launch_bounds__(BLOCK_SIZE, 32)                                             \
         dynamic_dispatch_##suffix##_loop_ranges(Type *__restrict output,                                     \
                                                 uint64_t array_len,                                          \
-                                                const uint8_t *__restrict packed_plan) {                     \
-        dynamic_dispatch<Type, true>(output, array_len, packed_plan);                                        \
+                                                const __grid_constant__ struct DispatchPlanParam plan) {     \
+        dynamic_dispatch<Type, true>(output, array_len, plan.bytes);                                         \
     }
 
 FOR_EACH_UNSIGNED_INT(GENERATE_KERNEL)
