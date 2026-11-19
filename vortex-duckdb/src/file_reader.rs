@@ -645,11 +645,11 @@ pub fn reader_get_statistics(
         .as_any()
         .downcast_ref::<FileStatsLayoutReader>()?;
 
-    let (stats, dtype) = reader
-        .file_stats()
-        .get_by_path(&FieldPath::from_name(column))?;
+    let path = FieldPath::from_name(column);
+    let (stats, dtype) = reader.file_stats().get_by_path(&path)?;
 
-    let stats = ColumnStatisticsAggregate::new(stats);
+    let stats =
+        ColumnStatisticsAggregate::new(stats, reader.file_stats().max_length_by_path(&path));
     match ColumnStatistics::try_from(stats, dtype.clone()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
@@ -695,9 +695,10 @@ pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Optio
 
 /// Called by one thread for every footer in planning phase
 pub fn footer_get_statistics(footer: &Footer, column: &str) -> Option<ColumnStatistics> {
-    let stats = footer.statistics()?;
-    let (stats, dtype) = stats.get_by_path(&FieldPath::from_name(column))?;
-    let stats = ColumnStatisticsAggregate::new(stats);
+    let file_stats = footer.statistics()?;
+    let path = FieldPath::from_name(column);
+    let (stats, dtype) = file_stats.get_by_path(&path)?;
+    let stats = ColumnStatisticsAggregate::new(stats, file_stats.max_length_by_path(&path));
     match ColumnStatistics::try_from(stats, dtype.clone()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
