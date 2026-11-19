@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Builder for constructing a [`MultiLayoutDataSource`] from multiple Vortex files.
+//! Builder for constructing a [`MultiDataSource`] from multiple Vortex files.
 
 mod session;
 mod uri;
@@ -22,10 +22,10 @@ use vortex_error::vortex_bail;
 use vortex_io::VortexReadAt;
 use vortex_io::filesystem::FileListing;
 use vortex_io::filesystem::FileSystemRef;
-use vortex_layout::LayoutReaderRef;
-use vortex_layout::scan::multi::LayoutReaderFactory;
-use vortex_layout::scan::multi::MultiLayoutDataSource;
 use vortex_scan::DataSource;
+use vortex_scan::DataSourceRef;
+use vortex_scan::multi::DataSourceFactory;
+use vortex_scan::multi::MultiDataSource;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
@@ -33,7 +33,10 @@ use crate::VortexFile;
 use crate::VortexOpenOptions;
 
 /// A builder that discovers multiple Vortex files from glob patterns and constructs a
-/// [`MultiLayoutDataSource`] to scan them as a single data source.
+/// [`MultiDataSource`] to scan them as a single data source.
+///
+/// Each file is scanned through its own [`VortexFile::data_source`], so each file's partition
+/// runs on the planner-driven scan unless the file has a list layout.
 ///
 /// The primary interface is [`Self::with_glob`], which accepts a glob pattern and an optional
 /// filesystem. For non-local filesystems (S3, GCS, etc.), callers must provide a [`FileSystemRef`].
@@ -121,7 +124,7 @@ impl MultiFileDataSource {
     ///
     /// Discovers files via glob, opens the first file eagerly to determine the schema,
     /// and creates lazy factories for the remaining files.
-    pub async fn build(self) -> VortexResult<MultiLayoutDataSource> {
+    pub async fn build(self) -> VortexResult<MultiDataSource> {
         if self.glob_sources.is_empty() {
             vortex_bail!("MultiFileDataSource requires at least one glob pattern");
         }
@@ -173,28 +176,24 @@ impl MultiFileDataSource {
         let (first_file_listing, first_fs) = &all_files[0];
         let open_fn = self.open_options_fn.as_ref();
         let first_file = open_file(first_fs, first_file_listing, &self.session, open_fn).await?;
-        let first_reader = first_file.layout_reader()?;
+        let first_source = first_file.data_source()?;
 
         let byte_sizes: Vec<Option<u64>> = all_files.iter().map(|(file, _)| file.size).collect();
 
-        let factories: Vec<Arc<dyn LayoutReaderFactory>> = all_files[1..]
+        let factories: Vec<Arc<dyn DataSourceFactory>> = all_files[1..]
             .iter()
             .map(|(file, fs)| {
-                Arc::new(VortexFileReaderFactory {
+                Arc::new(VortexFileSourceFactory {
                     fs: Arc::clone(fs),
                     file: file.clone(),
                     session: self.session.clone(),
                     open_options_fn: Arc::clone(&self.open_options_fn),
-                }) as Arc<dyn LayoutReaderFactory>
+                }) as Arc<dyn DataSourceFactory>
             })
             .collect();
 
-        let inner = MultiLayoutDataSource::new_with_first(
-            first_reader,
-            factories,
-            byte_sizes,
-            &self.session,
-        );
+        let inner =
+            MultiDataSource::new_with_first(first_source, factories, byte_sizes, &self.session);
 
         debug!(file_count, dtype = %inner.dtype(), "built MultiFileDataSource");
 
@@ -274,8 +273,8 @@ pub async fn open_cached(
     Ok(file)
 }
 
-/// A [`LayoutReaderFactory`] that lazily opens a single Vortex file and returns its layout reader.
-struct VortexFileReaderFactory {
+/// A [`DataSourceFactory`] that lazily opens a single Vortex file and returns its data source.
+struct VortexFileSourceFactory {
     fs: FileSystemRef,
     file: FileListing,
     session: VortexSession,
@@ -283,8 +282,8 @@ struct VortexFileReaderFactory {
 }
 
 #[async_trait]
-impl LayoutReaderFactory for VortexFileReaderFactory {
-    async fn open(&self) -> VortexResult<Option<LayoutReaderRef>> {
+impl DataSourceFactory for VortexFileSourceFactory {
+    async fn open(&self) -> VortexResult<Option<DataSourceRef>> {
         let file = open_file(
             &self.fs,
             &self.file,
@@ -293,7 +292,7 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
         )
         .await?;
 
-        Ok(Some(file.layout_reader()?))
+        Ok(Some(file.data_source()?))
     }
 }
 
@@ -301,7 +300,11 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
 mod tests {
     use std::fmt;
 
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::expr::stats::Precision;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
@@ -309,6 +312,7 @@ mod tests {
     use vortex_io::filesystem::FileSystem;
     use vortex_io::session::RuntimeSession;
     use vortex_layout::session::LayoutSession;
+    use vortex_scan::ScanRequest;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -493,6 +497,67 @@ mod tests {
             fb.metadata_segment("k").map(ByteBuffer::as_slice),
             Some(b"file-b".as_slice())
         );
+        Ok(())
+    }
+
+    /// Each file is a partition, indexed by its position in the glob order.
+    #[tokio::test]
+    async fn test_build_scans_each_file_as_a_partition() -> VortexResult<()> {
+        let session = VortexSession::empty()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with::<MultiFileSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+
+        let mut out_a = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(
+                &mut out_a,
+                buffer![1u32, 2, 3].into_array().to_array_stream(),
+            )
+            .await?;
+        let mut out_b = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(&mut out_b, buffer![4u32, 5].into_array().to_array_stream())
+            .await?;
+        let fs: FileSystemRef = Arc::new(TwoFileSystem {
+            a: ByteBuffer::from(out_a),
+            b: ByteBuffer::from(out_b),
+        });
+
+        let source = MultiFileDataSource::new(session.clone())
+            .with_glob("a.vortex", Some(Arc::clone(&fs)))
+            .with_glob("b.vortex", Some(fs))
+            .build()
+            .await?;
+        assert_eq!(source.row_count(), Precision::inexact(6u64));
+
+        let partitions: Vec<_> = source
+            .scan(ScanRequest {
+                ordered: true,
+                ..Default::default()
+            })
+            .await?
+            .partitions()
+            .try_collect()
+            .await?;
+        let mut ctx = session.create_execution_ctx();
+        let mut files = Vec::new();
+        for partition in partitions {
+            let index = partition.index();
+            let arrays: Vec<ArrayRef> = partition.execute()?.try_collect().await?;
+            let mut values = Vec::new();
+            for array in arrays {
+                values.extend_from_slice(
+                    array.execute::<PrimitiveArray>(&mut ctx)?.as_slice::<u32>(),
+                );
+            }
+            files.push((index, values));
+        }
+        assert_eq!(files, vec![(0, vec![1, 2, 3]), (1, vec![4, 5])]);
         Ok(())
     }
 }

@@ -24,6 +24,7 @@
 
 pub mod arrays;
 pub mod execution;
+pub mod multi;
 pub mod plan;
 pub mod planning;
 pub mod prepare;
