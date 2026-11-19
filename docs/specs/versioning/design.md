@@ -135,11 +135,18 @@ The flat file writer used to serialize the tree chosen by the plugins and fail i
 forbidden wire ID. The writer now retries from the source array when it sees a forbidden wire ID.
 It tries a structural rewrite before taking an execution step.
 
+The legacy `vortex.decimal` format records the stored integer type in the node metadata. The
+enclosing format supplies the logical decimal dtype, which includes precision and scale. Keeping
+these separate let older writers use a narrower buffer than the logical precision's canonical
+width. A `DecimalArray` now has the canonical width for its precision in memory, and
+`Widen(Decimal(...))` represents a narrower buffer. The legacy format already allows that width
+difference, so the writer can reuse the Decimal leaf's buffer and validity in a single
+`vortex.decimal` node.
+
 For example, a core edition can permit `vortex.dict` and `vortex.decimal` while forbidding
 `vortex.widen`. Previously, `Widen(Dict(codes, values))` needed `vortex.widen` and the write failed.
 The writer can now rewrite it to `Dict(codes, Widen(values))`. When the values are a narrow Decimal
-leaf, the serializer for `Widen` writes it as `vortex.decimal`. The file keeps both the dictionary
-codes and the narrow value buffer.
+leaf, the file keeps the dictionary codes and stores the value buffer as legacy `vortex.decimal`.
 
 If that Decimal leaf stores its validity as an array, the serializer emits the validity as a
 direct child of the `vortex.decimal` node. In the source array, the validity is a grandchild of
