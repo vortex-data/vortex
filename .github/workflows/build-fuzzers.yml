@@ -14,7 +14,7 @@ on:
         value: ${{ jobs.build.outputs.artifact_name }}
 
 env:
-  NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+  NIGHTLY_TOOLCHAIN: nightly-2026-11-13
 
 jobs:
   build:
@@ -32,9 +32,9 @@ jobs:
     outputs:
       artifact_name: ${{ steps.artifact.outputs.name }}
     steps:
-      - uses: runs-on/action@v2
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - parallel:
+          - uses: runs-on/action@v2
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - uses: ./.github/actions/build-fuzzers
         with:

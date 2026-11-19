@@ -21,10 +21,17 @@ The contribution process is outlined below:
 1. Start a discussion by creating or commenting on a GitHub Issue (unless it's a very minor change).
 
 2. Implement the change.
-   - If the change is large, consider posting a draft pull request (PR)
-     with the title prefixed with [WIP], and share with the team to get early feedback.
-   - Give the PR a clear, brief description; this will be the commit
-     message when the PR is merged.
+   - If the change is large, consider opening a draft pull request (PR) and sharing it with the
+     team to get early feedback.
+   - Explain why the change is needed and why this approach was chosen, usually in 1–3 sentences.
+     Reviewers can read the diff to see what changed. Summarize what changed only when the diff
+     is large enough that reviewers need guidance on where to focus. With the title, the
+     description becomes the commit message when the PR is squash-merged.
+   - Link relevant design documents and tracking issues. If the change is complex or only makes
+     sense in the context of other changes, create a tracking issue if none exists. Create any
+     supporting documentation the change needs, and link it from the PR.
+   - Write the title in the imperative mood, in 72 characters or fewer, without a `feat:`-style
+     prefix; the required `changelog/*` label categorizes the PR.
    - For significant new functionality, ensure that you write tests to cover that new functionality. Similarly,
      for bugfixes, include a test that reproduces the original bug (and that should now pass after the fix).
    - Make sure the PR passes all CI tests.

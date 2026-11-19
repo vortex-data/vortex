@@ -8,7 +8,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
@@ -38,9 +37,7 @@ impl Time {
     ///
     /// Note that Days units are not supported for Time.
     pub fn try_new(time_unit: TimeUnit, nullability: Nullability) -> VortexResult<ExtDType<Self>> {
-        let ptype = time_ptype(&time_unit)
-            .ok_or_else(|| vortex_err!("Time type does not support time unit {}", time_unit))?;
-        ExtDType::try_new(time_unit, DType::Primitive(ptype, nullability))
+        ExtDType::try_new(time_unit, nullability)
     }
 
     /// Creates a new Time extension dtype with the given time unit and nullability.
@@ -78,6 +75,7 @@ impl fmt::Display for TimeValue {
 
 impl ExtVTable for Time {
     type Metadata = TimeUnit;
+    type StoredMetadata = Self::Metadata;
 
     type NativeValue<'a> = TimeValue;
 
@@ -90,24 +88,30 @@ impl ExtVTable for Time {
         Ok(vec![u8::from(*metadata)])
     }
 
-    fn deserialize_metadata(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize_metadata(&self, data: &[u8]) -> VortexResult<Self::StoredMetadata> {
         vortex_ensure!(!data.is_empty(), "Time metadata must not be empty");
         let tag = data[0];
         TimeUnit::try_from(tag)
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        let metadata = ext_dtype.metadata();
-        let ptype = time_ptype(metadata)
-            .ok_or_else(|| vortex_err!("Time type does not support time unit {}", metadata))?;
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        _storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(stored_metadata)
+    }
 
-        let DType::Primitive(storage_ptype, _) = ext_dtype.storage_dtype() else {
-            vortex_bail!(
-                "Time storage dtype must be primitive, got {}",
-                ext_dtype.storage_dtype()
-            );
-        };
-        vortex_ensure_eq!(*storage_ptype, ptype);
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        let ptype = time_ptype(metadata).vortex_expect("Time::validate_metadata rejects days");
+        DType::Primitive(ptype, Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
+        vortex_ensure!(
+            time_ptype(metadata).is_some(),
+            "Time time unit must be finer than days, got {metadata}"
+        );
 
         Ok(())
     }
@@ -158,7 +162,7 @@ mod tests {
 
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
-    use crate::dtype::extension::ExtDType;
+    use crate::dtype::extension::ExtDTypePlugin;
     use crate::extension::datetime::Time;
     use crate::extension::datetime::TimeUnit;
     use crate::scalar::PValue;
@@ -174,8 +178,13 @@ mod tests {
     }
 
     #[test]
-    fn test_reject_non_primitive_storage() {
-        assert!(ExtDType::<Time>::try_new(TimeUnit::Seconds, DType::Utf8(Nullable),).is_err());
+    fn test_read_rejects_non_primitive_storage() {
+        let result = Time.deserialize(&[u8::from(TimeUnit::Seconds)], DType::Utf8(Nullable));
+        assert!(result.is_err_and(|error| {
+            error
+                .to_string()
+                .contains("vortex.time storage must be i32?, got utf8?")
+        }));
     }
 
     #[test]

@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use arrow_array::Array;
+use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::BooleanArray;
 use arrow_array::DictionaryArray;
 use arrow_array::FixedSizeBinaryArray;
@@ -63,6 +64,8 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::PType;
 use vortex::encodings::uuid::Uuid;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::expr::between;
 use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::scalar::Scalar;
@@ -71,11 +74,76 @@ use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::cast::Cast;
 use vortex::scalar_fn::fns::list_contains::ListContains;
 use vortex::scalar_fn::fns::literal::Literal;
+use vortex::session::registry::CachedId;
+use vortex::session::registry::Id;
 use vortex_array::assert_arrays_eq;
+use vortex_arrow::ArrowImport;
+use vortex_arrow::ArrowImportVTable;
+use vortex_arrow::ArrowSession;
 
 use super::*;
 use crate::common_tests::TestSessionContext;
 use crate::convert::TryToDataFusion;
+
+#[test]
+fn test_row_index_conversion_and_raw_projection() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new(
+        "__vortex_row_index",
+        DataType::Int32,
+        false,
+    )]);
+    let expr = crate::row_index();
+    assert_eq!(expr.data_type(&schema)?, DataType::UInt64);
+    assert!(!expr.nullable(&schema)?);
+    assert!(expr.is_volatile_node());
+    assert!(expr.children().is_empty());
+    assert!(
+        expr.evaluate(&RecordBatch::new_empty(Arc::new(schema.clone())))
+            .is_err()
+    );
+    assert!(
+        Arc::clone(&expr)
+            .with_new_children(vec![Arc::clone(&expr)])
+            .is_err()
+    );
+    assert!(Arc::ptr_eq(
+        &Arc::clone(&expr).with_new_children(vec![])?,
+        &expr
+    ));
+    let converter = DefaultExpressionConverter::default();
+    assert_eq!(
+        converter.try_convert(&expr, &schema)?,
+        Some(row_idx::row_idx())
+    );
+
+    // A nested row-index leaf must be rewritten even when its output alias collides
+    // with a real file column and projection pushdown is disabled.
+    let nested: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        expr,
+        DFOperator::Plus,
+        Arc::new(df_expr::Literal::new(ScalarValue::UInt64(Some(1)))),
+    ));
+    let processed = converter.no_pushdown_projection(
+        vec![ProjectionExpr::new(nested, "__vortex_row_index")].into(),
+        &schema,
+    )?;
+    assert_eq!(
+        processed.scan_reference_schema.field(0).name(),
+        "__vortex_row_index_"
+    );
+    assert_eq!(
+        processed.scan_reference_schema.field(0).data_type(),
+        &DataType::UInt64
+    );
+    assert!(!processed.scan_reference_schema.field(0).is_nullable());
+    let columns = collect_columns(&processed.leftover_projection.as_ref()[0].expr);
+    assert_eq!(columns.len(), 1);
+    assert_eq!(
+        columns.iter().next().expect("row-index column").name(),
+        "__vortex_row_index_"
+    );
+    Ok(())
+}
 
 #[rstest::fixture]
 fn test_schema() -> Schema {
@@ -798,6 +866,65 @@ fn test_literal_preserves_extension_metadata(
             )
         );
     }
+    Ok(())
+}
+
+const REJECT_VALUE_EXTENSION_NAME: &str = "test.reject_value";
+static REJECT_VALUE_ID: CachedId = CachedId::new(REJECT_VALUE_EXTENSION_NAME);
+
+/// An Arrow importer that accepts every field with its extension name and rejects every value.
+#[derive(Debug)]
+struct ValueRejectingImporter;
+
+impl ArrowImportVTable for ValueRejectingImporter {
+    fn arrow_ext_id(&self) -> Id {
+        *REJECT_VALUE_ID
+    }
+
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
+        session
+            .from_arrow_datatype(field.data_type(), field.is_nullable().into())
+            .map(Some)
+    }
+
+    fn from_arrow_array(
+        &self,
+        _array: ArrowArrayRef,
+        _field: &Field,
+        _dtype: &DType,
+        _session: &ArrowSession,
+    ) -> VortexResult<ArrowImport> {
+        vortex_bail!("{REJECT_VALUE_EXTENSION_NAME} rejects every value")
+    }
+}
+
+/// A literal whose field an Arrow importer accepts but whose value it rejects stays in DataFusion
+/// instead of failing the conversion.
+#[test]
+fn test_literal_rejected_by_importer_is_unsupported() -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    session
+        .arrow()
+        .register_importer(Arc::new(ValueRejectingImporter));
+    let field = Field::new("v", DataType::Int32, false).with_metadata(
+        [(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            REJECT_VALUE_EXTENSION_NAME.to_string(),
+        )]
+        .into(),
+    );
+    let literal = Arc::new(df_expr::Literal::new_with_metadata(
+        ScalarValue::Int32(Some(1)),
+        Some(FieldMetadata::new_from_field(&field)),
+    )) as Arc<dyn PhysicalExpr>;
+
+    let converted =
+        DefaultExpressionConverter::new(session).try_convert(&literal, &Schema::empty())?;
+    assert!(converted.is_none());
     Ok(())
 }
 

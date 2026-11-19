@@ -82,6 +82,7 @@ use vortex::editions::EditionFamily;
 use vortex::editions::EditionId;
 use vortex::editions::EditionMember;
 use vortex::editions::EditionSessionExt;
+use vortex::editions::UNSTABLE;
 pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
@@ -117,6 +118,16 @@ static UNSTABLE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[EditionMember::layout(&"vortex.list")],
 };
 
+/// Enables the [`UNSTABLE`] edition on `session`, so its compressor may also choose the unstable
+/// encodings.
+///
+/// Every benchmark session calls this, so benchmarks measure Vortex files written with them.
+pub fn enable_unstable_encodings(session: &VortexSession) {
+    session
+        .enable_edition(UNSTABLE)
+        .vortex_expect("unstable edition is registered");
+}
+
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
@@ -127,6 +138,7 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
         .register_edition(&UNSTABLE_BENCH_DECLARATION)
         .vortex_expect("bench edition declaration is valid");
+    enable_unstable_encodings(&session);
     session
 });
 

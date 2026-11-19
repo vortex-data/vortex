@@ -306,10 +306,7 @@ pub struct PcoSlots {
 pub trait PcoArrayExt: TypedArrayRef<Pco> {
     /// Reconstruct the unsliced [`Validity`] from the validity slot.
     fn unsliced_validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[PcoSlots::VALIDITY_CHILD].as_ref(),
-            self.dtype().nullability(),
-        )
+        child_to_validity(self.validity_child(), self.dtype().nullability())
     }
 }
 impl<T: TypedArrayRef<Pco>> PcoArrayExt for T {}

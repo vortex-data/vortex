@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![expect(clippy::cast_possible_truncation)]
+
+mod scan_metrics;
+
 use std::fs;
 use std::iter;
 use std::sync::Arc;
@@ -35,9 +38,11 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::Widen;
 use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::arrays::widen::WidenArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
 use vortex_array::dtype::DType;
@@ -89,6 +94,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_decimal_byte_parts::DecimalBytePartsArraySlotsExt;
+use vortex_edition::ComponentKind;
 use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
@@ -117,6 +123,7 @@ use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::session::LayoutSession;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
+use vortex_session::registry::Id;
 use vortex_zigzag::ZigZag;
 
 use crate::MAX_POSTSCRIPT_SIZE;
@@ -171,17 +178,18 @@ async fn test_eof_values() {
     assert_eq!(V1_FOOTER_FBS_SIZE, 32);
 }
 
-// Optional encodings affect both compression choices and the registry stored in the footer.
+// Optional encodings can change compression choices. The footer lists every permitted wire ID,
+// so adding one can increase the file size for the same input.
 #[rstest]
 #[case::default(
     BtrBlocksCompressorBuilder::from_session(&SESSION),
-    if cfg!(feature = "zstd") { 70_012 } else { 69_948 }
+    if cfg!(feature = "zstd") { 70_044 } else { 69_980 }
 )]
 #[cfg_attr(
     feature = "zstd",
     case::compact(
         BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-        55_096
+        55_128
     )
 )]
 #[tokio::test]
@@ -275,17 +283,58 @@ async fn test_decimal_widen_default_writer_roundtrip(
         buffer![-125i16, 50, 0, 250, 900],
         DecimalDType::new(4, 2),
         validity.clone(),
+        &mut ctx,
     );
     let dtype = DType::Decimal(decimal_dtype, validity.nullability());
     let widened = WidenArray::try_new(values.into_array(), dtype)?.into_array();
     let array = StructArray::from_fields(&[("decimal", widened)])?.into_array();
-    let expected_values =
-        DecimalArray::new(buffer![-125i64, 50, 0, 250, 900], decimal_dtype, validity);
+    let expected_values = DecimalArray::new(
+        buffer![-125i64, 50, 0, 250, 900],
+        decimal_dtype,
+        validity,
+        &mut ctx,
+    );
     let expected = StructArray::from_fields(&[("decimal", expected_values.into_array())])?;
 
     let actual = write_read_roundtrip(array).await?;
 
     assert_arrays_eq!(actual, expected, &mut ctx);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_integer_widen_file_round_trip() -> VortexResult<()> {
+    let values = buffer![-7i8, 0, 42].into_array();
+    let array = WidenArray::try_new(values, DType::from(PType::I64))?.into_array();
+    let mut file_bytes = ByteBufferMut::empty();
+
+    // Bypass compression so the writer sees the Widen supplied by the caller.
+    SESSION
+        .write_options()
+        .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+        .write(&mut file_bytes, array.to_array_stream())
+        .await?;
+
+    let actual = SESSION
+        .open_options()
+        .open_buffer(file_bytes)?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?;
+
+    assert!(
+        actual
+            .depth_first_traversal()
+            .any(|array| array.is::<Widen>())
+    );
+    assert_arrays_eq!(
+        actual,
+        buffer![-7i64, 0, 42].into_array(),
+        &mut SESSION.create_execution_ctx()
+    );
 
     Ok(())
 }
@@ -321,6 +370,7 @@ async fn decimal_writer_uses_default_or_session_restrictions(
                 .collect::<Buffer<i256>>(),
             DecimalDType::new(76, 2),
             Validity::NonNullable,
+            &mut session.create_execution_ctx(),
         )
     } else {
         DecimalArray::new(
@@ -329,6 +379,7 @@ async fn decimal_writer_uses_default_or_session_restrictions(
                 .collect::<Buffer<i128>>(),
             DecimalDType::new(38, 2),
             Validity::NonNullable,
+            &mut session.create_execution_ctx(),
         )
     }
     .into_array();
@@ -371,15 +422,19 @@ async fn decimal_writer_uses_default_or_session_restrictions(
                 .as_opt::<DecimalByteParts>()
                 .is_some_and(|parts| !parts.lower_parts().is_empty())
         });
-        assert_eq!(uses_v2, (disable_editions || unstable) && !custom_strategy);
+        let v2_permitted = disable_editions
+            || session
+                .enabled_component_ids(ComponentKind::Array)
+                .contains(&Id::from("vortex.decimal_byte_parts.v2"));
+        assert_eq!(uses_v2, v2_permitted && !custom_strategy);
         assert_arrays_eq!(array, actual, &mut session.create_execution_ctx());
     }
     Ok(())
 }
 
 /// A wide decimal with unique values is not dictionary encoded by the dict layout, but its byte
-/// parts are still compressed with every scheme, so the low-cardinality most significant part can
-/// use an integer dictionary.
+/// parts are still compressed with every scheme. The low-cardinality most significant part is a
+/// [`Widen`] over narrow values, and those values can use an integer dictionary.
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn rejected_decimal_keeps_nested_int_dict() -> VortexResult<()> {
@@ -389,7 +444,12 @@ async fn rejected_decimal_keeps_nested_int_dict() -> VortexResult<()> {
             (distinct[(i * 7 + i / 3) % distinct.len()] << 64) + i128::try_from(i * 31).unwrap()
         })
         .collect::<Buffer<i128>>();
-    let decimal = DecimalArray::new(values, DecimalDType::new(38, 2), Validity::NonNullable);
+    let decimal = DecimalArray::new(
+        values,
+        DecimalDType::new(38, 2),
+        Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
+    );
     let array = StructArray::from_fields(&[("decimal", decimal.into_array())])?.into_array();
 
     let mut buffer = ByteBufferMut::empty();
@@ -408,13 +468,16 @@ async fn rejected_decimal_keeps_nested_int_dict() -> VortexResult<()> {
         .read_all()
         .await?;
     let has_dict_msp = actual.depth_first_traversal().any(|array| {
-        array
-            .as_opt::<DecimalByteParts>()
-            .is_some_and(|parts| parts.msp().is::<Dict>())
+        array.as_opt::<DecimalByteParts>().is_some_and(|parts| {
+            parts
+                .msp()
+                .as_opt::<Widen>()
+                .is_some_and(|msp| msp.values().is::<Dict>())
+        })
     });
     assert!(
         has_dict_msp,
-        "expected a dict-encoded msp in {}",
+        "expected a Widen msp over dict-encoded values in {}",
         actual.display_tree()
     );
     assert_arrays_eq!(actual, array, &mut SESSION.create_execution_ctx());
@@ -424,6 +487,7 @@ async fn rejected_decimal_keeps_nested_int_dict() -> VortexResult<()> {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_round_trip_many_types() {
+    let mut ctx = SESSION.create_execution_ctx();
     let strings = VarBinArray::from(vec!["ab", "foo", "bar"]).into_array();
 
     let numbers = buffer![1u32, 2, 3].into_array();
@@ -432,6 +496,7 @@ async fn test_round_trip_many_types() {
         buffer![100i8, 10i8, 2i8],
         DecimalDType::new(2, 1),
         Validity::from_iter([false, true, false]),
+        &mut ctx,
     )
     .into_array();
 
@@ -439,6 +504,7 @@ async fn test_round_trip_many_types() {
         buffer![100i16, 10i16, 2i16],
         DecimalDType::new(4, 2),
         Validity::from_iter([false, true, false]),
+        &mut ctx,
     )
     .into_array();
 
@@ -446,6 +512,7 @@ async fn test_round_trip_many_types() {
         buffer![100i32, 10i32, 2i32],
         DecimalDType::new(9, 2),
         Validity::from_iter([false, true, false]),
+        &mut ctx,
     )
     .into_array();
 
@@ -453,6 +520,7 @@ async fn test_round_trip_many_types() {
         buffer![100i64, 10i64, 20234i64],
         DecimalDType::new(17, 2),
         Validity::from_iter([false, true, false]),
+        &mut ctx,
     )
     .into_array();
 
@@ -460,6 +528,7 @@ async fn test_round_trip_many_types() {
         buffer![100i128, 139348340i128, 23943942i128],
         DecimalDType::new(35, 2),
         Validity::from_iter([true, false, false]),
+        &mut ctx,
     )
     .into_array();
 
@@ -496,7 +565,7 @@ async fn test_round_trip_many_types() {
 
     let read = ChunkedArray::try_new(chunks, dtype).unwrap();
 
-    assert_arrays_eq!(read, st, &mut SESSION.create_execution_ctx());
+    assert_arrays_eq!(read, st, &mut ctx);
 }
 
 #[tokio::test]
@@ -2556,6 +2625,67 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
         Precision::exact(ScalarValue::from(0u64))
     );
     assert_eq!(summary.row_count(), 5);
+
+    Ok(())
+}
+
+#[rstest]
+#[case::legacy_only(false)]
+#[case::nested(true)]
+#[tokio::test]
+async fn field_file_statistics_record_only_the_selected_fields(
+    #[case] nested: bool,
+) -> VortexResult<()> {
+    let array = StructArray::from_fields(&[
+        ("a", buffer![1u32, 2, 3].into_array()),
+        ("b", buffer![4u32, 5, 6].into_array()),
+    ])?
+    .into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    let mut options = SESSION
+        .write_options()
+        .with_file_statistics(vec![])
+        .with_field_file_statistics(
+            FieldPath::from_name("a"),
+            vec![
+                Stat::Max
+                    .aggregate_fn()
+                    .vortex_expect("max has an aggregate fn"),
+            ],
+        );
+    if nested {
+        options = options.include_nested_statistics();
+    }
+    options.write(&mut buf, array.to_array_stream()).await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let file_stats = file
+        .file_stats()
+        .vortex_expect("file statistics were written");
+    let (a, _) = file_stats.get(0);
+    assert_eq!(
+        stat_value(a, Stat::Max),
+        Precision::exact(ScalarValue::from(3u32))
+    );
+    assert!(stat_value(a, Stat::Min).is_absent());
+    assert!(stat_value(a, Stat::NullCount).is_absent());
+    let (b, _) = file_stats.get(1);
+    assert!(b.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn field_file_statistics_reject_unknown_fields() -> VortexResult<()> {
+    let array = StructArray::from_fields(&[("a", buffer![1u32, 2, 3].into_array())])?.into_array();
+
+    let result = SESSION
+        .write_options()
+        .with_field_file_statistics(FieldPath::from_name("missing"), pruning_aggregate_fns())
+        .write(ByteBufferMut::empty(), array.to_array_stream())
+        .await;
+    assert!(result.is_err());
 
     Ok(())
 }

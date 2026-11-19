@@ -15,8 +15,10 @@ use vortex_error::vortex_ensure;
 
 use crate::Delta;
 
+pub(crate) mod chunks;
 pub mod delta_compress;
 pub mod delta_decompress;
+mod transpose;
 
 #[array_slots(Delta)]
 pub struct DeltaSlots {

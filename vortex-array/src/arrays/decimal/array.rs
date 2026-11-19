@@ -4,16 +4,14 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use itertools::Itertools;
 use smallvec::smallvec;
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
@@ -29,9 +27,11 @@ use crate::array_slots;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::decimal::cast_value_in_precision;
+use crate::arrays::decimal::check_precision;
+use crate::arrays::decimal::precision_bounds;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::buffer::BufferHandle;
-use crate::dtype::BigCast;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
@@ -50,69 +50,48 @@ pub struct DecimalSlots {
     pub validity_child: Option<ArrayRef>,
 }
 
-/// A decimal array that stores fixed-precision decimal numbers with configurable scale.
+/// The decimal dtype and values buffer of a [`DecimalArray`].
 ///
-/// This mirrors the Apache Arrow Decimal encoding and provides exact arithmetic for
-/// financial and scientific computations where floating-point precision loss is unacceptable.
+/// A valid row stores a signed integer whose logical value is `integer / 10^scale`. The
+/// precision determines the integer type through [`DecimalDType::canonical_values_type`].
 ///
-/// ## Storage Format
+/// | Precision | Integer type |
+/// |-----------|--------------|
+/// | 1 to 2    | `i8`         |
+/// | 3 to 4    | `i16`        |
+/// | 5 to 9    | `i32`        |
+/// | 10 to 18  | `i64`        |
+/// | 19 to 38  | `i128`       |
+/// | 39 to 76  | `i256`       |
 ///
-/// Decimals are stored as scaled integers in a supported scalar value type.
-///
-/// The canonical widths for each precision are:
-/// - **i8**: precision 1-2 digits
-/// - **i16**: precision 3-4 digits
-/// - **i32**: precision 5-9 digits
-/// - **i64**: precision 10-18 digits
-/// - **i128**: precision 19-38 digits
-/// - **i256**: precision 39-76 digits
-///
-/// Storage width is still independent of precision during the canonical decimal migration.
-/// Existing `vortex.decimal` nodes and DecimalByteParts assembly can produce noncanonical storage.
-/// For example, an array with precision 39 can currently use an `i8` buffer when all values fit,
-/// while an array with precision 2 can use a `Buffer<i256>`. [`DecimalDataParts`] preserves the
-/// actual width for conversion into canonical decimal leaves, optionally under
-/// [`Widen`](crate::arrays::Widen).
-///
-/// ## Precision and Scale
-///
-/// - **Precision**: Total number of significant digits (1-76, u8 range)
-/// - **Scale**: Number of digits after the decimal point (-128 to 127, i8 range)
-/// - **Value**: `stored_integer / 10^scale`
-///
-/// For example, with precision=5 and scale=2:
-/// - Stored value 12345 represents 123.45
-/// - Range: -999.99 to 999.99
-///
-/// ## Valid Scalar Types
-///
-/// Canonical decimal leaves select one of these native types from precision:
-/// - `DecimalType::I8`, `I16`, `I32`, `I64`, `I128`, `I256`
-/// - Type selection is automatic based on the required precision
+/// The `vortex.decimal` wire format records the stored width separately. The reader uses
+/// [`DecimalDataParts`] to convert a different width to a canonical leaf or to a
+/// [`Widen`](crate::arrays::Widen) over a lower-precision leaf.
 ///
 /// # Examples
 ///
 /// ```
+/// use vortex_array::VortexSessionExecute;
 /// use vortex_array::arrays::DecimalArray;
 /// use vortex_array::dtype::DecimalDType;
-/// use vortex_buffer::{buffer, Buffer};
 /// use vortex_array::validity::Validity;
+/// use vortex_buffer::buffer;
+/// use vortex_session::VortexSession;
 ///
-/// // Create a decimal array with precision=5, scale=2 (e.g., 123.45)
 /// let decimal_dtype = DecimalDType::new(5, 2);
-/// let values = buffer![12345i32, 67890i32, -12300i32]; // 123.45, 678.90, -123.00
-/// let array = DecimalArray::new(values, decimal_dtype, Validity::NonNullable);
+/// let values = buffer![12345i32, 67890i32, -12300i32];
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
+/// let array = DecimalArray::try_new(values, decimal_dtype, Validity::NonNullable, &mut ctx)?;
 ///
 /// assert_eq!(array.precision(), 5);
 /// assert_eq!(array.scale(), 2);
 /// assert_eq!(array.len(), 3);
+/// # Ok::<(), vortex_error::VortexError>(())
 /// ```
 #[derive(Clone, Debug)]
 pub struct DecimalData {
     pub(super) decimal_dtype: DecimalDType,
     pub(super) values: BufferHandle,
-    /// Actual storage type, including noncanonical widths still accepted during the migration.
-    pub(super) values_type: DecimalType,
 }
 
 impl Display for DecimalData {
@@ -120,7 +99,8 @@ impl Display for DecimalData {
         write!(
             f,
             "decimal_dtype: {}, values_type: {}",
-            self.decimal_dtype, self.values_type
+            self.decimal_dtype,
+            self.values_type()
         )
     }
 }
@@ -133,9 +113,10 @@ pub struct DecimalDataParts {
     pub values: BufferHandle,
     /// Actual storage type, retained to interpret input before canonical conversion.
     ///
-    /// Legacy `vortex.decimal` nodes and DecimalByteParts assembly can use a different width from
+    /// Legacy `vortex.decimal` nodes can use a different width from
     /// [`DecimalDType::canonical_values_type`]. Comparing the widths identifies noncanonical
-    /// storage, not the age of the data: current [`WidenPlugin`] writes use that wire form too.
+    /// storage, not the age of the data. Current [`WidenPlugin`] writes store noncanonical widths
+    /// too.
     ///
     /// [`WidenPlugin`]: crate::arrays::widen::WidenPlugin
     pub values_type: DecimalType,
@@ -158,19 +139,12 @@ pub trait DecimalArrayExt: TypedArrayRef<Decimal> {
         }
     }
 
-    fn validity_child(&self) -> Option<&ArrayRef> {
-        self.slots()[DecimalSlots::VALIDITY_CHILD].as_ref()
-    }
-
     fn validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[DecimalSlots::VALIDITY_CHILD].as_ref(),
-            self.nullability(),
-        )
+        child_to_validity(self.validity_child(), self.nullability())
     }
 
     fn values_type(&self) -> DecimalType {
-        self.values_type
+        DecimalData::values_type(self)
     }
 
     fn precision(&self) -> u8 {
@@ -193,122 +167,22 @@ impl<T: TypedArrayRef<Decimal>> DecimalArrayExt for T {}
 
 impl DecimalData {
     /// Build the slots vector for this array.
-    pub(super) fn make_slots(validity: &Validity, len: usize) -> ArraySlots {
+    fn make_slots(validity: &Validity, len: usize) -> ArraySlots {
         smallvec![validity_to_child(validity, len)]
     }
 
-    /// Creates a new [`DecimalArray`] using a host-native buffer.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the provided components do not satisfy the invariants documented in
-    /// [`DecimalArray::new_unchecked`].
-    pub fn new<T: NativeDecimalType>(buffer: Buffer<T>, decimal_dtype: DecimalDType) -> Self {
-        Self::try_new(buffer, decimal_dtype).vortex_expect("DecimalArray construction failed")
-    }
-
-    /// Creates a new [`DecimalArray`] from a [`BufferHandle`] of values that may live in
-    /// host or device memory.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the provided components do not satisfy the invariants documented in
-    /// [`DecimalArray::new_unchecked`].
-    pub fn new_handle(
-        values: BufferHandle,
+    pub(super) fn validate_width(
         values_type: DecimalType,
         decimal_dtype: DecimalDType,
-    ) -> Self {
-        Self::try_new_handle(values, values_type, decimal_dtype)
-            .vortex_expect("DecimalArray construction failed")
-    }
-
-    /// Constructs a new `DecimalArray`.
-    ///
-    /// See [`DecimalArray::new_unchecked`] for more information.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// [`DecimalArray::new_unchecked`].
-    pub fn try_new<T: NativeDecimalType>(
-        buffer: Buffer<T>,
-        decimal_dtype: DecimalDType,
-    ) -> VortexResult<Self> {
-        let values = BufferHandle::new_host(buffer.into_byte_buffer());
-        let values_type = T::DECIMAL_TYPE;
-
-        Self::try_new_handle(values, values_type, decimal_dtype)
-    }
-
-    /// Constructs a new `DecimalArray` with validation from a [`BufferHandle`].
-    ///
-    /// This pathway allows building new decimal arrays that may come from host or device memory.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the buffer length is not a multiple of the width of `values_type`, or
-    /// if the buffer is not aligned to that width.
-    pub fn try_new_handle(
-        values: BufferHandle,
-        values_type: DecimalType,
-        decimal_dtype: DecimalDType,
-    ) -> VortexResult<Self> {
-        Self::validate(&values, values_type)?;
-
-        // SAFETY: `validate` checks the buffer layout. Values outside the declared precision can
-        // produce incorrect results, but do not affect memory safety.
-        Ok(unsafe { Self::new_unchecked_handle(values, values_type, decimal_dtype) })
-    }
-
-    /// Creates a new [`DecimalArray`] without validation from these components:
-    ///
-    /// * `buffer` is a typed buffer containing the decimal values.
-    /// * `decimal_dtype` specifies the decimal precision and scale.
-    ///
-    /// Values are not checked against the precision of `decimal_dtype`, either here, in
-    /// [`DecimalArray::try_new`], or when an array is read from a file. Code that turns stored values
-    /// into scalars must use a fallible path such as
-    /// [`Scalar::try_decimal`](crate::scalar::Scalar::try_decimal).
-    ///
-    /// # Safety
-    ///
-    /// `buffer` is a typed [`Buffer<T>`], so there are no further requirements on the caller.
-    pub unsafe fn new_unchecked<T: NativeDecimalType>(
-        buffer: Buffer<T>,
-        decimal_dtype: DecimalDType,
-    ) -> Self {
-        // SAFETY: new_unchecked_handle inherits the safety guarantees of new_unchecked
-        unsafe {
-            Self::new_unchecked_handle(
-                BufferHandle::new_host(buffer.into_byte_buffer()),
-                T::DECIMAL_TYPE,
-                decimal_dtype,
-            )
-        }
-    }
-
-    /// Create a new array with decimal values backed by the given buffer handle.
-    ///
-    /// As with [`DecimalArray::new_unchecked`], values are not checked against the precision of
-    /// `decimal_dtype`.
-    ///
-    /// # Safety
-    ///
-    /// - The length of `values` must be a multiple of the byte width of `values_type`.
-    /// - `values` must be aligned to the native type of `values_type`.
-    ///
-    /// Breaking either rule does not cause undefined behavior, but [`DecimalData::buffer`] panics.
-    pub unsafe fn new_unchecked_handle(
-        values: BufferHandle,
-        values_type: DecimalType,
-        decimal_dtype: DecimalDType,
-    ) -> Self {
-        Self {
-            decimal_dtype,
-            values,
+    ) -> VortexResult<()> {
+        let canonical = decimal_dtype.canonical_values_type();
+        vortex_ensure_eq!(
             values_type,
-        }
+            canonical,
+            "{decimal_dtype} requires {canonical} values, got {values_type}",
+        );
+
+        Ok(())
     }
 
     /// Validates the layout of a decimal values buffer.
@@ -334,32 +208,9 @@ impl DecimalData {
         Ok(())
     }
 
-    /// Creates a new [`DecimalArray`] from a raw byte buffer without validation.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure:
-    /// - The `byte_buffer` contains valid data for the specified `values_type`
-    /// - The buffer length is compatible with the `values_type` (i.e., divisible by the type size)
-    /// - If `validity` is [`Validity::Array`], its length must equal the number of elements
-    pub unsafe fn new_unchecked_from_byte_buffer(
-        byte_buffer: ByteBuffer,
-        values_type: DecimalType,
-        decimal_dtype: DecimalDType,
-    ) -> Self {
-        // SAFETY: inherits the same safety contract as `new_unchecked_from_byte_buffer`
-        unsafe {
-            Self::new_unchecked_handle(
-                BufferHandle::new_host(byte_buffer),
-                values_type,
-                decimal_dtype,
-            )
-        }
-    }
-
     /// Returns the length of this array.
     pub fn len(&self) -> usize {
-        self.values.len() / self.values_type.byte_width()
+        self.values.len() / self.values_type().byte_width()
     }
 
     /// Returns `true` if this array is empty.
@@ -367,25 +218,25 @@ impl DecimalData {
         self.len() == 0
     }
 
-    /// Returns the underlying [`ByteBuffer`] of the array.
+    /// Returns the host or device buffer that stores the unscaled integers.
     pub fn buffer_handle(&self) -> &BufferHandle {
         &self.values
     }
 
     pub fn buffer<T: NativeDecimalType>(&self) -> Buffer<T> {
-        if self.values_type != T::DECIMAL_TYPE {
+        if self.values_type() != T::DECIMAL_TYPE {
             vortex_panic!(
                 "Cannot extract Buffer<{:?}> for DecimalArray with values_type {:?}",
                 T::DECIMAL_TYPE,
-                self.values_type,
+                self.values_type(),
             );
         }
         Buffer::<T>::from_byte_buffer(self.values.as_host().clone())
     }
 
-    /// Return the `DecimalType` used to represent the values in the array.
+    /// Returns the integer type of the values, which is the canonical type for the precision.
     pub fn values_type(&self) -> DecimalType {
-        self.values_type
+        self.decimal_dtype.canonical_values_type()
     }
 
     /// Returns the decimal type information.
@@ -410,76 +261,75 @@ impl Array<Decimal> {
         DecimalDataParts {
             decimal_dtype,
             values: data.values,
-            values_type: data.values_type,
+            values_type: decimal_dtype.canonical_values_type(),
             validity,
         }
     }
 }
 
+// Keep array construction in the non-generic handle constructors so downstream crates do not
+// compile the decimal vtable for each typed constructor.
 impl Array<Decimal> {
-    /// Creates a new [`DecimalArray`] using a host-native buffer.
+    /// Creates a decimal array from a buffer of the canonical type for `decimal_dtype`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`Self::try_new`] rejects the buffer or validity.
     pub fn new<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
         validity: Validity,
+        ctx: &mut ExecutionCtx,
     ) -> Self {
-        Self::try_new(buffer, decimal_dtype, validity)
+        Self::try_new(buffer, decimal_dtype, validity, ctx)
             .vortex_expect("DecimalArray construction failed")
     }
 
-    /// Creates a new [`DecimalArray`] without validation.
+    /// Creates a decimal array without checking its values or validity.
+    ///
+    /// A valid row outside the declared precision can yield incorrect results in later operations,
+    /// including comparisons that use the declared range.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `T` differs from the canonical type for `decimal_dtype`.
     ///
     /// # Safety
     ///
-    /// See [`DecimalData::new_unchecked`].
+    /// An array-backed validity must contain one non-nullable boolean per value.
     pub unsafe fn new_unchecked<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        let dtype = DType::Decimal(decimal_dtype, validity.nullability());
-        let len = buffer.len();
-        let slots = DecimalData::make_slots(&validity, len);
-        let data = unsafe { DecimalData::new_unchecked(buffer, decimal_dtype) };
-        unsafe {
-            Self::from_decimal_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data, slots))
-        }
+        let values = BufferHandle::new_host(buffer.into_byte_buffer());
+
+        // SAFETY: The typed buffer supplies the required length and alignment. The caller
+        // guarantees the validity matches it.
+        unsafe { Self::new_unchecked_handle(values, T::DECIMAL_TYPE, decimal_dtype, validity) }
     }
 
-    /// Creates a new [`DecimalArray`] from a host-native buffer with validation.
+    /// Creates a decimal array, reusing the typed buffer. When every validity buffer is on the
+    /// host, checks that each valid row fits the precision. Null slots may hold any value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if [`Self::try_new_handle`] rejects the width, validity or values.
     pub fn try_new<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
         validity: Validity,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        let dtype = DType::Decimal(decimal_dtype, validity.nullability());
-        let len = buffer.len();
-        let slots = DecimalData::make_slots(&validity, len);
-        let data = DecimalData::try_new(buffer, decimal_dtype)?;
-        Self::try_from_decimal_parts(ArrayParts::new(Decimal, dtype, len, data, slots))
+        let values = BufferHandle::new_host(buffer.into_byte_buffer());
+        Self::try_new_handle(values, T::DECIMAL_TYPE, decimal_dtype, validity, ctx)
     }
 
-    /// Creates the array from parts without validation.
+    /// Collects values into a buffer of the canonical type for `decimal_dtype`.
     ///
-    /// The generic constructors call this function. It is not generic, so crates that call those
-    /// constructors do not each compile the `Decimal` array vtable.
+    /// # Panics
     ///
-    /// # Safety
-    ///
-    /// The parts must be logically consistent.
-    unsafe fn from_decimal_parts_unchecked(parts: ArrayParts<Decimal>) -> Self {
-        unsafe { Array::from_parts_unchecked(parts) }
-    }
-
-    /// Creates the array from parts after validation.
-    ///
-    /// The generic constructors call this function. It is not generic, so crates that call those
-    /// constructors do not each compile the `Decimal` array vtable.
-    fn try_from_decimal_parts(parts: ArrayParts<Decimal>) -> VortexResult<Self> {
-        Array::try_from_parts(parts)
-    }
-
-    /// Creates a new [`DecimalArray`] from an iterator of values.
+    /// Panics if any value falls outside the declared precision.
     #[expect(
         clippy::same_name_method,
         reason = "intentionally named from_iter like Iterator::from_iter"
@@ -488,159 +338,223 @@ impl Array<Decimal> {
         iter: I,
         decimal_dtype: DecimalDType,
     ) -> Self {
-        Self::new(
-            BufferMut::from_iter(iter).freeze(),
-            decimal_dtype,
-            Validity::NonNullable,
-        )
+        let values_type = decimal_dtype.canonical_values_type();
+        let values = collect_decimal_values(iter.into_iter(), decimal_dtype);
+
+        // SAFETY: Collection produced an aligned buffer at the canonical width, checking each value.
+        unsafe {
+            Self::new_unchecked_handle(values, values_type, decimal_dtype, Validity::NonNullable)
+        }
     }
 
-    /// Creates a new [`DecimalArray`] from an iterator of optional values.
+    /// Collects optional values into a nullable array of the canonical type for `decimal_dtype`.
+    /// Null slots contain zero.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any present value falls outside the declared precision.
     pub fn from_option_iter<T: NativeDecimalType, I: IntoIterator<Item = Option<T>>>(
         iter: I,
         decimal_dtype: DecimalDType,
     ) -> Self {
         let iter = iter.into_iter();
-        let mut values = BufferMut::with_capacity(iter.size_hint().0);
-        let mut validity = BitBufferMut::with_capacity(values.capacity());
-
-        for value in iter {
-            match value {
-                Some(value) => {
-                    values.push(value);
-                    validity.append(true);
-                }
-                None => {
-                    values.push(T::default());
-                    validity.append(false);
-                }
-            }
-        }
-
-        Self::new(
-            values.freeze(),
+        let mut validity = BitBufferMut::with_capacity(iter.size_hint().0);
+        let values_type = decimal_dtype.canonical_values_type();
+        let values = collect_decimal_values(
+            iter.map(|value| {
+                validity.append(value.is_some());
+                value.unwrap_or_default()
+            }),
             decimal_dtype,
-            Validity::from(validity.freeze()),
-        )
+        );
+        let validity = Validity::from(validity.freeze());
+
+        // SAFETY: Collection produced one validity bit for each value in the typed, canonical buffer.
+        unsafe { Self::new_unchecked_handle(values, values_type, decimal_dtype, validity) }
     }
 
-    /// Creates a new [`DecimalArray`] from a [`BufferHandle`].
+    /// Creates a decimal array from a host or device buffer.
+    ///
+    /// # Panics
+    ///
+    /// Panics on any error from [`Self::try_new_handle`].
     pub fn new_handle(
         values: BufferHandle,
         values_type: DecimalType,
         decimal_dtype: DecimalDType,
         validity: Validity,
+        ctx: &mut ExecutionCtx,
     ) -> Self {
-        Self::try_new_handle(values, values_type, decimal_dtype, validity)
+        Self::try_new_handle(values, values_type, decimal_dtype, validity, ctx)
             .vortex_expect("DecimalArray construction failed")
     }
 
-    /// Creates a new [`DecimalArray`] from a [`BufferHandle`] with validation.
+    /// Creates a decimal array from a host or device buffer.
+    ///
+    /// If the values and every buffer of the validity are host-resident, checks each valid
+    /// value against the declared precision. Null slots may hold any value. If either input
+    /// contains a device buffer, checks only the layout and leaves the buffers in place.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the layout is invalid, host validity execution fails, or a valid
+    /// host row exceeds the declared precision. The precision error names the first such row.
     pub fn try_new_handle(
         values: BufferHandle,
         values_type: DecimalType,
         decimal_dtype: DecimalDType,
         validity: Validity,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        let dtype = DType::Decimal(decimal_dtype, validity.nullability());
-        let len = values.len() / values_type.byte_width();
-        let slots = DecimalData::make_slots(&validity, len);
-        let data = DecimalData::try_new_handle(values, values_type, decimal_dtype)?;
-        Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data, slots))
+        let array =
+            Self::try_new_handle_from_trusted_values(values, values_type, decimal_dtype, validity)?;
+        let validity = array.validity()?;
+        if array.buffer_handle().is_on_host() && validity.as_array().is_none_or(ArrayRef::is_host) {
+            let mask = validity.execute_mask(array.len(), ctx)?;
+            match_each_decimal_value_type!(values_type, |T| {
+                check_precision(array.buffer::<T>().as_slice(), &mask, decimal_dtype)
+            })?;
+        }
+        Ok(array)
     }
 
-    /// Creates a new [`DecimalArray`] without validation from a [`BufferHandle`].
+    /// Reconstructs stored decimal values after checking their layout.
+    ///
+    /// Use this when reading a file that declares its precision, or when a kernel preserves
+    /// or has already checked the valid values. The values buffer and validity remain in place.
+    /// If the declared precision is wrong, later operations may return incorrect results or a
+    /// precision error. Use [`Self::try_new_handle`] to check host values.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the width differs from the canonical width of `decimal_dtype`, the
+    /// buffer has invalid alignment or byte length, or the validity has the wrong length or dtype.
+    pub fn try_new_handle_from_trusted_values(
+        values: BufferHandle,
+        values_type: DecimalType,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        DecimalData::validate_width(values_type, decimal_dtype)?;
+        let parts = Self::decimal_parts(values, decimal_dtype, validity);
+
+        Array::try_from_parts(parts)
+    }
+
+    /// Creates a decimal array without checking its buffer layout, validity or values.
+    ///
+    /// Valid rows must fit the declared precision for correct results. Trusted file values
+    /// can exceed that precision without affecting memory safety.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `values_type` differs from the canonical type for `decimal_dtype`.
     ///
     /// # Safety
     ///
-    /// See [`DecimalData::new_unchecked_handle`].
+    /// The buffer must be aligned for `values_type` and contain a whole number of values. An
+    /// array-backed validity must contain one non-nullable boolean per value. A malformed layout
+    /// can panic when the array is read.
     pub unsafe fn new_unchecked_handle(
         values: BufferHandle,
         values_type: DecimalType,
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        let dtype = DType::Decimal(decimal_dtype, validity.nullability());
-        let len = values.len() / values_type.byte_width();
-        let slots = DecimalData::make_slots(&validity, len);
-        let data = unsafe { DecimalData::new_unchecked_handle(values, values_type, decimal_dtype) };
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data, slots)) }
+        DecimalData::validate_width(values_type, decimal_dtype)
+            .unwrap_or_else(|error| vortex_panic!(error));
+        let parts = Self::decimal_parts(values, decimal_dtype, validity);
+
+        // SAFETY: The width matches the dtype, and the caller guarantees the layout and validity.
+        unsafe { Array::from_parts_unchecked(parts) }
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "patching depends on both patch and value physical types"
-    )]
+    /// Assembles the parts of a leaf whose buffer holds values of the canonical type for
+    /// `decimal_dtype`. [`Array::try_from_parts`] checks the buffer layout and validity before
+    /// exposing the array. A caller that skips validation must establish them.
+    pub(super) fn decimal_parts(
+        values: BufferHandle,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> ArrayParts<Decimal> {
+        let dtype = DType::Decimal(decimal_dtype, validity.nullability());
+        let len = values.len() / decimal_dtype.canonical_values_type().byte_width();
+        let slots = DecimalData::make_slots(&validity, len);
+        let data = DecimalData {
+            decimal_dtype,
+            values,
+        };
+
+        ArrayParts::new(Decimal, dtype, len, data, slots)
+    }
+
+    /// Replaces the values and validity at the patch indices.
     pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        let offset = patches.offset();
-        let dtype = self.dtype().clone();
-        let len = self.len();
+        vortex_ensure!(
+            self.dtype().eq_ignore_nullability(patches.values().dtype()),
+            "Decimal patch values have dtype {}, expected {}",
+            patches.values().dtype(),
+            self.dtype(),
+        );
         let patch_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<DecimalArray>(ctx)?;
+        let decimal_dtype = self.decimal_dtype();
 
-        let patch_validity = patch_values.validity()?;
-        let patched_validity = self.validity()?.patch(
+        let validity = self.validity()?.patch(
             self.len(),
-            offset,
+            patches.offset(),
             &patch_indices.clone().into_array(),
-            &patch_validity,
+            &patch_values.validity()?,
             ctx,
         )?;
-        assert_eq!(self.decimal_dtype(), patch_values.decimal_dtype());
-
-        let data = self.into_data();
-        // Patch indices are non-negative; reinterpret to unsigned so this dispatches over 4 widths
-        // instead of 8 (the decimal value-type dimensions are unaffected).
-        let patch_indices_unsigned =
-            patch_indices.reinterpret_cast(patch_indices.ptype().to_unsigned());
-        let data = match_each_unsigned_integer_ptype!(patch_indices_unsigned.ptype(), |I| {
-            let patch_indices = patch_indices_unsigned.as_slice::<I>();
-            match_each_decimal_value_type!(patch_values.values_type(), |PatchDVT| {
-                let patch_values = patch_values.buffer::<PatchDVT>();
-                match_each_decimal_value_type!(data.values_type(), |ValuesDVT| {
-                    let buffer = data.buffer::<ValuesDVT>().into_mut();
-                    patch_typed(
-                        buffer,
-                        data.decimal_dtype(),
-                        patch_indices,
-                        offset,
-                        patch_values,
-                    )
-                })
+        // Patch indices are non-negative, so signed and unsigned indices can share a kernel.
+        let indices = patch_indices.reinterpret_cast(patch_indices.ptype().to_unsigned());
+        match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
+            match_each_decimal_value_type!(decimal_dtype.canonical_values_type(), |T| {
+                self.patch_typed(
+                    indices.as_slice::<I>(),
+                    patches.offset(),
+                    &patch_values.buffer::<T>(),
+                    validity,
+                )
             })
-        });
-        let slots = DecimalData::make_slots(&patched_validity, len);
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data, slots))
         })
+    }
+
+    fn patch_typed<I: IntegerPType, T: NativeDecimalType>(
+        self,
+        indices: &[I],
+        offset: usize,
+        patch_values: &[T],
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        let decimal_dtype = self.decimal_dtype();
+        let bytes = self.into_data().values.unwrap_host();
+        let mut values = Buffer::<T>::from_byte_buffer(bytes).into_mut();
+        for (index, value) in itertools::zip_eq(indices, patch_values) {
+            values[index.as_() - offset] = *value;
+        }
+
+        // Each row gets its value and validity from the same decimal input.
+        Self::try_new_handle_from_trusted_values(
+            BufferHandle::new_host(values.freeze().into_byte_buffer()),
+            T::DECIMAL_TYPE,
+            decimal_dtype,
+            validity,
+        )
     }
 }
 
-fn patch_typed<I, ValuesDVT, PatchDVT>(
-    mut buffer: BufferMut<ValuesDVT>,
+fn collect_decimal_values<T: NativeDecimalType>(
+    iter: impl Iterator<Item = T>,
     decimal_dtype: DecimalDType,
-    patch_indices: &[I],
-    patch_indices_offset: usize,
-    patch_values: Buffer<PatchDVT>,
-) -> DecimalData
-where
-    I: IntegerPType,
-    PatchDVT: NativeDecimalType,
-    ValuesDVT: NativeDecimalType,
-{
-    if !ValuesDVT::DECIMAL_TYPE.is_compatible_decimal_value_type(decimal_dtype) {
-        vortex_panic!(
-            "patch_typed: {:?} cannot represent every value in {}.",
-            ValuesDVT::DECIMAL_TYPE,
-            decimal_dtype
-        )
-    }
-
-    for (idx, value) in patch_indices.iter().zip_eq(patch_values) {
-        buffer[idx.as_() - patch_indices_offset] = <ValuesDVT as BigCast>::from(value).vortex_expect(
-            "values of a given DecimalDType are representable in all compatible NativeDecimalType",
+) -> BufferHandle {
+    match_each_decimal_value_type!(decimal_dtype.canonical_values_type(), |D| {
+        let bounds = precision_bounds::<D>(decimal_dtype);
+        let values = Buffer::<D>::from_iter(
+            iter.map(|value| cast_value_in_precision(value, decimal_dtype, &bounds)),
         );
-    }
 
-    DecimalData::new(buffer.freeze(), decimal_dtype)
+        BufferHandle::new_host(values.into_byte_buffer())
+    })
 }

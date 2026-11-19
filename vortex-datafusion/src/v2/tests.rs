@@ -46,6 +46,7 @@ use vortex::expr::Expression;
 use vortex::expr::lit as vortex_lit;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::scan::DataSourceRef;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
@@ -67,6 +68,20 @@ async fn vortex_source_from_batch_with_session(
     session: &VortexSession,
 ) -> anyhow::Result<VortexDataSource> {
     let schema = batch.schema();
+    let data_source = data_source_from_batch(batch, session).await?;
+
+    Ok(VortexDataSource::builder(data_source, session.clone())
+        .with_arrow_schema(schema)
+        .build()
+        .await?)
+}
+
+/// Build a file-backed source so tests can supply a schema independently of the imported batch.
+async fn data_source_from_batch(
+    batch: RecordBatch,
+    session: &VortexSession,
+) -> anyhow::Result<DataSourceRef> {
+    let schema = batch.schema();
     let array = session.arrow().from_arrow_record_batch(batch, &schema)?;
     let mut buffer = ByteBufferMut::empty();
     session
@@ -74,12 +89,7 @@ async fn vortex_source_from_batch_with_session(
         .write(&mut buffer, array.to_array_stream())
         .await?;
     let file = session.open_options().open_buffer(buffer)?;
-    Ok(
-        VortexDataSource::builder(file.data_source()?, session.clone())
-            .with_arrow_schema(schema)
-            .build()
-            .await?,
-    )
+    Ok(file.data_source()?)
 }
 
 #[tokio::test]
@@ -579,14 +589,10 @@ async fn dynamic_filter_uses_advisory_conversion_and_keeps_residual() -> anyhow:
     let session = VortexSession::default();
     let batch = record_batch!(("a", Int32, vec![1, 2, 3]))?;
     let schema = batch.schema();
-    let array = session.arrow().from_arrow_record_batch(batch, &schema)?;
-    let mut buffer = ByteBufferMut::empty();
-    session
-        .write_options()
-        .write(&mut buffer, array.to_array_stream())
-        .await?;
-    let file = session.open_options().open_buffer(buffer)?;
-    let source = VortexDataSource::builder(file.data_source()?, session)
+    let source = VortexDataSource::builder(
+        data_source_from_batch(batch, &session).await?,
+        session,
+    )
         .with_arrow_schema(schema)
         .with_expression_converter(Arc::new(AdvisoryConverter(Arc::clone(&calls))))
         .build()
@@ -600,5 +606,31 @@ async fn dynamic_filter_uses_advisory_conversion_and_keeps_residual() -> anyhow:
     let exact = source.try_pushdown_filters(vec![df_lit(true)], &ConfigOptions::new())?;
     assert!(exact.updated_node.is_none());
     assert_eq!(calls.load(Ordering::Relaxed), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_build_rejects_extension_column_over_plain() -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    vortex_json::initialize(&session);
+
+    let batch = arrow_array::record_batch!(("value", Utf8, vec![r#"{"x":1}"#]))?;
+    let data_source = data_source_from_batch(batch, &session).await?;
+
+    let mut json_field = Field::new("value", DataType::Utf8, true);
+    json_field.try_with_extension_type(ArrowJson::default())?;
+
+    let error = VortexDataSource::builder(data_source, session)
+        .with_arrow_schema(Arc::new(Schema::new(vec![json_field])))
+        .build()
+        .await
+        .expect_err("the plain column must not scan as Json");
+    assert!(
+        error.to_string().contains(
+            "Field value must name no Arrow extension type for Vortex DType utf8?, got Arrow extension type arrow.json"
+        ),
+        "{error}"
+    );
+
     Ok(())
 }

@@ -3,26 +3,31 @@
 
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::ProbeState;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use super::Delta;
+use crate::delta::probe;
+use crate::delta::probe::DeltaProbeState;
 impl OperationsVTable<Delta> for Delta {
-    type ProbeState = ();
+    type ProbeState = DeltaProbeState;
+
+    fn probe_scalar(
+        state: &mut ProbeState<'_, Delta>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        probe::scalar_at(state, index, ctx)
+    }
 
     fn scalar_at(
         array: ArrayView<'_, Delta>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let decompressed = array
-            .array()
-            .slice(index..index + 1)?
-            .execute::<PrimitiveArray>(ctx)?;
-        decompressed.into_array().execute_scalar(0, ctx)
+        probe::scalar_at(&mut ProbeState::once(array), index, ctx)
     }
 }
 

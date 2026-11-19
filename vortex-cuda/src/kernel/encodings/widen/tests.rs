@@ -19,7 +19,6 @@ use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::NativeDecimalType;
 use vortex::dtype::NativePType;
-use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::encodings::fastlanes::FoR;
 use vortex::error::VortexResult;
@@ -50,6 +49,7 @@ async fn upload(child: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Arr
                 parts.values_type,
                 parts.decimal_dtype,
                 parts.validity,
+                ctx.execution_ctx(),
             )?
             .into_array())
         }
@@ -165,14 +165,15 @@ async fn test_decimal_pairs<T: NativeDecimalType + Bounded>(
         values[3] = T::max_value();
     }
 
+    let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?.with_dispatch_mode(mode);
     let child = DecimalArray::new(
         Buffer::from_iter(values),
         DecimalDType::new(child_precision, 1),
         validity(nullable, 5),
+        ctx.execution_ctx(),
     )
     .into_array();
     let dtype = DType::Decimal(DecimalDType::new(precision, 1), child.dtype().nullability());
-    let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?.with_dispatch_mode(mode);
     let device_child = upload(child.clone(), &mut ctx).await?;
 
     check_widen(child, device_child, dtype, &mut ctx).await
@@ -208,39 +209,4 @@ async fn test_kernel_boundaries(#[case] len: usize) -> VortexResult<()> {
     let device_child = upload(child.clone(), &mut ctx).await?;
 
     check_widen(child, device_child, PType::I64.into(), &mut ctx).await
-}
-
-#[rstest]
-#[case::equal_width(false)]
-#[case::narrowing(true)]
-#[crate::test]
-async fn test_legacy_decimal_storage(#[case] narrowing: bool) -> VortexResult<()> {
-    let dtype = DecimalDType::new(9, 1);
-    let child = if narrowing {
-        DecimalArray::from_iter([-99i128, 0, 99], dtype)
-    } else {
-        DecimalArray::from_iter([-99i64, 0, 99], dtype)
-    }
-    .into_array();
-    let logical = DType::Decimal(DecimalDType::new(18, 1), Nullability::NonNullable);
-    let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
-    let device_child = upload(child.clone(), &mut ctx).await?;
-
-    if narrowing {
-        let array = WidenArray::try_new(device_child, logical)?.into_array();
-        let error = array
-            .execute_cuda(&mut ctx)
-            .await
-            .expect_err("i128 storage requires narrowing to i64");
-        assert!(
-            error
-                .to_string()
-                .contains("CUDA Widen requires decimal storage no wider than i64, got i128"),
-            "{error}"
-        );
-    } else {
-        check_widen(child, device_child, logical, &mut ctx).await?;
-    }
-
-    Ok(())
 }

@@ -63,6 +63,7 @@ use vortex_cuda::cuda_session;
 use vortex_cuda::dynamic_dispatch::CudaDispatchPlan;
 use vortex_cuda::dynamic_dispatch::DispatchPlan;
 use vortex_cuda::dynamic_dispatch::MaterializedPlan;
+use vortex_cuda::dynamic_dispatch::dispatch_kernel;
 use vortex_cuda_driver::CudaFunction;
 use vortex_cuda_driver::CudaSlice;
 use vortex_cuda_driver::DevicePtr;
@@ -99,10 +100,12 @@ fn run_timed<T: DeviceRepr + NativePType>(
     cuda_ctx: &mut CudaExecutionCtx,
     array_len: usize,
     output_buf: &mut CudaSlice<T>,
+    plan: &CudaDispatchPlan,
     device_plan: &Arc<CudaSlice<u8>>,
     shared_mem_bytes: u32,
 ) -> VortexResult<Duration> {
-    let cuda_function = cuda_ctx.load_function("dynamic_dispatch", &[T::PTYPE])?;
+    let (cuda_function, num_blocks) =
+        dispatch_kernel(cuda_ctx, T::PTYPE, plan, array_len, shared_mem_bytes)?;
     let array_len_u64 = array_len as u64;
     let (plan_ptr, record_plan) = device_plan
         .device_ptr(cuda_ctx.stream())
@@ -122,7 +125,6 @@ fn run_timed<T: DeviceRepr + NativePType>(
     launch_builder.arg(&array_len_u64);
     launch_builder.arg(&plan_ptr);
 
-    let num_blocks = array_len.div_ceil(2048) as u32;
     let config = LaunchConfig {
         grid_dim: (num_blocks, 1, 1),
         block_dim: (64, 1, 1),
@@ -159,7 +161,7 @@ fn run_timed<T: DeviceRepr + NativePType>(
 /// `T` is the unsigned integer type matching the output element width
 /// (e.g. `u32` for f32/i32/u32, `u64` for f64/i64/u64).
 struct BenchRunner<T> {
-    _plan: CudaDispatchPlan,
+    plan: CudaDispatchPlan,
     smem_bytes: u32,
     len: usize,
     device_plan: Arc<CudaSlice<u8>>,
@@ -190,7 +192,7 @@ impl<T: DeviceRepr + NativePType> BenchRunner<T> {
         );
 
         Self {
-            _plan: dispatch_plan,
+            plan: dispatch_plan,
             smem_bytes: shared_mem_bytes,
             len,
             device_plan,
@@ -207,6 +209,7 @@ impl<T: DeviceRepr + NativePType> BenchRunner<T> {
             cuda_ctx,
             self.len,
             &mut self.output_buf,
+            &self.plan,
             &self.device_plan,
             self.smem_bytes,
         )
@@ -265,15 +268,30 @@ fn bench_for_bitpacked(c: &mut Criterion) {
 // ---------------------------------------------------------------------------
 // Benchmark: Dict(codes=BitPacked, values=Primitive)
 // ---------------------------------------------------------------------------
+
+/// Every block of the fused kernel decodes the whole dictionary into shared memory, so larger
+/// dictionaries measure the cost of input stages relative to the output.
 fn bench_dict_bp_codes(c: &mut Criterion) {
+    bench_dict_bp_codes_with::<u32>(c, 256, 8, "cuda/dict_256vals_bp8bw_codes/dispatch_u32");
+    bench_dict_bp_codes_with::<u32>(c, 1024, 10, "cuda/dict_1024vals_bp10bw_codes/dispatch_u32");
+    bench_dict_bp_codes_with::<u32>(c, 4096, 12, "cuda/dict_4096vals_bp12bw_codes/dispatch_u32");
+    bench_dict_bp_codes_with::<u64>(c, 4096, 12, "cuda/dict_4096vals_bp12bw_codes/dispatch_u64");
+}
+
+fn bench_dict_bp_codes_with<T: DeviceRepr + NativePType + From<u32>>(
+    c: &mut Criterion,
+    dict_size: usize,
+    dict_bit_width: u8,
+    name: &str,
+) {
     let mut group = c.benchmark_group("cuda");
 
-    let dict_size: usize = 256;
-    let dict_bit_width: u8 = 8;
-    let dict_values: Vec<u32> = (0..dict_size as u32).map(|i| i * 1000 + 42).collect();
+    let dict_values: Vec<T> = (0..dict_size as u32)
+        .map(|i| <T as From<u32>>::from(i * 1000 + 42))
+        .collect();
 
     for (len, len_str) in BENCH_SIZES {
-        group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
+        group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
         let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
@@ -284,24 +302,20 @@ fn bench_dict_bp_codes(c: &mut Criterion) {
         let dict = DictArray::new(codes_bp.into_array(), values_prim.into_array());
         let array = dict.into_array();
 
-        group.bench_with_input(
-            BenchmarkId::new("cuda/dict_256vals_bp8bw_codes/dispatch_u32", len_str),
-            len,
-            |b, &n| {
-                let mut cuda_ctx =
-                    CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
+        group.bench_with_input(BenchmarkId::new(name, len_str), len, |b, &n| {
+            let mut cuda_ctx =
+                CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
 
-                let mut bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+            let mut bench_runner = BenchRunner::<T>::new(&array, n, &mut cuda_ctx);
 
-                b.iter_custom(|iters| {
-                    let mut total_time = Duration::ZERO;
-                    for _ in 0..iters {
-                        total_time += bench_runner.run(&mut cuda_ctx);
-                    }
-                    total_time
-                });
-            },
-        );
+            b.iter_custom(|iters| {
+                let mut total_time = Duration::ZERO;
+                for _ in 0..iters {
+                    total_time += bench_runner.run(&mut cuda_ctx);
+                }
+                total_time
+            });
+        });
     }
 
     group.finish();
@@ -310,10 +324,15 @@ fn bench_dict_bp_codes(c: &mut Criterion) {
 // ---------------------------------------------------------------------------
 // Benchmark: RunEnd(ends=Prim, values=Prim)
 // ---------------------------------------------------------------------------
-fn bench_runend(c: &mut Criterion) {
-    let mut group = c.benchmark_group("cuda");
 
-    let num_runs: usize = 100;
+/// Every block of the fused kernel decodes all run ends and values into shared memory.
+fn bench_runend(c: &mut Criterion) {
+    bench_runend_with(c, 100, "cuda/runend_100runs/dispatch_u32");
+    bench_runend_with(c, 1024, "cuda/runend_1024runs/dispatch_u32");
+}
+
+fn bench_runend_with(c: &mut Criterion, num_runs: usize, name: &str) {
+    let mut group = c.benchmark_group("cuda");
 
     for (len, len_str) in BENCH_SIZES {
         group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
@@ -328,24 +347,20 @@ fn bench_runend(c: &mut Criterion) {
         let re = RunEnd::new(ends_arr, values_arr, &mut ctx);
         let array = re.into_array();
 
-        group.bench_with_input(
-            BenchmarkId::new("cuda/runend_100runs/dispatch_u32", len_str),
-            len,
-            |b, &n| {
-                let mut cuda_ctx =
-                    CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
+        group.bench_with_input(BenchmarkId::new(name, len_str), len, |b, &n| {
+            let mut cuda_ctx =
+                CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
 
-                let mut bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+            let mut bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
-                b.iter_custom(|iters| {
-                    let mut total_time = Duration::ZERO;
-                    for _ in 0..iters {
-                        total_time += bench_runner.run(&mut cuda_ctx);
-                    }
-                    total_time
-                });
-            },
-        );
+            b.iter_custom(|iters| {
+                let mut total_time = Duration::ZERO;
+                for _ in 0..iters {
+                    total_time += bench_runner.run(&mut cuda_ctx);
+                }
+                total_time
+            });
+        });
     }
 
     group.finish();
@@ -688,7 +703,7 @@ fn bench_dict_bp_codes_alp_for_bp_values_composed_standalone(c: &mut Criterion) 
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .vortex_expect("to primitive");
-        let for_arr = FoRData::encode(alp_encoded.clone(), &mut ctx).vortex_expect("for encode");
+        let for_arr = FoRData::encode(alp_encoded, &mut ctx).vortex_expect("for encode");
         let bp = BitPackedData::encode(for_arr.encoded(), values_bit_width, &mut ctx)
             .vortex_expect("bitpack values");
         let values_bp = bp;

@@ -49,20 +49,22 @@ jobs:
           && format('runs-on={0}/region=us-east-1/runner=arm64-bench/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
-      - uses: runs-on/action@v2
-        if: github.event.pull_request.head.repo.fork == false
-        with:
-          sccache: s3
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
-      - uses: ./.github/actions/assert-cpu
-        if: github.repository == 'vortex-data/vortex'
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          enable-sccache: ${{ github.event.pull_request.head.repo.fork == false && 'true' || 'false' }}
+      - parallel:
+          - uses: runs-on/action@v2
+            if: github.event.pull_request.head.repo.fork == false
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              ref: ${{ github.event.pull_request.head.sha || github.sha }}
+              fetch-depth: 0
+      - parallel:
+          - uses: ./.github/actions/assert-cpu
+            if: github.repository == 'vortex-data/vortex'
+          - uses: ./.github/actions/setup-prebuild
+            with:
+              repo-token: ${{ secrets.GITHUB_TOKEN }}
+              enable-sccache: ${{ github.event.pull_request.head.repo.fork == false && 'true' || 'false' }}
       - name: Build binary
         shell: bash
         env:
@@ -70,8 +72,33 @@ jobs:
         run: |
           cargo build --package ${{ inputs.benchmark_id }} --profile release_debug \
             ${{ inputs.with_lance && '--features lance' || '' }}
+      - name: Upload benchmark binary
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: ${{ inputs.benchmark_id }}-binary
+          path: target/release_debug/${{ inputs.benchmark_id }}
+
+  # The debuginfo upload takes minutes. Running it in its own job keeps it off the path to the
+  # bench job; Polar Signals matches debuginfo to profiles by build ID whenever it lands.
+  upload-debuginfo:
+    needs: build
+    if: github.event.pull_request.head.repo.fork == false
+    timeout-minutes: 30
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/region=us-east-1/runner=arm64-medium/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=upload-debuginfo-{1}', github.run_id, inputs.benchmark_id)
+          || 'ubuntu-latest' }}
+    steps:
+      - parallel:
+          # Wires up the RunsOn artifact proxy that download-artifact uses.
+          - uses: runs-on/action@v2
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - name: Download benchmark binary
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: ${{ inputs.benchmark_id }}-binary
+          path: target/release_debug/
       - name: Pre-upload benchmark debuginfo to Polar Signals
-        if: github.event.pull_request.head.repo.fork == false
         uses: ./.github/actions/upload-parca-debuginfo
         continue-on-error: true
         with:
@@ -79,11 +106,6 @@ jobs:
             target/release_debug/${{ inputs.benchmark_id }}
           polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
-      - name: Upload benchmark binary
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
-        with:
-          name: ${{ inputs.benchmark_id }}-binary
-          path: target/release_debug/${{ inputs.benchmark_id }}
 
   bench:
     needs: build
@@ -94,109 +116,106 @@ jobs:
           && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu26-full-arm64-pre-v2/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
-      # `extras=s3-cache` points ACTIONS_RESULTS_URL at the RunsOn artifact proxy, but only
-      # this action wires the runner up to it. Without it `download-artifact` talks to an
-      # uninitialised proxy and fails ListArtifacts with a non-JSON body. The build job
-      # above already does this, which is why the upload half worked.
-      - uses: runs-on/action@v2
-        if: github.event.pull_request.head.repo.fork == false
-        with:
-          sccache: s3
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          # `compare-benchmark-jsons.py` resolves its baseline by walking `git rev-list HEAD`,
-          # which reaches only the tip of a shallow clone.
-          fetch-depth: 0
+      - parallel:
+          # `extras=s3-cache` points ACTIONS_RESULTS_URL at the RunsOn artifact proxy, but only
+          # this action wires the runner up to it. Without it `download-artifact` talks to an
+          # uninitialised proxy and fails ListArtifacts with a non-JSON body. The build job
+          # above already does this, which is why the upload half worked.
+          - uses: runs-on/action@v2
+            if: github.event.pull_request.head.repo.fork == false
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              ref: ${{ github.event.pull_request.head.sha || github.sha }}
+              # `compare-benchmark-jsons.py` resolves its baseline by walking `git rev-list HEAD`,
+              # which reaches only the tip of a shallow clone.
+              fetch-depth: 0
 
-      - name: Install DuckDB
-        uses: ./.github/actions/setup-duckdb
+      # Every install and download below is independent of the others.
+      - parallel:
+          - name: Install DuckDB
+            uses: ./.github/actions/setup-duckdb
+          - uses: ./.github/actions/system-info
+          - name: Download benchmark binary
+            uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+            with:
+              name: ${{ inputs.benchmark_id }}-binary
+              path: target/release_debug/
+          - name: Setup Polar Signals
+            if: github.event.pull_request.head.repo.fork == false
+            uses: polarsignals/gh-actions-ps-profiling@cd2cb45af81fbe1ca629c2ac479348207598160e  # v0.9.0
+            # Profiling is observability only, so a flaky agent download must not fail the benchmark.
+            continue-on-error: true
+            with:
+              polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+              labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ github.event.pull_request.head.sha }};benchmark=${{ inputs.benchmark_id }}"
+              project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+              job_name: "${{ inputs.benchmark_id }}"
+              profiling_frequency: 199
+              extra_args: "--debuginfo-strip=false"
+              parca_agent_version: "0.49.0"
+          - name: Setup AWS CLI
+            if: github.event.pull_request.head.repo.fork == false
+            uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+            with:
+              role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+              aws-region: us-east-1
+          - name: Install uv
+            uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+            with:
+              sync: false
+          # Parquet and LitData do not depend on Vortex code, so they are cached; LitData alone is
+          # about 80% of data generation time. Vortex, Arrow IPC and Lance are written every run.
+          # The key covers the dataset generators, the crates that write and seed the Parquet files,
+          # and the LitData conversion. Keep the litdata version in sync with the Install LitData step.
+          - name: Compute benchmark data cache key
+            id: data-cache-key
+            if: inputs.benchmark_id == 'random-access-bench'
+            shell: bash
+            run: |
+              set -Eeu -o pipefail
+              crates=$(awk '/^\[\[package\]\]/ { name = "" }
+                /^name = / { name = $3 }
+                /^version = / && name ~ /^"(parquet|arrow-.*|rand.*)"$/ { print name, $3 }' Cargo.lock \
+                | sort | sha256sum | cut -c1-16)
+              echo "crates=$crates" >> "$GITHUB_OUTPUT"
 
-      - uses: ./.github/actions/system-info
+      # These need the binary, uv, or the cache key from the group above.
+      - parallel:
+          - name: Make benchmark binary executable
+            shell: bash
+            run: chmod +x target/release_debug/${{ inputs.benchmark_id }}
+          - name: Install LitData
+            # LitData is Python-only, so random-access-bench times it through
+            # scripts/litdata-random-access.py, run by the interpreter named in LITDATA_PYTHON.
+            if: inputs.benchmark_id == 'random-access-bench' && inputs.remote_data_dir == ''
+            shell: bash
+            run: |
+              set -Eeu -o pipefail -x
 
-      - name: Download benchmark binary
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
-        with:
-          name: ${{ inputs.benchmark_id }}-binary
-          path: target/release_debug/
-
-      - name: Make benchmark binary executable
-        shell: bash
-        run: chmod +x target/release_debug/${{ inputs.benchmark_id }}
-
-      - name: Setup Polar Signals
-        if: github.event.pull_request.head.repo.fork == false
-        uses: polarsignals/gh-actions-ps-profiling@cd2cb45af81fbe1ca629c2ac479348207598160e  # v0.9.0
-        # Profiling is observability only, so a flaky agent download must not fail the benchmark.
-        continue-on-error: true
-        with:
-          polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ github.event.pull_request.head.sha }};benchmark=${{ inputs.benchmark_id }}"
-          project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
-          job_name: "${{ inputs.benchmark_id }}"
-          profiling_frequency: 199
-          extra_args: "--debuginfo-strip=false"
-          parca_agent_version: "0.49.0"
-
-      - name: Setup AWS CLI
-        if: github.event.pull_request.head.repo.fork == false
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
-        with:
-          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-
-      - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
-        with:
-          sync: false
-
-      - name: Install LitData
-        # LitData is Python-only, so random-access-bench times it through
-        # scripts/litdata-random-access.py, run by the interpreter named in LITDATA_PYTHON.
-        if: inputs.benchmark_id == 'random-access-bench' && inputs.remote_data_dir == ''
-        shell: bash
-        run: |
-          set -Eeu -o pipefail -x
-
-          uv venv --python 3.12 .venv-litdata
-          uv pip install --python .venv-litdata \
-            --index-strategy unsafe-best-match \
-            --extra-index-url https://download.pytorch.org/whl/cpu \
-            litdata==0.2.76 torch pyarrow numpy
-          echo "LITDATA_PYTHON=$PWD/.venv-litdata/bin/python" >> "$GITHUB_ENV"
-
-      # Parquet and LitData do not depend on Vortex code, so they are cached; LitData alone is
-      # about 80% of data generation time. Vortex, Arrow IPC and Lance are written every run.
-      # The key covers the dataset generators, the crates that write and seed the Parquet files,
-      # and the LitData conversion. Keep the litdata version in sync with the Install LitData step.
-      - name: Compute benchmark data cache key
-        id: data-cache-key
-        if: inputs.benchmark_id == 'random-access-bench'
-        shell: bash
-        run: |
-          set -Eeu -o pipefail
-          crates=$(awk '/^\[\[package\]\]/ { name = "" }
-            /^name = / { name = $3 }
-            /^version = / && name ~ /^"(parquet|arrow-.*|rand.*)"$/ { print name, $3 }' Cargo.lock \
-            | sort | sha256sum | cut -c1-16)
-          echo "crates=$crates" >> "$GITHUB_OUTPUT"
-
-      - name: Restore benchmark data
-        id: data-cache
-        if: inputs.benchmark_id == 'random-access-bench'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: |
-            vortex-bench/data/taxi/taxi.parquet
-            vortex-bench/data/random_access/*/*.parquet
-            vortex-bench/data/random_access/*/*.litdata
-          key: >-
-            random-access-data-v1-${{ inputs.remote_data_dir != '' && 's3' || 'local' }}-litdata0.2.76-${{ steps.data-cache-key.outputs.crates }}-${{
-              hashFiles(
-                'vortex-bench/src/datasets/**',
-                'vortex-bench/src/random_access/**',
-                'scripts/litdata-random-access.py',
-                'benchmarks/random-access-bench/src/litdata.rs') }}
+              uv venv --python 3.12 .venv-litdata
+              uv pip install --python .venv-litdata \
+                --index-strategy unsafe-best-match \
+                --extra-index-url https://download.pytorch.org/whl/cpu \
+                litdata==0.2.76 torch pyarrow numpy
+              echo "LITDATA_PYTHON=$PWD/.venv-litdata/bin/python" >> "$GITHUB_ENV"
+          - name: Restore benchmark data
+            id: data-cache
+            if: inputs.benchmark_id == 'random-access-bench'
+            uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+            with:
+              path: |
+                vortex-bench/data/taxi/taxi.parquet
+                vortex-bench/data/random_access/*/*.parquet
+                vortex-bench/data/random_access/*/*.litdata
+              key: >-
+                random-access-data-v1-${{ inputs.remote_data_dir != '' && 's3' || 'local' }}-litdata0.2.76-${{ steps.data-cache-key.outputs.crates }}-${{
+                  hashFiles(
+                    'vortex-bench/src/datasets/**',
+                    'vortex-bench/src/random_access/**',
+                    'scripts/litdata-random-access.py',
+                    'benchmarks/random-access-bench/src/litdata.rs') }}
 
       # Download and convert all benchmark data up front, so the benchmark step below only
       # contains timed runs. The data is written with the same settings the benchmark uses.
@@ -210,26 +229,28 @@ jobs:
           python3 "scripts/${bench%-bench}-split.py" --prepare-data \
             ${{ inputs.remote_data_dir != '' && format('--remote-data-dir {0}', inputs.remote_data_dir) || '' }}
 
-      - name: Save benchmark data
-        if: inputs.benchmark_id == 'random-access-bench' && steps.data-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: |
-            vortex-bench/data/taxi/taxi.parquet
-            vortex-bench/data/random_access/*/*.parquet
-            vortex-bench/data/random_access/*/*.litdata
-          key: ${{ steps.data-cache.outputs.cache-primary-key }}
+      # setup-benchmark.sh pins every running process to the housekeeping CPUs, so it waits for
+      # the cache save and upload rather than throttling them.
+      - parallel:
+          - name: Save benchmark data
+            if: inputs.benchmark_id == 'random-access-bench' && steps.data-cache.outputs.cache-hit != 'true'
+            uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+            with:
+              path: |
+                vortex-bench/data/taxi/taxi.parquet
+                vortex-bench/data/random_access/*/*.parquet
+                vortex-bench/data/random_access/*/*.litdata
+              key: ${{ steps.data-cache.outputs.cache-primary-key }}
+          - name: Upload benchmark data to S3
+            if: inputs.remote_data_dir != '' && github.event.pull_request.head.repo.fork == false
+            shell: bash
+            env:
+              AWS_REGION: "us-east-1"
+            run: |
+              set -Eeu -o pipefail -x
 
-      - name: Upload benchmark data to S3
-        if: inputs.remote_data_dir != '' && github.event.pull_request.head.repo.fork == false
-        shell: bash
-        env:
-          AWS_REGION: "us-east-1"
-        run: |
-          set -Eeu -o pipefail -x
-
-          aws s3 rm --recursive "${{ inputs.remote_data_dir }}"
-          aws s3 cp --recursive vortex-bench/data "${{ inputs.remote_data_dir }}"
+              aws s3 rm --recursive "${{ inputs.remote_data_dir }}"
+              aws s3 cp --recursive vortex-bench/data "${{ inputs.remote_data_dir }}"
 
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh

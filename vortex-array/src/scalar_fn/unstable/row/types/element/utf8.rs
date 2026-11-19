@@ -19,11 +19,14 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
+use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::primitive::PrimitiveArrayExt as _;
+use crate::arrays::varbin::VarBinArrayExt as _;
 use crate::arrays::varbin::VarBinArraySlotsExt as _;
 use crate::arrays::varbin::offsets_tile_utf8;
 use crate::arrays::varbinview::BinaryView;
@@ -36,6 +39,7 @@ use crate::match_each_integer_ptype;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::unstable::row::InputElement;
 use crate::scalar_fn::unstable::row::ViewLen;
+use crate::validity::Validity;
 
 /// A UTF-8 input element that yields `&str` values.
 ///
@@ -179,12 +183,34 @@ fn decode_utf8(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Utf8Valu
     // path reports invalid UTF-8 at a valid row and replaces each null row with an empty string.
     if let Some(varbin) = array.as_opt::<VarBin>() {
         let offsets = varbin.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+        let device_offsets = offsets.buffer_handle().is_on_device();
+        let offsets = if device_offsets {
+            PrimitiveArray::from_byte_buffer(
+                offsets.buffer_handle().try_to_host_sync()?,
+                offsets.ptype(),
+                Validity::NonNullable,
+            )
+        } else {
+            offsets
+        };
         let bytes = varbin.bytes_handle().try_to_host_sync()?;
 
-        if let Some(offsets) = to_u32_offsets(offsets)
+        if let Some(offsets) = to_u32_offsets(&offsets)
             && offsets_tile_utf8(&offsets, &bytes)
         {
             return Ok(Utf8Values(Utf8Storage::Offsets { offsets, bytes }));
+        }
+
+        if device_offsets || varbin.bytes_handle().is_on_device() {
+            // View construction reads host offsets and bytes. Reuse the buffers just copied.
+            let host = VarBinArray::try_new(
+                offsets.into_array(),
+                bytes,
+                array.dtype().clone(),
+                varbin.varbin_validity(),
+                ctx,
+            )?;
+            return decode_views(host.into_array(), ctx);
         }
     }
 
@@ -195,10 +221,11 @@ fn decode_utf8(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Utf8Valu
 ///
 /// 32-bit offsets are reinterpreted without a copy. A negative `i32` offset becomes a large `u32`
 /// that [`offsets_tile_utf8`] rejects.
-fn to_u32_offsets(offsets: PrimitiveArray) -> Option<Buffer<u32>> {
+fn to_u32_offsets(offsets: &PrimitiveArray) -> Option<Buffer<u32>> {
     match offsets.ptype() {
-        PType::U32 => Some(offsets.to_buffer::<u32>()),
-        PType::I32 => Some(offsets.reinterpret_cast(PType::U32).to_buffer::<u32>()),
+        PType::U32 | PType::I32 => Some(Buffer::from_byte_buffer(
+            offsets.buffer_handle().as_host().clone(),
+        )),
         ptype => match_each_integer_ptype!(ptype, |P| { copy_to_u32(offsets.as_slice::<P>()) }),
     }
 }
@@ -272,6 +299,7 @@ unsafe impl InputElement for Utf8Column {
     }
 
     fn decode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column> {
+        Self::validate(array.dtype())?;
         decode_utf8(array, ctx)
     }
 
@@ -556,6 +584,14 @@ mod tests {
             }
         }
         Ok(())
+    }
+
+    #[test]
+    fn input_rejects_binary_dtype() {
+        let array = VarBinViewArray::from_iter_bin([b"valid UTF-8"]);
+        let mut ctx = SESSION.create_execution_ctx();
+
+        assert!(Utf8Column::decode(array.into_array(), &mut ctx).is_err());
     }
 
     #[test]

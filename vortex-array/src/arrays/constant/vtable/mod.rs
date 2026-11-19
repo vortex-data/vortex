@@ -8,6 +8,7 @@ use std::hash::Hasher;
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::registry::CachedId;
@@ -38,6 +39,7 @@ use crate::builders::ListViewBuilder;
 use crate::builders::NullBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::VarBinViewBuilder;
+use crate::builders::VariantBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
@@ -227,6 +229,12 @@ impl VTable for Constant {
             DType::FixedSizeList(..) => {
                 append_constant_fixed_size_list_run(array, n, builder, ctx)?
             }
+            DType::Variant(_) => {
+                let Some(builder) = builder.as_any_mut().downcast_mut::<VariantBuilder>() else {
+                    vortex_bail!("append_to_builder for a Variant requires a VariantBuilder");
+                };
+                builder.append_n_scalars(scalar, n)?
+            }
             // The remaining dtypes canonicalize cheaply: a constant struct canonicalizes to
             // constant fields, and a constant map to views sharing one copy of the entries, so
             // appending the canonical array preserves the run's economy.
@@ -379,14 +387,12 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::arrays::Chunked;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::Extension;
     use crate::arrays::FixedSizeList;
     use crate::arrays::ListView;
     use crate::arrays::Struct;
-    use crate::arrays::chunked::ChunkedArrayExt;
     use crate::arrays::constant::vtable::canonical::constant_canonicalize;
     use crate::arrays::extension::ExtensionArrayExt;
     use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
@@ -605,7 +611,6 @@ mod tests {
             element_dtype,
             Nullability::NonNullable,
             0,
-            0,
             vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         array.append_to_builder(&mut builder, &mut ctx)?;
@@ -707,8 +712,8 @@ mod tests {
         assert_append_matches_canonical(ConstantArray::new(Scalar::null(dtype), 3))
     }
 
-    /// A fixed-size list whose elements are all the same scalar tiles a constant array, so the
-    /// tile's chunks stay constant-encoded rather than materializing a value per row.
+    /// A fixed-size list whose elements are all the same scalar repeats a constant array, so the
+    /// elements collapse into one constant array rather than materializing a value per row.
     #[test]
     fn test_uniform_fixed_size_list_constant_append_keeps_elements_constant() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
@@ -732,12 +737,10 @@ mod tests {
 
         let elements = result.as_::<FixedSizeList>().elements().clone();
         assert!(
-            elements
-                .as_::<Chunked>()
-                .iter_chunks()
-                .all(|chunk| chunk.is::<Constant>()),
+            elements.is::<Constant>(),
             "a uniform tile should have stayed constant-encoded",
         );
+        assert_eq!(elements.len(), 2_000);
         Ok(())
     }
 

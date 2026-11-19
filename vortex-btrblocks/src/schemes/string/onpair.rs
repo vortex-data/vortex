@@ -10,6 +10,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
@@ -110,7 +111,9 @@ impl Scheme for OnPairScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let utf8 = data.array_as_varbinview().into_owned();
+        let utf8 = compressor
+            .with_compressed_validity(data.array(), exec_ctx)?
+            .execute::<VarBinViewArray>(exec_ctx)?;
         let encoded = onpair_compress(utf8.as_array(), self.config(), exec_ctx)?;
         let Some(onpair_array) = encoded.as_opt::<OnPair>() else {
             return Ok(encoded);

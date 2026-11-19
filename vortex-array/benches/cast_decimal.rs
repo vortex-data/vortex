@@ -73,6 +73,7 @@ fn decimal_array<T: NativeDecimalType>(
         values.freeze(),
         DecimalDType::new(precision, scale),
         validity,
+        &mut SESSION.create_execution_ctx(),
     )
     .into_array()
 }
