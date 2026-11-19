@@ -559,6 +559,51 @@ impl ArrowSession {
         Ok(field)
     }
 
+    /// Checks whether `field` routes the registered `ext_dtype` through storage export.
+    ///
+    /// A plugin registered for the target's extension name can transform values even when its
+    /// Arrow type matches the storage. Encoded targets use separate export routes.
+    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
+    pub fn is_extension_storage_field(&self, field: &Field, ext_dtype: &ExtDTypeRef) -> bool {
+        let Some(name) = field.extension_type_name() else {
+            return false;
+        };
+
+        let id = Id::new(name);
+        if self.known_vortex_id(&id) != Some(ext_dtype.id())
+            || !self.exporters(&id).is_empty()
+            || matches!(
+                field.data_type(),
+                DataType::Dictionary(..) | DataType::RunEndEncoded(..)
+            )
+        {
+            return false;
+        }
+
+        self.from_arrow_datatype(field.data_type(), ext_dtype.nullability())
+            .is_ok_and(|dtype| &dtype == ext_dtype.storage_dtype())
+            && self.ensure_ext_storage_metadata(field, ext_dtype).is_ok()
+    }
+
+    /// Checks that a Vortex-ID export target describes the source extension type.
+    pub(crate) fn ensure_ext_storage_metadata(
+        &self,
+        field: &Field,
+        ext_dtype: &ExtDTypeRef,
+    ) -> VortexResult<()> {
+        if let Some(importer_dtype) = self.infer_field_dtype_with_importers(field)? {
+            vortex_ensure_eq!(
+                importer_dtype.as_nullable(),
+                DType::Extension(ext_dtype.with_nullability(Nullability::Nullable)),
+                "Arrow field {:?} must describe the source extension type",
+                field.name()
+            );
+            Ok(())
+        } else {
+            ensure_ext_metadata(field, &decode_arrow_ext_metadata(field)?, ext_dtype)
+        }
+    }
+
     /// Returns the Vortex ID that the extension name `id` resolves to, or `None` if the session does
     /// not know it. The registry can hold an alias, so the result can differ from `id`.
     pub(crate) fn known_vortex_id(&self, id: &Id) -> Option<ExtId> {
