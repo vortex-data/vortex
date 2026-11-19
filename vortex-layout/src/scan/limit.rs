@@ -18,25 +18,6 @@ use vortex_mask::Mask;
 #[derive(Clone)]
 pub(crate) struct RowLimit(Arc<AtomicU64>);
 
-/// The row limit of a scan.
-#[derive(Clone)]
-pub(crate) enum ScanLimit {
-    /// A fresh budget of this many rows for every execution of the scan.
-    PerExecution(u64),
-    /// A budget shared with the sibling partitions of an unordered scan.
-    Shared(RowLimit),
-}
-
-impl ScanLimit {
-    /// The budget for one execution of the scan.
-    pub(crate) fn budget(&self) -> RowLimit {
-        match self {
-            Self::PerExecution(limit) => RowLimit::new(*limit),
-            Self::Shared(limit) => limit.clone(),
-        }
-    }
-}
-
 impl RowLimit {
     pub(crate) fn new(limit: u64) -> Self {
         Self(Arc::new(AtomicU64::new(limit)))

@@ -189,12 +189,16 @@ impl MultiFileDataSource {
             })
             .collect();
 
-        let inner = MultiLayoutDataSource::new_with_first(
+        // The open options apply to every file, so the first file's bound applies to the scan.
+        let mut inner = MultiLayoutDataSource::new_with_first(
             first_reader,
             factories,
             byte_sizes,
             &self.session,
         );
+        if let Some(max) = first_file.max_splits_in_flight() {
+            inner = inner.with_max_splits_in_flight(max);
+        }
 
         debug!(file_count, dtype = %inner.dtype(), "built MultiFileDataSource");
 

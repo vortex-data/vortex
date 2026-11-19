@@ -11,8 +11,7 @@ use vortex_array::stats::StatsSet;
 use vortex_error::VortexResult;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_scan::DataSource;
-use vortex_scan::DataSourceScanRef;
-use vortex_scan::PartitionRef;
+use vortex_scan::ScanRef;
 use vortex_scan::ScanRequest;
 use vortex_session::VortexSession;
 
@@ -43,15 +42,11 @@ impl DataSource for FileDataSource {
         self.source.byte_size()
     }
 
-    fn deserialize_partition(
-        &self,
-        data: &[u8],
-        session: &VortexSession,
-    ) -> VortexResult<PartitionRef> {
-        self.source.deserialize_partition(data, session)
+    fn deserialize_scan(&self, data: &[u8], session: &VortexSession) -> VortexResult<ScanRef> {
+        self.source.deserialize_scan(data, session)
     }
 
-    async fn scan(&self, request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+    async fn scan(&self, request: ScanRequest) -> VortexResult<ScanRef> {
         self.source.scan(request).await
     }
 

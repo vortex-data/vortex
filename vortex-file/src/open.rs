@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use futures::executor::block_on;
@@ -75,6 +76,8 @@ pub struct VortexOpenOptions {
     labels: Vec<Label>,
     /// Whether to cache file's LayoutReader between scans
     cache_layout_reader: bool,
+    /// The most splits in flight across the workers of one opened scan of the file's data source.
+    max_splits_in_flight: Option<NonZeroUsize>,
 }
 
 /// Extension trait for constructing [`VortexOpenOptions`] from a session.
@@ -94,6 +97,7 @@ pub trait OpenOptionsSessionExt:
             metrics_registry: None,
             labels: Vec::default(),
             cache_layout_reader: false,
+            max_splits_in_flight: None,
         }
     }
 }
@@ -210,6 +214,18 @@ impl VortexOpenOptions {
         self
     }
 
+    /// Bounds the splits in flight at once across all workers of one opened scan of the file's
+    /// [`data_source`](VortexFile::data_source), and of multi-file sources built from files
+    /// opened with these options.
+    ///
+    /// See [`LayoutReaderDataSource::with_max_splits_in_flight`] for the default.
+    ///
+    /// [`LayoutReaderDataSource::with_max_splits_in_flight`]: vortex_layout::scan::layout::LayoutReaderDataSource::with_max_splits_in_flight
+    pub fn with_max_splits_in_flight(mut self, max: NonZeroUsize) -> Self {
+        self.max_splits_in_flight = Some(max);
+        self
+    }
+
     /// Adds labels to all the file's metrics.
     pub fn with_labels(mut self, labels: Vec<Label>) -> Self {
         self.labels.extend(labels);
@@ -254,6 +270,7 @@ impl VortexOpenOptions {
 
         let cache_layout_reader = self.cache_layout_reader;
         let include_metadata = self.include_metadata;
+        let max_splits_in_flight = self.max_splits_in_flight;
         let mut opts = self.with_initial_read_size(0);
 
         let footer = match opts.footer.take() {
@@ -269,7 +286,9 @@ impl VortexOpenOptions {
         } else {
             Arc::new(HashMap::new())
         };
-        let file = VortexFile::new(footer, segment_source, opts.session).with_metadata(metadata);
+        let file = VortexFile::new(footer, segment_source, opts.session)
+            .with_metadata(metadata)
+            .with_some_max_splits_in_flight(max_splits_in_flight);
         Ok(if cache_layout_reader {
             file.with_caching()
         } else {
@@ -346,8 +365,9 @@ impl VortexOpenOptions {
         } else {
             Arc::new(HashMap::new())
         };
-        let file =
-            VortexFile::new(footer, segment_source, self.session.clone()).with_metadata(metadata);
+        let file = VortexFile::new(footer, segment_source, self.session.clone())
+            .with_metadata(metadata)
+            .with_some_max_splits_in_flight(self.max_splits_in_flight);
         Ok(if self.cache_layout_reader {
             file.with_caching()
         } else {

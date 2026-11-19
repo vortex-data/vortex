@@ -36,8 +36,6 @@ use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::layouts::row_idx::RowIdx;
 use crate::layouts::row_idx::RowIdxLayoutReader;
-use crate::scan::limit::RowLimit;
-use crate::scan::limit::ScanLimit;
 use crate::scan::metrics::ScanMetrics;
 use crate::scan::metrics::ScanUsage;
 use crate::scan::repeated_scan::RepeatedScan;
@@ -83,7 +81,7 @@ pub struct ScanBuilder<A> {
     /// Registry counters that the scan adds to.
     metrics: Option<ScanMetrics>,
     /// Maximal number of rows to read after filtering.
-    limit: Option<ScanLimit>,
+    limit: Option<u64>,
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
     /// but not by the scan [`Selection`] which remains relative.
     row_offset: u64,
@@ -303,7 +301,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     ///
     /// A prepared [`RepeatedScan`] applies the limit to each of its executions independently.
     pub fn with_some_limit(mut self, limit: Option<u64>) -> Self {
-        self.limit = limit.map(ScanLimit::PerExecution);
+        self.limit = limit;
         self
     }
 
@@ -312,12 +310,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// A prepared [`RepeatedScan`] applies the limit to each of its executions independently.
     pub fn with_limit(self, limit: u64) -> Self {
         self.with_some_limit(Some(limit))
-    }
-
-    /// Draw rows from a budget shared with sibling partitions instead of a limit of its own.
-    pub(crate) fn with_shared_limit(mut self, limit: RowLimit) -> Self {
-        self.limit = Some(ScanLimit::Shared(limit));
-        self
     }
 
     /// The [`DType`] returned by the scan, after applying the projection.
@@ -577,7 +569,6 @@ mod test {
     use crate::LayoutReader;
     use crate::RowSplits;
     use crate::SplitRange;
-    use crate::scan::limit::RowLimit;
     use crate::scan::test::SCAN_SESSION;
     use crate::scan::test::TestLayoutReader;
     use crate::scan::test::collect_scan_values;
@@ -1230,17 +1221,10 @@ mod test {
         Ok(())
     }
 
-    #[rstest]
-    #[case(false)]
-    #[case(true)]
-    fn prepared_scan_split_futures_reject_limits(#[case] shared: bool) -> VortexResult<()> {
+    #[test]
+    fn prepared_scan_split_futures_reject_limits() -> VortexResult<()> {
         let reader = Arc::new(TestLayoutReader::new(8).with_split_size(2));
-        let builder = ScanBuilder::new(SCAN_SESSION.clone(), reader);
-        let builder = if shared {
-            builder.with_shared_limit(RowLimit::new(1))
-        } else {
-            builder.with_limit(1)
-        };
+        let builder = ScanBuilder::new(SCAN_SESSION.clone(), reader).with_limit(1);
 
         assert!(builder.prepare()?.execute(None).is_err());
         Ok(())

@@ -6,6 +6,7 @@
 //! The `VortexFile` provides methods for accessing file metadata, creating segment sources for reading
 //! data from the file, and initiating scans to read the file's contents into memory as Vortex arrays.
 
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -58,6 +59,8 @@ pub struct VortexFile {
     scan_cache: Option<FileScanCache>,
     /// Resource usage that segment reads and scans of this handle add to.
     usage: Option<Arc<ScanUsage>>,
+    /// The most splits in flight across the workers of one opened scan of the data source.
+    max_splits_in_flight: Option<NonZeroUsize>,
 }
 
 /// What repeated V2 scans of a file share: its segment locations, read from the footer once, and
@@ -104,6 +107,7 @@ impl VortexFile {
             layout_reader_cache: None,
             scan_cache: None,
             usage: None,
+            max_splits_in_flight: None,
         }
     }
 
@@ -130,7 +134,20 @@ impl VortexFile {
             layout_reader_cache: Some(OnceLock::new()),
             scan_cache: Some(scan_cache),
             usage: self.usage,
+            max_splits_in_flight: self.max_splits_in_flight,
         }
+    }
+
+    /// Bounds the splits in flight at once across all workers of one opened scan of
+    /// [`data_source`](Self::data_source), or keeps the source's default when `None`.
+    pub fn with_some_max_splits_in_flight(mut self, max: Option<NonZeroUsize>) -> Self {
+        self.max_splits_in_flight = max;
+        self
+    }
+
+    /// The bound on splits in flight that [`data_source`](Self::data_source) applies, if set.
+    pub fn max_splits_in_flight(&self) -> Option<NonZeroUsize> {
+        self.max_splits_in_flight
     }
 
     /// Returns a reference to the file's footer, which contains metadata and layout information.
@@ -251,8 +268,12 @@ impl VortexFile {
     pub fn data_source(&self) -> VortexResult<DataSourceRef> {
         let reader = self.layout_reader()?;
 
+        let mut source = LayoutReaderDataSource::new(reader, self.session.clone());
+        if let Some(max) = self.max_splits_in_flight {
+            source = source.with_max_splits_in_flight(max);
+        }
         Ok(Arc::new(FileDataSource::new(
-            LayoutReaderDataSource::new(reader, self.session.clone()),
+            source,
             self.file_stats().cloned(),
         )))
     }
