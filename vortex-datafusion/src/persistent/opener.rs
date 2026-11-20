@@ -580,7 +580,7 @@ impl FileOpener for VortexOpener {
                     };
                     request.row_range = Some(rows);
                 }
-                Ok(read_data_source(
+                VortexResult::Ok(read_data_source(
                     data_source,
                     request,
                     session,
