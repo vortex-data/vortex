@@ -79,9 +79,10 @@ pub fn scan_v2() -> bool {
     SCAN_V2.load(Ordering::Relaxed)
 }
 
-/// Whether a scan starting now reads V1 files through scan pools, the default, or through the
-/// per-file split lists it used before. Set `VORTEX_SCAN_POOL=0` to compare against the split
-/// lists; it is read once per scan, so one binary can benchmark both.
+/// Whether a scan starting now reads each file through a scan pool, the default, or through the
+/// file's own work queue it used before: a V1 scan's split list, or a V2 scan's part queue. Set
+/// `VORTEX_SCAN_POOL=0` to compare against those queues; it is read once per scan, so one binary
+/// can benchmark both.
 pub fn scan_pool() -> bool {
     std::env::var("VORTEX_SCAN_POOL").map_or(true, |value| value != "0")
 }

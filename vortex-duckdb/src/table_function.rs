@@ -190,8 +190,8 @@ pub struct GlobalState {
     pub file_row_number_column_pos: Option<usize>,
     /// Whether the scan runs on the planner-driven V2 executor.
     pub scan_v2: bool,
-    /// Whether a V1 scan reads each file through a scan pool, or through the file's own list of
-    /// split tasks. Read from `VORTEX_SCAN_POOL` when the scan starts.
+    /// Whether the scan reads each file through a scan pool, or through the file's own queue of
+    /// V1 split tasks or V2 parts. Read from `VORTEX_SCAN_POOL` when the scan starts.
     pub scan_pool: bool,
 
     // Following fields are used only in aggregate scans.

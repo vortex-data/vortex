@@ -38,7 +38,7 @@ use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanFile;
 use vortex::mask::Mask;
-use vortex::scan::DataSource as _;
+use vortex::scan::DataSourceRef;
 use vortex::scan::ScanRequest;
 use vortex::scan::pool::ScanPoolRef;
 use vortex::session::SessionExt as _;
@@ -135,11 +135,13 @@ pub struct FileScanState {
     reader: LayoutReaderRef,
     /// The file as the V2 executor reads it.
     scan_file: ScanFile,
+    /// The file as a V2 data source, whose pool a V2 scan reads through.
+    plan_source: DataSourceRef,
     /// The file's V2 scan, which every thread scanning the file drives. Set when the file is
     /// initialized for a V2 scan.
     v2: OnceLock<FileScan>,
-    /// The pool of the file's V1 scan, whose workers the threads scanning the file poll. Set when
-    /// the file is initialized for a V1 scan.
+    /// The pool of the file's scan, whose workers the threads scanning the file poll. Set when the
+    /// file is initialized for a scan that reads through a pool.
     pool: OnceLock<ScanPoolRef>,
     /// Set once a worker of `pool` has ended, so the pool has no work left for a new thread.
     finished: AtomicBool,
@@ -171,6 +173,7 @@ impl OpenFileReader {
             scan_state: Some(Arc::new(FileScanState {
                 reader: file.layout_reader()?,
                 scan_file,
+                plan_source: file.plan_data_source(),
                 v2: OnceLock::new(),
                 pool: OnceLock::new(),
                 finished: AtomicBool::new(false),
@@ -249,7 +252,7 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     // Opening the file's pool, or planning a V2 scan, is non-trivial work so we prefer
     // doing it here under file lock and not in reader_try_initialize_scan under
     // global lock.
-    if global.scan_v2 {
+    if global.scan_v2 && !global.scan_pool {
         let state = file.scan_state();
         let splits = ScanBuilder::new(SESSION.clone(), Arc::clone(&state.reader))
             .with_projection(global.projection.clone())
@@ -298,7 +301,14 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         ordered: false,
         ..ScanRequest::default()
     };
-    let source = LayoutReaderDataSource::new(Arc::clone(&state.reader), SESSION.clone());
+    let source: DataSourceRef = if global.scan_v2 {
+        Arc::clone(&state.plan_source)
+    } else {
+        Arc::new(LayoutReaderDataSource::new(
+            Arc::clone(&state.reader),
+            SESSION.clone(),
+        ))
+    };
     let pool = RUNTIME.block_on(source.scan(request))?.open()?;
     if state.pool.set(pool).is_err() {
         vortex_panic!("file initialized twice");
