@@ -320,10 +320,17 @@ impl Shared {
         }
     }
 
-    /// Takes a unit that runs, and starts it, returning its arrays as they are produced.
-    fn stream(&self, unit: WorkUnit) -> UnitStream {
+    /// Takes a unit that runs, and starts it, returning its arrays as they are produced. With
+    /// `spawn`, a unit that returns all of its arrays at once runs as its own task on the runtime.
+    fn stream(&self, unit: WorkUnit, spawn: bool) -> UnitStream {
         self.take(unit.share);
         match unit.kind {
+            UnitKind::Run(run) if spawn => self
+                .handle
+                .spawn(run())
+                .map_ok(|arrays| stream::iter(arrays.into_iter().map(Ok)))
+                .try_flatten_stream()
+                .boxed(),
             UnitKind::Run(run) => run()
                 .map_ok(|arrays| stream::iter(arrays.into_iter().map(Ok)))
                 .try_flatten_stream()
@@ -637,11 +644,14 @@ async fn lane(lanes: Arc<Lanes>, output: Sender<VortexResult<ArrayRef>>) {
         lanes.grow(&output);
         let mut arrays = match taken {
             Taken::Run(mut units) if units.len() == 1 => {
-                shared.stream(units.pop().vortex_expect("a run of one unit"))
+                shared.stream(units.pop().vortex_expect("a run of one unit"), false)
             }
-            // The run's units are polled together, so their reads are registered together.
+            // The run's units start together, so their reads are registered together. A unit that
+            // returns its arrays at once, such as a V1 split, decodes inside its future, so each
+            // runs as its own task, as a scan stream spawns its splits, rather than all on this
+            // lane. A streaming unit, such as a V2 part, stays on the lane to pass on its chunks.
             Taken::Run(units) => {
-                stream::select_all(units.into_iter().map(|unit| shared.stream(unit))).boxed()
+                stream::select_all(units.into_iter().map(|unit| shared.stream(unit, true))).boxed()
             }
             Taken::Expand(unit, slot) => {
                 let expanded = shared.expand(unit).await;
