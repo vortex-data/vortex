@@ -312,8 +312,7 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
   `VortexTable` over a Vortex `DataSource`), and the scan engine is `v1` (LayoutReader) or `v2`
   (plans). Use it on PRs that change either path.
 - **SQL Extended** -- `action/bench-sql-extended` runs the `pr-full` preset: every regular SQL
-  benchmark, including `vortex-compact` and DuckDB-format targets, with every valid Vortex
-  integration and scan engine.
+  benchmark, including `vortex-compact` and DuckDB-format targets.
 - **SQL Compact** -- `action/bench-sql-compact` runs the `pr-compact` preset, which benchmarks
   `vortex-compact` plus Parquet control rows used to distinguish code changes from runner drift.
 - **All CPU benchmarks** -- `action/bench-all` runs random access, compression, string encoding,

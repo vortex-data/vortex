@@ -26,9 +26,7 @@ PRESETS = {
         "per combination (action/bench-scan)."
     ),
     "pr-all": "The union of the pr, pr-compact and pr-full matrices (action/bench-all).",
-    "pr-full": (
-        "Every regular SQL benchmark at full PR target coverage and every Vortex scan (action/bench-sql-extended)."
-    ),
+    "pr-full": ("Every regular SQL benchmark at full PR target coverage (action/bench-sql-extended)."),
     "nightly": "SF=100 TPC-H and nested TPC-H, and SF=10/100 TPC-DS, on NVMe and S3, with every Vortex scan.",
 }
 
@@ -390,8 +388,9 @@ BENCHMARKS = (
 )
 
 # Presets whose every benchmark runs every valid integration and scan engine combination. TPC-DS
-# SF=100 lists its targets one per job already, see `TPCDS_SF100_TARGETS`.
-ALL_SCAN_PRESETS = ("pr-full", "nightly")
+# SF=100 lists its targets one per job already, see `TPCDS_SF100_TARGETS`. PR presets other than
+# `pr-scan` keep the default scans, so the extra machines are opt-in.
+ALL_SCAN_PRESETS = ("nightly",)
 
 
 def _with_all_scan_presets(benchmark: BenchmarkCase) -> BenchmarkCase:

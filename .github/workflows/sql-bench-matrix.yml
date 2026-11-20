@@ -433,9 +433,11 @@ jobs:
       # `extras=s3-cache` points the artifact API at the RunsOn proxy, which only this action wires up.
       - uses: runs-on/action@v2
         if: github.event.pull_request.head.repo.fork == false
+      # The baseline is the newest develop commit reachable from the PR head, which needs full history.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6

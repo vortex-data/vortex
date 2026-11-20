@@ -168,8 +168,9 @@ Vortex targets name an integration (`file` or `datasource`) and a scan engine (`
 coverage made with `with_all_scans` runs every valid combination, and each combination becomes a
 matrix entry of its own, `{id}-{engine}-{integration}-{scan}`, on its own machine. The default
 entry keeps the case's id. Every entry of a case shares its `group`, and the PR comment job merges
-a group's results into one table. `pr-full` and `nightly` cover every scan on every benchmark;
-`develop` and `pr-scan` cover them on ClickBench and TPC-H SF=1 on NVMe.
+a group's results into one table. `nightly` covers every scan on every benchmark; `develop` and
+`pr-scan` cover them on ClickBench and TPC-H SF=1 on NVMe. The other PR presets run the default
+scans only.
 
 When adding coverage, update the benchmark declarations and the expected preset membership in
 `tests/test_matrix.py`.

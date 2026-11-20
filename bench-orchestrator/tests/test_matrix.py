@@ -234,15 +234,22 @@ def test_pr_target_selection() -> None:
         assert group["data_formats"] == {"parquet", "vortex-compact"}
 
 
-@pytest.mark.parametrize("preset", ["pr-full", "pr-all"])
-def test_pr_full_runs_every_valid_scan(preset: str) -> None:
-    for benchmark_id, targets in _group_targets(preset).items():
+@pytest.mark.parametrize("preset", ["pr", "pr-compact", "pr-full", "pr-all"])
+def test_only_pr_scan_adds_scans_to_pull_requests(preset: str) -> None:
+    # The extra scans cost a machine each, so pull requests opt in with `action/bench-scan`.
+    assert all(entry["id"] == entry["group"] for entry in _entries(preset))
+
+
+def test_nightly_runs_every_valid_scan() -> None:
+    for benchmark_id, targets in _group_targets("nightly").items():
+        if "-100-" in benchmark_id:
+            continue
         engines = {engine for engine, fmt in targets if fmt.startswith("vortex [")}
         scans = {(engine, fmt) for engine, fmt in targets if fmt.startswith("vortex [")}
         expected = {(engine, "vortex [file, v1]") for engine in engines} | (
             {("datafusion", "vortex [datasource, v1]")} if "datafusion" in engines else set()
         )
-        if benchmark_id not in {"statpopgen", "polarsignals", "tpch-nested-nvme"}:
+        if not benchmark_id.startswith("tpch-nested"):
             expected |= {(engine, "vortex [file, v2]") for engine in engines}
         assert scans == expected, benchmark_id
 
