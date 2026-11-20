@@ -912,10 +912,10 @@ impl FusedPlan {
         Ok(pipeline)
     }
 
-    /// Widen → decode the narrower child at the output width, then extend its low bits.
+    /// Widen → decode the narrower child at the output width, then fix the high bits.
     ///
-    /// The integer ops of the child produce the correct low bits of each value at the output width,
-    /// but narrow sources are zero-extended, so `EXTEND` sign-extends signed values at the end.
+    /// LOAD/BITUNPACK zero-extends to the output width, so prior ops (FOR, ZIGZAG) produce
+    /// correct low bits. `EXTEND` sign-extends or zero-extends the high bits at the end.
     fn walk_widen(
         &mut self,
         array: ArrayRef,

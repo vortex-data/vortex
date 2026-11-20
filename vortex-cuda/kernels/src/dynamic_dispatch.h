@@ -201,9 +201,10 @@ union ScalarParams {
         uint32_t values_smem_byte_offset; // byte offset to decoded dict values in smem
     } dict;
 
-    /// Extend the low bits of a narrower integer to the output type: sign-extend
-    /// signed sources, zero-extend unsigned ones. Integer ops before it are
-    /// correct modulo the source width, so it runs last.
+    /// Extend a narrower integer to the output type (sign-extend signed,
+    /// zero-extend unsigned). Must be the last scalar op: LOAD/BITUNPACK
+    /// zero-extends to the output width, so prior ops produce correct low
+    /// bits, and EXTEND fixes the high bits.
     struct ExtendParams {
         enum PTypeTag source_ptype; // narrower integer type being extended
     } extend;

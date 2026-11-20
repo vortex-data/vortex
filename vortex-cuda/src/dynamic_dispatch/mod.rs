@@ -416,6 +416,10 @@ impl ScalarOp {
     /// Extend the low bits of a narrower `source_ptype` integer to `output_ptype`, with sign
     /// extension for signed types.
     pub fn extend(source_ptype: PTypeTag, output_ptype: PTypeTag) -> Self {
+        assert!(
+            tag_to_ptype(source_ptype).byte_width() < tag_to_ptype(output_ptype).byte_width(),
+            "EXTEND source must be strictly narrower than output"
+        );
         Self {
             op_code: ScalarOp_ScalarOpCode_EXTEND,
             output_ptype,
