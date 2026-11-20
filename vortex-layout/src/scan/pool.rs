@@ -3,12 +3,14 @@
 
 //! The work of an opened layout scan, for the scan pool.
 //!
-//! A pool's units are the splits of one or more files, and the files not yet opened. Opening a
-//! deferred file is an expansion that yields the file's splits, and at most `open_concurrency`
-//! opens are queued or running at once. Each split is spawned onto the session's runtime when a
-//! worker takes it; the [pool](vortex_scan::pool::open_work_pool) shares the units among the
-//! workers and never starts threads of its own. Each file has an equal share of the pool's
-//! progress, divided among its splits by their rows.
+//! A pool's units are the splits of one or more files, and the files not yet opened. An opened
+//! file's splits are one [turn](WorkUnit::turn), so an unordered pool's lanes take splits from
+//! every opened file in turn. Opening a deferred file is an expansion that yields the file's turn,
+//! and at most `open_concurrency` opens are queued or running at once. An unordered pool runs
+//! splits and opens on the lane that takes them, which is already a task on the session's runtime;
+//! an ordered pool's worker spawns each onto the runtime. The
+//! [pool](vortex_scan::pool::open_work_pool) never starts threads of its own. Each file has an
+//! equal share of the pool's progress, divided among its splits by their rows.
 //!
 //! Splits run as [`RepeatedScan::execute_stream`] runs them:
 //!
@@ -58,6 +60,7 @@ use crate::scan::multi::LayoutReaderFactory;
 use crate::scan::repeated_scan::MapFn;
 use crate::scan::repeated_scan::RepeatedScan;
 use crate::scan::repeated_scan::can_prune_file;
+use crate::scan::repeated_scan::recheck_prune_file;
 use crate::scan::repeated_scan::spawn_lazy_split;
 use crate::scan::repeated_scan::spawn_map_trimmed;
 use crate::scan::tasks::SplitFuture;
@@ -80,15 +83,33 @@ pub(crate) struct FileScan {
     /// The task of each split, built together when a worker first takes one of them. `None`
     /// where the split has no rows to read, or a worker has taken it.
     tasks: OnceCell<Vec<Mutex<Option<SplitFuture>>>>,
+    /// Whether whole-file statistics reject the filter when the file's first split is taken.
+    pruned: OnceCell<bool>,
 }
 
 impl FileScan {
+    /// Whether whole-file statistics reject the filter, checked again when the first split is
+    /// taken, as [`RepeatedScan::execute_stream`] checks when it starts: a filter with dynamic
+    /// parts may reject the file by then though it did not when the pool was opened.
+    async fn is_pruned(&self) -> VortexResult<bool> {
+        let pruned = self
+            .pruned
+            .get_or_try_init(|| future::ready(recheck_prune_file(&self.ctx)))
+            .await?;
+        Ok(*pruned)
+    }
+
     /// The tasks of the file's splits, built on first use. A file whose tasks are built once a
-    /// reserved limit is spent builds none.
+    /// reserved limit is spent, or that statistics now reject, builds none.
     async fn tasks(&self, limit: &PoolLimit) -> VortexResult<&[Mutex<Option<SplitFuture>>]> {
         let tasks = self
             .tasks
-            .get_or_try_init(|| future::ready(self.build_tasks(limit)))
+            .get_or_try_init(|| async {
+                if self.is_pruned().await? {
+                    return Ok(Vec::new());
+                }
+                self.build_tasks(limit)
+            })
             .await?;
         Ok(tasks)
     }
@@ -144,6 +165,7 @@ impl FileWork {
                 ctx,
                 ranges,
                 tasks: OnceCell::new(),
+                pruned: OnceCell::new(),
             })),
         })
     }
@@ -187,6 +209,7 @@ pub(crate) fn open_pool(
         limit: limit.clone(),
         prepare,
         session: options.session.clone(),
+        spawn: options.ordered,
     });
     let file_share = 1.0 / files.len().max(1) as f64;
     let mut units = Vec::new();
@@ -238,10 +261,14 @@ struct Files {
     prepare: Option<PrepareFile>,
     /// The session whose runtime runs the pool's splits and opens.
     session: VortexSession,
+    /// Whether splits and opens are spawned onto the runtime: an ordered pool's worker runs on the
+    /// host's thread, while an unordered pool's lane is already a task on the runtime, where
+    /// spawning would only add a hop.
+    spawn: bool,
 }
 
 impl Files {
-    /// The units of an opened file's splits, in row order, dividing the file's `share` among them
+    /// The turn of an opened file's splits, in row order, dividing the file's `share` among them
     /// by their rows.
     fn units(self: &Arc<Self>, work: FileWork, share: f64) -> Vec<WorkUnit> {
         let Some(file) = work.file else {
@@ -256,7 +283,7 @@ impl Files {
             return vec![WorkUnit::skipped(share)];
         }
         let per_row = share / rows as f64;
-        (0..file.ranges.len())
+        let splits = (0..file.ranges.len())
             .map(|index| {
                 let range = &file.ranges[index];
                 let files = Arc::clone(self);
@@ -268,13 +295,14 @@ impl Files {
                         .boxed()
                 })
             })
-            .collect()
+            .collect();
+        vec![WorkUnit::turn(splits)]
     }
 
-    /// Opens a deferred file on the session's runtime into the units of its splits.
+    /// Opens a deferred file into the turn of its splits.
     fn open(self: &Arc<Self>, factory: Arc<dyn LayoutReaderFactory>, share: f64) -> Expansion {
         let files = Arc::clone(self);
-        let opened = self.session.handle().spawn(async move {
+        let opened = async move {
             let reader = factory
                 .open()
                 .instrument(tracing::info_span!("LayoutReaderFactory::open"))
@@ -283,12 +311,19 @@ impl Files {
                 (Some(reader), Some(prepare)) => prepare(reader),
                 _ => Ok(FileWork::empty()),
             }
-        });
+        };
+        let opened = if self.spawn {
+            self.session.handle().spawn(opened).boxed()
+        } else {
+            opened.boxed()
+        };
         let files = Arc::clone(self);
         async move { Ok(files.units(opened.await?, share)) }.boxed()
     }
 
-    /// Runs a split on the session's runtime.
+    /// Runs a split. A split of a scan with a filter and a limit is built and run as
+    /// [`spawn_lazy_split`] runs it; any other split runs on the session's runtime when splits are
+    /// spawned, or else on the task that polls it.
     fn admit(
         self: &Arc<Self>,
         file: Arc<FileScan>,
@@ -299,14 +334,24 @@ impl Files {
             let Some(mask) = file.scan.split_mask(&file.ranges[index]) else {
                 return future::ready(Ok(None)).boxed();
             };
-            return spawn_lazy_split(&handle, move || split_exec(&file.ctx, mask).map(Some))
-                .boxed();
+            return async move {
+                if file.is_pruned().await? {
+                    return Ok(None);
+                }
+                spawn_lazy_split(&handle, move || split_exec(&file.ctx, mask).map(Some)).await
+            }
+            .boxed();
         }
         let files = Arc::clone(self);
         async move {
-            let task = file.tasks(&files.limit).await?[index].lock().take();
+            let task = file
+                .tasks(&files.limit)
+                .await?
+                .get(index)
+                .and_then(|task| task.lock().take());
             match task {
-                Some(task) => handle.spawn(task).await,
+                Some(task) if files.spawn => handle.spawn(task).await,
+                Some(task) => task.await,
                 None => Ok(None),
             }
         }

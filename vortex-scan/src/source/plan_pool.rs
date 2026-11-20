@@ -170,8 +170,8 @@ fn prepare(
 }
 
 /// Runs a child's root on a planning run of its own, awaiting only its reads, and returns a unit
-/// for each part it spawns, in row order, dividing the child's `share` among them by their rows.
-/// The rows the parts leave out are a skipped unit.
+/// for each part it spawns, in row order, as one turn, dividing the child's `share` among them by
+/// their rows. The rows the parts leave out are a skipped unit.
 fn run_root(
     child: Arc<PreparedChild>,
     root: Box<dyn Planner>,
@@ -223,7 +223,8 @@ fn run_root(
         if unassigned > 0 {
             units.push(WorkUnit::skipped(per_row * unassigned as f64));
         }
-        Ok(units)
+        // The lanes of an unordered pool take the child's parts in turn with other children's.
+        Ok(vec![WorkUnit::turn(units)])
     }
     .boxed()
 }
