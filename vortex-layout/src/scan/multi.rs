@@ -57,8 +57,8 @@ use vortex_scan::Partition;
 use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
-use vortex_scan::pool::PartitionPool;
-use vortex_scan::pool::ScanPoolRef;
+use vortex_scan::pool::ScanStream;
+use vortex_scan::pool::split_shared;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -334,7 +334,6 @@ impl DataSource for MultiLayoutDataSource {
             ready,
             deferred,
             byte_sizes,
-            fraction: None,
             handle: self.session.handle(),
             concurrency: self.concurrency,
         }))
@@ -399,46 +398,8 @@ struct MultiLayoutScan {
     deferred: VecDeque<Arc<dyn LayoutReaderFactory>>,
     /// The on-storage size of each file, if known: the `ready` files, then the `deferred` ones.
     byte_sizes: VecDeque<Option<u64>>,
-    /// The part of its one unopened file that a piece of a split reads; `None` reads every file
-    /// whole. See [`FileFraction`].
-    fraction: Option<FileFraction>,
     handle: vortex_io::runtime::Handle,
     concurrency: usize,
-}
-
-/// Piece `index` of `count` equal parts of a file's rows, for a piece cut from a file that was
-/// not opened when the scan was split.
-///
-/// The rows are resolved once the file is opened. The part's row range is computed from the
-/// file's row count, and then each of the file's splits goes to the part whose range holds the
-/// split's first row. So the parts of a file read each of its splits exactly once, whole.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct FileFraction {
-    index: u64,
-    count: u64,
-}
-
-impl FileFraction {
-    /// The rows of `rows` that this part reads, given the start rows of the file's splits within
-    /// `rows`, in order.
-    fn resolve(self, rows: Range<u64>, split_starts: impl IntoIterator<Item = u64>) -> Range<u64> {
-        let len = u128::from(rows.end - rows.start);
-        let at = |part: u64| {
-            rows.start
-                + u64::try_from(len * u128::from(part) / u128::from(self.count)).unwrap_or(u64::MAX)
-        };
-        let (from, to) = (at(self.index), at(self.index + 1));
-        let mut start = None;
-        for split in split_starts {
-            if split >= to {
-                return start.map_or(to..to, |start| start..split);
-            }
-            if split >= from && start.is_none() {
-                start = Some(split);
-            }
-        }
-        start.map_or(rows.end..rows.end, |start| start..rows.end)
-    }
 }
 
 impl DataSourceScan for MultiLayoutScan {
@@ -446,25 +407,29 @@ impl DataSourceScan for MultiLayoutScan {
         &self.dtype
     }
 
-    /// Cuts the scan into at most `n` pieces, in file order, reading metadata only.
+    /// Splits an unordered scan into `n` clones of its opened partition stream, which share its
+    /// files. Cuts an ordered scan into at most `n` contiguous pieces in file order, reading
+    /// metadata only.
     ///
-    /// With at least `n` files, each piece is a run of whole files. The runs balance the files'
-    /// byte sizes when every size is known, and their counts otherwise. With fewer files, each
-    /// file gets a share of the `n` pieces in proportion to its size, at least one, and no piece
-    /// holds parts of two files. An opened file is cut at its natural split boundaries. A file
-    /// that is not opened is cut into equal fractions of its rows, which are resolved to whole
-    /// splits when the piece opens it; see [`FileFraction`].
+    /// With at least `n` files, each ordered piece is a run of whole files. The runs balance the
+    /// files' byte sizes when every size is known, and their counts otherwise. With fewer files,
+    /// each file gets a share of the `n` pieces in proportion to its size, at least one, and no
+    /// piece holds parts of two files. A file that is open is cut at its natural split
+    /// boundaries. A file that is not open stays one piece, because cutting it would mean
+    /// opening it, so the scan may return fewer than `n` pieces.
     ///
-    /// A scan with a limit stays whole, because the limit is one budget across all its files,
-    /// and so does one that selects partitions, because partition indices count from its first
-    /// file.
+    /// A scan with a limit stays whole, because the limit is one budget across all its files.
+    /// So does an ordered one that selects partitions, because partition indices count from its
+    /// first file.
     fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
         let files = self.ready.len() + self.deferred.len();
-        if n.get() == 1
-            || files == 0
-            || self.fraction.is_some()
-            || self.request.limit.is_some()
-            || self.request.partition_range.is_some()
+        if n.get() == 1 || files == 0 || self.request.limit.is_some() {
+            return Ok(vec![self]);
+        }
+        if !self.request.ordered {
+            return split_shared(self, n);
+        }
+        if self.request.partition_range.is_some()
             || !matches!(self.request.partition_selection, Selection::All)
         {
             return Ok(vec![self]);
@@ -478,7 +443,6 @@ impl DataSourceScan for MultiLayoutScan {
             mut ready,
             mut deferred,
             mut byte_sizes,
-            fraction: _,
             handle,
             concurrency,
         } = *self;
@@ -494,7 +458,6 @@ impl DataSourceScan for MultiLayoutScan {
         let piece = |ready: VecDeque<LayoutReaderRef>,
                      deferred: VecDeque<Arc<dyn LayoutReaderFactory>>,
                      byte_sizes: VecDeque<Option<u64>>,
-                     fraction: Option<FileFraction>,
                      request: BoundScanRequest| {
             Box::new(MultiLayoutScan {
                 session: session.clone(),
@@ -505,7 +468,6 @@ impl DataSourceScan for MultiLayoutScan {
                 ready,
                 deferred,
                 byte_sizes,
-                fraction,
                 handle: handle.clone(),
                 concurrency,
             }) as DataSourceScanRef
@@ -533,7 +495,6 @@ impl DataSourceScan for MultiLayoutScan {
                         ready.drain(..from_ready).collect(),
                         deferred.drain(..take - from_ready).collect(),
                         byte_sizes.drain(..take).collect(),
-                        None,
                         request.clone(),
                     )
                 })
@@ -565,7 +526,6 @@ impl DataSourceScan for MultiLayoutScan {
                                 VecDeque::from([Arc::clone(&reader)]),
                                 VecDeque::new(),
                                 VecDeque::from([size]),
-                                None,
                                 request,
                             ));
                         }
@@ -574,7 +534,6 @@ impl DataSourceScan for MultiLayoutScan {
                         VecDeque::from([reader]),
                         VecDeque::new(),
                         VecDeque::from([size]),
-                        None,
                         request.clone(),
                     )),
                 }
@@ -582,19 +541,12 @@ impl DataSourceScan for MultiLayoutScan {
                 let Some(factory) = deferred.pop_front() else {
                     break;
                 };
-                for index in 0..share {
-                    let fraction = (share > 1).then_some(FileFraction {
-                        index,
-                        count: share,
-                    });
-                    pieces.push(piece(
-                        VecDeque::new(),
-                        VecDeque::from([Arc::clone(&factory)]),
-                        VecDeque::from([size]),
-                        fraction,
-                        request.clone(),
-                    ));
-                }
+                pieces.push(piece(
+                    VecDeque::new(),
+                    VecDeque::from([factory]),
+                    VecDeque::from([size]),
+                    request.clone(),
+                ));
             }
         }
         Ok(pieces)
@@ -602,8 +554,8 @@ impl DataSourceScan for MultiLayoutScan {
 
     /// Opens the scan into its partition pipeline, which opens up to `concurrency` files ahead
     /// and reads each file as one partition, handing the partitions to workers.
-    fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
-        Ok(Arc::new(PartitionPool::new(self)))
+    fn open(self: Box<Self>) -> VortexResult<ScanStream> {
+        Ok(ScanStream::from_partitions(self))
     }
 
     fn partition_count(&self) -> Precision<usize> {
@@ -625,7 +577,6 @@ impl DataSourceScan for MultiLayoutScan {
             ready,
             deferred,
             byte_sizes: _,
-            fraction,
             handle,
             concurrency,
         } = *self;
@@ -685,7 +636,6 @@ impl DataSourceScan for MultiLayoutScan {
                     &source_dtype,
                     request.clone(),
                     row_limit.clone(),
-                    fraction,
                 ),
                 Err(e) => stream::once(async move { Err(e) }).boxed(),
             })
@@ -765,7 +715,6 @@ fn reader_partition(
     source_dtype: &DType,
     request: BoundScanRequest,
     row_limit: Option<RowLimit>,
-    fraction: Option<FileFraction>,
 ) -> PartitionStream {
     if reader.dtype() != source_dtype {
         let error = vortex_err!(
@@ -777,20 +726,7 @@ fn reader_partition(
     }
 
     let row_count = reader.row_count();
-    let mut row_range = request.row_range.clone().unwrap_or(0..row_count);
-    if let Some(fraction) = fraction {
-        let rows = row_range.start.min(row_count)..row_range.end.min(row_count);
-        // A file whose splits cannot be planned is one split, which the first part reads.
-        let split_starts = file_split_ranges(&session, &reader, &request, rows.clone())
-            .map_or_else(
-                || vec![rows.start],
-                |splits| splits.into_iter().map(|s| s.start).collect(),
-            );
-        row_range = fraction.resolve(rows, split_starts);
-        if row_range.is_empty() {
-            return stream::empty().boxed();
-        }
-    }
+    let row_range = request.row_range.clone().unwrap_or(0..row_count);
 
     let partition_idx_u64: u64 = partition_idx as u64;
     if let Some(range) = &request.partition_range
@@ -1107,8 +1043,10 @@ mod tests {
     fn split_balances_whole_files_by_size() -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
         let scan = runtime.block_on(
-            unopened_files(&runtime, vec![Some(80), Some(10), Some(10)])
-                .scan(ScanRequest::default()),
+            unopened_files(&runtime, vec![Some(80), Some(10), Some(10)]).scan(ScanRequest {
+                ordered: true,
+                ..Default::default()
+            }),
         )?;
         let files: Vec<_> = scan
             .split(NonZeroUsize::try_from(2)?)?
@@ -1122,16 +1060,17 @@ mod tests {
         Ok(())
     }
 
-    /// With fewer files than `n`, each file gets a share of the pieces by size, still without
-    /// opening any.
+    /// An ordered split never opens a file to cut it, so an unopened file stays one piece.
     #[test]
-    fn split_shares_pieces_among_unopened_files_by_size() -> VortexResult<()> {
+    fn ordered_split_keeps_unopened_files_whole() -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
-        let scan = runtime.block_on(
-            unopened_files(&runtime, vec![Some(30), Some(10)]).scan(ScanRequest::default()),
-        )?;
-        // Two spare pieces: the larger file takes one of them, the smaller none.
-        assert_eq!(scan.split(NonZeroUsize::try_from(4)?)?.len(), 3);
+        let scan = runtime.block_on(unopened_files(&runtime, vec![Some(30), Some(10)]).scan(
+            ScanRequest {
+                ordered: true,
+                ..Default::default()
+            },
+        ))?;
+        assert_eq!(scan.split(NonZeroUsize::try_from(4)?)?.len(), 2);
         Ok(())
     }
 
@@ -1156,58 +1095,31 @@ mod tests {
         Ok(())
     }
 
-    /// An unopened file is cut into fractions of its rows, resolved to whole splits once it is
-    /// opened. The fractions of this file meet at row 4, inside the split of rows 3..6, which
-    /// the first fraction reads whole because the split starts in it.
+    /// The pieces of an unordered scan share its files, so together they read every row once.
     #[test]
-    fn split_reads_each_split_of_an_unopened_file_once() -> VortexResult<()> {
+    fn unordered_pieces_share_the_files() -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
         let session = session_with_handle(runtime.handle());
         let first: LayoutReaderRef = Arc::new(TestLayoutReader::new(2));
-        let deferred = Arc::new(StaticReaderFactory {
-            reader: Arc::new(TestLayoutReader::new(9).with_split_size(3).with_base(100)),
-        }) as Arc<dyn LayoutReaderFactory>;
-        let source = MultiLayoutDataSource::new_with_first(first, vec![deferred], vec![], &session);
-
-        let scan = runtime.block_on(source.scan(ScanRequest {
-            ordered: true,
-            ..Default::default()
-        }))?;
-        let pieces = scan
-            .split(NonZeroUsize::try_from(4)?)?
-            .into_iter()
-            .map(|piece| piece_values(&runtime, piece))
-            .collect::<VortexResult<Vec<_>>>()?;
-        // The opened file has one split, so it stays one piece of the two it was given.
-        assert_eq!(
-            pieces,
-            [
-                vec![0, 1],
-                vec![100, 101, 102, 103, 104, 105],
-                vec![106, 107, 108]
-            ]
-        );
-        Ok(())
-    }
-
-    /// Each split goes to the fraction whose rows hold the split's first row, and a fraction in
-    /// which no split starts reads nothing.
-    #[rstest]
-    #[case::boundary_inside_a_split(0..9, vec![0, 3, 6], 2, vec![0..6, 6..9])]
-    #[case::fraction_without_a_split(0..9, vec![0, 6], 3, vec![0..6, 6..6, 6..9])]
-    #[case::one_split(10..20, vec![10], 2, vec![10..20, 20..20])]
-    fn file_fraction_resolves_to_whole_splits(
-        #[case] rows: Range<u64>,
-        #[case] split_starts: Vec<u64>,
-        #[case] count: u64,
-        #[case] expected: Vec<Range<u64>>,
-    ) {
-        let resolved: Vec<_> = (0..count)
-            .map(|index| {
-                FileFraction { index, count }.resolve(rows.clone(), split_starts.iter().copied())
+        let rest = (1..3)
+            .map(|file| {
+                Arc::new(StaticReaderFactory {
+                    reader: Arc::new(TestLayoutReader::new(2).with_base(10 * file)),
+                }) as Arc<dyn LayoutReaderFactory>
             })
             .collect();
-        assert_eq!(resolved, expected);
+        let source = MultiLayoutDataSource::new_with_first(first, rest, vec![], &session);
+
+        let scan = runtime.block_on(source.scan(ScanRequest::default()))?;
+        let pieces = scan.split(NonZeroUsize::try_from(5)?)?;
+        assert_eq!(pieces.len(), 5);
+        let mut values = Vec::new();
+        for piece in pieces {
+            values.extend(piece_values(&runtime, piece)?);
+        }
+        values.sort_unstable();
+        assert_eq!(values, [0, 1, 10, 11, 20, 21]);
+        Ok(())
     }
 
     /// Scans 64 one-row splits, returning the rows and the most splits read at once.
