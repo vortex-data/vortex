@@ -147,9 +147,7 @@ use crate::persistent::reader::VortexReaderFactory;
 /// - when disabled, `VortexSource` still prunes unreferenced top-level columns,
 ///   but DataFusion applies the full projection after the scan,
 /// - when enabled, the default converter evaluates fully supported projections
-///   natively. Otherwise the scan evaluates the supported subexpressions that read
-///   its columns, such as nested field access, and DataFusion evaluates the rest
-///   over the scan output.
+///   natively. Otherwise, DataFusion evaluates the full projection over raw columns.
 ///
 /// Predicate handling depends on [`VortexTableOptions::predicate_pushdown`]:
 ///
@@ -157,10 +155,8 @@ use crate::persistent::reader::VortexReaderFactory;
 ///   DataFusion file pruning, but reports filters as not pushed down so
 ///   DataFusion evaluates them after the scan,
 /// - when enabled, supported filters are pushed into the Vortex scan. If file
-///   adaptation requires residual filtering, DataFusion filters scan batches
-///   before the final projection and limit. With projection pushdown, the scan
-///   still evaluates the infallible supported subexpressions of the residual
-///   filters and the projection.
+///   adaptation requires residual filtering, DataFusion filters raw scan batches
+///   before the final projection and limit.
 ///
 /// # Observability
 ///

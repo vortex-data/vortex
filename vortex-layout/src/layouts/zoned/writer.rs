@@ -15,6 +15,8 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
+use vortex_array::aggregate_fn::fns::all_null::AllNull;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
 use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
@@ -29,7 +31,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
-use vortex_scan::plan::holds_under_masking;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -334,6 +335,24 @@ fn aggregates_under_masking(aggregate_fns: &[AggregateFnRef]) -> Arc<[AggregateF
         .filter(|aggregate_fn| holds_under_masking(aggregate_fn) || aggregate_fn.is::<NanCount>())
         .cloned()
         .collect()
+}
+
+/// Whether a statistic of `aggregate_fn` over a column also holds, if less tightly, for the column
+/// with some of its values replaced by nulls.
+///
+/// Min and max bound the non-null values, which such a replacement only removes, and so does
+/// whether no value is NaN, or whether every value is null. The fields of a nullable struct hold
+/// values in rows where the struct is null, so these statistics of a field also hold for the field
+/// as read through the struct. Counts do not: a field's null count misses the rows where only the
+/// struct is null. Scans read a zone map beneath a nullable struct as covering those hidden values,
+/// so they prune with its bounds and never with its counts.
+fn holds_under_masking(aggregate_fn: &AggregateFnRef) -> bool {
+    aggregate_fn.is::<Min>()
+        || aggregate_fn.is::<Max>()
+        || aggregate_fn.is::<BoundedMin>()
+        || aggregate_fn.is::<BoundedMax>()
+        || aggregate_fn.is::<AllNonNan>()
+        || aggregate_fn.is::<AllNull>()
 }
 
 fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[AggregateFnRef]> {

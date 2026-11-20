@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! A layout that stores struct fields separately from the struct's validity.
+//!
+//! The child layout reads the stored field. The struct's validity can mask additional rows of
+//! that field in the query result.
+
+mod pruning;
 mod reader;
-mod unmask;
 pub mod writer;
 
 use std::sync::Arc;

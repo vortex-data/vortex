@@ -7,7 +7,8 @@
 //! expression that uses part of the struct can read the relevant children directly.
 
 pub(crate) mod execute;
-mod mask;
+mod pruning;
+mod strict_functions;
 
 use std::borrow::Cow;
 use std::iter;
@@ -22,9 +23,14 @@ use vortex_array::dtype::StructFields;
 use vortex_array::expr as unbound;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
+use vortex_array::expr::bound;
+use vortex_array::expr::traversal::NodeExt;
+use vortex_array::expr::traversal::NodeRewriter;
+use vortex_array::expr::traversal::Transformed;
 use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::fns::is_null::IsNull;
+use vortex_array::scalar_fn::fns::mask::Mask as MaskFn;
 use vortex_array::scalar_fn::fns::pack::Pack as PackFn;
 use vortex_array::scalar_fn::fns::select::FieldSelection;
 use vortex_array::scalar_fn::fns::select::Select;
@@ -37,7 +43,8 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use self::mask::lift_masks;
+use self::pruning::weaken_pruning_proof;
+use self::strict_functions::ApplyStrictFunctionsInsideMasks;
 use crate::execution::operators::OnceSource;
 use crate::execution::operators::PackSource;
 use crate::execution::operators::WrapStage;
@@ -52,6 +59,7 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanSlots;
 use crate::plan::PlanVTable;
+use crate::plan::is_zone_pruning;
 use crate::plan::optimizer::PlanParentReduceRule;
 use crate::plan::partition::PartitionRule;
 use crate::plan::partition::PartitionSession;
@@ -348,11 +356,17 @@ impl PackPlan {
 /// ```
 ///
 /// The next pass pushes the lookup into the `address` child as `$.zip`. The scan can
-/// skip `city` and read just `zip` and the validity of each nullable ancestor. Statistics and
-/// strict functions that cannot fail move below the mask too, as [`lift_masks`] describes, so
-/// zone pruning and list element reads also reach the fields of a nullable struct.
+/// skip `city` and read just `zip` and the validity of each nullable ancestor.
+///
+/// Strict functions that cannot fail move inside the masks the same way, so
+/// `list_transform($.items, x -> x.sku)` reaches the `items` child and reads only `sku`.
 #[derive(Debug)]
-pub(crate) struct ExpressionPackRule;
+pub(crate) enum ExpressionPackRule {
+    /// Preserves the value of the expression for every row.
+    Exact,
+    /// Preserves only the proof that rows can be discarded.
+    Pruning,
+}
 
 impl PlanParentReduceRule<Pack> for ExpressionPackRule {
     type Parent = Eval;
@@ -382,16 +396,23 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
             PartitionedExpression::Many(partitioned) => partitioned,
         };
         let Partitions {
-            combiner,
+            mut combiner,
             partitions,
         } = partitioned;
 
         let nullable = child.dtype().is_nullable();
-        let combiner = if nullable {
-            lift_masks(combiner)?
-        } else {
-            combiner
-        };
+        if nullable {
+            combiner = combiner.rewrite(&mut ProjectMaskedFields)?.into_inner();
+            combiner = combiner
+                .rewrite(&mut ApplyStrictFunctionsInsideMasks)?
+                .into_inner();
+
+            // Stored statistics can weaken a proof. This rewrite is valid only when a true
+            // result means the zone can be discarded.
+            if matches!(self, Self::Pruning) && is_zone_pruning(parent)? {
+                combiner = weaken_pruning_proof(combiner)?;
+            }
+        }
 
         // The combiner's root is non-nullable even when it uses every original field.
         let mut pack_changed = nullable || partitions.len() != fields.nfields();
@@ -425,6 +446,37 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
             EvalPlan::try_new(combiner, combiner_input)?.into_plan(),
         ))
     }
+}
+
+/// Moves a field lookup inside the masks on its input struct.
+///
+/// A field of a null struct is null, so applying the same masks to just the field
+/// preserves the result.
+struct ProjectMaskedFields;
+
+impl NodeRewriter for ProjectMaskedFields {
+    type NodeTy = BoundExpression;
+
+    fn visit_up(&mut self, node: BoundExpression) -> VortexResult<Transformed<BoundExpression>> {
+        let Some(field) = node.as_opt::<GetItem>() else {
+            return Ok(Transformed::no(node));
+        };
+        let input = node.child(0);
+        if !input.is::<MaskFn>() {
+            return Ok(Transformed::no(node));
+        }
+
+        Ok(Transformed::yes(project_field_through_masks(field, input)))
+    }
+}
+
+fn project_field_through_masks(field: &FieldName, input: &BoundExpression) -> BoundExpression {
+    if !input.is::<MaskFn>() {
+        return bound::get_item(field.clone(), input.clone());
+    }
+
+    let projected = project_field_through_masks(field, input.child(0));
+    bound::mask(projected, input.child(1).clone())
 }
 
 fn is_identity_expression(expression: &BoundExpression, input_dtype: &DType) -> bool {

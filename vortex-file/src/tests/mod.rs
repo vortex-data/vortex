@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Tests for the file format and its public read and write APIs.
+//!
+//! The tests exercise layouts through file round trips so they cover both serialization
+//! and the readers that use the decoded layouts.
+
 #![expect(clippy::cast_possible_truncation)]
 
+mod extension_layout;
+mod nullable_struct_zones;
 mod scan_metrics;
 
 use std::fs;
@@ -21,23 +28,17 @@ use rand::rngs::StdRng;
 use rstest::rstest;
 use tempfile::tempdir;
 use vortex_array::ArrayRef;
-use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
-use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::max::Max;
-use vortex_array::aggregate_fn::fns::min::Min;
-use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Dict;
-use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -53,26 +54,19 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
-use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
-use vortex_array::dtype::extension::ExtDType;
-use vortex_array::dtype::extension::ExtId;
-use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::dtype::i256;
-use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::expr::cast;
 use vortex_array::expr::col;
 use vortex_array::expr::eq;
-use vortex_array::expr::ext_storage;
-use vortex_array::expr::fill_null;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::gt_eq;
@@ -109,7 +103,6 @@ use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_decimal_byte_parts::DecimalBytePartsArraySlotsExt;
 use vortex_edition::ComponentKind;
 use vortex_edition::EDITION_DECLARATIONS;
-use vortex_edition::EditionInclusion;
 use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
 use vortex_edition::declarations::core::CORE_2026_08_3;
@@ -123,27 +116,20 @@ use vortex_io::session::RuntimeSession;
 use vortex_io::std_file::FileWrite;
 use vortex_layout::DynLayout;
 use vortex_layout::LayoutStrategy;
-use vortex_layout::VTable;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
-use vortex_layout::layouts::extension::Extension;
 use vortex_layout::layouts::file_stats::AggregateStats;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::struct_::StructStrategy;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
-use vortex_layout::scan::metrics::ScanUsage;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::DEFAULT_MAX_SPLIT_ROWS;
 use vortex_layout::scan::split_by::SplitBy;
-use vortex_layout::scan::v2::ScanBuilder as PlannedScanBuilder;
 use vortex_layout::session::LayoutSession;
-use vortex_layout::session::LayoutSessionExt;
-use vortex_mask::Mask;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
 use vortex_zigzag::ZigZag;
 
@@ -155,7 +141,6 @@ use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
 use crate::flatbuffers::footer as fb;
 use crate::footer::SegmentSpec;
-use crate::v2::ScanDriver;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty()
         .with::<LayoutSession>()
@@ -3748,258 +3733,5 @@ async fn null_dominated_clustered_f32_writes() -> VortexResult<()> {
         .write_options()
         .write(&mut ByteBufferMut::empty(), stream)
         .await?;
-    Ok(())
-}
-
-/// A test extension type stored as `{a: i32, b: i64}`.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-struct Point;
-
-impl ExtVTable for Point {
-    type Metadata = EmptyMetadata;
-    type StoredMetadata = EmptyMetadata;
-    type NativeValue<'a> = &'a ScalarValue;
-
-    fn id(&self) -> ExtId {
-        static ID: CachedId = CachedId::new("test.point");
-        *ID
-    }
-
-    fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(Vec::new())
-    }
-
-    fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn metadata_from_storage(
-        &self,
-        stored_metadata: Self::StoredMetadata,
-        _storage_dtype: &DType,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(stored_metadata)
-    }
-
-    fn storage_dtype(_metadata: &Self::Metadata) -> DType {
-        DType::Struct(
-            StructFields::from_iter([
-                ("a", DType::Primitive(I32, Nullability::NonNullable)),
-                ("b", DType::Primitive(PType::I64, Nullability::NonNullable)),
-            ]),
-            Nullability::NonNullable,
-        )
-    }
-
-    fn unpack_native<'a>(
-        _ext_dtype: &'a ExtDType<Self>,
-        storage_value: &'a ScalarValue,
-    ) -> VortexResult<Self::NativeValue<'a>> {
-        Ok(storage_value)
-    }
-}
-
-/// The default writer splits the struct storage of an extension column into one column per field
-/// exactly when the enabled editions include the extension layout and the session opts the
-/// extension type into it. Enabling the unstable edition alone keeps the column a leaf, so the
-/// statistics computed over its values do not change. Either way the file reads back the same
-/// values and storage fields.
-#[rstest]
-#[tokio::test]
-#[cfg_attr(miri, ignore)]
-async fn extension_layout_follows_enabled_editions(
-    #[values(false, true)] unstable: bool,
-    #[values(false, true)] opted_in: bool,
-) -> VortexResult<()> {
-    let session = VortexSession::empty()
-        .with::<EditionSession>()
-        .with::<LayoutSession>()
-        .with::<RuntimeSession>();
-    crate::register_default_encodings(&session);
-    session.dtypes().register(Point);
-    for declaration in EDITION_DECLARATIONS {
-        session.register_edition(declaration)?;
-    }
-    session.editions().declare_inclusion(EditionInclusion::new(
-        ComponentKind::DType,
-        &Point.id(),
-        CORE_2026_08_3,
-    ))?;
-    session.enable_edition(CORE_2026_08_3)?;
-    if unstable {
-        session.enable_edition(UNSTABLE)?;
-    }
-    if opted_in {
-        session.layouts().decompose_extension(Point.id());
-    }
-
-    let a = PrimitiveArray::from_iter(0..1000i32).into_array();
-    let storage = StructArray::from_fields(&[
-        ("a", a.clone()),
-        (
-            "b",
-            PrimitiveArray::from_iter((0..1000i64).map(|i| 10 * i)).into_array(),
-        ),
-    ])?;
-    let points = ExtensionArray::try_new(
-        ExtDType::<Point>::try_new(EmptyMetadata, Nullability::NonNullable)?.erased(),
-        storage.into_array(),
-    )?;
-    let array = StructArray::from_fields(&[("point", points.into_array())])?.into_array();
-
-    let mut buffer = ByteBufferMut::empty();
-    session
-        .write_options()
-        .write(&mut buffer, array.clone().to_array_stream())
-        .await?;
-    let file = session.open_options().open_buffer(buffer)?;
-    let uses_extension_layout = file
-        .footer()
-        .layout()
-        .depth_first_traversal()
-        .map(|layout| Ok(layout?.encoding_id()))
-        .collect::<VortexResult<Vec<_>>>()?
-        .contains(&Extension.id());
-    assert_eq!(uses_extension_layout, unstable && opted_in);
-
-    let mut ctx = session.create_execution_ctx();
-    let values = file.scan()?.into_array_stream()?.read_all().await?;
-    assert_arrays_eq!(values, array, &mut ctx);
-    let projection = get_item("a", ext_storage(get_item("point", root()))).bind(file.dtype())?;
-    let field = file
-        .scan()?
-        .with_projection(projection)
-        .into_array_stream()?
-        .read_all()
-        .await?;
-    assert_arrays_eq!(field, a, &mut ctx);
-    Ok(())
-}
-
-/// Scans `file` on the classic or the planner-driven executor, returning the rows that match
-/// `filter` projected by `projection`, and the number of segments the scan read.
-async fn scan_counting_segments(
-    file: &VortexFile,
-    planner: bool,
-    projection: &Expression,
-    filter: &Expression,
-) -> VortexResult<(ArrayRef, u64)> {
-    let usage = Arc::new(ScanUsage::default());
-    let file = file.clone().with_usage(Arc::clone(&usage));
-    let projection = projection.bind(file.dtype())?;
-    let filter = filter.bind(file.dtype())?;
-    let dtype = projection.dtype().clone();
-    let array = if planner {
-        let builder = PlannedScanBuilder::new(file.session().clone(), file.scan_file())
-            .with_projection(projection)
-            .with_some_filter(Some(filter));
-        let chunks: Vec<ArrayRef> = ScanDriver::new(TokioRuntime::current(), 1, true)
-            .run(builder)
-            .try_collect()
-            .await?;
-        ChunkedArray::try_new(chunks, dtype)?.into_array()
-    } else {
-        file.scan()?
-            .with_projection(projection)
-            .with_filter(filter)
-            .into_array_stream()?
-            .read_all()
-            .await?
-    };
-    Ok((array, usage.snapshot().segments_requested))
-}
-
-/// A float field beneath a nullable struct, written with the default editions only, records its
-/// bounds and its NaN count, which float bounds need to prune and every core edition permits.
-/// Filters on it return every row they keep in memory on both scans.
-///
-/// Where `s` is null, `f` holds a value above every visible one, so the bounds of every zone are
-/// looser than the values read through `s`. Neither `s.f > 1e8` nor `s.f < 0` keeps a row, but
-/// only the second is ruled out by the bounds, so it reads fewer segments.
-#[rstest]
-#[tokio::test]
-#[cfg_attr(miri, ignore)]
-async fn float_beneath_a_nullable_struct_prunes_with_default_editions(
-    #[values(false, true)] planner: bool,
-) -> VortexResult<()> {
-    const ZONE_ROWS: u32 = 1024;
-    let session = VortexSession::empty()
-        .with::<EditionSession>()
-        .with::<LayoutSession>()
-        .with::<RuntimeSession>();
-    crate::register_default_encodings(&session);
-    for declaration in EDITION_DECLARATIONS {
-        session.register_edition(declaration)?;
-    }
-    session.enable_edition(CORE_2026_08_3)?;
-
-    let rows = 0..4 * ZONE_ROWS;
-    let valid = |row: u32| !row.is_multiple_of(3);
-    let f: Buffer<f64> = rows
-        .clone()
-        .map(|row| {
-            if valid(row) {
-                f64::from(row) + 0.5
-            } else {
-                1e9
-            }
-        })
-        .collect();
-    let s = StructArray::try_new(
-        FieldNames::from(["f"]),
-        vec![f.into_array()],
-        rows.len(),
-        Validity::from_iter(rows.clone().map(valid)),
-    )?;
-    let ids: Buffer<i64> = rows.map(i64::from).collect();
-    let table =
-        StructArray::from_fields(&[("id", ids.into_array()), ("s", s.into_array())])?.into_array();
-
-    let strategy = crate::strategy::WriteStrategyBuilder::from_session(&session)
-        .with_row_block_size(usize::try_from(ZONE_ROWS)?)
-        .with_data_block_target_bytes(None)
-        .build();
-    let mut buffer = ByteBufferMut::empty();
-    session
-        .write_options()
-        .with_strategy(strategy)
-        .write(&mut buffer, table.clone().to_array_stream())
-        .await?;
-    let file = session.open_options().open_buffer(buffer)?;
-
-    let mut recorded = Vec::new();
-    for layout in file.footer().layout().depth_first_traversal() {
-        let layout = layout?;
-        if layout.is::<Zoned>() && layout.dtype().is_float() {
-            recorded.push(layout.as_::<Zoned>().present_aggregates());
-        }
-    }
-    let expected: Arc<[String]> = [
-        Max.bind(NumericalAggregateOpts::skip_nans()).to_string(),
-        Min.bind(NumericalAggregateOpts::skip_nans()).to_string(),
-        NanCount.bind(EmptyOptions).to_string(),
-    ]
-    .into();
-    assert_eq!(recorded, [expected]);
-
-    let id = get_item("id", root());
-    let f = get_item("f", get_item("s", root()));
-    let mut ctx = session.create_execution_ctx();
-    let mut segments = Vec::new();
-    for filter in [
-        lt(f.clone(), lit(100.0f64)),
-        gt(f.clone(), lit(1e8f64)),
-        lt(f, lit(0.0f64)),
-    ] {
-        let (actual, read) = scan_counting_segments(&file, planner, &id, &filter).await?;
-        let keep = table
-            .clone()
-            .apply(&fill_null(filter, lit(false)))?
-            .execute::<Mask>(&mut ctx)?;
-        let expected = table.clone().filter(keep)?.apply(&id)?;
-        assert_arrays_eq!(actual, expected, &mut ctx);
-        segments.push(read);
-    }
-    assert!(segments[2] < segments[1], "segments read: {segments:?}");
     Ok(())
 }

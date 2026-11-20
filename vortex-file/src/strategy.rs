@@ -131,9 +131,7 @@ pub struct WriteStrategyBuilder {
     ///
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
     use_list_layout: bool,
-    /// The extension types whose columns are written using [`ExtensionStrategy`].
-    ///
-    /// [`ExtensionStrategy`]: vortex_layout::layouts::extension::ExtensionStrategy
+    /// Extension types selected by the session when the edition allows decomposition.
     extension_layouts: Vec<ExtId>,
 }
 
@@ -141,11 +139,11 @@ impl WriteStrategyBuilder {
     /// Create a new builder that compresses with the schemes registered on `session`. It can be
     /// further configured, and then finally built yielding the [`LayoutStrategy`].
     ///
-    /// The strategy uses the list layout and the extension layout when the session's enabled
-    /// editions include them. The extension layout only applies to the extension types that the
-    /// session opts in with [`LayoutSession::decompose_extension`].
+    /// The builder reads the session's [extension layout policy] when it is created, and only if
+    /// the enabled editions include the extension layout. An extension type opted in, or an
+    /// edition enabled, after this call does not change the built strategy.
     ///
-    /// [`LayoutSession::decompose_extension`]: vortex_layout::session::LayoutSession::decompose_extension
+    /// [extension layout policy]: vortex_layout::session::LayoutSession::decompose_extension
     pub fn from_session(session: &VortexSession) -> Self {
         let enabled_layouts = session.enabled_component_ids(ComponentKind::Layout);
         let extension_layouts = if enabled_layouts.contains(&Extension.id()) {
@@ -153,6 +151,7 @@ impl WriteStrategyBuilder {
         } else {
             Vec::new()
         };
+
         Self {
             compressor: CompressorConfig::BtrBlocks(BtrBlocksCompressorBuilder::from_session(
                 session,

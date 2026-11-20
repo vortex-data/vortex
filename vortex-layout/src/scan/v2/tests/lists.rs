@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! List layouts on the planner-driven scan, mirroring the layout reader tests of the list layout.
+//! List layouts on the planner-driven scan, mirroring the layout reader tests of the list layout
+//! and of lists beneath a nullable struct.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -38,25 +39,23 @@ use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
-use vortex_session::VortexSession;
 
 use super::builder;
+use super::chunked_flat;
 use super::collect_scan;
 use super::write_chunks;
-use crate::LayoutRef;
 use crate::LayoutStrategy;
-use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::list::writer::ListLayoutStrategy;
 use crate::layouts::struct_::writer::StructStrategy;
+use crate::layouts::table::TableStrategy;
 use crate::segments::CountingSegmentSource;
 use crate::segments::SegmentSource;
 use crate::test::new_session;
 
 /// Lists `[{a, 1}, null]`, null (hiding `[{c, i32::MAX}]`), `[]`, `[{null, 3}, {e, 4}]` and
-/// `[{f, i32::MAX}]`, of nullable `{sku: utf8?, qty: i32}` elements, as the only chunk of a file
-/// whatever row it starts at.
-fn items(_start: usize) -> VortexResult<ArrayRef> {
+/// `[{f, i32::MAX}]`, of nullable `{sku: utf8?, qty: i32}` elements.
+fn items() -> VortexResult<ArrayRef> {
     let mut ctx = new_session().create_execution_ctx();
     let elements = StructArray::try_new(
         FieldNames::from(["sku", "qty"]),
@@ -115,27 +114,18 @@ fn qty_plus_one() -> VortexResult<Expression> {
     ))
 }
 
-/// A list written with `strategy` from `list`, its segments, and a session for scanning it.
-async fn write(
-    strategy: &dyn LayoutStrategy,
-    list: fn(usize) -> VortexResult<ArrayRef>,
-) -> VortexResult<(VortexSession, Arc<dyn SegmentSource>, LayoutRef)> {
-    let session = new_session().with_tokio();
-    let (segments, layout) = write_chunks(&session, strategy, vec![list(0)?]).await?;
-    Ok((session, segments, layout))
-}
-
-/// Scans `expr` over the rows of `row_range` that `mask` selects, filtered by `filter`, and counts
-/// the segments the scan requests.
+/// Writes `list` with `strategy`, then scans `expr` over the rows of `row_range` that `mask`
+/// selects, filtered by `filter`, and counts the segments the scan requests.
 async fn scan_counting(
     strategy: &dyn LayoutStrategy,
-    list: fn(usize) -> VortexResult<ArrayRef>,
+    list: &ArrayRef,
     expr: &Expression,
     filter: Option<&Expression>,
     row_range: Range<u64>,
     mask: &Mask,
 ) -> VortexResult<(ArrayRef, usize)> {
-    let (session, segments, layout) = write(strategy, list).await?;
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_chunks(&session, strategy, vec![list.clone()]).await?;
     let source = Arc::new(CountingSegmentSource::new(segments));
     let segments: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&source);
     let projection = expr.bind(layout.dtype())?;
@@ -200,14 +190,14 @@ async fn element_projection_reads_needed_fields(
 ) -> VortexResult<()> {
     let (result, requests) = scan_counting(
         &struct_elements_list_strategy(),
-        items,
+        &items()?,
         &expr,
         None,
         0..5,
         &Mask::new_true(5),
     )
     .await?;
-    let expected = items(0)?.apply(&expr)?;
+    let expected = items()?.apply(&expr)?;
     assert_arrays_eq!(result, expected, &mut new_session().create_execution_ctx());
     assert_eq!(requests, segments);
     Ok(())
@@ -239,10 +229,10 @@ async fn element_projection_round_trips(
     )]
     expr: Expression,
 ) -> VortexResult<()> {
-    let expected = expected(&items(0)?, &expr, &row_range, &mask)?;
+    let expected = expected(&items()?, &expr, &row_range, &mask)?;
     let (result, _) = scan_counting(
         &struct_elements_list_strategy(),
-        items,
+        &items()?,
         &expr,
         None,
         row_range,
@@ -269,10 +259,10 @@ async fn fallible_lambda_runs_on_selected_valid_lists(
     #[case] segments: usize,
 ) -> VortexResult<()> {
     let expr = qty_plus_one()?;
-    let expected = expected(&items(0)?, &expr, &row_range, &mask)?;
+    let expected = expected(&items()?, &expr, &row_range, &mask)?;
     let (result, requests) = scan_counting(
         &struct_elements_list_strategy(),
-        items,
+        &items()?,
         &expr,
         None,
         row_range,
@@ -290,14 +280,14 @@ async fn fallible_lambda_fails_on_selected_overflow() -> VortexResult<()> {
     let expr = qty_plus_one()?;
     let mut ctx = new_session().create_execution_ctx();
     assert!(
-        items(0)?
+        items()?
             .apply(&expr)?
             .execute::<RecursiveCanonical>(&mut ctx)
             .is_err()
     );
     let scan = scan_counting(
         &struct_elements_list_strategy(),
-        items,
+        &items()?,
         &expr,
         None,
         4..5,
@@ -320,7 +310,7 @@ async fn filter_pushes_lambda(#[case] mask: Mask) -> VortexResult<()> {
     let projection = is_not_null(root());
     let (result, requests) = scan_counting(
         &struct_elements_list_strategy(),
-        items,
+        &items()?,
         &projection,
         Some(&filter),
         0..5,
@@ -328,7 +318,7 @@ async fn filter_pushes_lambda(#[case] mask: Mask) -> VortexResult<()> {
     )
     .await?;
 
-    let list = items(0)?.filter(mask)?;
+    let list = items()?.filter(mask)?;
     let mut ctx = new_session().create_execution_ctx();
     let keep = list
         .clone()
@@ -340,9 +330,8 @@ async fn filter_pushes_lambda(#[case] mask: Mask) -> VortexResult<()> {
     Ok(())
 }
 
-/// `[[1, 2], null, []]`, `null`, `[[3]]`, `[]` and `[[], [4, 5, 6]]`, lists of nullable lists, as
-/// the only chunk of a file whatever row it starts at.
-fn nested(_start: usize) -> VortexResult<ArrayRef> {
+/// `[[1, 2], null, []]`, `null`, `[[3]]`, `[]` and `[[], [4, 5, 6]]`, lists of nullable lists.
+fn nested() -> VortexResult<ArrayRef> {
     let mut ctx = new_session().create_execution_ctx();
     let inner = ListArray::try_new(
         buffer![1i64, 2, 3, 4, 5, 6].into_array(),
@@ -376,14 +365,92 @@ async fn nested_lists_round_trip(
     )]
     expr: Expression,
 ) -> VortexResult<()> {
-    let chunked: Arc<dyn LayoutStrategy> =
-        Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()));
+    let chunked = chunked_flat();
     let strategy = ListLayoutStrategy::default()
         .with_elements(Arc::new(ListLayoutStrategy::default()))
         .with_offsets(Arc::clone(&chunked))
         .with_validity(chunked);
-    let expected = expected(&nested(0)?, &expr, &row_range, &mask)?;
-    let (result, _) = scan_counting(&strategy, nested, &expr, None, row_range, &mask).await?;
+    let expected = expected(&nested()?, &expr, &row_range, &mask)?;
+    let (result, _) = scan_counting(&strategy, &nested()?, &expr, None, row_range, &mask).await?;
     assert_arrays_eq!(result, expected, &mut new_session().create_execution_ctx());
+    Ok(())
+}
+
+/// `{s: {inner: {x, y}, items: list<{sku, qty}>}?}`, where `s` is null in row 1. The item of row 1
+/// has the SKU `i32::MAX`, which overflows when added to.
+fn nullable_struct_with_nested_columns() -> VortexResult<ArrayRef> {
+    let mut ctx = new_session().create_execution_ctx();
+    let inner = StructArray::try_new(
+        FieldNames::from(["x", "y"]),
+        vec![
+            buffer![1i32, 2, 3].into_array(),
+            buffer![4i32, 5, 6].into_array(),
+        ],
+        3,
+        Validity::NonNullable,
+    )?;
+    let elements = StructArray::try_new(
+        FieldNames::from(["sku", "qty"]),
+        vec![
+            buffer![10i32, 11, i32::MAX, 13].into_array(),
+            buffer![20i32, 21, 22, 23].into_array(),
+        ],
+        4,
+        Validity::NonNullable,
+    )?;
+    let items = ListArray::try_new(
+        elements.into_array(),
+        buffer![0u32, 2, 3, 4].into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?;
+    let s = StructArray::try_new(
+        FieldNames::from(["inner", "items"]),
+        vec![inner.into_array(), items.into_array()],
+        3,
+        Validity::from_iter([true, false, true]),
+    )?;
+    Ok(StructArray::from_fields(&[("s", s.into_array())])?.into_array())
+}
+
+/// A strict function of a field of a nullable struct reaches the field's plan inside the struct
+/// validity, so the field reads only the columns the function needs, as on the classic scan.
+#[rstest]
+// The validity of `s` and `s.inner.x`, not `s.inner.y`.
+#[case::nested_field(get_item("x", get_item("inner", get_item("s", root()))), 2)]
+// The validity of `s`, the offsets of `s.items` and the `sku` elements, not the `qty` ones.
+#[case::list_transform(
+    list_transform(
+        get_item("items", get_item("s", root())),
+        Lambda::new(["item"], get_item("sku", var("item")))?,
+    ),
+    3
+)]
+// The validity of `s` and the offsets of `s.items`, not their elements.
+#[case::list_length(list_length(get_item("items", get_item("s", root()))), 2)]
+// A lambda that can fail must not run on the items of null structs, where it would overflow, so it
+// stays outside the struct validity and the items are read whole.
+#[case::fallible_lambda(
+    list_transform(
+        get_item("items", get_item("s", root())),
+        Lambda::new(["item"], checked_add(get_item("sku", var("item")), lit(1i32)))?,
+    ),
+    4
+)]
+#[tokio::test]
+async fn strict_function_of_nullable_struct_field_reads_needed_columns(
+    #[case] expr: Expression,
+    #[case] segments: usize,
+) -> VortexResult<()> {
+    let table = nullable_struct_with_nested_columns()?;
+    let strategy = TableStrategy::new(chunked_flat(), chunked_flat()).with_list_layout();
+    let (result, requests) =
+        scan_counting(&strategy, &table, &expr, None, 0..3, &Mask::new_true(3)).await?;
+    assert_arrays_eq!(
+        result,
+        table.apply(&expr)?,
+        &mut new_session().create_execution_ctx()
+    );
+    assert_eq!(requests, segments);
     Ok(())
 }

@@ -17,7 +17,7 @@ arrays = [
     "vortex.widen",
 ]
 layouts = [
-    "vortex.ext",
+    "vortex.extension",
 ]
 dtypes = []
 aggregates = []
@@ -30,7 +30,7 @@ arrays = [
     "vortex.widen",
 ]
 layouts = [
-    "vortex.ext",
+    "vortex.extension",
 ]
 dtypes = []
 aggregates = []

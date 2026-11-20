@@ -30,15 +30,14 @@ use crate::layouts::zoned::Zoned;
 /// Registry of layout encodings.
 pub type LayoutRegistry = ArcSwapMap<Id, LayoutPluginRef>;
 
-/// Session state for layout encodings.
+/// Session state for layout encodings and extension layout write policy.
 #[derive(Clone, Debug)]
 pub struct LayoutSession {
     /// Deserializers keyed by the layout ID found on the wire.
     registry: LayoutRegistry,
     /// Serializers keyed by the in-memory layout ID.
     serializers: LayoutRegistry,
-    /// The extension types opted into the extension layout, see
-    /// [`decompose_extension`](Self::decompose_extension).
+    /// Extension IDs opted into struct storage decomposition for new files.
     decomposed_extensions: ArcSwapMap<ExtId, ()>,
 }
 
@@ -67,27 +66,25 @@ impl LayoutSession {
         &self.registry
     }
 
-    fn serializer(&self, id: &LayoutId) -> Option<LayoutPluginRef> {
-        self.serializers.get(id)
-    }
-
-    /// Opts the extension type `id` into the experimental
-    /// [extension layout](crate::layouts::extension).
+    /// Opts an extension type with struct storage into the experimental extension layout.
     ///
-    /// The default write strategy of `vortex-file` writes a column of an opted-in type as an
-    /// extension layout over its decomposed storage, when the enabled editions include that layout.
-    /// It writes columns of every other extension type as leaves, so their statistics are computed
-    /// over the extension values. A type opts in when readers query its storage fields, rather
-    /// than its values.
+    /// The default file writer uses this policy when the enabled editions include the layout.
+    /// Opt in when queries use storage fields, since each storage field is then written like a
+    /// field of a plain struct column, with the same zone maps for pruning predicates on it. The
+    /// decomposed column has no whole-value zone map, so predicates on the whole extension value
+    /// cannot prune zones.
     pub fn decompose_extension(&self, id: ExtId) {
         self.decomposed_extensions.insert(id, ());
     }
 
-    /// Returns the extension types opted into the extension layout with
-    /// [`decompose_extension`](Self::decompose_extension).
+    /// Returns the extension IDs selected by [`Self::decompose_extension`].
     pub fn decomposed_extensions(&self) -> Vec<ExtId> {
         self.decomposed_extensions
             .read(|extensions| extensions.keys().copied().collect())
+    }
+
+    fn serializer(&self, id: &LayoutId) -> Option<LayoutPluginRef> {
+        self.serializers.get(id)
     }
 }
 
@@ -106,9 +103,9 @@ impl Default for LayoutSession {
         this.register(&Zoned as &dyn LayoutPlugin);
         this.register(&LegacyStats as &dyn LayoutPlugin);
         this.register(&Dict as &dyn LayoutPlugin);
+        this.register(&Extension as &dyn LayoutPlugin);
         this.register(&List as &dyn LayoutPlugin);
         this.register(&Indexed as &dyn LayoutPlugin);
-        this.register(&Extension as &dyn LayoutPlugin);
         this
     }
 }

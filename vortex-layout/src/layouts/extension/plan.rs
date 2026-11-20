@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The scan plan of an extension layout.
+//! Lowers reconstruction and storage-only reads into the scan plan.
 
 use std::borrow::Cow;
 use std::ops::Range;
@@ -9,7 +9,6 @@ use std::ops::Range;
 use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
-use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDTypeRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -25,7 +24,6 @@ use vortex_scan::plan::Eval;
 use vortex_scan::plan::EvalPlan;
 use vortex_scan::plan::Plan;
 use vortex_scan::plan::PlanId;
-use vortex_scan::plan::PlanParts;
 use vortex_scan::plan::PlanRef;
 use vortex_scan::plan::PlanSlots;
 use vortex_scan::plan::PlanVTable;
@@ -35,77 +33,23 @@ use vortex_scan::plan::optimizer::PlanParentRuleSet;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::layouts::extension::expr::rebind_to_storage;
+use super::STORAGE_SLOT;
+use super::expr::rebind_to_storage;
 
-const STORAGE: usize = 0;
-
-/// Assembles extension values from the storage in its only slot.
-///
-/// An [`Eval`] above it whose expression reads the extension only through `ext_storage(root)`,
-/// `is_null(root)` or `is_not_null(root)` is rewritten to evaluate over the storage instead, so the
-/// storage plan can push the expression further down. Compiled, it wraps each storage batch into
-/// extension values.
+/// Reconstructs extension values from batches of storage.
 #[derive(Clone, Debug)]
-pub struct ExtPack;
+pub(super) struct ExtensionPack;
 
-/// Operator-specific extension assembly data.
-#[derive(Clone, Debug)]
-pub struct ExtPackData;
-
-/// A plan that assembles extension values from their storage.
-pub type ExtPackPlan = Plan<ExtPack>;
-
-impl ExtPack {
-    /// Creates an extension assembly from potentially unbuilt slots without validation.
-    ///
-    /// # Safety
-    ///
-    /// `slots` must hold exactly one present slot producing the storage dtype of `ext_dtype` over
-    /// `row_count` rows.
-    pub(crate) unsafe fn from_slots_unchecked(
-        ext_dtype: ExtDTypeRef,
-        row_count: u64,
-        slots: PlanSlots,
-    ) -> ExtPackPlan {
-        PlanParts {
-            vtable: ExtPack,
-            dtype: DType::Extension(ext_dtype),
-            row_count,
-            slots,
-            data: ExtPackData,
-        }
-        .into_typed()
-    }
-
-    /// Creates an assembly of `ext_dtype` values from a plan producing their storage.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `storage` does not produce the storage dtype of `ext_dtype`.
-    pub fn try_new_plan(ext_dtype: ExtDTypeRef, storage: PlanRef) -> VortexResult<ExtPackPlan> {
-        let row_count = storage.row_count();
-        let slots = [storage].into();
-        validate_slots(&ext_dtype, row_count, &slots)?;
-
-        // SAFETY: The slot shape was validated above.
-        Ok(unsafe { Self::from_slots_unchecked(ext_dtype, row_count, slots) })
-    }
-
-    /// Returns the extension dtype `plan` assembles.
-    pub fn ext_dtype(plan: &ExtPackPlan) -> &ExtDTypeRef {
+impl ExtensionPack {
+    fn ext_dtype(plan: &Plan<Self>) -> &ExtDTypeRef {
         plan.dtype()
             .as_extension_opt()
-            .vortex_expect("ExtPack dtype must be an extension")
-    }
-
-    /// Returns the plan producing the storage of `plan`.
-    pub fn storage(plan: &ExtPackPlan) -> VortexResult<PlanRef> {
-        plan.slot_required(STORAGE)
+            .vortex_expect("extension pack inherits the validated extension layout dtype")
     }
 }
 
-impl PlanVTable for ExtPack {
-    type PlanData = ExtPackData;
+impl PlanVTable for ExtensionPack {
+    type PlanData = ();
     type Metadata = EmptyMetadata;
 
     fn id(&self) -> PlanId {
@@ -114,7 +58,6 @@ impl PlanVTable for ExtPack {
     }
 
     fn metadata(_plan: &Plan<Self>) -> Option<Self::Metadata> {
-        // The extension dtype is the plan dtype.
         Some(EmptyMetadata)
     }
 
@@ -123,14 +66,16 @@ impl PlanVTable for ExtPack {
         slots: &PlanSlots,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        validate_slots(ExtPack::ext_dtype(plan), plan.row_count(), slots)
+        slots.check_len("ExtensionPack", 1)?;
+        let storage = slots.required(STORAGE_SLOT)?;
+        vortex_ensure_eq!(storage.dtype(), Self::ext_dtype(plan).storage_dtype());
+        vortex_ensure_eq!(storage.row_count(), plan.row_count());
+
+        Ok(())
     }
 
-    fn slot_name(_plan: &Plan<Self>, slot: usize) -> Cow<'_, str> {
-        match slot {
-            STORAGE => Cow::Borrowed("storage"),
-            _ => Cow::Owned(format!("slot[{slot}]")),
-        }
+    fn slot_name(_plan: &Plan<Self>, _slot: usize) -> Cow<'_, str> {
+        Cow::Borrowed("storage")
     }
 
     fn reduce_parent(
@@ -140,7 +85,7 @@ impl PlanVTable for ExtPack {
         session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
         static RULES: PlanParentRuleSet =
-            PlanParentRuleSet::new(&[&PlanParentReduceRuleAdapter::new(ExpressionExtPackRule)]);
+            PlanParentRuleSet::new(&[&PlanParentReduceRuleAdapter::new(StorageEvalRule)]);
         RULES.evaluate(&plan.to_plan(), parent, slot, session)
     }
 
@@ -150,94 +95,54 @@ impl PlanVTable for ExtPack {
         mask: &Mask,
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
-        let chain = compiler.compile(&ExtPack::storage(plan)?, rows, mask)?;
-        let ext_dtype = ExtPack::ext_dtype(plan).clone();
-        Ok(chain.map(|chain| chain.with(ExtWrapStage::new(ext_dtype))))
+        let chain = compiler.compile(&plan.slot_required(STORAGE_SLOT)?, rows, mask)?;
+        Ok(chain.map(|chain| {
+            chain.with(ExtensionPackStage {
+                ext_dtype: Self::ext_dtype(plan).clone(),
+            })
+        }))
     }
 }
 
-fn validate_slots(ext_dtype: &ExtDTypeRef, row_count: u64, slots: &PlanSlots) -> VortexResult<()> {
-    slots.check_len("ExtPack", STORAGE + 1)?;
-    let storage = slots.required(STORAGE)?;
-    vortex_ensure_eq!(storage.dtype(), ext_dtype.storage_dtype());
-    vortex_ensure_eq!(storage.row_count(), row_count);
-    Ok(())
-}
-
-/// Rewrites an [`Eval`] over an [`ExtPack`] into an [`Eval`] over its storage, when the expression
-/// reads only the storage.
+/// Removes reconstruction when the parent evaluates only the storage or its validity.
 #[derive(Debug)]
-struct ExpressionExtPackRule;
+struct StorageEvalRule;
 
-impl PlanParentReduceRule<ExtPack> for ExpressionExtPackRule {
+impl PlanParentReduceRule<ExtensionPack> for StorageEvalRule {
     type Parent = Eval;
 
     fn reduce_parent(
         &self,
-        child: &ExtPackPlan,
-        parent: &Plan<Eval>,
+        child: &Plan<ExtensionPack>,
+        parent: &EvalPlan,
         _child_idx: usize,
         _session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
-        let storage = ExtPack::storage(child)?;
-        let Some(expr) = rebind_to_storage(parent.expression(), storage.dtype())? else {
+        let Some(expr) = rebind_to_storage(
+            parent.expression(),
+            ExtensionPack::ext_dtype(child).storage_dtype(),
+        )?
+        else {
             return Ok(None);
         };
+
+        let storage = child.slot_required(STORAGE_SLOT)?;
         Ok(Some(EvalPlan::try_new(expr, storage)?.into_plan()))
     }
 }
 
-/// Wraps each storage batch into extension values.
-struct ExtWrapStage {
+struct ExtensionPackStage {
     ext_dtype: ExtDTypeRef,
 }
 
-impl ExtWrapStage {
-    fn new(ext_dtype: ExtDTypeRef) -> Self {
-        Self { ext_dtype }
-    }
-}
-
-impl Operator for ExtWrapStage {
+impl Operator for ExtensionPackStage {
     fn compute(&mut self, input: Input, _cx: &mut Cx<'_>) -> VortexResult<Step> {
         let Input::Batch(batch) = input else {
             return Ok(Step::End);
         };
+
         Ok(Step::Final(
             ExtensionArray::try_new(self.ext_dtype.clone(), batch)?.into_array(),
         ))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use vortex_array::dtype::DType;
-    use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::PType;
-    use vortex_error::VortexResult;
-    use vortex_scan::plan::PlanRef;
-    use vortex_session::registry::ReadContext;
-
-    use super::ExtPack;
-    use crate::layouts::flat::FlatLayout;
-    use crate::segments::SegmentId;
-    use crate::test::TestPoint;
-
-    fn scan(dtype: DType) -> VortexResult<PlanRef> {
-        FlatLayout::new(4, dtype, SegmentId::from(0), ReadContext::new([])).new_plan()
-    }
-
-    #[test]
-    fn try_new_plan_requires_the_storage_dtype() -> VortexResult<()> {
-        let ext_dtype = TestPoint::dtype(Nullability::Nullable);
-
-        let plan =
-            ExtPack::try_new_plan(ext_dtype.clone(), scan(ext_dtype.storage_dtype().clone())?)?;
-        assert_eq!(plan.dtype(), &DType::Extension(ext_dtype.clone()));
-        assert_eq!(plan.row_count(), 4);
-
-        let storage = DType::Primitive(PType::I32, Nullability::Nullable);
-        assert!(ExtPack::try_new_plan(ext_dtype, scan(storage)?).is_err());
-        Ok(())
     }
 }

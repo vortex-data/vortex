@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Delegates classic reads to the storage reader and reconstructs extension values on demand.
+
 use std::any::Any;
 use std::ops::Range;
 use std::sync::Arc;
-use std::sync::OnceLock;
 
 use futures::FutureExt;
 use futures::try_join;
@@ -22,32 +23,25 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
+use super::ExtensionLayout;
+use super::expr::rebind_to_storage;
 use crate::ArrayFuture;
 use crate::LayoutReader;
 use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::RowSplits;
 use crate::SplitRange;
-use crate::layouts::extension::ExtensionLayout;
-use crate::layouts::extension::expr::rebind_to_storage;
 use crate::segments::SegmentSource;
 
 /// Reader for [`ExtensionLayout`].
-///
-/// An expression that reads the extension root only through `ext_storage(root)`, `is_null(root)`
-/// or `is_not_null(root)` is rebound to the storage and delegated to the storage reader. Any other
-/// expression is evaluated over extension values rebuilt from the whole storage, and pruning
-/// leaves its rows unpruned.
 pub(super) struct ExtensionReader {
     layout: ExtensionLayout,
     name: Arc<str>,
     session: VortexSession,
     storage: LayoutReaderRef,
     storage_root: BoundExpression,
-    /// Storage expressions keyed by the identity of the expression they were rebound from. Cached
-    /// so the storage reader sees the same tree on every split, keeping its own identity-keyed
-    /// caches warm.
-    rebound: DashMap<ExactBoundExpr, Arc<OnceLock<Option<BoundExpression>>>>,
+    /// Reuse the rebound tree across splits because the storage reader caches by tree identity.
+    rebound: DashMap<ExactBoundExpr, Option<BoundExpression>>,
 }
 
 impl ExtensionReader {
@@ -65,6 +59,7 @@ impl ExtensionReader {
             ctx,
         )?;
         let storage_root = BoundExpression::new_root(layout.ext_dtype().storage_dtype().clone());
+
         Ok(Self {
             layout,
             name,
@@ -77,21 +72,17 @@ impl ExtensionReader {
 
     /// Returns `expr` rebound to the storage, or `None` when it reads the extension values.
     fn storage_expr(&self, expr: &BoundExpression) -> VortexResult<Option<BoundExpression>> {
-        let key = ExactBoundExpr(expr.clone());
-        let cell = match self.rebound.get(&key) {
-            Some(entry) => Arc::clone(entry.value()),
-            None => Arc::clone(
-                self.rebound
-                    .entry(key)
-                    .or_insert_with(|| Arc::new(OnceLock::new()))
-                    .value(),
-            ),
-        };
-        if let Some(rebound) = cell.get() {
-            return Ok(rebound.clone());
+        if expr.is_root() {
+            return Ok(None);
         }
+
+        let key = ExactBoundExpr(expr.clone());
+        if let Some(rebound) = self.rebound.get(&key) {
+            return Ok(rebound.value().clone());
+        }
+
         let rebound = rebind_to_storage(expr, self.storage_root.dtype())?;
-        Ok(cell.get_or_init(|| rebound).clone())
+        Ok(self.rebound.entry(key).or_insert(rebound).value().clone())
     }
 
     /// Reads the storage of the rows `mask` selects and wraps it back into extension values.
@@ -104,10 +95,12 @@ impl ExtensionReader {
             .storage
             .projection_evaluation(row_range, &self.storage_root, mask)?;
         let ext_dtype = self.layout.ext_dtype().clone();
-        Ok(
-            async move { Ok(ExtensionArray::try_new(ext_dtype, storage.await?)?.into_array()) }
-                .boxed(),
-        )
+
+        Ok(async move {
+            let storage = storage.await?;
+            Ok(ExtensionArray::try_new(ext_dtype, storage)?.into_array())
+        }
+        .boxed())
     }
 }
 
@@ -163,8 +156,8 @@ impl LayoutReader for ExtensionReader {
         split_range: &SplitRange,
         splits: &mut RowSplits,
     ) -> VortexResult<()> {
-        // A field path cannot step into an opaque extension value, so the mask relative to the
-        // extension root applies unchanged to the storage root.
+        // Field paths stop at the extension, so a mask for the extension root also applies
+        // to the storage root.
         self.storage
             .register_splits(field_mask, split_range, splits)
     }
@@ -200,6 +193,7 @@ impl LayoutReader for ExtensionReader {
         let values = self.project_values(row_range, mask)?;
         let expr = expr.clone();
         let session = self.session.clone();
+
         Ok(MaskFuture::new(len, async move {
             let (input, values) = try_join!(input, values)?;
             let predicate = values
@@ -223,6 +217,10 @@ impl LayoutReader for ExtensionReader {
         }
 
         let values = self.project_values(row_range, mask)?;
+        if expr.is_root() {
+            return Ok(values);
+        }
+
         let expr = expr.clone();
         Ok(async move { values.await?.apply_bound(&expr) }.boxed())
     }

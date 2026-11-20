@@ -45,10 +45,15 @@ pub struct ForeignExtDType {
 }
 
 impl ForeignExtDType {
+    /// Creates the placeholder vtable for the extension ID `id`.
     pub fn new(id: ExtId) -> Self {
         Self { id }
     }
 
+    /// Builds an extension dtype for `id` from its serialized metadata and storage dtype.
+    ///
+    /// No registered vtable checks the metadata, so any metadata bytes and storage dtype are
+    /// accepted.
     pub fn from_parts(
         id: ExtId,
         metadata: Vec<u8>,

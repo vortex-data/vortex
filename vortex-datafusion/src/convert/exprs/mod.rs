@@ -7,6 +7,7 @@
 //! extension metadata, or inherit missing metadata from the operand they are compared with. This
 //! supplies the logical dtype that Vortex requires without adding implicit casts.
 
+mod projection_fields;
 use std::sync::Arc;
 
 use arrow_schema::DataType;
@@ -40,6 +41,7 @@ use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
+pub(crate) use projection_fields::push_down_projection_fields;
 use vortex::VortexSessionDefault;
 use vortex::aggregate_fn::NumericalAggregateOpts;
 use vortex::array::VortexSessionExecute;
@@ -47,7 +49,6 @@ use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::dtype::StructFields;
-use vortex::dtype::extension::ExtDTypeRef;
 use vortex::expr::Expression;
 use vortex::expr::Lambda;
 use vortex::expr::byte_length;
@@ -82,8 +83,6 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::row_index::RowIndex;
-
-mod partial;
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
@@ -145,25 +144,8 @@ pub trait ExpressionConverter: Send + Sync {
     /// Split a projection into Vortex expressions that can be pushed down and leftover
     /// DataFusion projections that need to be evaluated after the scan.
     ///
-    /// When every expression converts, the scan evaluates the whole projection. Otherwise the
-    /// scan evaluates each converted expression and the largest convertible subexpressions of the
-    /// others that read its input, such as field access under an unsupported function, under
-    /// generated names. DataFusion evaluates the rest over the scan output, so a wide struct column
-    /// is not read whole for one field. Converting a subexpression applies its conversion's
-    /// semantics, including [`DefaultExpressionConverter`]'s nested field access.
-    ///
-    /// DataFusion may evaluate an expression that stays with it on some rows only, as it does a
-    /// `CASE` branch, while the scan evaluates every row. So inside such an expression, the scan
-    /// evaluates only subexpressions that cannot fail: in `abs(id + 1)`, it reads `id`, and
-    /// DataFusion evaluates `id + 1`.
-    ///
-    /// An expression or subexpression whose conversion fails stays in DataFusion, like an
-    /// unsupported one, and DataFusion reports any error when it evaluates it. Duplicate aliases,
-    /// and a lambda that would stay in DataFusion, evaluate the complete projection in DataFusion
-    /// over deduplicated raw inputs.
-    ///
-    /// A projection after residual filters is split by
-    /// [`split_filtered_projection`](Self::split_filtered_projection) instead.
+    /// If any expression is unsupported, evaluate the complete projection in DataFusion
+    /// over deduplicated raw inputs. This avoids mixing input names with output aliases.
     fn split_projection(
         &self,
         source_projection: ProjectionExprs,
@@ -178,26 +160,13 @@ pub trait ExpressionConverter: Send + Sync {
         {
             return self.no_pushdown_projection(source_projection, input_schema);
         }
-        let converted = source_projection
-            .iter()
-            .map(|projection| partial::try_convert_or_keep(self, &projection.expr, input_schema))
-            .collect_vec();
-        if converted.iter().any(Option::is_none) {
-            return match partial::split_projection_partially(
-                self,
-                &source_projection,
-                converted,
-                input_schema,
-            )? {
-                Some(processed) => Ok(processed),
-                None => self.no_pushdown_projection(source_projection, input_schema),
+        let mut scan_projection = Vec::with_capacity(source_projection.as_ref().len());
+        for projection in source_projection.as_ref() {
+            let Some(expr) = self.try_convert(&projection.expr, input_schema)? else {
+                return self.no_pushdown_projection(source_projection, input_schema);
             };
+            scan_projection.push((projection.alias.clone(), expr));
         }
-        let scan_projection = source_projection
-            .iter()
-            .zip(converted.into_iter().flatten())
-            .map(|(projection, expr)| (projection.alias.clone(), expr))
-            .collect_vec();
         // The output schema names its fields after the projection aliases.
         let output_indices = (0..scan_projection.len()).collect_vec();
         Ok(ProcessedProjection {
@@ -205,6 +174,14 @@ pub trait ExpressionConverter: Send + Sync {
             scan_reference_schema: output_schema.clone(),
             leftover_projection: ProjectionExprs::from_indices(&output_indices, output_schema),
         })
+    }
+
+    /// Allow scans to refine the raw fallback returned by [`Self::split_projection`].
+    ///
+    /// Defaults to `false`. Opt in if scans may replace whole struct inputs with the plain fields
+    /// the remaining DataFusion projection needs.
+    fn allows_projection_field_pushdown(&self) -> bool {
+        false
     }
 
     /// Create a projection that reads only the required columns without pushing down
@@ -219,37 +196,6 @@ pub trait ExpressionConverter: Send + Sync {
             input_schema,
             source_projection,
         )
-    }
-
-    /// Split a projection and the residual filters that DataFusion evaluates before it, which
-    /// both read the scan output. Returns the split projection and the residual filters rewritten
-    /// to read the scan output.
-    ///
-    /// The scan evaluates no residual filter whole, and DataFusion evaluates the projection only on
-    /// the rows that the filters keep. So by default the scan evaluates the convertible
-    /// subexpressions of either that cannot fail, as [`split_projection`](Self::split_projection)
-    /// does inside an expression that stays in DataFusion. A converter that overrides
-    /// `split_projection` should override this method too, so that a residual filter does not
-    /// change how its projections evaluate.
-    fn split_filtered_projection(
-        &self,
-        projection: ProjectionExprs,
-        residual_filters: Vec<Arc<dyn PhysicalExpr>>,
-        input_schema: &Schema,
-    ) -> DFResult<(ProcessedProjection, Vec<Arc<dyn PhysicalExpr>>)> {
-        partial::split_filtered_projection(self, projection, residual_filters, input_schema)
-    }
-
-    /// Create a projection that reads only the columns that the projection and the residual
-    /// filters read, without pushing down any expressions. Returns the residual filters
-    /// unchanged.
-    fn no_pushdown_filtered_projection(
-        &self,
-        projection: ProjectionExprs,
-        residual_filters: Vec<Arc<dyn PhysicalExpr>>,
-        input_schema: &Schema,
-    ) -> DFResult<(ProcessedProjection, Vec<Arc<dyn PhysicalExpr>>)> {
-        raw_filtered_projection(projection, residual_filters, input_schema)
     }
 }
 
@@ -307,28 +253,6 @@ pub(crate) fn raw_projection(
     })
 }
 
-/// Read the raw columns of a projection and of the residual filters that DataFusion evaluates
-/// before it, returning the filters unchanged.
-fn raw_filtered_projection(
-    projection: ProjectionExprs,
-    residual_filters: Vec<Arc<dyn PhysicalExpr>>,
-    input_schema: &Schema,
-) -> DFResult<(ProcessedProjection, Vec<Arc<dyn PhysicalExpr>>)> {
-    let mut indices = projection.column_indices();
-    indices.extend(
-        residual_filters
-            .iter()
-            .flat_map(collect_columns)
-            .map(|column| column.index()),
-    );
-    indices.sort_unstable();
-    indices.dedup();
-    Ok((
-        raw_projection(&indices, input_schema, projection)?,
-        residual_filters,
-    ))
-}
-
 /// Why an expression was not converted.
 enum Unconverted {
     /// A valid expression that Vortex cannot evaluate; it stays in DataFusion.
@@ -352,10 +276,8 @@ type Conversion<T> = Result<T, Unconverted>;
 /// integer arithmetic. Matching DataFusion's overflow behavior is deferred to a future patch.
 /// Nested struct field access also uses Vortex semantics: a null parent produces a null child,
 /// whereas DataFusion extracts the child without applying parent validity. These differences
-/// are accepted for both filters and projections. DataFusion sees an extension type that Arrow
-/// exports as its struct storage as that struct, so field access on it reads the storage through
-/// `ext_storage`. Field access on an extension type that the session does not know stays in
-/// DataFusion.
+/// are accepted for both filters and projections.
+/// Field access through an extension can run natively when Arrow exposes its Vortex storage.
 /// Searched `CASE WHEN` expressions preserve short-circuit evaluation: conditions and
 /// branch values only execute on the rows that reach them, including fallible branches.
 /// Other expressions require compatible SQL semantics or remain in DataFusion.
@@ -708,46 +630,6 @@ impl DefaultExpressionConverter {
         Ok(converted)
     }
 
-    /// Returns the struct whose fields DataFusion reads when it reads a field of `expr`.
-    ///
-    /// DataFusion sees an extension value through its Arrow type. When the session exports an
-    /// extension type as its struct storage, as it does for every type without an Arrow plugin,
-    /// DataFusion reads the fields of the storage. Vortex extension types are opaque and expose
-    /// their storage only through `ext_storage`, so the field access reads the storage
-    /// explicitly. Field access on any other extension type stays in DataFusion.
-    fn struct_source(&self, expr: Expression, input_dtype: &DType) -> Conversion<Expression> {
-        let DType::Extension(ext_dtype) = converted_dtype(&expr, input_dtype)? else {
-            return Ok(expr);
-        };
-        if !ext_dtype.storage_dtype().is_struct() || !self.exports_storage(&ext_dtype) {
-            return Err(Unconverted::Unsupported);
-        }
-        Ok(ext_storage(expr))
-    }
-
-    /// Whether `field` is an Arrow extension type that the session imports as a plain type.
-    ///
-    /// The session does not know the type, so a Vortex file stores the column as an extension
-    /// type that the converted expression cannot see. Reading its fields needs `ext_storage`, so
-    /// field access on it stays in DataFusion.
-    fn is_unknown_extension(&self, field: &Field) -> Conversion<bool> {
-        if field.extension_type_name().is_none() {
-            return Ok(false);
-        }
-        Ok(!self.arrow_dtype(field)?.is_extension())
-    }
-
-    /// Whether the session exports `ext_dtype` with the same Arrow type as its storage.
-    fn exports_storage(&self, ext_dtype: &ExtDTypeRef) -> bool {
-        let arrow = self.session.arrow();
-        let exported = arrow.to_arrow_field("", &DType::Extension(ext_dtype.clone()));
-        let storage = arrow.to_arrow_field("", ext_dtype.storage_dtype());
-        matches!(
-            (exported, storage),
-            (Ok(exported), Ok(storage)) if exported.data_type() == storage.data_type()
-        )
-    }
-
     fn convert_in_list(
         &self,
         in_list: &df_expr::InListExpr,
@@ -876,45 +758,7 @@ impl DefaultExpressionConverter {
         }
 
         if ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some() {
-            // DataFusion's GetFieldFunc flattens nested field access into a single call
-            // with multiple field name arguments, e.g. `outer.inner.leaf` becomes
-            // get_field(Column("outer"), "inner", "leaf").
-            let [source, paths @ ..] = scalar_fn.args() else {
-                return Err(
-                    exec_datafusion_err!("get_field requires a source and field path").into(),
-                );
-            };
-            if paths.is_empty() {
-                return Err(exec_datafusion_err!("get_field requires a field path").into());
-            }
-            let mut source_field = source.return_field(schema)?;
-            let mut names = Vec::with_capacity(paths.len());
-            for path in paths {
-                if self.is_unknown_extension(&source_field)? {
-                    return Err(Unconverted::Unsupported);
-                }
-                // Access into another type, such as a map, whose keys need not be strings, is
-                // valid but unsupported, so the path is checked only for a struct.
-                let DataType::Struct(fields) = source_field.data_type() else {
-                    return Err(Unconverted::Unsupported);
-                };
-                let name = path
-                    .downcast_ref::<df_expr::Literal>()
-                    .and_then(|literal| literal.value().try_as_str().flatten())
-                    .ok_or_else(|| {
-                        exec_datafusion_err!("get_field path must be a non-null string literal")
-                    })?;
-                let (_, field) = fields.find(name).ok_or_else(|| {
-                    exec_datafusion_err!("get_field references missing field {name}")
-                })?;
-                source_field = Arc::clone(field);
-                names.push(name);
-            }
-            let mut result = self.convert_expr(source, schema, input_dtype)?;
-            for name in names {
-                result = get_item(name, self.struct_source(result, input_dtype)?);
-            }
-            return Ok(result);
+            return self.convert_get_field(scalar_fn, schema, input_dtype);
         }
 
         if ScalarFunctionExpr::try_downcast_func::<ArraySum>(scalar_fn).is_some() {
@@ -956,6 +800,62 @@ impl DefaultExpressionConverter {
             scalar_fn.nullable(),
         ))?;
         Ok(cast(length(input), return_dtype))
+    }
+
+    fn convert_get_field(
+        &self,
+        scalar_fn: &ScalarFunctionExpr,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        let [source, paths @ ..] = scalar_fn.args() else {
+            return Err(exec_datafusion_err!("get_field requires a source and field path").into());
+        };
+        if paths.is_empty() {
+            return Err(exec_datafusion_err!("get_field requires a field path").into());
+        }
+
+        // DataFusion can flatten nested accesses into one call, so each step needs its own
+        // Arrow field metadata to identify the representation that DataFusion sees.
+        let source_field = source.return_field(schema)?;
+        let mut parent_field = source_field.as_ref();
+        let mut steps = Vec::with_capacity(paths.len());
+        for path in paths {
+            let name = path
+                .downcast_ref::<df_expr::Literal>()
+                .and_then(|literal| literal.value().try_as_str().flatten())
+                .ok_or_else(|| {
+                    exec_datafusion_err!("get_field path must be a non-null string literal")
+                })?;
+            let DataType::Struct(fields) = parent_field.data_type() else {
+                return Err(Unconverted::Unsupported);
+            };
+            let (_, child_field) = fields
+                .find(name)
+                .ok_or_else(|| exec_datafusion_err!("get_field references missing field {name}"))?;
+            steps.push((parent_field, name));
+            parent_field = child_field.as_ref();
+        }
+
+        let mut result = self.convert_expr(source, schema, input_dtype)?;
+        for (parent_field, name) in steps {
+            if parent_field.extension_type_name().is_some() {
+                let DType::Extension(ext_dtype) = converted_dtype(&result, input_dtype)? else {
+                    return Err(Unconverted::Unsupported);
+                };
+                if !self
+                    .session
+                    .arrow()
+                    .is_extension_storage_field(parent_field, &ext_dtype)
+                {
+                    return Err(Unconverted::Unsupported);
+                }
+                result = ext_storage(result);
+            }
+            result = get_item(name, result);
+        }
+
+        Ok(result)
     }
 
     /// Converts `array_sum` to `list_sum`.
@@ -1060,6 +960,10 @@ impl ExpressionConverter for DefaultExpressionConverter {
             Err(Unconverted::Unsupported) => Ok(None),
             Err(Unconverted::Failed(error)) => Err(error),
         }
+    }
+
+    fn allows_projection_field_pushdown(&self) -> bool {
+        true
     }
 }
 

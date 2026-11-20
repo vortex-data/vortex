@@ -52,7 +52,7 @@ use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::partitioned::PartitionedEval;
 use crate::layouts::struct_::StructLayout;
-use crate::layouts::struct_::unmask::unmask_fields;
+use crate::layouts::struct_::pruning::unmask_pruning_filter;
 use crate::segments::SegmentSource;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -79,6 +79,14 @@ impl From<Item> for FieldName {
     }
 }
 
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+enum PartitionMode {
+    /// Preserves the nulls introduced by the parent struct.
+    Exact,
+    /// Can expose stored values when the resulting filter keeps every possible match.
+    Pruning,
+}
+
 pub struct StructReader {
     layout: StructLayout,
     name: Arc<str>,
@@ -91,13 +99,10 @@ pub struct StructReader {
     expanded_root_expr: BoundExpression,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
-    partitioned_expr_cache: PartitionCache,
-    /// Partitions of pruning predicates, which read the fields of a nullable struct past its
-    /// validity where they can.
-    pruning_partition_cache: PartitionCache,
+    /// Pruning may remove the parent mask. Cache its partition separately so exact reads
+    /// still apply the mask.
+    partitioned_expr_cache: DashMap<(ExactBoundExpr, PartitionMode), Arc<OnceLock<Partitioned>>>,
 }
-
-type PartitionCache = DashMap<ExactBoundExpr, Arc<OnceLock<Partitioned>>>;
 
 impl StructReader {
     pub(super) fn try_new(
@@ -153,7 +158,6 @@ impl StructReader {
             lazy_children,
             field_lookup,
             partitioned_expr_cache: DashMap::with_hasher_and_shard_amount(Default::default(), 8),
-            pruning_partition_cache: DashMap::with_hasher_and_shard_amount(Default::default(), 8),
         })
     }
 
@@ -200,41 +204,54 @@ impl StructReader {
             .transpose()
     }
 
-    /// Utility for partitioning an expression over the fields of a struct.
-    fn partition_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
-        cached_partition(&self.partitioned_expr_cache, expr, |expr| {
-            self.compute_partitioned_expr(expr, false)
-        })
-    }
+    fn partition_expr(
+        &self,
+        expr: &BoundExpression,
+        mode: PartitionMode,
+    ) -> VortexResult<Partitioned> {
+        let mode = if self.dtype().is_nullable() {
+            mode
+        } else {
+            PartitionMode::Exact
+        };
+        let key = (ExactBoundExpr(expr.clone()), mode);
 
-    /// Partitions a pruning predicate over the fields of a struct.
-    ///
-    /// Over a nullable struct, the predicate reads its fields past the struct validity wherever
-    /// it cannot hold in a row where the struct is null, so it reaches the fields' zone maps.
-    fn partition_pruning_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
-        if !self.dtype().is_nullable() {
-            return self.partition_expr(expr);
+        // Look up the cell under a shared shard lock; only a miss takes the write lock, and
+        // only for as long as it takes to insert an empty cell.
+        let cell = match self.partitioned_expr_cache.get(&key) {
+            Some(entry) => Arc::clone(entry.value()),
+            None => Arc::clone(
+                self.partitioned_expr_cache
+                    .entry(key)
+                    .or_insert_with(|| Arc::new(OnceLock::new()))
+                    .value(),
+            ),
+        };
+        // All map guards are dropped here, so partitioning runs outside any shard lock.
+        // Concurrent misses may compute redundantly; `get_or_init` keeps a single winner.
+
+        if let Some(value) = cell.get() {
+            return Ok(value.clone());
         }
-        cached_partition(&self.pruning_partition_cache, expr, |expr| {
-            self.compute_partitioned_expr(expr, true)
-        })
+        // Cache the bound trees themselves: rebinding would create fresh child identity and defeat
+        // downstream `ExactBoundExpr` caches on every split.
+        let result = self.compute_partitioned_expr(expr, mode)?;
+        Ok(cell.get_or_init(|| result).clone())
     }
 
     fn compute_partitioned_expr(
         &self,
         expr: &BoundExpression,
-        pruning: bool,
+        mode: PartitionMode,
     ) -> VortexResult<Partitioned> {
-        // First, we expand the root scope into the fields of the struct to ensure
-        // that partitioning works correctly.
         let mut expr =
             expand_struct_root(expr.clone(), &self.expanded_root_expr, self.struct_fields())?;
-        if pruning && let Some(validity) = expanded_validity(&self.expanded_root_expr) {
-            expr = unmask_fields(expr, validity)?;
+        if mode == PartitionMode::Pruning {
+            // The nullable root expands to `mask(fields, validity)`. Pass just this struct's
+            // validity so each child reader remains responsible for its own mask.
+            expr = unmask_pruning_filter(expr, self.expanded_root_expr.child(1))?;
         }
 
-        // Partition the expression into expressions that can be evaluated
-        // over individual coordinates.
         let fields = self
             .dtype()
             .as_struct_fields_opt()
@@ -268,42 +285,6 @@ impl StructReader {
             partitioned,
         )?)))
     }
-}
-
-/// Returns the cached partition of `expr`, computing it with `compute` on a miss.
-fn cached_partition(
-    cache: &PartitionCache,
-    expr: &BoundExpression,
-    compute: impl FnOnce(&BoundExpression) -> VortexResult<Partitioned>,
-) -> VortexResult<Partitioned> {
-    let key = ExactBoundExpr(expr.clone());
-
-    // Look up the cell under a shared shard lock; only a miss takes the write lock, and
-    // only for as long as it takes to insert an empty cell.
-    let cell = match cache.get(&key) {
-        Some(entry) => Arc::clone(entry.value()),
-        None => Arc::clone(
-            cache
-                .entry(key)
-                .or_insert_with(|| Arc::new(OnceLock::new()))
-                .value(),
-        ),
-    };
-    // All map guards are dropped here, so partitioning runs outside any shard lock.
-    // Concurrent misses may compute redundantly; `get_or_init` keeps a single winner.
-
-    if let Some(value) = cell.get() {
-        return Ok(value.clone());
-    }
-    // Cache the bound trees themselves: rebinding would create fresh child identity and defeat
-    // downstream `ExactBoundExpr` caches on every split.
-    let result = compute(expr)?;
-    Ok(cell.get_or_init(|| result).clone())
-}
-
-/// The validity that the expanded root of a nullable struct masks its fields with.
-fn expanded_validity(expanded_root: &BoundExpression) -> Option<&BoundExpression> {
-    expanded_root.is::<MaskFn>().then(|| expanded_root.child(1))
 }
 
 fn expanded_struct_root(
@@ -622,8 +603,7 @@ impl LayoutReader for StructReader {
         expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_pruning_expr(expr)? {
+        match &self.partition_expr(expr, PartitionMode::Pruning)? {
             Partitioned::Single(name, partition) => {
                 let reader = self.field_reader(name)?;
                 reader
@@ -664,8 +644,7 @@ impl LayoutReader for StructReader {
         expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
-        // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr)? {
+        match &self.partition_expr(expr, PartitionMode::Exact)? {
             Partitioned::Single(name, partition) => {
                 let reader = self.field_reader(name)?;
                 reader
@@ -705,8 +684,7 @@ impl LayoutReader for StructReader {
         expr: &BoundExpression,
         mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
-        // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr)? {
+        match &self.partition_expr(expr, PartitionMode::Exact)? {
             Partitioned::Single(name, partition) => {
                 let reader = self.field_reader(name)?;
                 reader

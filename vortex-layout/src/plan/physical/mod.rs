@@ -5,9 +5,6 @@
 
 pub use vortex_scan::plan::*;
 
-pub use crate::layouts::extension::ExtPack;
-pub use crate::layouts::extension::ExtPackData;
-pub use crate::layouts::extension::ExtPackPlan;
 pub use crate::lowering::LegacyStats;
 pub use crate::lowering::LegacyStatsData;
 pub use crate::lowering::LegacyStatsPlan;
