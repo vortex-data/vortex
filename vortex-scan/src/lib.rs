@@ -212,13 +212,13 @@ pub type DataSourceScanRef = Box<dyn DataSourceScan>;
 /// A data source scan reads data from the source.
 ///
 /// Each host reads every scan the same way, whatever the source: its execution model is fixed.
-/// A host that reads a fixed number of streams always [splits](Self::split) the scan into that
-/// many pieces and reads each piece as a stream; DataFusion's count is its output partition
-/// count. A morsel-based host, such as DuckDB,
-/// never splits: it [opens](Self::open) the scan once and has each of its threads poll a clone
-/// of the returned [`ScanStream`]. The host states the properties it needs, such as row order
-/// or a limit, on the [`ScanRequest`], and the source decides what the pieces are and how they
-/// run.
+/// A host that needs a fixed number of partitions, such as DataFusion with its output partition
+/// count, [splits](Self::split) the scan into fixed pieces that each own their rows. A host that
+/// runs its own threads, such as DuckDB, or that wants its partitions to share work, never
+/// splits: it [opens](Self::open) the scan once and has each of its threads or partitions poll a
+/// clone of the returned [`ScanStream`]. The host states the properties it needs, such as row
+/// order or a limit, on the [`ScanRequest`], and the source decides what the pieces are and how
+/// they run.
 ///
 /// A scan never starts threads. Its work may run as tasks on the session's runtime, which the
 /// host owns.
@@ -232,17 +232,15 @@ pub trait DataSourceScan: 'static + Send {
     /// Returns a stream of partitions to be processed.
     fn partitions(self: Box<Self>) -> PartitionStream;
 
-    /// Cuts the scan into at most `n` pieces that together read its rows.
+    /// Partitions the scan into at most `n` fixed pieces.
     ///
-    /// - For an unordered request, the pieces may share work. Which piece returns which rows is
-    ///   unspecified, and the pieces of one call together return every row exactly once. They
-    ///   must be read in the process that split them. [`split_shared`](stream::split_shared)
-    ///   splits a scan this way.
-    /// - For an ordered request, the pieces are fixed and contiguous, and reading them one after
-    ///   another returns the rows in scan order.
+    /// Each piece owns its rows: the pieces together return every row of the scan exactly once,
+    /// and no two return the same row. When the request is ordered, the pieces are contiguous,
+    /// and reading them one after another returns the rows in scan order.
     ///
-    /// Splitting reads metadata only. The result is never empty, and a scan that cannot be cut
-    /// returns itself as the one piece.
+    /// Splitting reads metadata only. The result is never empty, and a scan with no cut points
+    /// returns itself as the one piece. A host that wants its threads to share the scan's work
+    /// instead [opens](Self::open) the scan and polls clones of its stream.
     fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>>;
 
     /// Opens the scan into a [`ScanStream`] of its rows, which host threads share by each
