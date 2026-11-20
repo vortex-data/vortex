@@ -119,8 +119,30 @@ impl LayoutReaderDataSource {
         self
     }
 
+    /// The whole-source cut points for `field_mask`, computed once under the cache's lock.
+    fn whole_source_cut_points(&self, field_mask: Vec<FieldMask>) -> VortexResult<Arc<[u64]>> {
+        let mut cache = self.cut_points.lock();
+        let cached = cache
+            .iter()
+            .find(|(mask, _)| *mask == field_mask)
+            .map(|(_, boundaries)| Arc::clone(boundaries));
+        if let Some(boundaries) = cached {
+            return Ok(boundaries);
+        }
+        let boundaries: Arc<[u64]> = SplitBy::default()
+            .splits(
+                self.reader.as_ref(),
+                &(0..self.reader.row_count()),
+                &field_mask,
+            )?
+            .into();
+        cache.push((field_mask, Arc::clone(&boundaries)));
+        Ok(boundaries)
+    }
+
     /// The cached whole-source cut points for `field_mask`, if [`DataSource::cut_points`]
     /// computed them.
+    #[allow(dead_code)]
     fn cached_cut_points(&self, field_mask: &[FieldMask]) -> Option<Arc<[u64]>> {
         self.cut_points
             .lock()
@@ -165,8 +187,10 @@ impl DataSource for LayoutReaderDataSource {
             .map(|expr| expr.bind(self.reader.dtype())?.optimize_recursive())
             .transpose()?;
         let dtype = projection.dtype().clone();
-        let natural_splits =
-            self.cached_cut_points(&referenced_field_masks(&projection, filter.as_ref())?);
+        // Measurement variant: fill the boundary cache on first scan, without `cut_points`.
+        let natural_splits = Some(
+            self.whole_source_cut_points(referenced_field_masks(&projection, filter.as_ref())?)?,
+        );
 
         // If the dtype is an empty struct, and there is no filter, we can return a special
         // length-only scan.
