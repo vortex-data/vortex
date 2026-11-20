@@ -14,10 +14,15 @@
 //! however many workers read it: four per core, at most the request's `split_concurrency`, as one
 //! scan stream does. The number of workers is only the host's parallelism.
 //!
-//! - An unordered pool runs `in_flight` lanes on the session's runtime once its first worker
-//!   starts. Each lane takes the next unit from a channel of units, runs it, and sends its rows,
-//!   trimmed to a trimmed limit, into one bounded output channel. A lane that expands a unit sends
-//!   the units it yields back into the channel of units. At most `expand_concurrency` expansions
+//! - An unordered pool runs lanes on the session's runtime once its first worker starts: one for
+//!   each unit that is ready, more as units queue, and at most `in_flight`; a pool with no units
+//!   starts none. Each lane takes the next unit from a channel of units, runs it on the lane
+//!   itself, and sends its rows, trimmed to a trimmed limit, into one bounded output channel. A
+//!   [turn](WorkUnit::turn), such as an opened file's splits or a child's parts, is one entry of
+//!   the channel: the lane that takes it takes its next unit and queues the rest again behind the
+//!   other entries, so the lanes rotate over the open turns. Each turn then has only a few units
+//!   in flight, which keeps its first rows, and any dynamic filter they tighten, ahead of its later
+//!   units. A lane that expands a unit sends the units it yields back into the channel of units. At most `expand_concurrency` expansions
 //!   are queued or running at once; each holds a slot that it passes on to the next waiting
 //!   expansion when it is done, or when it is dropped. Workers only take rows from the output
 //!   channel, so whichever worker asks next gets the next rows. The output channel closes once
@@ -32,6 +37,7 @@ use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Poll;
 
@@ -95,6 +101,8 @@ enum UnitKind {
     Stream(Box<dyn FnOnce() -> UnitStream + Send>),
     /// Called once the unit is expanded.
     Expand(Box<dyn FnOnce() -> Expansion + Send>),
+    /// Units taken in turn with the other turns of an unordered pool, in row order.
+    Turn(Vec<WorkUnit>),
 }
 
 impl WorkUnit {
@@ -124,9 +132,30 @@ impl WorkUnit {
         }
     }
 
+    /// Units, in row order, that an unordered pool's lanes take one at a time, in turn with its
+    /// other turns, rather than all at once: a file's splits, or a child's parts. An ordered pool
+    /// reads them in their place. Expansions among them are queued on their own.
+    pub fn turn(units: Vec<WorkUnit>) -> Self {
+        Self {
+            share: units.iter().map(|unit| unit.share).sum(),
+            kind: UnitKind::Turn(units),
+        }
+    }
+
     /// A unit with nothing to read, whose share is taken once a worker reaches it.
     pub fn skipped(share: f64) -> Self {
         Self::run(share, || future::ready(Ok(Vec::new())).boxed())
+    }
+
+    /// The unit, or a turn's units, in its place.
+    fn in_place(self) -> Vec<WorkUnit> {
+        match self.kind {
+            UnitKind::Turn(units) => units.into_iter().flat_map(WorkUnit::in_place).collect(),
+            kind => vec![Self {
+                kind,
+                share: self.share,
+            }],
+        }
     }
 
     fn is_expand(&self) -> bool {
@@ -197,6 +226,7 @@ pub fn open_work_pool(options: WorkPoolOptions, units: Vec<WorkUnit>) -> ScanPoo
         in_flight,
         handle: options.handle,
         failed: AtomicBool::new(false),
+        pending: AtomicUsize::new(0),
         taken: Mutex::new(0.0),
         slots: Mutex::new(Slots {
             free: expand_concurrency,
@@ -215,12 +245,20 @@ pub fn open_work_pool(options: WorkPoolOptions, units: Vec<WorkUnit>) -> ScanPoo
     let (sender, receiver) = async_channel::unbounded();
     shared.queue(&sender, units);
     let (output, outputs) = async_channel::bounded(in_flight);
+    let lanes = Arc::new(Lanes {
+        shared: Arc::clone(&shared),
+        units: receiver.clone(),
+        waiting: AtomicUsize::new(0),
+        started: AtomicUsize::new(0),
+        tasks: Mutex::new(Some(Vec::new())),
+    });
     Arc::new(UnorderedPool {
         dtype: options.dtype,
         shared,
         units: receiver,
         outputs,
-        lanes: Mutex::new(Lanes::Idle(output)),
+        lanes,
+        output: Mutex::new(Some(output)),
     })
 }
 
@@ -234,6 +272,8 @@ struct Shared {
     handle: Handle,
     /// Whether a unit of an unordered pool failed, which stops its lanes.
     failed: AtomicBool,
+    /// The units of an unordered pool that are queued and not yet taken by a lane.
+    pending: AtomicUsize,
     /// The share of the pool's work that workers have taken.
     taken: Mutex<f64>,
     /// An unordered pool's expansion slots.
@@ -258,7 +298,7 @@ impl Shared {
         match unit.kind {
             UnitKind::Run(run) => run(),
             UnitKind::Stream(stream) => stream().try_collect::<Vec<_>>().boxed(),
-            UnitKind::Expand(_) => unreachable!("expansions are not run"),
+            UnitKind::Expand(_) | UnitKind::Turn(_) => unreachable!("only units that run are run"),
         }
     }
 
@@ -271,7 +311,7 @@ impl Shared {
                 .try_flatten_stream()
                 .boxed(),
             UnitKind::Stream(stream) => stream(),
-            UnitKind::Expand(_) => unreachable!("expansions are not run"),
+            UnitKind::Expand(_) | UnitKind::Turn(_) => unreachable!("only units that run are run"),
         }
     }
 
@@ -283,7 +323,9 @@ impl Shared {
         }
         match unit.kind {
             UnitKind::Expand(expand) => expand(),
-            UnitKind::Run(_) | UnitKind::Stream(_) => unreachable!("only expansions expand"),
+            UnitKind::Run(_) | UnitKind::Stream(_) | UnitKind::Turn(_) => {
+                unreachable!("only expansions expand")
+            }
         }
     }
 
@@ -291,19 +333,38 @@ impl Shared {
     /// or waits for one behind the expansions already waiting.
     fn queue(self: &Arc<Self>, sender: &Sender<Work>, units: Vec<WorkUnit>) {
         for unit in units {
-            if !unit.is_expand() {
-                send(sender, Work::Unit(unit));
-                continue;
-            }
-            let mut slots = self.slots.lock();
-            if slots.free > 0 {
-                slots.free -= 1;
-                drop(slots);
-                send(sender, Work::Expand(unit, Slot::new(self, sender)));
-            } else {
-                slots.waiting.push_back(unit);
+            match unit.kind {
+                UnitKind::Turn(units) => {
+                    let (expansions, units): (Vec<_>, Vec<_>) =
+                        units.into_iter().partition(WorkUnit::is_expand);
+                    if !units.is_empty() {
+                        self.send(sender, Work::Turn(units.into(), sender.clone()));
+                    }
+                    self.queue(sender, expansions);
+                }
+                UnitKind::Expand(_) => {
+                    let mut slots = self.slots.lock();
+                    if slots.free > 0 {
+                        slots.free -= 1;
+                        drop(slots);
+                        self.send(sender, Work::Expand(unit, Slot::new(self, sender)));
+                    } else {
+                        slots.waiting.push_back(unit);
+                    }
+                }
+                UnitKind::Run(_) | UnitKind::Stream(_) => self.send(sender, Work::Unit(unit)),
             }
         }
+    }
+
+    /// Sends an entry into an unordered pool's channel, counting the units it holds as pending.
+    fn send(&self, sender: &Sender<Work>, work: Work) {
+        let units = match &work {
+            Work::Turn(units, _) => units.len(),
+            Work::Unit(_) | Work::Expand(..) => 1,
+        };
+        self.pending.fetch_add(units, Ordering::AcqRel);
+        send(sender, work);
     }
 
     /// The expansion that a freed slot passes to, if any waits and the limit is not spent. Once it
@@ -388,9 +449,12 @@ fn stop_on_error<T: Send + 'static>(
     .boxed()
 }
 
-/// A unit of an unordered pool's channel.
+/// An entry of an unordered pool's channel.
 enum Work {
     Unit(WorkUnit),
+    /// A turn's units not yet taken, in row order, and the channel to queue the rest into once a
+    /// lane takes the next of them.
+    Turn(VecDeque<WorkUnit>, Sender<Work>),
     /// An expansion, and the slot it holds until its units are in the channel.
     Expand(WorkUnit, Slot),
 }
@@ -422,7 +486,7 @@ impl Drop for Slot {
         }
         if let Some(next) = self.shared.pass_slot() {
             let slot = Slot::new(&self.shared, &self.sender);
-            send(&self.sender, Work::Expand(next, slot));
+            self.shared.send(&self.sender, Work::Expand(next, slot));
         }
     }
 }
@@ -432,15 +496,52 @@ fn send(sender: &Sender<Work>, work: Work) {
     drop(sender.try_send(work));
 }
 
-/// The lanes of an unordered pool.
-enum Lanes {
-    /// Not started: the sender of the output channel, for the lanes to hold once they start.
-    Idle(Sender<VortexResult<ArrayRef>>),
-    /// Running, until the pool is dropped, which aborts them.
-    Running(
-        #[expect(dead_code, reason = "held so that dropping the pool aborts the lanes")]
-        Vec<Task<()>>,
-    ),
+/// The lanes of an unordered pool. They start when its first worker does, as many as there are
+/// units ready, and grow while units wait for a lane, up to `in_flight`, so a scan with few units
+/// spawns and wakes few tasks.
+struct Lanes {
+    shared: Arc<Shared>,
+    units: Receiver<Work>,
+    /// Lanes waiting for a unit.
+    waiting: AtomicUsize,
+    /// Lanes started, so a lane can see without a lock that no more may start.
+    started: AtomicUsize,
+    /// The lanes started, until the pool is dropped, which aborts them. `None` once it is.
+    tasks: Mutex<Option<Vec<Task<()>>>>,
+}
+
+impl Lanes {
+    /// Starts lanes for the units that no waiting lane will take, up to `in_flight` in all. Each
+    /// lane holds a sender of the output channel.
+    fn grow(self: &Arc<Self>, output: &Sender<VortexResult<ArrayRef>>) {
+        // Every lane calls this for every unit it takes, so it locks only to start lanes.
+        let max = self.shared.in_flight;
+        if self.started.load(Ordering::Acquire) >= max || self.unserved() == 0 {
+            return;
+        }
+        let mut tasks = self.tasks.lock();
+        let Some(tasks) = tasks.as_mut() else {
+            return;
+        };
+        let new = self.unserved().min(max.saturating_sub(tasks.len()));
+        if new == 0 {
+            return;
+        }
+        tasks.extend((0..new).map(|_| {
+            self.shared
+                .handle
+                .spawn(lane(Arc::clone(self), output.clone()))
+        }));
+        self.started.store(tasks.len(), Ordering::Release);
+    }
+
+    /// The pending units that the lanes waiting for one will not take.
+    fn unserved(&self) -> usize {
+        self.shared
+            .pending
+            .load(Ordering::Acquire)
+            .saturating_sub(self.waiting.load(Ordering::Acquire))
+    }
 }
 
 /// A pool whose lanes run its units on the runtime, and whose workers share their output.
@@ -449,41 +550,54 @@ struct UnorderedPool {
     shared: Arc<Shared>,
     units: Receiver<Work>,
     outputs: Receiver<VortexResult<ArrayRef>>,
-    lanes: Mutex<Lanes>,
+    lanes: Arc<Lanes>,
+    /// The sender of the output channel until the first worker starts the lanes, which hold it
+    /// from then on.
+    output: Mutex<Option<Sender<VortexResult<ArrayRef>>>>,
 }
 
 impl UnorderedPool {
-    /// Starts the lanes, once.
+    /// Starts the lanes, once. With no units, it starts none, and the output channel closes.
     fn start_lanes(&self) {
-        let mut lanes = self.lanes.lock();
-        let Lanes::Idle(output) = &*lanes else {
-            return;
-        };
-        let output = output.clone();
-        let running = (0..self.shared.in_flight)
-            .map(|_| {
-                self.shared.handle.spawn(lane(
-                    Arc::clone(&self.shared),
-                    self.units.clone(),
-                    output.clone(),
-                ))
-            })
-            .collect();
         // Dropping the pool's own sender leaves the lanes holding the output channel open.
-        *lanes = Lanes::Running(running);
+        if let Some(output) = self.output.lock().take() {
+            self.lanes.grow(&output);
+        }
     }
 }
 
 /// A lane: runs units one at a time and sends their rows to the workers as they are produced,
 /// trimmed to a trimmed limit and mapped. Ends once the units run out, a trimmed limit is spent, a
 /// unit fails, or the pool is gone.
-async fn lane(shared: Arc<Shared>, units: Receiver<Work>, output: Sender<VortexResult<ArrayRef>>) {
+async fn lane(lanes: Arc<Lanes>, output: Sender<VortexResult<ArrayRef>>) {
+    let shared = Arc::clone(&lanes.shared);
     while !shared.limit.is_trimmed_out() && !shared.failed.load(Ordering::Acquire) {
-        let Ok(work) = units.recv().await else {
+        lanes.waiting.fetch_add(1, Ordering::AcqRel);
+        let work = lanes.units.recv().await;
+        lanes.waiting.fetch_sub(1, Ordering::AcqRel);
+        let Ok(work) = work else {
             return;
         };
+        let work = match work {
+            Work::Turn(mut units, sender) => {
+                let Some(unit) = units.pop_front() else {
+                    continue;
+                };
+                if !units.is_empty() {
+                    let requeue = sender.clone();
+                    send(&requeue, Work::Turn(units, sender));
+                }
+                Work::Unit(unit)
+            }
+            work => work,
+        };
+        shared.pending.fetch_sub(1, Ordering::AcqRel);
+        // Units the waiting lanes will not take get lanes of their own, such as the units an
+        // expansion has just queued.
+        lanes.grow(&output);
         let mut arrays = match work {
             Work::Unit(unit) => shared.stream(unit),
+            Work::Turn(..) => unreachable!("a turn's next unit is taken above"),
             Work::Expand(unit, slot) => {
                 let expanded = shared.expand(unit).await;
                 // The expansion's units go into the channel before its slot passes on.
@@ -577,6 +691,7 @@ impl Drop for UnorderedPool {
         self.units.close();
         while self.units.try_recv().is_ok() {}
         self.outputs.close();
+        drop(self.lanes.tasks.lock().take());
     }
 }
 
@@ -599,7 +714,7 @@ impl OrderedPool {
         expand_concurrency: usize,
     ) -> BoxStream<'static, VortexResult<WorkUnit>> {
         let mut segments: Vec<Segment> = Vec::new();
-        for unit in units {
+        for unit in units.into_iter().flat_map(WorkUnit::in_place) {
             match (unit.is_expand(), segments.last_mut()) {
                 (true, _) => segments.push(Segment::Expand(unit)),
                 (false, Some(Segment::Units(run))) => run.push(unit),
