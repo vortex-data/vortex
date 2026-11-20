@@ -11381,6 +11381,7 @@ dependencies = [
  "vortex-decimal-byte-parts",
  "vortex-error",
  "vortex-fsst",
+ "vortex-io",
  "vortex-mask",
  "vortex-onpair",
  "vortex-scan",

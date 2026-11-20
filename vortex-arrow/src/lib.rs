@@ -39,6 +39,7 @@ mod run_end_import;
 mod scalar;
 mod scan;
 mod session;
+mod stream;
 #[cfg(feature = "_test-harness")]
 pub mod test_harness;
 #[cfg(test)]
@@ -55,3 +56,4 @@ pub use options::*;
 pub use scalar::ToArrowDatum;
 pub use scan::ArrowScanExt;
 pub use session::*;
+pub use stream::ArrowArrayStreamExt;
