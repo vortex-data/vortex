@@ -691,6 +691,64 @@ async fn pruning_again_reuses_the_first_reads() -> VortexResult<()> {
     Ok(())
 }
 
+/// A dynamic conjunct whose value tightens after a part's pruning, and after its chunks are
+/// planned, prunes each chunk again before the chunk reads anything. A bound every zone rules out
+/// leaves the chunks reading no segment at all, while an unchanged bound reads the column.
+#[rstest]
+#[case::tightened(Some(199_999), 0)]
+#[case::unchanged(None, 200_000)]
+#[tokio::test]
+async fn chunks_recheck_a_tightened_dynamic_conjunct_before_reading(
+    #[case] tightened: Option<i32>,
+    #[case] expected_rows: usize,
+) -> VortexResult<()> {
+    let bound = Arc::new(AtomicI32::new(-1));
+    let (scan, counted) = dynamic_scan(200, &bound).await?;
+    let rows = scan.rows().clone();
+    let kept = prune(&scan, rows.clone()).await?;
+    assert_eq!(kept.as_ref().map(Mask::true_count), Some(200_000));
+
+    let mut planner = ChunkPlanner::new(Arc::clone(&scan), rows, scan.selection().clone(), kept);
+    let mut chunks = Vec::new();
+    while let PlannerOutput::Spawn(scope, chunk) = planner.compute()? {
+        chunks.push((scope, chunk));
+    }
+    assert!(chunks.len() > 1, "the scan has several chunks");
+    if let Some(tightened) = tightened {
+        bound.store(tightened, Ordering::Relaxed);
+    }
+
+    let reads = counted.requests();
+    let io = scan.io();
+    let mut run = Run::new();
+    for (scope, chunk) in chunks {
+        run.admit(chunk, scope, io.session());
+    }
+    let mut returned = 0;
+    loop {
+        match run.advance()? {
+            Progress::Batch(batch) => returned += batch.array.len(),
+            Progress::Spawn(scope, planner) => {
+                run.admit(planner, scope, io.session());
+            }
+            Progress::RootDone(_) if run.live_roots() > 0 => {}
+            Progress::RootDone(_) | Progress::Idle => break,
+            Progress::Waiting => std::future::poll_fn(|cx| run.poll_completion(cx)).await?,
+        }
+    }
+    assert_eq!(returned, expected_rows);
+    if tightened.is_some() {
+        assert_eq!(
+            counted.requests(),
+            reads,
+            "the rechecked chunks read nothing"
+        );
+    } else {
+        assert!(counted.requests() > reads, "the chunks read the column");
+    }
+    Ok(())
+}
+
 /// A scan of at most one filtered chunk skips the pruning plan of a dynamic conjunct and reads no
 /// zone map: its chunk evaluates the conjunct next.
 #[tokio::test]
