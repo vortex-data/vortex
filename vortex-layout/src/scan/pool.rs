@@ -253,6 +253,7 @@ pub(crate) fn open_pool(
             expand_concurrency: NonZeroUsize::new(options.open_concurrency)
                 .unwrap_or(NonZeroUsize::MIN),
             map_trimmed: Some(map_trimmed),
+            runs: true,
         },
         units,
     )

@@ -22,8 +22,8 @@
 //!   [turn](WorkUnit::turn), such as an opened file's splits or a child's parts, is one entry of
 //!   the channel: the lane that takes it takes its next run of adjacent units, which it runs
 //!   together so that their reads coalesce, and queues the rest again behind the other entries,
-//!   so the lanes rotate over the open turns. A run is the turn's share of `in_flight`, divided
-//!   among `expand_concurrency` turns. Each turn then has only a few units in flight, which keeps
+//!   so the lanes rotate over the open turns. With [runs](WorkPoolOptions::runs), a run is the
+//!   turn's share of `in_flight`, divided among `expand_concurrency` turns; without, one unit. Each turn then has only a few units in flight, which keeps
 //!   its first rows, and any dynamic filter they tighten, ahead of its later units. A lane that expands a unit sends the units it yields back into the channel of units. At most `expand_concurrency` expansions
 //!   are queued or running at once; each holds a slot that it passes on to the next waiting
 //!   expansion when it is done, or when it is dropped. Workers only take rows from the output
@@ -209,6 +209,12 @@ pub struct WorkPoolOptions {
     pub handle: Handle,
     /// The most expansions that are queued or running at once.
     pub expand_concurrency: NonZeroUsize,
+    /// Whether an unordered pool's lanes take a turn's adjacent units in runs, starting them
+    /// together so that their reads coalesce, or one at a time. Runs suit units that read little
+    /// each and return their arrays at once, which run as tasks of their own, such as V1 splits.
+    /// A unit that streams its arrays runs on its lane, so a run of them would share one task's
+    /// CPU, and a scan with few units would get few lanes.
+    pub runs: bool,
     /// Maps every array the workers return under a [trimmed](PoolLimit::Trim) limit, such as to
     /// optimize the array that the limit sliced.
     pub map_trimmed: Option<MapOutput>,
@@ -258,9 +264,13 @@ pub fn open_work_pool(options: WorkPoolOptions, units: Vec<WorkUnit>) -> ScanPoo
     // too, so a run is at most `in_flight` divided by the cores: there is then a lane for every
     // core, even when one turn, such as a single file, would otherwise take every unit in flight.
     let cores = get_available_parallelism().unwrap_or(1).clamp(1, in_flight);
-    let run = (in_flight / expand_concurrency)
-        .min(in_flight / cores)
-        .max(1);
+    let run = if options.runs {
+        (in_flight / expand_concurrency)
+            .min(in_flight / cores)
+            .max(1)
+    } else {
+        1
+    };
     let lanes = Arc::new(Lanes {
         shared: Arc::clone(&shared),
         units: receiver.clone(),
@@ -952,6 +962,7 @@ mod tests {
             handle: RUNTIME.0.handle(),
             expand_concurrency: NonZeroUsize::new(expand_concurrency).unwrap_or(NonZeroUsize::MIN),
             map_trimmed: None,
+            runs: true,
         }
     }
 
