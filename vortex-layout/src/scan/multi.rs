@@ -1345,6 +1345,24 @@ mod pool_tests {
         Ok(())
     }
 
+    /// An unordered pool takes the opened files' splits in turn. With one lane, rows come out in
+    /// the order the lane takes splits.
+    #[test]
+    fn unordered_splits_interleave_across_files() -> VortexResult<()> {
+        let (source, gates) = gated_source(2, 3);
+        for gate in &gates {
+            gate.release();
+        }
+        let request = ScanRequest {
+            split_concurrency: NonZeroUsize::new(1),
+            ..Default::default()
+        };
+        let pool = plan(&source.with_concurrency(2), request)?.open()?;
+        let values = collect_scan_values(futures::executor::block_on_stream(pool.worker()))?;
+        assert_eq!(values, [0, 100, 1, 101, 2, 102]);
+        Ok(())
+    }
+
     /// An ordered worker emits files in file order, even when a later file opens first.
     #[test]
     fn ordered_worker_emits_files_in_order() -> VortexResult<()> {
