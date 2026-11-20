@@ -74,6 +74,7 @@ use vortex_scan::pool::ScanPool;
 use vortex_scan::pool::ScanPoolRef;
 use vortex_scan::row_mask::RowMask;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
 use crate::scan::limit::RowLimit;
@@ -277,11 +278,16 @@ pub(crate) fn open_pool(
         }
     }
     // Each open file gets an equal share of the splits in flight, and a lane takes a file's share
-    // as one run of adjacent splits that it polls together. The run's reads then reach the
+    // as one run of adjacent splits that it starts together. The run's reads then reach the
     // file's read driver together and coalesce, as they do when one scan stream polls its
     // file's splits; a run of one would hand the driver one read at a time. The rotation moves
-    // between files after each run, and the lanes hold `splits_in_flight` splits in all.
-    let run = (splits_in_flight / open_concurrency).max(1);
+    // between files after each run, and the lanes hold `splits_in_flight` splits in all. A run is
+    // at most one core's share, so that a scan of few files, such as a single-file scan whose
+    // share is every split in flight, still has a lane per core.
+    let cores = get_available_parallelism().unwrap_or(1).max(1);
+    let run = (splits_in_flight / open_concurrency)
+        .min(splits_in_flight / cores)
+        .max(1);
     let (output, outputs) = async_channel::bounded(splits_in_flight);
     let lanes = Arc::new(Lanes {
         shared: Arc::clone(&shared),
@@ -423,19 +429,10 @@ impl Shared {
         deferred.pop_front()
     }
 
-    /// Takes a split and runs it as a task on the session's runtime.
-    fn admit(self: &Arc<Self>, split: FileSplit) -> SplitOutput {
-        self.take_split(split, true)
-    }
-
     /// Takes a split. A split of a scan with a filter and a limit is built and run as
-    /// [`spawn_lazy_split`] runs it; any other split runs as a task on the session's runtime when
-    /// `spawn` is set, or else on the task that polls it, such as a lane, which is already one.
-    fn take_split(
-        self: &Arc<Self>,
-        (file, index, progress): FileSplit,
-        spawn: bool,
-    ) -> SplitOutput {
+    /// [`spawn_lazy_split`] runs it; any other split runs as a task on the session's runtime, since
+    /// a split decodes inside its future.
+    fn admit(self: &Arc<Self>, (file, index, progress): FileSplit) -> SplitOutput {
         *self.progress.lock() += progress;
         let handle = self.session.handle();
         if let PoolLimit::Trim(_) = &self.limit {
@@ -458,8 +455,7 @@ impl Shared {
                 .get(index)
                 .and_then(|task| task.lock().take());
             match task {
-                Some(task) if spawn => handle.spawn(task).await,
-                Some(task) => task.await,
+                Some(task) => handle.spawn(task).await,
                 None => Ok(None),
             }
         }
@@ -692,13 +688,15 @@ struct UnorderedPool {
 }
 
 impl UnorderedPool {
-    /// Runs a unit on the lane that took it. The lane is already a task on the runtime, so
-    /// spawning the unit as another task would only add a hop.
+    /// Runs a unit for the lane that took it. Each split of a run runs as a task of its own, as
+    /// [`RepeatedScan::execute_stream`] runs it, since a split decodes inside its future: the run's
+    /// splits start together, so their reads coalesce, and decode on as many threads as there
+    /// are splits. An open runs on the lane itself.
     fn run(shared: &Arc<Shared>, taken: Taken) -> FuturesUnordered<SplitOutput> {
         match taken {
             Taken::Splits(splits) => splits
                 .into_iter()
-                .map(|split| shared.take_split(split, false))
+                .map(|split| shared.admit(split))
                 .collect(),
             Taken::Open(factory, slot) => iter::once(
                 async move {

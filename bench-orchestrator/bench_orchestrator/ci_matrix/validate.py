@@ -8,12 +8,16 @@ from .model import BenchmarkCase, Catalog, Coverage, Storage
 
 
 def _validate_coverage(benchmark: BenchmarkCase, preset: str, coverage: Coverage) -> None:
-    if len(coverage.targets) == 0:
+    targets = coverage.resolved_targets(benchmark.benchmark)
+    if len(targets) == 0:
         raise ValueError(f"Benchmark {benchmark.id!r} resolved to no runnable targets")
 
-    for target in coverage.targets:
-        if not target.is_supported():
-            raise ValueError(f"Benchmark {benchmark.id!r} has unsupported target {target} in preset {preset!r}")
+    for target in targets:
+        errors = target.support_errors(benchmark.benchmark)
+        if errors:
+            raise ValueError(
+                f"Benchmark {benchmark.id!r} has unsupported target {target} in preset {preset!r}: {errors[0]}"
+            )
         if target.engine not in engines_for_benchmark(benchmark.benchmark):
             raise ValueError(f"Benchmark {benchmark.id!r} cannot run target {target} in preset {preset!r}")
         if benchmark.storage is Storage.S3 and target.format is Format.LANCE:

@@ -6,7 +6,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
-from bench_orchestrator.config import BENCHMARK_SCAN_V1, Benchmark, Engine, Format
+from bench_orchestrator.config import BENCHMARKS_WITHOUT_SCAN_V2, Benchmark, Engine, Format, Integration, ScanEngine
 from bench_orchestrator.runner.executor import BenchmarkExecutor
 
 
@@ -47,19 +47,29 @@ def test_build_command_serializes_vortex_spatial_native_format() -> None:
     assert cmd[cmd.index("--formats") + 1] == "parquet,vortex,vortex-spatial-native"
 
 
-def test_scan_v1_benchmarks_are_explicit() -> None:
-    assert BENCHMARK_SCAN_V1 == {Benchmark.POLARSIGNALS, Benchmark.STATPOPGEN, Benchmark.TPCH_NESTED}
+def test_benchmarks_without_scan_v2_are_explicit() -> None:
+    assert BENCHMARKS_WITHOUT_SCAN_V2 == {Benchmark.POLARSIGNALS, Benchmark.STATPOPGEN, Benchmark.TPCH_NESTED}
 
 
 @pytest.mark.parametrize("engine", [Engine.DATAFUSION, Engine.DUCKDB])
 @pytest.mark.parametrize("benchmark", list(Benchmark))
-def test_build_command_selects_scan_version(engine: Engine, benchmark: Benchmark) -> None:
+def test_build_command_defaults_to_the_suites_scan(engine: Engine, benchmark: Benchmark) -> None:
     executor = BenchmarkExecutor(Path("/tmp/bench"), engine)
 
     cmd = executor.build_command(benchmark=benchmark, formats=[Format.VORTEX])
 
-    expected = "true" if benchmark in BENCHMARK_SCAN_V1 else "false"
+    expected = "true" if benchmark in BENCHMARKS_WITHOUT_SCAN_V2 else "false"
     assert cmd[cmd.index("--scan-v1") + 1] == expected
+
+
+@pytest.mark.parametrize("engine", [Engine.DATAFUSION, Engine.DUCKDB])
+@pytest.mark.parametrize(("scan", "scan_v1"), [(ScanEngine.V1, "true"), (ScanEngine.V2, "false")])
+def test_build_command_passes_the_targets_scan(engine: Engine, scan: ScanEngine, scan_v1: str) -> None:
+    executor = BenchmarkExecutor(Path("/tmp/bench"), engine)
+
+    cmd = executor.build_command(benchmark=Benchmark.TPCH, formats=[Format.VORTEX], scan=scan)
+
+    assert cmd[cmd.index("--scan-v1") + 1] == scan_v1
 
 
 def test_build_command_omits_formats_for_lance_backend() -> None:
@@ -130,3 +140,32 @@ def test_run_streams_logs_without_counting_them(tmp_path: Path) -> None:
 
     assert results == ['{"engine":"duckdb","format":"parquet","query":0}']
     assert streamed == results
+
+
+def test_datasource_integration_registers_vortex_table() -> None:
+    executor = BenchmarkExecutor(Path("/tmp/datafusion-bench"), Engine.DATAFUSION)
+
+    cmd = executor.build_command(
+        benchmark=Benchmark.TPCH, formats=[Format.VORTEX], integration=Integration.DATASOURCE, scan=ScanEngine.V1
+    )
+
+    assert cmd[cmd.index("--scan-api") + 1] == "true"
+    assert cmd[cmd.index("--scan-v1") + 1] == "true"
+
+
+@pytest.mark.parametrize("engine", [Engine.DATAFUSION, Engine.DUCKDB])
+def test_file_integration_omits_the_scan_api_flag(engine: Engine) -> None:
+    executor = BenchmarkExecutor(Path("/tmp/bench"), engine)
+
+    cmd = executor.build_command(benchmark=Benchmark.TPCH, formats=[Format.VORTEX])
+
+    assert "--scan-api" not in cmd
+
+
+def test_datasource_integration_is_rejected_by_duckdb() -> None:
+    executor = BenchmarkExecutor(Path("/tmp/duckdb-bench"), Engine.DUCKDB)
+
+    with pytest.raises(ValueError, match="duckdb cannot run the datasource integration"):
+        _ = executor.build_command(
+            benchmark=Benchmark.TPCH, formats=[Format.VORTEX], integration=Integration.DATASOURCE
+        )

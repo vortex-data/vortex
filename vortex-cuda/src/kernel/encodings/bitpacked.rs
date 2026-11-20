@@ -209,7 +209,7 @@ where
         None
     };
 
-    let patches_arg = build_gpu_patches(device_patches.as_ref())?;
+    let patches_arg = build_gpu_patches(device_patches.as_ref(), ctx.stream())?;
 
     ctx.launch_kernel_config(&cuda_function, config, output_len, |args| {
         args.arg(&input_view)
