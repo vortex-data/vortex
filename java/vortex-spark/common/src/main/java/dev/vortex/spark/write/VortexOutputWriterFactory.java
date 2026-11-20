@@ -36,7 +36,7 @@ public final class VortexOutputWriterFactory extends OutputWriterFactory {
      *
      * @throws IllegalArgumentException if a write option is unusable
      */
-    public static void validate(VortexOptions options) {
+    private static void validate(VortexOptions options) {
         VortexOutputWriter.configuredBatchSize(options);
         options.getBoolean(VortexOutputWriter.COMPACT_OPTION, false);
         VortexSparkSession.validate(options);

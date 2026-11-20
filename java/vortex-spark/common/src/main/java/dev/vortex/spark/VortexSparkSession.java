@@ -10,7 +10,6 @@ import java.lang.reflect.Modifier;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * JVM-wide holder for one or more Vortex {@link Session}s used by Spark readers and writers. The Rust side multiplexes
@@ -48,7 +47,8 @@ public final class VortexSparkSession {
     private static final int DEFAULT_WORKER_THREADS = 4;
 
     private static final ConcurrentHashMap<String, Session> providerCache = new ConcurrentHashMap<>();
-    private static final AtomicBoolean runtimeConfigured = new AtomicBoolean();
+    private static final Object runtimeLock = new Object();
+    private static volatile boolean runtimeConfigured;
     private static volatile Session defaultSession;
 
     private VortexSparkSession() {}
@@ -110,11 +110,21 @@ public final class VortexSparkSession {
      * session through here and the first caller wins. Repeating the call per file, or per task, would have concurrent
      * tasks resize the pool underneath each other. Every caller's value is still checked, so a bad one fails even after
      * the pool is sized.
+     *
+     * <p>Callers that arrive while the first one sizes the pool wait for it, so no task runs on the pool before it has
+     * its configured size.
      */
     private static void configureRuntime(VortexOptions options) {
         int workers = workerThreads(options);
-        if (runtimeConfigured.compareAndSet(false, true)) {
-            NativeRuntime.setWorkerThreads(workers);
+        if (runtimeConfigured) {
+            return;
+        }
+
+        synchronized (runtimeLock) {
+            if (!runtimeConfigured) {
+                NativeRuntime.setWorkerThreads(workers);
+                runtimeConfigured = true;
+            }
         }
     }
 

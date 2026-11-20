@@ -62,6 +62,7 @@ public final class VortexWriteOptionValidationTest {
     static Stream<Arguments> unusableOptions() {
         return Stream.of(
                 Arguments.of("batch.size", "lots"),
+                Arguments.of("vortex.write.batch.size", "lots"),
                 Arguments.of("vortex.write.compact", "maybe"),
                 Arguments.of("vortex.session.provider", String.class.getName()),
                 Arguments.of("vortex.workerThreads", "-1"));

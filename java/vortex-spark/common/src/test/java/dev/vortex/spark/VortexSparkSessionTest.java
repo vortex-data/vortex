@@ -18,16 +18,15 @@ final class VortexSparkSessionTest {
     private static final AtomicInteger providerInitializations = new AtomicInteger();
     private static final AtomicInteger providerConstructions = new AtomicInteger();
 
-    @Test
-    void everyWorkerThreadCountIsCheckedAfterThePoolIsSized() {
+    @ParameterizedTest
+    @ValueSource(strings = {"many", "-1"})
+    void everyWorkerThreadCountIsCheckedAfterThePoolIsSized(String value) {
         VortexSparkSession.get(VortexOptions.empty());
 
-        for (String value : new String[] {"many", "-1"}) {
-            VortexOptions options = VortexOptions.of(Map.of(VortexSparkSession.WORKER_THREADS_OPTION, value));
-            IllegalArgumentException failure =
-                    assertThrows(IllegalArgumentException.class, () -> VortexSparkSession.get(options));
-            assertTrue(failure.getMessage().contains(VortexSparkSession.WORKER_THREADS_OPTION), failure::getMessage);
-        }
+        VortexOptions options = VortexOptions.of(Map.of(VortexSparkSession.WORKER_THREADS_OPTION, value));
+        IllegalArgumentException failure =
+                assertThrows(IllegalArgumentException.class, () -> VortexSparkSession.get(options));
+        assertTrue(failure.getMessage().contains(VortexSparkSession.WORKER_THREADS_OPTION), failure::getMessage);
     }
 
     @Test
