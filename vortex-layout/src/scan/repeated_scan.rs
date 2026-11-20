@@ -188,7 +188,8 @@ impl<A: 'static + Send> RepeatedScan<A> {
         })
     }
 
-    fn split_ranges(&self, row_range: Option<Range<u64>>) -> Vec<Range<u64>> {
+    /// The row ranges of the scan's natural splits within `row_range`, in row order.
+    pub(crate) fn split_ranges(&self, row_range: Option<Range<u64>>) -> Vec<Range<u64>> {
         let selection_range: Option<Range<u64>> = match &self.selection {
             Selection::IncludeByIndex(buf) if !buf.is_empty() => {
                 Some(buf[0]..buf[buf.len() - 1] + 1)
@@ -437,6 +438,10 @@ fn stop_on_error<T: Send + 'static>(
     })
     .boxed()
 }
+
+/// The splits a scan keeps in flight for each worker thread by default, which allows for some I/O
+/// lookahead without too much impact on work-stealing.
+pub(crate) const DEFAULT_SPLITS_PER_THREAD: usize = 4;
 
 /// How many splits a scan makes progress on at once: `per_worker` for each worker thread, as
 /// [`get_available_parallelism`] counts them, and at most `max` in all when that is set.

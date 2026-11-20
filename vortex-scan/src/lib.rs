@@ -178,11 +178,12 @@ pub struct ScanRequest {
     /// order is completion order, so each partition applies the limit locally and the caller must
     /// trim the concatenated result.
     pub limit: Option<u64>,
-    /// The most splits that each worker decodes at once, where a worker is a partition or a
-    /// clone of an opened scan's stream.
+    /// The most splits decoded at once for each partition being read, or for each clone of an
+    /// opened scan's stream that reads a single queue of splits.
     ///
-    /// It bounds each worker on its own, not the whole scan: a scan read by several workers
-    /// decodes up to this many splits in each. `None` keeps the source's default. Each
+    /// It does not bound the whole scan: a scan read by several workers decodes up to this many
+    /// splits for each partition each worker is reading, and a worker may read more than one
+    /// partition at once. `None` keeps the source's default. Each
     /// split being decoded holds the decoded chunks of every column it overlaps, so a scan that
     /// runs alongside others, such as one task of several on a machine, can set this to bound its
     /// memory. It does not bound I/O: segment reads for later splits may still be coalesced ahead
