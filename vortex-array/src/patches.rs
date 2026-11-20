@@ -613,7 +613,7 @@ impl Patches {
         // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
         let base_offset = chunk_offset_at(0)?;
 
-        let patches_start_idx = (chunk_offset_at(chunk_idx)? - base_offset)
+        let patches_start_idx = relative_chunk_offset(chunk_offset_at(chunk_idx)?, base_offset)?
             // Chunk offsets are only sliced off in case the slice is fully
             // outside of the chunk range.
             //
@@ -622,8 +622,8 @@ impl Patches {
             // saturating sub when adjusting the indices based on the chunk offset.
             .saturating_sub(offset_within_chunk);
 
-        let patches_end_idx = if chunk_idx < num_chunks - 1 {
-            (chunk_offset_at(chunk_idx + 1)? - base_offset)
+        let patches_end_idx = if chunk_idx + 1 < num_chunks {
+            relative_chunk_offset(chunk_offset_at(chunk_idx + 1)?, base_offset)?
                 .saturating_sub(offset_within_chunk)
                 .min(self.indices.len())
         } else {
@@ -706,9 +706,17 @@ impl Patches {
             (index + self.offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE
         };
 
+        let chunk_offset_at = |idx: usize| -> VortexResult<usize> {
+            let offset = *chunk_offsets
+                .get(idx)
+                .ok_or_else(|| vortex_err!("Patch chunk offsets have no entry for chunk {idx}"))?;
+            usize::try_from(offset)
+                .map_err(|_| vortex_err!("Patch chunk offset does not fit in usize"))
+        };
+
         // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
-        let chunk_offset = usize::try_from(chunk_offsets[chunk_idx] - chunk_offsets[0])
-            .map_err(|_| vortex_err!("chunk_offset failed to convert to usize"))?;
+        let base_offset = chunk_offset_at(0)?;
+        let chunk_offset = relative_chunk_offset(chunk_offset_at(chunk_idx)?, base_offset)?;
 
         let patches_start_idx = chunk_offset
             // Chunk offsets are only sliced off in case the slice is fully
@@ -719,9 +727,8 @@ impl Patches {
             // saturating sub when adjusting the indices based on the chunk offset.
             .saturating_sub(offset_within_chunk);
 
-        let patches_end_idx = if chunk_idx < chunk_offsets.len() - 1 {
-            usize::try_from(chunk_offsets[chunk_idx + 1] - chunk_offsets[0])
-                .map_err(|_| vortex_err!("patches_end_idx failed to convert to usize"))?
+        let patches_end_idx = if chunk_idx + 1 < chunk_offsets.len() {
+            relative_chunk_offset(chunk_offset_at(chunk_idx + 1)?, base_offset)?
                 .saturating_sub(offset_within_chunk)
                 .min(indices.len())
         } else {
@@ -904,7 +911,9 @@ impl Patches {
                     .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))?;
                 let parent_chunk_base = self.chunk_offset_at(0, ctx)?;
                 let parent_within = self.offset_within_chunk.unwrap_or(0);
-                Ok(parent_chunk_base + parent_within + slice_start_idx - new_chunk_base)
+                (parent_chunk_base + parent_within + slice_start_idx)
+                    .checked_sub(new_chunk_base)
+                    .ok_or_else(|| vortex_err!("Patch chunk offsets are not non-decreasing"))
             })
             .transpose()?;
 
@@ -1163,6 +1172,16 @@ impl Patches {
             offset_within_chunk: self.offset_within_chunk,
         })
     }
+}
+
+/// Returns `chunk_offset` relative to `base_offset`, the first chunk's offset.
+///
+/// Offsets read from a file are untrusted, and a later chunk whose offset is below the first
+/// would otherwise underflow.
+fn relative_chunk_offset(chunk_offset: usize, base_offset: usize) -> VortexResult<usize> {
+    chunk_offset
+        .checked_sub(base_offset)
+        .ok_or_else(|| vortex_err!("Patch chunk offsets are not non-decreasing"))
 }
 
 /// Binary searches for each of `needles` in the indices array, sharing one searcher.
@@ -3025,5 +3044,55 @@ mod test {
             patches.search_index(2048, &mut ctx).unwrap(),
             SearchResult::NotFound(1)
         );
+    }
+
+    /// What a lookup into patches with corrupt chunk offsets does.
+    #[derive(Clone, Copy, Debug)]
+    enum CorruptOffsetLookup {
+        SearchIndex,
+        GetPatched,
+        Take,
+        Slice,
+    }
+
+    /// Chunk offsets that can come from a corrupt file but that no writer produces.
+    #[rstest]
+    #[case::later_offset_below_the_first(buffer![2u64, 0, 0])]
+    #[case::empty(Buffer::<u64>::empty())]
+    #[case::fewer_than_the_chunks(buffer![0u64])]
+    fn corrupt_chunk_offsets_return_errors(
+        #[case] chunk_offsets: Buffer<u64>,
+        #[values(
+            CorruptOffsetLookup::SearchIndex,
+            CorruptOffsetLookup::GetPatched,
+            CorruptOffsetLookup::Take,
+            CorruptOffsetLookup::Slice
+        )]
+        lookup: CorruptOffsetLookup,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Ten patches for one taken index, so `take` searches by chunk rather than through a map.
+        let patches = Patches::new(
+            3000,
+            0,
+            buffer![5u64, 100, 1500, 1600, 1700, 1800, 1900, 2100, 2500, 2999].into_array(),
+            buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array(),
+            Some(chunk_offsets.into_array()),
+            &mut ctx,
+        )?;
+        // The lookups land in the third chunk, which corrupt offsets describe wrongly or not at all.
+        let result = match lookup {
+            CorruptOffsetLookup::SearchIndex => patches.search_index(2100, &mut ctx).map(|_| ()),
+            CorruptOffsetLookup::GetPatched => patches.get_patched(2100, &mut ctx).map(|_| ()),
+            CorruptOffsetLookup::Take => patches
+                .take(&buffer![2100u64].into_array(), &mut ctx)
+                .map(|_| ()),
+            CorruptOffsetLookup::Slice => patches.slice(2000..3000, &mut ctx).map(|_| ()),
+        };
+        assert!(
+            result.is_err(),
+            "{lookup:?} should reject corrupt chunk offsets"
+        );
+        Ok(())
     }
 }

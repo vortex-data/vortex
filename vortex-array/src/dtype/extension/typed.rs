@@ -14,7 +14,9 @@ use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
+use crate::dtype::Claims;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::extension::ExtDTypeRef;
@@ -83,7 +85,8 @@ impl<V: ExtVTable> ExtDType<V> {
     /// # Errors
     ///
     /// Returns an error if reconstruction or metadata validation fails, or the declared storage
-    /// differs from the supplied dtype, including nested nullability.
+    /// differs from the supplied dtype, including nested nullability. The declared storage must
+    /// also hold every claim of the extension dtype.
     pub fn try_from_storage_with_vtable(
         vtable: V,
         stored_metadata: V::StoredMetadata,
@@ -110,11 +113,11 @@ impl<V: ExtVTable> ExtDType<V> {
             );
         }
 
-        Ok(Self {
+        Self::try_from_validated_metadata(
             vtable,
             metadata,
-            storage_dtype: declared.with_nullability(storage_dtype.nullability()),
-        })
+            declared.with_nullability(storage_dtype.nullability()),
+        )
     }
 
     /// Creates a new extension dtype with the given metadata and nullability.
@@ -126,7 +129,8 @@ impl<V: ExtVTable> ExtDType<V> {
     ///
     /// Returns an error if [`ExtVTable::validate_metadata`] rejects `metadata`, or if a
     /// non-nullable result is requested for storage without a non-nullable form, such as
-    /// [`DType::Null`] or an extension dtype over it.
+    /// [`DType::Null`] or an extension dtype over it. The declared storage must also hold every
+    /// claim of the extension dtype.
     pub fn try_with_vtable(
         vtable: V,
         metadata: V::Metadata,
@@ -142,7 +146,26 @@ impl<V: ExtVTable> ExtDType<V> {
             );
         }
 
-        let storage_dtype = storage_dtype.with_nullability(nullability);
+        Self::try_from_validated_metadata(
+            vtable,
+            metadata,
+            storage_dtype.with_nullability(nullability),
+        )
+    }
+
+    /// Checks the claims once metadata is valid and storage matches the declaration.
+    fn try_from_validated_metadata(
+        vtable: V,
+        metadata: V::Metadata,
+        storage_dtype: DType,
+    ) -> VortexResult<Self> {
+        for claim in V::claims(&metadata).iter() {
+            vortex_ensure!(
+                storage_dtype.holds(claim),
+                "{} claims {claim}, but its storage dtype {storage_dtype} does not hold it",
+                vtable.id()
+            );
+        }
 
         Ok(Self {
             vtable,
@@ -174,7 +197,8 @@ impl<V: ExtVTable> ExtDType<V> {
     /// Returns a new [`ExtDTypeRef`] with the given nullability.
     ///
     /// Rebuilds storage from the declaration and applies `nullability` at the top level. Metadata
-    /// and nested nullability stay the same, so metadata validation is not repeated.
+    /// and claims are independent of top-level nullability, so validation runs only during initial
+    /// construction.
     ///
     /// # Panics
     ///
@@ -214,6 +238,7 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     fn as_any(&self) -> &dyn Any;
     fn id(&self) -> ExtId;
     fn storage_dtype(&self) -> &DType;
+    fn claims(&self) -> Claims;
     fn metadata_any(&self) -> &dyn Any;
     fn metadata_debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
     fn metadata_display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
@@ -241,6 +266,10 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
 
     fn storage_dtype(&self) -> &DType {
         self.storage_dtype()
+    }
+
+    fn claims(&self) -> Claims {
+        V::claims(&self.metadata)
     }
 
     fn metadata_any(&self) -> &dyn Any {
