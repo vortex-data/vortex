@@ -47,10 +47,12 @@ use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::dtype::StructFields;
+use vortex::dtype::extension::ExtDTypeRef;
 use vortex::expr::Expression;
 use vortex::expr::Lambda;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
+use vortex::expr::ext_storage;
 use vortex::expr::get_item;
 use vortex::expr::in_list_of;
 use vortex::expr::is_not_null;
@@ -265,7 +267,10 @@ type Conversion<T> = Result<T, Unconverted>;
 /// integer arithmetic. Matching DataFusion's overflow behavior is deferred to a future patch.
 /// Nested struct field access also uses Vortex semantics: a null parent produces a null child,
 /// whereas DataFusion extracts the child without applying parent validity. These differences
-/// are accepted for both filters and projections.
+/// are accepted for both filters and projections. DataFusion sees an extension type that Arrow
+/// exports as its struct storage as that struct, so field access on it reads the storage through
+/// `ext_storage`. Field access on an extension type that the session does not know stays in
+/// DataFusion.
 /// Searched `CASE WHEN` expressions preserve short-circuit evaluation: conditions and
 /// branch values only execute on the rows that reach them, including fallible branches.
 /// Other expressions require compatible SQL semantics or remain in DataFusion.
@@ -618,6 +623,46 @@ impl DefaultExpressionConverter {
         Ok(converted)
     }
 
+    /// Returns the struct whose fields DataFusion reads when it reads a field of `expr`.
+    ///
+    /// DataFusion sees an extension value through its Arrow type. When the session exports an
+    /// extension type as its struct storage, as it does for every type without an Arrow plugin,
+    /// DataFusion reads the fields of the storage. Vortex extension types are opaque and expose
+    /// their storage only through `ext_storage`, so the field access reads the storage
+    /// explicitly. Field access on any other extension type stays in DataFusion.
+    fn struct_source(&self, expr: Expression, input_dtype: &DType) -> Conversion<Expression> {
+        let DType::Extension(ext_dtype) = converted_dtype(&expr, input_dtype)? else {
+            return Ok(expr);
+        };
+        if !ext_dtype.storage_dtype().is_struct() || !self.exports_storage(&ext_dtype) {
+            return Err(Unconverted::Unsupported);
+        }
+        Ok(ext_storage(expr))
+    }
+
+    /// Whether `field` is an Arrow extension type that the session imports as a plain type.
+    ///
+    /// The session does not know the type, so a Vortex file stores the column as an extension
+    /// type that the converted expression cannot see. Reading its fields needs `ext_storage`, so
+    /// field access on it stays in DataFusion.
+    fn is_unknown_extension(&self, field: &Field) -> Conversion<bool> {
+        if field.extension_type_name().is_none() {
+            return Ok(false);
+        }
+        Ok(!self.arrow_dtype(field)?.is_extension())
+    }
+
+    /// Whether the session exports `ext_dtype` with the same Arrow type as its storage.
+    fn exports_storage(&self, ext_dtype: &ExtDTypeRef) -> bool {
+        let arrow = self.session.arrow();
+        let exported = arrow.to_arrow_field("", &DType::Extension(ext_dtype.clone()));
+        let storage = arrow.to_arrow_field("", ext_dtype.storage_dtype());
+        matches!(
+            (exported, storage),
+            (Ok(exported), Ok(storage)) if exported.data_type() == storage.data_type()
+        )
+    }
+
     fn convert_in_list(
         &self,
         in_list: &df_expr::InListExpr,
@@ -745,7 +790,7 @@ impl DefaultExpressionConverter {
             if paths.is_empty() {
                 return Err(exec_datafusion_err!("get_field requires a field path").into());
             }
-            let mut source_type = source.data_type(schema)?;
+            let mut source_field = source.return_field(schema)?;
             let mut names = Vec::with_capacity(paths.len());
             for path in paths {
                 let name = path
@@ -754,18 +799,21 @@ impl DefaultExpressionConverter {
                     .ok_or_else(|| {
                         exec_datafusion_err!("get_field path must be a non-null string literal")
                     })?;
-                let DataType::Struct(fields) = &source_type else {
+                if self.is_unknown_extension(&source_field)? {
+                    return Err(Unconverted::Unsupported);
+                }
+                let DataType::Struct(fields) = source_field.data_type() else {
                     return Err(Unconverted::Unsupported);
                 };
                 let (_, field) = fields.find(name).ok_or_else(|| {
                     exec_datafusion_err!("get_field references missing field {name}")
                 })?;
-                source_type = field.data_type().clone();
+                source_field = Arc::clone(field);
                 names.push(name);
             }
             let mut result = self.convert_expr(source, schema, input_dtype)?;
             for name in names {
-                result = get_item(name, result);
+                result = get_item(name, self.struct_source(result, input_dtype)?);
             }
             return Ok(result);
         }

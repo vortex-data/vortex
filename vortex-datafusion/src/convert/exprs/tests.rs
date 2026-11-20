@@ -55,17 +55,23 @@ use datafusion_physical_plan::expressions as df_expr;
 use insta::assert_snapshot;
 use rstest::rstest;
 use vortex::array::Canonical;
+use vortex::array::EmptyMetadata;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::PType;
+use vortex::dtype::extension::ExtDType;
+use vortex::dtype::extension::ExtId;
+use vortex::dtype::extension::ExtVTable;
+use vortex::dtype::session::DTypeSessionExt;
 use vortex::encodings::uuid::Uuid;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::between;
 use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::scalar::Scalar;
+use vortex::scalar::ScalarValue as VortexScalarValue;
 use vortex::scalar_fn::fns::between::BetweenOptions;
 use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::cast::Cast;
@@ -1600,7 +1606,15 @@ fn test_case_when_datafusion_vortex_equivalence() -> anyhow::Result<()> {
 }
 
 fn assert_native_matches(expr: Arc<dyn PhysicalExpr>, batch: RecordBatch) -> anyhow::Result<()> {
-    let session = VortexSession::default();
+    assert_native_matches_in(&VortexSession::default(), expr, batch)
+}
+
+/// Like [`assert_native_matches`], resolving Arrow extension types through `session`.
+fn assert_native_matches_in(
+    session: &VortexSession,
+    expr: Arc<dyn PhysicalExpr>,
+    batch: RecordBatch,
+) -> anyhow::Result<()> {
     let converted = DefaultExpressionConverter::new(session.clone())
         .try_convert(&expr, &batch.schema())?
         .ok_or_else(|| anyhow::anyhow!("Expected native conversion for {expr}"))?;
@@ -2910,5 +2924,183 @@ fn test_fallible_boolean_rhs_is_residual(
     // DataFusion selects the one row that needs RHS evaluation at this selectivity.
     expr.evaluate(&batch)?;
     assert!(!converts(&expr, &batch.schema())?);
+    Ok(())
+}
+
+/// A test extension type stored as `{x: i32, y: i64}`. It has no Arrow plugin, so Arrow exports it
+/// as its storage struct.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+struct Point;
+
+impl ExtVTable for Point {
+    type Metadata = EmptyMetadata;
+    type StoredMetadata = EmptyMetadata;
+    type NativeValue<'a> = &'a VortexScalarValue;
+
+    fn id(&self) -> ExtId {
+        static ID: CachedId = CachedId::new("test.point");
+        *ID
+    }
+
+    fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+        Ok(Vec::new())
+    }
+
+    fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        _storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(stored_metadata)
+    }
+
+    fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+        DType::Struct(
+            StructFields::from_iter([
+                ("x", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                ("y", DType::Primitive(PType::I64, Nullability::NonNullable)),
+            ]),
+            Nullability::NonNullable,
+        )
+    }
+
+    fn unpack_native<'a>(
+        _ext_dtype: &'a ExtDType<Self>,
+        storage_value: &'a VortexScalarValue,
+    ) -> VortexResult<Self::NativeValue<'a>> {
+        Ok(storage_value)
+    }
+}
+
+/// A session that knows the [`Point`] extension type.
+fn point_session() -> VortexSession {
+    let session = VortexSession::default();
+    session.dtypes().register(Point);
+    session
+}
+
+/// A batch `{point: test.point?, outer: {point: test.point?}}` as the session exports it, with
+/// points `{x: i, y: 10 * i}` for `i` in `1..=3`. With `null_point`, the second point is null.
+fn point_batch(session: &VortexSession, null_point: bool) -> anyhow::Result<RecordBatch> {
+    let point_dtype = DType::Extension(
+        ExtDType::<Point>::try_new(EmptyMetadata, Nullability::Nullable)?.erased(),
+    );
+    let point_field = session.arrow().to_arrow_field("point", &point_dtype)?;
+    let DataType::Struct(point_fields) = point_field.data_type() else {
+        anyhow::bail!("Expected the struct storage of a point, got {point_field}");
+    };
+    let points: ArrowArrayRef = Arc::new(StructArray::try_new(
+        point_fields.clone(),
+        vec![
+            Arc::new(Int32Array::from(vec![1, 2, 3])),
+            Arc::new(Int64Array::from(vec![10, 20, 30])),
+        ],
+        null_point.then(|| NullBuffer::from(vec![true, false, true])),
+    )?);
+    let outer: ArrowArrayRef = Arc::new(StructArray::try_new(
+        vec![point_field.clone()].into(),
+        vec![Arc::clone(&points)],
+        None,
+    )?);
+    let schema = Schema::new(vec![
+        point_field,
+        Field::new("outer", outer.data_type().clone(), false),
+    ]);
+    Ok(RecordBatch::try_new(Arc::new(schema), vec![points, outer])?)
+}
+
+/// DataFusion reads the fields of an extension value from the struct storage that Arrow exports.
+/// Vortex extension types are opaque, so the converted field access reads the storage explicitly.
+#[rstest]
+#[case::column(false, false)]
+#[case::nested(true, false)]
+#[case::nested_flattened(true, true)]
+fn test_get_field_reads_extension_storage(
+    #[case] nested: bool,
+    #[case] flattened: bool,
+) -> anyhow::Result<()> {
+    let session = point_session();
+    let batch = point_batch(&session, true)?;
+    let schema = batch.schema();
+    let (expr, point) = if !nested {
+        let column = Arc::new(df_expr::Column::new("point", 0));
+        (
+            get_field_expr(column, &["y"], &schema)?,
+            get_item("point", root()),
+        )
+    } else {
+        let column = Arc::new(df_expr::Column::new("outer", 1));
+        let expr = if flattened {
+            get_field_expr(column, &["point", "y"], &schema)?
+        } else {
+            get_field_expr(
+                get_field_expr(column, &["point"], &schema)?,
+                &["y"],
+                &schema,
+            )?
+        };
+        (expr, get_item("point", get_item("outer", root())))
+    };
+
+    let converted = DefaultExpressionConverter::new(session.clone())
+        .try_convert(&expr, &schema)?
+        .ok_or_else(|| anyhow::anyhow!("Expected native conversion for {expr}"))?;
+    assert_eq!(converted, get_item("y", ext_storage(point)));
+
+    // Unlike DataFusion, Vortex applies the validity of the extension value to its fields.
+    let input = session.arrow().from_arrow_record_batch(batch, &schema)?;
+    assert_arrays_eq!(
+        input.apply(&converted)?,
+        PrimitiveArray::from_option_iter([Some(10i64), None, Some(30)]),
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
+}
+
+/// A filter on a storage field of an extension column converts and matches DataFusion.
+#[rstest]
+#[case::column(&["point", "x"])]
+#[case::nested(&["outer", "point", "x"])]
+fn test_extension_storage_field_filter(#[case] path: &[&str]) -> anyhow::Result<()> {
+    let session = point_session();
+    let batch = point_batch(&session, false)?;
+    let schema = batch.schema();
+    let [column, fields @ ..] = path else {
+        anyhow::bail!("Expected a column and a field path");
+    };
+    let column = Arc::new(df_expr::Column::new(column, schema.index_of(column)?));
+    let predicate: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        get_field_expr(column, fields, &schema)?,
+        DFOperator::Gt,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))),
+    ));
+    assert_native_matches_in(&session, predicate, batch)
+}
+
+/// A session that does not know an extension type imports its Arrow field as the storage struct,
+/// while a Vortex file stores the column as an extension that only `ext_storage` reads. So field
+/// access on it stays in DataFusion, at any depth.
+#[rstest]
+#[case::column(&["point", "x"])]
+#[case::nested(&["outer", "point", "x"])]
+fn test_get_field_on_unknown_extension_is_unsupported(#[case] path: &[&str]) -> anyhow::Result<()> {
+    let batch = point_batch(&point_session(), false)?;
+    let schema = batch.schema();
+    let [column, fields @ ..] = path else {
+        anyhow::bail!("Expected a column and a field path");
+    };
+    let column = Arc::new(df_expr::Column::new(column, schema.index_of(column)?));
+    let expr = get_field_expr(column, fields, &schema)?;
+    assert!(!converts(&expr, &schema)?);
+    // The session that knows the type reads the field through `ext_storage`.
+    assert!(
+        DefaultExpressionConverter::new(point_session())
+            .try_convert(&expr, &schema)?
+            .is_some()
+    );
     Ok(())
 }
