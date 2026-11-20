@@ -259,11 +259,15 @@ fn wide_seconds_do_not_fuse() -> VortexResult<()> {
         parts.subseconds().clone(),
     )?
     .into_array();
+    let (dtype, days) = (array.dtype().clone(), parts.days().dtype().clone());
     let before = fused_chain_count();
-    let trace = fused(array)?;
-    assert!(
-        !trace.contains("fuse extend") && !trace.contains("drive "),
-        "{trace}"
+    // DateTimeParts is asked for its op before days builds a source, so days builds none.
+    assert_eq!(
+        fused(array)?,
+        format!(
+            "ExecuteSpine slot=0 parent=vortex.datetimeparts({dtype}, len={LEN}) \
+             child=fastlanes.for.v2({days}, len={LEN})"
+        )
     );
     assert_eq!(fused_chain_count(), before);
     Ok(())
