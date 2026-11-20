@@ -671,7 +671,7 @@ async fn lane(lanes: Arc<Lanes>, output: Sender<VortexResult<ArrayRef>>) {
 
 /// Runs a lane until it ends. Returns whether it ended beyond the cap, which already stopped
 /// counting it.
-async fn run_lane(lanes: &Lanes, output: Sender<VortexResult<ArrayRef>>) -> bool {
+async fn run_lane(lanes: &Arc<Lanes>, output: Sender<VortexResult<ArrayRef>>) -> bool {
     let shared = Arc::clone(&lanes.shared);
     while !shared.limit.is_trimmed_out() && !shared.failed.load(Ordering::Acquire) {
         if lanes.leave_if_beyond_cap() {
