@@ -336,7 +336,7 @@ impl Shared {
             .collect()
     }
 
-    /// Opens a deferred file into its work on the session's runtime. A file that starts after
+    /// Opens a deferred file into its work, on the task that polls it. A file that starts after
     /// the limit is spent is not opened.
     fn open_file(
         self: &Arc<Self>,
@@ -346,19 +346,28 @@ impl Shared {
             return future::ready(Ok(FileWork::empty())).boxed();
         }
         let shared = Arc::clone(self);
-        self.session
-            .handle()
-            .spawn(async move {
-                let reader = factory
-                    .open()
-                    .instrument(tracing::info_span!("LayoutReaderFactory::open"))
-                    .await?;
-                match (reader, &shared.prepare) {
-                    (Some(reader), Some(prepare)) => prepare(reader),
-                    _ => Ok(FileWork::empty()),
-                }
-            })
-            .boxed()
+        async move {
+            let reader = factory
+                .open()
+                .instrument(tracing::info_span!("LayoutReaderFactory::open"))
+                .await?;
+            match (reader, &shared.prepare) {
+                (Some(reader), Some(prepare)) => prepare(reader),
+                _ => Ok(FileWork::empty()),
+            }
+        }
+        .boxed()
+    }
+
+    /// Opens a deferred file into its work as a task on the session's runtime.
+    fn spawn_open_file(
+        self: &Arc<Self>,
+        factory: Arc<dyn LayoutReaderFactory>,
+    ) -> BoxFuture<'static, VortexResult<FileWork>> {
+        if self.limit.is_spent() {
+            return future::ready(Ok(FileWork::empty())).boxed();
+        }
+        self.session.handle().spawn(self.open_file(factory)).boxed()
     }
 
     /// The next deferred file of an unordered pool to open, if any is left and the limit is not
@@ -372,8 +381,19 @@ impl Shared {
         deferred.pop_front()
     }
 
-    /// Takes a split and runs it on the session's runtime.
-    fn admit(self: &Arc<Self>, (file, index, progress): FileSplit) -> SplitOutput {
+    /// Takes a split and runs it as a task on the session's runtime.
+    fn admit(self: &Arc<Self>, split: FileSplit) -> SplitOutput {
+        self.take_split(split, true)
+    }
+
+    /// Takes a split. A split of a scan with a filter and a limit is built and run as
+    /// [`spawn_lazy_split`] runs it; any other split runs as a task on the session's runtime when
+    /// `spawn` is set, or else on the task that polls it, such as a lane, which is already one.
+    fn take_split(
+        self: &Arc<Self>,
+        (file, index, progress): FileSplit,
+        spawn: bool,
+    ) -> SplitOutput {
         *self.progress.lock() += progress;
         let handle = self.session.handle();
         if let PoolLimit::Trim(_) = &self.limit {
@@ -387,7 +407,8 @@ impl Shared {
         async move {
             let task = file.tasks(&shared.limit).await?[index].lock().take();
             match task {
-                Some(task) => handle.spawn(task).await,
+                Some(task) if spawn => handle.spawn(task).await,
+                Some(task) => task.await,
                 None => Ok(None),
             }
         }
@@ -519,9 +540,11 @@ struct UnorderedPool {
 }
 
 impl UnorderedPool {
+    /// Runs a unit on the lane that took it. The lane is already a task on the runtime, so
+    /// spawning the unit as another task would only add a hop.
     fn run(shared: &Arc<Shared>, work: Work) -> SplitOutput {
         match work {
-            Work::Split(split) => shared.admit(split),
+            Work::Split(split) => shared.take_split(split, false),
             Work::Open(factory, slot) => async move {
                 let opened = slot.shared.open_file(factory).await.map(|work| {
                     for split in slot.shared.file_splits(work) {
@@ -673,7 +696,7 @@ impl ScanPool for OrderedPool {
         let outputs = stream::iter(files)
             .map(move |file| match file {
                 PoolFile::Opened(work) => future::ready(Ok(work)).boxed(),
-                PoolFile::Deferred(factory) => opener.open_file(factory),
+                PoolFile::Deferred(factory) => opener.spawn_open_file(factory),
             })
             .buffered(self.open_concurrency)
             .flat_map(move |work| match work {
