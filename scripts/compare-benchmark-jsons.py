@@ -819,16 +819,20 @@ def format_query_table_caption(df: pd.DataFrame, base_label: str, pr_label: str,
 def format_query_table_summary(
     df: pd.DataFrame, run: str, title: str, improvement_threshold: float, regression_threshold: float
 ) -> str:
-    """Summarize a folded query table: its size and how many cells cleared the threshold each way."""
+    """Summarize a folded query table: the geomean ratio over every cell with a develop time,
+    marked 🟢 or 🔴 past the threshold, then the table's size and how many cells moved each way."""
 
     ratios = df["ratio" if run == "hot" else "cold_ratio"]
+    geomean = geometric_mean_from_values(ratios)
+    badge = format_change_marker(geomean, improvement_threshold, regression_threshold) or "➖"
+    geomean_text = "no baseline" if pd.isna(geomean) else f"geomean {geomean:.3f}x {badge}"
     queries = df["name"].map(lambda name: str(name).rsplit("/", 1)[0]).nunique()
     targets = df[["engine", "file_format"]].drop_duplicates().shape[0]
     faster = int((ratios <= improvement_threshold).sum())
     slower = int((ratios >= regression_threshold).sum())
     query_noun = "query" if queries == 1 else "queries"
     target_noun = "target" if targets == 1 else "targets"
-    return f"{title}: {queries} {query_noun} × {targets} {target_noun} ({faster}↑ {slower}↓)"
+    return f"{title}: {geomean_text} · {queries} {query_noun} × {targets} {target_noun} ({faster}↑ {slower}↓)"
 
 
 def format_query_table(

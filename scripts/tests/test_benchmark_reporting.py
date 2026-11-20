@@ -443,8 +443,8 @@ def test_report_splits_cold_and_hot_runs(tmp_path: Path) -> None:
     assert hot == ["tpch_q01", "**100 → 50.0 ns (0.50)** 🟢", "100 → 100 ns (1.00)"]
     assert cold == ["tpch_q01", "**1.00 → 2.00 µs (2.00)** 🔴", "1.00 → 1.00 µs (1.00)"]
     # Both tables fold by default, under a summary of what moved.
-    assert "<summary>Hot runs: 1 query × 2 targets (1↑ 0↓)</summary>" in report
-    assert "<summary>Cold runs (first iteration): 1 query × 2 targets (0↑ 1↓)</summary>" in report
+    assert "<summary>Hot runs: geomean 0.707x 🟢 · 1 query × 2 targets (1↑ 0↓)</summary>" in report
+    assert "<summary>Cold runs (first iteration): geomean 1.414x 🔴 · 1 query × 2 targets (0↑ 1↓)</summary>" in report
     assert "**Attributed Vortex impact**: -50.0%" in report
     assert "**Vortex (geomean)**: hot 0.500x ✅ · cold 2.000x ❌" in report
     assert "**Parquet (geomean)**: hot 1.000x ➖ · cold 1.000x ➖" in report
