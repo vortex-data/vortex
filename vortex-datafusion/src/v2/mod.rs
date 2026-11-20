@@ -40,5 +40,6 @@ mod table;
 #[cfg(test)]
 mod tests;
 
+pub use source::SCAN_POOL_ENV;
 pub use source::VortexDataSource;
 pub use table::VortexTable;
