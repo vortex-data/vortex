@@ -15,9 +15,16 @@ from .render import merge_coverage
 from .targets import TargetSet, df, duck
 
 PRESETS = {
-    "develop": "Every regular SQL benchmark at full target coverage.",
+    "develop": (
+        "Every regular SQL benchmark at full target coverage, and every Vortex scan on ClickBench and "
+        "TPC-H SF=1 on NVMe."
+    ),
     "pr": "The quicker pull-request SQL benchmark matrix (action/bench-sql).",
     "pr-compact": "Pull-request SQL benchmarks for Vortex Compact plus Parquet controls.",
+    "pr-scan": (
+        "ClickBench and TPC-H SF=1 on NVMe with every Vortex integration and scan engine, one machine "
+        "per combination (action/bench-scan)."
+    ),
     "pr-all": "The union of the pr, pr-compact and pr-full matrices (action/bench-all).",
     "pr-full": (
         "Every regular SQL benchmark at full PR target coverage and every Vortex scan (action/bench-sql-extended)."
@@ -65,7 +72,8 @@ COMPACT_TARGETS = df(Format.PARQUET, Format.VORTEX_COMPACT) | duck(
 # Vortex targets name an integration (`file`, `datasource`) and a scan engine (`v1`, `v2`); see
 # `BenchmarkTarget`. Declared targets run the file integration on the suite's default engine.
 # `ScanCoverage.ALL` adds every other valid combination for the `vortex` format: DataFusion file-v1 and
-# datasource-v1 beside file-v2, and DuckDB file-v1 beside file-v2, on V2 suites.
+# datasource-v1 beside file-v2, and DuckDB file-v1 beside file-v2, on V2 suites. Each combination runs
+# as a matrix entry, and so a machine, of its own, so covering them all adds machines, not wall time.
 
 
 def with_all_scans(coverage: Coverage) -> Coverage:
@@ -145,7 +153,8 @@ BENCHMARKS = (
         name="Clickbench on NVME",
         dataset_dir="clickbench_partitioned",
         runs={
-            "pr": with_all_scans(DEFAULT),
+            "pr": DEFAULT,
+            "pr-scan": with_all_scans(DEFAULT),
             "pr-compact": COMPACT,
             "pr-full": DEFAULT_WITH_DUCKDB_PR_FULL,
             "develop": with_all_scans(FULL_LOCAL),
@@ -168,7 +177,8 @@ BENCHMARKS = (
         scale_factor=1.0,
         iterations=10,
         runs={
-            "pr": with_all_scans(DEFAULT),
+            "pr": DEFAULT,
+            "pr-scan": with_all_scans(DEFAULT),
             "pr-compact": COMPACT,
             "pr-full": FULL_PR,
             "develop": with_all_scans(FULL_LOCAL),
@@ -379,100 +389,19 @@ BENCHMARKS = (
     ),
 )
 
-# Presets whose every benchmark runs every valid integration and scan engine combination.
-ALL_SCAN_PRESETS = ("pr-full",)
-PR_ALL_SOURCES = ("pr", "pr-compact", "pr-full")
+# Presets whose every benchmark runs every valid integration and scan engine combination. TPC-DS
+# SF=100 lists its targets one per job already, see `TPCDS_SF100_TARGETS`.
+ALL_SCAN_PRESETS = ("pr-full", "nightly")
 
 
 def _with_all_scan_presets(benchmark: BenchmarkCase) -> BenchmarkCase:
-    runs = {
-        preset: with_all_scans(coverage) if preset in ALL_SCAN_PRESETS else coverage
-        for preset, coverage in benchmark.runs.items()
-    }
-    return replace(benchmark, runs=runs)
-
-
-# Presets that run a benchmark's other scans in a companion job, `<id>-scans`, beside the default
-# targets: every nightly benchmark, and develop wherever it covers every scan. A target failure fails
-# its job before the results are written, so a new scan cannot lose the default targets' history; at
-# nightly scale the other scans would also roughly double a job that runs close to its timeout.
-# TPC-DS SF=100 already runs one target per job, see `TPCDS_SF100_TARGETS`. PR presets keep every
-# scan in one job, so their comment shows them side by side.
-SCAN_COMPANION_PRESETS = ("develop", "nightly")
-
-
-def _split_scans(coverage: Coverage, preset: str) -> bool:
-    return preset == "nightly" or coverage.scans is ScanCoverage.ALL
-
-
-def _with_scan_companion(benchmark: BenchmarkCase) -> tuple[BenchmarkCase, ...]:
-    """Move a benchmark's other scans in `SCAN_COMPANION_PRESETS` into a companion job."""
     if benchmark in TPCDS_SF100_CASES:
-        return (benchmark,)
-    split = {
-        preset: coverage
-        for preset, coverage in benchmark.runs.items()
-        if preset in SCAN_COMPANION_PRESETS and _split_scans(coverage, preset)
-    }
-    if not split:
-        return (benchmark,)
-    main = replace(
-        benchmark,
-        runs={**benchmark.runs, **{preset: replace(c, scans=ScanCoverage.DEFAULT) for preset, c in split.items()}},
-    )
-    alternates = {preset: replace(c, scans=ScanCoverage.ALTERNATES) for preset, c in split.items()}
-    alternates = {
-        preset: coverage
-        for preset, coverage in alternates.items()
-        if len(coverage.resolved_targets(benchmark.benchmark)) > 0
-    }
-    if not alternates:
-        return (main,)
-    companion = replace(
-        benchmark,
-        id=f"{benchmark.id}-scans",
-        name=f"{benchmark.name} (other Vortex scans)",
-        # A distinct key: each S3 job clears and re-uploads its own copy of the data.
-        remote_key=f"{benchmark.remote_key}-scans" if benchmark.remote_key is not None else None,
-        runs=alternates,
-    )
-    return (main, companion)
-
-
-PR_ALL_SOURCES = ("pr", "pr-compact", "pr-full")
-
-
-def _with_all_scan_presets(benchmark: BenchmarkCase) -> BenchmarkCase:
+        return benchmark
     runs = {
         preset: with_all_scans(coverage) if preset in ALL_SCAN_PRESETS else coverage
         for preset, coverage in benchmark.runs.items()
     }
     return replace(benchmark, runs=runs)
-
-
-def _nightly_scan_cases(benchmark: BenchmarkCase) -> tuple[BenchmarkCase, ...]:
-    """Run a nightly benchmark's other scans in a job of its own beside it.
-
-    The other combinations would roughly double the job, which already runs close to its timeout at
-    SF=100, and a strict target failure would lose the default targets' results with it. TPC-DS
-    SF=100 already runs one target per job, see `TPCDS_SF100_TARGETS`.
-    """
-    coverage = benchmark.runs.get("nightly")
-    if coverage is None or benchmark in TPCDS_SF100_CASES:
-        return ()
-    alternates = replace(coverage, scans=ScanCoverage.ALTERNATES)
-    if len(alternates.resolved_targets(benchmark.benchmark)) == 0:
-        return ()
-    return (
-        replace(
-            benchmark,
-            id=f"{benchmark.id}-scans",
-            name=f"{benchmark.name} (other Vortex scans)",
-            # A distinct key: each S3 job clears and re-uploads its own copy of the data.
-            remote_key=f"{benchmark.remote_key}-scans" if benchmark.remote_key is not None else None,
-            runs={"nightly": alternates},
-        ),
-    )
 
 
 PR_ALL_SOURCES = ("pr", "pr-compact", "pr-full")
@@ -487,9 +416,5 @@ def _with_pr_all(benchmark: BenchmarkCase) -> BenchmarkCase:
 
 CATALOG = Catalog(
     presets=PRESETS,
-    benchmarks=tuple(
-        _with_pr_all(_with_all_scan_presets(case))
-        for benchmark in BENCHMARKS
-        for case in _with_scan_companion(benchmark)
-    ),
+    benchmarks=tuple(_with_pr_all(_with_all_scan_presets(benchmark)) for benchmark in BENCHMARKS),
 )

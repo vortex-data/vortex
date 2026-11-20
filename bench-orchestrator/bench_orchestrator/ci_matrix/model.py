@@ -24,10 +24,9 @@ class ScanCoverage(Enum):
     # Each Vortex target as declared: the file integration on the suite's default scan engine,
     # unless the target names others.
     DEFAULT = "default"
-    # The declared targets plus every other valid combination for the `vortex` format.
+    # The declared targets plus every other valid combination for the `vortex` format. Each
+    # combination runs as a matrix entry of its own, see `render`.
     ALL = "all"
-    # Only the other valid combinations for the `vortex` format, for a job of their own.
-    ALTERNATES = "alternates"
 
 
 @dataclass(frozen=True)
@@ -56,8 +55,6 @@ class Coverage:
                 candidate = replace(target, integration=integration, scan=scan)
                 if candidate not in resolved and candidate.is_supported(benchmark):
                     alternates.append(candidate)
-        if self.scans is ScanCoverage.ALTERNATES:
-            return TargetSet(tuple(alternates))
         return TargetSet(tuple(resolved) + tuple(alternates))
 
 
