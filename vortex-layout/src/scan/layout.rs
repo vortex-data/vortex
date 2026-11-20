@@ -334,9 +334,11 @@ impl DataSourceScan for LayoutReaderScan {
             .prepare()?
             .execute(Some(self.next_row..self.end_row))?;
         let queue = Arc::new(SplitQueue::new(self.session.handle(), per_worker, splits));
-        Ok(ScanStream::new(self.dtype, move || {
-            Arc::clone(&queue).worker()
-        }))
+        let progress = Arc::clone(&queue);
+        Ok(
+            ScanStream::new(self.dtype, move || Arc::clone(&queue).worker())
+                .with_progress(move || progress.progress()),
+        )
     }
 
     fn partition_count(&self) -> Precision<usize> {
@@ -790,6 +792,7 @@ mod split_open_tests {
         let mut values = collect_scan_values(arrays.into_iter().flatten().map(Ok))?;
         values.sort_unstable();
         assert_eq!(values, (0..64).collect::<Vec<_>>());
+        assert_eq!(stream.progress(), Some(1.0));
         Ok(())
     }
 

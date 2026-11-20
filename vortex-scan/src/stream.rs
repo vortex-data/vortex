@@ -30,6 +30,9 @@ use crate::PartitionStream;
 /// Starts a new worker over the shared work of an opened scan.
 type NewWorker = dyn Fn() -> BoxStream<'static, VortexResult<ArrayRef>> + Send + Sync;
 
+/// Reads the fraction of an opened scan's work that its clones have taken.
+type Progress = dyn Fn() -> f64 + Send + Sync;
+
 /// The arrays of an opened scan, which host threads read by each polling a clone.
 ///
 /// A clone is another worker over the same remaining work, like a clone of a channel's receiver:
@@ -43,6 +46,7 @@ type NewWorker = dyn Fn() -> BoxStream<'static, VortexResult<ArrayRef>> + Send +
 pub struct ScanStream {
     dtype: DType,
     new_worker: Arc<NewWorker>,
+    progress: Option<Arc<Progress>>,
     worker: Option<BoxStream<'static, VortexResult<ArrayRef>>>,
 }
 
@@ -58,8 +62,22 @@ impl ScanStream {
         Self {
             dtype,
             new_worker: Arc::new(new_worker),
+            progress: None,
             worker: None,
         }
+    }
+
+    /// This stream, reporting its progress through `progress`, which returns the fraction of the
+    /// scan's work that its clones have taken, from 0.0 to 1.0, and must never block.
+    pub fn with_progress(mut self, progress: impl Fn() -> f64 + Send + Sync + 'static) -> Self {
+        self.progress = Some(Arc::new(progress));
+        self
+    }
+
+    /// The fraction of the scan's work that its clones have taken, from 0.0 to 1.0, for a host's
+    /// progress bar, or `None` when the scan does not track it. Never blocks.
+    pub fn progress(&self) -> Option<f64> {
+        self.progress.as_ref().map(|progress| progress())
     }
 
     /// A stream whose clones take the partitions of `scan` one at a time.
@@ -90,6 +108,7 @@ impl Clone for ScanStream {
         Self {
             dtype: self.dtype.clone(),
             new_worker: Arc::clone(&self.new_worker),
+            progress: self.progress.clone(),
             worker: None,
         }
     }
