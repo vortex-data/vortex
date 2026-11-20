@@ -77,8 +77,10 @@ impl VortexCudaStream {
     /// Copies host data to the device.
     ///
     /// Allocates device memory, schedules an async copy, and returns a ready
-    /// future with the device buffer. Later work on any stream waits for the
-    /// copy because device buffers order their accesses, so the host does not.
+    /// future with the device buffer. Later work on this stream runs after the
+    /// copy, and so does work on other streams that accesses the buffer through
+    /// views or launch arguments. Raw pointers from `cuda_device_ptr` are not
+    /// tracked, so other streams must not read them without waiting.
     ///
     /// The copy no longer reads `data` once this returns: the driver stages
     /// **pageable** host memory, and copies of **pinned** host memory are
