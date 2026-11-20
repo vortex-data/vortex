@@ -37,9 +37,6 @@ mod tests {
     use vortex_array::dtype::extension::ExtDTypePlugin;
     use vortex_array::dtype::extension::ExtVTable;
     use vortex_array::validity::Validity;
-    use vortex_arrow::ExecuteArrowExt;
-    use vortex_arrow::test_harness::check_arrow;
-    use vortex_arrow::test_harness::check_canonical_field;
     use vortex_arrow::test_harness::check_generated;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -146,16 +143,7 @@ mod tests {
             case.dtype.clone().erased()
         );
 
-        check_arrow(
-            case.array.clone(),
-            &case.field,
-            Arc::clone(&case.arrow),
-            &mut ctx,
-        )?;
-        let default = case.array.clone().execute_arrow(None, &mut ctx)?;
-        assert_eq!(default.to_data(), case.arrow.to_data());
-        check_canonical_field(&case.array, &case.field, &mut ctx)?;
-        check_generated(tc, case.array, &mut ctx)
+        check_generated(tc, case.array, &case.field, case.arrow, &mut ctx)
     }
 
     #[track_caller]
