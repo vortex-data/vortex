@@ -41,7 +41,6 @@ use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
 use vortex_scan::selection::Selection;
 use vortex_scan::stream::ScanStream;
-use vortex_scan::stream::split_shared;
 use vortex_session::VortexSession;
 
 use crate::LayoutReaderRef;
@@ -284,17 +283,13 @@ impl DataSourceScan for LayoutReaderScan {
         &self.dtype
     }
 
-    /// Splits an unordered scan into `n` pieces that share its opened stream, and so its
-    /// splits. Cuts an ordered scan at the layout's natural split boundaries, into contiguous
-    /// pieces of about equal rows.
+    /// Cuts the scan at the layout's natural split boundaries, into contiguous pieces of about
+    /// equal rows.
     ///
     /// A scan with a limit stays whole, because the limit is one budget across all its rows.
     fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
         if n.get() == 1 || self.remaining_limit.is_some() || self.next_row >= self.end_row {
             return Ok(vec![self]);
-        }
-        if !self.ordered {
-            return split_shared(self, n);
         }
         let ranges = self
             .builder()
@@ -793,25 +788,19 @@ mod split_open_tests {
         Ok(())
     }
 
-    /// The pieces of an unordered scan share its splits, so together they read every row once.
+    /// The pieces of an unordered scan are fixed too: each owns a contiguous run of splits,
+    /// which it may return in any order.
     #[test]
-    fn unordered_pieces_share_the_splits() -> VortexResult<()> {
+    fn unordered_pieces_own_their_rows() -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
         let scan = runtime.block_on(source(&runtime).scan(ScanRequest::default()))?;
         let pieces = scan.split(NonZeroUsize::try_from(4)?)?;
         assert_eq!(pieces.len(), 4);
-        let streams = pieces
-            .into_iter()
-            .map(|piece| piece.open())
-            .collect::<VortexResult<Vec<_>>>()?;
-        let arrays = runtime.block_on(try_join_all(
-            streams
-                .into_iter()
-                .map(|stream| stream.try_collect::<Vec<_>>()),
-        ))?;
-        let mut values = collect_scan_values(arrays.into_iter().flatten().map(Ok))?;
-        values.sort_unstable();
-        assert_eq!(values, (0..64).collect::<Vec<_>>());
+        for (i, piece) in (0i32..).zip(pieces) {
+            let mut values = collect_scan_values(runtime.block_on_stream(piece.open()?))?;
+            values.sort_unstable();
+            assert_eq!(values, (16 * i..16 * (i + 1)).collect::<Vec<_>>());
+        }
         Ok(())
     }
 
