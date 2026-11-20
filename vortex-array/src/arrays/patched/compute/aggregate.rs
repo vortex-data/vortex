@@ -17,10 +17,13 @@ use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::fns::sum_v2::SumV2;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
+use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Patched;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::patched::PATCH_CHUNK_SIZE;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::scalar::Scalar;
@@ -44,6 +47,20 @@ pub(crate) fn patched_aggregate_kernels()
             &PatchedConstantAggregate as &'static dyn DynAggregateKernel,
         )
     })
+}
+
+/// Returns `true` when every stored patch is visible, checked without executing the layout: the
+/// array starts and ends on chunk boundaries, and its primitive lane offsets span every patch.
+fn all_patches_visible(patched: &ArrayView<'_, Patched>) -> bool {
+    if patched.offset() != 0 || !patched.len().is_multiple_of(PATCH_CHUNK_SIZE) {
+        return false;
+    }
+    let Some(lane_offsets) = patched.lane_offsets().as_opt::<Primitive>() else {
+        return false;
+    };
+    let lane_offsets = lane_offsets.as_slice::<u32>();
+    lane_offsets.first() == Some(&0)
+        && lane_offsets.last().map(|&end| end as usize) == Some(patched.patch_values().len())
 }
 
 /// Aggregates a patched array over a constant inner array, such as a sparse array, in time
@@ -78,20 +95,22 @@ impl DynAggregateKernel for PatchedConstantAggregate {
         };
 
         let values = patched.patch_values();
-        let executed = patched.execute_layout(ctx)?;
-        let layout = executed.layout()?;
-        // Usually every stored patch is visible. Otherwise, as after slicing, gather the
-        // visible ones.
-        let visible = if layout.all_patches().len() == values.len()
-            && !layout.has_out_of_bounds_patches()
-        {
+        let visible = if all_patches_visible(&patched) {
             values.clone()
         } else {
-            let mut sources = BufferMut::<u32>::with_capacity(layout.all_patches().len());
-            #[expect(clippy::cast_possible_truncation, reason = "patch counts fit in u32")]
-            layout.for_each(|_, patch| sources.push(patch as u32));
-            values
-                .take(PrimitiveArray::new(sources.freeze(), Validity::NonNullable).into_array())?
+            let executed = patched.execute_layout(ctx)?;
+            let layout = executed.layout()?;
+            if layout.all_patches().len() == values.len() && !layout.has_out_of_bounds_patches() {
+                values.clone()
+            } else {
+                // After slicing, gather the visible patches.
+                let mut sources = BufferMut::<u32>::with_capacity(layout.all_patches().len());
+                #[expect(clippy::cast_possible_truncation, reason = "patch counts fit in u32")]
+                layout.for_each(|_, patch| sources.push(patch as u32));
+                values.take(
+                    PrimitiveArray::new(sources.freeze(), Validity::NonNullable).into_array(),
+                )?
+            }
         };
 
         let mut accumulator = aggregate_fn.accumulator(batch.dtype())?;

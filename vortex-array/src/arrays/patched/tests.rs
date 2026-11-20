@@ -768,3 +768,28 @@ fn masked_arrays_convert_to_patched_nulls() -> VortexResult<()> {
     assert_arrays_eq!(patched, masked, &mut ctx);
     Ok(())
 }
+
+#[test]
+fn compare_makes_patched_nulls_valid() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let inner = PrimitiveArray::from_option_iter((0..2000u32).map(|i| (i % 3 != 0).then_some(i)));
+    let patched = Patched::try_new(
+        inner.into_array(),
+        indices(&[0, 3, 1500]),
+        buffer![7u32, 8, 7].into_array(),
+        &mut ctx,
+    )?
+    .into_array();
+    let compared = patched.binary(
+        ConstantArray::new(7u32, patched.len()).into_array(),
+        Operator::Eq,
+    )?;
+    let expected = (0..2000u32).map(|i| match i {
+        0 | 1500 => Some(true),
+        3 => Some(false),
+        i if i % 3 == 0 => None,
+        i => Some(i == 7),
+    });
+    assert_arrays_eq!(compared, BoolArray::from_iter(expected), &mut ctx);
+    Ok(())
+}

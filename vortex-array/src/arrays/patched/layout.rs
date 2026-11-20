@@ -179,19 +179,16 @@ impl<'a> PatchLayout<'a> {
     /// Sparse patches leave most chunks empty, so this reads only the chunk boundaries of the lane
     /// offsets, each once, and skips empty chunks in a tight loop.
     #[inline]
-    pub fn patched_chunks(&self) -> impl Iterator<Item = (usize, Range<usize>)> + '_ {
+    pub fn patched_chunks(&self) -> PatchedChunks<'a> {
         let n_patches = self.indices.len();
-        let mut boundaries = self
-            .lane_offsets
-            .iter()
-            .step_by(self.n_lanes)
-            .map(move |&offset| (offset as usize).min(n_patches));
-        let mut start = boundaries.next().unwrap_or(0);
-        boundaries.enumerate().filter_map(move |(chunk, end)| {
-            let range = start..end;
-            start = end;
-            (!range.is_empty()).then_some((chunk, range))
-        })
+        PatchedChunks {
+            lane_offsets: self.lane_offsets,
+            n_lanes: self.n_lanes,
+            n_chunks: self.n_chunks(),
+            n_patches,
+            chunk: 0,
+            start: (self.lane_offsets[0] as usize).min(n_patches),
+        }
     }
 
     /// Calls `f(position, patch)` for every patch inside the array, where `position` is the
@@ -315,6 +312,35 @@ impl<'a> PatchLayout<'a> {
         let mut count = 0;
         self.for_each(|_, _| count += 1);
         count
+    }
+}
+
+/// Iterator over the chunks of a [`PatchLayout`] that have patches, from
+/// [`PatchLayout::patched_chunks`].
+pub struct PatchedChunks<'a> {
+    lane_offsets: &'a [u32],
+    n_lanes: usize,
+    n_chunks: usize,
+    n_patches: usize,
+    chunk: usize,
+    start: usize,
+}
+
+impl Iterator for PatchedChunks<'_> {
+    type Item = (usize, Range<usize>);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.chunk < self.n_chunks {
+            let chunk = self.chunk;
+            self.chunk += 1;
+            let end = (self.lane_offsets[self.chunk * self.n_lanes] as usize).min(self.n_patches);
+            let start = std::mem::replace(&mut self.start, end);
+            if start < end {
+                return Some((chunk, start..end));
+            }
+        }
+        None
     }
 }
 
