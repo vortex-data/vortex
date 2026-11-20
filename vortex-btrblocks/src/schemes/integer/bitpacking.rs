@@ -12,7 +12,6 @@ use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
@@ -48,17 +47,28 @@ pub(crate) static BITPACKING_V1: BitPackingScheme = BitPackingScheme::v1();
 /// The BitPacking scheme that may give each 1024-element block its own bit width.
 pub(crate) static BITPACKING_V2: BitPackingScheme = BitPackingScheme::v2();
 
+/// [`BITPACKING_V1`] writing its exceptions as a `vortex.patched` parent.
+static BITPACKING_V1_PATCHED: BitPackingScheme = BitPackingScheme::v1().with_patched();
+
+/// [`BITPACKING_V2`] writing its exceptions as a `vortex.patched` parent.
+static BITPACKING_V2_PATCHED: BitPackingScheme = BitPackingScheme::v2().with_patched();
+
 /// BitPacking encoding for non-negative integers.
 ///
 /// The v1 mode packs every value at one bit width, and serializes as `fastlanes.bitpacked`. The v2
 /// mode chooses a width for each 1024-element block. Uniform widths use the v1 format; varying
 /// widths serialize as `fastlanes.bitpacked.v2`.
 ///
-/// The default uses v1. [`refine`](Scheme::refine) picks v2 when the v2 ID is allowed and v1
-/// otherwise.
+/// Values too wide for the chosen bit width are exceptions. By default they are stored as patches
+/// inside the bit-packed array. The patched variant instead wraps a patchless bit-packed array in
+/// a `vortex.patched` array, whose decoding applies the patches as each chunk is unpacked.
+///
+/// The default uses v1 with interior patches. [`refine`](Scheme::refine) picks v2 when the v2 ID
+/// is allowed, and the patched variant when `vortex.patched` is allowed.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct BitPackingScheme {
     mode: BitPackingSchemeMode,
+    patched: bool,
 }
 
 impl BitPackingScheme {
@@ -66,6 +76,7 @@ impl BitPackingScheme {
     pub const fn v1() -> Self {
         Self {
             mode: BitPackingSchemeMode::V1,
+            patched: false,
         }
     }
 
@@ -73,7 +84,21 @@ impl BitPackingScheme {
     pub const fn v2() -> Self {
         Self {
             mode: BitPackingSchemeMode::V2,
+            patched: false,
         }
+    }
+
+    /// This scheme, writing exceptions as a `vortex.patched` parent instead of interior patches.
+    pub const fn with_patched(self) -> Self {
+        Self {
+            patched: true,
+            ..self
+        }
+    }
+
+    /// Whether this scheme writes exceptions as a `vortex.patched` parent.
+    pub const fn is_patched(&self) -> bool {
+        self.patched
     }
 }
 
@@ -98,17 +123,18 @@ impl Scheme for BitPackingScheme {
             BitPackingSchemeMode::V1 => vec![bitpacked_v1_id()],
             BitPackingSchemeMode::V2 => vec![bitpacked_v1_id(), bitpacked_v2_id()],
         };
-        if use_experimental_patches() {
+        if self.patched {
             encodings.push(Patched.id());
         }
         encodings
     }
 
     fn refine(&self, allowed: &dyn Fn(&ArrayId) -> bool) -> &dyn Scheme {
-        if allowed(&bitpacked_v2_id()) {
-            &BITPACKING_V2
-        } else {
-            &BITPACKING_V1
+        match (allowed(&bitpacked_v2_id()), allowed(&Patched.id())) {
+            (false, false) => &BITPACKING_V1,
+            (false, true) => &BITPACKING_V1_PATCHED,
+            (true, false) => &BITPACKING_V2,
+            (true, true) => &BITPACKING_V2_PATCHED,
         }
     }
 
@@ -158,7 +184,7 @@ impl Scheme for BitPackingScheme {
         let ptype = packed.dtype().as_ptype();
         let mut parts = BitPacked::into_parts(packed);
 
-        let patches = if use_experimental_patches() {
+        let patches = if self.patched {
             parts.patches.take()
         } else {
             parts.patches = parts

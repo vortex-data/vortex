@@ -44,7 +44,6 @@ use crate::arrays::Union;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
 use crate::arrays::Variant;
-use crate::arrays::patched::use_experimental_patches;
 use crate::arrays::widen::WidenPlugin;
 
 /// Registry of array encodings.
@@ -117,11 +116,8 @@ impl Default for ArraySession {
         this.register(RunEnd);
         this.register(VarBin);
         this.register(WidenPlugin);
-
-        // Patched arrays are written only when experimental patches are enabled.
-        if use_experimental_patches() {
-            this.register(Patched);
-        }
+        // The `unstable` edition decides whether compressors write patched arrays.
+        this.register(Patched);
 
         this
     }

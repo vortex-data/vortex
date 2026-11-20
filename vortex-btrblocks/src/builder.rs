@@ -260,8 +260,10 @@ mod tests {
     use vortex_array::VTable;
     use vortex_array::arrays::Patched;
     use vortex_array::arrays::VarBin;
+    use vortex_array::arrays::patched::PatchedArraySlotsExt;
     use vortex_decimal_byte_parts::DecimalByteParts;
     use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
+    use vortex_fastlanes::BitPackedArrayExt;
     use vortex_fastlanes::bitpacked_v1_id;
     use vortex_fastlanes::bitpacked_v2_id;
     use vortex_fastlanes::for_v1_id;
@@ -310,6 +312,76 @@ mod tests {
         builder.allowed.editions = Some(allowed.into_iter().collect());
 
         assert_eq!(!builder.allowed_schemes().is_empty(), retained);
+    }
+
+    /// Exceptions become a `vortex.patched` parent only when the editions allow that ID.
+    #[rstest]
+    fn bitpacking_writes_patched_only_when_allowed(
+        #[values(false, true)] patched: bool,
+    ) -> vortex_error::VortexResult<()> {
+        use vortex_array::IntoArray;
+        use vortex_array::VortexSessionExecute;
+        use vortex_array::arrays::PrimitiveArray;
+        use vortex_array::assert_arrays_eq;
+        use vortex_fastlanes::BitPacked;
+
+        let mut allowed = vec![bitpacked_v1_id()];
+        if patched {
+            allowed.push(Patched.id());
+        }
+        let mut builder =
+            BtrBlocksCompressorBuilder::empty().with_new_scheme(&integer::BITPACKING_V1);
+        builder.allowed.editions = Some(allowed.into_iter().collect());
+
+        let input = PrimitiveArray::from_iter(
+            (0..10_000u32).map(|i| if i % 500 == 0 { u32::MAX - i } else { i % 128 }),
+        )
+        .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let compressed = builder.build().compress(&input, &mut ctx)?;
+        if patched {
+            let patched = compressed.as_::<Patched>();
+            assert!(patched.inner().is::<BitPacked>());
+            assert!(patched.inner().as_::<BitPacked>().patches().is_none());
+        } else {
+            assert!(compressed.as_::<BitPacked>().patches().is_some());
+        }
+        assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
+    }
+
+    /// Sparse arrays become patched arrays over their fill value only when the editions allow it.
+    #[rstest]
+    fn sparse_writes_patched_only_when_allowed(
+        #[values(false, true)] patched: bool,
+    ) -> vortex_error::VortexResult<()> {
+        use vortex_array::IntoArray;
+        use vortex_array::VortexSessionExecute;
+        use vortex_array::arrays::Constant;
+        use vortex_array::arrays::PrimitiveArray;
+        use vortex_array::assert_arrays_eq;
+        use vortex_sparse::Sparse;
+
+        let mut allowed = vec![Sparse.id(), Constant.id()];
+        if patched {
+            allowed.push(Patched.id());
+        }
+        let mut builder =
+            BtrBlocksCompressorBuilder::empty().with_new_scheme(&integer::SparseScheme);
+        builder.allowed.editions = Some(allowed.into_iter().collect());
+
+        let input =
+            PrimitiveArray::from_iter((0..10_000i64).map(|i| if i % 997 == 0 { i } else { 42 }))
+                .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let compressed = builder.build().compress(&input, &mut ctx)?;
+        if patched {
+            assert!(compressed.as_::<Patched>().inner().is::<Constant>());
+        } else {
+            assert!(compressed.is::<Sparse>(), "{}", compressed.display_tree());
+        }
+        assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
     }
 
     #[test]

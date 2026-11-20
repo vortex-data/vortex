@@ -131,14 +131,13 @@ pub fn patch_lanes_for(dtype: &DType, len: usize, n_patches: usize) -> usize {
         .min(default_patch_lanes(dtype))
 }
 
-/// Flag indicating if experimental patched array support is enabled.
+/// Whether arrays read with interior patches, and sparse arrays, are converted into `Patched`
+/// arrays in memory.
 ///
 /// This is set using the environment variable `VORTEX_EXPERIMENTAL_PATCHED_ARRAY`.
 ///
-/// When this is true, any arrays with interior `Patches` will be read as a `Patched`
-/// array, and eliminate the interior patches.
-///
-/// The builtin compressor will also generate Patched arrays.
+/// Writing is decided separately: compressors write `vortex.patched` arrays only when the
+/// session enables an edition that includes them, which is currently the `unstable` edition.
 pub fn use_experimental_patches() -> bool {
     static USE_EXPERIMENTAL_PATCHES: LazyLock<bool> =
         LazyLock::new(|| env::var("VORTEX_EXPERIMENTAL_PATCHED_ARRAY").is_ok_and(|v| v == "1"));

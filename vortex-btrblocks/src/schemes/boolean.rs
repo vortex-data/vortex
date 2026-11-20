@@ -15,7 +15,6 @@ use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::bool::BoolArrayExt;
-use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::runend::compress::bool_run_count;
 use vortex_array::arrays::runend::compress::runend_encode_bool;
@@ -34,6 +33,8 @@ use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
+use crate::schemes::patches::PatchingScheme;
+use crate::schemes::patches::WithPatched;
 use crate::schemes::patches::sparse_to_patched;
 
 /// Run-end encoding for boolean arrays with long runs.
@@ -50,11 +51,7 @@ impl Scheme for BoolRunEndScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        let mut encodings = vec![RunEnd.id()];
-        if use_experimental_patches() {
-            encodings.push(Patched.id());
-        }
-        encodings
+        vec![RunEnd.id()]
     }
 
     /// Children: ends=0.
@@ -132,6 +129,14 @@ impl Scheme for BoolSparseScheme {
         ))
     }
 
+    fn refine(&self, allowed: &dyn Fn(&ArrayId) -> bool) -> &dyn Scheme {
+        if allowed(&Patched.id()) {
+            &BOOLSPARSESCHEME_PATCHED
+        } else {
+            self
+        }
+    }
+
     fn compress(
         &self,
         compressor: &CascadingCompressor,
@@ -139,13 +144,29 @@ impl Scheme for BoolSparseScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        self.compress_patching(compressor, data, compress_ctx, exec_ctx, false)
+    }
+}
+
+/// The variant of [`BoolSparseScheme`] that writes its exceptions as a `vortex.patched` parent.
+static BOOLSPARSESCHEME_PATCHED: WithPatched<BoolSparseScheme> = WithPatched(BoolSparseScheme);
+
+impl PatchingScheme for BoolSparseScheme {
+    fn compress_patching(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+        patched: bool,
+    ) -> VortexResult<ArrayRef> {
         let stats = data.bool_stats(exec_ctx);
         let fill = stats.true_count() > stats.value_count() / 2;
         let encoded = Sparse::encode(data.array(), Some(Scalar::from(fill)), exec_ctx)?;
         let Some(sparse) = encoded.as_opt::<Sparse>() else {
             return Ok(encoded);
         };
-        if use_experimental_patches() {
+        if patched {
             return sparse_to_patched(
                 compressor,
                 &compress_ctx,

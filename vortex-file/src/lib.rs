@@ -126,9 +126,6 @@ pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
-use vortex_array::arrays::Patched;
-use vortex_array::arrays::patched::use_experimental_patches;
-use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 pub use writer::*;
 
@@ -197,9 +194,6 @@ pub fn register_default_encodings(session: &VortexSession) {
     vortex_zstd::initialize(session);
 
     vortex_pco::initialize(session);
-    if use_experimental_patches() {
-        session.arrays().register(Patched);
-    }
 
     vortex_alp::initialize(session);
     vortex_datetime_parts::initialize(session);
@@ -215,6 +209,7 @@ pub fn register_default_encodings(session: &VortexSession) {
 #[cfg(test)]
 pub(crate) fn enable_all_registered_array_encodings(session: &VortexSession) {
     use vortex_array::dtype::session::DTypeSessionExt;
+    use vortex_array::session::ArraySessionExt;
     use vortex_edition::ComponentKind;
     use vortex_edition::Edition;
     use vortex_edition::EditionId;
