@@ -20,9 +20,9 @@ use crate::scalar_fn::fns::mask::MaskExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Cast.id(), Map, CastExecuteAdaptor(Map));
-    kernels.register_execute_parent_kernel(Dict.id(), Map, TakeExecuteAdaptor(Map));
-    kernels.register_execute_parent_kernel(Filter.id(), Map, FilterExecuteAdaptor(Map));
-    kernels.register_execute_parent_kernel(Mask.id(), Map, MaskExecuteAdaptor(Map));
-    kernels.register_execute_parent_kernel(Slice.id(), Map, SliceExecuteAdaptor(Map));
+    kernels.register_execute_parent_kernel(Cast.id(), Map, const { &CastExecuteAdaptor(Map) });
+    kernels.register_execute_parent_kernel(Dict.id(), Map, const { &TakeExecuteAdaptor(Map) });
+    kernels.register_execute_parent_kernel(Filter.id(), Map, const { &FilterExecuteAdaptor(Map) });
+    kernels.register_execute_parent_kernel(Mask.id(), Map, const { &MaskExecuteAdaptor(Map) });
+    kernels.register_execute_parent_kernel(Slice.id(), Map, const { &SliceExecuteAdaptor(Map) });
 }

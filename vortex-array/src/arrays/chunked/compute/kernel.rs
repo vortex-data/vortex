@@ -20,9 +20,9 @@ use crate::scalar_fn::fns::zip::ZipExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Filter.id(), Chunked, FilterExecuteAdaptor(Chunked));
-    kernels.register_execute_parent_kernel(Mask.id(), Chunked, MaskExecuteAdaptor(Chunked));
-    kernels.register_execute_parent_kernel(Slice.id(), Chunked, SliceExecuteAdaptor(Chunked));
-    kernels.register_execute_parent_kernel(Dict.id(), Chunked, TakeExecuteAdaptor(Chunked));
-    kernels.register_execute_parent_kernel(Zip.id(), Chunked, ZipExecuteAdaptor(Chunked));
+    kernels.register_execute_parent_kernel(Filter.id(), Chunked, const { &FilterExecuteAdaptor(Chunked) });
+    kernels.register_execute_parent_kernel(Mask.id(), Chunked, const { &MaskExecuteAdaptor(Chunked) });
+    kernels.register_execute_parent_kernel(Slice.id(), Chunked, const { &SliceExecuteAdaptor(Chunked) });
+    kernels.register_execute_parent_kernel(Dict.id(), Chunked, const { &TakeExecuteAdaptor(Chunked) });
+    kernels.register_execute_parent_kernel(Zip.id(), Chunked, const { &ZipExecuteAdaptor(Chunked) });
 }

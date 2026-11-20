@@ -22,14 +22,14 @@ use crate::OnPair;
 
 pub(super) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Cast.id(), OnPair, CastExecuteAdaptor(OnPair));
-    kernels.register_execute_parent_kernel(Filter.id(), OnPair, FilterExecuteAdaptor(OnPair));
-    kernels.register_execute_parent_kernel(Dict.id(), OnPair, TakeExecuteAdaptor(OnPair));
-    kernels.register_execute_parent_kernel(Binary.id(), OnPair, CompareExecuteAdaptor(OnPair));
-    kernels.register_execute_parent_kernel(Like.id(), OnPair, LikeExecuteAdaptor(OnPair));
+    kernels.register_execute_parent_kernel(Cast.id(), OnPair, const { &CastExecuteAdaptor(OnPair) });
+    kernels.register_execute_parent_kernel(Filter.id(), OnPair, const { &FilterExecuteAdaptor(OnPair) });
+    kernels.register_execute_parent_kernel(Dict.id(), OnPair, const { &TakeExecuteAdaptor(OnPair) });
+    kernels.register_execute_parent_kernel(Binary.id(), OnPair, const { &CompareExecuteAdaptor(OnPair) });
+    kernels.register_execute_parent_kernel(Like.id(), OnPair, const { &LikeExecuteAdaptor(OnPair) });
     kernels.register_execute_parent_kernel(
         ByteLength.id(),
         OnPair,
-        ByteLengthExecuteAdaptor(OnPair),
+        const { &ByteLengthExecuteAdaptor(OnPair) },
     );
 }

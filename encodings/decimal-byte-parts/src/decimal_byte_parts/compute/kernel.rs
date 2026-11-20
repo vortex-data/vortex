@@ -17,12 +17,12 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(
         Binary.id(),
         DecimalByteParts,
-        CompareExecuteAdaptor(DecimalByteParts),
+        const { &CompareExecuteAdaptor(DecimalByteParts) },
     );
     kernels.register_execute_parent_kernel(
         Between.id(),
         DecimalByteParts,
-        BetweenExecuteAdaptor(DecimalByteParts),
+        const { &BetweenExecuteAdaptor(DecimalByteParts) },
     );
     register_parent_rules(session);
 }

@@ -14,6 +14,6 @@ use crate::FoR;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Binary.id(), FoR, CompareExecuteAdaptor(FoR));
-    kernels.register_execute_parent_kernel(Dict.id(), FoR, TakeExecuteAdaptor(FoR));
+    kernels.register_execute_parent_kernel(Binary.id(), FoR, const { &CompareExecuteAdaptor(FoR) });
+    kernels.register_execute_parent_kernel(Dict.id(), FoR, const { &TakeExecuteAdaptor(FoR) });
 }

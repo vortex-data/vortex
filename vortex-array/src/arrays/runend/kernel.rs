@@ -29,11 +29,11 @@ use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
 
 pub(super) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Binary.id(), RunEnd, CompareExecuteAdaptor(RunEnd));
-    kernels.register_execute_parent_kernel(Slice.id(), RunEnd, RunEndSliceKernel);
-    kernels.register_execute_parent_kernel(Filter.id(), RunEnd, FilterExecuteAdaptor(RunEnd));
-    kernels.register_execute_parent_kernel(Dict.id(), RunEnd, TakeExecuteAdaptor(RunEnd));
-    kernels.register_execute_parent_kernel(Dict.id(), RunEnd, RunEndTakeFrom);
+    kernels.register_execute_parent_kernel(Binary.id(), RunEnd, const { &CompareExecuteAdaptor(RunEnd) });
+    kernels.register_execute_parent_kernel(Slice.id(), RunEnd, const { &RunEndSliceKernel });
+    kernels.register_execute_parent_kernel(Filter.id(), RunEnd, const { &FilterExecuteAdaptor(RunEnd) });
+    kernels.register_execute_parent_kernel(Dict.id(), RunEnd, const { &TakeExecuteAdaptor(RunEnd) });
+    kernels.register_execute_parent_kernel(Dict.id(), RunEnd, const { &RunEndTakeFrom });
 }
 
 /// Kernel to execute slicing on a RunEnd array.

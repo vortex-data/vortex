@@ -17,7 +17,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(
         Binary.id(),
         Extension,
-        CompareExecuteAdaptor(Extension),
+        const { &CompareExecuteAdaptor(Extension) },
     );
-    kernels.register_execute_parent_kernel(Dict.id(), Extension, TakeExecuteAdaptor(Extension));
+    kernels.register_execute_parent_kernel(Dict.id(), Extension, const { &TakeExecuteAdaptor(Extension) });
 }

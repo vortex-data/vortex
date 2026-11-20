@@ -13,6 +13,6 @@ use crate::scalar_fn::fns::zip::ZipExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Cast.id(), ListView, CastExecuteAdaptor(ListView));
-    kernels.register_execute_parent_kernel(Zip.id(), ListView, ZipExecuteAdaptor(ListView));
+    kernels.register_execute_parent_kernel(Cast.id(), ListView, const { &CastExecuteAdaptor(ListView) });
+    kernels.register_execute_parent_kernel(Zip.id(), ListView, const { &ZipExecuteAdaptor(ListView) });
 }

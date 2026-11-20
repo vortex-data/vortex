@@ -67,10 +67,10 @@ use crate::scalar_fn::fns::zip::ZipExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Binary.id(), Widen, CompareExecuteAdaptor(Widen));
-    kernels.register_execute_parent_kernel(Binary.id(), Widen, WidenNumericKernel);
-    kernels.register_execute_parent_kernel(Dict.id(), Widen, TakeExecuteAdaptor(Widen));
-    kernels.register_execute_parent_kernel(Zip.id(), Widen, ZipExecuteAdaptor(Widen));
+    kernels.register_execute_parent_kernel(Binary.id(), Widen, const { &CompareExecuteAdaptor(Widen) });
+    kernels.register_execute_parent_kernel(Binary.id(), Widen, const { &WidenNumericKernel });
+    kernels.register_execute_parent_kernel(Dict.id(), Widen, const { &TakeExecuteAdaptor(Widen) });
+    kernels.register_execute_parent_kernel(Zip.id(), Widen, const { &ZipExecuteAdaptor(Widen) });
     compute::rules::register_parent_rules(session);
 }
 

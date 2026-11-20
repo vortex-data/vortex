@@ -14,6 +14,6 @@ use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Binary.id(), Patched, CompareExecuteAdaptor(Patched));
-    kernels.register_execute_parent_kernel(Dict.id(), Patched, TakeExecuteAdaptor(Patched));
+    kernels.register_execute_parent_kernel(Binary.id(), Patched, const { &CompareExecuteAdaptor(Patched) });
+    kernels.register_execute_parent_kernel(Dict.id(), Patched, const { &TakeExecuteAdaptor(Patched) });
 }

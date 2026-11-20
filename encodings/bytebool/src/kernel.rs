@@ -16,7 +16,7 @@ use crate::ByteBool;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Binary.id(), ByteBool, BooleanExecuteAdaptor(ByteBool));
-    kernels.register_execute_parent_kernel(Cast.id(), ByteBool, CastExecuteAdaptor(ByteBool));
-    kernels.register_execute_parent_kernel(Dict.id(), ByteBool, TakeExecuteAdaptor(ByteBool));
+    kernels.register_execute_parent_kernel(Binary.id(), ByteBool, const { &BooleanExecuteAdaptor(ByteBool) });
+    kernels.register_execute_parent_kernel(Cast.id(), ByteBool, const { &CastExecuteAdaptor(ByteBool) });
+    kernels.register_execute_parent_kernel(Dict.id(), ByteBool, const { &TakeExecuteAdaptor(ByteBool) });
 }

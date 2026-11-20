@@ -33,7 +33,7 @@ use crate::validity::Validity;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(VariantGet.id(), Variant, VariantGetKernel);
+    kernels.register_execute_parent_kernel(VariantGet.id(), Variant, const { &VariantGetKernel });
 }
 
 #[derive(Default, Debug)]

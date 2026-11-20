@@ -27,12 +27,12 @@ use crate::ALP;
 
 pub(super) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Between.id(), ALP, BetweenExecuteAdaptor(ALP));
-    kernels.register_execute_parent_kernel(Binary.id(), ALP, CompareExecuteAdaptor(ALP));
-    kernels.register_execute_parent_kernel(Filter.id(), ALP, FilterExecuteAdaptor(ALP));
-    kernels.register_execute_parent_kernel(Mask.id(), ALP, MaskExecuteAdaptor(ALP));
-    kernels.register_execute_parent_kernel(Slice.id(), ALP, SliceExecuteAdaptor(ALP));
-    kernels.register_execute_parent_kernel(Dict.id(), ALP, TakeExecuteAdaptor(ALP));
+    kernels.register_execute_parent_kernel(Between.id(), ALP, const { &BetweenExecuteAdaptor(ALP) });
+    kernels.register_execute_parent_kernel(Binary.id(), ALP, const { &CompareExecuteAdaptor(ALP) });
+    kernels.register_execute_parent_kernel(Filter.id(), ALP, const { &FilterExecuteAdaptor(ALP) });
+    kernels.register_execute_parent_kernel(Mask.id(), ALP, const { &MaskExecuteAdaptor(ALP) });
+    kernels.register_execute_parent_kernel(Slice.id(), ALP, const { &SliceExecuteAdaptor(ALP) });
+    kernels.register_execute_parent_kernel(Dict.id(), ALP, const { &TakeExecuteAdaptor(ALP) });
 }
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {

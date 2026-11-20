@@ -23,14 +23,14 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(
         Between.id(),
         Primitive,
-        BetweenExecuteAdaptor(Primitive),
+        const { &BetweenExecuteAdaptor(Primitive) },
     );
-    kernels.register_execute_parent_kernel(Cast.id(), Primitive, CastExecuteAdaptor(Primitive));
+    kernels.register_execute_parent_kernel(Cast.id(), Primitive, const { &CastExecuteAdaptor(Primitive) });
     kernels.register_execute_parent_kernel(
         FillNull.id(),
         Primitive,
-        FillNullExecuteAdaptor(Primitive),
+        const { &FillNullExecuteAdaptor(Primitive) },
     );
-    kernels.register_execute_parent_kernel(Dict.id(), Primitive, TakeExecuteAdaptor(Primitive));
-    kernels.register_execute_parent_kernel(Zip.id(), Primitive, ZipExecuteAdaptor(Primitive));
+    kernels.register_execute_parent_kernel(Dict.id(), Primitive, const { &TakeExecuteAdaptor(Primitive) });
+    kernels.register_execute_parent_kernel(Zip.id(), Primitive, const { &ZipExecuteAdaptor(Primitive) });
 }

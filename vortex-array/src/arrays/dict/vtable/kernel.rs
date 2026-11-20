@@ -18,9 +18,9 @@ use crate::scalar_fn::fns::fill_null::FillNullExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Binary.id(), Dict, CompareExecuteAdaptor(Dict));
-    kernels.register_execute_parent_kernel(Dict.id(), Chunked, TakeExecuteAdaptor(Chunked));
-    kernels.register_execute_parent_kernel(Dict.id(), Constant, DictConstantCodesKernel);
-    kernels.register_execute_parent_kernel(Dict.id(), Dict, TakeExecuteAdaptor(Dict));
-    kernels.register_execute_parent_kernel(FillNull.id(), Dict, FillNullExecuteAdaptor(Dict));
+    kernels.register_execute_parent_kernel(Binary.id(), Dict, const { &CompareExecuteAdaptor(Dict) });
+    kernels.register_execute_parent_kernel(Dict.id(), Chunked, const { &TakeExecuteAdaptor(Chunked) });
+    kernels.register_execute_parent_kernel(Dict.id(), Constant, const { &DictConstantCodesKernel });
+    kernels.register_execute_parent_kernel(Dict.id(), Dict, const { &TakeExecuteAdaptor(Dict) });
+    kernels.register_execute_parent_kernel(FillNull.id(), Dict, const { &FillNullExecuteAdaptor(Dict) });
 }

@@ -42,7 +42,7 @@ pub type NullArray = Array<Null>;
 pub(crate) fn initialize(session: &VortexSession) {
     session
         .kernels()
-        .register_execute_parent_kernel(Dict.id(), Null, TakeExecuteAdaptor(Null));
+        .register_execute_parent_kernel(Dict.id(), Null, const { &TakeExecuteAdaptor(Null) });
     compute::rules::register_parent_rules(session);
 }
 

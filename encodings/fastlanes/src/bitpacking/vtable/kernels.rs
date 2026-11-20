@@ -25,15 +25,15 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(
         Between.id(),
         BitPacked,
-        BetweenExecuteAdaptor(BitPacked),
+        const { &BetweenExecuteAdaptor(BitPacked) },
     );
-    kernels.register_execute_parent_kernel(Cast.id(), BitPacked, CastExecuteAdaptor(BitPacked));
+    kernels.register_execute_parent_kernel(Cast.id(), BitPacked, const { &CastExecuteAdaptor(BitPacked) });
     kernels.register_execute_parent_kernel(
         Binary.id(),
         BitPacked,
-        CompareExecuteAdaptor(BitPacked),
+        const { &CompareExecuteAdaptor(BitPacked) },
     );
-    kernels.register_execute_parent_kernel(Filter.id(), BitPacked, FilterExecuteAdaptor(BitPacked));
-    kernels.register_execute_parent_kernel(Slice.id(), BitPacked, SliceExecuteAdaptor(BitPacked));
-    kernels.register_execute_parent_kernel(Dict.id(), BitPacked, TakeExecuteAdaptor(BitPacked));
+    kernels.register_execute_parent_kernel(Filter.id(), BitPacked, const { &FilterExecuteAdaptor(BitPacked) });
+    kernels.register_execute_parent_kernel(Slice.id(), BitPacked, const { &SliceExecuteAdaptor(BitPacked) });
+    kernels.register_execute_parent_kernel(Dict.id(), BitPacked, const { &TakeExecuteAdaptor(BitPacked) });
 }

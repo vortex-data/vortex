@@ -29,7 +29,7 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Dict.id(), Filter, TakeExecuteAdaptor(Filter));
+    kernels.register_execute_parent_kernel(Dict.id(), Filter, const { &TakeExecuteAdaptor(Filter) });
 }
 
 pub trait FilterReduce: VTable {

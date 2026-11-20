@@ -27,7 +27,7 @@ use crate::scalar_fn::fns::cast::Cast;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Cast.id(), Struct, StructCastKernel);
+    kernels.register_execute_parent_kernel(Cast.id(), Struct, const { &StructCastKernel });
 }
 
 #[derive(Debug)]
@@ -214,7 +214,7 @@ mod tests {
         kernels.register_execute_parent(
             parent_id,
             child_id,
-            &[null_struct_cast_execute_parent as ExecuteParentFn],
+            const { &[null_struct_cast_execute_parent as ExecuteParentFn] },
         );
         let mut ctx = session.create_execution_ctx();
 

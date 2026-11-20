@@ -11,5 +11,5 @@ use crate::ZigZag;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Dict.id(), ZigZag, TakeExecuteAdaptor(ZigZag));
+    kernels.register_execute_parent_kernel(Dict.id(), ZigZag, const { &TakeExecuteAdaptor(ZigZag) });
 }

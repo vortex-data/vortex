@@ -65,23 +65,23 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(
         Filter.id(),
         ParquetVariant,
-        FilterExecuteAdaptor(ParquetVariant),
+        const { &FilterExecuteAdaptor(ParquetVariant) },
     );
     kernels.register_execute_parent_kernel(
         Slice.id(),
         ParquetVariant,
-        SliceExecuteAdaptor(ParquetVariant),
+        const { &SliceExecuteAdaptor(ParquetVariant) },
     );
     kernels.register_execute_parent_kernel(
         Dict.id(),
         ParquetVariant,
-        TakeExecuteAdaptor(ParquetVariant),
+        const { &TakeExecuteAdaptor(ParquetVariant) },
     );
-    kernels.register_execute_parent_kernel(VariantGet.id(), ParquetVariant, VariantGetKernel);
+    kernels.register_execute_parent_kernel(VariantGet.id(), ParquetVariant, const { &VariantGetKernel });
     kernels.register_execute_parent_kernel(
         JsonToVariant.id(),
         Extension,
-        JsonExtensionToVariantKernel,
+        const { &JsonExtensionToVariantKernel },
     );
     let aggregates = session.aggregate_fns();
     aggregates.register_aggregate_kernel(

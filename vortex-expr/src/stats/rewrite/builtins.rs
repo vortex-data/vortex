@@ -63,25 +63,25 @@ use crate::stats::session::StatsSession;
 
 /// Register built-in stats rewrite rules.
 pub(crate) fn register_builtins(session: &StatsSession) {
-    session.register_rewrite(BinaryNanCountStatsRewrite);
-    session.register_rewrite(BinaryAllNonNanStatsRewrite);
-    session.register_rewrite(BetweenStatsRewrite);
-    session.register_rewrite(LiteralStatsRewrite);
-    session.register_rewrite(IsNullNullCountStatsRewrite);
-    session.register_rewrite(IsNullAllNonNullStatsRewrite);
-    session.register_rewrite(IsNullAllNullStatsRewrite);
-    session.register_rewrite(IsNotNullNullCountStatsRewrite);
-    session.register_rewrite(IsNotNullAllNullStatsRewrite);
-    session.register_rewrite(IsNotNullAllNonNullStatsRewrite);
-    session.register_rewrite(IsNanNaNCountStatsRewrite);
-    session.register_rewrite(IsNanAllNonNanStatsRewrite);
-    session.register_rewrite(IsNanAllNanStatsRewrite);
-    session.register_rewrite(LikeStatsRewrite);
-    session.register_rewrite(ListContainsNanCountStatsRewrite);
-    session.register_rewrite(ListContainsAllNonNanStatsRewrite);
-    session.register_rewrite(DynamicComparisonNanCountStatsRewrite);
-    session.register_rewrite(DynamicComparisonAllNonNanStatsRewrite);
-    session.register_rewrite(DynamicExpressionStatsRewrite);
+    session.register_rewrite(const { &BinaryNanCountStatsRewrite });
+    session.register_rewrite(const { &BinaryAllNonNanStatsRewrite });
+    session.register_rewrite(const { &BetweenStatsRewrite });
+    session.register_rewrite(const { &LiteralStatsRewrite });
+    session.register_rewrite(const { &IsNullNullCountStatsRewrite });
+    session.register_rewrite(const { &IsNullAllNonNullStatsRewrite });
+    session.register_rewrite(const { &IsNullAllNullStatsRewrite });
+    session.register_rewrite(const { &IsNotNullNullCountStatsRewrite });
+    session.register_rewrite(const { &IsNotNullAllNullStatsRewrite });
+    session.register_rewrite(const { &IsNotNullAllNonNullStatsRewrite });
+    session.register_rewrite(const { &IsNanNaNCountStatsRewrite });
+    session.register_rewrite(const { &IsNanAllNonNanStatsRewrite });
+    session.register_rewrite(const { &IsNanAllNanStatsRewrite });
+    session.register_rewrite(const { &LikeStatsRewrite });
+    session.register_rewrite(const { &ListContainsNanCountStatsRewrite });
+    session.register_rewrite(const { &ListContainsAllNonNanStatsRewrite });
+    session.register_rewrite(const { &DynamicComparisonNanCountStatsRewrite });
+    session.register_rewrite(const { &DynamicComparisonAllNonNanStatsRewrite });
+    session.register_rewrite(const { &DynamicExpressionStatsRewrite });
 }
 
 fn row_count() -> BoundExpression {
@@ -1069,7 +1069,7 @@ mod tests {
         let visits = Arc::new(AtomicUsize::new(0));
         session
             .stats()
-            .register_rewrite(BinaryVisitCounter(Arc::clone(&visits)));
+            .register_rewrite(Box::leak(Box::new(BinaryVisitCounter(Arc::clone(&visits)))));
 
         let expr = (1..16).fold(eq(col("a"), lit(0)), |chain, i| {
             or(chain, eq(col("a"), lit(i)))

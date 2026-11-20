@@ -82,9 +82,9 @@ pub fn initialize(session: &VortexSession) {
     session.aggregate_fns().register(GeometryAabb);
 
     // Register the spatial pruning rules that use that AABB.
-    session.stats().register_rewrite(SpatialContainsPrune);
-    session.stats().register_rewrite(SpatialDistancePrune);
-    session.stats().register_rewrite(SpatialIntersectsPrune);
+    session.stats().register_rewrite(const { &SpatialContainsPrune });
+    session.stats().register_rewrite(const { &SpatialDistancePrune });
+    session.stats().register_rewrite(const { &SpatialIntersectsPrune });
 
     // Spatial members belong to their own edition family, enabled here so the writer may emit
     // the AABB zone stat this session just registered. `initialize` is idempotent, so a

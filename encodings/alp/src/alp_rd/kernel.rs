@@ -15,7 +15,7 @@ use crate::alp_rd::ALPRD;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Slice.id(), ALPRD, SliceExecuteAdaptor(ALPRD));
-    kernels.register_execute_parent_kernel(Filter.id(), ALPRD, FilterExecuteAdaptor(ALPRD));
-    kernels.register_execute_parent_kernel(Dict.id(), ALPRD, TakeExecuteAdaptor(ALPRD));
+    kernels.register_execute_parent_kernel(Slice.id(), ALPRD, const { &SliceExecuteAdaptor(ALPRD) });
+    kernels.register_execute_parent_kernel(Filter.id(), ALPRD, const { &FilterExecuteAdaptor(ALPRD) });
+    kernels.register_execute_parent_kernel(Dict.id(), ALPRD, const { &TakeExecuteAdaptor(ALPRD) });
 }

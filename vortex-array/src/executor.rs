@@ -1179,7 +1179,7 @@ mod tests {
         kernels.register_execute_parent(
             Bool.id(),
             Primitive.id(),
-            &[noop_execute_parent as ExecuteParentFn],
+            const { &[noop_execute_parent as ExecuteParentFn] },
         );
 
         assert!(
@@ -1208,7 +1208,7 @@ mod tests {
         session.kernels().register_execute_parent(
             Bool.id(),
             Primitive.id(),
-            &[noop_execute_parent as ExecuteParentFn],
+            const { &[noop_execute_parent as ExecuteParentFn] },
         );
 
         let after = session.create_execution_ctx();

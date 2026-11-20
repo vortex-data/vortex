@@ -17,11 +17,11 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(
         Binary.id(),
         DateTimeParts,
-        CompareExecuteAdaptor(DateTimeParts),
+        const { &CompareExecuteAdaptor(DateTimeParts) },
     );
     kernels.register_execute_parent_kernel(
         Dict.id(),
         DateTimeParts,
-        TakeExecuteAdaptor(DateTimeParts),
+        const { &TakeExecuteAdaptor(DateTimeParts) },
     );
 }

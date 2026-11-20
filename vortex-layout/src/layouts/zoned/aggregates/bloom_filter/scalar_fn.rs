@@ -324,7 +324,9 @@ mod tests {
     fn register(session: &VortexSession, options: BloomOptions) {
         session.aggregate_fns().register(BloomFilter);
         session.scalar_fns().register(BloomContains);
-        session.stats().register_rewrite(BloomEqRewrite { options });
+        session
+            .stats()
+            .register_rewrite(Box::leak(Box::new(BloomEqRewrite { options })));
     }
 
     fn serialized_filter(options: &BloomOptions, values: &[Scalar]) -> VortexResult<Vec<u8>> {

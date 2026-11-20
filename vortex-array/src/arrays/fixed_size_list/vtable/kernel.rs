@@ -17,11 +17,11 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(
         Cast.id(),
         FixedSizeList,
-        CastExecuteAdaptor(FixedSizeList),
+        const { &CastExecuteAdaptor(FixedSizeList) },
     );
     kernels.register_execute_parent_kernel(
         Dict.id(),
         FixedSizeList,
-        TakeExecuteAdaptor(FixedSizeList),
+        const { &TakeExecuteAdaptor(FixedSizeList) },
     );
 }

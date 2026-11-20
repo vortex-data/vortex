@@ -24,11 +24,11 @@ use crate::Sparse;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Between.id(), Sparse, BetweenExecuteAdaptor(Sparse));
-    kernels.register_execute_parent_kernel(Binary.id(), Sparse, CompareExecuteAdaptor(Sparse));
-    kernels.register_execute_parent_kernel(FillNull.id(), Sparse, FillNullExecuteAdaptor(Sparse));
-    kernels.register_execute_parent_kernel(Like.id(), Sparse, LikeExecuteAdaptor(Sparse));
-    kernels.register_execute_parent_kernel(Filter.id(), Sparse, FilterExecuteAdaptor(Sparse));
-    kernels.register_execute_parent_kernel(Slice.id(), Sparse, SliceExecuteAdaptor(Sparse));
-    kernels.register_execute_parent_kernel(Dict.id(), Sparse, TakeExecuteAdaptor(Sparse));
+    kernels.register_execute_parent_kernel(Between.id(), Sparse, const { &BetweenExecuteAdaptor(Sparse) });
+    kernels.register_execute_parent_kernel(Binary.id(), Sparse, const { &CompareExecuteAdaptor(Sparse) });
+    kernels.register_execute_parent_kernel(FillNull.id(), Sparse, const { &FillNullExecuteAdaptor(Sparse) });
+    kernels.register_execute_parent_kernel(Like.id(), Sparse, const { &LikeExecuteAdaptor(Sparse) });
+    kernels.register_execute_parent_kernel(Filter.id(), Sparse, const { &FilterExecuteAdaptor(Sparse) });
+    kernels.register_execute_parent_kernel(Slice.id(), Sparse, const { &SliceExecuteAdaptor(Sparse) });
+    kernels.register_execute_parent_kernel(Dict.id(), Sparse, const { &TakeExecuteAdaptor(Sparse) });
 }

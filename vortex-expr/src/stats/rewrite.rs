@@ -4,7 +4,6 @@
 //! Session-registered rewrite rules for aggregate-backed stats expressions.
 
 use std::fmt::Debug;
-use std::sync::Arc;
 
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
@@ -28,7 +27,7 @@ mod like_variant;
 pub(crate) use builtins::register_builtins;
 
 /// Shared reference to a stats rewrite rule.
-pub type StatsRewriteRuleRef = Arc<dyn StatsRewriteRule>;
+pub type StatsRewriteRuleRef = &'static dyn StatsRewriteRule;
 
 /// A plugin-provided rule for predicates whose root scalar function matches this rule.
 ///
@@ -219,14 +218,14 @@ mod tests {
     fn combines_multiple_falsifiers_with_or() -> VortexResult<()> {
         let session = VortexSession::empty();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        session.stats().register_rewrite(StaticNotRule {
+        session.stats().register_rewrite(Box::leak(Box::new(StaticNotRule {
             falsifier: Some(lit(false).bind(&dtype)?),
             satisfier: None,
-        });
-        session.stats().register_rewrite(StaticNotRule {
+        })));
+        session.stats().register_rewrite(Box::leak(Box::new(StaticNotRule {
             falsifier: Some(lit(true).bind(&dtype)?),
             satisfier: None,
-        });
+        })));
 
         assert_eq!(
             not(lit(true)).bind(&dtype)?.falsify(&session)?,
@@ -239,14 +238,14 @@ mod tests {
     fn combines_multiple_satisfiers_with_or() -> VortexResult<()> {
         let session = VortexSession::empty();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        session.stats().register_rewrite(StaticNotRule {
+        session.stats().register_rewrite(Box::leak(Box::new(StaticNotRule {
             falsifier: None,
             satisfier: Some(lit(false).bind(&dtype)?),
-        });
-        session.stats().register_rewrite(StaticNotRule {
+        })));
+        session.stats().register_rewrite(Box::leak(Box::new(StaticNotRule {
             falsifier: None,
             satisfier: Some(lit(true).bind(&dtype)?),
-        });
+        })));
 
         assert_eq!(
             not(lit(true)).bind(&dtype)?.satisfy(&session)?,

@@ -80,8 +80,8 @@ fn stack_parent_fixture() -> VortexResult<ArrayRef> {
 fn stack_parent_session() -> VortexSession {
     let session = VortexSession::empty().with::<ArraySession>();
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(StackParent.id(), StackChild, StackDeclineKernel);
-    kernels.register_execute_parent_kernel(StackParent.id(), StackChild, StackParentKernel);
+    kernels.register_execute_parent_kernel(StackParent.id(), StackChild, const { &StackDeclineKernel });
+    kernels.register_execute_parent_kernel(StackParent.id(), StackChild, const { &StackParentKernel });
     drop(kernels);
     session
 }

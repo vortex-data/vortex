@@ -16,7 +16,7 @@ use crate::Sequence;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Binary.id(), Sequence, CompareExecuteAdaptor(Sequence));
-    kernels.register_execute_parent_kernel(Filter.id(), Sequence, FilterExecuteAdaptor(Sequence));
-    kernels.register_execute_parent_kernel(Dict.id(), Sequence, TakeExecuteAdaptor(Sequence));
+    kernels.register_execute_parent_kernel(Binary.id(), Sequence, const { &CompareExecuteAdaptor(Sequence) });
+    kernels.register_execute_parent_kernel(Filter.id(), Sequence, const { &FilterExecuteAdaptor(Sequence) });
+    kernels.register_execute_parent_kernel(Dict.id(), Sequence, const { &TakeExecuteAdaptor(Sequence) });
 }

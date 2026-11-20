@@ -18,12 +18,12 @@ use crate::scalar_fn::fns::zip::ZipExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Cast.id(), VarBinView, CastExecuteAdaptor(VarBinView));
+    kernels.register_execute_parent_kernel(Cast.id(), VarBinView, const { &CastExecuteAdaptor(VarBinView) });
     kernels.register_execute_parent_kernel(
         FillNull.id(),
         VarBinView,
-        FillNullExecuteAdaptor(VarBinView),
+        const { &FillNullExecuteAdaptor(VarBinView) },
     );
-    kernels.register_execute_parent_kernel(Dict.id(), VarBinView, TakeExecuteAdaptor(VarBinView));
-    kernels.register_execute_parent_kernel(Zip.id(), VarBinView, ZipExecuteAdaptor(VarBinView));
+    kernels.register_execute_parent_kernel(Dict.id(), VarBinView, const { &TakeExecuteAdaptor(VarBinView) });
+    kernels.register_execute_parent_kernel(Zip.id(), VarBinView, const { &ZipExecuteAdaptor(VarBinView) });
 }

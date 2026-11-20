@@ -19,6 +19,6 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_reduce_parent_rule(Slice, Delta, const { &SliceReduceAdaptor(Delta) });
     kernels.register_reduce_parent_rule(Cast, Delta, const { &CastReduceAdaptor(Delta) });
-    kernels.register_execute_parent_kernel(Filter.id(), Delta, FilterExecuteAdaptor(Delta));
-    kernels.register_execute_parent_kernel(Dict.id(), Delta, TakeExecuteAdaptor(Delta));
+    kernels.register_execute_parent_kernel(Filter.id(), Delta, const { &FilterExecuteAdaptor(Delta) });
+    kernels.register_execute_parent_kernel(Dict.id(), Delta, const { &TakeExecuteAdaptor(Delta) });
 }

@@ -18,8 +18,8 @@ use crate::scalar_fn::fns::cast::CastExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Cast.id(), VarBin, CastExecuteAdaptor(VarBin));
-    kernels.register_execute_parent_kernel(Binary.id(), VarBin, CompareExecuteAdaptor(VarBin));
-    kernels.register_execute_parent_kernel(Filter.id(), VarBin, FilterExecuteAdaptor(VarBin));
-    kernels.register_execute_parent_kernel(Dict.id(), VarBin, TakeExecuteAdaptor(VarBin));
+    kernels.register_execute_parent_kernel(Cast.id(), VarBin, const { &CastExecuteAdaptor(VarBin) });
+    kernels.register_execute_parent_kernel(Binary.id(), VarBin, const { &CompareExecuteAdaptor(VarBin) });
+    kernels.register_execute_parent_kernel(Filter.id(), VarBin, const { &FilterExecuteAdaptor(VarBin) });
+    kernels.register_execute_parent_kernel(Dict.id(), VarBin, const { &TakeExecuteAdaptor(VarBin) });
 }

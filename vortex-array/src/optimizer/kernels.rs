@@ -196,12 +196,21 @@ pub trait DynExecuteParentKernel: Debug + Send + Sync + 'static {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-pub(crate) type ExecuteParentKernelRef = Arc<dyn DynExecuteParentKernel>;
+pub(crate) type ExecuteParentKernelRef = &'static dyn DynExecuteParentKernel;
 
 pub(crate) type ParentExecutionKernels = HashMap<ExecuteParentFnId, Box<[ExecuteParentKernelRef]>>;
 
 #[derive(Debug)]
+#[repr(transparent)]
 struct ExecuteParentFnKernel(ExecuteParentFn);
+
+impl ExecuteParentFnKernel {
+    /// Views a static function pointer as an execute-parent kernel.
+    const fn lift(f: &'static ExecuteParentFn) -> ExecuteParentKernelRef {
+        // SAFETY: `ExecuteParentFnKernel` is `repr(transparent)` over `ExecuteParentFn`.
+        unsafe { &*ptr::from_ref(f).cast::<Self>() }
+    }
+}
 
 impl DynExecuteParentKernel for ExecuteParentFnKernel {
     fn execute_parent(
@@ -215,10 +224,27 @@ impl DynExecuteParentKernel for ExecuteParentFnKernel {
     }
 }
 
-#[derive(Debug)]
+#[repr(transparent)]
 struct RegisteredExecuteParentKernel<V, K> {
-    _child: V,
     kernel: K,
+    _child: PhantomData<V>,
+}
+
+impl<V: VTable, K: ExecuteParentKernel<V>> RegisteredExecuteParentKernel<V, K> {
+    /// Views a static kernel as an execute-parent kernel for the `V` child encoding.
+    const fn lift(kernel: &'static K) -> ExecuteParentKernelRef {
+        // SAFETY: `RegisteredExecuteParentKernel` is `repr(transparent)` over `kernel`, and its
+        // only other field is a zero-sized `PhantomData`, so it has the same layout as `K`.
+        unsafe { &*ptr::from_ref(kernel).cast::<Self>() }
+    }
+}
+
+impl<V, K: Debug> Debug for RegisteredExecuteParentKernel<V, K> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegisteredExecuteParentKernel")
+            .field("kernel", &self.kernel)
+            .finish()
+    }
 }
 
 impl<V, K> DynExecuteParentKernel for RegisteredExecuteParentKernel<V, K>
@@ -394,11 +420,12 @@ impl ArrayKernels {
     ///
     /// If functions have already been registered for the same pair, these functions are appended
     /// after them.
-    pub fn register_execute_parent(&self, parent: Id, child: Id, fns: &[ExecuteParentFn]) {
-        let kernels: Vec<ExecuteParentKernelRef> = fns
-            .iter()
-            .map(|f| Arc::new(ExecuteParentFnKernel(*f)) as ExecuteParentKernelRef)
-            .collect();
+    ///
+    /// Pass the functions as `const { &[f as ExecuteParentFn] }` so that they live in static
+    /// memory.
+    pub fn register_execute_parent(&self, parent: Id, child: Id, fns: &'static [ExecuteParentFn]) {
+        let kernels: Vec<ExecuteParentKernelRef> =
+            fns.iter().map(ExecuteParentFnKernel::lift).collect();
         self.push_execute_parent(parent, child, &kernels);
     }
 
@@ -410,17 +437,15 @@ impl ArrayKernels {
     ///
     /// If kernels have already been registered for the same pair, this kernel is appended after
     /// them; registering for an existing key cannot override built-in kernels installed earlier.
-    pub fn register_execute_parent_kernel<V, K>(&self, parent: Id, child: V, kernel: K)
+    ///
+    /// Pass the kernel as `const { &kernel }` so that it lives in static memory.
+    pub fn register_execute_parent_kernel<V, K>(&self, parent: Id, child: V, kernel: &'static K)
     where
         V: VTable,
         K: ExecuteParentKernel<V>,
     {
-        let child_id = child.id();
-        let kernel: ExecuteParentKernelRef = Arc::new(RegisteredExecuteParentKernel {
-            _child: child,
-            kernel,
-        });
-        self.push_execute_parent(parent, child_id, &[kernel]);
+        let kernel = RegisteredExecuteParentKernel::<V, K>::lift(kernel);
+        self.push_execute_parent(parent, child.id(), &[kernel]);
     }
 
     /// Append `kernels` for `(parent, child)` and record that `parent` owns execute-parent kernels.
@@ -433,7 +458,7 @@ impl ArrayKernels {
             let mut next = ParentExecutionKernels::clone(current);
             append(
                 next.entry(hash_fn_id(parent, child).into()).or_default(),
-                kernels.iter().cloned(),
+                kernels.iter().copied(),
             );
             next.entry(execute_parent_marker_key(parent).into())
                 .or_default();

@@ -22,7 +22,7 @@ use crate::rle::RLEArraySlotsExt;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Slice.id(), RLE, SliceExecuteAdaptor(RLE));
+    kernels.register_execute_parent_kernel(Slice.id(), RLE, const { &SliceExecuteAdaptor(RLE) });
 }
 
 impl SliceKernel for RLE {
