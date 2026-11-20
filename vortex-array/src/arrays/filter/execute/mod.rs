@@ -15,7 +15,8 @@
 //! | mask selects one contiguous run | zero-copy slice       |
 //! | child is entirely null          | null constant array   |
 //!
-//! Fixed-width canonical arrays then use the strategy ladder in [`buffer`].
+//! Fixed-width canonical arrays then use the strategy ladder in [`vortex_buffer::filter`], with
+//! the mask representation that [`buffer`] chooses.
 
 use std::ops::Range;
 
@@ -48,12 +49,8 @@ use crate::validity::Validity;
 mod bitbuffer;
 mod bool;
 pub(crate) mod buffer;
-pub(crate) mod byte_compress;
-pub(crate) mod chunked;
 mod fixed_size_list;
 mod listview;
-mod simd_compress;
-mod slice;
 mod struct_;
 mod take;
 mod union;
@@ -197,6 +194,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
+    use crate::optimizer::ArrayOptimizer;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -211,7 +209,7 @@ mod tests {
             values.cached_indices().is_none() && values.cached_slices().is_none()
         }));
 
-        let filtered = array.into_array().filter(mask)?;
+        let filtered = array.into_array().filter(mask)?.optimize_ctx(&SESSION)?;
         assert!(filtered.is::<Primitive>());
         let filtered = filtered.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
         let filtered_values = filtered.to_buffer::<i32>();

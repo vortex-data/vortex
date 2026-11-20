@@ -77,6 +77,29 @@
 //! # Ok::<(), datafusion_common::DataFusionError>(())
 //! ```
 //!
+//! # Schemas and extension types
+//!
+//! A table's _logical schema_ describes the fields a query expects. Each file's _physical schema_
+//! describes the fields its reader produces. Both use Arrow's [`Schema`]. DataFusion's
+//! [`PhysicalExprAdapter`] reconciles differences with casts and nulls for missing nullable columns.
+//! [`DFSchema`] adds logical planning information, such as table qualifiers.
+//!
+//! Vortex's [`DType`] omits some Arrow layout choices, so the reader also needs the logical schema.
+//! For example, [`DType::Utf8`] can export to multiple Arrow string layouts.
+//!
+//! An [Arrow extension type] adds identity to its storage field through metadata. JSON, for example,
+//! uses string storage with extension name `arrow.json`. [`ArrowSession`] defines how Vortex maps
+//! these fields to dtypes. The reader checks extension identity before copying table metadata, so
+//! plain strings cannot be mislabeled as JSON or JSON read as plain strings. This preserves type
+//! identity during scans, but does not define valid operations on extension values.
+//!
+//! [`Schema`]: arrow_schema::Schema
+//! [`DFSchema`]: datafusion_common::DFSchema
+//! [`PhysicalExprAdapter`]: datafusion_physical_expr_adapter::PhysicalExprAdapter
+//! [`DType`]: vortex::dtype::DType
+//! [`DType::Utf8`]: vortex::dtype::DType::Utf8
+//! [Arrow extension type]: https://arrow.apache.org/docs/format/Columnar.html#extension-types
+//! [`ArrowSession`]: vortex_arrow::ArrowSession
 //! [`Vortex`]: https://docs.rs/crate/vortex/latest
 //! [DataFusion]: https://docs.rs/datafusion/latest/datafusion/
 //! [`ListingTable`]: https://docs.rs/datafusion/latest/datafusion/datasource/listing/struct.ListingTable.html
@@ -90,12 +113,14 @@ use vortex::expr::stats::Precision;
 
 pub mod convert;
 mod persistent;
+mod row_index;
 pub mod v2;
 
 #[cfg(test)]
 mod tests;
 
 pub use persistent::*;
+pub use row_index::row_index;
 
 /// Extension trait to convert our [`Precision`] to DataFusion's
 /// [`DataFusionPrecision`].

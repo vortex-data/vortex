@@ -19,6 +19,10 @@ use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::sys::CUevent_flags;
 
 mod arrays;
+
+mod decimal_cast;
+pub(crate) use decimal_cast::widen_decimal_values;
+
 // Fatbins let the CUDA driver select among the configured real and virtual architectures.
 mod embedded_kernels {
     include!(concat!(env!("OUT_DIR"), "/embedded_kernels.rs"));

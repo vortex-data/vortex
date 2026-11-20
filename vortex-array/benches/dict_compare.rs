@@ -23,6 +23,7 @@ use vortex_array::expr::eq;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::test_harness::mark_optimized;
@@ -150,7 +151,12 @@ fn bench_compare_sliced_dict_primitive(
     let mut ctx = SESSION.create_execution_ctx();
     let primitive_arr = gen_primitive_for_dict::<i32>(codes_len.max(values_len), values_len);
     let dict = dict_encode(&primitive_arr.clone().into_array(), &mut ctx).unwrap();
-    let dict = dict.into_array().slice(0..codes_len).unwrap();
+    let dict = dict
+        .into_array()
+        .slice(0..codes_len)
+        .unwrap()
+        .optimize_ctx(&SESSION)
+        .unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
     mark_optimized(&dict, &SESSION).unwrap();
 
@@ -173,7 +179,12 @@ fn bench_compare_sliced_dict_varbinview(
     let mut ctx = SESSION.create_execution_ctx();
     let varbin_arr = VarBinArray::from(gen_varbin_words(codes_len.max(values_len), values_len));
     let dict = dict_encode(&varbin_arr.clone().into_array(), &mut ctx).unwrap();
-    let dict = dict.into_array().slice(0..codes_len).unwrap();
+    let dict = dict
+        .into_array()
+        .slice(0..codes_len)
+        .unwrap()
+        .optimize_ctx(&SESSION)
+        .unwrap();
     let const_bytes = varbin_arr.bytes_at(0, &mut ctx);
     let value = unsafe { str::from_utf8_unchecked(const_bytes.as_slice()) };
     mark_optimized(&dict, &SESSION).unwrap();

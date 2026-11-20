@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: base, chrome, docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
-   Made by: node tools/site-styles.mjs <site> --sections base,chrome,docs,focus --reads ../vortex.css,../layout.html,../404.html
-   sha256 741e45ce35202369e7c2ad4c95a1cfc53b14dbc981ff113fc98110c5b4c03f76 */
+   Made by: node tools/site-styles.mjs <site> --sections base,chrome,docs,focus --reads ../vortex.css,../layout.html,../404.html,../domainindex.html,../../../_static
+   sha256 94f5d2e642d7eae9dd596027c096524c2bc87fb5a1751d0da8cb93af648c925b */
 
 /* ------------------------------------------------------------------ base */
 /* Every component sizes with border-box, so it draws the same under a site's reset or none. */
@@ -10,26 +10,21 @@
 :where([class*="vx-"])::after {
   box-sizing: border-box;
 }
-/* Text for screen readers only, such as a copy button's "Copied". */
-.vx-sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 /* The skip link, a page's first tab stop (WCAG 2.4.1): "Skip to content", to #main. Hidden as
    vx-sr-only until it has focus, then at the top left above a sticky header, on ground in ink in
-   the label voice, with the shared focus ring. No script: the fragment moves focus to main, which
-   takes it (tabindex="-1"), so the next Tab starts in the content. Main draws no ring, the system's
-   or the browser's: around the whole page, it marks nothing a reader can use. */
+   the label voice, with the shared focus ring. It is a control's height, centred on the 64px
+   header row like the header's controls, so it covers the 24px mark. No script: the fragment moves
+   focus to main, which takes it (tabindex="-1"), so the next Tab starts in the content. Main draws
+   no ring, the system's or the browser's: around the whole page, it marks nothing a reader can use. */
 .vx-skip-link {
   position: fixed;
-  top: var(--space-8);
+  top: calc((var(--space-64) - var(--control-md)) / 2);
   left: var(--space-8);
   z-index: 1200;
-  padding: var(--space-8) var(--space-12);
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-md);
+  padding: 0 var(--space-12);
   border-radius: var(--radius-control);
   background: var(--ground);
   color: var(--ink);
@@ -50,27 +45,9 @@
 main[tabindex="-1"]:focus {
   outline: none;
 }
-.vx-card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-card);
-}
 .vx-label,
 .vx-label-sm {
   color: var(--ink-muted);
-}
-/* A machine reference, such as an error digest or a commit hash, in a label or in text. It keeps
-   its case, selects whole for a bug report, and breaks anywhere rather than overflow a phone. */
-.vx-ref {
-  font-family: var(--font-mono);
-  font-size: inherit;
-  text-transform: none;
-  letter-spacing: 0;
-  user-select: all;
-  overflow-wrap: anywhere;
-}
-.vx-num {
-  font-variant-numeric: tabular-nums;
 }
 /* In prose, the link rule styles an author's links. A system link (a vx- class) has its own rule. */
 .vx-link,
@@ -93,16 +70,15 @@ main[tabindex="-1"]:focus {
 :where(.vx-display, .vx-display-mono, .vx-h1, .vx-h2, .vx-h3, .vx-h4, .vx-h5) { color: var(--ink); }
 
 
-/* An encoding chain: mono steps on raised, joined by arrows. A post and the Explorer
-   both draw it, so it sits in base, which every site copies. */
-.vx-chain { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); font: 400 12.5px/1 var(--font-mono); color: var(--ink-body); }
-.vx-chain-step { padding: var(--space-4) var(--space-8); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); }
-.vx-chain-arrow { color: var(--ink-muted); }
 
 /* ------------------------------------------------------------------ chrome */
 /* What every surface shares, so home, the blog, the docs, the Explorer and bench read as one site:
    the quiet links, the buttons, the header, the footer, the theme switch, and the 404. Every
    surface copies this section. */
+/* What changes with the theme, set on each theme's element so the nearest data-theme wins: which
+   wordmark shows, the LF mark's ink, and the dot field's ink. */
+:root, [data-theme="dark"] { --vx-mark-dark: block; --vx-mark-light: none; --vx-lf-mark-filter: none; --dot-field-ink: var(--grey-700); }
+[data-theme="light"] { --vx-mark-dark: none; --vx-mark-light: block; --vx-lf-mark-filter: invert(1); --dot-field-ink: var(--grey-300); }
 /* A quiet link in mono: header and footer navigation, feeds, source lines. */
 .vx-nav-link {
   display: inline-flex;
@@ -122,15 +98,6 @@ main[tabindex="-1"]:focus {
   width: 16px;
   height: 16px;
   fill: currentColor;
-}
-/* A source line: what a figure was read from, and when. It is often also a nav link, so it comes
-   after that rule and wins the tie. */
-.vx-source {
-  display: inline-flex;
-  flex-wrap: wrap;
-  white-space: normal;
-  align-items: center;
-  gap: var(--space-4);
 }
 .vx-btn {
   display: inline-flex;
@@ -154,17 +121,15 @@ main[tabindex="-1"]:focus {
 .vx-btn-primary { background: var(--primary); color: var(--on-primary); }
 .vx-btn-secondary { border-color: var(--edge); }
 .vx-btn-secondary:hover { border-color: var(--ink); }
-.vx-btn-ghost:hover { background: var(--raised); }
 /* Pressed: one step past hover, in place. */
 .vx-btn-primary:active:not([disabled], [aria-disabled="true"]) { background: color-mix(in srgb, var(--primary) 82%, var(--ground)); }
 .vx-btn-secondary:active:not([disabled], [aria-disabled="true"]) { background: var(--raised); }
-.vx-btn-ghost:active:not([disabled], [aria-disabled="true"]) { background: var(--edge); }
 .vx-btn.is-mono { padding: 0 var(--space-12); font: 400 13px/1 var(--font-mono); }
 .vx-btn-count { display: inline-flex; align-items: center; gap: var(--space-4); padding-left: var(--space-12); border-left: 1px solid var(--edge); color: var(--ink-muted); }
 /* Buttons side by side, primary first, wrapping onto a second row on a phone. */
 .vx-btn-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-12); }
 
-/* The header: one row, the same on every surface (DECISIONS 35). The wordmark, the site's links,
+/* The header: one row, the same on every surface. The wordmark, the site's links,
    a surface's own tools (.vx-header-tools, which may be absent), then the end group: the socials
    (X, Slack, and the GitHub button) and, on a narrow screen, the Menu. The theme switch is in the
    footer. No
@@ -192,13 +157,8 @@ main[tabindex="-1"]:focus {
 html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)); }
 .vx-header-start { display: flex; flex-shrink: 0; align-items: center; }
 .vx-header-mark { height: 24px; width: auto; display: block; }
-.vx-header-mark.is-light, [data-theme="light"] .vx-header-mark.is-dark { display: none; }
-[data-theme="light"] .vx-header-mark.is-light { display: block; }
-/* A page set to System follows the OS: under its light, the marks swap as in Light. */
-@media (prefers-color-scheme: light) {
-  [data-theme="system"] .vx-header-mark.is-dark { display: none; }
-  [data-theme="system"] .vx-header-mark.is-light { display: block; }
-}
+.vx-header-mark.is-dark { display: var(--vx-mark-dark); }
+.vx-header-mark.is-light { display: var(--vx-mark-light); }
 .vx-header-nav { display: flex; gap: var(--space-24); }
 /* A surface's tools take the room between the links and the end group, at its right end. */
 .vx-header-tools { display: flex; align-items: center; gap: var(--space-12); min-width: 0; margin-left: auto; }
@@ -285,7 +245,7 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 /* The footer: the same on every surface. The LF mark, the small print, the project's links, and the
    theme switch, over one solid line rule. It takes the header's column: --page-max, centred, with
    its rule. The site and bench draw it inside their page frame; the docs and the Explorer have
-   none (Will, 5 Nov 2026: "the footer width should match the header width"). */
+   none, so the column alone keeps the footer as wide as the header. */
 .vx-footer {
   display: flex;
   flex-wrap: wrap;
@@ -300,11 +260,7 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
   letter-spacing: 0.02em; /* the one tracked style: small print */
   color: var(--ink-muted);
 }
-.vx-footer-mark { height: 12px; width: auto; opacity: 0.85; }
-[data-theme="light"] .vx-footer-mark { filter: invert(1); }
-@media (prefers-color-scheme: light) {
-  [data-theme="system"] .vx-footer-mark { filter: invert(1); }
-}
+.vx-footer-mark { height: 12px; width: auto; opacity: 0.85; filter: var(--vx-lf-mark-filter); }
 /* 96ch: on a wide screen the line and the credit fit two balanced lines. */
 .vx-footer-text { flex: 1 1 420px; min-width: 0; max-width: 96ch; margin: 0; text-wrap: balance; }
 .vx-footer-credit { white-space: nowrap; }
@@ -346,18 +302,6 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
   color: var(--ink-muted);
   transition: color var(--vx-motion), background-color var(--vx-motion);
 }
-.vx-switch button {
-  all: unset;
-  box-sizing: border-box;
-  cursor: pointer;
-  height: 26px;
-  padding: 0 var(--space-12);
-  border-radius: var(--radius-control);
-  font: 400 12.5px/26px var(--font-sans);
-  white-space: nowrap;
-  color: var(--ink-muted);
-  transition: color var(--vx-motion), background-color var(--vx-motion);
-}
 .vx-theme-switch button:hover,
 .vx-switch button:hover { color: var(--ink); }
 .vx-theme-switch button[aria-pressed="true"],
@@ -372,9 +316,8 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 
 /* A 404 or error page: the hero with no bands under it. It takes the height its parent (a flex
    column between the header and the footer) leaves, and centres its text in it. With the mark it
-   takes the homepage hero's two columns, and stacks below 1100px as the hero does. It takes the
-   header's column (--page-max, centred), so the docs' 404, which has no page frame, matches the
-   site's (Will, 5 Nov 2026). */
+   takes the homepage hero's two columns, and stacks below 1100px. It takes the header's column
+   (--page-max, centred), so the docs' 404, which has no page frame, matches the site's. */
 .vx-status { flex: 1 0 auto; display: grid; grid-template-columns: minmax(0, 760px); align-content: center; gap: var(--space-48); width: 100%; max-width: var(--page-max); margin-inline: auto; padding: var(--space-32) var(--page-pad); }
 .vx-status.has-mark { grid-template-columns: minmax(0, 760px) minmax(320px, 1fr); align-content: normal; }
 .vx-status-text { display: grid; align-content: center; justify-items: start; gap: var(--space-24); }
@@ -401,12 +344,11 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
    mark's field grey. It covers the top of its host and fades out toward every edge and corner, as
    the mark's field does, so no hard edge shows. The host takes .has-dot-field, so the field sits
    under the host's content and over its background. Keep it out from behind running text: around
-   a text column the dots read as noise (Will, 4 Nov 2026, on the blog: "kind of awkward").
+   a text column the dots read as noise.
    Decoration only: keep the field aria-hidden. It lives in chrome, with Status, because every
    surface copies chrome. */
 .has-dot-field { position: relative; isolation: isolate; }
 .vx-dot-field {
-  --dot-field-ink: var(--grey-700);
   position: absolute;
   inset: 0 0 auto;
   height: min(100%, 1400px);
@@ -418,10 +360,6 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
   -webkit-mask-image: radial-gradient(closest-side, #000 40%, transparent 100%);
   mask-image: radial-gradient(closest-side, #000 40%, transparent 100%);
 }
-[data-theme="light"] .vx-dot-field { --dot-field-ink: var(--grey-300); }
-@media (prefers-color-scheme: light) {
-  [data-theme="system"] .vx-dot-field { --dot-field-ink: var(--grey-300); }
-}
 @media (forced-colors: active), print {
   .vx-dot-field { display: none; }
 }
@@ -431,15 +369,12 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
    <html> (the default theme, for a reader without scripts), and the frame's classes below.
    Everything inside the nav, the rail and main is what Sphinx writes. Type is in rem (1rem is
    16px), so text follows the reader's default size. The docs do not load base.css, but they render
-   text as it does, so the same card draws the same on the docs and on the site (Will, 5 Nov 2026:
-   the 404 pages must "match *exactly*"). */
+   text as it does, so the same card draws the same, to the pixel, on the docs and on the site. */
 .vx-docs { margin: 0; background: var(--ground); color: var(--ink-body); font: 400 1rem/1.6 var(--font-sans); overflow-x: clip; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; -webkit-text-size-adjust: 100%; }
 .vx-docs *, .vx-docs ::before, .vx-docs ::after { box-sizing: border-box; }
 .vx-docs svg { width: 16px; height: 16px; flex: none; fill: currentColor; }
 .vx-docs summary { list-style: none; cursor: pointer; }
 .vx-docs summary::-webkit-details-marker { display: none; }
-.vx-docs-skip { position: absolute; z-index: 9; left: var(--space-8); top: -6rem; padding: var(--space-8) var(--space-12); background: var(--surface); color: var(--ink); border: 1px solid var(--edge); border-radius: var(--radius-control); }
-.vx-docs-skip:focus { top: var(--space-8); }
 /* The phone menu's checkbox: hidden, with its label in the header's tools. It takes focus only where
    the menu shows. */
 .vx-docs-toggle { display: none; position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }

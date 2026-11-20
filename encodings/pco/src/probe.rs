@@ -21,6 +21,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 
 use crate::Pco;
@@ -156,10 +157,13 @@ fn decode_page<T: Number + NativePType>(
         .page_decompressor(buffer, n_values)
         .map_err(vortex_err_from_pco)?;
     let mut values = BufferMut::<T>::with_capacity_in(n_values, ctx.allocator().clone());
-    // SAFETY: the buffer reserves `n_values` elements, and the page decompressor was built for
-    // exactly that count, so `read` writes every element before anything observes it.
+    let progress = decoder
+        .read_uninit(&mut values.spare_capacity_mut()[..n_values])
+        .map_err(vortex_err_from_pco)?;
+    vortex_ensure_eq!(progress.n_processed, n_values);
+    // SAFETY: `read_uninit` initialized all `n_values` spare elements, as confirmed by the
+    // processed count above.
     unsafe { values.set_len(n_values) };
-    decoder.read(&mut values).map_err(vortex_err_from_pco)?;
     Ok(PrimitiveArray::new(values.freeze(), Validity::NonNullable))
 }
 

@@ -24,6 +24,7 @@ use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdArray;
+use vortex::encodings::zstd::ZstdArraySlotsExt;
 use vortex::encodings::zstd::ZstdDataParts;
 use vortex::encodings::zstd::ZstdMetadata;
 use vortex::encodings::zstd::reconstruct_views;
@@ -213,7 +214,7 @@ impl CudaExecute for ZstdExecutor {
 
 async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
     let dtype = array.dtype().clone();
-    let validity = child_to_validity(array.as_ref().slots()[0].as_ref(), dtype.nullability());
+    let validity = child_to_validity(array.validity_child(), dtype.nullability());
     let ZstdDataParts {
         frames,
         metadata,
@@ -378,6 +379,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::encodings::zstd::Zstd;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
@@ -473,7 +475,9 @@ mod tests {
         let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0, cuda_ctx.execution_ctx())?;
 
         // Slice the array to get a subset (indices 2..7)
-        let sliced_zstd = zstd_array.slice(2..7)?;
+        let sliced_zstd = zstd_array
+            .slice(2..7)?
+            .optimize_ctx(cuda_ctx.execution_ctx())?;
 
         let gpu_result = ZstdExecutor
             .execute(sliced_zstd.clone(), &mut cuda_ctx)

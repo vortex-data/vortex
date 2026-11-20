@@ -29,7 +29,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::ArrowExporter;
+use crate::ArrowExportOptions;
+use crate::ExecuteArrowExt;
 use crate::executor::validity::to_arrow_null_buffer;
 
 /// Matches the encodings [`to_arrow_list`] requires for export.
@@ -48,7 +49,7 @@ impl Matcher for ArrowListExportable {
 pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     array: ArrayRef,
     elements_field: &FieldRef,
-    exporter: &ArrowExporter<'_>,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     vortex_ensure!(
@@ -61,7 +62,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
 
     // If the Vortex array is already in List format, we can directly convert it.
     if let Some(list) = array.as_opt::<List>() {
-        return list_to_list::<O>(&list.into_owned(), elements_field, exporter, ctx);
+        return list_to_list::<O>(&list.into_owned(), elements_field, options, ctx);
     }
 
     // Otherwise the array is canonical: a ListViewArray, which we rebuild to ZCTL if needed.
@@ -80,7 +81,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     } else {
         list_view.rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)?
     };
-    list_view_zctl::<O>(zctl, elements_field, exporter, ctx)
+    list_view_zctl::<O>(zctl, elements_field, options, ctx)
 }
 
 #[allow(rustdoc::broken_intra_doc_links)]
@@ -88,7 +89,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
 fn list_to_list<O: OffsetSizeTrait + NativePType>(
     array: &ListArray,
     elements_field: &FieldRef,
-    exporter: &ArrowExporter<'_>,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     // We must cast the offsets to the required offset type.
@@ -103,8 +104,11 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
     // checked cast keeps every value, so the order stays the same.
     let offsets = unsafe { offsets.into_arrow_offset_buffer_unchecked() };
 
-    let elements =
-        exporter.execute_arrow(array.elements().clone(), Some(elements_field.as_ref()), ctx)?;
+    let elements = array.elements().clone().execute_arrow_with_options(
+        Some(elements_field.as_ref()),
+        options,
+        ctx,
+    )?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert to non-nullable Arrow array with null elements"
@@ -124,14 +128,17 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
 fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     array: ListViewArray,
     elements_field: &FieldRef,
-    exporter: &ArrowExporter<'_>,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     assert!(array.is_zero_copy_to_list());
 
     if array.is_empty() {
-        let elements =
-            exporter.execute_arrow(array.elements().clone(), Some(elements_field.as_ref()), ctx)?;
+        let elements = array.elements().clone().execute_arrow_with_options(
+            Some(elements_field.as_ref()),
+            options,
+            ctx,
+        )?;
         return Ok(Arc::new(GenericListArray::<O>::new(
             Arc::clone(elements_field),
             OffsetBuffer::new_empty(),
@@ -180,7 +187,8 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     });
 
     // Extract the elements array.
-    let elements = exporter.execute_arrow(elements, Some(elements_field.as_ref()), ctx)?;
+    let elements =
+        elements.execute_arrow_with_options(Some(elements_field.as_ref()), options, ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert to non-nullable Arrow array with null elements"
@@ -228,7 +236,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::ArrowArrayExecutor;
+    use crate::ExecuteArrowExt;
     use crate::executor::list::ListArray;
     use crate::executor::list::ListViewArray;
 
@@ -254,9 +262,10 @@ mod tests {
         let chunked = ChunkedArray::try_new(vec![first.into_array(), second.into_array()], dtype)?;
 
         let field = Field::new("item", DataType::Int32, false);
-        let actual = chunked
-            .into_array()
-            .execute_arrow(Some(&DataType::List(field.clone().into())), &mut ctx)?;
+        let actual = chunked.into_array().execute_arrow(
+            Some(&Field::new("", DataType::List(field.clone().into()), true)),
+            &mut ctx,
+        )?;
 
         let expected = GenericListArray::<i32>::try_new(
             field.into(),
@@ -291,7 +300,7 @@ mod tests {
         let arrow_dt = DataType::List(field.into());
         let arrow_array = list_array
             .into_array()
-            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
+            .execute_arrow(Some(&Field::new("", arrow_dt.clone(), true)), &mut ctx)?;
 
         // Verify the type is correct.
         assert_eq!(arrow_array.data_type(), &arrow_dt);
@@ -357,7 +366,7 @@ mod tests {
         let arrow_dt = DataType::LargeList(field.into());
         let arrow_array = list_array
             .into_array()
-            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
+            .execute_arrow(Some(&Field::new("", arrow_dt.clone(), true)), &mut ctx)?;
 
         // Verify the type is correct.
         assert_eq!(arrow_array.data_type(), &arrow_dt);
@@ -407,7 +416,7 @@ mod tests {
         let arrow_dt = DataType::List(field.into());
         let arrow_array = list_array
             .into_array()
-            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
+            .execute_arrow(Some(&Field::new("", arrow_dt, true)), &mut ctx)?;
 
         let list = arrow_array
             .as_any()
@@ -456,7 +465,7 @@ mod tests {
 
         let field = Field::new("item", DataType::Int32, false);
         let arrow_dt = DataType::List(field.into());
-        let arrow_array = sliced.execute_arrow(Some(&arrow_dt), &mut ctx)?;
+        let arrow_array = sliced.execute_arrow(Some(&Field::new("", arrow_dt, true)), &mut ctx)?;
 
         let arrow_list = arrow_array
             .as_any()
@@ -511,7 +520,7 @@ mod tests {
 
         let field = Field::new("item", DataType::Int32, false);
         let arrow_dt = DataType::List(field.into());
-        let arrow_array = masked.execute_arrow(Some(&arrow_dt), &mut ctx)?;
+        let arrow_array = masked.execute_arrow(Some(&Field::new("", arrow_dt, true)), &mut ctx)?;
 
         let arrow_list = arrow_array
             .as_any()
@@ -557,7 +566,7 @@ mod tests {
         let arrow_dt = DataType::List(Field::new("item", DataType::Int32, false).into());
         let arrow_array = list_array
             .into_array()
-            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
+            .execute_arrow(Some(&Field::new("", arrow_dt.clone(), true)), &mut ctx)?;
         assert_eq!(arrow_array.len(), 0);
         assert_eq!(arrow_array.data_type(), &arrow_dt);
         Ok(())

@@ -43,8 +43,11 @@ use vortex_array::scalar_fn::fns::is_null::IsNull;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::list_contains::ListContains;
 use vortex_array::scalar_fn::fns::literal::Literal;
+use vortex_array::scalar_fn::fns::lower::Lower;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::internal::lower_bound::LowerBound;
+use vortex_array::scalar_fn::internal::lower_bound::LowerBoundKind;
 use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -771,6 +774,10 @@ fn stat_expr(expr: &BoundExpression, stat: Stat) -> Option<BoundExpression> {
         return cast_stat(expr.child(0), dtype, stat);
     }
 
+    if expr.is::<Lower>() {
+        return lower_stat(expr.child(0), stat);
+    }
+
     let aggregate_fn = stat.aggregate_fn()?;
     // The aggregate may not support the expression's dtype, e.g. min/max over structs,
     // even when the predicate itself is well-typed. Such stats cannot be lowered later,
@@ -832,6 +839,20 @@ fn cast_stat(expr: &BoundExpression, dtype: &DType, stat: Stat) -> Option<BoundE
         Stat::NaNCount | Stat::Sum | Stat::UncompressedSizeInBytes => stat_expr(expr, stat),
         Stat::NullCount | Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted => None,
     }
+}
+
+/// Bounds `lower(input)` from the byte-ordered min/max of `input`.
+fn lower_stat(input: &BoundExpression, stat: Stat) -> Option<BoundExpression> {
+    let kind = match stat {
+        Stat::Min => LowerBoundKind::Min,
+        Stat::Max => LowerBoundKind::Max,
+        // Lowercasing maps nulls to nulls and values to values.
+        Stat::NullCount => return null_count(input),
+        _ => return None,
+    };
+    LowerBound
+        .try_new_bound_expr(kind, [min(input)?, max(input)?])
+        .ok()
 }
 
 fn stat_fn(expr: BoundExpression, aggregate_fn: AggregateFnRef) -> BoundExpression {

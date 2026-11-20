@@ -5,6 +5,7 @@ use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -14,6 +15,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
@@ -51,7 +53,7 @@ fn repeated_and_null_codes(
     let reduced = if sliced {
         dict.clone().execute_until::<Sparse>(&mut ctx)?
     } else {
-        dict.optimize()?
+        dict.optimize_ctx(&session)?
     };
     assert!(reduced.is::<Sparse>(), "{}", reduced.display_tree());
 
@@ -95,7 +97,7 @@ fn sparse_struct_uses_empty_nonnullable_list_defaults() -> VortexResult<()> {
     )?;
     let dict = DictArray::try_new(codes.into_array(), values.into_array())?.into_array();
 
-    let reduced = dict.optimize()?;
+    let reduced = dict.optimize_ctx(&session)?;
     assert!(reduced.is::<Sparse>(), "{}", reduced.display_tree());
     let actual = reduced.execute::<StructArray>(&mut ctx)?;
     assert!(actual.unmasked_field(0).is::<Sparse>());
@@ -143,7 +145,7 @@ fn nonnull_fill_keeps_dictionary() -> VortexResult<()> {
     let dict =
         DictArray::try_new(codes.into_array(), buffer![10i32, 20].into_array())?.into_array();
 
-    assert!(dict.optimize()?.is::<vortex_array::arrays::Dict>());
+    assert!(dict.optimize_ctx(&session)?.is::<Dict>());
     assert_arrays_eq!(
         dict,
         PrimitiveArray::from_option_iter([Some(10i32), Some(10), Some(20), Some(10)]),
@@ -171,6 +173,6 @@ fn unsupported_sparse_type_is_not_rewritten() -> VortexResult<()> {
         ConstantArray::new(Scalar::null(DType::Variant(Nullability::Nullable)), 1).into_array();
     let dict = DictArray::try_new(codes.clone(), values)?.into_array();
 
-    assert!(codes.reduce_parent(&dict, 0)?.is_none());
+    assert!(session.kernels().reduce_parent(&codes, &dict, 0)?.is_none());
     Ok(())
 }

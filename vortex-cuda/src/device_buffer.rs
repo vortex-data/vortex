@@ -24,7 +24,6 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
-use vortex::error::vortex_panic;
 use vortex_cuda_driver::CudaSlice;
 use vortex_cuda_driver::CudaView;
 use vortex_cuda_driver::CudaViewMut;
@@ -549,7 +548,7 @@ impl DeviceBuffer for CudaDeviceBuffer {
             offset: new_offset,
             len: new_len,
             device_ptr: self.device_ptr,
-            alignment: self.alignment,
+            alignment: min(self.alignment, slice_align),
             zeroed_tail_start: self.zeroed_tail_start,
         })
     }
@@ -560,20 +559,18 @@ impl DeviceBuffer for CudaDeviceBuffer {
 
     fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>> {
         let effective_ptr = self.device_ptr + self.offset as u64;
-        if effective_ptr.is_multiple_of(alignment.as_usize() as u64) {
-            Ok(Arc::new(CudaDeviceBuffer {
-                allocation: Arc::clone(&self.allocation),
-                offset: self.offset,
-                len: self.len,
-                device_ptr: self.device_ptr,
-                alignment,
-                zeroed_tail_start: self.zeroed_tail_start,
-            }))
-        } else if alignment > Alignment::new(256) {
-            vortex_panic!("we do not support alignment greater than 256")
-        } else {
-            vortex_panic!("some how we alloc a cuda buffer with alignment less than 256")
-        }
+        vortex_ensure!(
+            effective_ptr.is_multiple_of(alignment.as_usize() as u64),
+            "CUDA buffer cannot satisfy alignment {alignment} without copying"
+        );
+        Ok(Arc::new(CudaDeviceBuffer {
+            allocation: Arc::clone(&self.allocation),
+            offset: self.offset,
+            len: self.len,
+            device_ptr: self.device_ptr,
+            alignment,
+            zeroed_tail_start: self.zeroed_tail_start,
+        }))
     }
 }
 
@@ -603,6 +600,62 @@ mod tests {
 
     use super::*;
     use crate::CudaSession;
+
+    #[crate::test]
+    async fn alignment_update_is_metadata_only() -> VortexResult<()> {
+        let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
+        let original = ctx.copy_to_device(vec![7u8; 17])?.await?;
+        let aligned = original.clone().ensure_aligned(Alignment::new(16))?;
+        let original = original
+            .as_device_opt()
+            .expect("device buffer")
+            .as_any()
+            .downcast_ref::<CudaDeviceBuffer>()
+            .expect("CUDA buffer");
+        let aligned = aligned
+            .as_device_opt()
+            .expect("device buffer")
+            .as_any()
+            .downcast_ref::<CudaDeviceBuffer>()
+            .expect("CUDA buffer");
+
+        assert!(Arc::ptr_eq(&original.allocation, &aligned.allocation));
+        assert_eq!(aligned.offset_ptr(), original.offset_ptr());
+        assert_eq!(aligned.len(), original.len());
+        assert_eq!(aligned.alignment(), Alignment::new(16));
+        assert_eq!(aligned.zeroed_tail_start, Some(17));
+
+        let misaligned = aligned.slice(1..17);
+        for alignment in [Alignment::new(16), Alignment::new(512)] {
+            let error = Arc::clone(&misaligned).aligned(alignment).unwrap_err();
+            assert!(error.to_string().contains("without copying"), "{error}");
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::byte(1, Alignment::none())]
+    #[case::two_bytes(2, Alignment::new(2))]
+    #[case::eight_bytes(8, Alignment::new(8))]
+    #[case::aligned(16, Alignment::new(16))]
+    #[crate::test]
+    async fn slice_reduces_alignment(
+        #[case] offset: usize,
+        #[case] alignment: Alignment,
+    ) -> VortexResult<()> {
+        let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
+        let buffer = ctx
+            .copy_to_device(vec![0u8; 32])?
+            .await?
+            .ensure_aligned(Alignment::new(16))?;
+        let slice = buffer.slice(offset..32);
+        assert_eq!(slice.alignment(), alignment);
+        assert_eq!(
+            slice.cuda_device_ptr()?,
+            buffer.cuda_device_ptr()? + offset as u64
+        );
+        Ok(())
+    }
 
     #[crate::test]
     async fn mutable_view_requires_unique_ownership() -> VortexResult<()> {

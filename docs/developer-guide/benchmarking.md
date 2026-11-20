@@ -252,6 +252,13 @@ uv run --project bench-orchestrator vx-bench prepare-data <benchmark> --format p
 The data generator creates base Parquet data and converts it to each requested format. Scale
 factors are configurable per suite (e.g. `--opt scale-factor=10.0` for TPC-H SF=10).
 
+### Unstable Encodings
+
+Benchmark sessions enable the newest `preview` edition and the `unstable` edition, so every
+benchmark measures Vortex files whose compressor may also choose their encodings. `preview`
+currently holds `fastlanes.delta`, and `unstable` holds `vortex.decimal_byte_parts.v2` and
+`vortex.widen`. `vortex_bench::enable_unstable_encodings` enables both on a session.
+
 ### Running SQL Benchmarks
 
 SQL benchmarks can be run directly via their per-engine binaries:

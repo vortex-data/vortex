@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod expr;
-
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::ops::BitAnd;
@@ -11,7 +9,6 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use Nullability::NonNullable;
-pub use expr::*;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
@@ -34,6 +31,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_expr::transform::partition_bound;
 use vortex_mask::Mask;
+pub use vortex_scan::row_idx::*;
 use vortex_sequence::Sequence;
 use vortex_sequence::SequenceArray;
 use vortex_session::VortexSession;
@@ -62,6 +60,31 @@ impl RowIdxLayoutReader {
             partition_cache: DashMap::with_hasher_and_shard_amount(Default::default(), 8),
             session,
         }
+    }
+
+    fn pruning_mask<const SPLIT_ONLY: bool>(
+        &self,
+        row_range: &Range<u64>,
+        expr: &BoundExpression,
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
+        Ok(match &self.partition_expr(expr)? {
+            Partitioning::RowIdx(expr) => row_idx_mask_future(
+                self.row_offset,
+                row_range,
+                expr.clone(),
+                MaskFuture::ready(mask),
+                self.session.clone(),
+            ),
+            Partitioning::Child(expr) => {
+                if SPLIT_ONLY {
+                    self.child.split_pruning_evaluation(row_range, expr, mask)?
+                } else {
+                    self.child.pruning_evaluation(row_range, expr, mask)?
+                }
+            }
+            Partitioning::Partitioned(..) => MaskFuture::ready(mask),
+        })
     }
 
     fn partition_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioning> {
@@ -173,6 +196,30 @@ impl LayoutReader for RowIdxLayoutReader {
         self.child.row_count()
     }
 
+    fn can_prune_file(&self, expr: &BoundExpression) -> VortexResult<bool> {
+        match self.partition_expr(expr)? {
+            Partitioning::Child(expr) => self.child.can_prune_file(&expr),
+            _ => Ok(false),
+        }
+    }
+
+    fn split_pruning_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &BoundExpression,
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
+        self.pruning_mask::<true>(row_range, expr, mask)
+    }
+
+    fn split_pruning_is_statistics(&self, expr: &BoundExpression) -> VortexResult<bool> {
+        match self.partition_expr(expr)? {
+            Partitioning::RowIdx(_) => Ok(false),
+            Partitioning::Child(expr) => self.child.split_pruning_is_statistics(&expr),
+            Partitioning::Partitioned(..) => Ok(true),
+        }
+    }
+
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
@@ -188,17 +235,7 @@ impl LayoutReader for RowIdxLayoutReader {
         expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        Ok(match &self.partition_expr(expr)? {
-            Partitioning::RowIdx(expr) => row_idx_mask_future(
-                self.row_offset,
-                row_range,
-                expr.clone(),
-                MaskFuture::ready(mask),
-                self.session.clone(),
-            ),
-            Partitioning::Child(expr) => self.child.pruning_evaluation(row_range, expr, mask)?,
-            Partitioning::Partitioned(..) => MaskFuture::ready(mask),
-        })
+        self.pruning_mask::<false>(row_range, expr, mask)
     }
 
     fn filter_evaluation(
@@ -336,8 +373,9 @@ fn row_idx_array_future(
 ) -> ArrayFuture {
     let row_range = row_range.clone();
     async move {
-        // The filter is lazy: trivial masks reduce to the sequence itself or an empty array, and
-        // value masks are left for the consumer to execute alongside the expression.
+        // The filter is lazy: when the consumer optimizes or executes it, trivial masks reduce to
+        // the sequence itself or an empty array, and value masks execute alongside the
+        // expression.
         idx_array(row_offset, &row_range)
             .into_array()
             .filter(mask.await?)?
@@ -364,6 +402,7 @@ mod tests {
     use vortex_array::expr::lit;
     use vortex_array::expr::or;
     use vortex_array::expr::root;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -539,6 +578,8 @@ mod tests {
                 MaskFuture::ready(Mask::new_true(5)),
             )
             .await
+            .unwrap()
+            .optimize_ctx(&new_session())
             .unwrap();
 
             assert!(result.is::<Sequence>());

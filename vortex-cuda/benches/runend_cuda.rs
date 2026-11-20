@@ -79,7 +79,7 @@ where
     for &(len, len_str) in bench_config::BENCH_SIZES {
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
-        for run_len in [10, 1000, 100000] {
+        for run_len in [4, 10, 1000] {
             let mut cuda_ctx =
                 CudaSession::create_execution_ctx(&vortex_cuda::cuda_session()).unwrap();
             let runend_array = make_runend_array_typed::<T>(len, run_len, cuda_ctx.execution_ctx());

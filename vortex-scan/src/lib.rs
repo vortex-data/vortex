@@ -13,7 +13,7 @@
 //! stabilize into stable C ABI for use within foreign language bindings.
 //!
 //! If you are looking to scan Vortex files or layouts, the Vortex implementation of the Scan API
-//! can be found in the `vortex-layout` crate.
+//! is lowered by `vortex-layout` into this crate's plans and executor.
 //!
 //! ## Open Issues
 //!
@@ -22,12 +22,18 @@
 //! * We should add a way for the client to negotiate capabilities with the data source, for
 //!   example which encodings it knows about.
 
+pub mod arrays;
+pub mod execution;
+pub mod plan;
 pub mod planning;
+pub mod prepare;
 pub mod row_mask;
 pub mod selection;
+pub mod source;
 pub mod strict_sorted_buffer;
 
 use std::any::Any;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -170,6 +176,13 @@ pub struct ScanRequest {
     /// order is completion order, so each partition applies the limit locally and the caller must
     /// trim the concatenated result.
     pub limit: Option<u64>,
+    /// The most splits of each partition to decode at once, in all.
+    ///
+    /// `None` keeps the reader's default, which scales with the machine's cores. Each split being
+    /// decoded holds the decoded chunks of every column it overlaps, so a scan that runs alongside
+    /// others, such as one task of several on a machine, can set this to bound its memory. It does
+    /// not bound I/O: segment reads for later splits may still be coalesced ahead of them.
+    pub split_concurrency: Option<NonZeroUsize>,
 }
 
 impl Default for ScanRequest {
@@ -183,6 +196,7 @@ impl Default for ScanRequest {
             ordered: false,
             limit: None,
             partition_range: None,
+            split_concurrency: None,
         }
     }
 }
@@ -234,3 +248,11 @@ pub trait Partition: 'static + Send {
     /// threads.
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream>;
 }
+
+/// Expressions referring to the global scan row index.
+pub mod row_idx {
+    pub use crate::plan::builtins::row_idx::expr::*;
+}
+
+#[cfg(test)]
+mod test;

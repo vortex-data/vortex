@@ -22,11 +22,12 @@ use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 use super::DecimalMetadata;
-use super::DecimalPlugin;
 use crate::ArrayContext;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::ArrayDeserialization;
 use crate::array::ArrayPlugin;
 use crate::arrays::BoolArray;
@@ -85,7 +86,7 @@ fn read_node(
     Ok(ReadNode { array, stored_ptr })
 }
 
-/// Deserializes the parts of a node through [`DecimalPlugin`].
+/// Deserializes the parts of a node through the [`Decimal`] plugin.
 fn deserialize(
     dtype: &DType,
     len: usize,
@@ -93,10 +94,10 @@ fn deserialize(
     buffers: &[BufferHandle],
     children: &[ArrayRef],
 ) -> VortexResult<ArrayRef> {
-    let id = DecimalPlugin.id();
+    let id = ArrayPlugin::id(&Decimal);
     let parts = ArrayDeserialization::new(id, dtype, len, metadata, buffers, &children);
 
-    DecimalPlugin.deserialize(parts, &SESSION)
+    ArrayPlugin::deserialize(&Decimal, parts, &SESSION)
 }
 
 /// Serializes `array` through the session, then decodes it with the dtype `dtype`.
@@ -161,6 +162,7 @@ fn canonical_reference(
         canonical_type,
         decimal_dtype,
         validity,
+        &mut SESSION.create_execution_ctx(),
     )
 }
 
@@ -185,6 +187,11 @@ fn decimal_leaf(array: &ArrayRef) -> DecimalArray {
 #[case::canonical_reuse(
     DecimalType::I32, DecimalDType::new(9, 2),
     vec![-999_999_999, 0, 999_999_999], None,
+    None, true,
+)]
+#[case::canonical_null_payload(
+    DecimalType::I32, DecimalDType::new(9, 2),
+    vec![-999_999_999, i32::MAX.into(), 999_999_999], Some(vec![true, false, true]),
     None, true,
 )]
 #[case::narrow_reuse(
@@ -234,6 +241,44 @@ fn reads_node_at_any_width(
         node.array,
         canonical_reference(decimal_dtype, &slots, validity.as_deref())?,
         &mut ctx
+    );
+
+    Ok(())
+}
+
+/// A canonical node trusts its declared precision. Consumers that produce a scalar still validate
+/// its value, including both extrema in an aggregate over multiple rows.
+#[rstest]
+#[case::one_value(&[100], 0)]
+#[case::maximum(&[1, 100], 1)]
+#[case::minimum(&[-100, 1], 0)]
+fn invalid_stored_value_errors_on_access(
+    #[case] slots: &[i128],
+    #[case] invalid_row: usize,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let node = read_node(DecimalType::I8, DecimalDType::new(2, 0), slots, None)?;
+    let decimal = node.array.as_::<Decimal>();
+    assert_eq!(decimal.buffer_handle().as_host().as_ptr(), node.stored_ptr);
+
+    let scalar_error = node
+        .array
+        .execute_scalar(invalid_row, &mut ctx)
+        .unwrap_err();
+    assert!(
+        scalar_error
+            .to_string()
+            .contains("does not fit in precision"),
+        "{scalar_error}"
+    );
+
+    let aggregate_error =
+        min_max(&node.array, &mut ctx, NumericalAggregateOpts::default()).unwrap_err();
+    assert!(
+        aggregate_error
+            .to_string()
+            .contains("does not fit in precision"),
+        "{aggregate_error}"
     );
 
     Ok(())
@@ -311,6 +356,7 @@ fn invalid_validity_children_fail(
         buffer![1_234_567i32, 0, -9_999_999],
         DecimalDType::new(7, 3),
         Validity::from_iter([true, false, true]),
+        &mut SESSION.create_execution_ctx(),
     ),
     DecimalType::I32
 )]

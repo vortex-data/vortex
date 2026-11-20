@@ -202,7 +202,6 @@ pub mod test_helpers {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::NativePType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::extension::ExtDType;
     use vortex_array::scalar::PValue;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
@@ -210,7 +209,7 @@ pub mod test_helpers {
     use vortex_error::VortexResult;
 
     use crate::types::fixed_shape_tensor::FixedShapeTensor;
-    use crate::types::fixed_shape_tensor::FixedShapeTensorMetadata;
+    use crate::types::fixed_shape_tensor::FixedShapeTensorStoredMetadata;
     use crate::types::vector::Vector;
 
     /// Builds a `FixedSizeList<T, list_size>` storage array from flat `elements`. The row count is
@@ -238,10 +237,11 @@ pub mod test_helpers {
     pub fn tensor_array<T: NativePType>(shape: &[usize], elements: &[T]) -> VortexResult<ArrayRef> {
         let list_size: u32 = shape.iter().product::<usize>().max(1).try_into().unwrap();
         let storage = flat_fsl(elements, list_size);
-        let metadata = FixedShapeTensorMetadata::new(shape.to_vec());
-        let ext_dtype =
-            ExtDType::<FixedShapeTensor>::try_new(metadata, storage.dtype().clone())?.erased();
-        Ok(ExtensionArray::new(ext_dtype, storage).into_array())
+        let stored_metadata = FixedShapeTensorStoredMetadata::new(shape.to_vec());
+        Ok(
+            ExtensionArray::try_from_storage::<FixedShapeTensor>(stored_metadata, storage)?
+                .into_array(),
+        )
     }
 
     /// Builds a [`Vector`] extension array from flat `elements` and a vector dimension size.
@@ -269,10 +269,11 @@ pub mod test_helpers {
         len: usize,
     ) -> VortexResult<ArrayRef> {
         let storage = ConstantArray::new(fsl_scalar(elements), len).into_array();
-        let metadata = FixedShapeTensorMetadata::new(shape.to_vec());
-        let ext_dtype =
-            ExtDType::<FixedShapeTensor>::try_new(metadata, storage.dtype().clone())?.erased();
-        Ok(ExtensionArray::new(ext_dtype, storage).into_array())
+        let stored_metadata = FixedShapeTensorStoredMetadata::new(shape.to_vec());
+        Ok(
+            ExtensionArray::try_from_storage::<FixedShapeTensor>(stored_metadata, storage)?
+                .into_array(),
+        )
     }
 
     /// Builds a [`ConstantArray`] whose scalar is itself a [`Vector`] extension scalar, broadcast
@@ -283,8 +284,8 @@ pub mod test_helpers {
         elements: &[T],
         len: usize,
     ) -> ArrayRef {
-        use vortex_array::EmptyMetadata;
-        let ext_scalar = Scalar::extension::<Vector>(EmptyMetadata, fsl_scalar(elements));
+        let ext_scalar =
+            Scalar::try_extension_from_storage::<Vector>((), fsl_scalar(elements)).unwrap();
         ConstantArray::new(ext_scalar, len).into_array()
     }
 

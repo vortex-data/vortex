@@ -20,7 +20,7 @@ impl FilterReduce for DecimalByteParts {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::LazyLock;
 
     use vortex_array::IntoArray;
@@ -37,7 +37,11 @@ mod test {
     use crate::decimal_byte_parts::testing::i128_parts;
     use crate::decimal_byte_parts::testing::i256_parts;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_filter_decimal_byte_parts() {

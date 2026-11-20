@@ -30,7 +30,11 @@ mod tests {
     struct Apples;
 
     impl ExtVTable for Apples {
-        type Metadata = usize;
+        // The metadata is the storage dtype, so the tests can wrap any storage dtype. It is the
+        // nullable form of that dtype, because the extension dtype applies the top-level
+        // nullability.
+        type Metadata = DType;
+        type StoredMetadata = ();
         type NativeValue<'a> = &'a str;
 
         #[expect(clippy::disallowed_methods, reason = "test-only id")]
@@ -42,12 +46,20 @@ mod tests {
             Ok(vec![])
         }
 
-        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
-            Ok(0)
+        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::StoredMetadata> {
+            Ok(())
         }
 
-        fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-            Ok(())
+        fn metadata_from_storage(
+            &self,
+            _stored_metadata: Self::StoredMetadata,
+            storage_dtype: &DType,
+        ) -> VortexResult<Self::Metadata> {
+            Ok(storage_dtype.as_nullable())
+        }
+
+        fn storage_dtype(metadata: &Self::Metadata) -> DType {
+            metadata.clone()
         }
 
         fn unpack_native<'a>(
@@ -59,93 +71,39 @@ mod tests {
     }
 
     impl Apples {
-        fn new() -> ExtDType<Apples> {
-            ExtDType::try_new(0, DType::Primitive(PType::U16, Nullability::NonNullable))
-                .vortex_expect("valid apples dtype")
+        /// An `Apples` dtype with the supplied storage, reconstructed through the read path.
+        fn new(storage_dtype: DType) -> ExtDType<Apples> {
+            ExtDType::try_from_storage((), storage_dtype)
+                .vortex_expect("Apples accepts every storage dtype")
         }
     }
 
     #[test]
-    fn cast_to_from_extension_types() {
-        let apples = Apples::new();
+    fn cast_to_from_extension_types() -> VortexResult<()> {
+        let apples = Apples::new(DType::Primitive(PType::U16, Nullability::NonNullable));
+        let storage_dtype = apples.storage_dtype().clone();
+        let storage_scalar = Scalar::from(1000u16);
+        let ext_scalar = Scalar::extension_ref(apples.erased(), storage_scalar.clone());
+        let ext_dtype = ext_scalar.dtype();
+        let nullable_ext_dtype = ext_dtype.as_nullable();
 
-        let ext_dtype = DType::Extension(apples.clone().erased());
-        let ext_scalar = Scalar::new(
-            ext_dtype.clone(),
-            Some(ScalarValue::Primitive(PValue::U16(1000))),
-        );
+        for target in [ext_dtype, &nullable_ext_dtype] {
+            let actual = ext_scalar.cast(target)?;
+            assert_eq!(actual.dtype(), target);
+            assert_eq!(actual.value(), ext_scalar.value());
+            assert!(storage_scalar.cast(target).is_err());
+        }
 
-        let storage_scalar = Scalar::new(
-            DType::clone(apples.storage_dtype()),
-            Some(ScalarValue::Primitive(PValue::U16(1000))),
-        );
-
-        // to self
-        let expected_dtype = &ext_dtype;
-        let actual = ext_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-        assert_eq!(
-            actual.value(),
-            Some(&ScalarValue::Primitive(PValue::U16(1000)))
-        );
-
-        // to nullable self
-        let expected_dtype = &ext_dtype.as_nullable();
-        let actual = ext_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-        assert_eq!(
-            actual.value(),
-            Some(&ScalarValue::Primitive(PValue::U16(1000)))
-        );
-
-        // cast to the storage type
-        let expected_dtype = apples.storage_dtype();
-        let actual = ext_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-        assert_eq!(
-            actual.value(),
-            Some(&ScalarValue::Primitive(PValue::U16(1000)))
-        );
-
-        // cast to the storage type, nullable
-        let expected_dtype = &apples.storage_dtype().as_nullable();
-        let actual = ext_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-        assert_eq!(
-            actual.value(),
-            Some(&ScalarValue::Primitive(PValue::U16(1000)))
-        );
-
-        // cast from storage type to extension
-        let expected_dtype = &ext_dtype;
-        let actual = storage_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-        assert_eq!(
-            actual.value(),
-            Some(&ScalarValue::Primitive(PValue::U16(1000)))
-        );
-
-        // cast from storage type to extension, nullable
-        let expected_dtype = &ext_dtype.as_nullable();
-        let actual = storage_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-        assert_eq!(
-            actual.value(),
-            Some(&ScalarValue::Primitive(PValue::U16(1000)))
-        );
-
-        // cast from *incompatible* storage type to extension
-        let apples_u8 =
-            ExtDType::<Apples>::try_new(0, DType::Primitive(PType::U8, Nullability::NonNullable))
-                .unwrap();
-        let expected_dtype = &DType::Extension(apples_u8.erased());
-        let result = storage_scalar.cast(expected_dtype);
+        assert!(ext_scalar.cast(&storage_dtype).is_err());
+        assert!(ext_scalar.cast(&storage_dtype.as_nullable()).is_err());
+        let apples_u8 = Apples::new(DType::Primitive(PType::U8, Nullability::NonNullable));
         assert!(
-            result
-                .as_ref()
-                .is_err_and(|err| { err.to_string().contains("Cannot cast 1000u16 to u8") }),
-            "{result:?}"
+            storage_scalar
+                .cast(&DType::Extension(apples_u8.erased()))
+                .is_err()
         );
+
+        Ok(())
     }
 
     #[test]
@@ -308,8 +266,7 @@ mod tests {
 
     #[test]
     fn test_extension_dtype_requires_canonical_storage() -> VortexResult<()> {
-        let storage_dtype = DType::Primitive(PType::F16, Nullability::NonNullable);
-        let ext_dtype = ExtDType::<Apples>::try_new(0, storage_dtype)?;
+        let ext_dtype = Apples::new(DType::Primitive(PType::F16, Nullability::NonNullable));
 
         let f16_value = f16::from_f32(0.42);
         let dtype = DType::Extension(ext_dtype.erased());
@@ -353,7 +310,7 @@ mod tests {
             ]),
             Nullability::NonNullable,
         );
-        let ext_dtype = ExtDType::<Apples>::try_new(0, struct_dtype)?;
+        let ext_dtype = Apples::new(struct_dtype);
 
         let f16_value = f16::from_f32(1.5);
         let field_values = vec![

@@ -73,37 +73,22 @@ fn filter_records_use_execution_allocator() {
 ).into_array())]
 #[case::primitive_large(PrimitiveArray::from_iter(0..LARGE_SIZE as u32).into_array())]
 #[case::primitive_medium(PrimitiveArray::from_iter(0..MEDIUM_SIZE as i64).into_array())]
-#[case::decimal_i8(DecimalArray::new(
-    buffer![1i8, 2, 3, 4, 5],
-    DecimalDType::new(2, 0),
-    Validity::NonNullable,
-).into_array())]
-#[case::decimal_i32(DecimalArray::new(
-    buffer![123i32, 456, -123, 0, 999],
-    DecimalDType::new(8, 2),
-    Validity::NonNullable,
-).into_array())]
-#[case::decimal_i64(DecimalArray::new(
-    buffer![12345i64, 67890, -12345, 0, 99999],
-    DecimalDType::new(18, 2),
-    Validity::NonNullable,
-).into_array())]
+#[case::decimal_i8(DecimalArray::from_iter([1i8, 2, 3, 4, 5], DecimalDType::new(2, 0)).into_array())]
+#[case::decimal_i32(DecimalArray::from_iter([123i32, 456, -123, 0, 999], DecimalDType::new(8, 2)).into_array())]
+#[case::decimal_i64(DecimalArray::from_iter([12345i64, 67890, -12345, 0, 99999], DecimalDType::new(18, 2)).into_array())]
 #[case::decimal_i128(DecimalArray::new(
     buffer![12345i128, 67890, -12345, 0, 99999],
     DecimalDType::new(38, 4),
     Validity::from_iter([true, false, true, true, false]),
+    &mut SESSION.create_execution_ctx(),
 ).into_array())]
-#[case::decimal_i256(DecimalArray::new(
-    buffer![
+#[case::decimal_i256(DecimalArray::from_iter([
         i256::from_i128(12345),
         i256::from_i128(67890),
         i256::from_i128(-12345),
         i256::ZERO,
         i256::from_i128(99999),
-    ],
-    DecimalDType::new(76, 4),
-    Validity::NonNullable,
-).into_array())]
+    ], DecimalDType::new(76, 4)).into_array())]
 fn fixed_width_filter_conformance(#[case] array: ArrayRef) {
     test_filter_conformance(&array, &mut SESSION.create_execution_ctx());
 }

@@ -41,6 +41,7 @@ use vortex_bench::datasets::struct_list_of_ints::StructListOfInts;
 use vortex_bench::datasets::taxi_data::TaxiData;
 use vortex_bench::datasets::tpch_l_comment::TPCHLCommentCanonical;
 use vortex_bench::datasets::tpch_l_comment::TPCHLCommentChunked;
+use vortex_bench::datasets::tpch_sf1::TpchSf1Table;
 use vortex_bench::display::DisplayFormat;
 use vortex_bench::display::print_measurements_json;
 use vortex_bench::display::render_table;
@@ -325,6 +326,7 @@ async fn run_compress(
         &DownloadableDataset::AirQuality,
     ]
     .into_iter()
+    .chain(TpchSf1Table::ALL.iter().map(|d| d as &dyn Dataset))
     .chain(structlistofints.iter().map(|d| d as &dyn Dataset))
     .chain(sparse_wide.iter().map(|d| d as &dyn Dataset))
     .collect();

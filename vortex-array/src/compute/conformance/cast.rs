@@ -126,7 +126,7 @@ fn test_cast_from_null(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     ];
 
     for dtype in non_nullable_types {
-        assert!(cast_and_execute(&array.clone(), dtype.clone(), ctx).is_err());
+        assert!(cast_and_execute(&array.clone(), dtype, ctx).is_err());
     }
 }
 

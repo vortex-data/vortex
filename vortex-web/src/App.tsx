@@ -180,6 +180,9 @@ function App() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
+          <a className="vx-skip-link" href="#main">
+            Skip to content
+          </a>
           <FileHeader onClose={closeFile} view={view} onViewChange={setView} />
           <MainArea view={view} />
           <StatusBar />

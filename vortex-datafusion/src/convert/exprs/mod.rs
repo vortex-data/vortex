@@ -19,9 +19,16 @@ use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::exec_datafusion_err;
 use datafusion_common::format::DEFAULT_FORMAT_OPTIONS;
+use datafusion_common::tree_node::Transformed as DFTransformed;
+use datafusion_common::tree_node::TreeNode;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
+use datafusion_functions::string::contains::ContainsFunc;
+use datafusion_functions::string::ends_with::EndsWithFunc;
+use datafusion_functions::string::lower::LowerFunc;
 use datafusion_functions::string::octet_length::OctetLengthFunc;
+use datafusion_functions::string::starts_with::StartsWithFunc;
+use datafusion_functions::unicode::strpos::StrposFunc;
 use datafusion_functions_nested::array_sum::ArraySum;
 use datafusion_functions_nested::array_transform::ArrayTransform;
 use datafusion_functions_nested::length::ArrayLength;
@@ -38,6 +45,7 @@ use vortex::aggregate_fn::NumericalAggregateOpts;
 use vortex::array::VortexSessionExecute;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
+use vortex::dtype::PType;
 use vortex::dtype::StructFields;
 use vortex::expr::Expression;
 use vortex::expr::Lambda;
@@ -51,13 +59,16 @@ use vortex::expr::list_length;
 use vortex::expr::list_sum_opts;
 use vortex::expr::list_transform;
 use vortex::expr::lit;
+use vortex::expr::lower;
 use vortex::expr::nested_case_when;
 use vortex::expr::not;
 use vortex::expr::pack;
 use vortex::expr::root;
+use vortex::expr::strpos;
 use vortex::expr::traversal::NodeExt;
 use vortex::expr::traversal::Transformed;
 use vortex::expr::var;
+use vortex::layout::layouts::row_idx;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
@@ -67,6 +78,8 @@ use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
+
+use crate::row_index::RowIndex;
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
@@ -167,30 +180,66 @@ pub trait ExpressionConverter: Send + Sync {
         source_projection: ProjectionExprs,
         input_schema: &Schema,
     ) -> DFResult<ProcessedProjection> {
-        let (scan_projection, scan_reference_schema) =
-            raw_projection(&source_projection.column_indices(), input_schema)?;
-        Ok(ProcessedProjection {
-            scan_projection,
-            scan_reference_schema,
-            leftover_projection: source_projection,
-        })
+        raw_projection(
+            &source_projection.column_indices(),
+            input_schema,
+            source_projection,
+        )
     }
 }
 
-/// Read the raw columns at `indices` in file order, without involving custom expression
-/// conversion. Returns the scan projection and the Arrow schema of its output.
+/// Read raw columns and any physical row index needed by the leftover projection,
+/// without involving custom expression conversion. Replace row-index leaves with scan columns.
 pub(crate) fn raw_projection(
     indices: &[usize],
     input_schema: &Schema,
-) -> DFResult<(Expression, Schema)> {
+    source_projection: ProjectionExprs,
+) -> DFResult<ProcessedProjection> {
     let schema = input_schema.project(indices)?;
-    let scan_columns = schema.fields().iter().map(|field| {
-        (
-            field.name().clone(),
-            get_item(field.name().as_str(), root()),
-        )
-    });
-    Ok((pack(scan_columns, Nullability::NonNullable), schema))
+    let mut scan_columns = schema
+        .fields()
+        .iter()
+        .map(|field| {
+            (
+                field.name().clone(),
+                get_item(field.name().as_str(), root()),
+            )
+        })
+        .collect_vec();
+    // Use a private, collision-free scan field, independently of output aliases.
+    let mut row_index_name = "__vortex_row_index".to_owned();
+    while input_schema.field_with_name(&row_index_name).is_ok() {
+        row_index_name.push('_');
+    }
+    let mut needs_row_index = false;
+    let leftover_projection = source_projection.try_map_exprs(|expr| {
+        expr.transform_up(|expr| {
+            if expr.is::<RowIndex>() {
+                needs_row_index = true;
+                Ok(DFTransformed::yes(
+                    Arc::new(df_expr::Column::new(&row_index_name, indices.len()))
+                        as Arc<dyn PhysicalExpr>,
+                ))
+            } else {
+                Ok(DFTransformed::no(expr))
+            }
+        })
+        .map(|transformed| transformed.data)
+    })?;
+    let mut fields = schema.fields().to_vec();
+    if needs_row_index {
+        scan_columns.push((row_index_name.clone(), row_idx::row_idx()));
+        fields.push(Arc::new(Field::new(
+            row_index_name,
+            DataType::UInt64,
+            false,
+        )));
+    }
+    Ok(ProcessedProjection {
+        scan_projection: pack(scan_columns, Nullability::NonNullable),
+        scan_reference_schema: Schema::new_with_metadata(fields, schema.metadata().clone()),
+        leftover_projection,
+    })
 }
 
 /// Why an expression was not converted.
@@ -322,6 +371,9 @@ impl DefaultExpressionConverter {
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
+        if expr.is::<RowIndex>() {
+            return Ok(row_idx::row_idx());
+        }
         if let Some(binary_expr) = expr.downcast_ref::<df_expr::BinaryExpr>() {
             let operator =
                 try_operator_from_df(binary_expr.op()).ok_or(Unconverted::Unsupported)?;
@@ -445,13 +497,9 @@ impl DefaultExpressionConverter {
         }
 
         if let Some(like) = expr.downcast_ref::<df_expr::LikeExpr>() {
-            if !like.expr().data_type(schema)?.is_string()
-                || !like.pattern().data_type(schema)?.is_string()
-            {
-                return Err(Unconverted::Unsupported);
-            }
-            let child = self.convert_expr(like.expr(), schema, input_dtype)?;
-            let pattern = self.convert_expr(like.pattern(), schema, input_dtype)?;
+            // Dictionary-encoded strings convert to Utf8 too.
+            let child = self.convert_string(like.expr(), schema, input_dtype)?;
+            let pattern = self.convert_string(like.pattern(), schema, input_dtype)?;
             return Ok(Like.new_expr(
                 LikeOptions {
                     negated: like.negated(),
@@ -529,6 +577,9 @@ impl DefaultExpressionConverter {
     }
 
     /// Imports one scalar through the session's Arrow plugins, preserving `field`'s metadata.
+    ///
+    /// A literal that the plugins reject stays in DataFusion, including when a plugin accepts the
+    /// field but rejects the value.
     fn import_literal(&self, literal: &df_expr::Literal, field: &Field) -> Conversion<Scalar> {
         let array = literal.value().to_array()?;
         if array.len() != 1 {
@@ -544,12 +595,27 @@ impl DefaultExpressionConverter {
         self.session
             .arrow()
             .from_arrow_array(array, field)
-            .and_then(|array| array.execute_scalar(0, &mut self.session.create_execution_ctx()))
+            .map_err(|_| Unconverted::Unsupported)?
+            .execute_scalar(0, &mut self.session.create_execution_ctx())
             .map_err(|error| {
                 Unconverted::Failed(DataFusionError::External(Box::new(
                     error.with_context(format!("Failed to convert literal {literal}")),
                 )))
             })
+    }
+
+    /// Converts a string argument of a string function.
+    fn convert_string(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        let converted = self.convert_expr(expr, schema, input_dtype)?;
+        if !converted_dtype(&converted, input_dtype)?.is_utf8() {
+            return Err(Unconverted::Unsupported);
+        }
+        Ok(converted)
     }
 
     fn convert_in_list(
@@ -558,12 +624,24 @@ impl DefaultExpressionConverter {
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
+        let value_type = in_list.expr().data_type(schema)?;
         if in_list.is_empty()
             || !in_list
                 .list()
                 .iter()
                 .all(|expr| expr.is::<df_expr::Literal>())
-            || !supported_data_types(&in_list.expr().data_type(schema)?)
+            || !supported_data_types(&value_type)
+        {
+            return Err(Unconverted::Unsupported);
+        }
+        // DataFusion reads the nulls of a run-end encoded list from its physical validity, which
+        // is always empty, so it ignores a NULL element that SQL, and Vortex, do not.
+        if matches!(value_type, DataType::RunEndEncoded(..))
+            && in_list.list().iter().any(|element| {
+                element
+                    .downcast_ref::<df_expr::Literal>()
+                    .is_some_and(|literal| literal.value().is_null())
+            })
         {
             return Err(Unconverted::Unsupported);
         }
@@ -606,6 +684,67 @@ impl DefaultExpressionConverter {
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
+        if ScalarFunctionExpr::try_downcast_func::<LowerFunc>(scalar_fn).is_some() {
+            let [input] = scalar_fn.args() else {
+                return Err(exec_datafusion_err!("lower requires exactly one argument").into());
+            };
+            return Ok(lower(self.convert_string(input, schema, input_dtype)?));
+        }
+
+        if ScalarFunctionExpr::try_downcast_func::<StrposFunc>(scalar_fn).is_some() {
+            let [input, search] = scalar_fn.args() else {
+                return Err(exec_datafusion_err!("strpos requires exactly two arguments").into());
+            };
+            let position = strpos(
+                self.convert_string(input, schema, input_dtype)?,
+                self.convert_string(search, schema, input_dtype)?,
+            );
+            return match scalar_fn.return_type() {
+                DataType::Int64 => Ok(position),
+                // DataFusion only returns Int32 for strings with 32-bit offsets, whose positions
+                // fit.
+                DataType::Int32 => {
+                    let nullability = converted_dtype(&position, input_dtype)?.nullability();
+                    Ok(cast(position, DType::Primitive(PType::I32, nullability)))
+                }
+                _ => Err(Unconverted::Unsupported),
+            };
+        }
+
+        let like_pattern: Option<fn(&str) -> String> =
+            if ScalarFunctionExpr::try_downcast_func::<ContainsFunc>(scalar_fn).is_some() {
+                Some(|needle| format!("%{needle}%"))
+            } else if ScalarFunctionExpr::try_downcast_func::<StartsWithFunc>(scalar_fn).is_some() {
+                Some(|needle| format!("{needle}%"))
+            } else if ScalarFunctionExpr::try_downcast_func::<EndsWithFunc>(scalar_fn).is_some() {
+                Some(|needle| format!("%{needle}"))
+            } else {
+                None
+            };
+        if let Some(like_pattern) = like_pattern {
+            let [input, needle] = scalar_fn.args() else {
+                return Err(exec_datafusion_err!(
+                    "{} requires exactly two arguments",
+                    scalar_fn.name()
+                )
+                .into());
+            };
+            // Only a literal needle becomes a LIKE pattern that encodings and stats can use.
+            let Some(Some(needle)) = needle
+                .downcast_ref::<df_expr::Literal>()
+                .and_then(|literal| literal.value().try_as_str())
+            else {
+                return Err(Unconverted::Unsupported);
+            };
+            return Ok(Like.new_expr(
+                LikeOptions::default(),
+                [
+                    self.convert_string(input, schema, input_dtype)?,
+                    lit(like_pattern(&escape_like(needle))),
+                ],
+            ));
+        }
+
         if ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some() {
             // DataFusion's GetFieldFunc flattens nested field access into a single call
             // with multiple field name arguments, e.g. `outer.inner.leaf` becomes
@@ -796,6 +935,18 @@ pub(crate) fn is_infallible(expr: &Expression) -> bool {
         && expr.children().iter().all(is_infallible)
 }
 
+/// Escapes the LIKE wildcards and escape character in `literal`.
+fn escape_like(literal: &str) -> String {
+    let mut escaped = String::with_capacity(literal.len());
+    for c in literal.chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    escaped
+}
+
 /// The Vortex return dtype of a converted expression; unresolvable dtypes are unsupported.
 fn converted_dtype(expr: &Expression, input_dtype: &DType) -> Conversion<DType> {
     expr.return_dtype(input_dtype)
@@ -839,6 +990,19 @@ fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastP
     use DataType::*;
     Ok(match (source, target) {
         _ if source == target => CastPushdown::Drop,
+        // Views preserve narrow-offset strings without concatenating their values.
+        (Utf8, Utf8View) => CastPushdown::Drop,
+        // Decoding to views does not concatenate dictionary values into a narrow offset buffer.
+        (Dictionary(_, values), Utf8View) if matches!(values.as_ref(), Utf8 | Utf8View) => {
+            CastPushdown::Drop
+        }
+        // Run expansion gathers dictionary keys, then decodes them directly to views.
+        (RunEndEncoded(run_ends, values), Utf8View)
+            if matches!(run_ends.data_type(), Int16 | Int32)
+                && matches!(values.data_type(), Dictionary(_, strings) if matches!(strings.as_ref(), Utf8 | Utf8View)) =>
+        {
+            CastPushdown::Drop
+        }
         // Arrow expands runs by gathering with `Int32` indices, which fit Int16/Int32 run ends.
         // Gathering a dictionary only moves keys and reuses the values, so nothing can overflow.
         (RunEndEncoded(run_ends, values), Dictionary(..))
@@ -919,9 +1083,18 @@ fn try_operator_from_df(value: &DFOperator) -> Option<Operator> {
 fn supported_data_types(dt: &DataType) -> bool {
     use DataType::*;
 
-    // For dictionary types, check if the value type is supported.
-    if let Dictionary(_, value_type) = dt {
-        return supported_data_types(value_type.as_ref());
+    // For dictionary and run-end encoded types, check if the value type is supported. Arrow's
+    // comparison kernels only unwrap run-end encoding as the outermost layer.
+    match dt {
+        Dictionary(_, value_type) => {
+            return !matches!(value_type.as_ref(), RunEndEncoded(..))
+                && supported_data_types(value_type.as_ref());
+        }
+        RunEndEncoded(_, values) => {
+            return !matches!(values.data_type(), RunEndEncoded(..))
+                && supported_data_types(values.data_type());
+        }
+        _ => {}
     }
 
     let is_supported = dt.is_null()

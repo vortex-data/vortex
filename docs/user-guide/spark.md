@@ -3,11 +3,11 @@
 Vortex provides a Spark file data source for reading and writing Vortex files. Choose the
 artifact matching both the Spark and Scala versions in the application:
 
-| Artifact                           | Spark           | Scala |
-|------------------------------------|-----------------|-------|
-| `dev.vortex:vortex-spark-3.5_2.12` | 3.5.x           | 2.12  |
-| `dev.vortex:vortex-spark-3.5_2.13` | 3.5.x           | 2.13  |
-| `dev.vortex:vortex-spark-4.0_2.13` | 4.0.x and 4.1.x | 2.13  |
+| Artifact                           | Spark          | Scala |
+|------------------------------------|----------------|-------|
+| `dev.vortex:vortex-spark-3.5_2.12` | 3.5.x          | 2.12  |
+| `dev.vortex:vortex-spark-3.5_2.13` | 3.5.x          | 2.13  |
+| `dev.vortex:vortex-spark-4.0_2.13` | 4.0.x to 4.3.x | 2.13  |
 
 Use the `all` classifier JAR. It bundles the Vortex JNI bindings, native libraries for Linux
 (x86_64 and aarch64), macOS (aarch64), and Windows (x86_64), and relocated Arrow, Guava, and
@@ -35,7 +35,8 @@ spark = (
 
 ```{note}
 Spark's `--packages` option cannot select the `all` classifier. It resolves the thin JAR,
-which fails at runtime because the relocated dependencies are only in the classified JAR.
+which fails at runtime with `NoClassDefFoundError: dev/vortex/relocated/...` because the
+relocated dependencies are only in the classified JAR.
 ```
 
 For a JVM build, specify the classifier explicitly.
@@ -96,9 +97,12 @@ because the reader projects a struct as the file stores it and cannot widen one 
 match another's; inference fails and names the field. Two files that give the same column
 different types fail the same way.
 
-Comparisons (`=`, `<>`, `>`, `>=`, `<`, `<=`), `IS NULL`, `IS NOT NULL`, `IN`, and the string
-predicates `STARTS_WITH`, `ENDS_WITH`, and `CONTAINS` can be pushed into the Vortex scan.
-Nested filter pushdown through the V1 fallback also requires `vortex` in
+### Filter Pushdown
+
+Comparisons (`=`, `<=>`, `<>`, `>`, `>=`, `<`, `<=`), `IS NULL`, `IS NOT NULL`, `IN`, the string
+predicates `STARTS_WITH`, `ENDS_WITH`, and `CONTAINS`, a bare boolean column, and `AND`, `OR`,
+and `NOT` combinations of them can be pushed into the Vortex scan. Spark evaluates the other
+filters after the scan. Nested filter pushdown through the V1 fallback also requires `vortex` in
 `spark.sql.optimizer.nestedPredicatePushdown.supportedFileSources`. A filter reading a column
 that some file does not carry is evaluated by Spark above the scan rather than pushed into that
 file.
@@ -117,15 +121,24 @@ df.write()
 ```
 
 Spark's commit protocol owns output naming, task retries, append, truncate, and static or dynamic
-partition overwrite. Partitioned writes use the normal DataFrame API:
+partition overwrite.
+
+### Partitioned Data
+
+`partitionBy` writes each partition to a Hive-style `column=value` directory:
 
 ```java
 df.write()
     .format("vortex")
-    .partitionBy("date")
+    .partitionBy("year", "country")
     .mode(SaveMode.Overwrite)
     .save("/path/to/output");
 ```
+
+When the connector reads a directory, it adds the `column=value` directory names to the schema
+as partition columns.
+
+### Bucketing and Write Options
 
 Catalog tables can also be bucketed, with `bucketBy(...).saveAsTable(...)`, `CLUSTERED BY`, or
 `PARTITIONED BY (bucket(n, col))`. Spark writes these as its standard bucket files, so joins and
@@ -133,10 +146,11 @@ aggregations on the bucket columns can skip the shuffle. Spark's session catalog
 `years`, `months`, `days`, and `hours` transforms for every file format. To partition by time,
 derive the column and partition by it, for example `withColumn("year", year(col("ts")))`.
 
-| Option                    | Default | Description |
-|---------------------------|---------|-------------|
-| `batch.size`              | `2048`  | Rows buffered per write batch; range 1–65536. |
+| Option                    | Default | Description                                                              |
+|---------------------------|---------|--------------------------------------------------------------------------|
+| `batch.size`              | `2048`  | Rows buffered per write batch; range 1–65536.                            |
 | `vortex.write.batch.size` | —       | Rows buffered per write batch for Vortex alone, overriding `batch.size`. |
+| `vortex.write.compact`    | `false` | Write with the compact strategy: smaller files, slower reads.            |
 
 ## Spark SQL
 
@@ -193,17 +207,20 @@ credentials, and retry behavior. Configure remote storage through Spark's Hadoop
 and use the matching Hadoop scheme, for example `s3a://` for S3 and `abfs://` for Azure. Vortex's
 own storage clients are not used by the Spark connector.
 
-| Option                     | Default | Description |
-|----------------------------|---------|-------------|
-| `vortex.readConcurrency`   | `0`     | Maximum Hadoop read upcalls per file; `0` uses the native default. |
-| `vortex.workerThreads`     | `4`     | Background threads driving Vortex futures. JVM-wide, and set once per JVM by the first read or write. |
-| `vortex.session.provider`  | —       | Fully-qualified name of a `VortexSessionProvider` supplying a custom session on the driver and on every executor. |
-| `vortex.aggregatePushdown` | `true`  | Answer `COUNT(*)` from file footers. |
-| `vortex.splitFiles`        | `true`  | Let Spark split a large file across tasks, as it does Parquet files. |
-| `vortex.mergeSchema`       | `true`  | Merge every file's footer schema, rather than reading one footer. |
-| `vortex.stats.rowCount`    | `true`  | Read footer row counts for Spark statistics. |
-| `vortex.footerParallelism` | `8`     | Maximum concurrent footer reads, for schema merging and statistics. |
-| `vortex.stats.maxFiles`    | `1000`  | Skip footer row counts above this file count; `0` removes the bound. |
+| Option                          | Default    | Description |
+|---------------------------------|------------|-------------|
+| `vortex.readConcurrency`        | `0`        | Maximum Hadoop read upcalls per file; `0` uses the native default. |
+| `vortex.read.coalesce.distance` | `1048576`  | Maximum gap in bytes between storage reads that the reader merges into one request; `0` merges only adjacent or overlapping reads. A larger gap makes fewer requests but reads more bytes. |
+| `vortex.read.coalesce.maxSize`  | `16777216` | Maximum span in bytes of a merged read. Must be positive. |
+| `vortex.splitConcurrency`       | `0`        | Most row splits of a file decoded at once by one task; `0` uses the native default of four per core. Lowering this reduces memory held by concurrent split decoding and Arrow conversion. A scan with both a filter and a limit may also retain one trimmed array per split while preparing output. This does not cap total native memory or I/O read-ahead. |
+| `vortex.workerThreads`          | `4`        | Background threads driving Vortex futures. JVM-wide, and set once per JVM by the first read or write. |
+| `vortex.session.provider`       | —          | Fully-qualified name of a `VortexSessionProvider` supplying a custom session on the driver and on every executor. |
+| `vortex.aggregatePushdown`      | `true`     | Answer `COUNT(*)` from file footers. |
+| `vortex.splitFiles`             | `true`     | Let Spark split a large file across tasks, as it does Parquet files. |
+| `vortex.mergeSchema`            | `true`     | Merge every file's footer schema, rather than reading one footer. |
+| `vortex.stats.rowCount`         | `true`     | Read footer row counts for Spark statistics. |
+| `vortex.footerParallelism`      | `8`        | Maximum concurrent footer reads, for schema merging and statistics. |
+| `vortex.stats.maxFiles`         | `1000`     | Skip footer row counts above this file count; `0` removes the bound. |
 
 Option names are matched without regard to case, as they are everywhere else in Spark.
 
@@ -215,6 +232,13 @@ reading footers at all.
 Each task of a split file reads the rows at the same fraction of the file as its byte range, cut
 on 8192-row boundaries. A footer is read again on executors that haven't cached it, and a chunk
 that spans a cut is decoded by both tasks next to it.
+
+### Custom Session
+
+All reads and writes in a JVM share one native Vortex session. To use a custom session, set
+the `vortex.session.provider` option to the class name of a
+`dev.vortex.spark.VortexSessionProvider` implementation with a no-argument constructor. Each
+executor creates the session one time and uses it for the life of the JVM.
 
 ## Supported Types
 
