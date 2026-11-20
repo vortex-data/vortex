@@ -88,7 +88,21 @@ pub(super) fn open(state: Arc<ScanState>, units: Vec<Unit>) -> VortexResult<Scan
         limit: state.limit.map_or(PoolLimit::Unlimited, |limit| {
             PoolLimit::Trim(RowLimit::new(limit))
         }),
-        split_concurrency: state.split_concurrency,
+        // A part keeps the reads of all of its chunks in flight on its own, so an unordered pool
+        // runs one part per core, as develop's V2 scan runs one part per thread, rather than the
+        // four units per core that suit a V1 split.
+        split_concurrency: if state.ordered {
+            state.split_concurrency
+        } else {
+            let cores = get_available_parallelism()
+                .and_then(NonZeroUsize::new)
+                .unwrap_or(NonZeroUsize::MIN);
+            Some(
+                state
+                    .split_concurrency
+                    .map_or(cores, |limit| limit.min(cores)),
+            )
+        },
         handle: state.session.handle(),
         // An ordered pool expands each deferred child only once the units before it are taken;
         // an unordered one opens as many children at once as V1 opens files, one per core, so the
