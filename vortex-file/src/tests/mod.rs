@@ -9,6 +9,7 @@
 #![expect(clippy::cast_possible_truncation)]
 
 mod extension_layout;
+mod nullable_struct_zones;
 mod scan_metrics;
 
 use std::fs;
