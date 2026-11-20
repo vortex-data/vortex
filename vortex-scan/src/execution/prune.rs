@@ -33,7 +33,55 @@ use crate::planning::planner::WorkScope;
 
 /// The planner a prune planner continues into, given the rows pruning kept, or `None` when
 /// no pruning plan ran.
-pub type PruneNext = Box<dyn FnOnce(Option<Mask>) -> Box<dyn Planner> + Send>;
+pub type PruneNext = Box<dyn FnOnce(Option<Kept>) -> Box<dyn Planner> + Send>;
+
+/// The rows zone pruning kept, with the dynamic version each conjunct's pruning plan ran at.
+///
+/// A dynamic value, such as a top-N's bound, can tighten after pruning ran and before a chunk of
+/// the kept rows is planned. The chunk compares these versions with the current ones to prune
+/// again with the conjuncts that changed since, so it never takes rows pruned at an old value
+/// for rows pruned at the current one.
+#[derive(Clone, Debug)]
+pub struct Kept {
+    mask: Mask,
+    /// Per conjunct, the dynamic version its pruning plan ran at, or `None` when the conjunct
+    /// has no dynamic expression or its pruning plan did not run.
+    versions: Arc<[Option<u64>]>,
+}
+
+impl Kept {
+    /// Which rows pruning kept.
+    pub fn mask(&self) -> &Mask {
+        &self.mask
+    }
+
+    /// The kept rows of `range`, with the same versions.
+    pub fn slice(&self, range: Range<usize>) -> Self {
+        Self {
+            mask: self.mask.slice(range),
+            versions: Arc::clone(&self.versions),
+        }
+    }
+
+    /// The rows both this and `later`, a pruning of the same rows that ran after this one, kept.
+    /// A conjunct takes the version `later` ran it at, or this one's when `later` skipped it.
+    pub fn intersect(&self, later: &Self) -> Self {
+        let versions = self
+            .versions
+            .iter()
+            .zip(later.versions.iter())
+            .map(|(earlier, later)| later.or(*earlier))
+            .collect();
+        Self {
+            mask: &self.mask & &later.mask,
+            versions,
+        }
+    }
+
+    pub(super) fn versions(&self) -> &Arc<[Option<u64>]> {
+        &self.versions
+    }
+}
 
 /// Evaluates the filter's pruning plans over the scan's rows and emits the planner it was
 /// built to continue into, with the rows no plan pruned. The zone maps are the only reads,
@@ -48,7 +96,10 @@ pub struct PrunePlanner {
     pruned: bool,
     /// The rows no pruning plan has excluded yet, over `rows`.
     mask: Mask,
-    pruning: IntoIter<PlanRef>,
+    /// The dynamic version each conjunct's pruning plan ran at, set as each plan starts.
+    versions: Vec<Option<u64>>,
+    /// The pruning plans still to run, each with its conjunct's index.
+    pruning: IntoIter<(usize, PlanRef)>,
     active: Option<ScanAdaptor>,
     pieces: Vec<Mask>,
     announced: bool,
@@ -63,8 +114,10 @@ impl PrunePlanner {
         let pruning: Vec<_> = scan
             .filter
             .iter()
-            .flat_map(|filter| filter.pruning_over(rows.end - rows.start).cloned())
+            .flat_map(|filter| filter.pruning_over(rows.end - rows.start))
+            .map(|(idx, plan)| (idx, plan.clone()))
             .collect();
+        let versions = vec![None; scan.filter.as_ref().map_or(0, |filter| filter.conjuncts())];
         let len = usize::try_from(rows.end - rows.start).unwrap_or(usize::MAX);
         Self {
             scan,
@@ -72,6 +125,7 @@ impl PrunePlanner {
             next: Some(next),
             pruned: false,
             mask: Mask::new_true(len),
+            versions,
             pruning: pruning.into_iter(),
             active: None,
             pieces: Vec::new(),
@@ -111,7 +165,7 @@ impl Planner for PrunePlanner {
             // result and lists no segment, so only unpruned plans prefetch their zone maps.
             let segments = segments_read(
                 &self.scan.session,
-                self.pruning.as_slice().iter(),
+                self.pruning.as_slice().iter().map(|(_, plan)| plan),
                 self.rows.clone(),
                 &self.mask,
             )?;
@@ -159,7 +213,13 @@ impl Planner for PrunePlanner {
             self.done = true;
             return Ok(PlannerOutput::Done);
         }
-        if let Some(plan) = self.pruning.next() {
+        if let Some((idx, plan)) = self.pruning.next() {
+            // Read before the plan runs, so a value that changes while it runs reads as changed.
+            self.versions[idx] = self
+                .scan
+                .filter
+                .as_ref()
+                .and_then(|filter| filter.dynamic_version(idx));
             let scan = Scan::try_new(
                 self.scan.session.clone(),
                 plan,
@@ -185,9 +245,10 @@ impl Planner for PrunePlanner {
             .next
             .take()
             .ok_or_else(|| vortex_err!("the prune planner has nothing to continue into"))?;
-        let kept = self
-            .pruned
-            .then(|| std::mem::replace(&mut self.mask, Mask::new_true(0)));
+        let kept = self.pruned.then(|| Kept {
+            mask: std::mem::replace(&mut self.mask, Mask::new_true(0)),
+            versions: std::mem::take(&mut self.versions).into(),
+        });
         Ok(PlannerOutput::Planner(
             WorkScope {
                 file_ordinal: 0,

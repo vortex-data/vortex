@@ -8,6 +8,7 @@ use std::sync::Arc;
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
+use super::Kept;
 use super::PreparedScan;
 use super::SelectedRows;
 use crate::planning::planner::Planner;
@@ -22,19 +23,19 @@ pub(super) fn plan_selection(
     scan: &Arc<PreparedScan>,
     scope: WorkScope,
     selection: &Selection,
-    kept: Option<(&Mask, u64)>,
+    kept: Option<(&Kept, u64)>,
 ) -> Option<(WorkScope, Box<dyn Planner>)> {
     let mut selected = select_rows(scope, selection)?;
     if let Some((kept, first_row)) = kept {
         let offset = usize::try_from(selected.scope.rows.start - first_row)
             .vortex_expect("a work chunk fits usize");
-        let kept = kept.slice(offset..offset + selected.mask.len());
-        let mask = &selected.mask & &kept;
+        let mask = &selected.mask & &kept.mask().slice(offset..offset + selected.mask.len());
         let first = mask.first()?;
         let end = mask.last()? + 1;
         selected.scope.rows =
             selected.scope.rows.start + first as u64..selected.scope.rows.start + end as u64;
         selected.mask = mask.slice(first..end);
+        selected.pruned_at = Some(Arc::clone(kept.versions()));
     }
     let scope = selected.scope.clone();
     Some((scope, scan.split_planner(selected)))
@@ -68,6 +69,7 @@ fn select_rows(mut scope: WorkScope, selection: &Selection) -> Option<SelectedRo
     Some(SelectedRows {
         scope,
         mask: mask.slice(first..end),
+        pruned_at: None,
     })
 }
 

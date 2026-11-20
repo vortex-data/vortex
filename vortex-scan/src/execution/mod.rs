@@ -50,6 +50,7 @@ pub(crate) use self::chunk::scan_chunks;
 use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;
 use self::projection::ProjectionPlanner;
+pub use self::prune::Kept;
 pub use self::prune::PruneNext;
 pub use self::prune::PrunePlanner;
 use crate::execution::cache::ScanCache;
@@ -144,6 +145,9 @@ struct SelectedRows {
     scope: WorkScope,
     /// Which rows of `scope.rows` are selected.
     mask: Mask,
+    /// The dynamic version each conjunct's zone pruning ran at, as in [`Kept`], or `None` when
+    /// no pruning ran over the rows.
+    pruned_at: Option<Arc<[Option<u64>]>>,
 }
 
 #[cfg(test)]

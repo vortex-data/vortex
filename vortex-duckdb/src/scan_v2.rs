@@ -30,7 +30,6 @@ use vortex::io::request::IoResult;
 use vortex::io::request::IoService;
 use vortex::io::runtime::BlockingRuntime as _;
 use vortex::layout::scan::v2::ScanBuilder;
-use vortex::mask::Mask;
 use vortex::scan::planning::driver::Progress;
 use vortex::scan::planning::driver::Run;
 use vortex::scan::planning::planner::Planner;
@@ -38,6 +37,7 @@ use vortex::scan::planning::planner::PlannerOutput;
 use vortex::scan::planning::planner::State;
 use vortex::scan::planning::planner::WorkScope;
 use vortex::scan::prepare::ChunkPlanner;
+use vortex::scan::prepare::Kept;
 use vortex::scan::prepare::PreparedScan;
 use vortex::scan::prepare::PrunePlanner;
 use vortex::scan::selection::Selection;
@@ -183,7 +183,7 @@ fn compose(scan: &Arc<PreparedScan>, splits: &[u64], dynamic: bool) -> Box<dyn P
         let scan = Arc::clone(scan);
         let parts = part_ranges(rows.clone(), splits);
         let first_row = rows.start;
-        move |kept: Option<Mask>| -> Box<dyn Planner> {
+        move |kept: Option<Kept>| -> Box<dyn Planner> {
             Box::new(PartPlanner::new(scan, parts, first_row, kept))
         }
     };
@@ -211,7 +211,7 @@ struct PartPlanner {
     /// The first row of `kept`.
     first_row: u64,
     /// The rows scan-wide pruning kept, from `first_row`, or `None` when nothing was pruned.
-    kept: Option<Mask>,
+    kept: Option<Kept>,
 }
 
 impl PartPlanner {
@@ -219,7 +219,7 @@ impl PartPlanner {
         scan: Arc<PreparedScan>,
         parts: Vec<Range<u64>>,
         first_row: u64,
-        kept: Option<Mask>,
+        kept: Option<Kept>,
     ) -> Self {
         Self {
             selection: scan.selection().clone(),
@@ -231,7 +231,7 @@ impl PartPlanner {
     }
 
     /// The rows of `part` that scan-wide pruning kept, or `None` when nothing was pruned.
-    fn kept_in(&self, part: &Range<u64>) -> Option<Mask> {
+    fn kept_in(&self, part: &Range<u64>) -> Option<Kept> {
         let kept = self.kept.as_ref()?;
         let offset =
             |row: u64| usize::try_from(row - self.first_row).vortex_expect("a part fits usize");
@@ -255,16 +255,16 @@ impl Planner for PartPlanner {
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
         while let Some(part) = self.parts.next() {
             let kept = self.kept_in(&part);
-            if kept.as_ref().is_some_and(Mask::all_false) {
+            if kept.as_ref().is_some_and(|kept| kept.mask().all_false()) {
                 continue;
             }
             let chunks = {
                 let scan = Arc::clone(&self.scan);
                 let selection = self.selection.clone();
                 let part = part.clone();
-                move |again: Option<Mask>| -> Box<dyn Planner> {
+                move |again: Option<Kept>| -> Box<dyn Planner> {
                     let kept = match (kept, again) {
-                        (Some(kept), Some(again)) => Some(kept & &again),
+                        (Some(kept), Some(again)) => Some(kept.intersect(&again)),
                         (kept, again) => kept.or(again),
                     };
                     Box::new(ChunkPlanner::new(scan, part, selection, kept))

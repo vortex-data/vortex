@@ -13,6 +13,7 @@ use vortex_expr::BoundExpression;
 use vortex_scan::plan::LazyPlanRef;
 pub use vortex_scan::prepare::ChunkPlanner;
 pub use vortex_scan::prepare::FilterPlans;
+pub use vortex_scan::prepare::Kept;
 pub use vortex_scan::prepare::PreparedScan;
 pub use vortex_scan::prepare::PruneNext;
 pub use vortex_scan::prepare::PrunePlanner;

@@ -12,8 +12,8 @@ use vortex_error::VortexResult;
 use vortex_io::request::IoConsumer;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
-use vortex_mask::Mask;
 
+use super::Kept;
 use super::PreparedScan;
 use super::SegmentLocation;
 use super::selection::plan_selection;
@@ -86,7 +86,7 @@ pub struct ChunkPlanner {
     chunks: IntoIter<Range<u64>>,
     selection: Selection,
     /// The rows zone pruning kept, over `rows`, or `None` when nothing was pruned.
-    kept: Option<Mask>,
+    kept: Option<Kept>,
 }
 
 impl ChunkPlanner {
@@ -96,7 +96,7 @@ impl ChunkPlanner {
         scan: Arc<PreparedScan>,
         rows: Range<u64>,
         selection: Selection,
-        kept: Option<Mask>,
+        kept: Option<Kept>,
     ) -> Self {
         let chunks = scan_chunks(rows.clone(), scan.chunk_rows).into_iter();
         Self {
