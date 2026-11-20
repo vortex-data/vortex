@@ -480,59 +480,9 @@ struct PlanScan {
     units: Vec<Unit>,
 }
 
-impl PlanScan {
-    /// The rows of `unit` the scan selects before filtering, or `None` when not known yet.
-    fn unit_rows(&self, unit: &Unit) -> Option<u64> {
-        let rows = unit.rows.as_ref()?;
-        Some(self.state.selection.row_count_in_range(rows))
-    }
-
-    /// The bytes of `unit`, in proportion to its share of its child's rows, or `None` for a
-    /// deferred child of unknown size.
-    fn unit_bytes(&self, unit: &Unit) -> Option<u64> {
-        let child = match self.state.child(unit.child) {
-            PlanSourceChild::Ready(child) => child,
-            PlanSourceChild::Deferred { byte_size, .. } => return *byte_size,
-        };
-        let bytes = child.byte_size();
-        Some(match (&unit.rows, child.row_count) {
-            (Some(rows), Some(count)) if count > 0 => u64::try_from(
-                u128::from(bytes) * u128::from(rows.end - rows.start) / u128::from(count),
-            )
-            .unwrap_or(u64::MAX),
-            _ => bytes,
-        })
-    }
-}
-
 impl DataSourceScan for PlanScan {
     fn dtype(&self) -> &DType {
         &self.state.dtype
-    }
-
-    fn row_count(&self) -> Precision<u64> {
-        let Some(rows) = self
-            .units
-            .iter()
-            .map(|unit| self.unit_rows(unit))
-            .sum::<Option<u64>>()
-        else {
-            return Precision::Absent;
-        };
-        let rows = self.state.limit.map_or(rows, |limit| rows.min(limit));
-        if self.state.filter.is_some() {
-            Precision::inexact(rows)
-        } else {
-            Precision::exact(rows)
-        }
-    }
-
-    fn byte_size(&self) -> Precision<u64> {
-        self.units
-            .iter()
-            .map(|unit| self.unit_bytes(unit))
-            .sum::<Option<u64>>()
-            .map_or(Precision::Absent, Precision::inexact)
     }
 
     fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
@@ -548,7 +498,7 @@ impl DataSourceScan for PlanScan {
             .iter()
             .filter_map(|unit| unit.rows.as_ref().map(|rows| rows.end - rows.start))
             .collect();
-        // A deferred child weighs as much as the average ready unit.
+        // A unit whose rows are not known yet weighs as much as the average known one.
         let unknown = (known.iter().sum::<u64>() / known.len().max(1) as u64).max(1);
         let weight = |unit: &Unit| {
             unit.rows

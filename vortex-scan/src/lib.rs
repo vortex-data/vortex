@@ -261,16 +261,6 @@ pub trait DataSourceScan: 'static + Send {
             Err(err) => stream::once(async move { Err(err) }).boxed(),
         }
     }
-
-    /// Estimates the rows this scan returns, from plan-time state only.
-    fn row_count(&self) -> Precision<u64> {
-        Precision::Absent
-    }
-
-    /// Estimates the bytes this scan reads, before any filter, from plan-time state only.
-    fn byte_size(&self) -> Precision<u64> {
-        Precision::Absent
-    }
 }
 
 /// A reference-counted partition.
