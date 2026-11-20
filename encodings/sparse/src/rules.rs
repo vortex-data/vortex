@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Dict;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::scalar_fn::fns::cast::Cast;
@@ -17,8 +18,14 @@ use vortex_session::VortexSession;
 use crate::Sparse;
 use crate::SparseExt as _;
 
+mod dict_codes;
+
+pub(crate) use dict_codes::SlicedSparseCodes;
+pub(crate) use dict_codes::SparseCodes;
+
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Dict, Sparse, const { &SparseCodes });
     kernels.register_reduce_parent_rule(Cast, Sparse, const { &CastReduceAdaptor(Sparse) });
     kernels.register_reduce_parent_rule(Not, Sparse, const { &NotReduceAdaptor(Sparse) });
 }
