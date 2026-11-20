@@ -1173,7 +1173,7 @@ mod tests {
             WorkUnit::run(0.5, move || {
                 async move {
                     // Closing the gate's sender releases every unit.
-                    drop(gate.recv().await);
+                    while gate.recv().await.is_ok() {}
                     Ok(vec![Buffer::from_iter(range).into_array()])
                 }
                 .boxed()
