@@ -34,6 +34,7 @@ use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::compress_patches;
+use crate::schemes::patches::patched_over;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum BitPackingSchemeMode {
@@ -227,11 +228,20 @@ impl Scheme for BitPackingScheme {
 
         match patches {
             None => Ok(array.with_stats_set(packed_stats).into_array()),
-            Some(p) => Ok(
-                Patched::from_array_and_patches(array.into_array(), &p, exec_ctx)?
-                    .with_stats_set(packed_stats)
-                    .into_array(),
-            ),
+            Some(p) => {
+                let patched = patched_over(
+                    compressor,
+                    &compress_ctx,
+                    self.id(),
+                    array.into_array(),
+                    &p,
+                    0,
+                    None,
+                    exec_ctx,
+                )?;
+                patched.statistics().set_all(packed_stats);
+                Ok(patched)
+            }
         }
     }
 }

@@ -384,6 +384,49 @@ mod tests {
         Ok(())
     }
 
+    /// ALP-RD exceptions become patches of the decoded floats only when the editions allow it.
+    #[rstest]
+    fn alprd_writes_patched_only_when_allowed(
+        #[values(false, true)] patched: bool,
+    ) -> vortex_error::VortexResult<()> {
+        use std::f64::consts::PI;
+
+        use vortex_alp::ALPRD;
+        use vortex_alp::ALPRDArrayExt;
+        use vortex_array::IntoArray;
+        use vortex_array::VortexSessionExecute;
+        use vortex_array::arrays::PrimitiveArray;
+        use vortex_array::assert_arrays_eq;
+
+        let mut allowed = vec![ALPRD.id()];
+        if patched {
+            allowed.push(Patched.id());
+        }
+        let mut builder = BtrBlocksCompressorBuilder::empty().with_new_scheme(&float::ALPRDScheme);
+        builder.allowed.editions = Some(allowed.into_iter().collect());
+
+        // Values sharing a few left parts, with rare outliers whose left parts miss the dictionary.
+        let input = PrimitiveArray::from_iter((0..10_000u64).map(|i| {
+            let base = 1.0 + (i as f64) * 1e-9 * PI;
+            if i % 250 == 7 {
+                base * 1e200 * (i as f64)
+            } else {
+                base
+            }
+        }))
+        .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let compressed = builder.build().compress(&input, &mut ctx)?;
+        if patched {
+            let inner = compressed.as_::<Patched>().inner().clone();
+            assert!(inner.as_::<ALPRD>().left_parts_patches().is_none());
+        } else {
+            assert!(compressed.as_::<ALPRD>().left_parts_patches().is_some());
+        }
+        assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
+    }
+
     #[test]
     fn delta_is_excluded_only_by_cuda() {
         let builder = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted();

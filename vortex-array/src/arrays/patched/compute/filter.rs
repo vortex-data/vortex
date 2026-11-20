@@ -63,8 +63,7 @@ impl FilterKernel for Patched {
         let new_positions =
             PrimitiveArray::new(new_positions.freeze(), Validity::NonNullable).into_array();
         Ok(Some(
-            Patched::try_new_with_lanes(inner, new_positions, values, array.n_lanes(), ctx)?
-                .into_array(),
+            Patched::try_new(inner, new_positions, values, ctx)?.into_array(),
         ))
     }
 }

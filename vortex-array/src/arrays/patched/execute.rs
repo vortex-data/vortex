@@ -326,7 +326,8 @@ pub fn patch_validity(
 #[inline]
 pub fn scatter<V: Copy>(output: &mut [V], values: &[V], layout: &PatchLayout<'_>) {
     assert_eq!(output.len(), layout.len());
-    assert!(layout.all_patches().end <= values.len());
+    // Every patch index the layout yields is below `n_patches`, whatever its lane offsets hold.
+    assert!(layout.n_patches() <= values.len());
     if layout.is_sparse() {
         layout.for_each(|pos, patch| output[pos] = values[patch]);
         return;
@@ -348,7 +349,8 @@ pub fn scatter<V: Copy>(output: &mut [V], values: &[V], layout: &PatchLayout<'_>
 #[inline]
 fn patch_bits(bits: &mut BitBufferMut, values: &BitBuffer, layout: &PatchLayout<'_>) {
     assert_eq!(bits.len(), layout.len());
-    assert!(layout.all_patches().end <= values.len());
+    // Every patch index the layout yields is below `n_patches`, whatever its lane offsets hold.
+    assert!(layout.n_patches() <= values.len());
     let offset = bits.offset();
     if layout.is_sparse() {
         layout.for_each(|pos, patch| {
