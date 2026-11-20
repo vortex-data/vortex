@@ -13,12 +13,18 @@
 //! chunk's reads overlap another's compute, batches are returned as they are produced, and reads
 //! are awaited with [`Run::poll_completion`]. Nothing is spawned.
 //!
+//! A deferred child is queued work as well: the worker that takes it expands it and queues the
+//! work of its children, pruned by the scan's filter, so files open in parallel and only once a
+//! worker is free to read them. The queue stays open while any queued root or expansion may still
+//! add work to it.
+//!
 //! With a dynamic filter, such as the bound a top-N pushes down, a child's root prunes the child as
 //! a whole before it cuts parts, which reads zone maps. Opening reads nothing, so such a root is
 //! queued work too: the first worker to take it runs it and queues its parts.
 //!
 //! An ordered scan returns its rows in order through the pool's first worker, running one child
-//! after another on [`ScanDriver`], which keeps a scan's chunks in order. A host that reads an
+//! after another on [`ScanDriver`], which keeps a scan's chunks in order. It expands a deferred
+//! child once the children before it are read. A host that reads an
 //! ordered scan in parallel [splits](crate::DataSourceScan::split) it first.
 //!
 //! A limit is one [`RowLimit`] for the whole pool: workers stop taking parts once it is spent, and
@@ -49,6 +55,9 @@ use vortex_error::vortex_bail;
 use vortex_io::request::IoService;
 use vortex_io::session::RuntimeSessionExt;
 
+use super::plan::DeferredPlanChild;
+use super::plan::PlanChild;
+use super::plan::PlanSourceChild;
 use super::plan::ScanState;
 use super::plan::Unit;
 use crate::execution::driver::ScanDriver;
@@ -77,29 +86,47 @@ pub(super) fn open(state: Arc<ScanState>, units: Vec<Unit>) -> VortexResult<Scan
     }
 
     let (sender, receiver) = async_channel::unbounded();
-    for unit in &units {
-        let rows = state.unit_rows(unit)?;
-        if rows.is_empty() {
-            continue;
-        }
-        let (child, root, dynamic) = prepare(&state, unit, rows)?;
-        let parts = run_root(child, root);
-        if dynamic {
-            send(&sender, Work::Root(parts, sender.clone()));
-            continue;
-        }
-        let parts = parts
-            .now_or_never()
-            .vortex_expect("a root that only cuts parts reads nothing")?;
-        for part in parts {
-            send(&sender, Work::Part(part));
+    for unit in units {
+        match state.child(unit.child) {
+            PlanSourceChild::Ready(child) => queue_child(&state, &sender, child, unit.rows)?,
+            PlanSourceChild::Deferred { child, .. } => {
+                send(&sender, Work::Expand(Arc::clone(child), sender.clone()));
+            }
         }
     }
     Ok(Arc::new(UnorderedPool {
         dtype,
+        state,
         limit,
         receiver,
     }))
+}
+
+/// Prepares this scan's `rows` of `child` and queues its work: its parts, or its root when the
+/// root reads before it cuts parts.
+fn queue_child(
+    state: &ScanState,
+    sender: &Sender<Work>,
+    child: &PlanChild,
+    rows: Option<Range<u64>>,
+) -> VortexResult<()> {
+    let rows = state.rows_of(child, rows)?;
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let (prepared, root, dynamic) = prepare(state, child, rows)?;
+    let parts = run_root(prepared, root);
+    if dynamic {
+        send(sender, Work::Root(parts, sender.clone()));
+        return Ok(());
+    }
+    let parts = parts
+        .now_or_never()
+        .vortex_expect("a root that only cuts parts reads nothing")?;
+    for part in parts {
+        send(sender, Work::Part(part));
+    }
+    Ok(())
 }
 
 /// One child's prepared scan, shared by the parts of it that workers run.
@@ -115,14 +142,13 @@ struct Part {
     planner: Box<dyn Planner>,
 }
 
-/// Prepares the scan of `rows` of the unit's child once and composes its root, returning whether
-/// the root reads before it spawns parts.
+/// Prepares the scan of `rows` of `child` once and composes its root, returning whether the root
+/// reads before it spawns parts.
 fn prepare(
     state: &ScanState,
-    unit: &Unit,
+    child: &PlanChild,
     rows: Range<u64>,
 ) -> VortexResult<(Arc<PreparedChild>, Box<dyn Planner>, bool)> {
-    let child = state.child(unit.child);
     let splits = child.splits(&state.projection, state.filter.as_ref())?;
     let scan = Arc::new(state.builder(child, rows).prepare()?);
     let splits = splits.unwrap_or_else(|| chunk_bounds(&scan));
@@ -185,6 +211,8 @@ enum Work {
     /// A root that reads before it spawns parts, and the queue to send its parts to. The sender
     /// keeps the queue open until they are in it.
     Root(BoxFuture<'static, VortexResult<Vec<Part>>>, Sender<Work>),
+    /// A deferred child, and the queue to send the work of its children to.
+    Expand(Arc<dyn DeferredPlanChild>, Sender<Work>),
 }
 
 fn send(sender: &Sender<Work>, work: Work) {
@@ -195,6 +223,7 @@ fn send(sender: &Sender<Work>, work: Work) {
 /// A pool whose workers take parts from one queue.
 struct UnorderedPool {
     dtype: DType,
+    state: Arc<ScanState>,
     limit: Option<RowLimit>,
     receiver: Receiver<Work>,
 }
@@ -212,7 +241,7 @@ impl ScanPool for UnorderedPool {
             limit: self.limit.clone(),
             run: Run::new(),
             child: None,
-            _pool: self,
+            pool: self,
         };
         let arrays = stream::unfold(Some(worker), |worker| async move {
             let mut worker = worker?;
@@ -229,7 +258,7 @@ impl ScanPool for UnorderedPool {
 
 impl Drop for UnorderedPool {
     fn drop(&mut self) {
-        // Queued roots hold senders of the queue itself; drain them so it can be freed.
+        // Queued roots and expansions hold senders of the queue itself; drain them so it can be freed.
         self.receiver.close();
         while self.receiver.try_recv().is_ok() {}
     }
@@ -243,8 +272,8 @@ struct Worker {
     run: Run,
     /// The child of the part live on the run, whose I/O the planners that part spawns read through.
     child: Option<Arc<PreparedChild>>,
-    /// Holds the pool, so the pool is dropped only after its last worker.
-    _pool: Arc<UnorderedPool>,
+    /// The pool, dropped only after its last worker.
+    pool: Arc<UnorderedPool>,
 }
 
 impl Worker {
@@ -279,7 +308,8 @@ impl Worker {
         }
     }
 
-    /// Takes the next part from the pool's queue, running the roots it finds there first, or
+    /// Takes the next part from the pool's queue, running the roots and expanding the children it
+    /// finds there first, or
     /// `None` once the queue is closed and empty.
     async fn take(&mut self) -> VortexResult<Option<Part>> {
         loop {
@@ -293,24 +323,44 @@ impl Worker {
                         send(&sender, Work::Part(part));
                     }
                 }
+                Work::Expand(child, sender) => {
+                    for child in child.expand().await? {
+                        match child {
+                            PlanSourceChild::Ready(child) => {
+                                if let Some(child) = self.pool.state.admit(child)? {
+                                    queue_child(&self.pool.state, &sender, &child, None)?;
+                                }
+                            }
+                            PlanSourceChild::Deferred { child, .. } => {
+                                send(&sender, Work::Expand(child, sender.clone()));
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-/// The arrays of an ordered scan: each unit's rows in order, one unit after another.
+/// The arrays of an ordered scan: each unit's rows in order, one child after another, with a
+/// deferred child's children in its place.
 fn in_order(state: Arc<ScanState>, units: Vec<Unit>) -> BoxStream<'static, VortexResult<ArrayRef>> {
-    stream::iter(units)
-        .flat_map(move |unit| {
-            let rows = match state.unit_rows(&unit) {
+    let children = units
+        .into_iter()
+        .map(|unit| (state.child(unit.child).clone(), unit.rows))
+        .collect();
+    let children = state.expand_in_order(children);
+    children
+        .flat_map(move |child| {
+            let rows = child.and_then(|(child, rows)| Ok((state.rows_of(&child, rows)?, child)));
+            let (rows, child) = match rows {
                 Ok(rows) => rows,
                 Err(err) => return stream::once(future::ready(Err(err))).boxed(),
             };
             if rows.is_empty() {
                 return stream::empty().boxed();
             }
-            ScanDriver::new(state.session.handle(), 1, true)
-                .run(state.builder(state.child(unit.child), rows))
+            ScanDriver::new(state.session.handle(), 1, true).run(state.builder(&child, rows))
         })
         .boxed()
 }

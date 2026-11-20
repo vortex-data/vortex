@@ -6,19 +6,26 @@
 //!
 //! Nothing here is about one format. A child is a [`ScanInput`], a plan over placed segments,
 //! from a Vortex file, a Parquet file whose column chunks are segments, or any store that lowers
-//! its data to plans.
+//! its data to plans; a deferred child is anything that expands into children, such as a file to
+//! open, a table format's manifest, or a partition to list.
 
+use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::stream;
+use futures::stream::BoxStream;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::stats::Precision;
 use vortex_array::stats::StatsSet;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use super::ScanInput;
@@ -44,8 +51,8 @@ pub type FilePruner = Arc<dyn Fn(&BoundExpression) -> VortexResult<bool> + Send 
 pub type PlanSplitter =
     Arc<dyn Fn(&BoundExpression, Option<&BoundExpression>) -> VortexResult<Vec<u64>> + Send + Sync>;
 
-/// A child of a [`PlanDataSource`]: its [`ScanInput`] and what the source knows of it without
-/// reading payloads.
+/// A child of a [`PlanDataSource`] whose plan is ready to prepare: its [`ScanInput`] and what the
+/// source knows of it without reading payloads.
 #[derive(Clone)]
 pub struct PlanChild {
     input: ScanInput,
@@ -138,6 +145,33 @@ impl PlanChild {
     }
 }
 
+/// A child of a [`PlanDataSource`] that a scan expands when it reaches it: a file to open, a
+/// manifest entry to read, a table partition to list.
+///
+/// Expanding is work like any other unit of an opened scan: the worker that takes the child
+/// expands it and queues the work of what it expanded into, for any worker to take.
+#[async_trait]
+pub trait DeferredPlanChild: 'static + Send + Sync {
+    /// The children this child stands for, in row order. They may be deferred in turn, as a
+    /// manifest's children are. An empty list skips the child.
+    async fn expand(&self) -> VortexResult<Vec<PlanSourceChild>>;
+}
+
+/// A child of a [`PlanDataSource`].
+#[derive(Clone)]
+pub enum PlanSourceChild {
+    /// A child whose plan is ready to prepare.
+    Ready(PlanChild),
+    /// A child that a scan expands when it reaches it, so a source over many children reads only
+    /// the metadata its scans need.
+    Deferred {
+        /// Expands the child.
+        child: Arc<dyn DeferredPlanChild>,
+        /// The child's size in bytes, if known.
+        byte_size: Option<u64>,
+    },
+}
+
 /// A [`DataSource`] over plan children, scanned by the planner-driven executor.
 ///
 /// This is the standard way to expose sources that can lower their data to plans over placed
@@ -146,11 +180,13 @@ impl PlanChild {
 ///
 /// A scan's request applies to each child: its row range and row selection are in the child's
 /// own rows, and its `partition_range` and `partition_selection` select children by ordinal. A
-/// scan reads its children in order.
+/// scan reads its children in order, and a deferred child's children in its place. A deferred
+/// child's children are pruned by the scan's filter and must have the source's dtype.
 ///
 /// [`split`](DataSourceScan::split) cuts a scan into contiguous pieces of about equal row counts,
 /// each a list of children and row ranges of them, on the 8,192-row block grid that every chunk
-/// boundary of the executor lies on. It reads nothing, and a scan with a limit, which holds across
+/// boundary of the executor lies on. It reads nothing, so it keeps each deferred child whole, and
+/// a scan with a limit, which holds across
 /// the whole scan, is not split. [`open`](DataSourceScan::open) runs a scan on V2's planners and
 /// [`Run`](crate::planning::driver::Run) driver; see `plan_pool.rs`. Partitions are the trait's
 /// default, derived from the two.
@@ -160,7 +196,7 @@ impl PlanChild {
 pub struct PlanDataSource {
     session: VortexSession,
     dtype: DType,
-    children: Arc<[PlanChild]>,
+    children: Arc<[PlanSourceChild]>,
     row_count: Precision<u64>,
     byte_size: Precision<u64>,
 }
@@ -174,30 +210,58 @@ impl PlanDataSource {
     /// A source scanning one `child` with `session`.
     pub fn from_child(session: VortexSession, child: PlanChild) -> Self {
         let dtype = child.input.dtype.clone();
-        Self::from_children(session, dtype, vec![child])
+        Self::from_children(session, dtype, vec![PlanSourceChild::Ready(child)])
     }
 
-    /// A source scanning `children` in order with `session`. Every child must have `dtype`.
-    pub fn from_children(session: VortexSession, dtype: DType, children: Vec<PlanChild>) -> Self {
-        let row_count = children
-            .iter()
-            .map(|child| child.row_count)
-            .sum::<Option<u64>>()
-            .map_or(Precision::Absent, Precision::exact);
-        let byte_size = Precision::inexact(children.iter().map(PlanChild::byte_size).sum());
+    /// A source scanning `children` in order with `session`. Every child must have `dtype`; a
+    /// scan that expands a child of another dtype fails.
+    ///
+    /// The source's row count is exact when every child is ready with a known count. Otherwise
+    /// each child without one is estimated at the average of those with one.
+    pub fn from_children(
+        session: VortexSession,
+        dtype: DType,
+        children: Vec<PlanSourceChild>,
+    ) -> Self {
+        let mut known_rows = 0u64;
+        let mut known_children = 0u64;
+        let mut bytes = Some(0u64);
+        for child in &children {
+            let child_bytes = match child {
+                PlanSourceChild::Ready(child) => {
+                    if let Some(count) = child.row_count {
+                        known_rows += count;
+                        known_children += 1;
+                    }
+                    Some(child.byte_size())
+                }
+                PlanSourceChild::Deferred { byte_size, .. } => *byte_size,
+            };
+            bytes = bytes.zip(child_bytes).map(|(bytes, size)| bytes + size);
+        }
+        let total = children.len() as u64;
+        let row_count = if known_children == total {
+            Precision::exact(known_rows)
+        } else if known_children > 0 {
+            Precision::inexact(known_rows / known_children * total)
+        } else {
+            Precision::Absent
+        };
         Self {
             session,
             dtype,
             children: children.into(),
             row_count,
-            byte_size,
+            byte_size: bytes.map_or(Precision::Absent, Precision::inexact),
         }
     }
 
     /// Sets the exact row count of a one-child source, which scans report.
     pub fn with_row_count(mut self, row_count: u64) -> Self {
-        if let [child] = &*self.children {
-            self.children = Arc::new([child.clone().with_row_count(row_count)]);
+        if let [PlanSourceChild::Ready(child)] = &*self.children {
+            self.children = Arc::new([PlanSourceChild::Ready(
+                child.clone().with_row_count(row_count),
+            )]);
         }
         self.row_count = Precision::exact(row_count);
         self
@@ -210,7 +274,7 @@ impl PlanDataSource {
     }
 
     /// The children this source scans, in order.
-    pub fn children(&self) -> &[PlanChild] {
+    pub fn children(&self) -> &[PlanSourceChild] {
         &self.children
     }
 
@@ -253,12 +317,20 @@ impl DataSource for PlanDataSource {
                     .partition_selection
                     .row_count_in_range(&(index..index + 1))
                     == 1;
-            if !selected || child.is_pruned(filter.as_ref())? {
+            if !selected {
                 continue;
             }
-            let rows = child
-                .row_count
-                .map(|count| clamp_rows(request.row_range.clone(), count));
+            let rows = match child {
+                PlanSourceChild::Ready(child) => {
+                    if child.is_pruned(filter.as_ref())? {
+                        continue;
+                    }
+                    child
+                        .row_count
+                        .map(|count| clamp_rows(request.row_range.clone(), count))
+                }
+                PlanSourceChild::Deferred { .. } => None,
+            };
             if rows.as_ref().is_some_and(Range::is_empty) {
                 continue;
             }
@@ -269,6 +341,7 @@ impl DataSource for PlanDataSource {
         }
         let state = ScanState {
             session: self.session.clone(),
+            source_dtype: self.dtype.clone(),
             children: Arc::clone(&self.children),
             dtype: projection.dtype().clone(),
             projection,
@@ -299,7 +372,8 @@ fn clamp_rows(rows: Option<Range<u64>>, count: u64) -> Range<u64> {
 /// What every piece and pool of one scan of a [`PlanDataSource`] shares.
 pub(super) struct ScanState {
     pub(super) session: VortexSession,
-    children: Arc<[PlanChild]>,
+    source_dtype: DType,
+    children: Arc<[PlanSourceChild]>,
     /// The dtype of the scan's output.
     pub(super) dtype: DType,
     pub(super) projection: BoundExpression,
@@ -312,20 +386,71 @@ pub(super) struct ScanState {
 
 impl ScanState {
     /// The source's child at `ordinal`.
-    pub(super) fn child(&self, ordinal: usize) -> &PlanChild {
+    pub(super) fn child(&self, ordinal: usize) -> &PlanSourceChild {
         &self.children[ordinal]
     }
 
-    /// The rows of `unit` this scan reads: its own, or else the request's row range clamped to
-    /// its child.
-    pub(super) fn unit_rows(&self, unit: &Unit) -> VortexResult<Range<u64>> {
-        match &unit.rows {
-            Some(rows) => Ok(rows.clone()),
-            None => Ok(clamp_rows(
-                self.row_range.clone(),
-                self.child(unit.child).rows()?,
-            )),
+    /// The rows of `child` this scan reads: `rows`, or else the request's row range clamped to
+    /// the child.
+    pub(super) fn rows_of(
+        &self,
+        child: &PlanChild,
+        rows: Option<Range<u64>>,
+    ) -> VortexResult<Range<u64>> {
+        match rows {
+            Some(rows) => Ok(rows),
+            None => Ok(clamp_rows(self.row_range.clone(), child.rows()?)),
         }
+    }
+
+    /// Admits a child that expanding produced: `None` when its statistics rule out the filter,
+    /// and an error when its dtype is not the source's.
+    pub(super) fn admit(&self, child: PlanChild) -> VortexResult<Option<PlanChild>> {
+        if child.input.dtype != self.source_dtype {
+            vortex_bail!(
+                "a child of the source has dtype {}, but the source has dtype {}",
+                child.input.dtype,
+                self.source_dtype
+            );
+        }
+        if child.is_pruned(self.filter.as_ref())? {
+            return Ok(None);
+        }
+        Ok(Some(child))
+    }
+
+    /// The ready children `children` stand for, in order, with their rows: each ready child as it
+    /// is, and each deferred child's admitted children in its place, expanded only once the
+    /// children before it are taken.
+    pub(super) fn expand_in_order(
+        self: &Arc<Self>,
+        children: Vec<(PlanSourceChild, Option<Range<u64>>)>,
+    ) -> BoxStream<'static, VortexResult<(PlanChild, Option<Range<u64>>)>> {
+        let state = Arc::clone(self);
+        stream::try_unfold(VecDeque::from(children), move |mut queue| {
+            let state = Arc::clone(&state);
+            async move {
+                while let Some((child, rows)) = queue.pop_front() {
+                    match child {
+                        PlanSourceChild::Ready(child) => return Ok(Some(((child, rows), queue))),
+                        PlanSourceChild::Deferred { child, .. } => {
+                            for child in child.expand().await?.into_iter().rev() {
+                                let child = match child {
+                                    PlanSourceChild::Ready(child) => match state.admit(child)? {
+                                        Some(child) => PlanSourceChild::Ready(child),
+                                        None => continue,
+                                    },
+                                    deferred @ PlanSourceChild::Deferred { .. } => deferred,
+                                };
+                                queue.push_front((child, None));
+                            }
+                        }
+                    }
+                }
+                Ok::<_, VortexError>(None)
+            }
+        })
+        .boxed()
     }
 
     /// A builder of this scan's `rows` of `child`.
@@ -344,7 +469,7 @@ pub(super) struct Unit {
     /// The child's ordinal in the source.
     pub(super) child: usize,
     /// The child's rows, or `None` for the request's rows of a child whose row count is not known
-    /// until its plan is lowered.
+    /// until its plan is lowered or that is deferred.
     pub(super) rows: Option<Range<u64>>,
 }
 
@@ -362,17 +487,21 @@ impl PlanScan {
         Some(self.state.selection.row_count_in_range(rows))
     }
 
-    /// The bytes of `unit`, in proportion to its share of its child's rows.
-    fn unit_bytes(&self, unit: &Unit) -> u64 {
-        let child = self.state.child(unit.child);
+    /// The bytes of `unit`, in proportion to its share of its child's rows, or `None` for a
+    /// deferred child of unknown size.
+    fn unit_bytes(&self, unit: &Unit) -> Option<u64> {
+        let child = match self.state.child(unit.child) {
+            PlanSourceChild::Ready(child) => child,
+            PlanSourceChild::Deferred { byte_size, .. } => return *byte_size,
+        };
         let bytes = child.byte_size();
-        match (&unit.rows, child.row_count) {
+        Some(match (&unit.rows, child.row_count) {
             (Some(rows), Some(count)) if count > 0 => u64::try_from(
                 u128::from(bytes) * u128::from(rows.end - rows.start) / u128::from(count),
             )
             .unwrap_or(u64::MAX),
             _ => bytes,
-        }
+        })
     }
 }
 
@@ -399,7 +528,11 @@ impl DataSourceScan for PlanScan {
     }
 
     fn byte_size(&self) -> Precision<u64> {
-        Precision::inexact(self.units.iter().map(|unit| self.unit_bytes(unit)).sum())
+        self.units
+            .iter()
+            .map(|unit| self.unit_bytes(unit))
+            .sum::<Option<u64>>()
+            .map_or(Precision::Absent, Precision::inexact)
     }
 
     fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {

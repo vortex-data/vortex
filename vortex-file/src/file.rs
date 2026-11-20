@@ -72,6 +72,29 @@ struct FileScanCache {
     plans: ScanCache,
 }
 
+/// Whether a layout tree of `dtype` may contain a list layout.
+///
+/// A list layout only ever holds a [`DType::List`], and the writer only decomposes the lists it
+/// reaches through struct fields and list elements. Maps and variants are conservatively assumed
+/// to contain one too, since their storage may be laid out as lists.
+pub(crate) fn may_contain_list_layout(dtype: &DType) -> bool {
+    match dtype {
+        DType::List(..) | DType::Map(..) | DType::Variant(_) => true,
+        DType::Null
+        | DType::Bool(_)
+        | DType::Primitive(..)
+        | DType::Decimal(..)
+        | DType::Utf8(_)
+        | DType::Binary(_) => false,
+        DType::FixedSizeList(element, ..) => may_contain_list_layout(element),
+        DType::Struct(fields, _) => fields.fields().any(|field| may_contain_list_layout(&field)),
+        DType::Union(variants, _) => variants
+            .variants()
+            .any(|variant| may_contain_list_layout(&variant)),
+        DType::Extension(ext) => may_contain_list_layout(ext.storage_dtype()),
+    }
+}
+
 fn layout_reader(
     segment_source: Arc<dyn SegmentSource>,
     footer: &Footer,
