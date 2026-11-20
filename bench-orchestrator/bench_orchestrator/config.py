@@ -132,9 +132,7 @@ BENCHMARKS_WITHOUT_SCAN_V2: frozenset[Benchmark] = frozenset(
 SUPPORTED_SCANS: dict[Engine, dict[Integration, frozenset[ScanEngine]]] = {
     Engine.DATAFUSION: {
         Integration.FILE: frozenset({ScanEngine.V1, ScanEngine.V2}),
-        # `VortexTable` reaches only V1: `MultiFileDataSource` opens `LayoutReader`s. V2 needs the V2
-        # scan behind `split`/`open` (#11626).
-        Integration.DATASOURCE: frozenset({ScanEngine.V1}),
+        Integration.DATASOURCE: frozenset({ScanEngine.V1, ScanEngine.V2}),
     },
     Engine.DUCKDB: {
         Integration.FILE: frozenset({ScanEngine.V1, ScanEngine.V2}),
@@ -168,11 +166,6 @@ def scan_support_error(engine: Engine, integration: Integration, scan: ScanEngin
             return "duckdb has no DataSource table function yet, so it has no datasource targets"
         return f"{engine.value} has no {integration.value} integration"
     if scan is not None and scan not in integrations[integration]:
-        if engine is Engine.DATAFUSION and integration is Integration.DATASOURCE and scan is ScanEngine.V2:
-            return (
-                "datafusion datasource targets run only the v1 scan: MultiFileDataSource opens "
-                "LayoutReaders, and v2 needs the V2 scan behind split/open (#11626)"
-            )
         return f"{engine.value} {integration.value} targets cannot run the {scan.value} scan"
     return None
 
