@@ -1459,4 +1459,117 @@ mod tests {
     fn from_buffer_does_not_wrap_on_a_huge_offset() {
         BitBufferMut::from_buffer(buffer_mut![0u8; 1], usize::MAX, 8);
     }
+
+    fn pattern(i: usize) -> bool {
+        (i * 7) % 5 < 2
+    }
+
+    fn assert_bits(buf: &BitBufferMut, expected: &[bool]) {
+        assert_eq!(buf.len(), expected.len());
+        // Appends grow the backing bytes only as far as the last bit.
+        assert_eq!(
+            buf.as_slice().len(),
+            (buf.offset() + buf.len()).div_ceil(8),
+            "backing bytes"
+        );
+        let actual: Vec<bool> = (0..buf.len()).map(|i| buf.value(i)).collect();
+        assert_eq!(actual, expected);
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(5)]
+    #[case(13)]
+    fn append_single_bits_with_offset(#[case] offset: usize) {
+        let mut buf = BitBufferMut::from_buffer(BufferMut::zeroed(offset.div_ceil(8)), offset, 0);
+        let mut expected = Vec::new();
+        for i in 0..150 {
+            // Long runs of false exercise `append_false` growing the buffer on its own.
+            let value = i % 40 < 3 && pattern(i);
+            buf.append(value);
+            expected.push(value);
+            assert_bits(&buf, &expected);
+        }
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(5)]
+    #[case(13)]
+    fn append_n_with_offset(#[case] offset: usize) {
+        let mut buf = BitBufferMut::from_buffer(BufferMut::zeroed(offset.div_ceil(8)), offset, 0);
+        let mut expected = Vec::new();
+        for (value, n) in [(true, 3), (false, 20), (true, 70), (false, 1), (true, 8)] {
+            buf.append_n(value, n);
+            expected.extend(std::iter::repeat_n(value, n));
+            assert_bits(&buf, &expected);
+        }
+    }
+
+    #[rstest]
+    #[case::aligned_after_bits(0, 16, 0)]
+    #[case::aligned_after_offset(8, 0, 0)]
+    #[case::aligned_after_offset_and_bits(3, 13, 0)]
+    #[case::unaligned_dst(0, 13, 0)]
+    #[case::unaligned_src(0, 16, 3)]
+    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
+    fn append_buffer_at_offsets(
+        #[case] dst_offset: usize,
+        #[case] dst_len: usize,
+        #[case] src_offset: usize,
+    ) {
+        let mut buf =
+            BitBufferMut::from_buffer(BufferMut::zeroed(dst_offset.div_ceil(8)), dst_offset, 0);
+        let mut expected = Vec::new();
+        for i in 0..dst_len {
+            buf.append(pattern(i));
+            expected.push(pattern(i));
+        }
+
+        for len in [21, 1, 130] {
+            let src = crate::BitBuffer::collect_bool(src_offset + len, |i| {
+                i >= src_offset && !pattern(i)
+            })
+            .slice(src_offset..);
+            buf.append_buffer(&src);
+            expected.extend(src.iter());
+            assert_bits(&buf, &expected);
+        }
+    }
+
+    /// The offset and the existing bits count against the reserved capacity, and each case
+    /// needs exactly one more byte than a reservation that drops either of them.
+    #[rstest]
+    #[case(7, 1, 8001)]
+    #[case(1, 0, 8000)]
+    fn reserve_counts_offset_and_len(
+        #[case] offset: usize,
+        #[case] len: usize,
+        #[case] additional: usize,
+    ) {
+        let mut buf = BitBufferMut::from_buffer(BufferMut::zeroed(1), offset, len);
+        buf.reserve(additional);
+        assert!(
+            buf.capacity() >= len + additional,
+            "capacity {} < {}",
+            buf.capacity(),
+            len + additional
+        );
+    }
+
+    #[test]
+    fn from_bytes_sets_nonzero_bytes() {
+        // Lengths below and above a 64-bit word take different packing paths.
+        for len in [9, 130] {
+            let bytes: Vec<u8> = (0..len)
+                .map(|i| [0, 1, 2, 0, 127, 128, 255, 0][i % 8])
+                .collect();
+            let buf = BitBufferMut::from(bytes.as_slice());
+            let expected: Vec<bool> = bytes.iter().map(|&b| b != 0).collect();
+            assert_eq!(
+                (0..buf.len()).map(|i| buf.value(i)).collect::<Vec<_>>(),
+                expected
+            );
+        }
+    }
 }
