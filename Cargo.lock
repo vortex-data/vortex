@@ -12012,6 +12012,8 @@ dependencies = [
  "arrow-schema 60.2.0",
  "hegeltest",
  "prost 0.14.4",
+ "rstest",
+ "serde",
  "serde_json",
  "vortex-array",
  "vortex-arrow",
