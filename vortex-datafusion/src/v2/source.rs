@@ -561,7 +561,7 @@ impl VortexDataSource {
                 .map_err(Clone::clone)?;
             let arrays = match work {
                 ScanWork::Partitions(partitions) => Arc::clone(partitions).arrays(ordered),
-                ScanWork::Stream(shared) => ArrayStreamExt::boxed(shared.clone()),
+                ScanWork::Stream(shared) => ArrayStreamExt::boxed(shared.lock().await.clone()),
                 ScanWork::Pieces(pieces) => {
                     let piece = match pieces.get(partition) {
                         Some(piece) => piece.lock().await.take(),
@@ -691,8 +691,8 @@ struct OutputPartitionState {
 enum ScanWork {
     /// Every output partition takes partitions from this shared stream.
     Partitions(Arc<SharedPartitions>),
-    /// Every output partition reads a clone of the opened scan's stream.
-    Stream(ScanStream),
+    /// Every output partition reads a clone of the opened scan's stream, which is not `Sync`.
+    Stream(AsyncMutex<ScanStream>),
     /// Output partition `i` takes piece `i`, if there is one.
     Pieces(Vec<AsyncMutex<Option<DataSourceScanRef>>>),
 }
@@ -752,7 +752,7 @@ impl ScanExecution {
             })));
         }
         if !ordered {
-            return Ok(ScanWork::Stream(scan.open()?));
+            return Ok(ScanWork::Stream(AsyncMutex::new(scan.open()?)));
         }
         let pieces = NonZeroUsize::new(self.output_partitions.len()).unwrap_or(NonZeroUsize::MIN);
         Ok(ScanWork::Pieces(
