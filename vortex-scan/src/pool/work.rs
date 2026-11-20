@@ -37,6 +37,7 @@
 
 use std::collections::VecDeque;
 use std::num::NonZeroUsize;
+use std::pin::pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
@@ -52,6 +53,7 @@ use futures::TryFutureExt;
 use futures::TryStreamExt;
 use futures::future;
 use futures::future::BoxFuture;
+use futures::future::Either;
 use futures::ready;
 use futures::stream;
 use futures::stream::BoxStream;
@@ -237,6 +239,7 @@ pub fn open_work_pool(options: WorkPoolOptions, units: Vec<WorkUnit>) -> ScanPoo
             free: expand_concurrency,
             waiting: VecDeque::new(),
         }),
+        claimed: async_channel::bounded(1),
     });
     if options.ordered {
         return Arc::new(OrderedPool {
@@ -301,6 +304,10 @@ struct Shared {
     taken: Mutex<f64>,
     /// An unordered pool's expansion slots.
     slots: Mutex<Slots>,
+    /// A channel that carries nothing and closes once an unordered pool is claimed, which wakes
+    /// the workers waiting to leave. Closing is permanent, so a worker that starts waiting after
+    /// it cannot miss it.
+    claimed: (Sender<()>, Receiver<()>),
 }
 
 /// An unordered pool's expansion slots: how many are free, and the expansions that wait for one,
@@ -413,9 +420,9 @@ impl Shared {
         next
     }
 
-    /// Whether an unordered pool has a unit that no lane has taken yet, or an expansion queued or
-    /// running that may queue more.
-    fn has_untaken(&self) -> bool {
+    /// Whether an unordered pool has a unit that no lane has claimed yet, or an expansion queued
+    /// or running that may queue more.
+    fn has_unclaimed(&self) -> bool {
         // Only an expansion, which holds a slot until its units are queued, adds units. So once no
         // slot is held and none waits, the pending count only falls, and reading it after the
         // slots cannot miss units that an expansion queues in between.
@@ -426,6 +433,14 @@ impl Shared {
             }
         }
         self.pending.load(Ordering::Acquire) > 0
+    }
+
+    /// Signals the workers waiting to leave once an unordered pool is claimed. Called wherever
+    /// it may become claimed: once a lane takes units from the channel, and once a slot frees.
+    fn signal_if_claimed(&self) {
+        if !self.claimed.0.is_closed() && !self.has_unclaimed() {
+            self.claimed.0.close();
+        }
     }
 
     fn progress(&self) -> f64 {
@@ -541,6 +556,7 @@ impl Drop for Slot {
             let slot = Slot::new(&self.shared, &self.sender);
             self.shared.send(&self.sender, Work::Expand(next, slot));
         }
+        self.shared.signal_if_claimed();
     }
 }
 
@@ -628,8 +644,8 @@ impl UnorderedPool {
         }
     }
 
-    /// A worker that, with `leave`, ends once every unit is taken and no row waits for it, while
-    /// another worker remains to read the rows still to come.
+    /// A worker that, with `leave`, ends once the pool is claimed and no row waits for it, while
+    /// another live worker remains to read the rows still to come.
     fn read(self: Arc<Self>, leave: bool) -> SendableArrayStream {
         self.start_lanes();
         self.workers.fetch_add(1, Ordering::AcqRel);
@@ -652,7 +668,7 @@ impl UnorderedPool {
 /// One worker of an unordered pool, counted among the pool's workers until it ends or is dropped.
 struct Reader {
     pool: Arc<UnorderedPool>,
-    /// Whether the worker ends once every unit is taken, rather than once the pool is drained.
+    /// Whether the worker ends once the pool is claimed, rather than once it is exhausted.
     leave: bool,
     /// Whether the worker still counts among the pool's workers.
     counted: bool,
@@ -660,21 +676,35 @@ struct Reader {
 
 impl Reader {
     async fn next(&mut self) -> Option<VortexResult<ArrayRef>> {
-        if self.leave {
+        if !self.leave {
+            return self.pool.outputs.recv().await.ok();
+        }
+        loop {
             match self.pool.outputs.try_recv() {
                 Ok(array) => return Some(array),
                 Err(TryRecvError::Closed) => return None,
                 Err(TryRecvError::Empty) => {}
             }
-            if !self.pool.shared.has_untaken() && self.uncount_unless_last() {
-                return None;
+            if !self.pool.shared.has_unclaimed() {
+                // Another live worker reads the rows still to come; without one, this worker is
+                // the pool's last and reads them itself.
+                if self.uncount_unless_last() {
+                    return None;
+                }
+                return self.pool.outputs.recv().await.ok();
+            }
+            // Waits for a row, or for the pool to become claimed, so that a worker waiting when
+            // the last unit is claimed leaves then rather than when the pool is exhausted.
+            let row = pin!(self.pool.outputs.recv());
+            let claimed = pin!(self.pool.shared.claimed.1.recv());
+            if let Either::Left((row, _)) = future::select(row, claimed).await {
+                return row.ok();
             }
         }
-        self.pool.outputs.recv().await.ok()
     }
 
-    /// Stops counting the worker unless it is the pool's last, which must read the rows still to
-    /// come. Returns whether it stopped.
+    /// Stops counting the worker unless it is the pool's last live worker, which must read the
+    /// rows still to come. Returns whether it stopped.
     fn uncount_unless_last(&mut self) -> bool {
         let uncounted = self
             .pool
@@ -730,6 +760,7 @@ async fn lane(lanes: Arc<Lanes>, output: Sender<VortexResult<ArrayRef>>) {
             Taken::Expand(..) => 1,
         };
         shared.pending.fetch_sub(units, Ordering::AcqRel);
+        shared.signal_if_claimed();
         // Units the waiting lanes will not take get lanes of their own, such as the units an
         // expansion has just queued.
         lanes.grow(&output);
@@ -809,7 +840,7 @@ impl ScanPool for UnorderedPool {
         self.read(false)
     }
 
-    fn worker_until_taken(self: Arc<Self>) -> SendableArrayStream {
+    fn worker_until_claimed(self: Arc<Self>) -> SendableArrayStream {
         self.read(true)
     }
 
@@ -825,8 +856,8 @@ impl ScanPool for UnorderedPool {
         self.outputs.is_closed() && self.outputs.is_empty()
     }
 
-    fn is_taken(&self) -> bool {
-        self.is_exhausted() || !self.shared.has_untaken()
+    fn is_claimed(&self) -> bool {
+        self.is_exhausted() || !self.shared.has_unclaimed()
     }
 }
 
@@ -936,6 +967,8 @@ mod tests {
     use std::sync::LazyLock;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
+    use std::time::Duration;
+    use std::time::Instant;
 
     use futures::FutureExt;
     use futures::TryStreamExt;
@@ -951,6 +984,7 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::current::CurrentThreadRuntime;
     use vortex_io::runtime::current::CurrentThreadWorkerPool;
@@ -1100,19 +1134,19 @@ mod tests {
         Ok(())
     }
 
-    /// Workers that end once every unit is taken still return every row between them, since the
-    /// last of them reads the rows still to come, and leave the pool taken and drained.
+    /// Workers that end once the pool is claimed still return every row between them, since the
+    /// last of them reads the rows still to come, and leave the pool claimed and exhausted.
     #[test]
-    fn workers_until_taken_return_every_row() -> VortexResult<()> {
+    fn workers_until_claimed_return_every_row() -> VortexResult<()> {
         let (running, peak) = Default::default();
         let pool = open_work_pool(
             options(false, PoolLimit::Unlimited, 4),
             units(&running, &peak),
         );
-        assert!(!pool.is_taken());
+        assert!(!pool.is_claimed());
         let workers = (0..3).map(|_| {
             Arc::clone(&pool)
-                .worker_until_taken()
+                .worker_until_claimed()
                 .try_collect::<Vec<_>>()
         });
         let mut all = Vec::new();
@@ -1121,7 +1155,74 @@ mod tests {
         }
         all.sort_unstable();
         assert_eq!(all, (0..100).collect::<Vec<_>>());
-        assert!(pool.is_taken());
+        assert!(pool.is_claimed());
+        assert!(pool.is_exhausted());
+        Ok(())
+    }
+
+    /// Once every unit is claimed but still running, every worker waiting on the pool but one
+    /// leaves without waiting for those units' rows, and the one left reads all of them, so no
+    /// row is orphaned. More workers wait than there are rows to come, so a worker that waited
+    /// for a row before leaving would wait for the pool to be exhausted.
+    #[test]
+    fn workers_leave_a_claimed_pool_but_one_reads_its_rows() -> VortexResult<()> {
+        const WORKERS: usize = 6;
+        let (open, gate) = async_channel::bounded::<()>(1);
+        let gated = |range: Range<i32>| {
+            let gate = gate.clone();
+            WorkUnit::run(0.5, move || {
+                async move {
+                    // Closing the gate's sender releases every unit.
+                    drop(gate.recv().await);
+                    Ok(vec![Buffer::from_iter(range).into_array()])
+                }
+                .boxed()
+            })
+        };
+        // One turn of two units, with two units in flight, so the lanes claim both at once,
+        // whether a run is one unit or both.
+        let pool = open_work_pool(
+            options(false, PoolLimit::Unlimited, 1),
+            vec![WorkUnit::turn(vec![gated(0..10), gated(10..20)])],
+        );
+        let workers: Vec<_> = (0..WORKERS)
+            .map(|_| {
+                let worker = Arc::clone(&pool).worker_until_claimed();
+                std::thread::spawn(move || block_on(worker.try_collect::<Vec<_>>()))
+            })
+            .collect();
+
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while workers.iter().filter(|worker| worker.is_finished()).count() < WORKERS - 1 {
+            assert!(
+                Instant::now() < deadline,
+                "workers waiting on a claimed pool did not leave"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(pool.is_claimed());
+        assert!(!pool.is_exhausted());
+        let (left, waiting): (Vec<_>, Vec<_>) =
+            workers.into_iter().partition(|worker| worker.is_finished());
+        assert_eq!(waiting.len(), 1);
+        for worker in left {
+            let arrays = worker
+                .join()
+                .map_err(|_| vortex_err!("worker panicked"))??;
+            assert!(values(arrays)?.is_empty());
+        }
+
+        drop(open);
+        let mut all = Vec::new();
+        for worker in waiting {
+            all.extend(values(
+                worker
+                    .join()
+                    .map_err(|_| vortex_err!("worker panicked"))??,
+            )?);
+        }
+        all.sort_unstable();
+        assert_eq!(all, (0..20).collect::<Vec<_>>());
         assert!(pool.is_exhausted());
         Ok(())
     }
