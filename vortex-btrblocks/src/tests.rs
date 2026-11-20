@@ -21,15 +21,18 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::Chunked;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::runend::RunEndArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
@@ -49,6 +52,7 @@ use vortex_edition::EditionId;
 use vortex_edition::EditionSessionExt;
 #[cfg(feature = "zstd")]
 use vortex_edition::declarations::core::CORE_2026_08_3;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::Delta;
@@ -61,6 +65,9 @@ use crate::SESSION;
 use crate::schemes::binary::VarBinScheme;
 use crate::schemes::boolean::BoolRunEndScheme;
 use crate::schemes::integer::BitPackingScheme;
+use crate::schemes::integer::RunEndScheme;
+use crate::schemes::integer::RunEndSequenceScheme;
+use crate::schemes::integer::SequenceScheme;
 
 #[track_caller]
 fn assert_roundtrip(compressor: &BtrBlocksCompressor, input: &ArrayRef) -> VortexResult<ArrayRef> {
@@ -176,6 +183,23 @@ fn test_leaf_validity_is_compressed(
         .build();
     let compressed = assert_roundtrip(&compressor, &input)?;
     assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
+    Ok(())
+}
+
+#[test]
+fn test_list_offset_run_ends_with_terminal_exception() -> VortexResult<()> {
+    let input = PrimitiveArray::from_iter((0..100_001u32).map(|i| i.min(1000) * 3)).into_array();
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&RunEndScheme)
+        .with_new_scheme(&SequenceScheme)
+        .with_new_scheme(&RunEndSequenceScheme)
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+    let runend = compressed
+        .as_opt::<RunEnd>()
+        .vortex_expect("run-end encoded offsets");
+    assert!(runend.ends().is::<Chunked>());
+    assert!(compressed.nbytes() < 100);
     Ok(())
 }
 
