@@ -130,8 +130,8 @@ INTEGRATION_TARGETS: dict[Integration, dict[Engine, frozenset[Format]]] = {
 
 def uses_scan_v2(benchmark: Benchmark, integration: Integration = Integration.DEFAULT) -> bool:
     """Return whether `benchmark` runs its Vortex scans on the V2 scan through `integration`."""
-    # `VortexTable` reaches only the V1 scan today: `MultiFileDataSource` opens `LayoutReader`s,
-    # and `datafusion-bench` picks it only under `--scan-v1 true`. Once the V2 scan sits behind
+    # `VortexTable` reaches only the V1 scan today: `MultiFileDataSource` opens `LayoutReader`s.
+    # The orchestrator passes `--scan-v1 true` so the command says so. Once the V2 scan sits behind
     # `split`/`open`, Scan API targets should follow the suite's engine like the others.
     if integration is Integration.SCAN_API:
         return False

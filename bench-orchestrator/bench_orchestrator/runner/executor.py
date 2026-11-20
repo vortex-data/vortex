@@ -3,7 +3,6 @@
 
 """Benchmark binary execution."""
 
-import os
 import selectors
 import subprocess
 from collections import deque
@@ -19,15 +18,11 @@ from ..config import Benchmark, Engine, Format, Integration, uses_scan_v2
 
 console = Console()
 
-# Environment each backend's binary needs to take a non-default integration. `datafusion-bench`
-# on develop selects `VortexTable` through `VORTEX_USE_SCAN_API=1` under `--scan-v1 true`; the Scan
-# API stack adds a `--scan-api` flag but keeps honouring the variable, so the base build of every
-# PR in the stack runs the same target.
-INTEGRATION_ENV: dict[tuple[Engine, Integration], dict[str, str]] = {
-    (Engine.DATAFUSION, Integration.SCAN_API): {"VORTEX_USE_SCAN_API": "1"},
+# Arguments each backend's binary takes to run a non-default integration. A DuckDB Scan API target
+# needs an entry here once DuckDB has a `DataSource` table function.
+INTEGRATION_ARGS: dict[tuple[Engine, Integration], list[str]] = {
+    (Engine.DATAFUSION, Integration.SCAN_API): ["--scan-api", "true"],
 }
-# Cleared before every run, so a stray export cannot reroute a default target onto another path.
-_INTEGRATION_ENV_VARS = frozenset(var for env in INTEGRATION_ENV.values() for var in env)
 
 
 @final
@@ -69,6 +64,7 @@ class BenchmarkExecutor:
         if self.backend in {Engine.DATAFUSION, Engine.DUCKDB}:
             cmd.extend(["--formats", ",".join(fmt.value for fmt in formats)])
             cmd.extend(["--scan-v1", str(not uses_scan_v2(benchmark, integration)).lower()])
+            cmd.extend(INTEGRATION_ARGS.get((self.backend, integration), []))
         if self.backend == Engine.DUCKDB:
             cmd.append("--delete-duckdb-database")
 
@@ -100,15 +96,8 @@ class BenchmarkExecutor:
 
         return cmd
 
-    def build_env(self, integration: Integration = Integration.DEFAULT) -> dict[str, str]:
-        """Build the environment used to execute a benchmark binary through `integration`."""
-        self._check_integration(integration)
-        env = {key: value for key, value in os.environ.items() if key not in _INTEGRATION_ENV_VARS}
-        env.update(INTEGRATION_ENV.get((self.backend, integration), {}))
-        return env
-
     def _check_integration(self, integration: Integration) -> None:
-        if integration is not Integration.DEFAULT and (self.backend, integration) not in INTEGRATION_ENV:
+        if integration is not Integration.DEFAULT and (self.backend, integration) not in INTEGRATION_ARGS:
             raise ValueError(f"{self.backend.value} cannot run the {integration.value} integration")
 
     def list_queries(
@@ -181,11 +170,9 @@ class BenchmarkExecutor:
             ingest_output=ingest_output,
             integration=integration,
         )
-        env = self.build_env(integration)
 
         if self.verbose:
-            env_prefix = " ".join(f"{k}={v}" for k, v in INTEGRATION_ENV.get((self.backend, integration), {}).items())
-            console.print(f"[dim]$ {env_prefix + ' ' if env_prefix else ''}{' '.join(cmd)}[/dim]")
+            console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
 
         results: list[str] = []
         diagnostic_lines: deque[str] = deque(maxlen=200)
@@ -213,7 +200,6 @@ class BenchmarkExecutor:
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
-                env=env,
             )
 
             assert process.stdout is not None
