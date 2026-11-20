@@ -39,8 +39,8 @@ use vortex_scan::Partition;
 use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
-use vortex_scan::pool::PartitionPool;
-use vortex_scan::pool::ScanPoolRef;
+use vortex_scan::pool::ScanStream;
+use vortex_scan::pool::split_shared;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
@@ -283,12 +283,17 @@ impl DataSourceScan for LayoutReaderScan {
         &self.dtype
     }
 
-    /// Cuts the scan at the layout's natural split boundaries, into pieces of about equal rows.
+    /// Splits an unordered scan into `n` clones of its opened [`SplitPool`], which share its
+    /// splits. Cuts an ordered scan at the layout's natural split boundaries, into contiguous
+    /// pieces of about equal rows.
     ///
     /// A scan with a limit stays whole, because the limit is one budget across all its rows.
     fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
         if n.get() == 1 || self.remaining_limit.is_some() || self.next_row >= self.end_row {
             return Ok(vec![self]);
+        }
+        if !self.ordered {
+            return split_shared(self, n);
         }
         let ranges = self
             .builder()
@@ -307,15 +312,15 @@ impl DataSourceScan for LayoutReaderScan {
             .collect())
     }
 
-    /// Opens the scan into a [`SplitPool`] over its split futures, each worker keeping the
-    /// stream pipeline's per-thread count of them in flight.
+    /// Opens the scan into a [`SplitPool`] over its split futures, each clone of the stream
+    /// keeping the stream pipeline's per-thread count of them in flight.
     ///
     /// Split futures cannot share a limit, and the workers of a queue finish splits out of row
     /// order. So a scan with a limit, or an ordered one, opens into its partition pipeline and
-    /// hands its partitions to workers.
-    fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
+    /// hands its partitions to the clones.
+    fn open(self: Box<Self>) -> VortexResult<ScanStream> {
         if self.remaining_limit.is_some() || self.ordered {
-            return Ok(Arc::new(PartitionPool::new(self)));
+            return Ok(ScanStream::from_partitions(self));
         }
         // A cap on the scan's splits in flight also caps each worker's.
         let per_worker = self
@@ -327,12 +332,10 @@ impl DataSourceScan for LayoutReaderScan {
             .builder()
             .prepare()?
             .execute(Some(self.next_row..self.end_row))?;
-        Ok(Arc::new(SplitPool::new(
-            self.dtype,
-            self.session.handle(),
-            per_worker,
-            splits,
-        )))
+        let pool = Arc::new(SplitPool::new(self.session.handle(), per_worker, splits));
+        Ok(ScanStream::new(self.dtype, move || {
+            Arc::clone(&pool).worker()
+        }))
     }
 
     fn partition_count(&self) -> Precision<usize> {
@@ -525,8 +528,8 @@ impl DataSourceScan for Empty {
         Ok(vec![self])
     }
 
-    fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
-        Ok(Arc::new(PartitionPool::new(self)))
+    fn open(self: Box<Self>) -> VortexResult<ScanStream> {
+        Ok(ScanStream::from_partitions(self))
     }
 
     fn partition_count(&self) -> Precision<usize> {
@@ -773,15 +776,15 @@ mod split_open_tests {
         )
     }
 
-    /// Workers of an opened scan each claim splits until none is left, so together they read
-    /// every row once.
+    /// Clones of an opened scan's stream each claim splits until none is left, so together they
+    /// read every row once.
     #[test]
-    fn opened_workers_read_every_row_once() -> VortexResult<()> {
+    fn opened_clones_read_every_row_once() -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
-        let pool = runtime
+        let stream = runtime
             .block_on(source(&runtime).scan(ScanRequest::default()))?
             .open()?;
-        let workers = (0..3).map(|_| Arc::clone(&pool).worker().try_collect::<Vec<_>>());
+        let workers = (0..3).map(|_| stream.clone().try_collect::<Vec<_>>());
         let arrays = runtime.block_on(try_join_all(workers))?;
         let mut values = collect_scan_values(arrays.into_iter().flatten().map(Ok))?;
         values.sort_unstable();
@@ -789,20 +792,42 @@ mod split_open_tests {
         Ok(())
     }
 
-    /// Splitting cuts at the layout's split boundaries, and the pieces read the rows in order.
+    /// The pieces of an unordered scan share its splits, so together they read every row once.
     #[test]
-    fn split_cuts_at_split_boundaries() -> VortexResult<()> {
+    fn unordered_pieces_share_the_splits() -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
         let scan = runtime.block_on(source(&runtime).scan(ScanRequest::default()))?;
         let pieces = scan.split(NonZeroUsize::try_from(4)?)?;
         assert_eq!(pieces.len(), 4);
+        let streams = pieces
+            .into_iter()
+            .map(|piece| piece.open())
+            .collect::<VortexResult<Vec<_>>>()?;
+        let arrays = runtime.block_on(try_join_all(
+            streams
+                .into_iter()
+                .map(|stream| stream.try_collect::<Vec<_>>()),
+        ))?;
+        let mut values = collect_scan_values(arrays.into_iter().flatten().map(Ok))?;
+        values.sort_unstable();
+        assert_eq!(values, (0..64).collect::<Vec<_>>());
+        Ok(())
+    }
+
+    /// An ordered scan is cut at the layout's split boundaries, and the pieces read the rows in
+    /// order.
+    #[test]
+    fn ordered_split_cuts_at_split_boundaries() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let scan = runtime.block_on(source(&runtime).scan(ScanRequest {
+            ordered: true,
+            ..Default::default()
+        }))?;
+        let pieces = scan.split(NonZeroUsize::try_from(4)?)?;
+        assert_eq!(pieces.len(), 4);
         let mut values = Vec::new();
         for piece in pieces {
-            let mut piece_values =
-                collect_scan_values(runtime.block_on_stream(piece.open()?.worker()))?;
-            // A worker yields its splits as they finish.
-            piece_values.sort_unstable();
-            values.extend(piece_values);
+            values.extend(collect_scan_values(runtime.block_on_stream(piece.open()?))?);
         }
         assert_eq!(values, (0..64).collect::<Vec<_>>());
         Ok(())
@@ -824,8 +849,8 @@ mod split_open_tests {
         let scan = runtime.block_on(source.scan(request()))?;
         assert_eq!(scan.split(NonZeroUsize::try_from(4)?)?.len(), 1);
 
-        let pool = runtime.block_on(source.scan(request()))?.open()?;
-        let values = collect_scan_values(runtime.block_on_stream(pool.worker()))?;
+        let stream = runtime.block_on(source.scan(request()))?.open()?;
+        let values = collect_scan_values(runtime.block_on_stream(stream))?;
         assert_eq!(values.len(), 10);
         Ok(())
     }
