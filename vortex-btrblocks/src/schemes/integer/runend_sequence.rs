@@ -98,7 +98,10 @@ fn encode_runend_sequence(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     let last = data.array_len() - 1;
-    let prefix = data.array().slice(0..last)?.execute::<PrimitiveArray>(ctx)?;
+    let prefix = data
+        .array()
+        .slice(0..last)?
+        .execute::<PrimitiveArray>(ctx)?;
     let Some(prefix) = sequence_encode(prefix.as_view(), ctx)? else {
         return Ok(None);
     };
