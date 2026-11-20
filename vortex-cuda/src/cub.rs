@@ -160,8 +160,8 @@ mod tests {
         let dict_size = u32::try_from(lens.len())?;
         let code_width = u32::try_from(size_of::<C>())?;
 
-        let codes_dev = ctx.copy_to_device(codes)?.await?;
-        let lens_dev = ctx.copy_to_device(lens)?.await?;
+        let codes_dev = ctx.copy_to_device(&codes)?;
+        let lens_dev = ctx.copy_to_device(&lens)?;
         let mut status = ctx.device_alloc::<u32>(1)?;
         ctx.stream()
             .memset_zeros(&mut status)
