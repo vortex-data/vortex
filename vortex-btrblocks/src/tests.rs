@@ -20,8 +20,8 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
-use vortex_array::arrays::Chunked;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::Chunked;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
@@ -62,12 +62,12 @@ use vortex_sparse::Sparse;
 use crate::BtrBlocksCompressor;
 use crate::BtrBlocksCompressorBuilder;
 use crate::SESSION;
-use crate::schemes::integer::RunEndScheme;
-use crate::schemes::integer::RunEndSequenceScheme;
-use crate::schemes::integer::SequenceScheme;
 use crate::schemes::binary::VarBinScheme;
 use crate::schemes::boolean::BoolRunEndScheme;
 use crate::schemes::integer::BitPackingScheme;
+use crate::schemes::integer::RunEndScheme;
+use crate::schemes::integer::RunEndSequenceScheme;
+use crate::schemes::integer::SequenceScheme;
 
 #[track_caller]
 fn assert_roundtrip(compressor: &BtrBlocksCompressor, input: &ArrayRef) -> VortexResult<ArrayRef> {
