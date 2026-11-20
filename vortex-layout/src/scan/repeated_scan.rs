@@ -417,6 +417,13 @@ fn selected_mask(selection: &Selection, range: &Range<u64>) -> Option<RowMask> {
 /// Counts a file scan attempt and returns whether whole-file statistics reject the filter.
 pub(crate) fn can_prune_file(ctx: &TaskContext) -> VortexResult<bool> {
     ctx.count::<true>(ScanRecorder::attempt_file_scan);
+    recheck_prune_file(ctx)
+}
+
+/// Returns whether whole-file statistics reject the filter, for a file whose scan attempt
+/// [`can_prune_file`] has already counted. A filter with dynamic parts, such as a join's, may
+/// reject a file later that it did not reject when the scan started.
+pub(crate) fn recheck_prune_file(ctx: &TaskContext) -> VortexResult<bool> {
     if let Some(filter) = &ctx.filter
         && can_prune_conjuncts(filter, ctx.reader.as_ref())?
     {
