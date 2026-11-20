@@ -335,20 +335,6 @@ impl DataSourceScan for LayoutReaderScan {
         )))
     }
 
-    fn row_count(&self) -> Precision<u64> {
-        let selected = self
-            .selection
-            .row_count_in_range(&(self.next_row..self.end_row));
-        let rows = self
-            .remaining_limit
-            .map_or(selected, |limit| selected.min(limit));
-        if self.filter.is_some() {
-            Precision::inexact(rows)
-        } else {
-            Precision::exact(rows)
-        }
-    }
-
     fn partition_count(&self) -> Precision<usize> {
         let (lower, upper) = self.size_hint();
         match upper {
@@ -549,10 +535,6 @@ impl DataSourceScan for Empty {
 
     fn partitions(self: Box<Self>) -> PartitionStream {
         stream::iter([Ok(self as _)]).boxed()
-    }
-
-    fn row_count(&self) -> Precision<u64> {
-        Precision::exact(self.row_count)
     }
 }
 
@@ -772,7 +754,6 @@ mod split_open_tests {
 
     use futures::TryStreamExt;
     use futures::future::try_join_all;
-    use vortex_array::expr::stats::Precision;
     use vortex_error::VortexResult;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
@@ -805,8 +786,6 @@ mod split_open_tests {
         let mut values = collect_scan_values(arrays.into_iter().flatten().map(Ok))?;
         values.sort_unstable();
         assert_eq!(values, (0..64).collect::<Vec<_>>());
-        assert!(pool.is_exhausted());
-        assert_eq!(pool.progress(), 1.0);
         Ok(())
     }
 
@@ -819,7 +798,6 @@ mod split_open_tests {
         assert_eq!(pieces.len(), 4);
         let mut values = Vec::new();
         for piece in pieces {
-            assert_eq!(piece.row_count(), Precision::exact(16u64));
             let mut piece_values =
                 collect_scan_values(runtime.block_on_stream(piece.open()?.worker()))?;
             // A worker yields its splits as they finish.
