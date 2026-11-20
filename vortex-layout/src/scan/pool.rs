@@ -5,8 +5,8 @@
 //!
 //! A pool's units are the splits of one or more files, and the files not yet opened. Its splits
 //! run as tasks on the session's runtime, at most `splits_in_flight` at once across the whole
-//! pool; it never starts threads of its own. Opening a deferred file is a unit like any other, and
-//! at most `open_concurrency` opens are queued or running at once.
+//! pool; it never starts threads of its own. At most `open_concurrency` deferred files open at
+//! once.
 //!
 //! Splits run as [`RepeatedScan::execute_stream`] runs them:
 //!
@@ -19,16 +19,17 @@
 //!
 //! The pools differ in how workers share the work:
 //!
-//! - An unordered pool runs lanes on the runtime once its first worker starts: one for each run
-//!   of splits or open that is ready, more as they queue, and at most enough to keep
-//!   `splits_in_flight` splits running. Each lane takes the next unit from a channel of units,
-//!   runs it, and sends its rows into one bounded output channel. An opened file is one unit, its
-//!   turn, which a lane queues again after taking the file's next run of adjacent splits, so the
-//!   lanes read the opened files in turn, a run at a time, and poll each run's splits together so
-//!   that their reads coalesce. A lane that opens a deferred file queues the file's turn, followed
-//!   by the next deferred file. Workers only take rows from the output channel, so whichever
-//!   worker asks next gets the next rows, however many workers there are, and the number of
-//!   workers is only the host's parallelism. The output channel closes once every lane has
+//! - An unordered pool starts `open_concurrency` openers and its lanes on the runtime once its
+//!   first worker starts. Each opener opens deferred files one after another and queues each to
+//!   be planned. The lanes start one for each run of splits or plan that is ready, more as they
+//!   queue, and at most enough to keep `splits_in_flight` splits running. Each lane takes the
+//!   next unit from a channel of units, runs it, and sends its rows into one bounded output
+//!   channel. An opened file is one unit, its turn, which a lane queues again after taking the
+//!   file's next run of adjacent splits, so the lanes read the opened files in turn, a run at a
+//!   time, and poll each run's splits together so that their reads coalesce. A lane that plans a
+//!   file queues its turn. Workers only take rows from the output channel, so whichever worker
+//!   asks next gets the next rows, however many workers there are, and the number of workers is
+//!   only the host's parallelism. The output channel closes once every opener and lane has
 //!   finished, which ends the workers.
 //! - An ordered pool gives all of its units, in row order, to its first worker, which keeps
 //!   `splits_in_flight` of them running at once; later workers get nothing. Parallel ordered reads
@@ -261,18 +262,9 @@ pub(crate) fn open_pool(
     }
 
     let (sender, receiver) = async_channel::unbounded();
-    let mut opens = 0;
     for file in files {
         match file {
             PoolFile::Opened(work) => shared.queue_file(&sender, work),
-            PoolFile::Deferred(factory) if opens < open_concurrency => {
-                opens += 1;
-                let slot = OpenSlot {
-                    shared: Arc::clone(&shared),
-                    sender: sender.clone(),
-                };
-                shared.queue(&sender, Work::Open(factory, slot));
-            }
             PoolFile::Deferred(factory) => shared.deferred.lock().push_back(factory),
         }
     }
@@ -291,6 +283,9 @@ pub(crate) fn open_pool(
         waiting: AtomicUsize::new(0),
         started: AtomicUsize::new(0),
         tasks: Mutex::new(Some(Vec::new())),
+        open_concurrency,
+        units_sender: Mutex::new(Some(sender)),
+        openers: Mutex::new(Some(Vec::new())),
     });
     Arc::new(UnorderedPool {
         dtype: options.dtype,
@@ -344,7 +339,7 @@ struct Shared {
     /// The progress that one file adds.
     file_share: f64,
     progress: Mutex<f64>,
-    /// An unordered pool's deferred files that are not yet queued for opening, in file order.
+    /// An unordered pool's deferred files that no opener has taken yet, in file order.
     deferred: Mutex<VecDeque<Arc<dyn LayoutReaderFactory>>>,
     /// Whether a unit of an unordered pool failed, which stops its lanes.
     failed: AtomicBool,
@@ -470,7 +465,7 @@ impl Shared {
     fn queue(&self, sender: &Sender<Work>, work: Work) {
         let units = match &work {
             Work::File(splits, _) => splits.len(),
-            Work::Open(..) => 1,
+            Work::Plan(..) => 1,
         };
         self.pending.fetch_add(units, Ordering::AcqRel);
         send(sender, work);
@@ -558,15 +553,15 @@ enum Work {
     /// file after another. Each file then has only a few splits in flight, which keeps its first rows, and
     /// any dynamic filter they tighten, ahead of its later splits.
     File(VecDeque<FileSplit>, Sender<Work>),
-    /// A deferred file, and the open slot it holds until its turn is in the channel.
-    Open(Arc<dyn LayoutReaderFactory>, OpenSlot),
+    /// A deferred file that an opener has opened, to plan into its turn.
+    Plan(LayoutReaderRef, Sender<Work>),
 }
 
 /// What a lane takes from a unit.
 enum Taken {
     /// A run of a file's adjacent splits, in row order.
     Splits(Vec<FileSplit>),
-    Open(Arc<dyn LayoutReaderFactory>, OpenSlot),
+    Plan(LayoutReaderRef, Sender<Work>),
 }
 
 impl Taken {
@@ -574,13 +569,13 @@ impl Taken {
     fn units(&self) -> usize {
         match self {
             Taken::Splits(splits) => splits.len(),
-            Taken::Open(..) => 1,
+            Taken::Plan(..) => 1,
         }
     }
 }
 
 impl Work {
-    /// Takes the unit's next `run` splits, or its open, queueing a file's turn again while it
+    /// Takes the unit's next `run` splits, or its plan, queueing a file's turn again while it
     /// has splits left.
     fn take(self, run: usize) -> Option<Taken> {
         match self {
@@ -592,32 +587,7 @@ impl Work {
                 }
                 (!taken.is_empty()).then_some(Taken::Splits(taken))
             }
-            Work::Open(factory, slot) => Some(Taken::Open(factory, slot)),
-        }
-    }
-}
-
-/// One of an unordered pool's `open_concurrency` open slots. Its sender keeps the channel open
-/// while the file that holds it is queued or opening.
-struct OpenSlot {
-    shared: Arc<Shared>,
-    sender: Sender<Work>,
-}
-
-impl Drop for OpenSlot {
-    /// Passes the slot to the next deferred file, queued behind the turns already in the channel,
-    /// so opens keep pace with the workers. The slot passes on whether the open finished or a
-    /// dropped worker gave it up, so that worker strands only the file it was opening.
-    fn drop(&mut self) {
-        if self.sender.is_closed() {
-            return;
-        }
-        if let Some(next) = self.shared.next_deferred() {
-            let slot = OpenSlot {
-                shared: Arc::clone(&self.shared),
-                sender: self.sender.clone(),
-            };
-            self.shared.queue(&self.sender, Work::Open(next, slot));
+            Work::Plan(reader, sender) => Some(Taken::Plan(reader, sender)),
         }
     }
 }
@@ -643,6 +613,12 @@ struct Lanes {
     started: AtomicUsize,
     /// The lanes started, until the pool is dropped, which aborts them. `None` once it is.
     tasks: Mutex<Option<Vec<Task<()>>>>,
+    /// The most deferred files that are opened at once, each by an opener of its own.
+    open_concurrency: usize,
+    /// The sender of the channel of units until the openers start, which hold it from then on.
+    units_sender: Mutex<Option<Sender<Work>>>,
+    /// The openers started, until the pool is dropped, which aborts them. `None` once it is.
+    openers: Mutex<Option<Vec<Task<()>>>>,
 }
 
 impl Lanes {
@@ -700,26 +676,78 @@ impl UnorderedPool {
                 .into_iter()
                 .map(|split| shared.take_split(split, false))
                 .collect(),
-            Taken::Open(factory, slot) => iter::once(
-                async move {
-                    let opened = slot.shared.open_file(factory).await.map(|work| {
-                        slot.shared.queue_file(&slot.sender, work);
-                        None
-                    });
-                    drop(slot);
-                    opened
-                }
-                .boxed(),
-            )
-            .collect(),
+            Taken::Plan(reader, sender) => {
+                let shared = Arc::clone(shared);
+                iter::once(
+                    async move {
+                        let work = match &shared.prepare {
+                            Some(prepare) if !shared.limit.is_spent() => prepare(reader)?,
+                            _ => FileWork::empty(),
+                        };
+                        shared.queue_file(&sender, work);
+                        Ok(None)
+                    }
+                    .boxed(),
+                )
+                .collect()
+            }
         }
     }
 
-    /// Starts the lanes, once. With no units, it starts none, and the output channel closes.
+    /// Starts the openers and the lanes, once. With no units and no deferred files, it starts
+    /// none, and the output channel closes.
     fn start_lanes(&self) {
-        // Dropping the pool's own sender leaves the lanes holding the output channel open.
-        if let Some(output) = self.output.lock().take() {
-            self.lanes.grow(&output);
+        // Dropping the pool's own senders leaves the openers and lanes holding the channels open.
+        let Some(output) = self.output.lock().take() else {
+            return;
+        };
+        if let Some(units) = self.lanes.units_sender.lock().take() {
+            let count = self
+                .lanes
+                .open_concurrency
+                .min(self.shared.deferred.lock().len());
+            let handle = self.shared.session.handle();
+            if let Some(openers) = self.lanes.openers.lock().as_mut() {
+                openers.extend((0..count).map(|_| {
+                    handle.spawn(opener(
+                        Arc::clone(&self.lanes),
+                        units.clone(),
+                        output.clone(),
+                    ))
+                }));
+            }
+        }
+        self.lanes.grow(&output);
+    }
+}
+
+/// An opener: opens the pool's deferred files one after another, in file order, and queues each
+/// opened file to be planned by a lane, so that planning one file overlaps opening the next, as
+/// when a partition stream opens its files ahead of the partitions that plan and read them. The
+/// openers are the only tasks that open files, so at most `open_concurrency` open at once, and
+/// opens never wait behind the units in the channel. Ends once no deferred file is left, the
+/// limit is spent, or a unit fails.
+async fn opener(lanes: Arc<Lanes>, units: Sender<Work>, output: Sender<VortexResult<ArrayRef>>) {
+    let shared = Arc::clone(&lanes.shared);
+    while !shared.limit.is_trimmed_out() && !shared.failed.load(Ordering::Acquire) {
+        let Some(factory) = shared.next_deferred() else {
+            return;
+        };
+        let opened = factory
+            .open()
+            .instrument(tracing::info_span!("LayoutReaderFactory::open"))
+            .await;
+        match opened {
+            Ok(Some(reader)) => {
+                shared.queue(&units, Work::Plan(reader, units.clone()));
+                lanes.grow(&output);
+            }
+            Ok(None) => shared.queue_file(&units, FileWork::empty()),
+            Err(err) => {
+                shared.failed.store(true, Ordering::Release);
+                drop(output.send(Err(err)).await);
+                return;
+            }
         }
     }
 }
@@ -815,19 +843,22 @@ impl ScanPool for UnorderedPool {
     }
 
     fn is_exhausted(&self) -> bool {
-        // The lanes hold the output channel's senders, so it closes once every lane has ended.
+        // The openers and lanes hold the output channel's senders, so it closes once every one
+        // of them has ended.
         self.outputs.is_closed() && self.outputs.is_empty()
     }
 }
 
 impl Drop for UnorderedPool {
     fn drop(&mut self) {
-        // Pending opens hold senders of the channel of units itself; drain them so it can be
-        // freed. The lanes are aborted when they are dropped.
+        // Queued turns and plans hold senders of the channel of units itself; drain them so it
+        // can be freed. The openers and lanes are aborted when they are dropped.
         self.units.close();
         while self.units.try_recv().is_ok() {}
         self.outputs.close();
+        drop(self.lanes.openers.lock().take());
         drop(self.lanes.tasks.lock().take());
+        drop(self.lanes.units_sender.lock().take());
     }
 }
 

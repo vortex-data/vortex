@@ -1349,15 +1349,28 @@ mod pool_tests {
     /// the order the lane takes splits.
     #[test]
     fn unordered_splits_interleave_across_files() -> VortexResult<()> {
-        let (source, gates) = gated_source(2, 3);
-        for gate in &gates {
-            gate.release();
-        }
-        let request = ScanRequest {
-            split_concurrency: NonZeroUsize::new(1),
-            ..Default::default()
+        let request = BoundScanRequest::try_new(
+            ScanRequest {
+                split_concurrency: NonZeroUsize::new(1),
+                ..Default::default()
+            },
+            &i32_dtype(),
+        )?;
+        let file = |base| -> LayoutReaderRef {
+            Arc::new(TestLayoutReader::new(3).with_split_size(1).with_base(base))
         };
-        let pool = plan(&source.with_concurrency(2), request)?.open()?;
+        let scan = MultiLayoutSplitScan {
+            context: Arc::new(ScanContext {
+                session: new_session(),
+                source_dtype: i32_dtype(),
+                dtype: request.projection.dtype().clone(),
+                request,
+                open_concurrency: 2,
+            }),
+            children: vec![ScanChild::Opened(file(0)), ScanChild::Opened(file(100))],
+            index: 0,
+        };
+        let pool = Box::new(scan).open()?;
         let values = collect_scan_values(futures::executor::block_on_stream(pool.worker()))?;
         assert_eq!(values, [0, 100, 1, 101, 2, 102]);
         Ok(())
@@ -1445,9 +1458,6 @@ mod pool_tests {
     fn spent_limit_stops_opening_files() -> VortexResult<()> {
         let opens = Arc::new(AtomicUsize::new(0));
         let (source, gates) = counted_source(6, 4, &opens);
-        for gate in &gates {
-            gate.release();
-        }
         let source = source.with_concurrency(1);
         let pool = plan(
             &source,
@@ -1457,15 +1467,27 @@ mod pool_tests {
             },
         )?
         .open()?;
-        let values = read_with_one_worker(Arc::clone(&pool))?;
-        assert_eq!(values.len(), 2);
-        assert!(opens.load(Ordering::SeqCst) < 6, "opened every file");
+        // Only the first file opens until the limit is spent. The opener may by then wait on the
+        // second file, but on no later one.
+        gates[0].release();
+        let mut worker = futures::executor::block_on_stream(Arc::clone(&pool).worker());
+        let mut values = collect_scan_values(worker.by_ref().take(2))?;
+        values.sort_unstable();
+        assert_eq!(values, [0, 1]);
+        for gate in &gates {
+            gate.release();
+        }
+        assert!(collect_scan_values(worker)?.is_empty());
+        assert!(
+            opens.load(Ordering::SeqCst) <= 2,
+            "opened files after the limit was spent"
+        );
         assert!(pool.is_exhausted());
         assert_eq!(pool.progress(), 1.0);
         Ok(())
     }
 
-    /// Opens run in the pool's lanes, not in its workers, so dropping a worker that is waiting
+    /// Opens run in the pool's openers, not in its workers, so dropping a worker that is waiting
     /// on an open gives up nothing: the other workers still read every file.
     #[test]
     fn dropped_worker_gives_up_nothing() -> VortexResult<()> {
