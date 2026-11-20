@@ -59,6 +59,7 @@ impl ProjectionPlanner {
                                 ..selected.scope.rows.start + end as u64,
                         },
                         mask,
+                        pruned_at: selected.pruned_at.clone(),
                     })
                 })
                 .collect()

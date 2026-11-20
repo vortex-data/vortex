@@ -26,7 +26,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::request::IoService;
 use vortex_io::runtime::Handle;
-use vortex_mask::Mask;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::planning::driver::Progress;
@@ -34,6 +33,7 @@ use crate::planning::driver::Run;
 use crate::planning::planner::Planner;
 use crate::planning::planner::WorkScope;
 use crate::prepare::ChunkPlanner;
+use crate::prepare::Kept;
 use crate::prepare::PreparedScan;
 use crate::prepare::PrunePlanner;
 use crate::prepare::ScanBuilder;
@@ -151,7 +151,7 @@ fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
     let chunks = {
         let scan = Arc::clone(scan);
         let rows = rows.clone();
-        move |kept: Option<Mask>| -> Box<dyn Planner> {
+        move |kept: Option<Kept>| -> Box<dyn Planner> {
             let selection = scan.selection().clone();
             Box::new(ChunkPlanner::new(scan, rows, selection, kept))
         }

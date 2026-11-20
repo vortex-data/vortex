@@ -15,6 +15,7 @@ use vortex_session::VortexSession;
 pub use crate::execution::ChunkPlanner;
 use crate::execution::FILTERED_ROWS_PER_CHUNK;
 pub use crate::execution::FilterPlans;
+pub use crate::execution::Kept;
 use crate::execution::MAX_ROWS_PER_CHUNK;
 pub use crate::execution::PreparedScan;
 pub use crate::execution::PruneNext;
