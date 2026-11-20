@@ -546,43 +546,55 @@ fn blocks_follow_the_source_grid(
     Ok(())
 }
 
-/// Over a canonical leaf, the program decodes in the leaf's own buffer when the executor holds
-/// the only reference to it, and copies the leaf into scratch when another owner shares it.
+/// A canonical leaf is a block source like any other. The program decodes in the leaf's own
+/// buffer when the executor holds the only reference to it, and copies the leaf into scratch when
+/// another owner shares it.
+///
+/// A primitive child of a spine parent is already canonical, so the executor never descends to
+/// it: the innermost op runs its own `execute`, and its result is the leaf of the ops above.
 #[test]
 fn canonical_leaf_in_place_only_when_owned() -> VortexResult<()> {
-    let build = || add(add(add(PrimitiveArray::from_iter(0..3000i32).into_array())));
-    let built = "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
-ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
-fuse start input=canonical array=vortex.primitive(i32, len=3000)
-fuse extend parent=vortex.test.op(i32, len=3000) ops=1
-fuse extend parent=vortex.test.op(i32, len=3000) ops=2
-fuse extend parent=vortex.test.op(i32, len=3000) ops=3
-drive input=canonical ops=3 len=3000";
-
+    let leaf = || PrimitiveArray::from_iter(0..3000i32).into_array();
     let before = in_place_chain_count();
     assert_eq!(
-        fused(build())?,
-        format!(
-            "{built}
+        fused(add(add(add(leaf()))))?,
+        "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
+ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
+fuse start input=source array=vortex.primitive(i32, len=3000)
+fuse extend parent=vortex.test.op(i32, len=3000) ops=1
+fuse extend parent=vortex.test.op(i32, len=3000) ops=2
+drive input=source ops=2 len=3000
 block_op 0 in_place i32->i32 leaf -> leaf
-block_op 1 in_place i32->i32 leaf -> leaf
-block_op 2 in_place i32->i32 leaf -> leaf"
-        )
+block_op 1 in_place i32->i32 leaf -> leaf"
     );
     assert_eq!(in_place_chain_count() - before, 1);
 
-    // `fused` executes a clone of its input first, so the leaf is shared while the clone runs:
-    // check that run on its own.
-    let shared = build();
+    // `Pass` returns the shared leaf itself, so the leaf reaches the ops above still shared.
+    let shared = leaf();
     let mut ctx = SESSION.create_execution_ctx();
-    let traced = trace_op(|| shared.clone().execute::<PrimitiveArray>(&mut ctx))?;
-    assert!(fusion_lines(&traced.trace.to_string()).ends_with(
-        "block_op 0 copy i32->i32 source -> scratch0
-block_op 1 in_place i32->i32 scratch0 -> scratch0
-block_op 2 copy i32->i32 scratch0 -> output"
-    ));
+    let before = in_place_chain_count();
+    let traced = trace_op(|| {
+        add(add(op(TestOpKind::Pass, shared.clone()))).execute::<PrimitiveArray>(&mut ctx)
+    })?;
+    assert_eq!(
+        fusion_lines(&traced.trace.to_string()),
+        "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
+ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
+fuse start input=source array=vortex.primitive(i32, len=3000)
+fuse extend parent=vortex.test.op(i32, len=3000) ops=1
+fuse extend parent=vortex.test.op(i32, len=3000) ops=2
+drive input=source ops=2 len=3000
+block_op 0 copy i32->i32 source -> scratch0
+block_op 1 copy i32->i32 scratch0 -> output"
+    );
+    assert_eq!(in_place_chain_count(), before);
     // The shared leaf still holds its own values.
-    assert_arrays_eq!(shared, build(), &mut ctx);
+    assert_arrays_eq!(shared, leaf(), &mut ctx);
+    assert_arrays_eq!(
+        traced.output,
+        PrimitiveArray::from_iter(2..3002i32),
+        &mut ctx
+    );
     Ok(())
 }
 

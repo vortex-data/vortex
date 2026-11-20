@@ -8,6 +8,7 @@ use std::ops::Range;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -45,16 +46,12 @@ pub(crate) fn fusable_ptype(array: &ArrayRef) -> Option<PType> {
 pub(crate) enum ProgramInput {
     /// A leaf's block source.
     Source(Box<dyn BlockSource>),
-    /// A canonical primitive array, which the program decodes in place when it holds the only
-    /// reference to its buffer and every op keeps the width.
-    Canonical(PrimitiveArray),
 }
 
 impl ProgramInput {
     pub(crate) fn name(&self) -> &'static str {
         match self {
             ProgramInput::Source(_) => "source",
-            ProgramInput::Canonical(_) => "canonical",
         }
     }
 }
@@ -105,39 +102,27 @@ impl BlockProgram {
         #[cfg(any(test, feature = "_test-harness"))]
         super::FUSED_CHAINS.with(|count| count.set(count.get() + 1));
         let (len, out_ptype) = (self.len, *self.ptypes.last().vortex_expect("input type"));
-        let mut source: Box<dyn BlockSource> = match self.input {
-            ProgramInput::Source(source) => source,
-            ProgramInput::Canonical(array) => {
-                let in_place = (0..self.ops.len()).all(|i| in_place_op(&self.ops, &self.ptypes, i));
-                match_each_native_ptype!(array.ptype(), |S| {
-                    match array.try_into_buffer_mut::<S>() {
-                        Ok(mut values) if in_place => {
-                            // SAFETY: `values` holds `len` initialized values of `ptypes[0]`, and
-                            // every op keeps the width, so each block is overwritten in place.
-                            unsafe {
-                                run_blocks_in_place(
-                                    &mut self.ops,
-                                    &self.ptypes,
-                                    len,
-                                    values.as_mut_ptr().cast(),
-                                )?
-                            };
-                            #[cfg(any(test, feature = "_test-harness"))]
-                            super::IN_PLACE_CHAINS.with(|count| count.set(count.get() + 1));
-                            return Ok(PrimitiveArray::from_byte_buffer(
-                                values.into_byte_buffer().freeze(),
-                                out_ptype,
-                                validity,
-                            ));
-                        }
-                        Ok(values) => {
-                            Box::new(PrimitiveSource::new(values.freeze())) as Box<dyn BlockSource>
-                        }
-                        Err(values) => Box::new(PrimitiveSource::new(values)),
-                    }
-                })
-            }
-        };
+        let ProgramInput::Source(mut source) = self.input;
+        // When every op keeps the width and the source owns its buffer outright, such as a
+        // canonical leaf nothing else references, each block is overwritten where it lies.
+        let in_place = (0..self.ops.len()).all(|i| in_place_op(&self.ops, &self.ptypes, i));
+        if in_place && let Some(mut values) = source.take_buffer() {
+            vortex_ensure_eq!(
+                values.len(),
+                len * self.ptypes[0].byte_width(),
+                "an owned source buffer holds the program's rows"
+            );
+            // SAFETY: `values` holds `len` initialized values of `ptypes[0]`, and every op keeps
+            // the width, so each block is overwritten in place.
+            unsafe { run_blocks_in_place(&mut self.ops, &self.ptypes, len, values.as_mut_ptr())? };
+            #[cfg(any(test, feature = "_test-harness"))]
+            super::IN_PLACE_CHAINS.with(|count| count.set(count.get() + 1));
+            return Ok(PrimitiveArray::from_byte_buffer(
+                values.freeze(),
+                out_ptype,
+                validity,
+            ));
+        }
         match_each_native_ptype!(out_ptype, |T| {
             let mut output = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
             let dst = output.spare_capacity_mut().as_mut_ptr().cast::<u8>();
@@ -170,6 +155,16 @@ impl<T: NativePType> BlockSource for PrimitiveSource<T> {
         Ok(SourceBlock::Lent(BlockIn::from_slice(
             &self.values.as_slice()[rows],
         )))
+    }
+
+    fn take_buffer(&mut self) -> Option<ByteBufferMut> {
+        match std::mem::replace(&mut self.values, Buffer::empty()).try_into_mut() {
+            Ok(values) => Some(values.into_byte_buffer()),
+            Err(values) => {
+                self.values = values;
+                None
+            }
+        }
     }
 }
 

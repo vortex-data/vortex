@@ -9,13 +9,10 @@ use vortex_error::vortex_ensure_eq;
 use super::BlockProgram;
 use super::ProgramInput;
 use super::fusable_ptype;
-use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::Primitive;
 use crate::dtype::DType;
-use crate::matcher::Matcher;
 use crate::stats::StatsSet;
 use crate::trace_op;
 use crate::validity::Validity;
@@ -39,8 +36,8 @@ impl FusedChain {
     /// validity is `validity`, if `parent` transforms blocks of that slot and `child` can be the
     /// input of a block program. Returns `child` back otherwise.
     ///
-    /// `child` is a canonical primitive array, an array with a block source, or an array whose own
-    /// op transforms a canonical primitive child. The executor checked on the way down that both
+    /// `child` is a leaf: an array with a block source, such as a canonical primitive array or
+    /// BitPacked. The executor checked on the way down that both
     /// arrays are primitive, non-empty and of one length.
     pub(crate) fn start(
         child: ArrayRef,
@@ -115,53 +112,15 @@ impl FusedChain {
     }
 }
 
-/// The program producing `child`'s values, if `child` can be the input of one.
+/// The program producing `child`'s values, if `child` is a leaf: an array with a block source.
 fn program_for(child: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<BlockProgram>> {
-    let Some(ptype) = fusable_ptype(child) else {
+    let (Some(ptype), Some(source)) = (fusable_ptype(child), child.block_source(ctx)?) else {
         return Ok(None);
     };
-    if let Some(primitive) = child.as_opt::<Primitive>() {
-        trace_op!(record_fuse_start("canonical", child));
-        return Ok(Some(BlockProgram::new(
-            ProgramInput::Canonical(primitive.into_owned()),
-            ptype,
-            child.len(),
-        )));
-    }
-    if let Some(source) = child.block_source(ctx)? {
-        trace_op!(record_fuse_start("source", child));
-        return Ok(Some(BlockProgram::new(
-            ProgramInput::Source(source),
-            ptype,
-            child.len(),
-        )));
-    }
-    // A child whose own op transforms a canonical primitive child of its own, which it would
-    // execute right away, so the executor never descends to it.
-    for (slot_idx, grandchild) in child.slots().iter().enumerate() {
-        let Some(grandchild) = grandchild else {
-            continue;
-        };
-        let (Some(grandchild_ptype), Some(primitive)) =
-            (fusable_ptype(grandchild), grandchild.as_opt::<Primitive>())
-        else {
-            continue;
-        };
-        if grandchild.len() != child.len() || !AnyCanonical::matches(grandchild) {
-            continue;
-        }
-        let Some(op) = child.block_op(slot_idx, grandchild.dtype(), ctx)? else {
-            continue;
-        };
-        trace_op!(record_fuse_start("canonical", grandchild));
-        let mut program = BlockProgram::new(
-            ProgramInput::Canonical(primitive.into_owned()),
-            grandchild_ptype,
-            grandchild.len(),
-        );
-        program.push(op, ptype);
-        trace_op!(record_fuse_extend(child, program.ops()));
-        return Ok(Some(program));
-    }
-    Ok(None)
+    trace_op!(record_fuse_start("source", child));
+    Ok(Some(BlockProgram::new(
+        ProgramInput::Source(source),
+        ptype,
+        child.len(),
+    )))
 }

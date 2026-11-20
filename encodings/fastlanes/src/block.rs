@@ -427,8 +427,9 @@ mod tests {
         assert_fuses_like_execute(&three, 1)
     }
 
-    /// A canonical leaf the executor holds the only reference to is decoded in its own buffer.
-    /// One that is shared is read and decoded into a new buffer.
+    /// The innermost FoR over a primitive array runs its own kernel, and the buffer it produces,
+    /// which the executor owns, is the leaf the FoR above decodes in place. A shared input leaf is
+    /// only read, by that kernel.
     #[test]
     fn canonical_leaf_decodes_in_place_when_owned() -> VortexResult<()> {
         let build = || -> VortexResult<ArrayRef> {
@@ -449,7 +450,7 @@ mod tests {
         let shared = build()?;
         let before = in_place_chain_count();
         let copied = shared.clone().execute::<PrimitiveArray>(&mut ctx)?;
-        assert_eq!(in_place_chain_count() - before, 0);
+        assert_eq!(in_place_chain_count() - before, 1);
         // The input still holds its own values.
         assert_arrays_eq!(shared, build()?, &mut ctx);
         assert_arrays_eq!(copied, expected, &mut ctx);
@@ -510,9 +511,9 @@ block_op 2 copy u32->u32 scratch0 -> output"
         Ok(())
     }
 
-    /// Three FoRs over a canonical leaf: the innermost FoR's own op over the leaf starts the
-    /// program, and each FoR above extends it. A leaf another owner shares is copied into scratch
-    /// by the first op; one the executor owns is decoded block by block in its own buffer.
+    /// Three FoRs over a primitive array: the innermost FoR runs its own kernel into a buffer the
+    /// executor owns, which is the leaf of the two FoRs above, decoded block by block in place.
+    /// A shared input leaf is only read, so it keeps its values.
     #[test]
     fn canonical_leaf_schedule() -> VortexResult<()> {
         let build = || -> VortexResult<ArrayRef> {
@@ -522,36 +523,19 @@ block_op 2 copy u32->u32 scratch0 -> output"
             }
             Ok(array)
         };
-        let built = "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
+        let expected = "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
 ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
-fuse start input=canonical array=vortex.primitive(u32, len=3000)
+fuse start input=source array=vortex.primitive(u32, len=3000)
 fuse extend parent=fastlanes.for.v2(u32, len=3000) ops=1
 fuse extend parent=fastlanes.for.v2(u32, len=3000) ops=2
-fuse extend parent=fastlanes.for.v2(u32, len=3000) ops=3
-drive input=canonical ops=3 len=3000";
-
-        let shared = build()?;
-        assert_eq!(
-            fusion_trace(shared.clone())?,
-            format!(
-                "{built}
-block_op 0 copy u32->u32 source -> scratch0
-block_op 1 in_place u32->u32 scratch0 -> scratch0
-block_op 2 copy u32->u32 scratch0 -> output"
-            )
-        );
-        // The shared leaf still holds its own values.
-        assert_arrays_eq!(shared, build()?, &mut SESSION.create_execution_ctx());
-
-        assert_eq!(
-            fusion_trace(build()?)?,
-            format!(
-                "{built}
+drive input=source ops=2 len=3000
 block_op 0 in_place u32->u32 leaf -> leaf
-block_op 1 in_place u32->u32 leaf -> leaf
-block_op 2 in_place u32->u32 leaf -> leaf"
-            )
-        );
+block_op 1 in_place u32->u32 leaf -> leaf";
+
+        assert_eq!(fusion_trace(build()?)?, expected);
+        let shared = build()?;
+        assert_eq!(fusion_trace(shared.clone())?, expected);
+        assert_arrays_eq!(shared, build()?, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 

@@ -24,6 +24,7 @@ use std::ops::Range;
 
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_compute::lane_kernels::ReinterpretSink;
@@ -380,6 +381,13 @@ pub trait BlockSource: Send {
     fn block_offset(&self) -> usize {
         0
     }
+
+    /// The source's values as a buffer the executor may overwrite in place, if the source holds
+    /// the only reference to them: a canonical array's own buffer. The executor asks at most once,
+    /// before any [`fill`](Self::fill), and fills the source no more once it returns `Some`.
+    fn take_buffer(&mut self) -> Option<ByteBufferMut> {
+        None
+    }
 }
 
 /// A parent's transform of one block of its child's values into one block of its own.
@@ -540,5 +548,6 @@ mod tests;
 
 pub(crate) use chain::FusedChain;
 pub(crate) use program::BlockProgram;
+pub(crate) use program::PrimitiveSource;
 pub(crate) use program::ProgramInput;
 pub(crate) use program::fusable_ptype;
