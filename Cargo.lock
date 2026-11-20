@@ -12357,6 +12357,7 @@ dependencies = [
 name = "vortex-scan"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "async-lock",
  "async-trait",
  "bit-vec 0.10.2",

@@ -36,12 +36,14 @@ pub struct ScanInput {
 
 mod bind_cache;
 mod plan;
+mod plan_pool;
 
 pub use plan::DeferredPlanChild;
 pub use plan::FilePruner;
 pub use plan::PlanChild;
 pub use plan::PlanDataSource;
 pub use plan::PlanSourceChild;
+pub use plan::PlanSplitter;
 
 #[cfg(test)]
 mod tests;

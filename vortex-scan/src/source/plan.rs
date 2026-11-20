@@ -37,6 +37,7 @@ use vortex_session::VortexSession;
 
 use super::ScanInput;
 use super::bind_cache::BindCache;
+use super::plan_pool;
 use crate::DataSource;
 use crate::DataSourceScan;
 use crate::DataSourceScanRef;
@@ -46,7 +47,6 @@ use crate::PartitionStream;
 use crate::ScanRequest;
 use crate::execution::ROW_BLOCK_SIZE;
 use crate::execution::driver::ScanDriver;
-use crate::pool::PartitionPool;
 use crate::pool::RowLimit;
 use crate::pool::ScanPoolRef;
 use crate::pool::group_contiguous;
@@ -58,12 +58,19 @@ use crate::selection::Selection;
 /// child's dtype, false for every row of the child.
 pub type FilePruner = Arc<dyn Fn(&BoundExpression) -> VortexResult<bool> + Send + Sync>;
 
+/// The row boundaries an opened scan cuts a child's work at, for the scan's projection and filter,
+/// both bound to the child's dtype: ascending, covering the child's rows. A Vortex file gives its
+/// layout splits over the fields the scan reads, as a V1 scan of the same fields cuts it.
+pub type PlanSplitter =
+    Arc<dyn Fn(&BoundExpression, Option<&BoundExpression>) -> VortexResult<Vec<u64>> + Send + Sync>;
+
 /// A child of a [`PlanDataSource`] whose plan is ready to prepare: its [`ScanInput`] and what the
 /// source knows of it without reading payloads.
 #[derive(Clone)]
 pub struct PlanChild {
     input: ScanInput,
     row_count: Option<u64>,
+    splitter: Option<PlanSplitter>,
     pruner: Option<FilePruner>,
 }
 
@@ -75,6 +82,7 @@ impl PlanChild {
         Self {
             input,
             row_count: None,
+            splitter: None,
             pruner: None,
         }
     }
@@ -83,6 +91,20 @@ impl PlanChild {
     /// learn the count when a scan needs it.
     pub fn with_row_count(mut self, row_count: u64) -> Self {
         self.row_count = Some(row_count);
+        self
+    }
+
+    /// Sets fixed row boundaries that an opened scan cuts the child's work at, whatever it reads,
+    /// ascending and covering the child's rows. Without boundaries, the work is cut on the scan's
+    /// chunk grid.
+    pub fn with_splits(self, splits: Arc<[u64]>) -> Self {
+        self.with_splitter(Arc::new(move |_, _| Ok(splits.to_vec())))
+    }
+
+    /// Sets how an opened scan finds the row boundaries to cut the child's work at, from the
+    /// fields it reads. Without boundaries, the work is cut on the scan's chunk grid.
+    pub fn with_splitter(mut self, splitter: PlanSplitter) -> Self {
+        self.splitter = Some(splitter);
         self
     }
 
@@ -113,6 +135,19 @@ impl PlanChild {
             .iter()
             .map(|location| u64::from(location.length))
             .sum()
+    }
+
+    /// The boundaries an opened scan of `projection` and `filter` cuts the child's work at, if the
+    /// child has them.
+    pub(super) fn splits(
+        &self,
+        projection: &BoundExpression,
+        filter: Option<&BoundExpression>,
+    ) -> VortexResult<Option<Vec<u64>>> {
+        self.splitter
+            .as_ref()
+            .map(|splitter| splitter(projection, filter))
+            .transpose()
     }
 
     fn is_pruned(&self, filter: Option<&BoundExpression>) -> VortexResult<bool> {
@@ -162,14 +197,19 @@ pub enum PlanSourceChild {
 /// # Splitting and opening
 ///
 /// The work of a scan is plan work: chunks of a prepared plan, and the expansion of deferred
-/// children.
+/// children, which queues the work of their children. A Vortex multi-file scan is one case.
 ///
 /// [`split`](DataSourceScan::split) cuts a scan into contiguous pieces of about equal row counts,
 /// each a list of children and row ranges of them, on the 8,192-row block grid that every chunk
 /// boundary of the executor lies on. It reads nothing; a deferred child is one indivisible unit.
 ///
-/// [`open`](DataSourceScan::open) reads the scan's partitions through a [`PartitionPool`], each
-/// worker taking one partition at a time.
+/// [`open`](DataSourceScan::open) runs the scan on V2's own driver, as develop's V2 DuckDB scan
+/// does: it prepares each ready child of the scan once and queues its parts, the chunks of its
+/// plan, or the rows between the child's [splits](PlanChild::with_splits) when it has them. Each
+/// worker drives a planning run of its own on the task that polls it, fed with parts from that
+/// queue. Expanding a deferred child is queued work too: the worker that takes it expands it and
+/// queues the work of its children for any worker to take. See the pool's documentation in
+/// `plan_pool.rs`.
 ///
 /// # Partitions
 ///
@@ -615,7 +655,7 @@ impl DataSourceScan for PlanScan {
     }
 
     fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
-        Ok(Arc::new(PartitionPool::new(self)))
+        plan_pool::open(self.state, self.units)
     }
 }
 
