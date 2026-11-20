@@ -54,6 +54,7 @@ use vortex::expr::ScalarFnExprExt;
 use vortex::expr::binary;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
+use vortex::expr::change_time_unit;
 use vortex::expr::ext_storage;
 use vortex::expr::get_item;
 use vortex::expr::in_list_of;
@@ -72,6 +73,8 @@ use vortex::expr::strpos;
 use vortex::expr::traversal::NodeExt;
 use vortex::expr::traversal::Transformed;
 use vortex::expr::var;
+use vortex::extension::datetime::TemporalRounding;
+use vortex::extension::datetime::Timestamp;
 use vortex::functions::like::Like;
 use vortex::functions::like::LikeOptions;
 use vortex::layout::layouts::row_idx;
@@ -479,6 +482,9 @@ impl DefaultExpressionConverter {
                         return Err(Unconverted::Unsupported);
                     }
                     Ok(cast(child, cast_dtype))
+                }
+                CastPushdown::FromTimestamp => {
+                    convert_timestamp_cast(child, &child_dtype, &cast_dtype)
                 }
             };
         }
@@ -1084,6 +1090,9 @@ enum CastPushdown {
     Drop,
     /// The cast becomes a Vortex `cast`.
     Keep,
+    /// The cast starts from a timestamp, and [`convert_timestamp_cast`] picks the conversion from
+    /// the Vortex dtypes, which carry the units and time zones.
+    FromTimestamp,
 }
 
 /// Classifies a cast for pushdown; unsupported casts stay in DataFusion.
@@ -1093,7 +1102,15 @@ fn classify_cast(cast: &df_expr::CastExpr, schema: &Schema) -> Conversion<CastPu
         return Err(Unconverted::Unsupported);
     }
     let source = cast.expr().data_type(schema)?;
-    classify_cast_types(&source, cast.cast_type())
+    let target = cast.cast_type();
+    // A timestamp cast to the same type takes `classify_cast_types`, which drops it.
+    if matches!(source, DataType::Timestamp(..))
+        && matches!(target, DataType::Int64 | DataType::Timestamp(..))
+        && source != *target
+    {
+        return Ok(CastPushdown::FromTimestamp);
+    }
+    classify_cast_types(&source, target)
 }
 
 fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastPushdown> {
@@ -1140,6 +1157,50 @@ fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastP
         }
         _ => return Err(Unconverted::Unsupported),
     })
+}
+
+/// Converts a cast from a timestamp into the temporal function that returns the same values as
+/// Arrow's cast. Any other cast stays in DataFusion.
+///
+/// The Vortex dtypes decide, because matching Arrow types do not imply matching Vortex dtypes.
+/// The result keeps the nullability of `child` when DataFusion declares the cast nullable over a
+/// non-nullable column, as the [`CastPushdown::Drop`] arm does. DataFusion's schema adapter
+/// declares such a cast when a table field is nullable but the file column is not.
+fn convert_timestamp_cast(
+    child: Expression,
+    child_dtype: &DType,
+    cast_dtype: &DType,
+) -> Conversion<Expression> {
+    let Some(source) = child_dtype
+        .as_extension_opt()
+        .and_then(|ext| ext.metadata_opt::<Timestamp>())
+    else {
+        return Err(Unconverted::Unsupported);
+    };
+
+    // Arrow's cast to `Int64` returns the stored count without scaling it.
+    if matches!(cast_dtype, DType::Primitive(PType::I64, _)) {
+        return Ok(ext_storage(child));
+    }
+
+    let Some(target) = cast_dtype
+        .as_extension_opt()
+        .and_then(|ext| ext.metadata_opt::<Timestamp>())
+    else {
+        return Err(Unconverted::Unsupported);
+    };
+
+    // Arrow truncates the count toward zero when it casts to a coarser unit in the same zone. The
+    // Vortex `TimeUnit` orders units from `Nanoseconds` to `Days`, so a coarser unit is greater.
+    if source.tz == target.tz && target.unit > source.unit {
+        return Ok(change_time_unit(
+            child,
+            target.unit,
+            TemporalRounding::TowardZero,
+        ));
+    }
+
+    Err(Unconverted::Unsupported)
 }
 
 fn try_operator_from_df(value: &DFOperator) -> Option<BinaryOperator> {
