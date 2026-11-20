@@ -30,6 +30,7 @@ use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
+use vortex_array::expr::stats::Precision;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::stream::SendableArrayStream;
 use vortex_buffer::Alignment;
@@ -43,6 +44,7 @@ use vortex_io::session::RuntimeSession;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::session::LayoutSession;
 use vortex_scan::DataSourceRef;
+use vortex_scan::DataSourceScanRef;
 use vortex_scan::ScanRequest;
 use vortex_scan::pool::ScanPoolRef;
 use vortex_scan::source::PlanDataSource;
@@ -177,10 +179,50 @@ async fn read_pool(pool: ScanPoolRef, workers: usize) -> VortexResult<Vec<Vec<u3
     Ok(out)
 }
 
+/// Reads a scan with one worker of its pool.
+async fn read_one(scan: DataSourceScanRef) -> VortexResult<Vec<u32>> {
+    values(scan.open()?.worker()).await
+}
+
 fn sorted(workers: Vec<Vec<u32>>) -> Vec<u32> {
     let mut all: Vec<u32> = workers.into_iter().flatten().collect();
     all.sort_unstable();
     all
+}
+
+/// Split pieces are contiguous, never empty, and read every row in order.
+#[rstest]
+#[case::one(1)]
+#[case::two(2)]
+#[case::seven(7)]
+#[case::many(1000)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[cfg_attr(miri, ignore)]
+async fn split_pieces_cover_all_rows_in_order(#[case] n: usize) -> VortexResult<()> {
+    let source = one_file().await?;
+    let scan = source.scan(request(true)).await?;
+    assert_eq!(scan.row_count(), Precision::exact(u64::from(ROWS)));
+    let pieces = scan.split(NonZeroUsize::new(n).unwrap_or(NonZeroUsize::MIN))?;
+    assert!(!pieces.is_empty() && pieces.len() <= n);
+    if n > 1 {
+        assert!(pieces.len() > 1);
+    }
+    let mut counted = 0;
+    let mut read = Vec::new();
+    for piece in pieces {
+        let rows = piece.row_count();
+        let rows = rows
+            .as_exact()
+            .ok_or_else(|| vortex_err!("inexact {rows:?}"))?;
+        assert!(rows > 0);
+        counted += rows;
+        let values = read_one(piece).await?;
+        assert_eq!(values.len() as u64, rows);
+        read.extend(values);
+    }
+    assert_eq!(counted, u64::from(ROWS));
+    assert_eq!(read, (0..ROWS).collect::<Vec<_>>());
+    Ok(())
 }
 
 /// The workers of an unordered pool together read every selected row once.

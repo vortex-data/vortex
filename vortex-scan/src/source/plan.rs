@@ -28,7 +28,9 @@ use crate::DataSource;
 use crate::DataSourceScan;
 use crate::DataSourceScanRef;
 use crate::ScanRequest;
+use crate::execution::ROW_BLOCK_SIZE;
 use crate::pool::ScanPoolRef;
+use crate::pool::group_contiguous;
 use crate::prepare::ScanBuilder;
 use crate::selection::Selection;
 
@@ -146,9 +148,12 @@ impl PlanChild {
 /// own rows, and its `partition_range` and `partition_selection` select children by ordinal. A
 /// scan reads its children in order.
 ///
-/// [`split`](DataSourceScan::split) returns a scan whole. [`open`](DataSourceScan::open) runs it
-/// on V2's planners and [`Run`](crate::planning::driver::Run) driver; see `plan_pool.rs`.
-/// Partitions are the trait's default, derived from the two.
+/// [`split`](DataSourceScan::split) cuts a scan into contiguous pieces of about equal row counts,
+/// each a list of children and row ranges of them, on the 8,192-row block grid that every chunk
+/// boundary of the executor lies on. It reads nothing, and a scan with a limit, which holds across
+/// the whole scan, is not split. [`open`](DataSourceScan::open) runs a scan on V2's planners and
+/// [`Run`](crate::planning::driver::Run) driver; see `plan_pool.rs`. Partitions are the trait's
+/// default, derived from the two.
 ///
 /// [`ScanCache`]: crate::prepare::ScanCache
 #[derive(Clone)]
@@ -397,11 +402,125 @@ impl DataSourceScan for PlanScan {
         Precision::inexact(self.units.iter().map(|unit| self.unit_bytes(unit)).sum())
     }
 
-    fn split(self: Box<Self>, _n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
-        Ok(vec![self])
+    fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
+        // A limit holds across the whole scan, which pieces read independently cannot share.
+        if self.state.limit.is_some() || n.get() == 1 {
+            return Ok(vec![self]);
+        }
+        let atoms = split_atoms(&self.units, n);
+        if atoms.len() <= 1 {
+            return Ok(vec![self]);
+        }
+        let known: Vec<u64> = atoms
+            .iter()
+            .filter_map(|unit| unit.rows.as_ref().map(|rows| rows.end - rows.start))
+            .collect();
+        // A deferred child weighs as much as the average ready unit.
+        let unknown = (known.iter().sum::<u64>() / known.len().max(1) as u64).max(1);
+        let weight = |unit: &Unit| {
+            unit.rows
+                .as_ref()
+                .map_or(unknown, |rows| rows.end - rows.start)
+        };
+        let state = self.state;
+        Ok(group_contiguous(atoms, n, weight)
+            .into_iter()
+            .map(|atoms| {
+                Box::new(PlanScan {
+                    state: Arc::clone(&state),
+                    units: join_atoms(atoms),
+                }) as DataSourceScanRef
+            })
+            .collect())
     }
 
     fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
         plan_pool::open(self.state, self.units)
+    }
+}
+
+/// The pieces a split may not cut further: the scan's known rows on a grid of whole 8,192-row
+/// blocks, coarse enough that each of `n` pieces gets about 64 of them, and each unit whose rows
+/// are not known yet whole.
+fn split_atoms(units: &[Unit], n: NonZeroUsize) -> Vec<Unit> {
+    let block = ROW_BLOCK_SIZE as u64;
+    let known: u64 = units
+        .iter()
+        .filter_map(|unit| unit.rows.as_ref().map(|rows| rows.end - rows.start))
+        .sum();
+    let per_atom = known.div_ceil(n.get() as u64 * 64).div_ceil(block).max(1) * block;
+    let mut atoms = Vec::new();
+    for unit in units {
+        let Some(rows) = &unit.rows else {
+            atoms.push(unit.clone());
+            continue;
+        };
+        let mut start = rows.start;
+        while start < rows.end {
+            let end = ((start / per_atom + 1) * per_atom).min(rows.end);
+            atoms.push(Unit {
+                child: unit.child,
+                rows: Some(start..end),
+            });
+            start = end;
+        }
+    }
+    atoms
+}
+
+/// Joins adjacent atoms of the same child back into one unit.
+fn join_atoms(atoms: Vec<Unit>) -> Vec<Unit> {
+    let mut units: Vec<Unit> = Vec::new();
+    for atom in atoms {
+        if let Some(last) = units.last_mut()
+            && last.child == atom.child
+            && let (Some(rows), Some(next)) = (&mut last.rows, &atom.rows)
+            && rows.end == next.start
+        {
+            rows.end = next.end;
+            continue;
+        }
+        units.push(atom);
+    }
+    units
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroUsize;
+
+    use rstest::rstest;
+
+    use super::Unit;
+    use super::join_atoms;
+    use super::split_atoms;
+
+    fn unit(child: usize, rows: std::ops::Range<u64>) -> Unit {
+        Unit {
+            child,
+            rows: Some(rows),
+        }
+    }
+
+    #[rstest]
+    #[case::one_block(vec![unit(0, 0..100)], 4, 1)]
+    #[case::grid_aligned(vec![unit(0, 10..40_000)], 1, 5)]
+    fn atoms_lie_on_the_block_grid(
+        #[case] units: Vec<Unit>,
+        #[case] n: usize,
+        #[case] expected: usize,
+    ) {
+        let n = NonZeroUsize::new(n).unwrap_or(NonZeroUsize::MIN);
+        let atoms = split_atoms(&units, n);
+        assert_eq!(atoms.len(), expected);
+        for atom in &atoms[1..] {
+            let start = atom.rows.as_ref().map_or(0, |rows| rows.start);
+            assert_eq!(start % 8192, 0);
+        }
+        let joined = join_atoms(atoms);
+        assert_eq!(
+            joined.iter().map(|u| u.rows.clone()).collect::<Vec<_>>(),
+            units.iter().map(|u| u.rows.clone()).collect::<Vec<_>>()
+        );
     }
 }
