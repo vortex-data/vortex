@@ -30,6 +30,7 @@ pub mod prepare;
 pub mod row_mask;
 pub mod selection;
 pub mod source;
+pub mod stream;
 pub mod strict_sorted_buffer;
 
 use std::any::Any;
@@ -40,6 +41,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use selection::Selection;
+use stream::ScanStream;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
@@ -176,12 +178,15 @@ pub struct ScanRequest {
     /// order is completion order, so each partition applies the limit locally and the caller must
     /// trim the concatenated result.
     pub limit: Option<u64>,
-    /// The most splits of each partition to decode at once, in all.
+    /// The most splits that each worker decodes at once, where a worker is a partition or a
+    /// clone of an opened scan's stream.
     ///
-    /// `None` keeps the reader's default, which scales with the machine's cores. Each split being
-    /// decoded holds the decoded chunks of every column it overlaps, so a scan that runs alongside
-    /// others, such as one task of several on a machine, can set this to bound its memory. It does
-    /// not bound I/O: segment reads for later splits may still be coalesced ahead of them.
+    /// It bounds each worker on its own, not the whole scan: a scan read by several workers
+    /// decodes up to this many splits in each. `None` keeps the source's default. Each
+    /// split being decoded holds the decoded chunks of every column it overlaps, so a scan that
+    /// runs alongside others, such as one task of several on a machine, can set this to bound its
+    /// memory. It does not bound I/O: segment reads for later splits may still be coalesced ahead
+    /// of them.
     pub split_concurrency: Option<NonZeroUsize>,
 }
 
@@ -204,7 +209,19 @@ impl Default for ScanRequest {
 /// A boxed data source scan.
 pub type DataSourceScanRef = Box<dyn DataSourceScan>;
 
-/// A data source scan produces partitions that can be executed to read data from the source.
+/// A data source scan reads data from the source.
+///
+/// Each host reads every scan the same way, whatever the source: its execution model is fixed.
+/// A host that needs a fixed number of partitions, such as DataFusion with its output partition
+/// count, [splits](Self::split) the scan into fixed pieces that each own their rows. A host that
+/// runs its own threads, such as DuckDB, or that wants its partitions to share work, never
+/// splits: it [opens](Self::open) the scan once and has each of its threads or partitions poll a
+/// clone of the returned [`ScanStream`]. The host states the properties it needs, such as row
+/// order or a limit, on the [`ScanRequest`], and the source decides what the pieces are and how
+/// they run.
+///
+/// A scan never starts threads. Its work may run as tasks on the session's runtime, which the
+/// host owns.
 pub trait DataSourceScan: 'static + Send {
     /// The returned dtype of the scan.
     fn dtype(&self) -> &DType;
@@ -214,6 +231,24 @@ pub trait DataSourceScan: 'static + Send {
 
     /// Returns a stream of partitions to be processed.
     fn partitions(self: Box<Self>) -> PartitionStream;
+
+    /// Partitions the scan into at most `n` fixed pieces.
+    ///
+    /// Each piece owns its rows: the pieces together return every row of the scan exactly once,
+    /// and no two return the same row. When the request is ordered, the pieces are contiguous,
+    /// and reading them one after another returns the rows in scan order.
+    ///
+    /// Splitting reads metadata only. The result is never empty, and a scan with no cut points
+    /// returns itself as the one piece. A host that wants its threads to share the scan's work
+    /// instead [opens](Self::open) the scan and polls clones of its stream.
+    fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>>;
+
+    /// Opens the scan into a [`ScanStream`] of its rows, which host threads share by each
+    /// polling a clone.
+    ///
+    /// A source that has no queue of work of its own may return
+    /// [`ScanStream::from_partitions`] over itself.
+    fn open(self: Box<Self>) -> VortexResult<ScanStream>;
 }
 
 /// A reference-counted partition.

@@ -38,6 +38,7 @@ use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
 use vortex_scan::selection::Selection;
+use vortex_scan::stream::ScanStream;
 use vortex_session::VortexSession;
 
 use crate::LayoutReaderRef;
@@ -244,6 +245,14 @@ impl DataSourceScan for LayoutReaderScan {
         &self.dtype
     }
 
+    fn split(self: Box<Self>, _n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
+        Ok(vec![self])
+    }
+
+    fn open(self: Box<Self>) -> VortexResult<ScanStream> {
+        Ok(ScanStream::from_partitions(self))
+    }
+
     fn partition_count(&self) -> Precision<usize> {
         let (lower, upper) = self.size_hint();
         match upper {
@@ -401,6 +410,14 @@ struct Empty {
 impl DataSourceScan for Empty {
     fn dtype(&self) -> &DType {
         &self.dtype
+    }
+
+    fn split(self: Box<Self>, _n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
+        Ok(vec![self])
+    }
+
+    fn open(self: Box<Self>) -> VortexResult<ScanStream> {
+        Ok(ScanStream::from_partitions(self))
     }
 
     fn partition_count(&self) -> Precision<usize> {
