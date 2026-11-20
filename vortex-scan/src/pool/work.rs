@@ -788,7 +788,7 @@ async fn lane(lanes: Arc<Lanes>, output: Sender<VortexResult<ArrayRef>>) {
             Taken::Expand(..) => 1,
         };
         // A unit counts as running before it stops counting as queued; see `units_to_produce`.
-        let running: Vec<Running> = match &taken {
+        let mut running: Vec<Running> = match &taken {
             Taken::Run(units) => units.iter().map(|_| Running::new(&shared)).collect(),
             Taken::Expand(..) => Vec::new(),
         };
@@ -799,6 +799,7 @@ async fn lane(lanes: Arc<Lanes>, output: Sender<VortexResult<ArrayRef>>) {
         let mut arrays = match taken {
             Taken::Run(mut units) if units.len() == 1 => {
                 let unit = units.pop().vortex_expect("a run of one unit");
+                let running = running.pop().vortex_expect("a run of one unit");
                 running_while(shared.stream(unit, false), running)
             }
             // The run's units start together, so their reads are registered together. A unit that
