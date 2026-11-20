@@ -31,7 +31,10 @@ impl TakeExecute for Patched {
         let inner = array.inner().take(indices.clone())?;
 
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
-        let indices_valid = indices.as_ref().validity()?.execute_mask(indices.len(), ctx)?;
+        let indices_valid = indices
+            .as_ref()
+            .validity()?
+            .execute_mask(indices.len(), ctx)?;
         let layout = array.execute_layout(ctx)?;
         let layout = layout.layout()?;
 
@@ -43,9 +46,9 @@ impl TakeExecute for Patched {
             return Ok(Some(inner));
         }
 
-        let values = array.patch_values().take(
-            PrimitiveArray::new(sources.freeze(), Validity::NonNullable).into_array(),
-        )?;
+        let values = array
+            .patch_values()
+            .take(PrimitiveArray::new(sources.freeze(), Validity::NonNullable).into_array())?;
         let positions = PrimitiveArray::new(positions.freeze(), Validity::NonNullable).into_array();
         Ok(Some(
             Patched::try_new_with_lanes(inner, positions, values, array.n_lanes(), ctx)?

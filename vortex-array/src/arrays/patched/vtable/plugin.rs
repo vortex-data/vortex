@@ -4,8 +4,8 @@
 //! [`ArrayPlugin`] implementation for [`Patched`].
 
 use prost::Message;
-use vortex_error::VortexResult;
 use vortex_buffer::Buffer;
+use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
@@ -19,18 +19,18 @@ use crate::ArrayPlugin;
 use crate::ArrayRef;
 use crate::ArraySerialization;
 use crate::ExecutionCtx;
-use crate::VortexSessionExecute;
-use crate::arrays::PrimitiveArray;
-use crate::optimizer::ArrayOptimizer;
-use crate::validity::Validity;
 use crate::IntoArray;
 use crate::VTable;
+use crate::VortexSessionExecute;
 use crate::arrays::Patched;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::patched::PatchedData;
 use crate::arrays::patched::PatchedSlots;
 use crate::dtype::PType;
+use crate::optimizer::ArrayOptimizer;
+use crate::validity::Validity;
 
 impl ArrayPlugin for Patched {
     fn id(&self) -> ArrayId {
@@ -55,8 +55,7 @@ impl ArrayPlugin for Patched {
         let n_offsets = array.lane_offsets().len();
         let first = lane_offset(array.lane_offsets(), 0, &mut ctx)?;
         let last = lane_offset(array.lane_offsets(), n_offsets - 1, &mut ctx)?;
-        let (lane_offsets, indices, values) = if first == 0 && last == array.patch_indices().len()
-        {
+        let (lane_offsets, indices, values) = if first == 0 && last == array.patch_indices().len() {
             (
                 array.lane_offsets().clone(),
                 array.patch_indices().clone(),
@@ -76,8 +75,11 @@ impl ArrayPlugin for Patched {
             let range = first as usize..last;
             (
                 PrimitiveArray::new(rebased, Validity::NonNullable).into_array(),
-                array.patch_indices().slice(range.clone())?.optimize_ctx(&mut ctx)?,
-                array.patch_values().slice(range)?.optimize_ctx(&mut ctx)?,
+                array
+                    .patch_indices()
+                    .slice(range.clone())?
+                    .optimize_ctx(&ctx)?,
+                array.patch_values().slice(range)?.optimize_ctx(&ctx)?,
             )
         };
 

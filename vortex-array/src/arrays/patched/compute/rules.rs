@@ -123,7 +123,8 @@ impl CastReduce for Patched {
         let values = array.patch_values().cast(dtype.clone())?;
 
         // SAFETY: casts preserve length, and both children now have the target dtype.
-        let patched = unsafe { Patched::with_inner_and_values(&array, dtype.clone(), inner, values) };
+        let patched =
+            unsafe { Patched::with_inner_and_values(&array, dtype.clone(), inner, values) };
         Ok(Some(patched.into_array()))
     }
 }

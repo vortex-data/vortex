@@ -12,8 +12,8 @@ use vortex_error::vortex_err;
 
 use crate::AnyCanonical;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::ArraySlots;
+use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
@@ -185,7 +185,10 @@ pub trait PatchedArrayExt: TypedArrayRef<Patched> {
             len: self.len(),
             n_lanes: self.n_lanes(),
             lane_offsets: self.lane_offsets().clone().execute::<PrimitiveArray>(ctx)?,
-            indices: self.patch_indices().clone().execute::<PrimitiveArray>(ctx)?,
+            indices: self
+                .patch_indices()
+                .clone()
+                .execute::<PrimitiveArray>(ctx)?,
         })
     }
 
@@ -341,9 +344,8 @@ impl Patched {
         let values = match permutation {
             None => values,
             Some(permutation) => {
-                let permuted = values.take(
-                    PrimitiveArray::new(permutation, Validity::NonNullable).into_array(),
-                )?;
+                let permuted = values
+                    .take(PrimitiveArray::new(permutation, Validity::NonNullable).into_array())?;
                 // Reorder canonical values now, rather than on every execution. Compressed values
                 // stay lazy so that the reordering does not decompress them.
                 if values.is::<AnyCanonical>() {

@@ -57,9 +57,9 @@ impl FilterKernel for Patched {
             }
         }
 
-        let values = array.patch_values().take(
-            PrimitiveArray::new(sources.freeze(), Validity::NonNullable).into_array(),
-        )?;
+        let values = array
+            .patch_values()
+            .take(PrimitiveArray::new(sources.freeze(), Validity::NonNullable).into_array())?;
         let new_positions =
             PrimitiveArray::new(new_positions.freeze(), Validity::NonNullable).into_array();
         Ok(Some(

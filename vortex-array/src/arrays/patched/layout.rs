@@ -53,13 +53,15 @@ impl<'a> PatchLayout<'a> {
             "patch lanes must be a power of two of at most {PATCH_CHUNK_SIZE}, got {n_lanes}"
         );
         vortex_ensure!(
-            lane_offsets.last().is_none_or(|&end| end as usize <= indices.len()),
+            lane_offsets
+                .last()
+                .is_none_or(|&end| end as usize <= indices.len()),
             "lane offsets exceed the number of patches"
         );
         // Positions within a chunk are what keep writes inside the array. A bitwise OR of all
         // indices vectorizes, which keeps this check cheap enough to run on every execution.
         vortex_ensure!(
-            indices.iter().fold(0u16, |acc, &i| acc | i) < PATCH_CHUNK_SIZE as u16,
+            usize::from(indices.iter().fold(0u16, |acc, &i| acc | i)) < PATCH_CHUNK_SIZE,
             "patch indices must be less than {PATCH_CHUNK_SIZE}"
         );
         Ok(Self {
@@ -237,7 +239,10 @@ pub(crate) struct TransposedPatches {
 
 /// Transposes patches at the ascending positions `indices` (less `offset`) of an array of length
 /// `len` into chunk/lane order.
-#[expect(clippy::cast_possible_truncation, reason = "positions within a chunk fit u16")]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "positions within a chunk fit u16"
+)]
 pub(crate) fn transpose<I: AsPrimitive<usize>>(
     indices: &[I],
     offset: usize,
@@ -341,7 +346,10 @@ mod tests {
         // chunk 0: lane 1 holds positions 1 and 33, lane 2 holds 2. chunk 1: lane 0 holds 1056,
         // lane 1 holds 1025.
         assert_eq!(t.indices.as_slice(), &[1, 33, 2, 32, 1]);
-        assert_eq!(t.permutation.as_deref(), Some([0u32, 2, 1, 4, 3].as_slice()));
+        assert_eq!(
+            t.permutation.as_deref(),
+            Some([0u32, 2, 1, 4, 3].as_slice())
+        );
         assert_eq!(t.lane_offsets[0..4], [0, 0, 2, 3]);
         assert_eq!(t.lane_offsets[32..35], [3, 4, 5]);
         assert_eq!(*t.lane_offsets.last().unwrap(), 5);

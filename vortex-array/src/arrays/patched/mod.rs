@@ -79,6 +79,7 @@ use std::env;
 use std::sync::LazyLock;
 
 pub use array::*;
+pub(crate) use compute::aggregate::patched_aggregate_kernels;
 pub use execute::patch_validity;
 pub use layout::*;
 pub use vtable::*;

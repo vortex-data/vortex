@@ -5,7 +5,7 @@
 //! BitPacked array against a Patched array wrapping a patchless BitPacked array, and comparisons
 //! of each against a constant.
 
-#![expect(clippy::unwrap_used)]
+#![expect(clippy::unwrap_used, clippy::cast_possible_truncation)]
 
 use std::sync::LazyLock;
 

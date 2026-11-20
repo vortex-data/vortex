@@ -170,11 +170,11 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::Patched;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::optimizer::ArrayOptimizer;
-    use vortex_array::kernel::ExecuteParentKernel;
     use vortex_array::arrays::patched::PatchedArraySlotsExt;
     use vortex_array::arrays::patched::PatchedSlots;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::kernel::ExecuteParentKernel;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -202,7 +202,10 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let packed = bitpack_encode(array, 6, None, &mut ctx)?;
         let mut parts = BitPacked::into_parts(packed);
-        let patches = parts.patches.take().expect("values wider than 6 bits are patches");
+        let patches = parts
+            .patches
+            .take()
+            .expect("values wider than 6 bits are patches");
         let crate::BitWidths::Global(bit_width) = parts.bit_widths else {
             unreachable!("encoded with a global width")
         };

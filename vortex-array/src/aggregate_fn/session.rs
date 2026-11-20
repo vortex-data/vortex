@@ -45,6 +45,7 @@ use crate::array::ArrayId;
 use crate::array::VTable;
 use crate::arrays::Chunked;
 use crate::arrays::Dict;
+use crate::arrays::Patched;
 use crate::arrays::Primitive;
 use crate::arrays::RunEnd;
 use crate::arrays::Widen;
@@ -52,6 +53,7 @@ use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
 use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
 use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
 use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
+use crate::arrays::patched::patched_aggregate_kernels;
 use crate::arrays::runend::compute::is_constant::RunEndIsConstantKernel;
 use crate::arrays::runend::compute::is_sorted::RunEndIsSortedKernel;
 use crate::arrays::runend::compute::min_max::RunEndMinMaxKernel;
@@ -144,6 +146,9 @@ impl Default for AggregateFnSession {
         this.register_aggregate_kernel(Dict.id(), Some(IsConstant.id()), &DictIsConstantKernel);
         this.register_aggregate_kernel(Dict.id(), Some(IsSorted.id()), &DictIsSortedKernel);
         this.register_aggregate_kernel(RunEnd.id(), Some(MinMax.id()), &RunEndMinMaxKernel);
+        for (agg_fn_id, kernel) in patched_aggregate_kernels() {
+            this.register_aggregate_kernel(Patched.id(), Some(agg_fn_id), kernel);
+        }
         this.register_aggregate_kernel(RunEnd.id(), Some(IsConstant.id()), &RunEndIsConstantKernel);
         this.register_aggregate_kernel(RunEnd.id(), Some(IsSorted.id()), &RunEndIsSortedKernel);
         this.register_aggregate_kernel(RunEnd.id(), Some(Sum.id()), &RunEndSumKernel);

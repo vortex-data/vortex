@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![allow(clippy::cast_possible_truncation)]
+
 use std::sync::LazyLock;
 
 use rstest::rstest;
@@ -87,7 +89,7 @@ fn nullable_patches_over_primitive(#[case] n_lanes: usize) -> VortexResult<()> {
         ],
     );
     assert_arrays_eq!(
-        patched.clone(),
+        patched,
         PrimitiveArray::from_option_iter(expected.clone()),
         &mut ctx
     );
@@ -144,7 +146,10 @@ fn sparse_strings() -> VortexResult<()> {
         indices(&[2, 1500, 1501]),
         values.into_array(),
         2000,
-        Scalar::utf8("a fill value that is too long to inline", Nullability::Nullable),
+        Scalar::utf8(
+            "a fill value that is too long to inline",
+            Nullability::Nullable,
+        ),
         &mut ctx,
     )?
     .into_array();
@@ -159,7 +164,7 @@ fn sparse_strings() -> VortexResult<()> {
         ],
     );
     assert_arrays_eq!(
-        patched.clone(),
+        patched,
         VarBinViewArray::from_iter_nullable_str(expected.clone()),
         &mut ctx
     );
@@ -205,8 +210,12 @@ fn decimals() -> VortexResult<()> {
     let dtype = DecimalDType::new(10, 2);
     let inner = DecimalArray::from_iter([1i64, 2, 3, 4], dtype);
     let values = DecimalArray::from_iter([20i64, 40], dtype);
-    let patched =
-        Patched::try_new(inner.into_array(), indices(&[1, 3]), values.into_array(), &mut ctx)?;
+    let patched = Patched::try_new(
+        inner.into_array(),
+        indices(&[1, 3]),
+        values.into_array(),
+        &mut ctx,
+    )?;
     assert_arrays_eq!(
         patched,
         DecimalArray::from_iter([1i64, 20, 3, 40], dtype),
@@ -227,10 +236,17 @@ fn structs_patch_each_field() -> VortexResult<()> {
     ])?;
     let values = StructArray::from_fields(&[
         ("a", buffer![20i32].into_array()),
-        ("b", VarBinViewArray::from_iter_str(["patched"]).into_array()),
+        (
+            "b",
+            VarBinViewArray::from_iter_str(["patched"]).into_array(),
+        ),
     ])?;
-    let patched =
-        Patched::try_new(inner.into_array(), indices(&[1]), values.into_array(), &mut ctx)?;
+    let patched = Patched::try_new(
+        inner.into_array(),
+        indices(&[1]),
+        values.into_array(),
+        &mut ctx,
+    )?;
     let expected = StructArray::from_fields(&[
         ("a", buffer![1i32, 20, 3].into_array()),
         (
@@ -253,8 +269,12 @@ fn fixed_size_lists_use_take() -> VortexResult<()> {
     );
     let values =
         FixedSizeListArray::new(buffer![9i32, 9].into_array(), 2, Validity::NonNullable, 1);
-    let patched =
-        Patched::try_new(inner.into_array(), indices(&[2]), values.into_array(), &mut ctx)?;
+    let patched = Patched::try_new(
+        inner.into_array(),
+        indices(&[2]),
+        values.into_array(),
+        &mut ctx,
+    )?;
     let expected = FixedSizeListArray::new(
         buffer![1i32, 1, 2, 2, 9, 9].into_array(),
         2,
@@ -401,7 +421,7 @@ mod serde {
         assert!(decoded.is::<Patched>(), "{}", decoded.display_tree());
         let mut exec = session.create_execution_ctx();
         let expected = array.execute::<crate::Canonical>(&mut exec)?.into_array();
-        assert_arrays_eq!(decoded.clone(), expected, &mut exec);
+        assert_arrays_eq!(decoded, expected, &mut exec);
         Ok(decoded)
     }
 
@@ -451,8 +471,11 @@ mod serde {
         let mut ctx = SESSION.create_execution_ctx();
         let strings = Patched::sparse(
             indices(&[1, 1500]),
-            VarBinViewArray::from_iter_nullable_str([Some("a long patch value, not inlined"), None])
-                .into_array(),
+            VarBinViewArray::from_iter_nullable_str([
+                Some("a long patch value, not inlined"),
+                None,
+            ])
+            .into_array(),
             2000,
             Scalar::utf8("fill", Nullability::NonNullable),
             &mut ctx,
@@ -469,5 +492,229 @@ mod serde {
         )?;
         round_trip(bools.into_array())?;
         Ok(())
+    }
+}
+
+mod conformance {
+    use std::f32;
+
+    use super::*;
+    use crate::compute::conformance::binary_numeric::test_binary_numeric_array;
+    use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::compute::conformance::mask::test_mask_conformance;
+    use crate::compute::conformance::take::test_take_conformance;
+
+    fn sparse(positions: &[u32], values: ArrayRef, len: usize, fill: Scalar) -> ArrayRef {
+        Patched::sparse(
+            indices(positions),
+            values,
+            len,
+            fill,
+            &mut SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+        .into_array()
+    }
+
+    fn over(inner: ArrayRef, positions: &[u32], values: ArrayRef) -> ArrayRef {
+        Patched::try_new(
+            inner,
+            indices(positions),
+            values,
+            &mut SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+        .into_array()
+    }
+
+    fn arrays() -> Vec<ArrayRef> {
+        vec![
+            sparse(
+                &[2, 5, 8],
+                PrimitiveArray::from_option_iter([Some(100i32), Some(200), Some(300)]).into_array(),
+                10,
+                Scalar::null_native::<i32>(),
+            ),
+            sparse(
+                &[1, 3, 7],
+                buffer![42i32, 84, 126].into_array(),
+                10,
+                Scalar::from(0i32),
+            ),
+            sparse(
+                &[0, 4, 9],
+                buffer![1000u64, 2000, 3000].into_array(),
+                10,
+                Scalar::from(999u64),
+            ),
+            sparse(
+                &[2, 6],
+                buffer![f32::consts::PI, f32::consts::E].into_array(),
+                8,
+                Scalar::from(0.0f32),
+            ),
+            sparse(
+                &[0, 1, 2, 3, 4],
+                PrimitiveArray::from_option_iter([Some(10i32), Some(20), None, Some(40), Some(50)])
+                    .into_array(),
+                5,
+                Scalar::null_native::<i32>(),
+            ),
+            sparse(
+                &[100, 500, 900, 1500, 1999],
+                buffer![111i32, 222, 333, 444, 555].into_array(),
+                2000,
+                Scalar::from(0i32),
+            ),
+            // A non-constant inner array with nulls, patched across chunks, and then sliced.
+            over(
+                PrimitiveArray::from_option_iter((0..3000i64).map(|i| (i % 11 != 0).then_some(i)))
+                    .into_array(),
+                &[0, 11, 1023, 1024, 2047, 2999],
+                PrimitiveArray::from_option_iter([
+                    Some(-1i64),
+                    Some(-2),
+                    None,
+                    Some(-4),
+                    Some(-5),
+                    Some(-6),
+                ])
+                .into_array(),
+            )
+            .slice(5..2500)
+            .unwrap()
+            .optimize_ctx(&SESSION)
+            .unwrap(),
+            sparse(
+                &[1, 4, 7],
+                VarBinViewArray::from_iter_nullable_str([
+                    Some("a patch long enough not to be inlined"),
+                    None,
+                    Some("b"),
+                ])
+                .into_array(),
+                10,
+                Scalar::utf8("fill", Nullability::NonNullable),
+            ),
+            sparse(
+                &[0, 3],
+                BoolArray::from_iter([Some(true), None]).into_array(),
+                6,
+                Scalar::bool(false, Nullability::NonNullable),
+            ),
+        ]
+    }
+
+    #[test]
+    fn consistency() {
+        for array in arrays() {
+            let mut ctx = SESSION.create_execution_ctx();
+            test_array_consistency(&array, &mut ctx);
+            test_filter_conformance(&array, &mut ctx);
+            test_take_conformance(&array, &mut ctx);
+            test_mask_conformance(&array, &mut ctx);
+            test_cast_conformance(&array, &mut ctx);
+        }
+    }
+
+    #[test]
+    fn binary_numeric() {
+        for array in arrays() {
+            if array.dtype().is_primitive() {
+                test_binary_numeric_array(&array, &mut SESSION.create_execution_ctx());
+            }
+        }
+    }
+}
+
+mod aggregates {
+    use super::*;
+    use crate::aggregate_fn::AggregateFn;
+    use crate::aggregate_fn::AggregateFnVTable;
+    use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::NumericalAggregateOpts;
+    use crate::aggregate_fn::fns::is_constant::IsConstant;
+    use crate::aggregate_fn::fns::min_max::MinMax;
+    use crate::aggregate_fn::fns::nan_count::NanCount;
+    use crate::aggregate_fn::fns::null_count::NullCount;
+    use crate::aggregate_fn::fns::sum::Sum;
+    use crate::aggregate_fn::kernels::DynAggregateKernel;
+    use crate::arrays::patched::compute::aggregate::PatchedConstantAggregate;
+
+    /// Aggregate `array` with the kernel, and its canonical form without it.
+    fn check<V: AggregateFnVTable>(vtable: V, options: V::Options, array: &ArrayRef)
+    where
+        V::Options: Clone,
+    {
+        let mut ctx = SESSION.create_execution_ctx();
+        let aggregate_fn = AggregateFn::new(vtable, options).erased();
+        let kernel = PatchedConstantAggregate
+            .aggregate(&aggregate_fn, array, &mut ctx)
+            .unwrap()
+            .expect("kernel applies to a constant inner array");
+
+        let canonical = array
+            .clone()
+            .execute::<crate::Canonical>(&mut ctx)
+            .unwrap()
+            .into_array();
+        let mut accumulator = aggregate_fn.accumulator(array.dtype()).unwrap();
+        accumulator.accumulate(&canonical, &mut ctx).unwrap();
+        let mut from_kernel = aggregate_fn.accumulator(array.dtype()).unwrap();
+        from_kernel.combine_partials(&kernel).unwrap();
+        assert_eq!(
+            from_kernel.final_scalar().unwrap(),
+            accumulator.final_scalar().unwrap(),
+            "{aggregate_fn}"
+        );
+    }
+
+    #[rstest]
+    #[case::null_fill(Patched::sparse(
+        indices(&[2, 5, 1500]),
+        PrimitiveArray::from_option_iter([Some(7i64), None, Some(-3)]).into_array(),
+        2000,
+        Scalar::null_native::<i64>(),
+        &mut SESSION.create_execution_ctx(),
+    ).unwrap().into_array())]
+    #[case::value_fill(Patched::sparse(
+        indices(&[0, 3]),
+        buffer![10i64, 20].into_array(),
+        5,
+        Scalar::from(4i64),
+        &mut SESSION.create_execution_ctx(),
+    ).unwrap().into_array())]
+    #[case::fully_patched(Patched::sparse(
+        indices(&[0, 1]),
+        buffer![1i64, 1].into_array(),
+        2,
+        Scalar::from(100i64),
+        &mut SESSION.create_execution_ctx(),
+    ).unwrap().into_array())]
+    #[case::sliced(Patched::sparse(
+        indices(&[1, 1030, 2000]),
+        buffer![5i64, 6, 7].into_array(),
+        3000,
+        Scalar::from(1i64),
+        &mut SESSION.create_execution_ctx(),
+    ).unwrap().into_array().slice(2..1500).unwrap().optimize_ctx(&SESSION).unwrap())]
+    #[case::floats(Patched::sparse(
+        indices(&[1, 4]),
+        PrimitiveArray::from_option_iter([Some(f64::NAN), None]).into_array(),
+        6,
+        Scalar::from(2.5f64),
+        &mut SESSION.create_execution_ctx(),
+    ).unwrap().into_array())]
+    fn match_canonical(#[case] array: ArrayRef) {
+        assert!(array.is::<Patched>());
+        check(MinMax, NumericalAggregateOpts::default(), &array);
+        check(Sum, NumericalAggregateOpts::default(), &array);
+        check(NullCount, EmptyOptions, &array);
+        check(IsConstant, EmptyOptions, &array);
+        if array.dtype().is_float() {
+            check(NanCount, EmptyOptions, &array);
+        }
     }
 }
