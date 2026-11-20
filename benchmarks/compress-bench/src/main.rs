@@ -17,6 +17,7 @@ use compress_bench::gpu::compressor as gpu_compressor;
 use compress_bench::parquet::ParquetCompressor;
 use compress_bench::parquet::arrow_uncompressed_size;
 use compress_bench::vortex::VortexCompressor;
+use compress_bench::vortex::vortex_compact_size;
 use futures::FutureExt;
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -544,6 +545,21 @@ async fn run_benchmark_for_dataset(
                             v3_variant,
                             PARQUET_SNAPPY_FORMAT,
                             snappy.size,
+                            uncompressed_size
+                                .context("compression size requires Arrow memory size")?,
+                        ));
+                    }
+                    if *format == Format::OnDiskVortex && !mode.is_gpu() {
+                        // Compact Vortex is measured for size only: one untimed write.
+                        let compact_size =
+                            vortex_compact_size(&input).await.with_context(|| {
+                                format!("compressing {bench_name} as compact Vortex")
+                            })?;
+                        v3_records.push(v3::compression_size_record(
+                            v3_dataset,
+                            v3_variant,
+                            Format::VortexCompact,
+                            compact_size,
                             uncompressed_size
                                 .context("compression size requires Arrow memory size")?,
                         ));
