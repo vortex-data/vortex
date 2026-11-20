@@ -11,7 +11,6 @@ use vortex_array::dtype::StructFields;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 
 use crate::execution::operator::Cx;
 use crate::execution::operator::InletSet;
@@ -35,14 +34,26 @@ enum InletState {
 ///
 /// The inlets are the present slots of a [`Pack`](crate::plan::Pack) plan in slot order.
 ///
-/// Readiness updates only the inlets whose sinks changed them. Computing takes the shortest
-/// front batch's length from every inlet, retaining the remainder of longer batches.
+/// Readiness updates only the inlets whose sinks changed them. Fields whose batches end at
+/// different rows are coalesced: the pack waits until every inlet that can still take a batch
+/// holds the rows of the longest front batch, then takes the same rows from every inlet, so a
+/// field is cut once per struct rather than at every other field's batch boundary.
 pub(crate) struct PackSource {
     fields: StructFields,
     nullable: bool,
     states: Vec<InletState>,
+    queued: Vec<Queued>,
     waiting: InletSet,
     ended: usize,
+}
+
+/// What an inlet held when it was last observed.
+#[derive(Clone, Copy, Default)]
+struct Queued {
+    front: usize,
+    rows: usize,
+    /// Its sink can still push without the pack taking a batch first.
+    room: bool,
 }
 
 impl PackSource {
@@ -51,12 +62,18 @@ impl PackSource {
             fields,
             nullable,
             states: vec![InletState::Waiting; inlets],
+            queued: vec![Queued::default(); inlets],
             waiting: InletSet::all(inlets),
             ended: 0,
         }
     }
 
-    fn observe(&mut self, index: usize, inlet: &Inlet<'_>) {
+    fn observe(&mut self, index: usize, inlet: &mut Inlet<'_>) {
+        self.queued[index] = Queued {
+            front: inlet.peek_mut().map_or(0, |front| front.len()),
+            rows: inlet.rows(),
+            room: !inlet.closed() && !inlet.full(),
+        };
         self.ended -= usize::from(matches!(self.states[index], InletState::Ended));
         self.states[index] = if !inlet.is_empty() {
             self.waiting.remove(index);
@@ -70,22 +87,40 @@ impl PackSource {
             InletState::Waiting
         };
     }
+
+    fn longest_front(&self) -> usize {
+        self.queued
+            .iter()
+            .map(|queued| queued.front)
+            .max()
+            .unwrap_or(0)
+    }
 }
 
 impl Source for PackSource {
     fn ready(&mut self, cx: &mut Cx<'_>) -> VortexResult<SourceReady> {
         while let Some(index) = cx.changed_inlet() {
-            self.observe(index, &cx.inlet(index));
+            self.observe(index, &mut cx.inlet(index));
         }
         let available = self.states.len() - self.waiting.indices().len() - self.ended;
         vortex_ensure!(
             self.ended == 0 || available == 0,
             "Pack fields ended at different rows"
         );
-        Ok(match self.waiting.indices().last() {
-            Some(&index) => SourceReady::Blocked(SourceBlocked::Inlet(index)),
-            None => SourceReady::Ready,
-        })
+        if let Some(&index) = self.waiting.indices().last() {
+            return Ok(SourceReady::Blocked(SourceBlocked::Inlet(index)));
+        }
+        let longest = self.longest_front();
+        Ok(
+            match self
+                .queued
+                .iter()
+                .position(|queued| queued.room && queued.rows < longest)
+            {
+                Some(index) => SourceReady::Blocked(SourceBlocked::Inlet(index)),
+                None => SourceReady::Ready,
+            },
+        )
     }
 }
 
@@ -94,23 +129,22 @@ impl Operator for PackSource {
         if self.ended == self.states.len() {
             return Ok(Step::End);
         }
-        // TODO: Revisit whether waiting to coalesce misaligned batches is worth producing
-        // fewer, larger structs instead of emitting at every field's batch boundary.
-        let mut len = usize::MAX;
-        for index in 0..self.states.len() {
-            let mut inlet = cx.inlet(index);
-            let front = inlet
-                .peek_mut()
-                .ok_or_else(|| vortex_err!("Pack computed before every inlet was ready"))?;
-            len = len.min(front.len());
-        }
+        vortex_ensure!(
+            self.waiting.indices().is_empty() && self.ended == 0,
+            "Pack computed before every inlet was ready"
+        );
+        let len = self
+            .queued
+            .iter()
+            .map(|queued| queued.rows)
+            .fold(self.longest_front(), usize::min);
         let session = cx.session().clone();
         let inlets = self.states.len();
         let nullable = self.nullable;
         let mut take = |index: usize| -> VortexResult<ArrayRef> {
             let mut inlet = cx.inlet(index);
             let array = take_rows(&mut inlet, len, &session)?;
-            self.observe(index, &inlet);
+            self.observe(index, &mut inlet);
             Ok(array)
         };
         let validity = if nullable {
