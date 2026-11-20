@@ -262,6 +262,7 @@ pub(super) fn segments_read<'a>(
 impl FilterPlanner {
     pub(super) fn new(scan: Arc<PreparedScan>, selected: SelectedRows) -> Self {
         let filter = Arc::clone(scan.filter.as_ref().vortex_expect("filter plans exist"));
+        let planned_versions = recheck_dynamic().then(|| filter.dynamic_versions());
         Self {
             remaining: BitVec::from_elem(filter.predicates.len(), true),
             scan,
@@ -271,7 +272,7 @@ impl FilterPlanner {
             pieces: Vec::new(),
             announced: false,
             next_hint: u32::MAX,
-            planned_versions: recheck_dynamic().then(|| filter.dynamic_versions()),
+            planned_versions,
             recheck: Vec::new().into_iter(),
             rechecking: None,
         }
