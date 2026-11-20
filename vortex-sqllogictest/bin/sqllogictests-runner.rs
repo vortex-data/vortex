@@ -177,6 +177,8 @@ const GENERATED_DATASETS: &[(&str, &str)] = &[
     ("tpch", "tpch/data/lineitem"),
     ("tpcds", "tpcds/data/store_sales"),
     ("clickbench", "clickbench/data/hits"),
+    ("statpopgen", "statpopgen/data/statpopgen"),
+    ("job", "job/data/cast_info"),
 ];
 
 /// Whether `path` belongs to a generated-data suite whose data is absent.
@@ -248,7 +250,7 @@ fn main() -> anyhow::Result<ExitCode> {
     let mut trials = Vec::new();
     for path in files {
         let (run_datafusion, run_duckdb) = engines_for(&path);
-        // Generated-data trials (TPC-H, TPC-DS, ClickBench) are ignored (rather
+        // Generated-data trials (TPC-H, TPC-DS, ClickBench, StatPopGen, JOB) are ignored (rather
         // than removed) when the data is absent, so `--list` and the run summary
         // still account for them.
         let ignored = missing_generated_data(&path);
