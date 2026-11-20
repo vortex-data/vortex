@@ -7,7 +7,8 @@
 //! file's splits are one [turn](WorkUnit::turn), so an unordered pool's lanes take runs of
 //! adjacent splits from every opened file in turn, polling each run's splits together so that
 //! their reads coalesce. With `open_concurrency` files open, a run is `1 / open_concurrency` of
-//! the splits in flight. Opening a deferred file is an expansion that yields the file's turn,
+//! the splits in flight, and at most the splits in flight per core, since a lane decodes its
+//! run's splits on its own task. Opening a deferred file is an expansion that yields the file's turn,
 //! and at most `open_concurrency` opens are queued or running at once. An unordered pool runs
 //! splits and opens on the lane that takes them, which is already a task on the session's runtime;
 //! an ordered pool's worker spawns each onto the runtime. The

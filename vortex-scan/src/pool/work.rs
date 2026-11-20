@@ -253,7 +253,14 @@ pub fn open_work_pool(options: WorkPoolOptions, units: Vec<WorkUnit>) -> ScanPoo
     // then reach the source's read driver together and coalesce, as they do when one scan stream
     // polls its file's splits; a run of one would hand the driver one read at a time. The rotation
     // moves between turns after each run, and the lanes hold `in_flight` units in all.
-    let run = (in_flight / expand_concurrency).max(1);
+    //
+    // A lane polls its run's units on its own task, and their decoding and filtering run there
+    // too, so a run is at most `in_flight` divided by the cores: there is then a lane for every
+    // core, even when one turn, such as a single file, would otherwise take every unit in flight.
+    let cores = get_available_parallelism().unwrap_or(1).clamp(1, in_flight);
+    let run = (in_flight / expand_concurrency)
+        .min(in_flight / cores)
+        .max(1);
     let lanes = Arc::new(Lanes {
         shared: Arc::clone(&shared),
         units: receiver.clone(),
