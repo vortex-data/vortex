@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -27,6 +28,7 @@ use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::extension::ExtensionArrayExt;
+use crate::arrays::patched::PATCH_CHUNK_SIZE;
 use crate::arrays::patched::PatchLayout;
 use crate::arrays::patched::PatchedSlots;
 use crate::arrays::primitive::PrimitiveDataParts;
@@ -190,8 +192,7 @@ fn patch_constant(
             } else {
                 BitBufferMut::new_unset(len)
             };
-            let patch_bits = values.to_bit_buffer();
-            layout.for_each(|pos, patch| bits.set_to(pos, patch_bits.value(patch)));
+            patch_bits(&mut bits, &values.to_bit_buffer(), layout);
             BoolArray::new(bits.freeze(), validity).into_array()
         }
         (DType::Utf8(_) | DType::Binary(_), Canonical::VarBinView(values)) => {
@@ -302,12 +303,9 @@ pub fn patch_validity(
             .unwrap_or_else(|bits| BitBufferMut::copy_from(&bits)),
     };
     match values {
-        Mask::AllTrue(_) => layout.for_each(|pos, _| bits.set(pos)),
-        Mask::AllFalse(_) => layout.for_each(|pos, _| bits.unset(pos)),
-        Mask::Values(values) => {
-            let values = values.bit_buffer();
-            layout.for_each(|pos, patch| bits.set_to(pos, values.value(patch)))
-        }
+        Mask::AllTrue(_) => patch_bits_to(&mut bits, true, layout),
+        Mask::AllFalse(_) => patch_bits_to(&mut bits, false, layout),
+        Mask::Values(values) => patch_bits(&mut bits, values.bit_buffer(), layout),
     }
     Ok(Validity::from(bits.freeze()))
 }
@@ -317,7 +315,75 @@ pub fn patch_validity(
 pub(crate) fn scatter<V: Copy>(output: &mut [V], values: &[V], layout: &PatchLayout<'_>) {
     assert_eq!(output.len(), layout.len());
     assert!(layout.all_patches().end <= values.len());
-    layout.for_each(|pos, patch| output[pos] = values[patch]);
+    layout.for_each_chunk(
+        output,
+        |output, base, indices, patches| {
+            let output = &mut output[base..base + PATCH_CHUNK_SIZE];
+            for (&index, &value) in indices.iter().zip(&values[patches]) {
+                // Indices are below the chunk size, so the mask only removes the bounds check.
+                output[usize::from(index) & (PATCH_CHUNK_SIZE - 1)] = value;
+            }
+        },
+        |output, pos, patch| output[pos] = values[patch],
+    );
+}
+
+/// Overwrite the patched positions of `bits` with the bits of `values`.
+#[inline]
+fn patch_bits(bits: &mut BitBufferMut, values: &BitBuffer, layout: &PatchLayout<'_>) {
+    assert_eq!(bits.len(), layout.len());
+    assert!(layout.all_patches().end <= values.len());
+    let offset = bits.offset();
+    layout.for_each_chunk(
+        bits,
+        |bits, base, indices, patches| {
+            let start = offset + base;
+            if start % 64 == 0 {
+                // Patch the chunk's 16 words in registers, then write them back once.
+                let bytes = &mut bits.as_mut_slice()[start / 8..][..PATCH_CHUNK_SIZE / 8];
+                let mut words = [0u64; PATCH_CHUNK_SIZE / 64];
+                for (word, chunk) in words.iter_mut().zip(bytes.chunks_exact(8)) {
+                    *word = u64::from_le_bytes(chunk.try_into().unwrap_or_default());
+                }
+                for (&index, patch) in indices.iter().zip(patches) {
+                    let bit = usize::from(index) & (PATCH_CHUNK_SIZE - 1);
+                    // SAFETY: `patch` is below the end of the patches, which was checked against
+                    // `values` above.
+                    let value = u64::from(unsafe { values.value_unchecked(patch) });
+                    let word = &mut words[bit / 64];
+                    *word = (*word & !(1 << (bit % 64))) | (value << (bit % 64));
+                }
+                for (word, chunk) in words.iter().zip(bytes.chunks_exact_mut(8)) {
+                    chunk.copy_from_slice(&word.to_le_bytes());
+                }
+            } else {
+                for (&index, patch) in indices.iter().zip(patches) {
+                    let pos = base + (usize::from(index) & (PATCH_CHUNK_SIZE - 1));
+                    // SAFETY: `pos` lies in a chunk inside the array, and `patch` is below the
+                    // end of the patches, which was checked against `values` above.
+                    unsafe { bits.set_to_unchecked(pos, values.value_unchecked(patch)) };
+                }
+            }
+        },
+        |bits, pos, patch| bits.set_to(pos, values.value(patch)),
+    );
+}
+
+/// Set or unset the patched positions of `bits`.
+#[inline]
+fn patch_bits_to(bits: &mut BitBufferMut, value: bool, layout: &PatchLayout<'_>) {
+    assert_eq!(bits.len(), layout.len());
+    layout.for_each_chunk(
+        bits,
+        |bits, base, indices, _| {
+            for &index in indices {
+                let pos = base + (usize::from(index) & (PATCH_CHUNK_SIZE - 1));
+                // SAFETY: `pos` lies in a chunk inside the array.
+                unsafe { bits.set_to_unchecked(pos, value) };
+            }
+        },
+        |bits, pos, _| bits.set_to(pos, value),
+    );
 }
 
 fn patch_primitive(
@@ -354,12 +420,12 @@ fn patch_bool(
         layout,
         ctx,
     )?;
-    let patch_bits = values.to_bit_buffer();
+    let values = values.to_bit_buffer();
     let mut bits = inner
         .into_bit_buffer()
         .try_into_mut()
         .unwrap_or_else(|bits| BitBufferMut::copy_from(&bits));
-    layout.for_each(|pos, patch| bits.set_to(pos, patch_bits.value(patch)));
+    patch_bits(&mut bits, &values, layout);
     Ok(BoolArray::new(bits.freeze(), validity).into_array())
 }
 
