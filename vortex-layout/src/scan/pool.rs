@@ -5,8 +5,6 @@
 
 use std::iter;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 use std::vec;
 
 use futures::StreamExt;
@@ -37,9 +35,8 @@ type SplitTask = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 /// count that the stream multiplies by the cores, so a host polling one worker per core keeps as
 /// many splits in flight as the stream does.
 ///
-/// A worker yields only the splits it claimed, and claims a split only when it has room for one.
-/// So [`is_exhausted`](ScanPool::is_exhausted) turns true once every split has been claimed, and
-/// a host can move a thread to other work then: no worker waits on a split another one claimed.
+/// A worker yields only the splits it claimed, and claims a split only when it has room for one,
+/// so no worker waits on a split another one claimed.
 ///
 /// [`RepeatedScan::execute`]: crate::scan::repeated_scan::RepeatedScan::execute
 pub(crate) struct SplitPool {
@@ -47,8 +44,6 @@ pub(crate) struct SplitPool {
     handle: Handle,
     per_worker: usize,
     splits: Mutex<vec::IntoIter<SplitTask>>,
-    total: usize,
-    claimed: AtomicUsize,
 }
 
 impl SplitPool {
@@ -62,17 +57,13 @@ impl SplitPool {
             dtype,
             handle,
             per_worker: per_worker.max(1),
-            total: splits.len(),
             splits: Mutex::new(splits.into_iter()),
-            claimed: AtomicUsize::new(0),
         }
     }
 
     /// Claims the next split, if any is left.
     fn claim(&self) -> Option<SplitTask> {
-        let split = self.splits.lock().next()?;
-        self.claimed.fetch_add(1, Ordering::Release);
-        Some(split)
+        self.splits.lock().next()
     }
 }
 
@@ -92,16 +83,5 @@ impl ScanPool for SplitPool {
             .buffer_unordered(per_worker)
             .filter_map(|array| future::ready(array.transpose()));
         ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, arrays))
-    }
-
-    fn progress(&self) -> f64 {
-        if self.total == 0 {
-            return 1.0;
-        }
-        (self.claimed.load(Ordering::Acquire) as f64 / self.total as f64).clamp(0.0, 1.0)
-    }
-
-    fn is_exhausted(&self) -> bool {
-        self.claimed.load(Ordering::Acquire) >= self.total
     }
 }
