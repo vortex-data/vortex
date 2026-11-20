@@ -25,6 +25,7 @@ pub(crate) mod zone_map;
 mod adaptor;
 mod chunk;
 mod filter;
+mod parts;
 mod projection;
 mod prune;
 mod selection;
@@ -45,10 +46,10 @@ pub(crate) use self::chunk::ROW_BLOCK_SIZE;
 #[cfg(test)]
 pub(crate) use self::chunk::row_chunks;
 pub(crate) use self::chunk::rows_per_chunk;
-#[cfg(test)]
 pub(crate) use self::chunk::scan_chunks;
 use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;
+pub use self::parts::part_root;
 use self::projection::ProjectionPlanner;
 pub use self::prune::PruneNext;
 pub use self::prune::PrunePlanner;

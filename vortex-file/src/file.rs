@@ -14,6 +14,7 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -21,6 +22,7 @@ use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::metrics::ScanUsage;
 use vortex_layout::scan::scan_builder::ScanBuilder;
+use vortex_layout::scan::scan_builder::referenced_field_masks;
 use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::scan::v2::ScanFile;
 use vortex_layout::segments::SegmentSource;
@@ -310,8 +312,25 @@ impl VortexFile {
 
     /// This file as a child of a [`PlanDataSource`]: its V2 scan input, row count, and a pruner
     /// that skips scans whose filter the file-level statistics prove false.
+    ///
+    /// An opened scan of the child cuts its work on the file's layout splits over the fields it
+    /// reads, as a V1 scan of the same fields does.
     pub fn plan_child(&self) -> PlanChild {
-        let file = PlanChild::new(self.scan_file().into()).with_row_count(self.row_count());
+        let splitter = {
+            let file = self.clone();
+            Arc::new(
+                move |projection: &BoundExpression, filter: Option<&BoundExpression>| {
+                    SplitBy::default().splits(
+                        file.layout_reader()?.as_ref(),
+                        &(0..file.row_count()),
+                        &referenced_field_masks(projection, filter)?,
+                    )
+                },
+            )
+        };
+        let file = PlanChild::new(self.scan_file().into())
+            .with_row_count(self.row_count())
+            .with_splitter(splitter);
         let Some(statistics) = self.file_stats().cloned() else {
             return file;
         };
