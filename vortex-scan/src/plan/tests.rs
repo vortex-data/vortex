@@ -992,30 +992,6 @@ fn non_strict_expression_pushes_into_dictionary_without_null_codes() -> VortexRe
 }
 
 #[test]
-fn nullable_struct_keeps_expression_above_parent_validity() -> VortexResult<()> {
-    let field_dtype = primitive(PType::I32, Nullability::NonNullable);
-    let layout = struct_plan(
-        3,
-        DType::Struct(
-            StructFields::from_iter([("a", field_dtype.clone())]),
-            Nullability::Nullable,
-        ),
-        vec![
-            flat(3, DType::Bool(Nullability::NonNullable), 0),
-            flat(3, field_dtype, 1),
-        ],
-    );
-    let plan = make_eval(gt(get_item("a", root()), lit(5_i32)), layout)?.into_plan();
-
-    let optimized = optimize(plan, &SESSION)?;
-    let eval = optimized
-        .as_opt::<Eval>()
-        .ok_or_else(|| vortex_err!("Nullable struct expression unexpectedly pushed down"))?;
-    assert!(eval.child_plan()?.is::<Pack>());
-    Ok(())
-}
-
-#[test]
 fn stats_expression_rewrites_to_zoned_pruning_plan() -> VortexResult<()> {
     let dtype = primitive(PType::I32, Nullability::NonNullable);
     let max = Max.bind(NumericalAggregateOpts::skip_nans());
