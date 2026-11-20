@@ -39,10 +39,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::StreamExt;
-use futures::stream;
 use futures::stream::BoxStream;
-use pool::ScanPartition;
 use pool::ScanPoolRef;
 use selection::Selection;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -57,7 +54,6 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
-use vortex_utils::parallelism::get_available_parallelism;
 
 /// A sendable stream of partitions.
 pub type PartitionStream = BoxStream<'static, VortexResult<PartitionRef>>;
@@ -218,11 +214,16 @@ pub type DataSourceScanRef = Box<dyn DataSourceScan>;
 /// worker of that pool.
 ///
 /// A source implements [`split`](Self::split) and [`open`](Self::open) by putting its own tuned
-/// execution behind them. [`partitions`](Self::partitions) is derived from them for hosts that
-/// still read partitions.
+/// execution behind them.
 pub trait DataSourceScan: 'static + Send {
     /// The returned dtype of the scan.
     fn dtype(&self) -> &DType;
+
+    /// Returns an estimate of the total number of partitions the scan will produce.
+    fn partition_count(&self) -> Precision<usize>;
+
+    /// Returns a stream of partitions to be processed.
+    fn partitions(self: Box<Self>) -> PartitionStream;
 
     /// Cuts the scan into at most `n` scans that together read the same rows, in order.
     ///
@@ -232,34 +233,9 @@ pub trait DataSourceScan: 'static + Send {
 
     /// Opens the scan into a pool that host threads share by each polling a worker.
     ///
-    /// A source that has no pool of its own yet may return a
-    /// [`PartitionPool`](pool::PartitionPool) over itself, as long as it implements
-    /// [`partitions`](Self::partitions): the default `partitions` opens the scan, so the two
-    /// together would never end.
+    /// A source that has no pool of its own may return a [`PartitionPool`](pool::PartitionPool)
+    /// over itself.
     fn open(self: Box<Self>) -> VortexResult<ScanPoolRef>;
-
-    /// Returns an estimate of the total number of partitions the scan will produce.
-    fn partition_count(&self) -> Precision<usize> {
-        Precision::Absent
-    }
-
-    /// Returns a stream of partitions to be processed.
-    ///
-    /// The default [splits](Self::split) the scan into one piece per available core and makes
-    /// each piece a partition, which [opens](Self::open) the piece and drains one worker of its
-    /// pool.
-    fn partitions(self: Box<Self>) -> PartitionStream {
-        let n = get_available_parallelism()
-            .and_then(NonZeroUsize::new)
-            .unwrap_or(NonZeroUsize::MIN);
-        match self.split(n) {
-            Ok(pieces) => stream::iter(pieces.into_iter().enumerate().map(|(index, scan)| {
-                Ok(Box::new(ScanPartition::new(index, scan)) as PartitionRef)
-            }))
-            .boxed(),
-            Err(err) => stream::once(async move { Err(err) }).boxed(),
-        }
-    }
 }
 
 /// A reference-counted partition.

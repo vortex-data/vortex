@@ -3,21 +3,17 @@
 
 //! Pools of work that host threads share by each polling a worker.
 
-use std::any::Any;
 use std::sync::Arc;
 
 use async_lock::Mutex;
 use futures::StreamExt;
 use futures::stream;
 use vortex_array::dtype::DType;
-use vortex_array::expr::stats::Precision;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
-use vortex_error::VortexResult;
 
 use crate::DataSourceScanRef;
-use crate::Partition;
 use crate::PartitionStream;
 
 /// A shared reference to a [`ScanPool`].
@@ -25,9 +21,6 @@ pub type ScanPoolRef = Arc<dyn ScanPool>;
 
 /// The shared work of an opened scan, which host threads read by each polling a worker.
 pub trait ScanPool: 'static + Send + Sync {
-    /// The dtype of the arrays every worker returns.
-    fn dtype(&self) -> &DType;
-
     /// Returns a new worker: a stream that one host thread polls.
     ///
     /// Workers take work from the pool until none is left, so together they return every row of
@@ -43,8 +36,7 @@ pub trait ScanPool: 'static + Send + Sync {
 
 /// A pool whose workers take partitions one at a time from a scan's shared partition stream.
 ///
-/// A source without a pool of its own can open into this one, as long as it implements
-/// [`partitions`](crate::DataSourceScan::partitions) itself.
+/// A source without a pool of its own can open into this one.
 pub struct PartitionPool {
     dtype: DType,
     partitions: Mutex<PartitionStream>,
@@ -61,10 +53,6 @@ impl PartitionPool {
 }
 
 impl ScanPool for PartitionPool {
-    fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
     fn worker(self: Arc<Self>) -> SendableArrayStream {
         let dtype = self.dtype.clone();
         let partitions = stream::unfold(self, |pool| async move {
@@ -81,46 +69,9 @@ impl ScanPool for PartitionPool {
     }
 }
 
-/// A piece of a split scan as a partition, which opens the piece and drains one worker of it.
-///
-/// This is how the default [`partitions`](crate::DataSourceScan::partitions) reads a scan.
-pub(crate) struct ScanPartition {
-    index: usize,
-    scan: DataSourceScanRef,
-}
-
-impl ScanPartition {
-    pub(crate) fn new(index: usize, scan: DataSourceScanRef) -> Self {
-        Self { index, scan }
-    }
-}
-
-impl Partition for ScanPartition {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn index(&self) -> usize {
-        self.index
-    }
-
-    fn row_count(&self) -> Precision<u64> {
-        Precision::Absent
-    }
-
-    fn byte_size(&self) -> Precision<u64> {
-        Precision::Absent
-    }
-
-    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
-        Ok(self.scan.open()?.worker())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::any::Any;
-    use std::collections::VecDeque;
     use std::num::NonZeroUsize;
     use std::sync::Arc;
 
@@ -129,7 +80,6 @@ mod tests {
     use futures::executor::block_on;
     use futures::future::try_join_all;
     use futures::stream;
-    use parking_lot::Mutex;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::dtype::DType;
@@ -143,7 +93,6 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::PartitionPool;
-    use super::ScanPool;
     use super::ScanPoolRef;
     use crate::DataSourceScan;
     use crate::DataSourceScanRef;
@@ -235,79 +184,6 @@ mod tests {
         });
         let rows: usize = block_on(try_join_all(workers))?.into_iter().sum();
         assert_eq!(rows, 14);
-        Ok(())
-    }
-
-    /// A scan that implements only `split` and `open`, with a pool of its own.
-    struct SplitOnlyScan {
-        rows: Vec<usize>,
-    }
-
-    impl DataSourceScan for SplitOnlyScan {
-        fn dtype(&self) -> &DType {
-            &DTYPE
-        }
-
-        fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
-            let size = self.rows.len().div_ceil(n.get()).max(1);
-            Ok(self
-                .rows
-                .chunks(size)
-                .map(|rows| {
-                    Box::new(SplitOnlyScan {
-                        rows: rows.to_vec(),
-                    }) as DataSourceScanRef
-                })
-                .collect())
-        }
-
-        fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
-            Ok(Arc::new(RowsPool {
-                rows: Mutex::new(self.rows.into()),
-            }))
-        }
-    }
-
-    /// A pool whose workers each take the next count of rows.
-    struct RowsPool {
-        rows: Mutex<VecDeque<usize>>,
-    }
-
-    impl ScanPool for RowsPool {
-        fn dtype(&self) -> &DType {
-            &DTYPE
-        }
-
-        fn worker(self: Arc<Self>) -> SendableArrayStream {
-            let arrays = stream::unfold(self, |pool| async move {
-                let rows = pool.rows.lock().pop_front()?;
-                Some((rows_array(rows), pool))
-            });
-            ArrayStreamExt::boxed(ArrayStreamAdapter::new(DTYPE.clone(), arrays))
-        }
-    }
-
-    /// The default `partitions` reads a scan that implements only `split` and `open`, one
-    /// partition per piece.
-    #[test]
-    fn default_partitions_open_each_piece() -> VortexResult<()> {
-        let scan = Box::new(SplitOnlyScan {
-            rows: vec![2, 3, 4, 5],
-        });
-        let partitions: Vec<PartitionRef> = block_on(scan.partitions().try_collect())?;
-        assert!(!partitions.is_empty());
-        for (index, partition) in partitions.iter().enumerate() {
-            assert_eq!(partition.index(), index);
-        }
-        let rows = block_on(try_join_all(partitions.into_iter().map(
-            |partition| async move {
-                partition
-                    .execute()?
-                    .try_fold(0, |rows, array| async move { Ok(rows + array.len()) })
-                    .await
-            },
-        )))?;
-        assert_eq!(rows.into_iter().sum::<usize>(), 14);
         Ok(())
     }
 }

@@ -68,10 +68,6 @@ impl SplitPool {
 }
 
 impl ScanPool for SplitPool {
-    fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
     fn worker(self: Arc<Self>) -> SendableArrayStream {
         let dtype = self.dtype.clone();
         let handle = self.handle.clone();
