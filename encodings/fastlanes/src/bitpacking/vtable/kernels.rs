@@ -4,6 +4,7 @@
 use vortex_array::ArrayVTable;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::Filter;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
@@ -19,6 +20,7 @@ use vortex_array::scalar_fn::fns::cast::CastExecuteAdaptor;
 use vortex_session::VortexSession;
 
 use crate::BitPacked;
+use crate::bitpacking::compute::patched::BitPackedPatchedKernel;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -36,4 +38,5 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(Filter.id(), BitPacked, FilterExecuteAdaptor(BitPacked));
     kernels.register_execute_parent_kernel(Slice.id(), BitPacked, SliceExecuteAdaptor(BitPacked));
     kernels.register_execute_parent_kernel(Dict.id(), BitPacked, TakeExecuteAdaptor(BitPacked));
+    kernels.register_execute_parent_kernel(Patched.id(), BitPacked, BitPackedPatchedKernel);
 }
