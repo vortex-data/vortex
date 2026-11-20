@@ -31,7 +31,6 @@
 //! units once it is spent.
 
 use std::future;
-use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -54,6 +53,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::request::IoService;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use super::plan::DeferredPlanChild;
 use super::plan::PlanChild;
@@ -84,6 +84,26 @@ struct Part {
     child: Arc<PreparedChild>,
     scope: WorkScope,
     planner: Box<dyn Planner>,
+    /// The part's share of the pool's work, for its progress.
+    share: f64,
+}
+
+/// The share of a pool's work that workers have taken, from 0.0 to 1.0.
+///
+/// Each top-level child of the pool has an equal share. A deferred child divides its share evenly
+/// among the children it expands into, and a prepared child divides its share among its parts by
+/// their rows. The share of rows that pruning skips counts as taken once they are skipped.
+#[derive(Default)]
+struct Taken(Mutex<f64>);
+
+impl Taken {
+    fn add(&self, share: f64) {
+        *self.0.lock() += share;
+    }
+
+    fn get(&self) -> f64 {
+        self.0.lock().clamp(0.0, 1.0)
+    }
 }
 
 /// A part's batches, in row order.
@@ -98,7 +118,8 @@ enum PoolChild {
     Parts(Vec<Part>),
     /// A child whose root reads before it spawns parts: it prunes the child as a whole first.
     Root(PartsFuture),
-    Deferred(Arc<dyn DeferredPlanChild>),
+    /// A deferred child, and its share of the pool's work.
+    Deferred(Arc<dyn DeferredPlanChild>, f64),
 }
 
 impl PoolChild {
@@ -107,27 +128,38 @@ impl PoolChild {
         match self {
             Self::Parts(parts) => future::ready(Ok(parts)).boxed(),
             Self::Root(parts) => parts,
-            Self::Deferred(_) => unreachable!("a deferred child has no root"),
+            Self::Deferred(..) => unreachable!("a deferred child has no root"),
         }
     }
 }
 
 /// Opens a pool over the scan's `units`, preparing each of its ready children.
 pub(super) fn open(state: Arc<ScanState>, units: Vec<Unit>) -> VortexResult<ScanPoolRef> {
+    let taken = Arc::new(Taken::default());
+    let share = 1.0 / units.len().max(1) as f64;
     let mut children = Vec::with_capacity(units.len());
     for unit in units {
         children.push(match state.child(unit.child) {
-            PlanSourceChild::Ready(child) => prepare(&state, child, unit.rows)?,
-            PlanSourceChild::Deferred { child, .. } => PoolChild::Deferred(Arc::clone(child)),
+            PlanSourceChild::Ready(child) => prepare(&state, child, unit.rows, share, &taken)?,
+            PlanSourceChild::Deferred { child, .. } => {
+                PoolChild::Deferred(Arc::clone(child), share)
+            }
         });
     }
     let dtype = state.dtype.clone();
+    // A worker takes the place of a partition that one host thread drains, so, like the layout
+    // pool's, it keeps as many parts in flight as a partition's stream does by default: four per
+    // core, at most the request's `split_concurrency`.
+    let scaled =
+        SPLITS_IN_FLIGHT_PER_WORKER.saturating_mul(get_available_parallelism().unwrap_or(1));
     let parts_in_flight = state
         .split_concurrency
-        .map_or(SPLITS_IN_FLIGHT_PER_WORKER, NonZeroUsize::get);
+        .map_or(scaled, |max| scaled.min(max.get()))
+        .max(1);
     let shared = Arc::new(Shared {
         limit: state.limit.map(RowLimit::new),
         state,
+        taken,
     });
     if shared.state.ordered {
         return Ok(Arc::new(OrderedPool {
@@ -160,12 +192,15 @@ fn prepare(
     state: &ScanState,
     child: &PlanChild,
     rows: Option<Range<u64>>,
+    share: f64,
+    taken: &Arc<Taken>,
 ) -> VortexResult<PoolChild> {
     let rows = match rows {
         Some(rows) => rows,
         None => state.child_rows(child)?,
     };
     if rows.is_empty() {
+        taken.add(share);
         return Ok(PoolChild::Parts(Vec::new()));
     }
     let splits = child.splits(&state.projection, state.filter.as_ref())?;
@@ -177,7 +212,7 @@ fn prepare(
     let root = part_root(&scan, splits.as_deref(), dynamic);
     let io = scan.io();
     let child = Arc::new(PreparedChild { scan, io });
-    let parts = run_root(child, root);
+    let parts = run_root(child, root, share, Arc::clone(taken));
     if dynamic {
         return Ok(PoolChild::Root(parts));
     }
@@ -188,9 +223,18 @@ fn prepare(
 }
 
 /// Runs a child's root on a planning run of its own, awaiting only its reads, and returns the
-/// parts it spawns, in row order.
-fn run_root(child: Arc<PreparedChild>, root: Box<dyn Planner>) -> PartsFuture {
+/// parts it spawns, in row order, dividing the child's `share` among them by their rows. The share
+/// of the rows they leave out counts as taken.
+fn run_root(
+    child: Arc<PreparedChild>,
+    root: Box<dyn Planner>,
+    share: f64,
+    taken: Arc<Taken>,
+) -> PartsFuture {
     async move {
+        let rows = child.scan.rows();
+        let per_row = share / (rows.end - rows.start).max(1) as f64;
+        let mut unassigned = rows.end - rows.start;
         let mut run = Run::new();
         run.admit(
             root,
@@ -203,16 +247,25 @@ fn run_root(child: Arc<PreparedChild>, root: Box<dyn Planner>) -> PartsFuture {
         let mut parts = Vec::new();
         loop {
             match run.advance()? {
-                Progress::Spawn(scope, planner) => parts.push(Part {
-                    child: Arc::clone(&child),
-                    scope,
-                    planner,
-                }),
+                Progress::Spawn(scope, planner) => {
+                    let part_rows = scope.rows.end - scope.rows.start;
+                    unassigned = unassigned.saturating_sub(part_rows);
+                    let share = per_row * part_rows as f64;
+                    parts.push(Part {
+                        child: Arc::clone(&child),
+                        scope,
+                        planner,
+                        share,
+                    });
+                }
                 Progress::Batch(_) => vortex_bail!("a scan's root produced a batch"),
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => break,
                 Progress::Waiting => future::poll_fn(|cx| run.poll_completion(cx)).await?,
             }
+        }
+        if unassigned > 0 {
+            taken.add(per_row * unassigned as f64);
         }
         Ok(parts)
     }
@@ -227,6 +280,7 @@ fn run_part(part: Part) -> PartFuture {
             child,
             scope,
             planner,
+            ..
         } = part;
         let mut run = Run::new();
         run.admit(planner, scope, child.io.session());
@@ -253,16 +307,22 @@ fn run_part(part: Part) -> PartFuture {
 struct Shared {
     state: Arc<ScanState>,
     limit: Option<RowLimit>,
+    taken: Arc<Taken>,
 }
 
 impl Shared {
     /// Spawns a part onto the session's runtime: another runtime thread may run it while this
     /// worker drives its other parts, and its reads start right away.
     fn spawn_part(&self, part: Part) -> PartFuture {
+        self.taken.add(part.share);
         self.state.session.handle().spawn(run_part(part)).boxed()
     }
 
-    fn is_exhausted(&self) -> bool {
+    fn prepare(&self, child: &PlanChild, share: f64) -> VortexResult<PoolChild> {
+        prepare(&self.state, child, None, share, &self.taken)
+    }
+
+    fn is_limit_spent(&self) -> bool {
         self.limit.as_ref().is_some_and(RowLimit::is_exhausted)
     }
 
@@ -270,17 +330,18 @@ impl Shared {
     /// deferred child only once the parts before it are taken.
     fn parts_in_order(
         self: &Arc<Self>,
-        children: Vec<PlanSourceChild>,
+        children: Vec<(PlanSourceChild, f64)>,
     ) -> BoxStream<'static, VortexResult<Vec<Part>>> {
         let shared = Arc::clone(self);
+        let taken = Arc::clone(&self.taken);
         self.state
-            .expand_in_order(children)
-            .then(
-                move |child| match child.and_then(|child| prepare(&shared.state, &child, None)) {
+            .expand_in_order(children, Arc::new(move |share| taken.add(share)))
+            .then(move |child| {
+                match child.and_then(|(child, share)| shared.prepare(&child, share)) {
                     Ok(child) => child.into_parts(),
                     Err(err) => future::ready(Err(err)).boxed(),
-                },
-            )
+                }
+            })
             .boxed()
     }
 
@@ -317,8 +378,9 @@ enum Work {
     /// A child's root that reads before it spawns parts, and where to send the parts. The sender
     /// keeps the channel open until they are in it.
     Root(PartsFuture, Sender<Work>),
-    /// A deferred child, and where to send the units of its children once it is expanded.
-    Expand(Arc<dyn DeferredPlanChild>, Sender<Work>),
+    /// A deferred child, its share of the pool's work, and where to send the units of its children
+    /// once it is expanded.
+    Expand(Arc<dyn DeferredPlanChild>, f64, Sender<Work>),
 }
 
 fn send(sender: &Sender<Work>, work: Work) {
@@ -335,7 +397,9 @@ fn queue(sender: &Sender<Work>, child: PoolChild) {
             }
         }
         PoolChild::Root(parts) => send(sender, Work::Root(parts, sender.clone())),
-        PoolChild::Deferred(child) => send(sender, Work::Expand(child, sender.clone())),
+        PoolChild::Deferred(child, share) => {
+            send(sender, Work::Expand(child, share, sender.clone()));
+        }
     }
 }
 
@@ -358,19 +422,22 @@ impl UnorderedPool {
                 Ok(Vec::new())
             }
             .boxed(),
-            Work::Expand(child, sender) => {
+            Work::Expand(child, share, sender) => {
                 let shared = Arc::clone(shared);
                 async move {
-                    for child in child.expand().await? {
+                    let children = child.expand().await?;
+                    if children.is_empty() {
+                        shared.taken.add(share);
+                    }
+                    let share = share / children.len().max(1) as f64;
+                    for child in children {
                         match child {
-                            PlanSourceChild::Ready(child) => {
-                                let Some(child) = shared.state.admit(child)? else {
-                                    continue;
-                                };
-                                queue(&sender, prepare(&shared.state, &child, None)?);
-                            }
+                            PlanSourceChild::Ready(child) => match shared.state.admit(child)? {
+                                Some(child) => queue(&sender, shared.prepare(&child, share)?),
+                                None => shared.taken.add(share),
+                            },
                             PlanSourceChild::Deferred { child, .. } => {
-                                send(&sender, Work::Expand(child, sender.clone()));
+                                send(&sender, Work::Expand(child, share, sender.clone()));
                             }
                         }
                     }
@@ -394,11 +461,23 @@ impl ScanPool for UnorderedPool {
         let parts_in_flight = self.parts_in_flight;
         // The worker holds the pool, so the pool is dropped only after its last worker.
         let outputs = receiver
-            .take_while(move |_| future::ready(!self.shared.is_exhausted()))
+            .take_while(move |_| future::ready(!self.shared.is_limit_spent()))
             .map(move |work| UnorderedPool::run(&runner, work))
             .buffer_unordered(parts_in_flight)
             .boxed();
         shared.output(outputs)
+    }
+
+    fn progress(&self) -> f64 {
+        if self.is_exhausted() {
+            return 1.0;
+        }
+        self.shared.taken.get()
+    }
+
+    fn is_exhausted(&self) -> bool {
+        // Roots and expansions hold senders, so the channel closes only once every unit is in it.
+        self.shared.is_limit_spent() || (self.receiver.is_closed() && self.receiver.is_empty())
     }
 }
 
@@ -436,19 +515,20 @@ impl ScanPool for OrderedPool {
         let shared = Arc::clone(&self.shared);
         let outputs = stream::iter(children)
             .flat_map(move |child| match child {
-                PoolChild::Deferred(child) => {
-                    expander.parts_in_order(vec![PlanSourceChild::Deferred {
+                PoolChild::Deferred(child, share) => expander.parts_in_order(vec![(
+                    PlanSourceChild::Deferred {
                         child,
                         byte_size: None,
-                    }])
-                }
+                    },
+                    share,
+                )]),
                 child => stream::once(child.into_parts()).boxed(),
             })
             .flat_map(|parts| match parts {
                 Ok(parts) => stream::iter(parts.into_iter().map(Ok)).left_stream(),
                 Err(err) => stream::once(future::ready(Err(err))).right_stream(),
             })
-            .take_while(move |_| future::ready(!shared.is_exhausted()))
+            .take_while(move |_| future::ready(!shared.is_limit_spent()))
             .map(move |part| match part {
                 Ok(part) => spawner.spawn_part(part),
                 Err(err) => future::ready(Err(err)).boxed(),
@@ -456,5 +536,14 @@ impl ScanPool for OrderedPool {
             .buffered(self.parts_in_flight)
             .boxed();
         self.shared.output(outputs)
+    }
+
+    fn progress(&self) -> f64 {
+        self.shared.taken.get()
+    }
+
+    fn is_exhausted(&self) -> bool {
+        // The first worker takes every child.
+        self.shared.is_limit_spent() || self.children.lock().is_none()
     }
 }

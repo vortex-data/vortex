@@ -84,6 +84,7 @@ pub struct TestLayoutReader {
     filter_exprs: Option<Arc<Mutex<Vec<BoundExpression>>>>,
     in_flight: Option<Arc<InFlight>>,
     yields: fn(u64) -> usize,
+    built_projections: Option<Arc<AtomicUsize>>,
 }
 
 /// Counts projections running at once, and the most that ever were.
@@ -116,6 +117,7 @@ impl TestLayoutReader {
             filter_exprs: None,
             in_flight: None,
             yields: |_| 0,
+            built_projections: None,
         }
     }
 
@@ -156,6 +158,12 @@ impl TestLayoutReader {
     /// before it finishes, so tests can make splits complete out of row order.
     pub fn with_yields(mut self, yields: fn(u64) -> usize) -> Self {
         self.yields = yields;
+        self
+    }
+
+    /// Counts the projections built, which is when a split registers its reads.
+    pub fn with_built_projections(mut self, built: Arc<AtomicUsize>) -> Self {
+        self.built_projections = Some(built);
         self
     }
 
@@ -284,6 +292,9 @@ impl LayoutReader for TestLayoutReader {
         let fail = self.fail_projection || (self.fail_first_projection && row_range.start == 0);
         let in_flight = self.in_flight.clone();
         let yields = (self.yields)(row_range.start);
+        if let Some(built) = &self.built_projections {
+            built.fetch_add(1, Ordering::SeqCst);
+        }
 
         Ok(Box::pin(async move {
             for _ in 0..yields {

@@ -202,6 +202,35 @@ fn sorted(workers: Vec<Vec<u32>>) -> Vec<u32> {
     all
 }
 
+/// A pool reports no progress before any worker takes work, and all of it, and exhaustion, once
+/// its workers have taken every unit: of one file, or of files opened as they are reached.
+#[rstest]
+#[case::one_file_unordered(false, false)]
+#[case::one_file_ordered(false, true)]
+#[case::three_files_unordered(true, false)]
+#[case::three_files_ordered(true, true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[cfg_attr(miri, ignore)]
+async fn pool_reports_progress_and_exhaustion(
+    #[case] deferred: bool,
+    #[case] ordered: bool,
+) -> VortexResult<()> {
+    let source = if deferred {
+        three_files().await?
+    } else {
+        one_file().await?
+    };
+    let pool = source.scan(request(ordered)).await?.open()?;
+    assert_eq!(pool.progress(), 0.0);
+    assert!(!pool.is_exhausted());
+
+    let rows = sorted(read_pool(Arc::clone(&pool), 3).await?);
+    assert_eq!(rows, (0..ROWS).collect::<Vec<_>>());
+    assert!(pool.is_exhausted());
+    assert!((pool.progress() - 1.0).abs() < 1e-9, "{}", pool.progress());
+    Ok(())
+}
+
 /// Split pieces are contiguous, never empty, and read every row in order.
 #[rstest]
 #[case::one(1)]
