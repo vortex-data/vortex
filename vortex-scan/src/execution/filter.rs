@@ -212,7 +212,10 @@ fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
 /// Before those reads, a dynamic conjunct whose value changed since the chunk was planned, as a
 /// top-N's bound tightens while the scan runs, prunes the chunk's rows again with its current
 /// value, from the zone maps the scan's pruning already read. The chunk then reads nothing for
-/// the rows the tightened value rules out, and nothing at all when it rules them all out. Pruning
+/// the rows the tightened value rules out, and nothing at all when it rules them all out. The
+/// recheck only runs when an earlier pruning has read the conjunct's zones, as a part's pruning
+/// does: a part of one chunk skips its dynamic pruning, and reading the zones before the chunk's
+/// own reads would delay them by a read, which on a cold file costs more than the recheck saves. Pruning
 /// ran when the chunk's part started, so without this, every chunk of the part would read its
 /// conjuncts' columns under the value pruning saw. Setting `VORTEX_V2_CHUNK_DYNAMIC_RECHECK=0`
 /// turns it off; that switch is temporary, for comparing both behaviours in one binary.
@@ -295,9 +298,29 @@ impl FilterPlanner {
     /// chunk was planned, one at a time. Returns the output to return now, or `None` once the
     /// rechecks have run and some rows remain.
     fn run_dynamic_recheck(&mut self) -> VortexResult<Option<PlannerOutput>> {
+        let Some(selected) = &mut self.selected else {
+            return Ok(Some(PlannerOutput::Done));
+        };
         if let DynamicRecheck::Planned(versions) = &self.dynamic_recheck {
             let pending = VecDeque::from(self.filter.changed_dynamic_pruning(versions));
-            self.dynamic_recheck = if pending.is_empty() {
+            // Only zones an earlier pruning read: reading them here would hold the chunk's own
+            // reads back by a round trip, which costs most on a cold read.
+            let resident = pending.is_empty()
+                || segments_read(
+                    &self.scan.session,
+                    pending.iter(),
+                    selected.scope.rows.clone(),
+                    &selected.mask,
+                )?
+                .is_empty();
+            self.dynamic_recheck = if pending.is_empty() || !resident {
+                if !resident {
+                    tracing::debug!(
+                        row_start = selected.scope.rows.start,
+                        row_end = selected.scope.rows.end,
+                        "v2 dynamic recheck skipped: zones not read yet"
+                    );
+                }
                 DynamicRecheck::Done
             } else {
                 DynamicRecheck::Running {
@@ -306,9 +329,6 @@ impl FilterPlanner {
                 }
             };
         }
-        let Some(selected) = &mut self.selected else {
-            return Ok(Some(PlannerOutput::Done));
-        };
         let DynamicRecheck::Running { pending, current } = &mut self.dynamic_recheck else {
             return Ok(None);
         };
