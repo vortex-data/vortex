@@ -1,0 +1,35 @@
+name: "Setup CodSpeed"
+description: "Install the cargo-codspeed release that matches the codspeed crates in Cargo.lock"
+
+# cargo-codspeed and the codspeed benchmark crates are released together under one version, and
+# a new release can change how benchmarks are measured. Taking the version from Cargo.lock keeps
+# the CLI in step with the crates the benchmarks are built against, so a PR and the `develop`
+# baseline it is compared with are measured by the same release. A Renovate bump of the codspeed
+# crates moves both at once, in one PR that re-baselines `develop`.
+#
+# Keep this file identical in vortex-data/vortex, spiraldb/fsst, spiraldb/fastlanes, spiraldb/alp
+# and spiraldb/onpair.
+
+runs:
+  using: "composite"
+  steps:
+    - name: Read codspeed version from Cargo.lock
+      id: version
+      shell: bash
+      run: |
+        mapfile -t versions < <(
+          grep -A1 -x 'name = "codspeed"' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p'
+        )
+        if [ "${#versions[@]}" -ne 1 ]; then
+          echo "::error file=Cargo.lock::expected one codspeed package in Cargo.lock, found ${#versions[@]}: ${versions[*]}"
+          exit 1
+        fi
+        echo "cargo-codspeed ${versions[0]}"
+        echo "version=${versions[0]}" >> "$GITHUB_OUTPUT"
+
+    # cargo-codspeed publishes no prebuilt binaries, so it is always built from source. This
+    # action caches the build, keyed by version, architecture and glibc.
+    - name: Install cargo-codspeed
+      uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995  # v3
+      with:
+        tool: cargo-codspeed@${{ steps.version.outputs.version }}

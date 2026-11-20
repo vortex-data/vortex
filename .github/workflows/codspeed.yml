@@ -116,9 +116,7 @@ jobs:
             if: steps.shard.outputs.active == 'true'
           - name: Install Codspeed
             if: steps.shard.outputs.active == 'true'
-            uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
-            with:
-              tool: cargo-codspeed
+            uses: ./.github/actions/setup-codspeed
       # The CodSpeed action does its setup (CLI install, its Valgrind package, runner start-up)
       # inside the step that runs the benchmarks, so it starts alongside the build and its
       # command waits for the build to report an exit status before running anything.
@@ -137,7 +135,7 @@ jobs:
               cargo codspeed build --locked ${{ steps.shard.outputs.build-args }} --profile bench
           - name: Run benchmarks
             if: steps.shard.outputs.active == 'true'
-            uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
+            uses: CodSpeedHQ/action@af75f77f17a054769abefaa42fe8dc2975469b5f  # v5
             env:
               # codspeed-divan-compat 6 runs each benchmark in a new process by default. Simulation
               # measures one iteration without warmup, so each benchmark then also pays for a cold
@@ -217,7 +215,7 @@ jobs:
               cd vortex-python
               uv run --all-packages --no-sync python -m benchmark.data "$VORTEX_BENCH_DATA_DIR"
           - name: Run benchmarks
-            uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
+            uses: CodSpeedHQ/action@af75f77f17a054769abefaa42fe8dc2975469b5f  # v5
             env:
               VORTEX_BENCH_DATA_DIR: ${{ runner.temp }}/vortex-bench-data
               # Drive scans on the calling thread. Background workers wake every 100 ms to check
@@ -285,9 +283,7 @@ jobs:
           - uses: ./.github/actions/system-info
       - parallel:
           - name: Install Codspeed
-            uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
-            with:
-              tool: cargo-codspeed
+            uses: ./.github/actions/setup-codspeed
           # Select individual targets: selecting packages also links their untagged binaries,
           # including nearly all of vortex-array, even though this job never measures them.
           - name: Select tagged benchmark targets
@@ -358,9 +354,7 @@ jobs:
               name: codspeed-cpu-benchmarks-${{ matrix.features }}
       - parallel:
           - name: Install Codspeed
-            uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
-            with:
-              tool: cargo-codspeed
+            uses: ./.github/actions/setup-codspeed
           # The tar archive preserves executable permissions lost by upload-artifact.
           - name: Unpack benchmark executables
             run: |
@@ -380,7 +374,7 @@ jobs:
       # component only exists because `#[cpu_features]` puts it there: an untagged benchmark has one
       # component fewer and cannot match, whatever it is called.
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
+        uses: CodSpeedHQ/action@af75f77f17a054769abefaa42fe8dc2975469b5f  # v5
         env:
           # Use more samples to reduce noise between walltime runs.
           DIVAN_SAMPLE_COUNT: "1000"
@@ -411,9 +405,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: "true"
       - name: Install Codspeed
-        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
-        with:
-          tool: cargo-codspeed
+        uses: ./.github/actions/setup-codspeed
       - name: Build benchmarks
         # cargo-codspeed forces -Cdebuginfo=2 -Cstrip=none
         # https://github.com/CodSpeedHQ/codspeed-rust/issues/190
@@ -478,9 +470,7 @@ jobs:
               name: codspeed-cuda-benchmarks
       - parallel:
           - name: Install Codspeed
-            uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
-            with:
-              tool: cargo-codspeed
+            uses: ./.github/actions/setup-codspeed
           - name: Unpack CUDA benchmark executables
             run: |
               mkdir -p target
@@ -488,7 +478,7 @@ jobs:
       - name: Restore executable permissions
         run: find target/codspeed -type f -exec chmod +x {} +
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
+        uses: CodSpeedHQ/action@af75f77f17a054769abefaa42fe8dc2975469b5f  # v5
         env:
           CARGO_MANIFEST_DIR: ${{ github.workspace }}/vortex-cuda
         with:
