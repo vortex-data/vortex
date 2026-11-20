@@ -157,8 +157,17 @@ impl<'a> IntoArrowField<'a> for Nullability {
 
 /// Plugin layer for exporting a Vortex array to an Arrow extension type.
 ///
-/// Prefer [`crate::ArrowExtVTable`] for automatic Vortex metadata transport. Both interfaces must
-/// satisfy the dtype round-trip contract checked by [`ArrowSession`].
+/// A successful export **must** preserve the logical value of each row, including nulls. The
+/// physical layout can change. For example, a UUID stored as a fixed-size list of 16 bytes can
+/// export as Arrow `FixedSizeBinary(16)` with the same bytes.
+///
+/// Importing an inferred field with [`ArrowSession::from_arrow_field`] **must** recover the
+/// complete Vortex dtype passed to [`ArrowSession::to_arrow_field`], including extension IDs,
+/// metadata, storage, and nullability at every nesting level. Exporting and importing an array
+/// with that field **must** recover the original dtype and values. Several Arrow representations
+/// can import as the same Vortex dtype.
+///
+/// Prefer [`crate::ArrowExtVTable`] for automatic Vortex metadata transport.
 ///
 /// This is purely an implementation trait, its methods should not be called directly. Instead,
 /// use [`ExecuteArrowExt`] to export an array, and the methods on [`ArrowSession`] to convert a
@@ -202,8 +211,12 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
 
 /// Plugin layer for importing an Arrow extension-typed array into a Vortex array.
 ///
-/// Prefer [`crate::ArrowExtVTable`] for automatic Vortex metadata transport. Both interfaces must
-/// return arrays with the dtype inferred from their fields, as checked by [`ArrowSession`].
+/// A successful import **must** preserve each logical Arrow value as described by the field,
+/// applying the [import nullability rules](ArrowSession::from_arrow_array) at each level.
+/// The returned array must have the dtype inferred from the field, as checked by [`ArrowSession`].
+/// See [`ArrowExportVTable`] for the Vortex-to-Arrow round-trip contract.
+///
+/// Prefer [`crate::ArrowExtVTable`] for automatic Vortex metadata transport.
 ///
 /// Plugins are dispatched by `arrow_ext_id`. The session peels Arrow dictionaries before it
 /// dispatches. The session uses the dictionary field's metadata to import the values because
@@ -273,13 +286,10 @@ type ArrowImporterRegistry = ArcSwapMap<Id, Arc<[ArrowImportVTableRef]>>;
 
 /// Session-scoped registry of Arrow extension plugins.
 ///
-/// All plugins **must** preserve the complete dtype across [`Self::to_arrow_field`] and
-/// [`Self::from_arrow_field`]. This includes extension IDs, metadata, storage, and nullability at
-/// every nesting level. Exporting an array to that field and importing it with the same field must
-/// preserve its dtype and logical values. The owning dtype and Arrow plugins must be registered in
-/// the importing session.
+/// The session checks inferred fields and the dtypes of successful plugin imports. See
+/// [`ArrowExportVTable`] and [`ArrowImportVTable`] for the conversion contracts. The importing
+/// session must register the owning dtype and any Arrow plugins used for the conversion.
 ///
-/// The session checks inferred fields and successful plugin imports, including raw plugins.
 /// Explicit export targets may request a different dtype. Unknown Vortex IDs import as storage.
 ///
 /// A plugin converts one Vortex extension type to and from an Arrow extension type. The crate that

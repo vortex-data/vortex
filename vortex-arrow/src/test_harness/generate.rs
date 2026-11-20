@@ -46,7 +46,11 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use super::DefaultExport;
+use super::check_arrow;
 use super::check_containers;
+use super::round_trip::check_canonical_field;
+use super::round_trip::check_default_round_trip;
+use super::round_trip::check_nested_round_trips;
 
 /// A storage array and its independent Arrow reference, built from the same source draws.
 pub struct StorageCase {
@@ -139,7 +143,11 @@ pub(super) fn draw_validity(tc: &TestCase, nullability: Nullability, len: usize)
     }
 }
 
-/// Checks extension metadata and every container placement, then up to three generated parents.
+/// Checks the Arrow contract against a canonical reference and through generated containers.
+///
+/// The leaf must have an extension dtype. Build the canonical Arrow field and values from the
+/// source fixture. The same reference checks explicit and supported default exports. Use
+/// [`check_arrow`] to cover other explicit targets.
 ///
 /// Extension leaves retain metadata and nested storage across top-level nullability changes and
 /// reconstruction from serialized metadata and stored storage.
@@ -151,9 +159,21 @@ pub(super) fn draw_validity(tc: &TestCase, nullability: Nullability, len: usize)
 pub fn check_generated(
     tc: &TestCase,
     leaf: ArrayRef,
+    canonical_field: &Field,
+    expected: ArrowArrayRef,
     default_export: DefaultExport,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
+    check_canonical_field(leaf.dtype(), canonical_field, ctx)?;
+    check_arrow(leaf.clone(), canonical_field, Arc::clone(&expected), ctx)?;
+    check_default_round_trip(
+        &leaf,
+        canonical_field,
+        default_export,
+        Some(expected.as_ref()),
+        ctx,
+    )?;
+
     if let DType::Extension(dtype) = leaf.dtype() {
         let metadata = dtype.serialize_metadata()?;
         let dtypes = ctx.session().dtypes();
@@ -177,7 +197,7 @@ pub fn check_generated(
         }
     }
 
-    check_containers(leaf.clone(), default_export, ctx)?;
+    check_nested_round_trips(leaf.clone(), canonical_field, ctx)?;
 
     let depth = tc.draw(gs::integers::<usize>().max_value(3));
     let mut array = leaf;
