@@ -226,7 +226,7 @@ pub(crate) fn open_pool(
     // threads decode them, so more in flight would only read further ahead, and the file's
     // registered reads already let I/O coalesce ahead of the splits being decoded.
     let splits_in_flight = SplitConcurrency {
-        per_worker: DEFAULT_SPLITS_PER_THREAD,
+        per_worker: diag_splits_per_thread(),
         max: options.split_concurrency,
     }
     .splits_in_flight()
@@ -255,11 +255,7 @@ pub(crate) fn open_pool(
     let mut opens = 0;
     for file in files {
         match file {
-            PoolFile::Opened(work) => {
-                for split in shared.file_splits(work) {
-                    send(&sender, Work::Split(split));
-                }
-            }
+            PoolFile::Opened(work) => queue_file(&sender, shared.file_splits(work)),
             PoolFile::Deferred(factory) if opens < open_concurrency => {
                 opens += 1;
                 let slot = OpenSlot {
@@ -513,6 +509,9 @@ fn limit_output(
 /// A unit of an unordered pool.
 enum Work {
     Split(FileSplit),
+    /// DIAGNOSTIC: a file's turn under `VORTEX_POOL_FILE_ORDER=round_robin`. The lane that takes
+    /// it takes the file's next split and queues the turn again behind the other files' turns.
+    Turn(Arc<Mutex<VecDeque<FileSplit>>>, Sender<Work>),
     /// A deferred file, and the open slot it holds until its splits are in the channel.
     Open(Arc<dyn LayoutReaderFactory>, OpenSlot),
 }
@@ -539,6 +538,40 @@ impl Drop for OpenSlot {
             };
             send(&self.sender, Work::Open(next, slot));
         }
+    }
+}
+
+/// DIAGNOSTIC: the splits each core keeps in flight, from `VORTEX_POOL_SPLITS_PER_THREAD`.
+fn diag_splits_per_thread() -> usize {
+    std::env::var("VORTEX_POOL_SPLITS_PER_THREAD")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(DEFAULT_SPLITS_PER_THREAD)
+}
+
+/// DIAGNOSTIC: whether `VORTEX_POOL_FILE_ORDER=round_robin` hands out the opened files' splits
+/// in turn rather than one file after another.
+fn diag_round_robin() -> bool {
+    static ROUND_ROBIN: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+        std::env::var("VORTEX_POOL_FILE_ORDER").is_ok_and(|order| order == "round_robin")
+    });
+    *ROUND_ROBIN
+}
+
+/// Queues an opened file's splits: one after another, or as one turn among the files.
+fn queue_file(sender: &Sender<Work>, splits: Vec<FileSplit>) {
+    if splits.is_empty() {
+        return;
+    }
+    if diag_round_robin() {
+        send(
+            sender,
+            Work::Turn(Arc::new(Mutex::new(splits.into())), sender.clone()),
+        );
+        return;
+    }
+    for split in splits {
+        send(sender, Work::Split(split));
     }
 }
 
@@ -574,11 +607,22 @@ impl UnorderedPool {
     fn run(shared: &Arc<Shared>, work: Work) -> SplitOutput {
         match work {
             Work::Split(split) => shared.take_split(split, false),
+            Work::Turn(queue, sender) => {
+                let (split, more) = {
+                    let mut queue = queue.lock();
+                    (queue.pop_front(), !queue.is_empty())
+                };
+                if more {
+                    send(&sender, Work::Turn(queue, sender.clone()));
+                }
+                match split {
+                    Some(split) => shared.take_split(split, false),
+                    None => future::ready(Ok(None)).boxed(),
+                }
+            }
             Work::Open(factory, slot) => async move {
                 let opened = slot.shared.open_file(factory).await.map(|work| {
-                    for split in slot.shared.file_splits(work) {
-                        send(&slot.sender, Work::Split(split));
-                    }
+                    queue_file(&slot.sender, slot.shared.file_splits(work));
                     None
                 });
                 drop(slot);
