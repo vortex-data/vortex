@@ -137,10 +137,7 @@ jobs:
             if: steps.shard.outputs.active == 'true'
             uses: CodSpeedHQ/action@af75f77f17a054769abefaa42fe8dc2975469b5f  # v5
             env:
-              # codspeed-divan-compat 6 runs each benchmark in a new process by default. Simulation
-              # measures one iteration without warmup, so each benchmark then also pays for a cold
-              # allocator and cold caches. This adds about 15 µs to each benchmark and hides small
-              # changes in short benchmarks. Run all benchmarks of a target in one process, as before.
+              # Run all benchmarks in one process, as before CodSpeed 6.
               CODSPEED_PROCESS_ISOLATION: "false"
               # Allocators return freed memory to the OS and grow their heaps with system calls. A
               # system call inside a measured iteration is left out of the measure, so CodSpeed reports
