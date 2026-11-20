@@ -39,6 +39,10 @@ name = "sparse_canonical"
 harness = false
 
 [[bench]]
+name = "sparse_vs_patched"
+harness = false
+
+[[bench]]
 name = "sparse_pushdown"
 harness = false
 

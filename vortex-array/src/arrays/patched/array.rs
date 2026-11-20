@@ -374,6 +374,20 @@ impl Patched {
         patches: &Patches,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Array<Patched>> {
+        let n_lanes = default_patch_lanes(patches.dtype());
+        Self::from_array_and_patches_with_lanes(inner, patches, n_lanes, ctx)
+    }
+
+    /// Creates a patched array from an array and its [`Patches`], laid out with `n_lanes` lanes.
+    ///
+    /// With a single lane the patches keep their order, so the patch values are used as they
+    /// are, without being reordered.
+    pub fn from_array_and_patches_with_lanes(
+        inner: ArrayRef,
+        patches: &Patches,
+        n_lanes: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Array<Patched>> {
         vortex_ensure_eq!(
             inner.len(),
             patches.array_len(),
@@ -384,7 +398,7 @@ impl Patched {
             patches.indices().clone(),
             patches.values().clone(),
             patches.offset(),
-            default_patch_lanes(patches.dtype()),
+            n_lanes,
             ctx,
         )
     }

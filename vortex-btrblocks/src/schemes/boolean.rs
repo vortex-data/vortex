@@ -24,10 +24,13 @@ use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_array::arrays::Patched;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt;
 
 use crate::ArrayAndStats;
+use crate::schemes::patches::sparse_to_patched;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -47,7 +50,11 @@ impl Scheme for BoolRunEndScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![RunEnd.id()]
+        let mut encodings = vec![RunEnd.id()];
+        if use_experimental_patches() {
+            encodings.push(Patched.id());
+        }
+        encodings
     }
 
     /// Children: ends=0.
@@ -138,6 +145,17 @@ impl Scheme for BoolSparseScheme {
         let Some(sparse) = encoded.as_opt::<Sparse>() else {
             return Ok(encoded);
         };
+        if use_experimental_patches() {
+            return sparse_to_patched(
+            compressor,
+            &compress_ctx,
+            self.id(),
+            sparse,
+            0,
+            None,
+            exec_ctx,
+    );
+        }
         let indices = sparse
             .patches()
             .indices()

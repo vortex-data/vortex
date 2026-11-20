@@ -35,6 +35,8 @@ use crate::arrays::List;
 use crate::arrays::ListView;
 use crate::arrays::Map;
 use crate::arrays::Masked;
+use crate::arrays::Patched;
+use crate::arrays::patched::use_experimental_patches;
 use crate::arrays::Null;
 use crate::arrays::Primitive;
 use crate::arrays::RunEnd;
@@ -115,6 +117,11 @@ impl Default for ArraySession {
         this.register(RunEnd);
         this.register(VarBin);
         this.register(WidenPlugin);
+
+        // Patched arrays are written only when experimental patches are enabled.
+        if use_experimental_patches() {
+            this.register(Patched);
+        }
 
         this
     }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -77,17 +77,24 @@ impl DynAggregateKernel for PatchedConstantAggregate {
             return Ok(None);
         };
 
-        let positions = patched.execute_patch_positions(ctx)?;
         let values = patched.patch_values();
-        let visible = if positions.len() == values.len() {
+        let executed = patched.execute_layout(ctx)?;
+        let layout = executed.layout()?;
+        // Usually every stored patch is visible. Otherwise, as after slicing, gather the
+        // visible ones.
+        let visible = if layout.all_patches().len() == values.len()
+            && !layout.has_out_of_bounds_patches()
+        {
             values.clone()
         } else {
-            let sources: Buffer<u32> = positions.iter().map(|&(_, patch)| patch).collect();
-            values.take(PrimitiveArray::new(sources, Validity::NonNullable).into_array())?
+            let mut sources = BufferMut::<u32>::with_capacity(layout.all_patches().len());
+            #[expect(clippy::cast_possible_truncation, reason = "patch counts fit in u32")]
+            layout.for_each(|_, patch| sources.push(patch as u32));
+            values.take(PrimitiveArray::new(sources.freeze(), Validity::NonNullable).into_array())?
         };
 
         let mut accumulator = aggregate_fn.accumulator(batch.dtype())?;
-        let unpatched = patched.len() - positions.len();
+        let unpatched = patched.len() - visible.len();
         if unpatched > 0 {
             let fill = ConstantArray::new(constant.scalar().clone(), unpatched).into_array();
             accumulator.accumulate(&fill, ctx)?;

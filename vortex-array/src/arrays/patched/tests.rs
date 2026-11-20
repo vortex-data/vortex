@@ -345,6 +345,37 @@ fn widening_cast_pushes_down() -> VortexResult<()> {
 }
 
 #[test]
+fn narrowing_cast_of_sparse_pushes_down_only_when_every_patch_is_visible() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let sparse = Patched::sparse(
+        indices(&[1, 1500]),
+        PrimitiveArray::from_option_iter([Some(7i64), None]).into_array(),
+        2000,
+        Scalar::from(3i64),
+        &mut ctx,
+    )?
+    .into_array();
+    let target = DType::Primitive(PType::I8, Nullability::Nullable);
+    let cast = sparse.cast(target.clone())?;
+    let executed = cast.clone().execute::<crate::Canonical>(&mut ctx)?.into_array();
+    let mut expected = vec![Some(3i8); 2000];
+    expected[1] = Some(7);
+    expected[1500] = None;
+    assert_arrays_eq!(executed, PrimitiveArray::from_option_iter(expected), &mut ctx);
+
+    // The null patch at 1500 is outside this slice, so a cast to non-nullable must succeed.
+    let sliced = sparse.slice(0..1000)?.optimize_ctx(&SESSION)?;
+    let non_nullable = sliced
+        .cast(DType::Primitive(PType::I8, Nullability::NonNullable))?
+        .execute::<crate::Canonical>(&mut ctx)?
+        .into_array();
+    let mut expected = vec![3i8; 1000];
+    expected[1] = 7;
+    assert_arrays_eq!(non_nullable, PrimitiveArray::from_iter(expected), &mut ctx);
+    Ok(())
+}
+
+#[test]
 fn take_and_filter_primitive_across_chunks() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let len = 5000usize;

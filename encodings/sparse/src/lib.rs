@@ -26,6 +26,7 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
@@ -60,11 +61,13 @@ use vortex_session::registry::CachedId;
 use crate::canonical::append_sparse_to_varbin;
 use crate::canonical::append_sparse_to_varbinview;
 use crate::canonical::execute_sparse;
+pub use crate::patched::sparse_to_patched;
 
 mod canonical;
 mod compute;
 mod kernel;
 mod ops;
+mod patched;
 mod plugin;
 mod rules;
 mod slice;
@@ -84,7 +87,12 @@ use vortex_array::session::ArraySessionExt;
 /// Registers the Sparse array vtable, parent execution kernels, and aggregate kernels
 /// (`IsConstant`, `Sum`, `SumV2`, `MinMax`, `NullCount`, `NanCount`).
 pub fn initialize(session: &VortexSession) {
-    session.arrays().register(Sparse);
+    // With experimental patched arrays, sparse arrays are read as patched arrays.
+    if use_experimental_patches() {
+        session.arrays().register(patched::SparsePatchedPlugin);
+    } else {
+        session.arrays().register(Sparse);
+    }
     kernel::initialize(session);
 
     let aggregate_fns = session.aggregate_fns();
