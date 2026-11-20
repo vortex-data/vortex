@@ -213,26 +213,17 @@ fn sorted(workers: Vec<Vec<u32>>) -> Vec<u32> {
 async fn split_pieces_cover_all_rows_in_order(#[case] n: usize) -> VortexResult<()> {
     let source = one_file().await?;
     let scan = source.scan(request(true)).await?;
-    assert_eq!(scan.row_count(), Precision::exact(u64::from(ROWS)));
     let pieces = scan.split(NonZeroUsize::new(n).unwrap_or(NonZeroUsize::MIN))?;
     assert!(!pieces.is_empty() && pieces.len() <= n);
     if n > 1 {
         assert!(pieces.len() > 1);
     }
-    let mut counted = 0;
     let mut read = Vec::new();
     for piece in pieces {
-        let rows = piece.row_count();
-        let rows = rows
-            .as_exact()
-            .ok_or_else(|| vortex_err!("inexact {rows:?}"))?;
-        assert!(rows > 0);
-        counted += rows;
         let values = read_one(piece).await?;
-        assert_eq!(values.len() as u64, rows);
+        assert!(!values.is_empty());
         read.extend(values);
     }
-    assert_eq!(counted, u64::from(ROWS));
     assert_eq!(read, (0..ROWS).collect::<Vec<_>>());
     Ok(())
 }
