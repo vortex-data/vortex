@@ -18,6 +18,7 @@ use vortex_array::arrays::patched::PatchedArrayExt;
 use vortex_array::arrays::patched::PatchedArraySlotsExt;
 use vortex_array::arrays::patched::PatchedSlots;
 use vortex_array::arrays::patched::patch_validity;
+use vortex_array::arrays::patched::scatter;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::match_each_integer_ptype;
@@ -27,6 +28,7 @@ use vortex_error::VortexResult;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitWidthsView;
+use crate::bitpacking::array::bitpack_decompress::unpack_into_primitive_builder;
 use crate::FL_CHUNK_SIZE;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
 
@@ -72,6 +74,27 @@ impl ExecuteParentKernel<BitPacked> for BitPackedPatchedKernel {
         let layout = layout.layout()?;
 
         let len = array.len();
+
+        // Sparse patches are in position order with a single lane. When they cannot change the
+        // validity, decode exactly as the bit-packed array does and then overwrite the patched
+        // positions: the decoder runs uninterrupted, and the few patches cost almost nothing.
+        if layout.n_lanes() == 1
+            && array.validity()?.definitely_no_nulls()
+            && values.as_ref().validity()?.definitely_no_nulls()
+        {
+            let result = match_each_integer_ptype!(array.dtype().as_ptype(), |T| {
+                let mut builder = PrimitiveBuilder::<T>::with_capacity_in(
+                    array.dtype().nullability(),
+                    len,
+                    ctx.allocator(),
+                );
+                unpack_into_primitive_builder::<T>(array, &mut builder, ctx)?;
+                scatter(builder.values_mut(), values.as_slice::<T>(), &layout);
+                builder.finish_into_primitive()
+            });
+            return Ok(Some(result.into_array()));
+        }
+
         let validity = patch_validity(
             array.validity()?,
             values.as_ref().validity()?,

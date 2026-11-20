@@ -174,6 +174,26 @@ impl<'a> PatchLayout<'a> {
         }
     }
 
+    /// The chunks that have patches, with the range of their patches.
+    ///
+    /// Sparse patches leave most chunks empty, so this reads only the chunk boundaries of the lane
+    /// offsets, each once, and skips empty chunks in a tight loop.
+    #[inline]
+    pub fn patched_chunks(&self) -> impl Iterator<Item = (usize, Range<usize>)> + '_ {
+        let n_patches = self.indices.len();
+        let mut boundaries = self
+            .lane_offsets
+            .iter()
+            .step_by(self.n_lanes)
+            .map(move |&offset| (offset as usize).min(n_patches));
+        let mut start = boundaries.next().unwrap_or(0);
+        boundaries.enumerate().filter_map(move |(chunk, end)| {
+            let range = start..end;
+            start = end;
+            (!range.is_empty()).then_some((chunk, range))
+        })
+    }
+
     /// Calls `f(position, patch)` for every patch inside the array, where `position` is the
     /// patch's index into the array and `patch` its index into the patch indices and values.
     ///
@@ -181,24 +201,53 @@ impl<'a> PatchLayout<'a> {
     #[inline]
     pub fn for_each(&self, mut f: impl FnMut(usize, usize)) {
         let end = self.offset + self.len;
-        for chunk in 0..self.n_chunks() {
-            let chunk_start = chunk * PATCH_CHUNK_SIZE;
-            let range = self.chunk_patches(chunk);
-            if chunk_start >= self.offset && chunk_start + PATCH_CHUNK_SIZE <= end {
-                // Interior chunks are entirely in bounds.
-                let base = chunk_start - self.offset;
-                for patch in range {
-                    f(base + self.position_in_chunk(patch), patch);
-                }
-            } else {
-                for patch in range {
-                    let index = chunk_start + self.position_in_chunk(patch);
-                    if index >= self.offset && index < end {
-                        f(index - self.offset, patch);
+        if !self.is_sparse() {
+            for (chunk, range) in self.patched_chunks() {
+                let chunk_start = chunk * PATCH_CHUNK_SIZE;
+                if chunk_start >= self.offset && chunk_start + PATCH_CHUNK_SIZE <= end {
+                    // Interior chunks are entirely in bounds.
+                    let base = chunk_start - self.offset;
+                    for patch in range {
+                        f(base + self.position_in_chunk(patch), patch);
+                    }
+                } else {
+                    for patch in range {
+                        let index = chunk_start + self.position_in_chunk(patch);
+                        if index >= self.offset && index < end {
+                            f(index - self.offset, patch);
+                        }
                     }
                 }
             }
+            return;
         }
+
+        let n_patches = self.indices.len();
+        let all = self.all_patches();
+        let boundary =
+            |chunk: usize| (self.lane_offsets[chunk * self.n_lanes] as usize).min(n_patches);
+
+        // Sparse patches: a single loop over the patches, advancing to the chunk of each, which
+        // costs nothing for chunks without patches.
+        let mut chunk = 0;
+        let mut chunk_end = boundary(1);
+        for patch in all {
+            while patch >= chunk_end {
+                chunk += 1;
+                chunk_end = boundary(chunk + 1);
+            }
+            let index = chunk * PATCH_CHUNK_SIZE + self.position_in_chunk(patch);
+            if index >= self.offset && index < end {
+                f(index - self.offset, patch);
+            }
+        }
+    }
+
+    /// Returns `true` if the patches average fewer than four per chunk, when visiting them one at
+    /// a time beats visiting them a chunk at a time.
+    #[inline]
+    pub fn is_sparse(&self) -> bool {
+        self.all_patches().len() < 4 * self.n_chunks()
     }
 
     /// Visits the patches inside the array a chunk at a time, for loops that are faster when
@@ -218,12 +267,8 @@ impl<'a> PatchLayout<'a> {
         edge: impl Fn(&mut S, usize, usize),
     ) {
         let end = self.offset + self.len;
-        for chunk in 0..self.n_chunks() {
+        for (chunk, range) in self.patched_chunks() {
             let chunk_start = chunk * PATCH_CHUNK_SIZE;
-            let range = self.chunk_patches(chunk);
-            if range.is_empty() {
-                continue;
-            }
             if chunk_start >= self.offset && chunk_start + PATCH_CHUNK_SIZE <= end {
                 interior(
                     state,

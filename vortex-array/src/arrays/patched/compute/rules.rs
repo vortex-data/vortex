@@ -100,12 +100,10 @@ impl ArrayParentReduceRule<Patched> for PatchedScalarFnPushDownRule {
             Ok(ScalarFnArray::try_new(scalar_fn.clone(), children)?.into_array())
         };
 
-        // Comparisons over a constant inner array are left to the compare kernel, which compares
-        // the fill value directly.
-        if array.inner().is::<Constant>()
-            && scalar_fn
-                .as_opt::<Binary>()
-                .is_some_and(|op| op.to_compare_operator().is_some())
+        // Comparisons are left to the compare kernel, which evaluates them in one step.
+        if scalar_fn
+            .as_opt::<Binary>()
+            .is_some_and(|op| op.to_compare_operator().is_some())
         {
             return Ok(None);
         }

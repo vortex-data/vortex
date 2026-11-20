@@ -287,7 +287,7 @@ fn fixed_size_lists_use_take() -> VortexResult<()> {
 }
 
 #[test]
-fn compare_pushes_down_into_children() -> VortexResult<()> {
+fn compare_patches_compared_values() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let inner = PrimitiveArray::from_iter(0u32..2048);
     let values = PrimitiveArray::from_option_iter([Some(7u32), None, Some(7)]);
@@ -305,7 +305,6 @@ fn compare_pushes_down_into_children() -> VortexResult<()> {
             Operator::Eq,
         )?
         .optimize_ctx(&SESSION)?;
-    assert!(compared.is::<Patched>(), "{}", compared.display_tree());
 
     let expected = (0u32..2048).map(|i| match i {
         1 | 1500 => Some(true),

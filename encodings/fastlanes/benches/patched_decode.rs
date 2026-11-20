@@ -24,6 +24,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_decoded;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::BitWidths;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
@@ -66,9 +67,12 @@ fn data(stride: usize) -> PrimitiveArray {
 /// The data bit-packed with its exceptions as interior patches.
 fn interior(stride: usize) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
-    bitpack_encode(&data(stride), BIT_WIDTH, None, &mut ctx)
+    let array = bitpack_encode(&data(stride), BIT_WIDTH, None, &mut ctx)
         .unwrap()
-        .into_array()
+        .into_array();
+    // Arrays read from a file are marked optimized as they are decoded.
+    mark_decoded(&array);
+    array
 }
 
 /// The data as a Patched array over a patchless bit-packed array.
@@ -90,9 +94,11 @@ fn patched(stride: usize) -> ArrayRef {
         parts.offset,
     )
     .unwrap();
-    Patched::from_array_and_patches(inner.into_array(), &patches, &mut ctx)
+    let array = Patched::from_array_and_patches(inner.into_array(), &patches, &mut ctx)
         .unwrap()
-        .into_array()
+        .into_array();
+    mark_decoded(&array);
+    array
 }
 
 #[divan::bench(args = STRIDES)]
