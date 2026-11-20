@@ -67,8 +67,9 @@ __device__ void runend_decode_kernel(const EndsT *const __restrict ends,
                                      ValueT *const __restrict output) {
     __shared__ EndsT shared_ends[MAX_CACHED_RUNS];
     __shared__ ValueT shared_values[MAX_CACHED_RUNS];
-    __shared__ uint64_t block_first_run;
-    __shared__ uint32_t block_num_runs;
+    __shared__ uint64_t block_first_run;  // index of this block's first run in the global arrays
+    __shared__ uint32_t block_num_runs;   // runs in this block, clamped to MAX_CACHED_RUNS
+    __shared__ uint32_t block_total_runs; // unclamped run count, used by the binary search fallback
 
     const uint32_t elements_per_block = blockDim.x * ELEMENTS_PER_THREAD;
     const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * elements_per_block;
@@ -86,9 +87,11 @@ __device__ void runend_decode_kernel(const EndsT *const __restrict ends,
         uint64_t first_run = upper_bound(ends, num_runs, first_pos);
         uint64_t last_run = upper_bound(ends, num_runs, last_pos);
 
+        uint32_t total =
+            static_cast<uint32_t>(min(last_run - first_run + 1, static_cast<uint64_t>(UINT32_MAX)));
         block_first_run = first_run;
-        block_num_runs =
-            static_cast<uint32_t>(min(last_run - first_run + 1, static_cast<uint64_t>(MAX_CACHED_RUNS)));
+        block_total_runs = total;
+        block_num_runs = min(total, MAX_CACHED_RUNS);
     }
     __syncthreads();
 
@@ -114,15 +117,17 @@ __device__ void runend_decode_kernel(const EndsT *const __restrict ends,
             output[idx] = shared_values[current_run < block_num_runs ? current_run : block_num_runs - 1];
         }
     } else {
-        // Fallback for blocks with very short runs. Search the full `num_runs`
-        // array. `block_num_runs` is clamped to `MAX_CACHED_RUNS`.
+        // Fallback: binary search scoped to this block's run range.
+        const EndsT *block_ends = ends + block_first_run;
+        const ValueT *block_values = values + block_first_run;
+        uint32_t total = block_total_runs;
         for (uint64_t idx = block_start + threadIdx.x; idx < block_end; idx += blockDim.x) {
             uint64_t pos = idx + offset;
-            uint64_t run_idx = upper_bound(ends, num_runs, pos);
-            if (run_idx >= num_runs) {
-                run_idx = num_runs - 1;
+            uint32_t local_idx = static_cast<uint32_t>(upper_bound(block_ends, total, pos));
+            if (local_idx >= total) {
+                local_idx = total - 1;
             }
-            output[idx] = values[run_idx];
+            output[idx] = block_values[local_idx];
         }
     }
 }

@@ -121,9 +121,10 @@ pub async fn zstd_kernel_prepare(
     let device_output = ctx.device_alloc::<u8>(output_size_total)?;
 
     // Device pointers for all compressed frames.
+    let stream = ctx.stream();
     let frame_ptrs = device_frame_handles
         .iter()
-        .map(|handle| handle.cuda_device_ptr())
+        .map(|handle| handle.cuda_device_ptr(stream))
         .collect::<VortexResult<Vec<_>>>()?;
 
     // Build output_ptrs from output base pointer + offsets.
@@ -153,10 +154,10 @@ pub async fn zstd_kernel_prepare(
     let device_statuses: CudaSlice<nvcompStatus_t> = ctx.device_alloc(num_frames)?;
     let nvcomp_temp_buffer: CudaSlice<u8> = ctx.device_alloc(nvcomp_temp_buffer_size)?;
 
-    let frame_ptrs_ptr = frame_ptrs_handle.cuda_device_ptr()?;
-    let frame_sizes_ptr = frame_sizes_handle.cuda_device_ptr()?;
-    let output_sizes_ptr = output_sizes_handle.cuda_device_ptr()?;
-    let output_ptrs_ptr = output_ptrs_handle.cuda_device_ptr()?;
+    let frame_ptrs_ptr = frame_ptrs_handle.cuda_device_ptr(stream)?;
+    let frame_sizes_ptr = frame_sizes_handle.cuda_device_ptr(stream)?;
+    let output_sizes_ptr = output_sizes_handle.cuda_device_ptr(stream)?;
+    let output_ptrs_ptr = output_ptrs_handle.cuda_device_ptr(stream)?;
 
     // Return device pointers and handles to keep device memory alive
     Ok(ZstdKernelPrep {

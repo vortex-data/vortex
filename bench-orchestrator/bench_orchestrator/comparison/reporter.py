@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 from rich.text import Text
 
@@ -59,9 +60,9 @@ def pivot_comparison_table(
     # Add column for each comparison target
     for col in pivot.columns:
         if col == pivot.baseline:
-            table.add_column(f"{col} (base)", justify="right")
+            table.add_column(f"{escape(col)} (base)", justify="right")
         else:
-            table.add_column(col, justify="right")
+            table.add_column(escape(col), justify="right")
 
     # Add rows
     for _, row in pivot.df.iterrows():
