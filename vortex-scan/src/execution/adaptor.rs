@@ -69,6 +69,7 @@ pub(super) struct ScanAdaptor {
 impl ScanAdaptor {
     /// Wraps a scan, numbering requests uniquely within this adaptor's lifetime.
     pub(super) fn new(scan: Scan, locations: Arc<[SegmentLocation]>) -> Self {
+        tracing::debug!(target: "vortex_scan::counts", "scan adaptor");
         Self {
             scan,
             pending: None,

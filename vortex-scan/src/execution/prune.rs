@@ -66,6 +66,12 @@ impl PrunePlanner {
             .flat_map(|filter| filter.pruning_over(rows.end - rows.start).cloned())
             .collect();
         let len = usize::try_from(rows.end - rows.start).unwrap_or(usize::MAX);
+        tracing::debug!(
+            target: "vortex_scan::counts",
+            rows = ?rows,
+            plans = pruning.len(),
+            "prune planner"
+        );
         Self {
             scan,
             rows,

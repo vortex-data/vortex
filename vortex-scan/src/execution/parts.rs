@@ -39,6 +39,14 @@ pub fn part_root(
         Some(splits) => part_ranges(rows.clone(), splits),
         None => scan_chunks(rows.clone(), scan.chunk_rows),
     };
+    tracing::debug!(
+        target: "vortex_scan::counts",
+        parts = parts.len(),
+        split_count = ?splits.map(<[u64]>::len),
+        dynamic,
+        rows = ?rows,
+        "part root"
+    );
     let parts = {
         let scan = Arc::clone(scan);
         let first_row = rows.start;

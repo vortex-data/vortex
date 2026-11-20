@@ -99,6 +99,12 @@ impl ChunkPlanner {
         kept: Option<Mask>,
     ) -> Self {
         let chunks = scan_chunks(rows.clone(), scan.chunk_rows).into_iter();
+        tracing::debug!(
+            target: "vortex_scan::counts",
+            rows = ?rows,
+            chunks = chunks.len(),
+            "chunk planner"
+        );
         Self {
             scan,
             rows,

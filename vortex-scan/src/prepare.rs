@@ -140,7 +140,14 @@ impl ScanBuilder {
             .filter
             .map(|filter| -> VortexResult<_> {
                 let skip = self.skip_unselective_dynamic;
-                match cache.filter_plans(&filter) {
+                let cached = cache.filter_plans(&filter);
+                tracing::debug!(
+                    target: "vortex_scan::counts",
+                    hit = cached.is_some(),
+                    filter = %filter,
+                    "filter plans"
+                );
+                match cached {
                     Some(plans) if plans.skips_unselective_dynamic() == skip => Ok(plans),
                     // A scan whose skipping differs from the cached plans' plans its own.
                     Some(_) => Ok(Arc::new(FilterPlans::new(
@@ -161,6 +168,13 @@ impl ScanBuilder {
                 }
             })
             .transpose()?;
+        tracing::debug!(
+            target: "vortex_scan::counts",
+            filtered_chunk_rows = ?filtered_chunk_rows,
+            rows = ?self.row_range,
+            projection_hit = cache.projection(&self.projection).is_some(),
+            "prepare"
+        );
         // Optimizing drops the zone tables a projection never reads and keeps the chunks of a
         // chunked column lazy, so an identity projection is optimized like any other.
         let identity = self.projection.is_root() && self.projection.dtype() == root.dtype();
