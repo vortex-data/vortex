@@ -16,7 +16,9 @@ arrays = [
     "vortex.decimal_byte_parts.v2",
     "vortex.widen",
 ]
-layouts = []
+layouts = [
+    "vortex.extension",
+]
 dtypes = []
 aggregates = []
 
@@ -27,6 +29,8 @@ arrays = [
     "vortex.decimal_byte_parts.v2",
     "vortex.widen",
 ]
-layouts = []
+layouts = [
+    "vortex.extension",
+]
 dtypes = []
 aggregates = []

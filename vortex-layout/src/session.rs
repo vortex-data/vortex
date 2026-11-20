@@ -3,6 +3,7 @@
 
 use std::any::Any;
 
+use vortex_array::dtype::extension::ExtId;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::ArcSwapMap;
@@ -18,6 +19,7 @@ use crate::LayoutPluginRef;
 use crate::LayoutSerialization;
 use crate::layouts::chunked::Chunked;
 use crate::layouts::dict::Dict;
+use crate::layouts::extension::Extension;
 use crate::layouts::flat::Flat;
 use crate::layouts::indexed::Indexed;
 use crate::layouts::list::List;
@@ -28,13 +30,15 @@ use crate::layouts::zoned::Zoned;
 /// Registry of layout encodings.
 pub type LayoutRegistry = ArcSwapMap<Id, LayoutPluginRef>;
 
-/// Session state for layout encodings.
+/// Session state for layout encodings and extension layout write policy.
 #[derive(Clone, Debug)]
 pub struct LayoutSession {
     /// Deserializers keyed by the layout ID found on the wire.
     registry: LayoutRegistry,
     /// Serializers keyed by the in-memory layout ID.
     serializers: LayoutRegistry,
+    /// Extension IDs opted into struct storage decomposition for new files.
+    decomposed_extensions: ArcSwapMap<ExtId, ()>,
 }
 
 impl LayoutSession {
@@ -62,6 +66,23 @@ impl LayoutSession {
         &self.registry
     }
 
+    /// Opts an extension type with struct storage into the experimental extension layout.
+    ///
+    /// The default file writer uses this policy when the enabled editions include the layout.
+    /// Opt in when queries use storage fields, since each storage field is then written like a
+    /// field of a plain struct column, with the same zone maps for pruning predicates on it. The
+    /// decomposed column has no whole-value zone map, so predicates on the whole extension value
+    /// cannot prune zones.
+    pub fn decompose_extension(&self, id: ExtId) {
+        self.decomposed_extensions.insert(id, ());
+    }
+
+    /// Returns the extension IDs selected by [`Self::decompose_extension`].
+    pub fn decomposed_extensions(&self) -> Vec<ExtId> {
+        self.decomposed_extensions
+            .read(|extensions| extensions.keys().copied().collect())
+    }
+
     fn serializer(&self, id: &LayoutId) -> Option<LayoutPluginRef> {
         self.serializers.get(id)
     }
@@ -72,6 +93,7 @@ impl Default for LayoutSession {
         let this = Self {
             registry: LayoutRegistry::default(),
             serializers: LayoutRegistry::default(),
+            decomposed_extensions: ArcSwapMap::default(),
         };
 
         // Register the built-in layout encodings.
@@ -81,6 +103,7 @@ impl Default for LayoutSession {
         this.register(&Zoned as &dyn LayoutPlugin);
         this.register(&LegacyStats as &dyn LayoutPlugin);
         this.register(&Dict as &dyn LayoutPlugin);
+        this.register(&Extension as &dyn LayoutPlugin);
         this.register(&List as &dyn LayoutPlugin);
         this.register(&Indexed as &dyn LayoutPlugin);
         this
