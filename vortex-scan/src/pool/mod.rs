@@ -29,6 +29,17 @@ use vortex_mask::Mask;
 use crate::DataSourceScanRef;
 use crate::PartitionStream;
 
+mod work;
+
+pub use work::Expansion;
+pub use work::MapOutput;
+pub use work::MappedArray;
+pub use work::PoolLimit;
+pub use work::UnitOutput;
+pub use work::WorkPoolOptions;
+pub use work::WorkUnit;
+pub use work::open_work_pool;
+
 /// A shared reference to a [`ScanPool`].
 pub type ScanPoolRef = Arc<dyn ScanPool>;
 

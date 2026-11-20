@@ -451,34 +451,24 @@ impl ScanState {
 
     /// Expands `children` depth-first, in order, into the admitted ready children they stand for,
     /// expanding each deferred child only once the children before it are taken.
-    ///
-    /// Each child comes with its share of the scan's work, which a deferred child divides evenly
-    /// among the children it expands into. The share of a child that is pruned, or that expands
-    /// into nothing, goes to `skipped`.
     pub(super) fn expand_in_order(
         self: &Arc<Self>,
-        children: Vec<(PlanSourceChild, f64)>,
-        skipped: Arc<dyn Fn(f64) + Send + Sync>,
-    ) -> BoxStream<'static, VortexResult<(PlanChild, f64)>> {
+        children: Vec<PlanSourceChild>,
+    ) -> BoxStream<'static, VortexResult<PlanChild>> {
         let state = Arc::clone(self);
         stream::try_unfold(VecDeque::from(children), move |mut queue| {
             let state = Arc::clone(&state);
-            let skipped = Arc::clone(&skipped);
             async move {
-                while let Some((child, share)) = queue.pop_front() {
+                while let Some(child) = queue.pop_front() {
                     match child {
-                        PlanSourceChild::Ready(child) => match state.admit(child)? {
-                            Some(child) => return Ok(Some(((child, share), queue))),
-                            None => skipped(share),
-                        },
-                        PlanSourceChild::Deferred { child, .. } => {
-                            let children = child.expand().await?;
-                            if children.is_empty() {
-                                skipped(share);
+                        PlanSourceChild::Ready(child) => {
+                            if let Some(child) = state.admit(child)? {
+                                return Ok(Some((child, queue)));
                             }
-                            let share = share / children.len().max(1) as f64;
-                            for child in children.into_iter().rev() {
-                                queue.push_front((child, share));
+                        }
+                        PlanSourceChild::Deferred { child, .. } => {
+                            for child in child.expand().await?.into_iter().rev() {
+                                queue.push_front(child);
                             }
                         }
                     }
@@ -747,11 +737,8 @@ impl Partition for PlanPartition {
         let children = match state.ready(unit.child) {
             Some(child) => stream::iter([Ok((child.clone(), unit.rows))]).boxed(),
             None => state
-                .expand_in_order(
-                    vec![(state.child(unit.child).clone(), 0.0)],
-                    Arc::new(|_| {}),
-                )
-                .map_ok(|(child, _)| (child, None))
+                .expand_in_order(vec![state.child(unit.child).clone()])
+                .map_ok(|child| (child, None))
                 .boxed(),
         };
         let driver = Arc::clone(&state);
