@@ -144,9 +144,10 @@ impl ArrayPlugin for Patched {
             slots,
         ))?;
 
-        // Like other encodings, the children are not decoded here. Execution checks that every
-        // patch index lies within its chunk and clamps lane offsets to the patches, so a corrupt
-        // layout cannot write outside the array. `PatchLayout::validate` checks it in full.
+        // Like other encodings, the children are not decoded here. Execution masks every patch
+        // index into its chunk and clamps lane offsets to the patches, so a corrupt layout can
+        // produce wrong values but never write outside the array. `PatchLayout::validate` checks
+        // it in full.
 
         Ok(array.into_array())
     }

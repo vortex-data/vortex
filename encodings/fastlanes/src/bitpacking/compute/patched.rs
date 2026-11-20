@@ -146,11 +146,13 @@ fn decode_patched<T: BitPackedUnpack>(
             if chunk_start >= offset && chunk_start + PATCH_CHUNK_SIZE <= end {
                 let output = &mut output[chunk_start - offset..][..PATCH_CHUNK_SIZE];
                 for patch in patches {
-                    output[indices[patch] as usize].write(values[patch]);
+                    output[usize::from(indices[patch]) & (PATCH_CHUNK_SIZE - 1)]
+                        .write(values[patch]);
                 }
             } else {
                 for patch in patches {
-                    let position = chunk_start + indices[patch] as usize;
+                    let position =
+                        chunk_start + (usize::from(indices[patch]) & (PATCH_CHUNK_SIZE - 1));
                     if position >= offset && position < end {
                         output[position - offset].write(values[patch]);
                     }

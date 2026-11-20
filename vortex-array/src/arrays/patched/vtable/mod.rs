@@ -33,6 +33,7 @@ use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::Constant;
 use crate::arrays::Primitive;
+use crate::arrays::ScalarFn;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::patched::PatchedData;
@@ -42,6 +43,7 @@ use crate::arrays::patched::execute::PatchedCanonicalParts;
 use crate::arrays::patched::execute::PatchedInner;
 use crate::arrays::patched::execute::execute_canonical;
 use crate::arrays::patched::execute::scatter;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
@@ -62,16 +64,27 @@ pub(crate) fn initialize(session: &VortexSession) {
 #[derive(Clone, Debug)]
 pub struct Patched;
 
-/// Matches canonical and constant arrays: the forms of the inner array that a patched array
-/// executes from.
+/// Matches canonical and constant arrays, and functions of constants: the forms of the inner
+/// array that a patched array executes from.
 struct CanonicalOrConstant;
 
 impl Matcher for CanonicalOrConstant {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<Constant>() || AnyCanonical::matches(array)).then_some(array)
+        (array.is::<Constant>() || is_function_of_constants(array) || AnyCanonical::matches(array))
+            .then_some(array)
     }
+}
+
+/// Returns `true` for a non-empty scalar function array whose arguments are all constant, such as
+/// a comparison pushed down into a sparse array's fill value. Scalar functions are row-wise, so
+/// it is constant and can be evaluated once.
+fn is_function_of_constants(array: &ArrayRef) -> bool {
+    !array.is_empty()
+        && array
+            .as_opt::<ScalarFn>()
+            .is_some_and(|f| f.iter_children().all(|child| child.is::<Constant>()))
 }
 
 impl ValidityVTable<Patched> for Patched {
@@ -257,6 +270,9 @@ impl VTable for Patched {
                 patch_indices: slots.patch_indices,
                 inner: match slots.inner.as_opt::<Constant>() {
                     Some(constant) => PatchedInner::Constant(constant.scalar().clone()),
+                    None if is_function_of_constants(&slots.inner) => {
+                        PatchedInner::Constant(slots.inner.execute_scalar(0, ctx)?)
+                    }
                     None => PatchedInner::Canonical(slots.inner.execute::<Canonical>(ctx)?),
                 },
                 values: slots.patch_values.execute::<Canonical>(ctx)?,

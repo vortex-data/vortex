@@ -58,12 +58,6 @@ impl<'a> PatchLayout<'a> {
                 .is_none_or(|&end| end as usize <= indices.len()),
             "lane offsets exceed the number of patches"
         );
-        // Positions within a chunk are what keep writes inside the array. A bitwise OR of all
-        // indices vectorizes, which keeps this check cheap enough to run on every execution.
-        vortex_ensure!(
-            usize::from(indices.iter().fold(0u16, |acc, &i| acc | i)) < PATCH_CHUNK_SIZE,
-            "patch indices must be less than {PATCH_CHUNK_SIZE}"
-        );
         Ok(Self {
             offset,
             len,
@@ -131,6 +125,15 @@ impl<'a> PatchLayout<'a> {
         self.indices
     }
 
+    /// The position of `patch` within its chunk.
+    ///
+    /// Positions are masked into the chunk, so that a corrupt index can produce a wrong value
+    /// but never a position outside its chunk.
+    #[inline]
+    fn position_in_chunk(&self, patch: usize) -> usize {
+        usize::from(self.indices[patch]) & (PATCH_CHUNK_SIZE - 1)
+    }
+
     /// The range of patches between two lane offsets.
     ///
     /// Offsets are clamped to the patches, so that a corrupt layout can produce wrong values but
@@ -167,7 +170,7 @@ impl<'a> PatchLayout<'a> {
     #[inline]
     pub fn for_each_in_chunk(&self, chunk: usize, mut f: impl FnMut(usize, usize)) {
         for patch in self.chunk_patches(chunk) {
-            f(self.indices[patch] as usize, patch);
+            f(self.position_in_chunk(patch), patch);
         }
     }
 
@@ -185,13 +188,54 @@ impl<'a> PatchLayout<'a> {
                 // Interior chunks are entirely in bounds.
                 let base = chunk_start - self.offset;
                 for patch in range {
-                    f(base + self.indices[patch] as usize, patch);
+                    f(base + self.position_in_chunk(patch), patch);
                 }
             } else {
                 for patch in range {
-                    let index = chunk_start + self.indices[patch] as usize;
+                    let index = chunk_start + self.position_in_chunk(patch);
                     if index >= self.offset && index < end {
                         f(index - self.offset, patch);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Visits the patches inside the array a chunk at a time, for loops that are faster when
+    /// they can slice their output once per chunk.
+    ///
+    /// Calls `interior(state, base, indices, patches)` for each chunk lying entirely inside the array,
+    /// where the chunk's values start at array position `base`, `patches` is the range of its
+    /// patches and `indices` their positions within the chunk, which callers must mask with
+    /// `PATCH_CHUNK_SIZE - 1` as other positions are. Calls
+    /// `edge(state, position, patch)` for each patch of a partial first or last chunk that is
+    /// inside the array.
+    #[inline]
+    pub fn for_each_chunk<S: ?Sized>(
+        &self,
+        state: &mut S,
+        interior: impl Fn(&mut S, usize, &[u16], Range<usize>),
+        edge: impl Fn(&mut S, usize, usize),
+    ) {
+        let end = self.offset + self.len;
+        for chunk in 0..self.n_chunks() {
+            let chunk_start = chunk * PATCH_CHUNK_SIZE;
+            let range = self.chunk_patches(chunk);
+            if range.is_empty() {
+                continue;
+            }
+            if chunk_start >= self.offset && chunk_start + PATCH_CHUNK_SIZE <= end {
+                interior(
+                    state,
+                    chunk_start - self.offset,
+                    &self.indices[range.clone()],
+                    range,
+                );
+            } else {
+                for patch in range {
+                    let index = chunk_start + self.position_in_chunk(patch);
+                    if index >= self.offset && index < end {
+                        edge(state, index - self.offset, patch);
                     }
                 }
             }
@@ -208,7 +252,7 @@ impl<'a> PatchLayout<'a> {
         let out_of_bounds = |chunk: usize| {
             let chunk_start = chunk * PATCH_CHUNK_SIZE;
             self.chunk_patches(chunk).any(|patch| {
-                let index = chunk_start + self.indices[patch] as usize;
+                let index = chunk_start + self.position_in_chunk(patch);
                 index < self.offset || index >= end
             })
         };
@@ -386,8 +430,6 @@ mod tests {
         };
         // Decreasing lane offsets.
         assert!(check(2, &[1, 0, 1], &[0]).is_err());
-        // An index outside its chunk.
-        assert!(PatchLayout::try_new(0, 10, 1, &[0, 1], &[1024]).is_err());
         // An index in the wrong lane.
         assert!(check(2, &[0, 1, 1], &[1]).is_err());
         // Offsets past the patches.

@@ -110,6 +110,22 @@ pub fn default_patch_lanes(dtype: &DType) -> usize {
     }
 }
 
+/// The number of lanes to lay out `n_patches` patches of an array of `len` values of `dtype`.
+///
+/// Lanes let data-parallel kernels give each lane its own patches, but cost an offset per lane per
+/// chunk: for 8-bit values with all 128 FastLanes lanes, that is 512 bytes for each 1024 values.
+/// When a chunk holds only a few patches, extra lanes give no parallelism, so this picks the
+/// smallest power of two at least the average number of patches per chunk, capped at the
+/// [`default_patch_lanes`] of the type. Any power of two below the FastLanes lane count groups
+/// whole FastLanes lanes, since position `i` belongs to lane `i % n_lanes`.
+pub fn patch_lanes_for(dtype: &DType, len: usize, n_patches: usize) -> usize {
+    let n_chunks = len.div_ceil(PATCH_CHUNK_SIZE).max(1);
+    n_patches
+        .div_ceil(n_chunks)
+        .next_power_of_two()
+        .min(default_patch_lanes(dtype))
+}
+
 /// Flag indicating if experimental patched array support is enabled.
 ///
 /// This is set using the environment variable `VORTEX_EXPERIMENTAL_PATCHED_ARRAY`.

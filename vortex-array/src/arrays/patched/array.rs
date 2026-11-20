@@ -13,7 +13,7 @@ use vortex_error::vortex_err;
 use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::ArraySlots;
-use crate::Canonical;
+use crate::CanonicalValidity;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
@@ -25,9 +25,9 @@ use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PATCH_CHUNK_SIZE;
 use crate::arrays::patched::PatchLayout;
-use crate::arrays::patched::default_patch_lanes;
 use crate::arrays::patched::layout::TransposedPatches;
 use crate::arrays::patched::layout::transpose;
+use crate::arrays::patched::patch_lanes_for;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -263,7 +263,7 @@ impl Patched {
     /// Creates a patched array that replaces the values of `inner` at the ascending positions
     /// `indices` with the corresponding `values`.
     ///
-    /// The patches are laid out with [`default_patch_lanes`] lanes.
+    /// The patches are laid out with [`patch_lanes_for`] lanes.
     ///
     /// `values` may have any nullability; it is cast to the nullability of `inner`, which must be
     /// nullable if `values` contains nulls.
@@ -273,7 +273,7 @@ impl Patched {
         values: ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Array<Patched>> {
-        let n_lanes = default_patch_lanes(inner.dtype());
+        let n_lanes = patch_lanes_for(inner.dtype(), inner.len(), indices.len());
         Self::try_new_with_lanes(inner, indices, values, n_lanes, ctx)
     }
 
@@ -349,7 +349,8 @@ impl Patched {
                 // Reorder canonical values now, rather than on every execution. Compressed values
                 // stay lazy so that the reordering does not decompress them.
                 if values.is::<AnyCanonical>() {
-                    permuted.execute::<Canonical>(ctx)?.into_array()
+                    // Also materialize the validity, which would otherwise be reordered lazily.
+                    permuted.execute::<CanonicalValidity>(ctx)?.0.into_array()
                 } else {
                     permuted
                 }
@@ -374,7 +375,7 @@ impl Patched {
         patches: &Patches,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Array<Patched>> {
-        let n_lanes = default_patch_lanes(patches.dtype());
+        let n_lanes = patch_lanes_for(patches.dtype(), patches.array_len(), patches.num_patches());
         Self::from_array_and_patches_with_lanes(inner, patches, n_lanes, ctx)
     }
 
@@ -414,14 +415,8 @@ impl Patched {
         fill_value: Scalar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Array<Patched>> {
-        Self::sparse_with_lanes(
-            indices,
-            values,
-            len,
-            fill_value.clone(),
-            default_patch_lanes(fill_value.dtype()),
-            ctx,
-        )
+        let n_lanes = patch_lanes_for(fill_value.dtype(), len, indices.len());
+        Self::sparse_with_lanes(indices, values, len, fill_value, n_lanes, ctx)
     }
 
     /// Creates a sparse patched array like [`Patched::sparse`], laid out with `n_lanes` lanes.
