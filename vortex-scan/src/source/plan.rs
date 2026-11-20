@@ -22,6 +22,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use super::ScanInput;
+use super::bind_cache::BindCache;
 use super::plan_pool;
 use crate::DataSource;
 use crate::DataSourceScan;
@@ -229,10 +230,10 @@ impl DataSource for PlanDataSource {
     }
 
     async fn scan(&self, request: ScanRequest) -> VortexResult<DataSourceScanRef> {
-        let projection = request.projection.bind(&self.dtype)?.optimize_recursive()?;
+        let projection = BindCache::bind(&self.session, &request.projection, &self.dtype)?;
         let filter = request
             .filter
-            .map(|filter| filter.bind(&self.dtype)?.optimize_recursive())
+            .map(|filter| BindCache::bind(&self.session, &filter, &self.dtype))
             .transpose()?;
         let mut units = Vec::new();
         let scans_rows =
