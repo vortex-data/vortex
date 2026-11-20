@@ -14,7 +14,6 @@ use futures::Stream;
 use futures::StreamExt;
 use futures::future;
 use futures::future::BoxFuture;
-use futures::ready;
 use futures::stream;
 use futures::stream::BoxStream;
 use itertools::Either;
@@ -32,6 +31,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_scan::limit::limit_rows;
 use vortex_scan::row_mask::RowMask;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
@@ -384,43 +384,6 @@ fn map_split<A: 'static + Send>(
         .boxed()
 }
 
-/// Trim arrays to the budget and drop upstream work as soon as it is exhausted.
-fn limit_rows(
-    arrays: BoxStream<'static, VortexResult<ArrayRef>>,
-    limit: RowLimit,
-) -> BoxStream<'static, VortexResult<ArrayRef>> {
-    let mut arrays = Some(arrays);
-    stream::poll_fn(move |cx| {
-        loop {
-            if limit.is_exhausted() {
-                arrays = None;
-            }
-            let Some(stream) = arrays.as_mut() else {
-                return Poll::Ready(None);
-            };
-            let array = match ready!(stream.poll_next_unpin(cx)) {
-                Some(Ok(array)) => array,
-                end => {
-                    arrays = None;
-                    return Poll::Ready(end);
-                }
-            };
-            let granted = limit.take(array.len());
-            if limit.is_exhausted() {
-                arrays = None;
-            }
-            if granted != 0 {
-                return Poll::Ready(Some(if granted < array.len() {
-                    array.slice(0..granted)
-                } else {
-                    Ok(array)
-                }));
-            }
-        }
-    })
-    .boxed()
-}
-
 /// Yield the first error and drop upstream without polling it again.
 fn stop_on_error<T: Send + 'static>(
     stream: BoxStream<'static, VortexResult<T>>,
@@ -505,9 +468,9 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_scan::limit::limit_rows;
 
     use super::SplitConcurrency;
-    use super::limit_rows;
     use super::stop_on_error;
     use crate::scan::limit::RowLimit;
 
