@@ -24,6 +24,7 @@ pub use crate::execution::SegmentLocation;
 pub use crate::execution::cache::ScanCache;
 pub use crate::execution::cache::WeakScanCache;
 use crate::execution::io::segment_ranges;
+pub use crate::execution::part_root;
 use crate::execution::rows_per_chunk;
 use crate::plan::optimize;
 use crate::plan::plan_row_idx_expression;

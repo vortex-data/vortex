@@ -14,13 +14,16 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
+use vortex_layout::layouts::list::List;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::metrics::ScanUsage;
 use vortex_layout::scan::scan_builder::ScanBuilder;
+use vortex_layout::scan::scan_builder::referenced_field_masks;
 use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::scan::v2::ScanFile;
 use vortex_layout::segments::SegmentSource;
@@ -28,6 +31,8 @@ use vortex_layout::segments::UsageSegmentSource;
 use vortex_scan::DataSourceRef;
 use vortex_scan::prepare::ScanCache;
 use vortex_scan::prepare::SegmentLocation;
+use vortex_scan::source::PlanChild;
+use vortex_scan::source::PlanDataSource;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -66,6 +71,29 @@ pub struct VortexFile {
 struct FileScanCache {
     locations: Arc<[SegmentLocation]>,
     plans: ScanCache,
+}
+
+/// Whether a layout tree of `dtype` may contain a list layout.
+///
+/// A list layout only ever holds a [`DType::List`], and the writer only decomposes the lists it
+/// reaches through struct fields and list elements. Maps and variants are conservatively assumed
+/// to contain one too, since their storage may be laid out as lists.
+pub(crate) fn may_contain_list_layout(dtype: &DType) -> bool {
+    match dtype {
+        DType::List(..) | DType::Map(..) | DType::Variant(_) => true,
+        DType::Null
+        | DType::Bool(_)
+        | DType::Primitive(..)
+        | DType::Decimal(..)
+        | DType::Utf8(_)
+        | DType::Binary(_) => false,
+        DType::FixedSizeList(element, ..) => may_contain_list_layout(element),
+        DType::Struct(fields, _) => fields.fields().any(|field| may_contain_list_layout(&field)),
+        DType::Union(variants, _) => variants
+            .variants()
+            .any(|variant| may_contain_list_layout(&variant)),
+        DType::Extension(ext) => may_contain_list_layout(ext.storage_dtype()),
+    }
 }
 
 fn layout_reader(
@@ -114,9 +142,10 @@ impl VortexFile {
 
     /// Enable layout reader and V2 scan caching.
     ///
-    /// Repeated calls to [`layout_reader`](Self::layout_reader), [`scan`](Self::scan), and
-    /// [`data_source`](Self::data_source) will share the same reader tree. Repeated V2 scans of
-    /// [`scan_file`](Self::scan_file) will share its segment locations and a [`ScanCache`].
+    /// Repeated calls to [`layout_reader`](Self::layout_reader) and [`scan`](Self::scan), and to
+    /// [`data_source`](Self::data_source) for a file it scans with the layout reader, will share the
+    /// same reader tree. Repeated V2 scans of [`scan_file`](Self::scan_file), and so of the plan
+    /// data sources, will share its segment locations and a [`ScanCache`].
     pub fn with_caching(self) -> Self {
         let scan_cache = FileScanCache {
             locations: self.footer.segment_locations(),
@@ -245,16 +274,95 @@ impl VortexFile {
 
     /// Create a [`DataSource`](vortex_scan::DataSource) from this file for scanning.
     ///
-    /// Wraps the file's layout reader with [`FileStatsLayoutReader`] (when file-level
-    /// statistics are available) and [`LayoutReaderDataSource`]. Stored footer aggregates are
-    /// available through the source statistics methods without reading payloads.
+    /// Scans run on the planner-driven executor, as with
+    /// [`plan_data_source`](Self::plan_data_source), unless the file has a layout that
+    /// executor cannot read yet. Such files are scanned on the layout reader instead, as with
+    /// [`layout_reader_data_source`](Self::layout_reader_data_source). Either way, a scan whose
+    /// filter the file-level statistics prove false reads nothing, and stored footer aggregates
+    /// are available through the source statistics methods without reading payloads.
     pub fn data_source(&self) -> VortexResult<DataSourceRef> {
-        let reader = self.layout_reader()?;
+        if self.planned_scan_supported()? {
+            return Ok(self.plan_data_source());
+        }
+        self.layout_reader_data_source()
+    }
 
+    /// Create a [`DataSource`](vortex_scan::DataSource) that scans this file with its
+    /// [layout reader](Self::layout_reader), whatever its layouts.
+    ///
+    /// Use [`data_source`](Self::data_source) unless the layout reader is required, for example
+    /// to compare it with [`plan_data_source`](Self::plan_data_source). Stored footer aggregates
+    /// are available through the source statistics methods without reading payloads.
+    pub fn layout_reader_data_source(&self) -> VortexResult<DataSourceRef> {
+        let reader = self.layout_reader()?;
         Ok(Arc::new(FileDataSource::new(
             LayoutReaderDataSource::new(reader, self.session.clone()),
             self.file_stats().cloned(),
         )))
+    }
+
+    /// Whether the planner-driven executor can scan this file, which
+    /// [`data_source`](Self::data_source) uses to choose its executor.
+    ///
+    /// The planner-driven executor cannot read list layouts yet (tracked with making it the
+    /// default in #11502), so files that contain one are scanned by the layout reader instead. The
+    /// layout tree is only walked when the file's dtype could hold a list layout.
+    pub(crate) fn planned_scan_supported(&self) -> VortexResult<bool> {
+        if !may_contain_list_layout(self.dtype()) {
+            return Ok(true);
+        }
+        for layout in self.footer.layout().depth_first_traversal() {
+            if layout?.is::<List>() {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// Create a [`DataSource`](vortex_scan::DataSource) from this file whose scans run on the
+    /// planner-driven executor.
+    ///
+    /// The source is a [`PlanDataSource`] over [`plan_file`](Self::plan_child): hosts read its
+    /// scans through native `split` and `open`, or through one partition covering the requested
+    /// rows, which runs it with [`ScanDriver`](crate::v2::ScanDriver) from
+    /// [`Partition::execute`](vortex_scan::Partition::execute). Every scan of the source shares
+    /// one [`ScanCache`]: the file's, with [caching](Self::with_caching), or else one of its own.
+    /// A scan whose filter the file-level statistics prove false reads nothing. Stored footer
+    /// aggregates are available through the source statistics methods. Opening the source reads
+    /// nothing and builds no layout reader.
+    pub fn plan_data_source(&self) -> DataSourceRef {
+        let source = PlanDataSource::from_child(self.session.clone(), self.plan_child());
+        Arc::new(FileDataSource::new(source, self.file_stats().cloned()))
+    }
+
+    /// This file as a child of a [`PlanDataSource`]: its V2 scan input, row count, and a pruner
+    /// that skips scans whose filter the file-level statistics prove false.
+    ///
+    /// An opened scan of the child cuts its work on the file's layout splits over the fields it
+    /// reads, as a V1 scan of the same fields does.
+    pub fn plan_child(&self) -> PlanChild {
+        let splitter = {
+            let file = self.clone();
+            Arc::new(
+                move |projection: &BoundExpression, filter: Option<&BoundExpression>| {
+                    SplitBy::default().splits(
+                        file.layout_reader()?.as_ref(),
+                        &(0..file.row_count()),
+                        &referenced_field_masks(projection, filter)?,
+                    )
+                },
+            )
+        };
+        let file = PlanChild::new(self.scan_file().into())
+            .with_row_count(self.row_count())
+            .with_splitter(splitter);
+        let Some(statistics) = self.file_stats().cloned() else {
+            return file;
+        };
+        let (row_count, session) = (self.row_count(), self.session.clone());
+        file.with_pruner(Arc::new(move |filter| {
+            is_falsified_by_file_stats(filter, row_count, &statistics, &session)
+        }))
     }
 
     /// Initiate a scan of the file, returning a builder for projection, filtering, selection, and

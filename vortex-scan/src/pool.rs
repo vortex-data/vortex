@@ -1,21 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Pools of work that host threads share by each polling a worker.
+//! Pools of work that host threads share by each polling a worker, and the pieces that sources
+//! build their own pools from.
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use async_lock::Mutex;
 use futures::StreamExt;
+use futures::future;
 use futures::stream;
+use futures::stream::BoxStream;
+use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::DataSourceScanRef;
 use crate::PartitionStream;
@@ -51,6 +60,118 @@ pub trait ScanPool: 'static + Send + Sync {
     fn is_exhausted(&self) -> bool {
         false
     }
+}
+
+/// The most units each worker of a pool keeps in flight when the request's
+/// [`split_concurrency`](crate::ScanRequest::split_concurrency) does not say. Stands in for the
+/// scan engine's memory budget.
+pub const SPLITS_IN_FLIGHT_PER_WORKER: usize = 4;
+
+/// A cloneable row budget shared by all work that can contribute rows to one scan.
+///
+/// Filterless scans can reserve each unit's selected rows before decoding it, so rows past the
+/// limit are never decoded. Filtered scans cannot know a unit's row count up front, so they take
+/// rows from the budget as arrays are emitted and discard the excess. Either way, the order in
+/// which rows are taken decides which rows are returned: an ordered scan takes them in row order,
+/// an unordered one in completion order.
+#[derive(Clone, Debug)]
+pub struct RowLimit(Arc<AtomicU64>);
+
+impl RowLimit {
+    /// A budget of `limit` rows.
+    pub fn new(limit: u64) -> Self {
+        Self(Arc::new(AtomicU64::new(limit)))
+    }
+
+    /// Reserves the rows selected by `mask` and keeps only the earliest granted rows of it.
+    pub fn limit(&self, mask: Mask) -> Mask {
+        let granted = self.take(mask.true_count());
+        mask.limit(granted)
+    }
+
+    /// Reserves up to `rows` rows, returning how many the remaining budget granted.
+    pub fn take(&self, rows: usize) -> usize {
+        let requested = u64::try_from(rows).unwrap_or(u64::MAX);
+        usize::try_from(self.reserve(requested)).unwrap_or(usize::MAX)
+    }
+
+    /// Whether the budget is spent.
+    pub fn is_exhausted(&self) -> bool {
+        self.0.load(Ordering::Relaxed) == 0
+    }
+
+    fn reserve(&self, requested: u64) -> u64 {
+        let remaining = self
+            .0
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
+                Some(remaining.saturating_sub(requested))
+            })
+            .ok()
+            .vortex_expect("row reservation always updates the budget");
+        remaining.min(requested)
+    }
+}
+
+/// Ends `arrays` once `limit` is spent, taking each array's rows from it as the array is yielded
+/// and slicing the array that spends it. Also ends after the first error.
+pub fn trim_to_limit(
+    arrays: BoxStream<'static, VortexResult<ArrayRef>>,
+    limit: RowLimit,
+) -> BoxStream<'static, VortexResult<ArrayRef>> {
+    stream::unfold(Some(arrays), move |arrays| {
+        let limit = limit.clone();
+        async move {
+            let mut arrays = arrays?;
+            if limit.is_exhausted() {
+                return None;
+            }
+            let array = match arrays.next().await? {
+                Ok(array) => array,
+                Err(err) => return Some((Err(err), None)),
+            };
+            let granted = limit.take(array.len());
+            if granted == array.len() {
+                return Some((Ok(array), Some(arrays)));
+            }
+            if granted == 0 {
+                return None;
+            }
+            Some((array.slice(0..granted), None))
+        }
+    })
+    .filter(|array| future::ready(array.as_ref().map_or(true, |array| !array.is_empty())))
+    .boxed()
+}
+
+/// Groups consecutive `items` into at most `n` contiguous groups of about equal total `weight`.
+///
+/// Never cuts an item: each lands whole in one group. Every group is non-empty.
+pub fn group_contiguous<T>(
+    items: Vec<T>,
+    n: NonZeroUsize,
+    weight: impl Fn(&T) -> u64,
+) -> Vec<Vec<T>> {
+    let total = items
+        .iter()
+        .map(|item| u128::from(weight(item)))
+        .sum::<u128>()
+        .max(1);
+    let n_groups = n.get() as u128;
+    let mut groups: Vec<Vec<T>> = Vec::new();
+    let mut current_group = None;
+    let mut before = 0u128;
+    for item in items {
+        let group = (before * n_groups / total).min(n_groups - 1);
+        before += u128::from(weight(&item));
+        if current_group != Some(group) {
+            current_group = Some(group);
+            groups.push(Vec::new());
+        }
+        if let Some(last) = groups.last_mut() {
+            last.push(item);
+        }
+    }
+    groups
 }
 
 /// A pool whose workers take partitions one at a time from a scan's shared partition stream.
@@ -128,6 +249,10 @@ mod tests {
     use std::any::Any;
     use std::num::NonZeroUsize;
     use std::sync::Arc;
+    use std::sync::Barrier;
+    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::Ordering;
+    use std::thread;
 
     use futures::StreamExt;
     use futures::TryStreamExt;
@@ -144,7 +269,11 @@ mod tests {
     use vortex_array::stream::SendableArrayStream;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
+    use vortex_mask::Mask;
 
+    use super::RowLimit;
+    use super::group_contiguous;
+    use super::trim_to_limit;
     use crate::DataSourceScan;
     use crate::Partition;
     use crate::PartitionRef;
@@ -248,6 +377,79 @@ mod tests {
         assert!(pool.is_exhausted());
         assert!(block_on(Arc::clone(&pool).worker().next()).is_none());
         Ok(())
+    }
+
+    #[test]
+    fn reserve_grants_up_to_the_remaining_budget() {
+        let limit = RowLimit::new(5);
+        assert_eq!(limit.reserve(3), 3);
+        assert!(!limit.is_exhausted());
+        assert_eq!(limit.reserve(10), 2);
+        assert!(limit.is_exhausted());
+        assert_eq!(limit.reserve(1), 0);
+    }
+
+    #[test]
+    fn limit_keeps_the_earliest_granted_rows() {
+        let limit = RowLimit::new(2);
+        let mask = Mask::from_iter([true, false, true, true, false, true]);
+        let limited = limit.limit(mask);
+        assert_eq!(limited.true_count(), 2);
+        assert!(limited.value(0));
+        assert!(limited.value(2));
+        assert!(!limited.value(3));
+        assert!(!limited.value(5));
+        assert!(limit.is_exhausted());
+    }
+
+    #[test]
+    fn concurrent_reservations_never_exceed_the_budget() {
+        const THREADS: usize = 8;
+        const PER_THREAD: u64 = 10_000;
+        const LIMIT: u64 = 25_000;
+
+        let limit = RowLimit::new(LIMIT);
+        let granted_total = Arc::new(AtomicU64::new(0));
+        let barrier = Arc::new(Barrier::new(THREADS));
+        thread::scope(|scope| {
+            for _ in 0..THREADS {
+                let limit = limit.clone();
+                let granted_total = Arc::clone(&granted_total);
+                let barrier = Arc::clone(&barrier);
+                scope.spawn(move || {
+                    barrier.wait();
+                    let mut local = 0;
+                    for _ in 0..PER_THREAD {
+                        local += limit.reserve(1);
+                    }
+                    granted_total.fetch_add(local, Ordering::Relaxed);
+                });
+            }
+        });
+        assert_eq!(granted_total.load(Ordering::Relaxed), LIMIT);
+        assert!(limit.is_exhausted());
+    }
+
+    #[test]
+    fn trim_to_limit_slices_the_array_that_spends_it() -> VortexResult<()> {
+        let arrays = stream::iter((0..4).map(|_| Ok(Buffer::from_iter(0..3i32).into_array())));
+        let trimmed: Vec<_> =
+            block_on(trim_to_limit(arrays.boxed(), RowLimit::new(7)).try_collect())?;
+        assert_eq!(
+            trimmed.iter().map(|a| a.len()).collect::<Vec<_>>(),
+            vec![3, 3, 1]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn group_contiguous_balances_weights() {
+        let groups = group_contiguous(
+            vec![4u64, 4, 4, 4, 1, 1],
+            NonZeroUsize::new(3).unwrap_or(NonZeroUsize::MIN),
+            |w| *w,
+        );
+        assert_eq!(groups, vec![vec![4, 4], vec![4], vec![4, 1, 1]]);
     }
 
     #[test]
