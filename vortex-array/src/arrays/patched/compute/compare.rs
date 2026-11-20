@@ -20,10 +20,10 @@ mod tests {
     use crate::arrays::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
     use crate::optimizer::ArrayOptimizer;
     use crate::patches::Patches;
-        use crate::scalar_fn::fns::operators::Operator;
-    use crate::builtins::ArrayBuiltins;
+    use crate::scalar_fn::fns::operators::Operator;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -52,8 +52,7 @@ mod tests {
 
         let rhs = ConstantArray::new(u32::MAX, 512).into_array();
 
-        let result =
-            lhs.clone().into_array().binary(rhs, Operator::Eq).unwrap();
+        let result = lhs.into_array().binary(rhs, Operator::Eq).unwrap();
 
         let expected =
             BoolArray::from_indices(512, [509, 510, 511], Validity::NonNullable).into_array();
@@ -91,8 +90,7 @@ mod tests {
 
         let rhs = ConstantArray::new(u32::MAX, lhs.len()).into_array();
 
-        let result =
-            lhs.clone().into_array().binary(rhs, Operator::Eq).unwrap();
+        let result = lhs.into_array().binary(rhs, Operator::Eq).unwrap();
 
         let expected = BoolArray::from_indices(502, [500, 501], Validity::NonNullable).into_array();
 
@@ -125,7 +123,7 @@ mod tests {
 
         let rhs = ConstantArray::new(subnormal, 512).into_array();
 
-        let result = lhs.clone().into_array().binary(rhs, Operator::Eq)?;
+        let result = lhs.into_array().binary(rhs, Operator::Eq)?;
 
         let expected = BoolArray::from_indices(512, [510], Validity::NonNullable).into_array();
 
@@ -155,7 +153,7 @@ mod tests {
 
         let rhs = ConstantArray::new(0.0f32, 10).into_array();
 
-        let result = lhs.clone().into_array().binary(rhs, Operator::Eq)?;
+        let result = lhs.into_array().binary(rhs, Operator::Eq)?;
 
         let expected = BoolArray::from_indices(10, [7], Validity::NonNullable).into_array();
 

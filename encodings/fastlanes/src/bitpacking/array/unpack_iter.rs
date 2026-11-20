@@ -276,12 +276,13 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
     fn decode_chunks_into(&self, chunks: Range<usize>, output: &mut [MaybeUninit<T>]) {
         let elems_per_chunk = self.elems_per_chunk();
         let output = &mut output[..chunks.len() * CHUNK_SIZE];
-        for (chunk, dst) in chunks.zip(output.chunks_exact_mut(CHUNK_SIZE)) {
+        let (output, _) = output.as_chunks_mut::<CHUNK_SIZE>();
+        for (chunk, dst) in chunks.zip(output.iter_mut()) {
             let packed = &self.packed[chunk * elems_per_chunk..][..elems_per_chunk];
             // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout, and the destination is
             // exactly one chunk long.
             unsafe {
-                let dst: &mut [T::Physical] = mem::transmute(dst);
+                let dst: &mut [T::Physical] = mem::transmute(dst.as_mut_slice());
                 self.strategy.unpack_chunk(self.bit_width, packed, dst);
             }
         }
