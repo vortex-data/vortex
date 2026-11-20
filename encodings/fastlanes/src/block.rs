@@ -59,7 +59,9 @@ pub(crate) fn packed_source(
 }
 
 /// FoR's block source over a BitPacked child with one global reference: FastLanes' fused
-/// unpack adds the reference to each chunk while it unpacks it, as FoR's own execute does.
+/// unpack adds the reference to each chunk while it unpacks it, as FoR's own execute does. FoR's
+/// execute also unpacks fused under per-chunk references that line up with BitPacked's chunks;
+/// as a source those take the BitPacked leaf and FoR's per-chunk op instead.
 pub(crate) fn for_block_source(
     array: ArrayView<'_, FoR>,
     ctx: &mut ExecutionCtx,
@@ -301,6 +303,7 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::block::BLOCK_LEN;
@@ -487,9 +490,9 @@ mod tests {
     #[case::two_levels(
         2,
         "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
-fuse start input=source array=fastlanes.for.v2(u32, len=3000)
+fuse start array=fastlanes.for.v2(u32, len=3000)
 fuse extend parent=fastlanes.for.v2(u32, len=3000) ops=1
-drive input=source ops=1 len=3000
+drive ops=1 len=3000
 block_op 0 copy u32->u32 scratch0 -> output"
     )]
     #[case::four_levels(
@@ -497,11 +500,11 @@ block_op 0 copy u32->u32 scratch0 -> output"
         "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
 ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
 ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
-fuse start input=source array=fastlanes.for.v2(u32, len=3000)
+fuse start array=fastlanes.for.v2(u32, len=3000)
 fuse extend parent=fastlanes.for.v2(u32, len=3000) ops=1
 fuse extend parent=fastlanes.for.v2(u32, len=3000) ops=2
 fuse extend parent=fastlanes.for.v2(u32, len=3000) ops=3
-drive input=source ops=3 len=3000
+drive ops=3 len=3000
 block_op 0 in_place u32->u32 scratch0 -> scratch0
 block_op 1 in_place u32->u32 scratch0 -> scratch0
 block_op 2 copy u32->u32 scratch0 -> output"
@@ -525,10 +528,10 @@ block_op 2 copy u32->u32 scratch0 -> output"
         };
         let expected = "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
 ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3000) child=fastlanes.for.v2(u32, len=3000)
-fuse start input=source array=vortex.primitive(u32, len=3000)
+fuse start array=vortex.primitive(u32, len=3000)
 fuse extend parent=fastlanes.for.v2(u32, len=3000) ops=1
 fuse extend parent=fastlanes.for.v2(u32, len=3000) ops=2
-drive input=source ops=2 len=3000
+drive ops=2 len=3000
 block_op 0 in_place u32->u32 leaf -> leaf
 block_op 1 in_place u32->u32 leaf -> leaf";
 
@@ -553,12 +556,42 @@ block_op 1 in_place u32->u32 leaf -> leaf";
         assert_eq!(
             fusion_trace(array)?,
             "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3072) child=fastlanes.bitpacked.v2(u32, len=3072)
-fuse start input=source array=fastlanes.bitpacked.v2(u32, len=3072)
+fuse start array=fastlanes.bitpacked.v2(u32, len=3072)
 fuse extend parent=fastlanes.for.v2(u32, len=3072) ops=1
-drive input=source ops=1 len=3072
+drive ops=1 len=3072
 block_op 0 copy u32->u32 scratch0 -> output"
         );
         Ok(())
+    }
+
+    /// A spine child's validity can be lazy over its own children: Dict's is a dict of its codes
+    /// over the values' validity. The chain takes the validity of the executed leaf, so fusing
+    /// decodes the codes no more often than level-wise execution does.
+    #[test]
+    fn lazy_child_validity_executes_once() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let codes = PrimitiveArray::from_iter((0..3000u32).map(|i| i % 7));
+        let codes = bitpack_encode(&codes, 3, None, &mut ctx)?.into_array();
+        let values =
+            PrimitiveArray::from_option_iter((0..7u32).map(|i| (i != 3).then_some(i * 100)));
+        let dict = DictArray::try_new(codes, values.into_array())?.into_array();
+        let array = FoR::try_new(dict, Scalar::from(5u32))?.into_array();
+        let packed_executions = |fusion: bool| -> VortexResult<usize> {
+            let mut ctx = SESSION.create_execution_ctx().with_block_fusion(fusion);
+            let traced = trace_op(|| array.clone().execute::<PrimitiveArray>(&mut ctx))?;
+            Ok(traced
+                .trace
+                .to_string()
+                .lines()
+                .filter(|line| {
+                    line.trim().starts_with("execute_until ")
+                        && line.contains("root=fastlanes.bitpacked")
+                })
+                .count())
+        };
+        assert_eq!(packed_executions(false)?, 1);
+        assert_eq!(packed_executions(true)?, 1);
+        assert_fuses_like_execute(&array, 1)
     }
 
     /// A packed source fills any in-order ranges, including ones that straddle FastLanes chunks,

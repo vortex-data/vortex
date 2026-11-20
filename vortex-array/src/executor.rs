@@ -54,7 +54,6 @@ use crate::optimizer::kernels::execute_parent_marker_key;
 use crate::optimizer::optimize_with_kernels;
 use crate::stats::ArrayStats;
 use crate::trace_op;
-use crate::validity::Validity;
 
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 2^22.
@@ -489,12 +488,6 @@ impl ArrayRef {
     }
 }
 
-fn block_fusion_default() -> bool {
-    static ENABLED: LazyLock<bool> =
-        LazyLock::new(|| std::env::var("VORTEX_BLOCK_FUSION").map_or(true, |v| v != "0"));
-    *ENABLED
-}
-
 /// On the way up, start a block program from `child` with the spine parent suspended on the top
 /// of the stack, extend it with each spine parent above that transforms blocks, popping their
 /// frames, and drive it: the values of the last parent it reached. Returns `child` back if the
@@ -504,17 +497,16 @@ fn try_fuse(
     child: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Result<ArrayRef, ArrayRef>> {
-    let Some((frame, validity)) = fusable_frame(stack) else {
+    let Some(frame) = fusable_frame(stack) else {
         return Ok(Err(child));
     };
-    let mut chain =
-        match FusedChain::start(child, &frame.parent_array, frame.slot_idx, validity, ctx)? {
-            Ok(chain) => chain,
-            Err(child) => return Ok(Err(child)),
-        };
+    let mut chain = match FusedChain::start(child, &frame.parent_array, frame.slot_idx, ctx)? {
+        Ok(chain) => chain,
+        Err(child) => return Ok(Err(child)),
+    };
     stack.pop();
-    while let Some((frame, validity)) = fusable_frame(stack) {
-        match chain.extend(&frame.parent_array, frame.slot_idx, validity, ctx)? {
+    while let Some(frame) = fusable_frame(stack) {
+        match chain.extend(&frame.parent_array, frame.slot_idx, ctx)? {
             Ok(extended) => {
                 chain = extended;
                 stack.pop();
@@ -525,11 +517,9 @@ fn try_fuse(
     chain.drive(ctx).map(Ok)
 }
 
-/// The frame on the top of the stack, with its parent's validity, if [`spine_can_fuse`] passed
-/// when it was pushed.
-fn fusable_frame(stack: &[StackFrame]) -> Option<(&StackFrame, &Validity)> {
-    let frame = stack.last()?;
-    Some((frame, frame.fusion_validity.as_ref()?))
+/// The frame on the top of the stack, if [`spine_can_fuse`] passed when it was pushed.
+fn fusable_frame(stack: &[StackFrame]) -> Option<&StackFrame> {
+    stack.last().filter(|frame| frame.fuse)
 }
 
 /// Whether slot `slot_idx` of `parent`, which asked for it as its spine, may fuse with the
@@ -572,9 +562,6 @@ fn push_frame(
     done: DonePredicate,
     fuse: bool,
 ) -> VortexResult<(ArrayRef, Option<Box<dyn ArrayBuilder>>)> {
-    // A fused chain stands for the parent with its slot executed, so take the parent's validity
-    // while the slot is in place.
-    let fusion_validity = fuse.then(|| array.validity()).transpose()?;
     // SAFETY: the slot is put back, or the parent driven to completion, before the parent
     // leaves the executor.
     let (parent, child) = unsafe { array.take_slot_unchecked(slot_idx) }?;
@@ -584,7 +571,7 @@ fn push_frame(
         parent_builder,
         slot_idx,
         done,
-        fusion_validity,
+        fuse,
         original_dtype: child.dtype().clone(),
         original_len: child.len(),
     });
@@ -596,10 +583,9 @@ struct StackFrame {
     parent_builder: Option<Box<dyn ArrayBuilder>>,
     slot_idx: usize,
     done: DonePredicate,
-    /// For a parent that asked for this slot with [`ExecutionStep::ExecuteSpine`] while block
-    /// fusion is on, the parent's validity, so the executor may fuse the slot with the parent's
-    /// block op.
-    fusion_validity: Option<Validity>,
+    /// Whether the parent asked for this slot with [`ExecutionStep::ExecuteSpine`] and
+    /// [`spine_can_fuse`] passed, so the executor may fuse the slot with the parent's block op.
+    fuse: bool,
     original_dtype: DType,
     original_len: usize,
 }
@@ -650,7 +636,7 @@ impl ExecutionCtx {
             allocator: OnceLock::new(),
             kernels,
             aggregate_kernels: OnceLock::new(),
-            block_fusion: block_fusion_default(),
+            block_fusion: true,
             #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
@@ -686,16 +672,11 @@ impl ExecutionCtx {
             .get_or_init(|| self.session.aggregate_fns().kernels_snapshot())
     }
 
-    /// Enable or disable block fusion of primitive encoding chains, which is on unless the
-    /// `VORTEX_BLOCK_FUSION` environment variable is `0`. See [`crate::block`].
+    /// Enable or disable block fusion of primitive encoding chains, which is on by default. See
+    /// [`crate::block`].
     pub fn with_block_fusion(mut self, enabled: bool) -> Self {
         self.block_fusion = enabled;
         self
-    }
-
-    /// Whether block fusion is enabled for this context.
-    pub fn block_fusion(&self) -> bool {
-        self.block_fusion
     }
 
     /// Set the allocator for this execution context.
@@ -1054,8 +1035,8 @@ pub enum ExecutionStep {
 
     /// Like [`ExecuteSlot`](Self::ExecuteSlot), and a promise that the slot is this encoding's
     /// spine: the last slot it waits for, after which its `execute` only transforms the slot's
-    /// values row by row, as its [`block_op`](crate::vtable::VTable::block_op) does. Every other
-    /// slot it needs must already be executed.
+    /// values row by row, as its [`block_op`](crate::vtable::VTable::block_op) does, and its
+    /// validity is the slot's. Every other slot it needs must already be executed.
     ///
     /// The executor may then fuse the slot's execution with this encoding's transform and with
     /// any spine parents waiting above it, block by block, instead of materializing each level.

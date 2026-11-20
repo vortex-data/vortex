@@ -7,7 +7,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 
 use super::BlockProgram;
-use super::ProgramInput;
 use super::fusable_ptype;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -19,31 +18,30 @@ use crate::validity::Validity;
 
 /// A block program standing for the parent that last extended it.
 ///
-/// The executor starts one from a spine child on the way back up the stack, extends it with each
-/// spine parent above that transforms blocks, and drives it as soon as the next parent cannot, so
-/// a chain never waits: it is a value of the executor's loop, not an array.
+/// The executor starts one from a leaf on the way back up the stack, extends it with each spine
+/// parent above that transforms blocks, and drives it as soon as the next parent cannot, so a
+/// chain never waits: it is a value of the executor's loop, not an array.
 pub(crate) struct FusedChain {
     program: BlockProgram,
-    /// The parent the chain stands for: the dtype, length, validity and statistics of its values.
+    /// The dtype, length and statistics of the parent the chain stands for.
     dtype: DType,
     len: usize,
-    validity: Validity,
     stats: StatsSet,
+    /// The leaf's validity, which a spine parent passes through as its own.
+    validity: Validity,
 }
 
 impl FusedChain {
-    /// Start a chain from `child`, the array in slot `slot_idx` of the suspended `parent`, whose
-    /// validity is `validity`, if `parent` transforms blocks of that slot and `child` can be the
-    /// input of a block program. Returns `child` back otherwise.
+    /// Start a chain from `child`, the array in slot `slot_idx` of the suspended `parent`, if
+    /// `child` is a leaf, one with a block source, and `parent` transforms blocks of that slot.
+    /// Returns `child` back otherwise.
     ///
-    /// `child` is a leaf: an array with a block source, such as a canonical primitive array or
-    /// BitPacked. The executor checked on the way down that both
-    /// arrays are primitive, non-empty and of one length.
+    /// The executor checked on the way down that both arrays are primitive, non-empty and of one
+    /// length.
     pub(crate) fn start(
         child: ArrayRef,
         parent: &ArrayRef,
         slot_idx: usize,
-        validity: &Validity,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Result<Self, ArrayRef>> {
         vortex_ensure_eq!(
@@ -51,32 +49,30 @@ impl FusedChain {
             parent.len(),
             "a spine child has its parent's length"
         );
-        // The input first, so a child that cannot start a program costs no op.
-        let Some(program) = program_for(&child, ctx)? else {
+        let (Some(ptype), Some(source)) = (fusable_ptype(&child), child.block_source(ctx)?) else {
             return Ok(Err(child));
         };
+        trace_op!(record_fuse_start(&child));
         let chain = Self {
-            program,
+            program: BlockProgram::new(source, ptype, child.len()),
             dtype: child.dtype().clone(),
             len: child.len(),
-            validity: Validity::NonNullable,
             stats: StatsSet::default(),
+            validity: child.validity()?,
         };
-        match chain.extend(parent, slot_idx, validity, ctx)? {
-            // Release the child, so a canonical input is again uniquely owned.
+        match chain.extend(parent, slot_idx, ctx)? {
+            // Release the child, so a leaf that owns its buffer is again its only owner.
             Ok(chain) => Ok(Ok(chain)),
             Err(_) => Ok(Err(child)),
         }
     }
 
-    /// Extend the chain with `parent`, which waits for its values in slot `slot_idx` and whose
-    /// validity is `validity`. Returns the chain back if `parent` does not transform blocks of
-    /// that slot.
+    /// Extend the chain with `parent`, which waits for its values in slot `slot_idx`. Returns the
+    /// chain back if `parent` does not transform blocks of that slot.
     pub(crate) fn extend(
         mut self,
         parent: &ArrayRef,
         slot_idx: usize,
-        validity: &Validity,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Result<Self, Self>> {
         let Some(ptype) = fusable_ptype(parent) else {
@@ -93,34 +89,19 @@ impl FusedChain {
         self.program.push(op, ptype);
         trace_op!(record_fuse_extend(parent, self.program.ops()));
         self.dtype = parent.dtype().clone();
-        self.validity = validity.clone();
         self.stats = parent.statistics().to_owned();
         Ok(Ok(self))
     }
 
     /// Run the program: the values of the parent the chain stands for.
     pub(crate) fn drive(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        trace_op!(record_block_drive(
-            self.program.input_name(),
-            self.program.ops(),
-            self.len
-        ));
+        trace_op!(record_block_drive(self.program.ops(), self.len));
         // Level-wise execution materializes validity, so a fused result does too.
-        let validity = self.validity.execute(ctx)?;
+        let validity = self
+            .validity
+            .union_nullability(self.dtype.nullability())
+            .execute(ctx)?;
         let values = self.program.run(validity, ctx)?;
         Ok(values.with_stats_set(self.stats).into_array())
     }
-}
-
-/// The program producing `child`'s values, if `child` is a leaf: an array with a block source.
-fn program_for(child: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<BlockProgram>> {
-    let (Some(ptype), Some(source)) = (fusable_ptype(child), child.block_source(ctx)?) else {
-        return Ok(None);
-    };
-    trace_op!(record_fuse_start("source", child));
-    Ok(Some(BlockProgram::new(
-        ProgramInput::Source(source),
-        ptype,
-        child.len(),
-    )))
 }

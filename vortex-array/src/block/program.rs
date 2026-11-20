@@ -42,23 +42,9 @@ pub(crate) fn fusable_ptype(array: &ArrayRef) -> Option<PType> {
     }
 }
 
-/// Where a program's values come from.
-pub(crate) enum ProgramInput {
-    /// A leaf's block source.
-    Source(Box<dyn BlockSource>),
-}
-
-impl ProgramInput {
-    pub(crate) fn name(&self) -> &'static str {
-        match self {
-            ProgramInput::Source(_) => "source",
-        }
-    }
-}
-
-/// A fused chain built from the leaf up: an input, then the ops of the parents above it.
+/// A fused chain built from the leaf up: the leaf's source, then the ops of the parents above it.
 pub(crate) struct BlockProgram {
-    input: ProgramInput,
+    source: Box<dyn BlockSource>,
     ops: Vec<Box<dyn BlockOp>>,
     /// The input's type, then each op's output type.
     ptypes: Vec<PType>,
@@ -66,9 +52,9 @@ pub(crate) struct BlockProgram {
 }
 
 impl BlockProgram {
-    pub(crate) fn new(input: ProgramInput, ptype: PType, len: usize) -> Self {
+    pub(crate) fn new(source: Box<dyn BlockSource>, ptype: PType, len: usize) -> Self {
         Self {
-            input,
+            source,
             ops: Vec::new(),
             ptypes: vec![ptype],
             len,
@@ -79,10 +65,6 @@ impl BlockProgram {
     pub(crate) fn push(&mut self, op: Box<dyn BlockOp>, ptype: PType) {
         self.ops.push(op);
         self.ptypes.push(ptype);
-    }
-
-    pub(crate) fn input_name(&self) -> &'static str {
-        self.input.name()
     }
 
     pub(crate) fn ops(&self) -> usize {
@@ -102,7 +84,7 @@ impl BlockProgram {
         #[cfg(any(test, feature = "_test-harness"))]
         super::FUSED_CHAINS.with(|count| count.set(count.get() + 1));
         let (len, out_ptype) = (self.len, *self.ptypes.last().vortex_expect("input type"));
-        let ProgramInput::Source(mut source) = self.input;
+        let mut source = self.source;
         // When every op keeps the width and the source owns its buffer outright, such as a
         // canonical leaf nothing else references, each block is overwritten where it lies.
         let in_place = (0..self.ops.len()).all(|i| in_place_op(&self.ops, &self.ptypes, i));

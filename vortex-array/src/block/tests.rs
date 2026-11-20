@@ -458,10 +458,10 @@ fn chain_builds_on_the_way_up_and_drives_at_the_root() -> VortexResult<()> {
         fused(add(add(counter)))?,
         "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
 ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.counter(i32, len=3000)
-fuse start input=source array=vortex.test.counter(i32, len=3000)
+fuse start array=vortex.test.counter(i32, len=3000)
 fuse extend parent=vortex.test.op(i32, len=3000) ops=1
 fuse extend parent=vortex.test.op(i32, len=3000) ops=2
-drive input=source ops=2 len=3000
+drive ops=2 len=3000
 block_op 0 in_place i32->i32 scratch0 -> scratch0
 block_op 1 copy i32->i32 scratch0 -> output"
     );
@@ -477,7 +477,7 @@ fn width_change_copies_between_scratch_blocks() -> VortexResult<()> {
     let trace = fused(array)?;
     assert!(
         trace.ends_with(
-            "drive input=source ops=3 len=2500
+            "drive ops=3 len=2500
 block_op 0 in_place i32->i32 scratch0 -> scratch0
 block_op 1 copy i32->i64 scratch0 -> scratch1
 block_op 2 copy i64->i64 scratch1 -> output"
@@ -495,7 +495,7 @@ fn op_without_in_place_support_copies() -> VortexResult<()> {
     let trace = fused(copying(copying(copying(counter))))?;
     assert!(
         trace.ends_with(
-            "drive input=source ops=3 len=2000
+            "drive ops=3 len=2000
 block_op 0 copy i32->i32 scratch0 -> scratch1
 block_op 1 copy i32->i32 scratch1 -> scratch0
 block_op 2 copy i32->i32 scratch0 -> output"
@@ -516,10 +516,10 @@ fn non_spine_parent_drives_the_chain_below_it() -> VortexResult<()> {
         "ExecuteSlot slot=0 parent=vortex.test.op(i32, len=1500) child=vortex.test.op(i32, len=1500)
 ExecuteSpine slot=0 parent=vortex.test.op(i32, len=1500) child=vortex.test.op(i32, len=1500)
 ExecuteSpine slot=0 parent=vortex.test.op(i32, len=1500) child=vortex.test.counter(i32, len=1500)
-fuse start input=source array=vortex.test.counter(i32, len=1500)
+fuse start array=vortex.test.counter(i32, len=1500)
 fuse extend parent=vortex.test.op(i32, len=1500) ops=1
 fuse extend parent=vortex.test.op(i32, len=1500) ops=2
-drive input=source ops=2 len=1500
+drive ops=2 len=1500
 block_op 0 in_place i32->i32 scratch0 -> scratch0
 block_op 1 copy i32->i32 scratch0 -> output"
     );
@@ -560,10 +560,10 @@ fn canonical_leaf_in_place_only_when_owned() -> VortexResult<()> {
         fused(add(add(add(leaf()))))?,
         "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
 ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
-fuse start input=source array=vortex.primitive(i32, len=3000)
+fuse start array=vortex.primitive(i32, len=3000)
 fuse extend parent=vortex.test.op(i32, len=3000) ops=1
 fuse extend parent=vortex.test.op(i32, len=3000) ops=2
-drive input=source ops=2 len=3000
+drive ops=2 len=3000
 block_op 0 in_place i32->i32 leaf -> leaf
 block_op 1 in_place i32->i32 leaf -> leaf"
     );
@@ -580,10 +580,10 @@ block_op 1 in_place i32->i32 leaf -> leaf"
         fusion_lines(&traced.trace.to_string()),
         "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
 ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
-fuse start input=source array=vortex.primitive(i32, len=3000)
+fuse start array=vortex.primitive(i32, len=3000)
 fuse extend parent=vortex.test.op(i32, len=3000) ops=1
 fuse extend parent=vortex.test.op(i32, len=3000) ops=2
-drive input=source ops=2 len=3000
+drive ops=2 len=3000
 block_op 0 copy i32->i32 source -> scratch0
 block_op 1 copy i32->i32 scratch0 -> output"
     );
