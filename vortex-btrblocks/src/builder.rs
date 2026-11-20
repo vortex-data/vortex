@@ -64,19 +64,18 @@ impl CompressionMode {
                 excluded.push(binary::ZstdBuffersScheme.id());
             }
             Self::Cuda => {
-                // Keep FSST, which has a CUDA decoder and direct Arrow offset-based export, and
-                // string dictionaries, which the CUDA dictionary gather decodes into views over
-                // the decoded values. Other string fragmentation schemes and binary dictionaries
-                // still require unsupported decode paths. Delta has a CUDA decode kernel, but
-                // stays excluded until GPU delta decode is benchmarked against the schemes it
-                // would displace.
+                // Keep ALP-RD, which has a CUDA decoder; FSST, which has a CUDA decoder and direct
+                // Arrow offset-based export; and string dictionaries, which the CUDA dictionary
+                // gather decodes into views over the decoded values. Other string fragmentation
+                // schemes and binary dictionaries still require unsupported decode paths. Delta has
+                // a CUDA decode kernel, but stays excluded until GPU delta decode is benchmarked
+                // against the schemes it would displace.
                 excluded.extend([
                     boolean::BoolRunEndScheme.id(),
                     boolean::BoolSparseScheme.id(),
                     integer::DeltaScheme::default().id(),
                     integer::SparseScheme.id(),
                     integer::IntRLEScheme.id(),
-                    float::ALPRDScheme.id(),
                     float::FloatRLEScheme.id(),
                     float::NullDominatedSparseScheme.id(),
                     string::NullDominatedSparseScheme.id(),
