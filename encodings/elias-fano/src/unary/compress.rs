@@ -9,6 +9,7 @@ use vortex_array::arrays::Primitive;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -55,19 +56,29 @@ pub fn unary_encode(
         return Ok(None);
     }
 
-    match_each_unsigned_integer_ptype!(ptype, |T| {
-        let mut buffer = BitBufferMut::new_set(bits);
-        let mut end = 0;
-        for &value in array.as_slice::<T>() {
-            end += AsPrimitive::<usize>::as_(value);
-            // `num_ones` can be a cached statistic, so a wrong one must not run past the bits.
-            vortex_ensure!(
-                end < bits,
-                "UnaryArray input sums past its sum statistic {num_ones}"
-            );
-            buffer.unset(end);
-            end += 1;
-        }
-        Unary::try_new(buffer.freeze(), ptype, len).map(Some)
-    })
+    let buffer = match_each_unsigned_integer_ptype!(ptype, |T| {
+        unary_bits(array.as_slice::<T>(), bits, num_ones)
+    })?;
+    Unary::try_new(buffer, ptype, len).map(Some)
+}
+
+/// Write `values` in unary into `bits` bits, failing if they sum past `num_ones`.
+fn unary_bits<T: AsPrimitive<usize>>(
+    values: &[T],
+    bits: usize,
+    num_ones: u64,
+) -> VortexResult<BitBuffer> {
+    let mut buffer = BitBufferMut::new_set(bits);
+    let mut end = 0;
+    for &value in values {
+        end += AsPrimitive::<usize>::as_(value);
+        // `num_ones` can be a cached statistic, so a wrong one must not run past the bits.
+        vortex_ensure!(
+            end < bits,
+            "UnaryArray input sums past its sum statistic {num_ones}"
+        );
+        buffer.unset(end);
+        end += 1;
+    }
+    Ok(buffer.freeze())
 }

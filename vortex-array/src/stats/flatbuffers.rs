@@ -16,6 +16,7 @@ use crate::expr::stats::Stat;
 use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::array as fba;
 use crate::scalar::PValue;
+use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
@@ -154,9 +155,8 @@ impl StatsSet {
                     if let Some(max) = fb.max()
                         && let Some(stat_dtype) = stat.dtype(array_dtype)
                     {
-                        let value =
-                            ScalarValue::from_proto_bytes(max.bytes(), &stat_dtype, session)?;
-                        let Some(value) = value else {
+                        let Some(value) = decode_stat_value(max.bytes(), &stat_dtype, session)?
+                        else {
                             continue;
                         };
 
@@ -176,9 +176,8 @@ impl StatsSet {
                     if let Some(min) = fb.min()
                         && let Some(stat_dtype) = stat.dtype(array_dtype)
                     {
-                        let value =
-                            ScalarValue::from_proto_bytes(min.bytes(), &stat_dtype, session)?;
-                        let Some(value) = value else {
+                        let Some(value) = decode_stat_value(min.bytes(), &stat_dtype, session)?
+                        else {
                             continue;
                         };
 
@@ -211,9 +210,8 @@ impl StatsSet {
                     if let Some(sum) = fb.sum()
                         && let Some(stat_dtype) = stat.dtype(array_dtype)
                     {
-                        let value =
-                            ScalarValue::from_proto_bytes(sum.bytes(), &stat_dtype, session)?;
-                        let Some(value) = value else {
+                        let Some(value) = decode_stat_value(sum.bytes(), &stat_dtype, session)?
+                        else {
                             continue;
                         };
 
@@ -235,21 +233,44 @@ impl StatsSet {
     }
 }
 
+/// Decodes a stored statistic value and checks that it is a legal value of `stat_dtype`.
+///
+/// Returns `None` for a stored null. Vortex never writes an illegal statistic, for example a
+/// decimal outside its precision, so an illegal one means the file is corrupt. The check runs at
+/// decode because [`StatsProvider::get`] has no error path, so it panics on an illegal value.
+///
+/// [`StatsProvider::get`]: crate::expr::stats::StatsProvider::get
+fn decode_stat_value(
+    bytes: &[u8],
+    stat_dtype: &DType,
+    session: &VortexSession,
+) -> VortexResult<Option<ScalarValue>> {
+    let Some(value) = ScalarValue::from_proto_bytes(bytes, stat_dtype, session)? else {
+        return Ok(None);
+    };
+    Scalar::validate(stat_dtype, Some(&value))?;
+
+    Ok(Some(value))
+}
+
 #[cfg(test)]
 mod tests {
     use flatbuffers::FlatBufferBuilder;
     use flatbuffers::root;
+    use rstest::rstest;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
     use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
     use crate::flatbuffers::WriteFlatBuffer;
     use crate::flatbuffers::array as fba;
+    use crate::scalar::DecimalValue;
     use crate::scalar::PValue;
     use crate::scalar::ScalarValue;
     use crate::stats::StatsSet;
@@ -281,6 +302,19 @@ mod tests {
             .to_bits())
     }
 
+    /// Writes one exact decimal statistic and reads it back for a `decimal(2, 0)` column.
+    fn roundtrip_decimal_stat(stat: Stat, value: DecimalValue) -> VortexResult<StatsSet> {
+        let stats = StatsSet::of(stat, Precision::exact(ScalarValue::Decimal(value)));
+
+        let mut fbb = FlatBufferBuilder::new();
+        let offset = stats.write_flatbuffer(&mut fbb)?;
+        fbb.finish_minimal(offset);
+        let fb = root::<fba::ArrayStats>(fbb.finished_data())?;
+
+        let dtype = DType::Decimal(DecimalDType::new(2, 0), Nullability::NonNullable);
+        StatsSet::from_flatbuffer(&fb, &dtype, &VortexSession::empty())
+    }
+
     #[test]
     fn nan_sum_is_written_canonical() -> VortexResult<()> {
         // x86_64 gives this NaN for `inf + -inf`.
@@ -297,6 +331,35 @@ mod tests {
         assert_eq!(
             roundtrip_sum(f64::NEG_INFINITY, f64::NEG_INFINITY.to_bits())?,
             f64::NEG_INFINITY.to_bits()
+        );
+
+        Ok(())
+    }
+
+    // The sum of a `decimal(2, 0)` column has the dtype `decimal(12, 0)`.
+    #[rstest]
+    #[case::max(Stat::Max, DecimalValue::I8(100))]
+    #[case::min(Stat::Min, DecimalValue::I8(-100))]
+    #[case::sum(Stat::Sum, DecimalValue::I64(1_000_000_000_000))]
+    fn decimal_stat_outside_precision_fails_to_read(
+        #[case] stat: Stat,
+        #[case] value: DecimalValue,
+    ) -> VortexResult<()> {
+        let err = roundtrip_decimal_stat(stat, value).unwrap_err();
+        assert!(
+            err.to_string().contains("does not fit in precision"),
+            "unexpected error: {err}"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn decimal_stat_inside_precision_reads() -> VortexResult<()> {
+        let read = roundtrip_decimal_stat(Stat::Max, DecimalValue::I8(99))?;
+        assert_eq!(
+            read.get(Stat::Max),
+            Precision::exact(ScalarValue::Decimal(DecimalValue::I8(99)))
         );
 
         Ok(())

@@ -81,6 +81,29 @@ impl LayoutReader for FileStatsLayoutReader {
         self.child.row_count()
     }
 
+    fn can_prune_file(&self, expr: &BoundExpression) -> VortexResult<bool> {
+        is_falsified_cached(
+            &self.prune_cache,
+            &self.child,
+            &self.file_stats,
+            &self.session,
+            expr,
+        )
+    }
+
+    fn split_pruning_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &BoundExpression,
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
+        self.child.split_pruning_evaluation(row_range, expr, mask)
+    }
+
+    fn split_pruning_is_statistics(&self, expr: &BoundExpression) -> VortexResult<bool> {
+        self.child.split_pruning_is_statistics(expr)
+    }
+
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
@@ -103,15 +126,7 @@ impl LayoutReader for FileStatsLayoutReader {
         let expr = expr.clone();
         let row_range = row_range.clone();
         Ok(MaskFuture::new(mask.len(), async move {
-            let pruned = {
-                let mut entry = cache
-                    .entry(ExactBoundExpr(expr.clone()))
-                    .or_insert_with(|| CachedProof::new(&expr));
-                entry.evaluate(|| {
-                    is_falsified_by_file_stats(&expr, child.row_count(), &file_stats, &session)
-                })?
-            };
-            if pruned {
+            if is_falsified_cached(&cache, &child, &file_stats, &session, &expr)? {
                 Ok(Mask::new_false(mask.len()))
             } else {
                 child.pruning_evaluation(&row_range, &expr, mask)?.await
@@ -170,6 +185,20 @@ impl LayoutReader for FileStatsLayoutReader {
     }
 }
 
+/// Returns whether file statistics falsify `expr`, with a cache for each dynamic producer version.
+fn is_falsified_cached(
+    cache: &DashMap<ExactBoundExpr, CachedProof>,
+    child: &LayoutReaderRef,
+    file_stats: &FileStatistics,
+    session: &VortexSession,
+    expr: &BoundExpression,
+) -> VortexResult<bool> {
+    let mut entry = cache
+        .entry(ExactBoundExpr(expr.clone()))
+        .or_insert_with(|| CachedProof::new(expr));
+    entry.evaluate(|| is_falsified_by_file_stats(expr, child.row_count(), file_stats, session))
+}
+
 struct CachedProof {
     updates: Option<DynamicExprUpdates>,
     latest: Option<(u64, bool)>,
@@ -205,7 +234,6 @@ mod tests {
     use std::fmt::Display;
     use std::fmt::Formatter;
     use std::sync::Arc;
-    use std::sync::LazyLock;
     use std::sync::atomic::AtomicU64;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
@@ -262,11 +290,13 @@ mod tests {
 
     use super::*;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    /// Each test needs its own session: clones of a session share state, and `with_handle`
+    /// stores the test's runtime handle in it.
+    fn new_session() -> VortexSession {
         VortexSession::empty()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
-    });
+    }
 
     struct CountingSegments(Arc<TestSegments>, AtomicUsize);
 
@@ -335,7 +365,7 @@ mod tests {
     #[test]
     fn pruning_when_filter_out_of_range() -> VortexResult<()> {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -356,10 +386,10 @@ mod tests {
                 )
                 .await?;
 
-            let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+            let child = layout.new_reader("".into(), segments, &session, &Default::default())?;
 
             let reader =
-                FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
+                FileStatsLayoutReader::new(child, test_file_stats(0, 100), session.clone());
 
             // col > 200 should be prunable since max is 100.
             let expr = gt(get_item("col", root()), lit(200i32)).bind(reader.dtype())?;
@@ -374,7 +404,7 @@ mod tests {
     #[test]
     fn dynamic_proofs_refresh_before_reads() -> VortexResult<()> {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -399,12 +429,12 @@ mod tests {
             let child = layout.new_reader(
                 "".into(),
                 Arc::clone(&counted) as Arc<dyn SegmentSource>,
-                &SESSION,
+                &session,
                 &Default::default(),
             )?;
 
             let reader =
-                FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
+                FileStatsLayoutReader::new(child, test_file_stats(0, 100), session.clone());
 
             // col > 50 should NOT be prunable since max is 100 (some rows could match).
             let expr = gt(get_item("col", root()), lit(50i32)).bind(reader.dtype())?;
@@ -479,7 +509,7 @@ mod tests {
     #[test]
     fn no_pruning_for_computed_expression_stats() -> VortexResult<()> {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -499,9 +529,9 @@ mod tests {
                 )
                 .await?;
 
-            let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+            let child = layout.new_reader("".into(), segments, &session, &Default::default())?;
             let reader =
-                FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
+                FileStatsLayoutReader::new(child, test_file_stats(0, 100), session.clone());
 
             let expr = gt(checked_add(get_item("col", root()), lit(5i32)), lit(102i32))
                 .bind(reader.dtype())?;
@@ -520,7 +550,7 @@ mod tests {
     #[test]
     fn is_null_pruning_on_nullable_timestamp_column() -> VortexResult<()> {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -549,7 +579,7 @@ mod tests {
                 )
                 .await?;
 
-            let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+            let child = layout.new_reader("".into(), segments, &session, &Default::default())?;
 
             // File-level stats: 1 null in deleted_at.
             let stats = AggregateStats::new(vec![AggregateStat::from_value(
@@ -562,7 +592,7 @@ mod tests {
                 Arc::from([FieldPath::from_name("deleted_at")]),
             );
 
-            let reader = FileStatsLayoutReader::new(child, file_stats, SESSION.clone());
+            let reader = FileStatsLayoutReader::new(child, file_stats, session.clone());
 
             // `is_null(deleted_at)` — should NOT panic or error due to dtype mismatch.
             let expr = is_null(get_item("deleted_at", root())).bind(reader.dtype())?;
@@ -578,7 +608,7 @@ mod tests {
     #[test]
     fn pruning_is_not_null_when_file_is_all_null() -> VortexResult<()> {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -604,10 +634,10 @@ mod tests {
                 )
                 .await?;
 
-            let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+            let child = layout.new_reader("".into(), segments, &session, &Default::default())?;
 
             let reader =
-                FileStatsLayoutReader::new(child, test_file_null_count_stats(5), SESSION.clone());
+                FileStatsLayoutReader::new(child, test_file_null_count_stats(5), session.clone());
 
             let expr = is_not_null(get_item("col", root())).bind(reader.dtype())?;
             let mask = Mask::new_true(5);

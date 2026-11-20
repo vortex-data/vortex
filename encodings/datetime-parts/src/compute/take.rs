@@ -109,7 +109,11 @@ mod tests {
     use crate::DateTimeParts;
     use crate::DateTimePartsArray;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[rstest]
     #[case(DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(

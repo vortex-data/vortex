@@ -126,7 +126,7 @@ export function wideMock(): LayoutTreeNode {
   const dtypes = ['i32', 'i64', 'f32', 'f64', 'utf8', 'bool', 'u16', 'u32'];
 
   const fields: LayoutTreeNode[] = Array.from({ length: 200 }, (_, i) => {
-    const dtype = dtypes[i % dtypes.length];
+    const dtype = dtypes[i % dtypes.length]!;
     return makeFlat({
       id: `root.col_${i}`,
       childType: { kind: 'field', fieldName: `col_${i}` },

@@ -33,6 +33,7 @@ use vortex::buffer::Buffer;
 use vortex::dtype::Nullability;
 use vortex::mask::Mask;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 
 use crate::IdempotentPath;
 use crate::SESSION;
@@ -184,7 +185,7 @@ impl Dataset for SparseWide {
 fn write_parquet(path: &Path, array: ArrayRef, ctx: &mut ExecutionCtx) -> Result<()> {
     let schema = SESSION.arrow().to_arrow_schema(array.dtype())?;
     let root = Field::new_struct("", schema.fields, false);
-    let arrow = SESSION.arrow().execute_arrow(array, Some(&root), ctx)?;
+    let arrow = array.execute_arrow(Some(&root), ctx)?;
     let batch = RecordBatch::from(arrow.as_struct());
     let properties = WriterProperties::builder()
         .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))

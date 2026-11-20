@@ -3,13 +3,10 @@
 
 use std::fmt;
 
-use jiff::Span;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
 use crate::dtype::DType;
@@ -43,9 +40,7 @@ impl Date {
     ///
     /// Note that only Milliseconds and Days time units are supported for Date.
     pub fn try_new(time_unit: TimeUnit, nullability: Nullability) -> VortexResult<ExtDType<Self>> {
-        let ptype = date_ptype(&time_unit)
-            .ok_or_else(|| vortex_err!("Date type does not support time unit {}", time_unit))?;
-        ExtDType::try_new(time_unit, DType::Primitive(ptype, nullability))
+        ExtDType::try_new(time_unit, nullability)
     }
 
     /// Creates a new Date extension dtype with the given time unit and nullability.
@@ -68,16 +63,26 @@ pub enum DateValue {
 
 impl fmt::Display for DateValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let date = match self {
-            DateValue::Days(days) => EPOCH + Span::new().days(*days),
-            DateValue::Milliseconds(ms) => EPOCH + Span::new().milliseconds(*ms),
+        let (unit, value) = match *self {
+            DateValue::Days(days) => (TimeUnit::Days, i64::from(days)),
+            DateValue::Milliseconds(ms) => (TimeUnit::Milliseconds, ms),
         };
-        write!(f, "{}", date)
+
+        // jiff cannot hold every storage value, such as any date after the year 9999.
+        let Ok(date) = unit
+            .to_jiff_span(value)
+            .and_then(|span| Ok(EPOCH.checked_add(span)?))
+        else {
+            return write!(f, "{value}{unit}");
+        };
+
+        write!(f, "{date}")
     }
 }
 
 impl ExtVTable for Date {
     type Metadata = TimeUnit;
+    type StoredMetadata = Self::Metadata;
     type NativeValue<'a> = DateValue;
 
     fn id(&self) -> ExtId {
@@ -89,24 +94,31 @@ impl ExtVTable for Date {
         Ok(vec![u8::from(*metadata)])
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
         vortex_ensure!(!metadata.is_empty(), "Date metadata must not be empty");
         let tag = metadata[0];
         TimeUnit::try_from(tag)
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        let metadata = ext_dtype.metadata();
-        let ptype = date_ptype(metadata)
-            .ok_or_else(|| vortex_err!("Date type does not support time unit {}", metadata))?;
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        _storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(stored_metadata)
+    }
 
-        let DType::Primitive(storage_ptype, _) = ext_dtype.storage_dtype() else {
-            vortex_bail!(
-                "Date storage dtype must be primitive, got {}",
-                ext_dtype.storage_dtype()
-            );
-        };
-        vortex_ensure_eq!(*storage_ptype, ptype);
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        let ptype = date_ptype(metadata)
+            .vortex_expect("Date::validate_metadata accepts only days and milliseconds");
+        DType::Primitive(ptype, Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
+        vortex_ensure!(
+            date_ptype(metadata).is_some(),
+            "Date time unit must be days or milliseconds, got {metadata}"
+        );
 
         Ok(())
     }
@@ -128,20 +140,27 @@ impl ExtVTable for Date {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_error::VortexResult;
 
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
-    use crate::dtype::extension::ExtDType;
+    use crate::dtype::extension::ExtDTypePlugin;
     use crate::extension::datetime::Date;
+    use crate::extension::datetime::DateValue;
     use crate::extension::datetime::TimeUnit;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
 
     #[test]
-    fn test_reject_non_primitive_storage() {
-        assert!(ExtDType::<Date>::try_new(TimeUnit::Days, DType::Utf8(Nullable),).is_err());
+    fn test_read_rejects_non_primitive_storage() {
+        let result = Date.deserialize(&[u8::from(TimeUnit::Days)], DType::Utf8(Nullable));
+        assert!(result.is_err_and(|error| {
+            error
+                .to_string()
+                .contains("vortex.date storage must be i32?, got utf8?")
+        }));
     }
 
     #[test]
@@ -175,6 +194,15 @@ mod tests {
 
         let scalar = Scalar::new(dtype, Some(ScalarValue::Primitive(PValue::I32(365))));
         assert_eq!(format!("{}", scalar.as_extension()), "1971-01-01");
+    }
+
+    #[rstest]
+    #[case::ordinary(DateValue::Milliseconds(86_400_000), "1970-01-02")]
+    #[case::after_year_9999(DateValue::Days(2_932_897), "2932897days")]
+    #[case::beyond_jiff_span(DateValue::Days(10_000_000), "10000000days")]
+    #[case::max_milliseconds(DateValue::Milliseconds(i64::MAX), "9223372036854775807ms")]
+    fn display_date_value(#[case] value: DateValue, #[case] expected: &str) {
+        assert_eq!(value.to_string(), expected);
     }
 
     #[test]

@@ -182,8 +182,9 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Execute the expression over the input arguments.
     ///
     /// Superseded by [`execute_step`](Self::execute_step). Vortex only calls this method through
-    /// the default `execute_step`, so a function that implements `execute_step` never has
-    /// `execute` called and should implement it with [`vortex_panic!`].
+    /// the default `execute_step`. A function that implements `execute_step` either implements
+    /// `execute` with [`vortex_panic!`], or keeps its logic here and calls it from `execute_step`
+    /// once [`require_input!`](crate::require_input) has its inputs in the form it needs.
     ///
     /// [`vortex_panic!`]: vortex_error::vortex_panic
     ///
@@ -589,6 +590,14 @@ pub trait ExecutionArgs {
 
     /// Returns the row count of the execution scope.
     fn row_count(&self) -> usize;
+
+    /// Whether the input at the given index satisfies `predicate`.
+    ///
+    /// Implementations that hold their inputs override this to test the input in place, without
+    /// the clone [`get`](Self::get) makes, since it runs on every scalar function execution step.
+    fn input_matches(&self, index: usize, predicate: fn(&ArrayRef) -> bool) -> VortexResult<bool> {
+        Ok(predicate(&self.get(index)?))
+    }
 }
 
 /// The result of a single [`ScalarFnVTable::execute_step`].
@@ -668,6 +677,17 @@ impl ExecutionArgs for VecExecutionArgs {
 
     fn row_count(&self) -> usize {
         self.row_count
+    }
+
+    fn input_matches(&self, index: usize, predicate: fn(&ArrayRef) -> bool) -> VortexResult<bool> {
+        let input = self.inputs.get(index).ok_or_else(|| {
+            vortex_err!(
+                "Input index {} out of bounds (num_inputs={})",
+                index,
+                self.inputs.len()
+            )
+        })?;
+        Ok(predicate(input))
     }
 }
 

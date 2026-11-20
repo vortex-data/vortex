@@ -29,6 +29,7 @@ use vortex_array::expr::list_sum;
 use vortex_array::expr::root;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -146,6 +147,8 @@ fn make_fsl(num_lists: usize) -> ArrayRef {
 
 /// Apply `list_sum(root())` and materialize the result.
 fn run(bencher: Bencher, array: ArrayRef) {
+    mark_optimized(&array, &SESSION).unwrap();
+
     let expr = list_sum(root());
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))

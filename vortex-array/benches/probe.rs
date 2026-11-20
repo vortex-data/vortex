@@ -12,11 +12,13 @@ use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::FieldNames;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -79,13 +81,16 @@ fn indices() -> Vec<usize> {
         .collect()
 }
 
-const ARRAYS: &[&str] = &["primitive", "dict", "struct"];
+const ARRAYS: &[&str] = &["primitive", "dict", "struct", "bool"];
 
 fn array(name: &str) -> ArrayRef {
     match name {
         "primitive" => nullable_primitive(LEN),
         "dict" => dict_over_nullable_values(),
         "struct" => nullable_struct(),
+        "bool" => {
+            BoolArray::from_iter((0..LEN).map(|i| (i % 7 != 0).then_some(i % 2 == 0))).into_array()
+        }
         _ => unreachable!("unknown fixture {name}"),
     }
 }
@@ -93,6 +98,7 @@ fn array(name: &str) -> ArrayRef {
 #[divan::bench(args = ARRAYS)]
 fn once(bencher: Bencher, name: &str) {
     let array = array(name);
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
     let indices = indices();
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
@@ -110,6 +116,7 @@ fn once(bencher: Bencher, name: &str) {
 #[divan::bench(args = ARRAYS)]
 fn repeated(bencher: Bencher, name: &str) {
     let array = array(name);
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
     let indices = indices();
     bencher
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))

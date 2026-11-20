@@ -17,6 +17,7 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
@@ -48,6 +49,8 @@ fn take_varbin(bencher: Bencher) {
         .map(|_| rng.random_range(0..ARRAY_SIZE) as u64)
         .collect();
     let indices = indices.into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+    mark_optimized(&indices, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&array, &indices, SESSION.create_execution_ctx()))

@@ -3,11 +3,12 @@
 
 mod kernel;
 mod operations;
+mod plugin;
 mod validity;
 
-use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
@@ -26,8 +27,9 @@ use crate::array::EmptyArrayData;
 use crate::array::VTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::variant::VariantSlots;
-use crate::arrays::variant::compute::rules::RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::VariantBuilder;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
@@ -36,7 +38,6 @@ use crate::dtype::StructFields;
 use crate::proto::dtype as pb;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
-use crate::serde::ArrayChildren;
 
 /// A [`Variant`]-encoded Vortex array.
 pub type VariantArray = Array<Variant>;
@@ -125,59 +126,6 @@ impl VTable for Variant {
         with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        let shredded_dtype = array.slots()[VariantSlots::SHREDDED]
-            .as_ref()
-            .map(|shredded| shredded.dtype().try_into())
-            .transpose()?;
-        Ok(Some(
-            VariantMetadataProto { shredded_dtype }.encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.is_empty(),
-            "VariantArray expects 0 buffers, got {}",
-            buffers.len()
-        );
-        let proto = VariantMetadataProto::decode(metadata)?;
-        let shredded_dtype = proto
-            .shredded_dtype
-            .as_ref()
-            .map(|dtype| DType::from_proto(dtype, session))
-            .transpose()?;
-        vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
-        let expected_children = 1 + usize::from(shredded_dtype.is_some());
-        vortex_ensure_eq!(children.len(), expected_children);
-        let core_storage = children.get(0, dtype, len)?;
-        let shredded = shredded_dtype
-            .map(|dtype| children.get(1, &dtype, len))
-            .transpose()?;
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            EmptyArrayData,
-            VariantSlots {
-                core_storage,
-                shredded,
-            }
-            .into_slots(),
-        ))
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         match VariantSlots::NAMES.get(idx) {
             Some(name) => (*name).to_string(),
@@ -189,12 +137,15 @@ impl VTable for Variant {
         Ok(ExecutionResult::done(array))
     }
 
-    fn reduce_parent(
+    fn append_to_builder(
         array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let Some(builder) = builder.as_any_mut().downcast_mut::<VariantBuilder>() else {
+            vortex_bail!("append_to_builder for a Variant requires a VariantBuilder");
+        };
+        builder.append_variant_array(&array.into_owned(), ctx)
     }
 }
 

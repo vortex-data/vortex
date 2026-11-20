@@ -1,5 +1,6 @@
 [default]
-extend-ignore-identifiers-re = ["ffor", "FFOR", "FoR", "typ", "ratatui", "wht", "WHT"]
+# metalness is a three.js material property, which the ASCII mark sets.
+extend-ignore-identifiers-re = ["ffor", "FFOR", "FoR", "typ", "ratatui", "wht", "WHT", "metalness"]
 # We support a few common special comments to tell the checker to ignore sections of code
 extend-ignore-re = [
     "(#|//)\\s*spellchecker:ignore-next-line\\n.*", # Ignore the next line
@@ -14,7 +15,9 @@ extend-ignore-re = [
 extend-exclude = ["/vortex-bench/**", "/docs/references.bib", "benchmarks/**",
     "vortex-sqllogictest/slt/**", "encodings/fsst/src/dfa/tests.rs",
     "encodings/fsst/src/dfa/flat_contains.rs",
-    "scripts/measurement_id_golden.json", "scripts/ml64_reproducible.py"]
+    "scripts/measurement_id_golden.json", "scripts/ml64_reproducible.py",
+    # three.js, minified, which the docs serve for the 404's mark.
+    "docs/_static/vortex-mark/three.module.min.js"]
 
 [type.py]
 extend-ignore-identifiers-re = [

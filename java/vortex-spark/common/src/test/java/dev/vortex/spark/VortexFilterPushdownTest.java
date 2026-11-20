@@ -142,6 +142,15 @@ public final class VortexFilterPushdownTest {
                 List.of(1, 3),
                 idsOf(readDf.filter(readDf.col("name").isin("alpha", "gamma")).orderBy("id")));
 
+        // NOT IN with a null element is never true in SQL, so the native set must not admit a non-match.
+        assertEquals(
+                List.of(),
+                idsOf(readDf.filter(functions.not(readDf.col("id").isin(1, null)))
+                        .orderBy("id")));
+        assertEquals(
+                List.of(2, 3, 4, 5),
+                idsOf(readDf.filter(functions.not(readDf.col("id").isin(1))).orderBy("id")));
+
         assertEquals(
                 List.of(4), idsOf(readDf.filter(readDf.col("amount").isNull()).orderBy("id")));
 

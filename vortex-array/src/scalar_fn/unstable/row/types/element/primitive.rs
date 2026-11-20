@@ -16,6 +16,7 @@ use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveData;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -24,6 +25,16 @@ use crate::scalar_fn::unstable::row::InputElement;
 use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::validity::Validity;
+
+fn host_values<T: NativePType>(primitive: &PrimitiveData) -> VortexResult<Buffer<T>> {
+    vortex_ensure_eq!(
+        primitive.ptype(),
+        T::PTYPE,
+        "row input column has the wrong ptype"
+    );
+    let bytes = primitive.buffer_handle().try_to_host_sync()?;
+    Ok(Buffer::from_byte_buffer(bytes))
+}
 
 // SAFETY: the view is a native slice, and its reported length is the slice length.
 unsafe impl<T: NativePType> InputElement for T {
@@ -48,21 +59,22 @@ unsafe impl<T: NativePType> InputElement for T {
     fn decode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column> {
         // A canonical input shares its buffer without executing the array.
         if let Some(primitive) = array.as_opt::<Primitive>() {
-            return Ok(primitive.to_buffer::<T>());
+            return host_values(&primitive);
         }
 
-        Ok(array.execute::<PrimitiveArray>(ctx)?.into_buffer::<T>())
+        let executed = array.execute::<PrimitiveArray>(ctx)?;
+        host_values(&executed)
     }
 
     #[inline]
     fn decode_ref(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column> {
         if let Some(primitive) = array.as_opt::<Primitive>() {
-            return Ok(primitive.to_buffer::<T>());
+            return host_values(&primitive);
         }
 
         let executed = array.clone().execute::<PrimitiveArray>(ctx)?;
 
-        Ok(executed.into_buffer::<T>())
+        host_values(&executed)
     }
 
     fn decode_constant(array: ArrayRef, _ctx: &mut ExecutionCtx) -> VortexResult<Self::Constant> {

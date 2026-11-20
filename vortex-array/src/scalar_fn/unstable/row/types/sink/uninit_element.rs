@@ -57,9 +57,11 @@ impl InitializedElement {
 /// The row closure must return the [`InitializedElement`] from [`InitializedElement::write`] on
 /// success. The token is zero-sized, so the proof adds no runtime row state.
 ///
-/// When execution omits invalid rows, it initializes placeholders first. Errors and unwinds are
-/// safe because [`OutputBuffer`] permits abandoning partially initialized storage. The `T: Copy`
-/// bound means that initialized elements require no destruction.
+/// Dense callbacks initialize every output slot, so pre-filling them would add a redundant write
+/// pass. When execution omits invalid rows, it initializes placeholders first so that unwritten
+/// slots remain safe to finish. Errors and unwinds are safe because [`OutputBuffer`] permits
+/// abandoning partially initialized storage. The `T: Copy` bound means that initialized elements
+/// require no destruction.
 pub struct UninitElementSink<T: OutputElement> {
     /// Spare storage written in increasing row order.
     values: T::Buffer,

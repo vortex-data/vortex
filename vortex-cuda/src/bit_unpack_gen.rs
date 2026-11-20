@@ -94,6 +94,102 @@ __device__ void _bit_unpack_{bits}_lane<{bit_width}>(const uint{bits}_t *__restr
     }
 }
 
+/// Rows decoded by one lane slice. A FastLanes lane has `bits` rows, so 32- and
+/// 64-bit lanes split into 2 and 4 slices, letting the 64-thread dynamic
+/// dispatch block unpack a 1024-element chunk with every thread busy even
+/// though it has only 32 or 16 lanes.
+const SLICE_ROWS: usize = 16;
+
+/// Emit a decoder for rows `[slice * SLICE_ROWS, (slice + 1) * SLICE_ROWS)` of one lane.
+fn generate_lane_slice_decoder(
+    output: &mut impl Write,
+    bits: usize,
+    bit_width: usize,
+    slice: usize,
+) -> io::Result<()> {
+    let first_row = slice * SLICE_ROWS;
+    let rows = first_row..first_row + SLICE_ROWS;
+    writeln!(
+        output,
+        "template <>\n__device__ __forceinline__ void _bit_unpack_{bits}_lane_slice<{bit_width}, {slice}>(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, unsigned int lane) {{"
+    )?;
+    if bit_width == 0 {
+        writeln!(
+            output,
+            "    #pragma unroll\n    for (int row = {}; row < {}; row++) {{\n        out[INDEX(row, lane)] = reference;\n    }}",
+            rows.start, rows.end
+        )?;
+    } else if bit_width == bits {
+        writeln!(
+            output,
+            "    constexpr unsigned int LANE_COUNT = FL_LANES<uint{bits}_t>;\n    #pragma unroll\n    for (int row = {}; row < {}; row++) {{\n        out[INDEX(row, lane)] = in[LANE_COUNT * row + lane] + reference;\n    }}",
+            rows.start, rows.end
+        )?;
+    } else {
+        let first_word = (first_row * bit_width) / bits;
+        writeln!(
+            output,
+            "    constexpr unsigned int LANE_COUNT = FL_LANES<uint{bits}_t>;\n    uint{bits}_t src;\n    uint{bits}_t tmp;\n    src = in[lane + LANE_COUNT * {first_word}];"
+        )?;
+        for row in rows {
+            write_row(output, bits, bit_width, row)?;
+        }
+    }
+    writeln!(output, "}}")
+}
+
+/// Emit a whole-lane decoder that runs the lane's slice decoders in row order.
+fn generate_lane_decoder_from_slices(
+    output: &mut impl Write,
+    bits: usize,
+    bit_width: usize,
+) -> io::Result<()> {
+    writeln!(
+        output,
+        "template <>\n__device__ void _bit_unpack_{bits}_lane<{bit_width}>(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, unsigned int lane) {{"
+    )?;
+    for slice in 0..bits / SLICE_ROWS {
+        writeln!(
+            output,
+            "    _bit_unpack_{bits}_lane_slice<{bit_width}, {slice}>(in, out, reference, lane);"
+        )?;
+    }
+    writeln!(output, "}}")
+}
+
+/// Generate the runtime dispatch over bit width and slice for lane-slice decoders.
+fn generate_lane_slice_dispatch(output: &mut impl Write, bits: usize) -> io::Result<()> {
+    let slices = bits / SLICE_ROWS;
+    write!(
+        output,
+        r#"/// Runtime dispatch to the lane-slice decoder for the given bit width and slice.
+__device__ __noinline__ void bit_unpack_{bits}_lane_slice(
+    const uint{bits}_t *__restrict in,
+    uint{bits}_t *__restrict out,
+    uint{bits}_t reference,
+    unsigned int lane,
+    uint32_t bit_width,
+    uint32_t slice
+) {{
+    switch (bit_width) {{
+"#
+    )?;
+    for bw in 0..=bits {
+        write!(
+            output,
+            "        case {bw}:\n            switch (slice) {{\n"
+        )?;
+        for slice in 0..slices {
+            writeln!(
+                output,
+                "                case {slice}: _bit_unpack_{bits}_lane_slice<{bw}, {slice}>(in, out, reference, lane); break;"
+            )?;
+        }
+        writeln!(output, "            }}\n            break;")?;
+    }
+    write!(output, "    }}\n}}\n")
+}
+
 /// Generate a runtime dispatch function that routes to the appropriate
 /// lane-decoder template specialization via a switch statement.
 ///
@@ -223,14 +319,34 @@ __device__ void _bit_unpack_{bits}_lane(const uint{bits}_t *__restrict in, uint{
 "#
     )?;
 
-    // Lane-decoder template specializations (one per bit width).
-    for bit_width in 0..=bits {
-        generate_lane_decoder(output, bits, bit_width)?;
+    // Types with at most one slice of rows per lane decode whole lanes, both in the standalone
+    // kernels and, through the runtime dispatch, in dynamic_dispatch.cu.
+    if bits <= SLICE_ROWS {
+        for bit_width in 0..=bits {
+            generate_lane_decoder(output, bits, bit_width)?;
+            writeln!(output)?;
+        }
+        generate_lane_dispatch(output, bits)?;
         writeln!(output)?;
+        return Ok(());
     }
 
-    // Runtime dispatch function (used by dynamic_dispatch.cu via bit_unpack.cuh).
-    generate_lane_dispatch(output, bits)?;
+    // Wider types decode rows once, in slices. Standalone kernels decode whole lanes by running
+    // a lane's slices in order; dynamic_dispatch.cu decodes single slices through the runtime
+    // dispatch.
+    writeln!(
+        output,
+        "template <int BW, int SLICE>\n__device__ __forceinline__ void _bit_unpack_{bits}_lane_slice(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, unsigned int lane);\n"
+    )?;
+    for bit_width in 0..=bits {
+        for slice in 0..bits / SLICE_ROWS {
+            generate_lane_slice_decoder(output, bits, bit_width, slice)?;
+            writeln!(output)?;
+        }
+        generate_lane_decoder_from_slices(output, bits, bit_width)?;
+        writeln!(output)?;
+    }
+    generate_lane_slice_dispatch(output, bits)?;
     writeln!(output)?;
 
     Ok(())

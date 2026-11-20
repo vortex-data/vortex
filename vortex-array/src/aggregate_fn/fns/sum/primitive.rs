@@ -28,36 +28,29 @@ pub(crate) fn accumulate_primitive(
     skip_nans: bool,
 ) -> VortexResult<bool> {
     let mask = p.as_ref().validity()?.execute_mask(p.as_ref().len(), ctx)?;
-    match mask.slices() {
-        AllOr::None => Ok(false),
+    Ok(match mask.slices() {
+        AllOr::None => false,
         AllOr::All => accumulate_primitive_all(inner, p, skip_nans),
         AllOr::Some(slices) => accumulate_primitive_valid(inner, p, slices, skip_nans),
-    }
+    })
 }
 
-fn accumulate_primitive_all(
-    inner: &mut SumState,
-    p: &PrimitiveArray,
-    skip_nans: bool,
-) -> VortexResult<bool> {
+fn accumulate_primitive_all(inner: &mut SumState, p: &PrimitiveArray, skip_nans: bool) -> bool {
     match inner {
         SumState::Unsigned(acc) => match_each_native_ptype!(p.ptype(),
-            unsigned: |T| { Ok(sum_unsigned_all(acc, p.as_slice::<T>())) },
+            unsigned: |T| { sum_unsigned_all(acc, p.as_slice::<T>()) },
             signed: |_T| { vortex_panic!("unsigned sum state with signed input") },
             floating: |_T| { vortex_panic!("unsigned sum state with float input") }
         ),
         SumState::Signed(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |_T| { vortex_panic!("signed sum state with unsigned input") },
-            signed: |T| { Ok(sum_signed_all(acc, p.as_slice::<T>())) },
+            signed: |T| { sum_signed_all(acc, p.as_slice::<T>()) },
             floating: |_T| { vortex_panic!("signed sum state with float input") }
         ),
         SumState::Float(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |_T| { vortex_panic!("float sum state with unsigned input") },
             signed: |_T| { vortex_panic!("float sum state with signed input") },
-            floating: |T| {
-                sum_float_all(acc, p.as_slice::<T>(), skip_nans);
-                Ok(false)
-            }
+            floating: |T| { sum_float_all(acc, p.as_slice::<T>(), skip_nans) }
         ),
         SumState::Decimal(_) => {
             vortex_panic!("decimal sum state with primitive input")
@@ -68,7 +61,7 @@ fn accumulate_primitive_all(
 /// Sum the values of a float slice into an `f64` accumulator. When `skip_nans` is set, NaN values
 /// are skipped to match the scalar `sum` semantics; otherwise any NaN poisons the accumulator to
 /// NaN. Floats cannot overflow the accumulator, so this never reports saturation.
-pub(crate) fn sum_float_all<T: NativePType>(acc: &mut f64, slice: &[T], skip_nans: bool) {
+pub(crate) fn sum_float_all<T: NativePType>(acc: &mut f64, slice: &[T], skip_nans: bool) -> bool {
     if skip_nans {
         for &v in slice {
             if !v.is_nan() {
@@ -80,6 +73,7 @@ pub(crate) fn sum_float_all<T: NativePType>(acc: &mut f64, slice: &[T], skip_nan
             *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
         }
     }
+    false
 }
 
 /// Sum all values into a `u64` accumulator. For types narrower than 64 bits, values are summed in
@@ -129,25 +123,16 @@ where
     false
 }
 
-/// Sum the valid elements, described as contiguous `[start, end)` runs of set validity bits. Each
-/// run is a slice of fully-valid values, so it reuses the same vectorized reduction as the
-/// all-valid path instead of a per-element validity branch.
 fn accumulate_primitive_valid(
     inner: &mut SumState,
     p: &PrimitiveArray,
     slices: &[(usize, usize)],
     skip_nans: bool,
-) -> VortexResult<bool> {
+) -> bool {
     match inner {
         SumState::Unsigned(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |T| {
-                let values = p.as_slice::<T>();
-                for &(start, end) in slices {
-                    if sum_unsigned_all(acc, &values[start..end]) {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
+                sum_valid_runs(acc, p.as_slice::<T>(), slices, sum_unsigned_all)
             },
             signed: |_T| { vortex_panic!("unsigned sum state with signed input") },
             floating: |_T| { vortex_panic!("unsigned sum state with float input") }
@@ -155,13 +140,7 @@ fn accumulate_primitive_valid(
         SumState::Signed(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |_T| { vortex_panic!("signed sum state with unsigned input") },
             signed: |T| {
-                let values = p.as_slice::<T>();
-                for &(start, end) in slices {
-                    if sum_signed_all(acc, &values[start..end]) {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
+                sum_valid_runs(acc, p.as_slice::<T>(), slices, sum_signed_all)
             },
             floating: |_T| { vortex_panic!("signed sum state with float input") }
         ),
@@ -169,17 +148,30 @@ fn accumulate_primitive_valid(
             unsigned: |_T| { vortex_panic!("float sum state with unsigned input") },
             signed: |_T| { vortex_panic!("float sum state with signed input") },
             floating: |T| {
-                let values = p.as_slice::<T>();
-                for &(start, end) in slices {
-                    sum_float_all(acc, &values[start..end], skip_nans);
-                }
-                Ok(false)
+                sum_valid_runs(acc, p.as_slice::<T>(), slices, |acc, run| {
+                    sum_float_all(acc, run, skip_nans)
+                })
             }
         ),
         SumState::Decimal(_) => {
             vortex_panic!("decimal sum state with primitive input")
         }
     }
+}
+
+/// Sum contiguous runs of valid values with the all-valid reduction. Stops on overflow.
+fn sum_valid_runs<A, T>(
+    acc: &mut A,
+    values: &[T],
+    slices: &[(usize, usize)],
+    sum_run: impl Fn(&mut A, &[T]) -> bool,
+) -> bool {
+    for &(start, end) in slices {
+        if sum_run(acc, &values[start..end]) {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]

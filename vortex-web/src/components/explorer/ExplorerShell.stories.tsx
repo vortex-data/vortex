@@ -32,7 +32,7 @@ const mockFileState: VortexFileState = {
 function ExplorerPage() {
   const [view, setView] = useState<MainView>('details');
   return (
-    <div className="flex flex-col h-screen bg-vortex-white dark:bg-vortex-black">
+    <div className="x-app">
       <FileHeader onClose={() => {}} view={view} onViewChange={setView} />
       <MainArea view={view} />
       <StatusBar />
