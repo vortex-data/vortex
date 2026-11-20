@@ -34,9 +34,9 @@ type NewWorker = dyn Fn() -> BoxStream<'static, VortexResult<ArrayRef>> + Send +
 ///
 /// A clone is another worker over the same remaining work, like a clone of a channel's receiver:
 /// the clones take work until none is left, so together they return every row of the scan
-/// exactly once, and the number a host polls is its parallelism. The work may run as tasks on
-/// the session's runtime, which the host owns, and its results go to whichever clone asks next;
-/// a scan never starts threads of its own. A host whose runtime has no threads of its own, such
+/// exactly once, in no particular order across clones. The number of clones a host polls is its
+/// parallelism. The work may run as tasks on the session's runtime, which the host owns, and
+/// nothing starts threads of its own. A host whose runtime has no threads of its own, such
 /// as a `CurrentThreadRuntime`, must therefore drive that runtime while it waits on a clone, for
 /// example with `block_on`. Dropping a clone before it ends gives up any work it had taken, so a
 /// host drops a clone early only when it abandons the scan.
@@ -64,7 +64,7 @@ impl ScanStream {
 
     /// A stream whose clones take the partitions of `scan` one at a time.
     ///
-    /// A source that has no worker queue of its own can open into this one.
+    /// A source that has no queue of work of its own can open into this one.
     pub fn from_partitions(scan: DataSourceScanRef) -> Self {
         let dtype = scan.dtype().clone();
         let partitions = Arc::new(Mutex::new(scan.partitions()));
@@ -265,12 +265,12 @@ mod tests {
         }
     }
 
-    /// The array of `rows` rows that a test partition or pool returns.
+    /// The array of `rows` rows that a test partition returns.
     fn rows_array(rows: usize) -> VortexResult<ArrayRef> {
         Ok(Buffer::from_iter(0..i32::try_from(rows)?).into_array())
     }
 
-    /// A scan that has no pool of its own, so it opens into [`ScanStream::from_partitions`].
+    /// A scan that has no queue of work of its own, so it opens into [`ScanStream::from_partitions`].
     struct PartitionOnlyScan {
         rows: Vec<usize>,
     }

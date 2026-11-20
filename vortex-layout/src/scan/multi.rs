@@ -57,8 +57,8 @@ use vortex_scan::Partition;
 use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
-use vortex_scan::pool::ScanStream;
 use vortex_scan::selection::Selection;
+use vortex_scan::stream::ScanStream;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
