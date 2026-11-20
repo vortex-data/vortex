@@ -10,6 +10,7 @@ use super::OptimizeMode;
 use super::rules::*;
 use crate::plan::Concat;
 use crate::plan::Eval;
+use crate::plan::ListPack;
 use crate::plan::Pack;
 use crate::plan::PlanRef;
 use crate::plan::Take;
@@ -18,6 +19,7 @@ use crate::plan::builtins::EvalEvalRule;
 use crate::plan::builtins::EvalIdentityRule;
 use crate::plan::builtins::EvalPackRule;
 use crate::plan::builtins::ExpressionConcatRule;
+use crate::plan::builtins::ExpressionListPackRule;
 use crate::plan::builtins::ExpressionPackRule;
 use crate::plan::builtins::ExpressionTakeRule;
 use crate::plan::builtins::ExpressionZonedRule;
@@ -47,21 +49,24 @@ static PRUNING_PACK_RULE: PlanParentReduceRuleAdapter<Pack, ExpressionPackRule> 
     PlanParentReduceRuleAdapter::new(ExpressionPackRule::Pruning);
 static EXPRESSION_ZONED_RULE: PlanParentReduceRuleAdapter<Zoned, ExpressionZonedRule> =
     PlanParentReduceRuleAdapter::new(ExpressionZonedRule);
+static EXPRESSION_LIST_PACK_RULE: PlanParentReduceRuleAdapter<ListPack, ExpressionListPackRule> =
+    PlanParentReduceRuleAdapter::new(ExpressionListPackRule);
 
 const fn parent_rules(
     pack_rule: &'static dyn DynPlanParentReduceRule,
-) -> [&'static dyn DynPlanParentReduceRule; 5] {
+) -> [&'static dyn DynPlanParentReduceRule; 6] {
     [
         &EVAL_EVAL_RULE,
         &EXPRESSION_CONCAT_RULE,
         &EXPRESSION_TAKE_RULE,
         pack_rule,
         &EXPRESSION_ZONED_RULE,
+        &EXPRESSION_LIST_PACK_RULE,
     ]
 }
 
-static EXACT_PARENT_RULES: [&dyn DynPlanParentReduceRule; 5] = parent_rules(&EXACT_PACK_RULE);
-static PRUNING_PARENT_RULES: [&dyn DynPlanParentReduceRule; 5] = parent_rules(&PRUNING_PACK_RULE);
+static EXACT_PARENT_RULES: [&dyn DynPlanParentReduceRule; 6] = parent_rules(&EXACT_PACK_RULE);
+static PRUNING_PARENT_RULES: [&dyn DynPlanParentReduceRule; 6] = parent_rules(&PRUNING_PACK_RULE);
 
 /// Attempts a static rewrite for `plan`.
 pub(crate) fn reduce_plan(

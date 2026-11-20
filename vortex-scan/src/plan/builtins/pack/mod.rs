@@ -8,6 +8,7 @@
 
 pub(crate) mod execute;
 mod pruning;
+mod strict_functions;
 
 use std::borrow::Cow;
 use std::iter;
@@ -43,6 +44,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use self::pruning::weaken_pruning_proof;
+use self::strict_functions::ApplyStrictFunctionsInsideMasks;
 use crate::execution::operators::OnceSource;
 use crate::execution::operators::PackSource;
 use crate::execution::operators::WrapStage;
@@ -355,6 +357,9 @@ impl PackPlan {
 ///
 /// The next pass pushes the lookup into the `address` child as `$.zip`. The scan can
 /// skip `city` and read just `zip` and the validity of each nullable ancestor.
+///
+/// Strict functions that cannot fail move inside the masks the same way, so
+/// `list_transform($.items, x -> x.sku)` reaches the `items` child and reads only `sku`.
 #[derive(Debug)]
 pub(crate) enum ExpressionPackRule {
     /// Preserves the value of the expression for every row.
@@ -398,6 +403,9 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         let nullable = child.dtype().is_nullable();
         if nullable {
             combiner = combiner.rewrite(&mut ProjectMaskedFields)?.into_inner();
+            combiner = combiner
+                .rewrite(&mut ApplyStrictFunctionsInsideMasks)?
+                .into_inner();
 
             // Stored statistics can weaken a proof. This rewrite is valid only when a true
             // result means the zone can be discarded.

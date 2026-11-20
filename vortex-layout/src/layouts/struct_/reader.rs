@@ -337,6 +337,21 @@ fn expand_struct_root(
                 });
             }
 
+            // A strict function of a field is null wherever the struct is, so it can run on the
+            // field inside the struct validity. It then stays with the field when the expression
+            // is partitioned, and the field reader can push it down, as a list reader pushes the
+            // lambda of `list_transform($.items, x -> x.sku)` into its elements. Only a function
+            // that cannot fail may run on the values that null structs hide.
+            if let Some(validity) = validity
+                && is_strict_field_function(&node)
+            {
+                return Ok(Transformed {
+                    value: mask(node, validity.clone()),
+                    changed: true,
+                    order: TraversalOrder::Skip,
+                });
+            }
+
             let Some(scalar_fn) = node.as_scalar() else {
                 return Ok(Transformed::no(node));
             };
@@ -403,6 +418,20 @@ fn expand_struct_root(
             Ok(Transformed::no(node))
         })?
         .into_inner())
+}
+
+/// Whether `expr` applies only strict functions of one argument that cannot fail to a field of the
+/// root, as `list_transform($.items, x -> x.sku)` does.
+fn is_strict_field_function(expr: &BoundExpression) -> bool {
+    let [child] = expr.children() else {
+        return false;
+    };
+    let strict = expr.as_scalar().is_some_and(|scalar_fn| {
+        let signature = scalar_fn.signature();
+        signature.is_strict() && signature.is_infallible()
+    });
+    strict
+        && ((child.is::<GetItem>() && child.child(0).is_root()) || is_strict_field_function(child))
 }
 
 // Same as make_bound_free_field_annotator, but handles is_not_null($) as the
@@ -698,6 +727,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::struct_::StructArrayExt;
@@ -712,13 +742,17 @@ mod tests {
     use vortex_array::dtype::RESERVED_VALIDITY_FIELD_NAME;
     use vortex_array::dtype::StructFields;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::Lambda;
     use vortex_array::expr::and;
+    use vortex_array::expr::checked_add;
     use vortex_array::expr::col;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
     use vortex_array::expr::gt;
     use vortex_array::expr::is_not_null;
     use vortex_array::expr::is_null;
+    use vortex_array::expr::list_length;
+    use vortex_array::expr::list_transform;
     use vortex_array::expr::lit;
     use vortex_array::expr::lt;
     use vortex_array::expr::mask;
@@ -728,6 +762,7 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_array::expr::select;
     use vortex_array::expr::select_exclude;
+    use vortex_array::expr::var;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -2331,5 +2366,116 @@ mod tests {
             assert_eq!(result, &mask & &expected);
             Ok(())
         })
+    }
+
+    /// Writes `{s: {inner: {x, y}, items: list<{sku, qty}>}?}` with the list layout, where `s` is
+    /// null in row 1, and returns the table too. The item of row 1 has the SKU `i32::MAX`, which
+    /// overflows when added to.
+    #[fixture]
+    fn nullable_struct_with_nested_columns() -> (Arc<dyn SegmentSource>, LayoutRef, ArrayRef) {
+        let mut ctx = SESSION.create_execution_ctx();
+        let inner = StructArray::try_from_iter([
+            ("x", buffer![1i32, 2, 3].into_array()),
+            ("y", buffer![4i32, 5, 6].into_array()),
+        ])
+        .unwrap();
+        let elements = StructArray::try_from_iter([
+            ("sku", buffer![10i32, 11, i32::MAX, 13].into_array()),
+            ("qty", buffer![20i32, 21, 22, 23].into_array()),
+        ])
+        .unwrap();
+        let items = ListArray::try_new(
+            elements.into_array(),
+            buffer![0u32, 2, 3, 4].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )
+        .unwrap();
+        let s = StructArray::try_from_iter_with_validity(
+            [("inner", inner.into_array()), ("items", items.into_array())],
+            Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
+        )
+        .unwrap();
+        let table = StructArray::try_from_iter([("s", s.into_array())])
+            .unwrap()
+            .into_array();
+
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let strategy = TableStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(FlatLayoutStrategy::default()),
+        )
+        .with_list_layout();
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let stream = table.to_array_stream().sequenced(ptr);
+        let layout = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    segments2,
+                    stream,
+                    eof,
+                    &session,
+                )
+                .await
+        })
+        .unwrap();
+
+        (segments, layout, table)
+    }
+
+    /// A strict function of a field of a nullable struct reaches the field reader inside the
+    /// struct validity, so the field reader reads only the columns the function needs.
+    #[rstest]
+    // The validity of `s` and `s.inner.x`, not `s.inner.y`.
+    #[case::nested_field(get_item("x", get_item("inner", get_item("s", root()))), 2)]
+    // The validity of `s`, the offsets of `s.items` and the `sku` elements, not the `qty` ones.
+    #[case::list_transform(
+        list_transform(
+            get_item("items", get_item("s", root())),
+            Lambda::new(["item"], get_item("sku", var("item")))?,
+        ),
+        3
+    )]
+    // The validity of `s` and the offsets of `s.items`, not their elements.
+    #[case::list_length(list_length(get_item("items", get_item("s", root()))), 2)]
+    // A lambda that can fail must not run on the items of null structs, where it would overflow,
+    // so it stays outside the struct validity and the items are read whole.
+    #[case::fallible_lambda(
+        list_transform(
+            get_item("items", get_item("s", root())),
+            Lambda::new(["item"], checked_add(get_item("sku", var("item")), lit(1i32)))?,
+        ),
+        4
+    )]
+    fn test_strict_function_of_nullable_struct_field_reads_needed_columns(
+        #[from(nullable_struct_with_nested_columns)] (segments, layout, table): (
+            Arc<dyn SegmentSource>,
+            LayoutRef,
+            ArrayRef,
+        ),
+        #[case] expr: Expression,
+        #[case] expected_requests: usize,
+    ) -> VortexResult<()> {
+        let source = Arc::new(CountingSegmentSource::new(segments));
+        let reader = layout.new_reader(
+            "".into(),
+            Arc::clone(&source) as _,
+            &SESSION,
+            &Default::default(),
+        )?;
+        let bound = expr.bind(reader.dtype())?;
+        let project = reader.projection_evaluation(&(0..3), &bound, MaskFuture::new_true(3))?;
+        let result = block_on(move |_| project)?;
+
+        assert_arrays_eq!(
+            result,
+            table.apply(&expr)?,
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_eq!(source.requests(), expected_requests);
+        Ok(())
     }
 }
