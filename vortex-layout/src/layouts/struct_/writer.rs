@@ -145,12 +145,9 @@ impl LayoutStrategy for StructStrategy {
             let (sequence_id, chunk) = chunk?;
             let mut sequence_pointer = sequence_id.descend();
             let mut ctx = columns_session.create_execution_ctx();
-            let struct_chunk = normalize_struct_children(
-                chunk.clone(),
-                &Mask::new_true(chunk.len()),
-                &mut ctx,
-            )?
-            .execute::<StructArray>(&mut ctx)?;
+            let struct_chunk =
+                normalize_struct_children(chunk.clone(), &Mask::new_true(chunk.len()), &mut ctx)?
+                    .execute::<StructArray>(&mut ctx)?;
             let mut columns: Vec<(SequenceId, ArrayRef)> = Vec::new();
             if is_nullable {
                 columns.push((

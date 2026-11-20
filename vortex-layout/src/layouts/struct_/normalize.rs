@@ -33,7 +33,8 @@ pub(super) fn normalize_struct_children(
             .collect::<VortexResult<Vec<_>>>()?;
         let validity = Validity::from_mask(validity | &!visible, array.dtype().nullability());
         return Ok(
-            StructArray::try_new(array.names().clone(), fields, array.len(), validity)?.into_array(),
+            StructArray::try_new(array.names().clone(), fields, array.len(), validity)?
+                .into_array(),
         );
     }
 
@@ -41,8 +42,10 @@ pub(super) fn normalize_struct_children(
         return Ok(array);
     }
 
-    // These types have non-null defaults. Union and variant children are left unchanged rather
-    // than choosing a potentially expensive or unavailable default physical representation.
+    // Only leaves whose default can be selected without changing their physical layout are
+    // normalized. Selecting into a list canonicalizes it to a `ListView`, which compresses and
+    // decodes far worse than the incoming list, so lists keep their nulls. Union and variant
+    // children have no cheap default and are also left unchanged.
     if !matches!(
         array.dtype(),
         DType::Bool(_)
@@ -50,8 +53,6 @@ pub(super) fn normalize_struct_children(
             | DType::Decimal(..)
             | DType::Utf8(_)
             | DType::Binary(_)
-            | DType::List(..)
-            | DType::FixedSizeList(..)
     ) {
         return Ok(array);
     }
@@ -91,7 +92,9 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let child = PrimitiveArray::new(
             buffer![1i32, i32::MAX, 3, 99, 5, 77],
-            Validity::from(BitBuffer::from_iter([true, false, false, true, true, false])),
+            Validity::from(BitBuffer::from_iter([
+                true, false, false, true, true, false,
+            ])),
         );
         let inner = StructArray::try_from_iter_with_validity(
             [("value", child.into_array())],
@@ -99,7 +102,9 @@ mod tests {
         )?;
         let input = StructArray::try_from_iter_with_validity(
             [("inner", inner.into_array())],
-            Validity::from(BitBuffer::from_iter([true, false, true, false, true, false])),
+            Validity::from(BitBuffer::from_iter([
+                true, false, true, false, true, false,
+            ])),
         )?
         .into_array();
         let normalized = normalize_struct_children(input.clone(), &Mask::new_true(6), &mut ctx)?;
@@ -110,7 +115,13 @@ mod tests {
             .unmasked_field(0)
             .clone()
             .execute::<StructArray>(&mut ctx)?;
-        assert!(inner.as_ref().validity()?.execute_mask(6, &mut ctx)?.all_true());
+        assert!(
+            inner
+                .as_ref()
+                .validity()?
+                .execute_mask(6, &mut ctx)?
+                .all_true()
+        );
         let expected = PrimitiveArray::from_option_iter([
             Some(1i32),
             Some(0),
