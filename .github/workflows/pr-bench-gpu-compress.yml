@@ -86,12 +86,6 @@ jobs:
         shell: bash
         env:
           RUST_BACKTRACE: full
-          # Do not enable VORTEX_EXPERIMENTAL_PATCHED_ARRAY here: it rewrites interior
-          # `Patches` into a top-level `vortex.patched` array, which has no CUDA decode
-          # kernel and makes GPU decompression fail with "No CUDA kernel for encoding
-          # vortex.patched". Leaving it unset keeps patches inline in the bitpacked array,
-          # which the CUDA bitpacked kernel decodes. This matches the GPU test workflow
-          # (cuda.yaml), which also sets only FLAT_LAYOUT_INLINE_ARRAY_NODE.
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
           python3 scripts/compress-split.py --gpu-decompress --emit-ingest-records

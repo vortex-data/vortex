@@ -33,7 +33,6 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     },
     added: &[
         EditionMember::array(&"vortex.decimal_byte_parts.v2"),
-        EditionMember::array(&"vortex.patched"),
         EditionMember::array(&"vortex.widen"),
     ],
 };

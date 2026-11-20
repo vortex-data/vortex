@@ -18,7 +18,6 @@ pub(crate) mod compute;
 mod plugin;
 mod vtable;
 
-pub(crate) use plugin::BitPackedPatchedPlugin;
 pub use plugin::BitPackedPlugin;
 pub use plugin::bitpacked_v1_id;
 pub use plugin::bitpacked_v2_id;

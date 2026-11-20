@@ -75,9 +75,6 @@ mod layout;
 mod tests;
 mod vtable;
 
-use std::env;
-use std::sync::LazyLock;
-
 pub use array::*;
 pub(crate) use compute::aggregate::patched_aggregate_kernels;
 pub use execute::patch_validity;
@@ -129,17 +126,4 @@ pub fn patch_lanes_for(dtype: &DType, len: usize, n_patches: usize) -> usize {
         .div_ceil(n_chunks * PATCHES_PER_LANE)
         .next_power_of_two()
         .min(default_patch_lanes(dtype))
-}
-
-/// Whether arrays read with interior patches, and sparse arrays, are converted into `Patched`
-/// arrays in memory.
-///
-/// This is set using the environment variable `VORTEX_EXPERIMENTAL_PATCHED_ARRAY`.
-///
-/// Writing is decided separately: compressors write `vortex.patched` arrays only when the
-/// session enables an edition that includes them, which is currently the `unstable` edition.
-pub fn use_experimental_patches() -> bool {
-    static USE_EXPERIMENTAL_PATCHES: LazyLock<bool> =
-        LazyLock::new(|| env::var("VORTEX_EXPERIMENTAL_PATCHED_ARRAY").is_ok_and(|v| v == "1"));
-    *USE_EXPERIMENTAL_PATCHES
 }

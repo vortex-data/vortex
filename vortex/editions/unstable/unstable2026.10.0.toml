@@ -14,7 +14,6 @@ immutable = false
 [added]
 arrays = [
     "vortex.decimal_byte_parts.v2",
-    "vortex.patched",
     "vortex.widen",
 ]
 layouts = []
@@ -26,7 +25,6 @@ aggregates = []
 [components]
 arrays = [
     "vortex.decimal_byte_parts.v2",
-    "vortex.patched",
     "vortex.widen",
 ]
 layouts = []

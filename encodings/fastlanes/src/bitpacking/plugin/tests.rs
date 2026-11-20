@@ -11,9 +11,7 @@ use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::PatchedArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::patched::PatchedArraySlotsExt;
 use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
@@ -26,7 +24,6 @@ use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
-use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -34,14 +31,12 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
-use super::BitPackedPatchedPlugin;
 use super::BitPackedPlugin;
 use super::bitpacked_v1_id;
 use super::bitpacked_v2_id;
 use super::v1::BitPackedMetadata;
 use super::v2::BitPackedV2Metadata;
 use crate::BitPacked;
-use crate::BitPackedArray;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
 use crate::BitWidthsView;
@@ -50,111 +45,9 @@ use crate::bitpack_compress::bitpack_encode_blocked;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
-    session.arrays().register(BitPackedPatchedPlugin);
+    session.arrays().register(BitPackedPlugin);
     session
 });
-
-#[test]
-fn test_decode_bitpacked_patches() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    // Create values where some exceed the bit width, causing patches.
-    // With bit_width=9, max value is 511. Values >=512 become patches.
-    let values: Buffer<i32> = (0i32..=512).collect();
-    let parray = values.into_array();
-    let bitpacked = BitPackedData::encode(&parray, 9, &mut ctx)?;
-
-    assert!(
-        bitpacked.patches().is_some(),
-        "Expected BitPacked array to have patches"
-    );
-
-    let array = bitpacked.as_array();
-
-    let serialization = SESSION.array_serialize(array)?.unwrap();
-    let children = array.children();
-    let buffers = array
-        .buffers()
-        .into_iter()
-        .map(BufferHandle::new_host)
-        .collect::<Vec<_>>();
-
-    let deserialized = BitPackedPatchedPlugin.deserialize(
-        ArrayDeserialization::new(
-            bitpacked_v1_id(),
-            array.dtype(),
-            array.len(),
-            &serialization.metadata,
-            &buffers,
-            &children,
-        ),
-        &SESSION,
-    )?;
-
-    assert_arrays_eq!(deserialized, parray, &mut ctx);
-
-    let patched: PatchedArray = deserialized
-        .try_downcast()
-        .map_err(|a| vortex_err!("Expected Patched, got {}", a.encoding_id()))?;
-
-    let inner_bitpacked: BitPackedArray = patched
-        .inner()
-        .clone()
-        .try_downcast()
-        .map_err(|a| vortex_err!("Expected inner BitPacked, got {}", a.encoding_id()))?;
-
-    assert!(
-        inner_bitpacked.patches().is_none(),
-        "Inner BitPacked should NOT have patches"
-    );
-
-    Ok(())
-}
-
-#[test]
-fn bitpacked_without_patches_stays_bitpacked() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    // With bit_width=16, max value is 65535. All values 0..100 fit.
-    let values: Buffer<i32> = (0i32..100).collect();
-    let parray = values.into_array();
-    let bitpacked = BitPackedData::encode(&parray, 16, &mut ctx)?;
-
-    assert!(
-        bitpacked.patches().is_none(),
-        "Expected BitPacked array without patches"
-    );
-
-    let array = bitpacked.as_array();
-
-    let serialization = SESSION.array_serialize(array)?.unwrap();
-    let children = array.children();
-    let buffers = array
-        .buffers()
-        .into_iter()
-        .map(BufferHandle::new_host)
-        .collect::<Vec<_>>();
-
-    let deserialized = BitPackedPatchedPlugin.deserialize(
-        ArrayDeserialization::new(
-            bitpacked_v1_id(),
-            array.dtype(),
-            array.len(),
-            &serialization.metadata,
-            &buffers,
-            &children,
-        ),
-        &SESSION,
-    )?;
-
-    assert_arrays_eq!(deserialized, parray, &mut ctx);
-
-    let result = deserialized
-        .try_downcast::<BitPacked>()
-        .map_err(|a| vortex_err!("Expected deserialize BitPacked, got {}", a.encoding_id()))?;
-
-    assert!(result.patches().is_none(), "Result should not have patches");
-
-    Ok(())
-}
 
 #[test]
 fn primitive_array_returns_error() -> VortexResult<()> {
@@ -168,7 +61,7 @@ fn primitive_array_returns_error() -> VortexResult<()> {
         .map(BufferHandle::new_host)
         .collect::<Vec<_>>();
 
-    let result = BitPackedPatchedPlugin.deserialize(
+    let result = BitPackedPlugin.deserialize(
         ArrayDeserialization::new(
             bitpacked_v1_id(),
             array.dtype(),
@@ -182,7 +75,7 @@ fn primitive_array_returns_error() -> VortexResult<()> {
 
     assert!(
         result.is_err(),
-        "Expected error when deserializing PrimitiveArray with BitPackedPatchedPlugin"
+        "Expected error when deserializing PrimitiveArray with BitPackedPlugin"
     );
 
     Ok(())
@@ -374,47 +267,6 @@ fn v2_rejects_malformed_parts() -> VortexResult<()> {
     let signed_offsets =
         block_offsets.cast(DType::Primitive(PType::I32, Nullability::NonNullable))?;
     assert!(deserialize(&signed, &[signed_offsets]).is_err());
-    Ok(())
-}
-
-#[test]
-fn test_decode_blocked_bitpacked_patches() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let values = drifting();
-    let array = bitpack_encode_blocked(&values, &[2, 3, 4, 5, 3], None, &mut ctx)?.into_array();
-
-    let serialization = SESSION.array_serialize(&array)?.unwrap();
-    assert_eq!(serialization.serialized_id, bitpacked_v2_id());
-    let children = array.children();
-    let buffers = array
-        .buffers()
-        .into_iter()
-        .map(BufferHandle::new_host)
-        .collect::<Vec<_>>();
-
-    let deserialized = BitPackedPatchedPlugin.deserialize(
-        ArrayDeserialization::new(
-            bitpacked_v2_id(),
-            array.dtype(),
-            array.len(),
-            &serialization.metadata,
-            &buffers,
-            &children,
-        ),
-        &SESSION,
-    )?;
-
-    let patched: PatchedArray = deserialized
-        .try_downcast()
-        .map_err(|a| vortex_err!("Expected Patched, got {}", a.encoding_id()))?;
-    let inner_bitpacked: BitPackedArray = patched
-        .inner()
-        .clone()
-        .try_downcast()
-        .map_err(|a| vortex_err!("Expected inner BitPacked, got {}", a.encoding_id()))?;
-    assert!(inner_bitpacked.patches().is_none());
-    assert!(!inner_bitpacked.bit_widths().is_global());
-    assert_arrays_eq!(patched, values, &mut ctx);
     Ok(())
 }
 
