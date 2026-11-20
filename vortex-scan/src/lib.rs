@@ -129,6 +129,25 @@ pub trait DataSource: 'static + Send + Sync {
     /// Returns a scan over the source.
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef>;
 
+    /// Returns the rows at which a scan of `scan_request` can be cut without splitting the
+    /// source's own units of work, or `None` when the source has no such cut points.
+    ///
+    /// The boundaries are sorted and strictly increasing. The first is the start of the request's
+    /// row range and the last its end, or `0` and the row count when the request has no row
+    /// range, so consecutive boundaries cover the range exactly once. They depend on the
+    /// request's projection and filter, which decide the columns whose layout is read, but not
+    /// on its selection, limit or ordering. Computing them reads metadata only.
+    ///
+    /// A host that cuts a source's rows itself, such as one that assigns byte ranges of a file to
+    /// its partitions, maps its own pieces onto these boundaries and passes each piece as the
+    /// [`row_range`](ScanRequest::row_range) of its own scan. Pieces that start and end on
+    /// boundaries each read whole units of work, and together read every row once. A host that
+    /// wants the source to group them instead calls [`DataSourceScan::split`].
+    async fn cut_points(&self, scan_request: &ScanRequest) -> VortexResult<Option<Arc<[u64]>>> {
+        let _ = scan_request;
+        Ok(None)
+    }
+
     /// Returns the statistics for a given field.
     async fn field_statistics(&self, field_path: &FieldPath) -> VortexResult<StatsSet>;
 

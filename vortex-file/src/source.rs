@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
@@ -53,6 +55,10 @@ impl DataSource for FileDataSource {
 
     async fn scan(&self, request: ScanRequest) -> VortexResult<DataSourceScanRef> {
         self.source.scan(request).await
+    }
+
+    async fn cut_points(&self, request: &ScanRequest) -> VortexResult<Option<Arc<[u64]>>> {
+        self.source.cut_points(request).await
     }
 
     async fn field_statistics(&self, field_path: &FieldPath) -> VortexResult<StatsSet> {

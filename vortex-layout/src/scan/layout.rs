@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::iter;
 use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::pin::Pin;
@@ -14,10 +15,12 @@ use futures::FutureExt;
 use futures::Stream;
 use futures::stream;
 use futures::stream::StreamExt;
+use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
@@ -49,6 +52,8 @@ use crate::scan::metrics::ScanMetrics;
 use crate::scan::metrics::ScanRecorder;
 use crate::scan::repeated_scan::DEFAULT_SPLITS_PER_THREAD;
 use crate::scan::scan_builder::ScanBuilder;
+use crate::scan::scan_builder::referenced_field_masks;
+use crate::scan::split_by::SplitBy;
 use crate::scan::split_queue::SplitQueue;
 
 /// An implementation of a [`DataSource`] that reads data from a [`LayoutReaderRef`].
@@ -57,7 +62,14 @@ pub struct LayoutReaderDataSource {
     session: VortexSession,
     split_max_row_count: u64,
     metrics: Option<ScanMetrics>,
+    /// The whole-source cut points computed by [`DataSource::cut_points`], keyed by the fields
+    /// whose layout decides them. Scans whose fields match reuse them instead of walking the
+    /// layout again.
+    cut_points: Mutex<Vec<CachedCutPoints>>,
 }
+
+/// Whole-source cut points and the fields whose layout decided them.
+type CachedCutPoints = (Vec<FieldMask>, Arc<[u64]>);
 
 impl LayoutReaderDataSource {
     /// Creates a new [`LayoutReaderDataSource`].
@@ -72,6 +84,7 @@ impl LayoutReaderDataSource {
             session,
             split_max_row_count: u64::MAX,
             metrics: None,
+            cut_points: Mutex::new(Vec::new()),
         }
     }
 
@@ -95,6 +108,25 @@ impl LayoutReaderDataSource {
     pub fn with_some_metrics_registry(mut self, metrics: Option<Arc<dyn MetricsRegistry>>) -> Self {
         self.metrics = metrics.as_deref().map(ScanMetrics::new);
         self
+    }
+
+    /// Adds this source's scans to counters registered elsewhere, without new registry entries.
+    ///
+    /// A host that opens one source per file registers the counters once with
+    /// [`ScanMetrics::new`] and shares them across its sources.
+    pub fn with_scan_metrics(mut self, metrics: ScanMetrics) -> Self {
+        self.metrics = Some(metrics);
+        self
+    }
+
+    /// The cached whole-source cut points for `field_mask`, if [`DataSource::cut_points`]
+    /// computed them.
+    fn cached_cut_points(&self, field_mask: &[FieldMask]) -> Option<Arc<[u64]>> {
+        self.cut_points
+            .lock()
+            .iter()
+            .find(|(mask, _)| mask.as_slice() == field_mask)
+            .map(|(_, boundaries)| Arc::clone(boundaries))
     }
 }
 
@@ -133,6 +165,8 @@ impl DataSource for LayoutReaderDataSource {
             .map(|expr| expr.bind(self.reader.dtype())?.optimize_recursive())
             .transpose()?;
         let dtype = projection.dtype().clone();
+        let natural_splits =
+            self.cached_cut_points(&referenced_field_masks(&projection, filter.as_ref())?);
 
         // If the dtype is an empty struct, and there is no filter, we can return a special
         // length-only scan.
@@ -212,10 +246,71 @@ impl DataSource for LayoutReaderDataSource {
             ordered: scan_request.ordered,
             split_concurrency: scan_request.split_concurrency,
             metrics: self.metrics.clone(),
+            natural_splits,
             next_row: row_range.start,
             end_row: row_range.end,
             split_size: self.split_max_row_count,
         }))
+    }
+
+    /// The layout's split boundaries for the fields the request reads, as a scan of the whole
+    /// source would compute them, clamped to the request's row range.
+    ///
+    /// The whole-source boundaries are computed once for each set of fields and cached, and later
+    /// scans of this source that read the same fields cut at them instead of walking the layout.
+    async fn cut_points(&self, scan_request: &ScanRequest) -> VortexResult<Option<Arc<[u64]>>> {
+        let projection = scan_request
+            .projection
+            .bind(self.reader.dtype())?
+            .optimize_recursive()?;
+        let filter = scan_request
+            .filter
+            .as_ref()
+            .map(|expr| expr.bind(self.reader.dtype())?.optimize_recursive())
+            .transpose()?;
+        let field_mask = referenced_field_masks(&projection, filter.as_ref())?;
+
+        // Compute under the lock, so that concurrent callers wait for one layout walk instead of
+        // each contending on the layout's lazily initialized children.
+        let boundaries = {
+            let mut cache = self.cut_points.lock();
+            let cached = cache
+                .iter()
+                .find(|(mask, _)| *mask == field_mask)
+                .map(|(_, boundaries)| Arc::clone(boundaries));
+            match cached {
+                Some(boundaries) => boundaries,
+                None => {
+                    let boundaries: Arc<[u64]> = SplitBy::default()
+                        .splits(
+                            self.reader.as_ref(),
+                            &(0..self.reader.row_count()),
+                            &field_mask,
+                        )?
+                        .into();
+                    cache.push((field_mask, Arc::clone(&boundaries)));
+                    boundaries
+                }
+            }
+        };
+
+        let Some(row_range) = &scan_request.row_range else {
+            return Ok(Some(boundaries));
+        };
+        if row_range.start >= row_range.end {
+            return Ok(Some(Arc::from([row_range.start])));
+        }
+        Ok(Some(
+            iter::once(row_range.start)
+                .chain(
+                    boundaries
+                        .iter()
+                        .copied()
+                        .filter(|&row| row > row_range.start && row < row_range.end),
+                )
+                .chain(iter::once(row_range.end))
+                .collect(),
+        ))
     }
 
     async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
@@ -239,6 +334,8 @@ struct LayoutReaderScan {
     split_concurrency: Option<NonZeroUsize>,
     selection: Selection,
     metrics: Option<ScanMetrics>,
+    /// The source's cached whole-source cut points for this scan's fields, if any.
+    natural_splits: Option<Arc<[u64]>>,
     next_row: u64,
     end_row: u64,
     split_size: u64,
@@ -248,12 +345,16 @@ impl LayoutReaderScan {
     /// A scan builder over this scan's reader, with its selection, projection, filter, metrics
     /// and split concurrency. Callers give it the row range to read.
     fn builder(&self) -> ScanBuilder<ArrayRef> {
-        ScanBuilder::new(self.session.clone(), Arc::clone(&self.reader))
+        let builder = ScanBuilder::new(self.session.clone(), Arc::clone(&self.reader))
             .with_selection(self.selection.clone())
             .with_projection(self.projection.clone())
             .with_some_filter(self.filter.clone())
             .with_some_scan_metrics(self.metrics.clone())
-            .with_some_max_splits_in_flight(self.split_concurrency)
+            .with_some_max_splits_in_flight(self.split_concurrency);
+        match &self.natural_splits {
+            Some(boundaries) => builder.with_natural_splits(Arc::clone(boundaries)),
+            None => builder,
+        }
     }
 
     /// This scan over `rows` only. Only a scan without a limit is cut into pieces, so a piece
@@ -271,6 +372,7 @@ impl LayoutReaderScan {
             split_concurrency: self.split_concurrency,
             selection: self.selection.clone(),
             metrics: self.metrics.clone(),
+            natural_splits: self.natural_splits.clone(),
             next_row: rows.start,
             end_row: rows.end,
             split_size: self.split_size,
@@ -309,7 +411,9 @@ impl DataSourceScan for LayoutReaderScan {
     }
 
     /// Opens the scan into a stream over a [`SplitQueue`] of its split futures, each clone of the
-    /// stream keeping the stream pipeline's per-thread count of them in flight.
+    /// stream keeping the request's `split_concurrency` of them in flight, or the stream
+    /// pipeline's per-thread count when the request leaves it unset. A host that reads the scan
+    /// through one stream sets it to the splits it wants in flight in all.
     ///
     /// Split futures cannot share a limit, and the clones of a queue finish splits out of row
     /// order. So a scan with a limit, or an ordered one, opens into its partition pipeline and
@@ -318,12 +422,9 @@ impl DataSourceScan for LayoutReaderScan {
         if self.remaining_limit.is_some() || self.ordered {
             return Ok(ScanStream::from_partitions(self));
         }
-        // A cap on the scan's splits in flight also caps each clone's.
         let per_worker = self
             .split_concurrency
-            .map_or(DEFAULT_SPLITS_PER_THREAD, |max| {
-                max.get().min(DEFAULT_SPLITS_PER_THREAD)
-            });
+            .map_or(DEFAULT_SPLITS_PER_THREAD, NonZeroUsize::get);
         let splits = self
             .builder()
             .prepare()?
@@ -424,6 +525,7 @@ impl Stream for LayoutReaderScan {
             row_range,
             selection: this.selection.clone(),
             metrics: this.metrics.clone(),
+            natural_splits: this.natural_splits.clone(),
         }) as PartitionRef;
 
         this.next_row = split_end;
@@ -458,6 +560,7 @@ struct LayoutReaderSplit {
     row_range: Range<u64>,
     selection: Selection,
     metrics: Option<ScanMetrics>,
+    natural_splits: Option<Arc<[u64]>>,
 }
 
 impl Partition for LayoutReaderSplit {
@@ -495,6 +598,10 @@ impl Partition for LayoutReaderSplit {
             .with_some_scan_metrics(self.metrics)
             .with_ordered(self.ordered)
             .with_some_max_splits_in_flight(self.split_concurrency);
+        let builder = match self.natural_splits {
+            Some(boundaries) => builder.with_natural_splits(boundaries),
+            None => builder,
+        };
         let builder = match self.row_limit {
             Some(row_limit) => builder.with_shared_limit(row_limit),
             None => builder.with_some_limit(self.limit),
@@ -561,7 +668,7 @@ impl Partition for Empty {
         let dtype = self.dtype.clone();
 
         // Create an iterator of arrays with the correct row count, respecting u64::MAX limits.
-        let iter = std::iter::from_fn(move || {
+        let iter = iter::from_fn(move || {
             if self.row_count == 0 {
                 return None;
             }
@@ -755,6 +862,7 @@ mod split_open_tests {
 
     use futures::TryStreamExt;
     use futures::future::try_join_all;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
@@ -845,6 +953,44 @@ mod split_open_tests {
         let stream = runtime.block_on(source.scan(request()))?.open()?;
         let values = collect_scan_values(runtime.block_on_stream(stream))?;
         assert_eq!(values.len(), 10);
+        Ok(())
+    }
+
+    /// Cut points are the layout's split boundaries clamped to the request's row range, and
+    /// scans cut at row ranges between them read each row once.
+    #[test]
+    fn cut_points_tile_the_rows() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let source = source(&runtime);
+        let whole = runtime
+            .block_on(source.cut_points(&ScanRequest::default()))?
+            .vortex_expect("a layout source has cut points");
+        assert_eq!(
+            whole.as_ref(),
+            (0..=16u64).map(|i| i * 4).collect::<Vec<_>>()
+        );
+
+        let clamped = runtime
+            .block_on(source.cut_points(&ScanRequest {
+                row_range: Some(6..18),
+                ..Default::default()
+            }))?
+            .vortex_expect("a layout source has cut points");
+        assert_eq!(clamped.as_ref(), [6, 8, 12, 16, 18]);
+
+        let mut values = Vec::new();
+        let cuts = whole.iter().copied().step_by(4).collect::<Vec<_>>();
+        for rows in cuts.windows(2).map(|pair| pair[0]..pair[1]) {
+            let stream = runtime
+                .block_on(source.scan(ScanRequest {
+                    row_range: Some(rows),
+                    ordered: true,
+                    ..Default::default()
+                }))?
+                .open()?;
+            values.extend(collect_scan_values(runtime.block_on_stream(stream))?);
+        }
+        assert_eq!(values, (0..64).collect::<Vec<_>>());
         Ok(())
     }
 
