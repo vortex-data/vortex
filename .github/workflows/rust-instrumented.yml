@@ -170,6 +170,10 @@ jobs:
       TSAN_OPTIONS: "symbolize=1:suppressions=${{ github.workspace }}/vortex-ffi/tsan_suppressions.txt"
       TSAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
       VORTEX_SKIP_SLOW_TESTS: "1"
+      # VortexError captures a std Backtrace when constructed. Under the sanitizers that
+      # capture takes 8-24 s, so the ~500 error-path tests took 93% of the TSAN test time.
+      # Panics still print backtraces through RUST_BACKTRACE.
+      RUST_LIB_BACKTRACE: "0"
       # -Cunsafe-allow-abi-mismatch=sanitizer: libraries like compiler_builtins
       # unset -Zsanitizer flag and we should allow that.
       RUSTFLAGS: "-A warnings -Cunsafe-allow-abi-mismatch=sanitizer -C debuginfo=2 -C opt-level=0 -C strip=none"
