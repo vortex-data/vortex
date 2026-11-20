@@ -594,6 +594,19 @@ block_op 0 copy u32->u32 scratch0 -> output"
         assert_fuses_like_execute(&array, 1)
     }
 
+    /// FoR with a zero reference has no op, since level-wise execution returns its child as is.
+    /// The executor asks for the op before the leaf's source, so the patched FoR over BitPacked
+    /// below builds no source, and the frame is off for the rest of the execution.
+    #[test]
+    fn parent_without_op_builds_no_source() -> VortexResult<()> {
+        let array = FoR::try_new(for_stack(3000, 1, true)?, Scalar::from(0u32))?.into_array();
+        assert_eq!(
+            fusion_trace(array.clone())?,
+            "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32?, len=3000) child=fastlanes.for.v2(u32?, len=3000)"
+        );
+        assert_fuses_like_execute(&array, 0)
+    }
+
     /// A packed source fills any in-order ranges, including ones that straddle FastLanes chunks,
     /// which the executor only asks for when a grid other than the source's own is in use.
     #[rstest]

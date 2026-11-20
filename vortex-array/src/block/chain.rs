@@ -5,8 +5,11 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 
+use super::BlockOp;
 use super::BlockProgram;
+use super::BlockSource;
 use super::fusable_ptype;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -18,7 +21,7 @@ use crate::validity::Validity;
 
 /// A block program standing for the parent that last extended it.
 ///
-/// The executor starts one from a leaf on the way back up the stack, extends it with each spine
+/// The executor starts one from a leaf on the way back up the stack, pushes the op of each spine
 /// parent above that transforms blocks, and drives it as soon as the next parent cannot, so a
 /// chain never waits: it is a value of the executor's loop, not an array.
 pub(crate) struct FusedChain {
@@ -32,65 +35,40 @@ pub(crate) struct FusedChain {
 }
 
 impl FusedChain {
-    /// Start a chain from `child`, the array in slot `slot_idx` of the suspended `parent`, if
-    /// `child` is a leaf, one with a block source, and `parent` transforms blocks of that slot.
-    /// Returns `child` back otherwise.
-    ///
-    /// The executor checked on the way down that both arrays are primitive, non-empty and of one
-    /// length.
-    pub(crate) fn start(
-        child: ArrayRef,
-        parent: &ArrayRef,
-        slot_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Result<Self, ArrayRef>> {
-        vortex_ensure_eq!(
-            child.len(),
-            parent.len(),
-            "a spine child has its parent's length"
-        );
-        let (Some(ptype), Some(source)) = (fusable_ptype(&child), child.block_source(ctx)?) else {
-            return Ok(Err(child));
-        };
-        trace_op!(record_fuse_start(&child));
-        let chain = Self {
-            program: BlockProgram::new(source, ptype, child.len()),
-            dtype: child.dtype().clone(),
-            len: child.len(),
+    /// Start a chain from `leaf`, whose values `source` emits block by block.
+    pub(crate) fn start(leaf: &ArrayRef, source: Box<dyn BlockSource>) -> VortexResult<Self> {
+        let ptype = fusable_ptype(leaf)
+            .ok_or_else(|| vortex_err!("a leaf is primitive, not {}", leaf.dtype()))?;
+        trace_op!(record_fuse_start(leaf));
+        Ok(Self {
+            program: BlockProgram::new(source, ptype, leaf.len()),
+            dtype: leaf.dtype().clone(),
+            len: leaf.len(),
             stats: StatsSet::default(),
-            validity: child.validity()?,
-        };
-        match chain.extend(parent, slot_idx, ctx)? {
-            // Release the child, so a leaf that owns its buffer is again its only owner.
-            Ok(chain) => Ok(Ok(chain)),
-            Err(_) => Ok(Err(child)),
-        }
+            validity: leaf.validity()?,
+        })
     }
 
-    /// Extend the chain with `parent`, which waits for its values in slot `slot_idx`. Returns the
-    /// chain back if `parent` does not transform blocks of that slot.
-    pub(crate) fn extend(
-        mut self,
-        parent: &ArrayRef,
-        slot_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Result<Self, Self>> {
-        let Some(ptype) = fusable_ptype(parent) else {
-            return Ok(Err(self));
-        };
+    /// The dtype of the values the chain produces: the dtype of the parent it stands for.
+    pub(crate) fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Extend the chain with `parent`'s `op`, which transforms the chain's values into the
+    /// parent's: the chain then stands for `parent`.
+    pub(crate) fn push(&mut self, parent: &ArrayRef, op: Box<dyn BlockOp>) -> VortexResult<()> {
+        let ptype = fusable_ptype(parent)
+            .ok_or_else(|| vortex_err!("a spine parent is primitive, not {}", parent.dtype()))?;
         vortex_ensure_eq!(
             self.len,
             parent.len(),
             "a spine child has its parent's length"
         );
-        let Some(op) = parent.block_op(slot_idx, &self.dtype, ctx)? else {
-            return Ok(Err(self));
-        };
         self.program.push(op, ptype);
         trace_op!(record_fuse_extend(parent, self.program.ops()));
         self.dtype = parent.dtype().clone();
         self.stats = parent.statistics().to_owned();
-        Ok(Ok(self))
+        Ok(())
     }
 
     /// Run the program: the values of the parent the chain stands for.
