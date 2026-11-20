@@ -12250,6 +12250,7 @@ dependencies = [
  "arrow-buffer 59.3.2",
  "arrow-schema 59.3.2",
  "chrono",
+ "hegeltest",
  "parquet-variant",
  "parquet-variant-compute",
  "prost 0.14.6",
