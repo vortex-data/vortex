@@ -60,7 +60,6 @@ use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
 use vortex_scan::selection::Selection;
 use vortex_scan::stream::ScanStream;
-use vortex_scan::stream::split_shared;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -72,8 +71,7 @@ use crate::scan::scan_builder::ScanBuilder;
 /// How many files each clone of an unordered scan's opened stream reads at once.
 ///
 /// This matches the read-ahead of the DataFusion `VortexTable` path on develop
-/// (`SCAN_PARTITION_READ_AHEAD`), so that reading a scan through `open` and through `split`
-/// behaves the same.
+/// (`SCAN_PARTITION_READ_AHEAD`), whose partitions share one stream of files as the clones do.
 const PARTITION_READ_AHEAD: usize = 2;
 
 /// Default concurrency for opening deferred readers.
@@ -415,11 +413,9 @@ impl DataSourceScan for MultiLayoutScan {
         &self.dtype
     }
 
-    /// Splits an unordered scan into `n` clones of its opened partition stream, which share its
-    /// files. Cuts an ordered scan into at most `n` contiguous pieces in file order, reading
-    /// metadata only.
+    /// Cuts the scan into at most `n` contiguous pieces in file order, reading metadata only.
     ///
-    /// With at least `n` files, each ordered piece is a run of whole files. The runs balance the
+    /// With at least `n` files, each piece is a run of whole files. The runs balance the
     /// files' byte sizes when every size is known, and their counts otherwise. With fewer files,
     /// each file gets a share of the `n` pieces in proportion to its size, at least one, and no
     /// piece holds parts of two files. A file that is open is cut at its natural split
@@ -427,17 +423,14 @@ impl DataSourceScan for MultiLayoutScan {
     /// opening it, so the scan may return fewer than `n` pieces.
     ///
     /// A scan with a limit stays whole, because the limit is one budget across all its files.
-    /// So does an ordered one that selects partitions, because partition indices count from its
-    /// first file.
+    /// So does one that selects partitions, because partition indices count from its first
+    /// file.
     fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
         let files = self.ready.len() + self.deferred.len();
-        if n.get() == 1 || files == 0 || self.request.limit.is_some() {
-            return Ok(vec![self]);
-        }
-        if !self.request.ordered {
-            return split_shared(self, n);
-        }
-        if self.request.partition_range.is_some()
+        if n.get() == 1
+            || files == 0
+            || self.request.limit.is_some()
+            || self.request.partition_range.is_some()
             || !matches!(self.request.partition_selection, Selection::All)
         {
             return Ok(vec![self]);
@@ -579,8 +572,7 @@ impl DataSourceScan for MultiLayoutScan {
                 Some((next, shared))
             })
             .map(|partition| partition.and_then(|partition| partition.execute()))
-            // Matches the DataFusion `VortexTable` path's read-ahead on develop, so a scan read
-            // through `open` behaves as one read through `split`.
+            // Matches the read-ahead of the DataFusion `VortexTable` path on develop.
             .try_flatten_unordered(Some(PARTITION_READ_AHEAD))
             .boxed()
         }))
@@ -1123,9 +1115,10 @@ mod tests {
         Ok(())
     }
 
-    /// The pieces of an unordered scan share its files, so together they read every row once.
+    /// The pieces of an unordered scan are fixed: each owns its files' rows. Files that cannot
+    /// be cut stay whole, so there may be fewer pieces than asked for.
     #[test]
-    fn unordered_pieces_share_the_files() -> VortexResult<()> {
+    fn unordered_pieces_own_their_files() -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
         let session = session_with_handle(runtime.handle());
         let first: LayoutReaderRef = Arc::new(TestLayoutReader::new(2));
@@ -1140,13 +1133,15 @@ mod tests {
 
         let scan = runtime.block_on(source.scan(ScanRequest::default()))?;
         let pieces = scan.split(NonZeroUsize::try_from(5)?)?;
-        assert_eq!(pieces.len(), 5);
-        let mut values = Vec::new();
-        for piece in pieces {
-            values.extend(piece_values(&runtime, piece)?);
-        }
-        values.sort_unstable();
-        assert_eq!(values, [0, 1, 10, 11, 20, 21]);
+        let pieces = pieces
+            .into_iter()
+            .map(|piece| {
+                let mut values = piece_values(&runtime, piece)?;
+                values.sort_unstable();
+                Ok(values)
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+        assert_eq!(pieces, [vec![0, 1], vec![10, 11], vec![20, 21]]);
         Ok(())
     }
 
