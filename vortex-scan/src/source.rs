@@ -34,6 +34,7 @@ pub struct ScanInput {
     pub cache: Option<ScanCache>,
 }
 
+mod bind_cache;
 mod plan;
 
 pub use plan::DeferredPlanChild;
