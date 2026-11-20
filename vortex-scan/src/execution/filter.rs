@@ -237,7 +237,7 @@ enum DynamicRecheck {
     /// The pruning plans of the changed dynamic conjuncts still to run, and the one running.
     Running {
         pending: VecDeque<PlanRef>,
-        current: Option<ScanAdaptor>,
+        current: Option<Box<ScanAdaptor>>,
     },
     /// Every changed conjunct has been rechecked, or rechecking is off.
     Done,
@@ -355,7 +355,10 @@ impl FilterPlanner {
         )?
         .with_row_offset(self.scan.row_offset)
         .with_value_cache(self.scan.values.clone());
-        *current = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
+        *current = Some(Box::new(ScanAdaptor::new(
+            scan,
+            Arc::clone(&self.scan.locations),
+        )));
         Ok(Some(PlannerOutput::Continue))
     }
 }
