@@ -22,11 +22,15 @@
 
 mod arrow;
 mod metadata;
+mod text;
 mod vtable;
 
 pub use metadata::UuidMetadata;
+pub use text::format_uuid;
+pub use text::parse_uuid;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::session::DTypeSessionExt;
+use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_session::VortexSession;
 
@@ -41,6 +45,8 @@ pub struct Uuid;
 /// like their storage bytes, and `is_sorted` and `min_max` are pushed down into the storage.
 pub fn initialize(session: &VortexSession) {
     session.dtypes().register(Uuid);
+    session.scalar_fns().register(text::ParseUuid);
+    session.scalar_fns().register(text::FormatUuid);
     session.aggregate_fns().register_storage_ordered(Uuid);
     session.arrow().register_extension(Uuid);
 }
