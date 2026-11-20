@@ -28,13 +28,14 @@ pub trait ScanPool: 'static + Send + Sync {
     /// The dtype of the arrays every worker returns.
     fn dtype(&self) -> &DType;
 
-    /// Returns a new worker: a stream its caller polls inline, on its own thread.
+    /// Returns a new worker: a stream that one host thread polls.
     ///
     /// Workers take work from the pool until none is left, so together they return every row of
     /// the scan exactly once. A host may start any number of workers, at any time. A worker may
     /// spawn its work onto the session's runtime, so its splits decode concurrently and their I/O
-    /// starts early, but it starts no threads of its own. Dropping a worker before it ends gives
-    /// up the work it had taken, so a host drops a worker early only when it abandons the scan.
+    /// starts early, but it never starts threads of its own. Dropping a worker before it ends
+    /// gives up the work it had taken, so a host drops a worker early only when it abandons the
+    /// scan.
     fn worker(self: Arc<Self>) -> SendableArrayStream;
 
     /// The fraction of the pool's work that workers have taken, from 0.0 to 1.0, for a host's
@@ -58,7 +59,7 @@ pub trait ScanPool: 'static + Send + Sync {
 pub struct PartitionPool {
     dtype: DType,
     partitions: Mutex<PartitionStream>,
-    /// The scan's partition count, if it has an upper bound.
+    /// The scan's partition count, if it is known or estimated.
     partition_count: Option<usize>,
     taken: AtomicUsize,
     exhausted: AtomicBool,
@@ -175,7 +176,7 @@ mod tests {
         }
 
         fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
-            let array = Buffer::from_iter(0..self.rows as i32).into_array();
+            let array = Buffer::from_iter(0..i32::try_from(self.rows)?).into_array();
             Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
                 DTYPE.clone(),
                 stream::iter([Ok(array)]),
@@ -220,6 +221,32 @@ mod tests {
         });
         let rows: usize = block_on(try_join_all(workers))?.into_iter().sum();
         assert_eq!(rows, 14);
+        Ok(())
+    }
+
+    /// Progress counts partitions as workers take them, and the pool is exhausted once a worker
+    /// finds none left.
+    #[test]
+    fn default_pool_reports_progress_and_exhaustion() -> VortexResult<()> {
+        let scan = Box::new(PartitionOnlyScan {
+            rows: vec![2, 3, 4, 5],
+        });
+        let pool = scan.open()?;
+        assert_eq!(pool.progress(), 0.0);
+        assert!(!pool.is_exhausted());
+
+        let mut worker = Arc::clone(&pool).worker();
+        let first = block_on(worker.next()).transpose()?;
+        assert_eq!(first.map(|array| array.len()), Some(2));
+        assert_eq!(pool.progress(), 0.25);
+        assert!(!pool.is_exhausted());
+
+        let rest =
+            block_on(worker.try_fold(0, |rows, array| async move { Ok(rows + array.len()) }))?;
+        assert_eq!(rest, 12);
+        assert_eq!(pool.progress(), 1.0);
+        assert!(pool.is_exhausted());
+        assert!(block_on(Arc::clone(&pool).worker().next()).is_none());
         Ok(())
     }
 

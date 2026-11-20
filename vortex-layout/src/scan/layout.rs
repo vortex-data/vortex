@@ -57,7 +57,7 @@ use crate::scan::scan_builder::ScanBuilder;
 ///
 /// When a scan is [split](DataSourceScan::split) or [opened](DataSourceScan::open), its units are
 /// the layout's splits. Workers of an opened scan share them, each keeping several in flight on
-/// its own thread.
+/// the session's runtime.
 pub struct LayoutReaderDataSource {
     reader: LayoutReaderRef,
     session: VortexSession,
@@ -258,11 +258,12 @@ impl LayoutReaderScan {
     fn into_split_scan(self) -> VortexResult<LayoutSplitScan> {
         let row_count = DataSourceScan::row_count(&self);
         let options = LayoutScanOptions {
+            session: self.session.clone(),
             dtype: self.dtype,
             ordered: self.ordered,
             limit: self.limit,
             has_filter: self.filter.is_some(),
-            splits_in_flight: self.split_concurrency,
+            split_concurrency: self.split_concurrency,
         };
         let row_range = clamp_row_range(self.next_row..self.end_row, self.reader.row_count());
         let scan = ScanBuilder::new(self.session, self.reader)
@@ -331,11 +332,12 @@ fn clamp_row_range(row_range: Range<u64>, total_rows: u64) -> Range<u64> {
 /// What a [`LayoutSplitScan`] and every piece cut from it share.
 #[derive(Clone)]
 struct LayoutScanOptions {
+    session: VortexSession,
     dtype: DType,
     ordered: bool,
     limit: Option<u64>,
     has_filter: bool,
-    splits_in_flight: Option<NonZeroUsize>,
+    split_concurrency: Option<NonZeroUsize>,
 }
 
 /// A prepared scan of one layout reader over some of its splits: a [`LayoutReaderScan`] that was
@@ -413,22 +415,26 @@ impl DataSourceScan for LayoutSplitScan {
 
     fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
         let LayoutScanOptions {
+            session,
             dtype,
             ordered,
             limit,
             has_filter,
-            splits_in_flight,
+            split_concurrency,
         } = self.options;
         if limit == Some(0) {
             return Box::new(Empty::new(dtype, 0)).open();
         }
         let work = FileWork::start(self.scan, self.ranges)?;
         let options = PoolOptions {
+            session,
             dtype,
             ordered,
             limit,
             has_filter,
-            splits_in_flight,
+            split_concurrency,
+            // A single opened file has nothing to open.
+            open_concurrency: 1,
         };
         Ok(open_pool(options, vec![PoolFile::Opened(work)], None))
     }
@@ -838,7 +844,10 @@ mod tests {
 mod pool_tests {
     use std::num::NonZeroUsize;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
+    use futures::StreamExt;
     use rstest::rstest;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -907,30 +916,6 @@ mod pool_tests {
                 [4 * execution, 0, 0, execution, 0]
             );
         }
-        Ok(())
-    }
-
-    /// A pool reports work left until a worker has taken every split, and its progress reaches
-    /// one once it has.
-    #[rstest]
-    #[case::ordered(true)]
-    #[case::unordered(false)]
-    fn pool_is_exhausted_once_drained(#[case] ordered: bool) -> VortexResult<()> {
-        let source = source(TestLayoutReader::new(8).with_split_size(2));
-        let pool = plan(
-            &source,
-            ScanRequest {
-                ordered,
-                ..Default::default()
-            },
-        )?
-        .open()?;
-        assert!(!pool.is_exhausted());
-        assert_eq!(pool.progress(), 0.0);
-
-        assert_eq!(read_with_one_worker(Arc::clone(&pool))?.len(), 8);
-        assert!(pool.is_exhausted());
-        assert_eq!(pool.progress(), 1.0);
         Ok(())
     }
 
@@ -1008,6 +993,79 @@ mod pool_tests {
         values.sort_unstable();
         values.dedup();
         assert_eq!(values.len(), 7);
+        Ok(())
+    }
+
+    /// Split tasks are built as `execute_stream` builds them: all of a file's at once, so their
+    /// reads are registered together, when a worker takes its first split; but one at a time, as
+    /// workers take them, when the scan has both a filter and a limit.
+    #[rstest]
+    #[case::unfiltered(None, None, true)]
+    #[case::filtered(Some(root()), None, true)]
+    #[case::limited(None, Some(1000), true)]
+    #[case::filtered_and_limited(Some(root()), Some(1000), false)]
+    fn split_tasks_build_like_execute_stream(
+        #[case] filter: Option<Expression>,
+        #[case] limit: Option<u64>,
+        #[case] up_front: bool,
+    ) -> VortexResult<()> {
+        let built = Arc::new(AtomicUsize::new(0));
+        let source = source(
+            TestLayoutReader::new(16)
+                .with_split_size(1)
+                .with_built_projections(Arc::clone(&built)),
+        );
+        let pool = plan(
+            &source,
+            ScanRequest {
+                filter,
+                limit,
+                split_concurrency: NonZeroUsize::new(1),
+                ..Default::default()
+            },
+        )?
+        .open()?;
+        let mut worker = Arc::clone(&pool).worker();
+        assert!(futures::executor::block_on(worker.next()).is_some());
+        let built_after_first = built.load(Ordering::SeqCst);
+        if up_front {
+            assert_eq!(built_after_first, 16);
+        } else {
+            assert!(
+                built_after_first < 16,
+                "built {built_after_first} splits up front"
+            );
+        }
+
+        let rest = collect_scan_values(futures::executor::block_on_stream(worker))?;
+        assert_eq!(rest.len(), 15);
+        assert_eq!(built.load(Ordering::SeqCst), 16);
+        Ok(())
+    }
+
+    /// A pool reports the share of its splits that workers have taken, and is exhausted once
+    /// none are left to take.
+    #[rstest]
+    #[case::ordered(true)]
+    #[case::unordered(false)]
+    fn pools_report_progress_and_exhaustion(#[case] ordered: bool) -> VortexResult<()> {
+        let source = source(TestLayoutReader::new(8).with_split_size(2));
+        let pool = plan(
+            &source,
+            ScanRequest {
+                ordered,
+                ..Default::default()
+            },
+        )?
+        .open()?;
+        assert_eq!(pool.progress(), 0.0);
+        assert!(!pool.is_exhausted());
+
+        let values = read_with_one_worker(Arc::clone(&pool))?;
+        assert_eq!(values.len(), 8);
+        assert_eq!(pool.progress(), 1.0);
+        assert!(pool.is_exhausted());
+        assert!(read_with_one_worker(pool)?.is_empty());
         Ok(())
     }
 
@@ -1095,7 +1153,9 @@ mod pool_tests {
 
         let mut values = Vec::new();
         for piece in pieces {
-            let piece_values = read_with_one_worker(piece.open()?)?;
+            // The scan is unordered, so a piece's splits may finish in any order.
+            let mut piece_values = read_with_one_worker(piece.open()?)?;
+            piece_values.sort_unstable();
             let first = *piece_values.first().expect("pieces are not empty");
             let last = *piece_values.last().expect("pieces are not empty");
             assert_eq!(first % 3, 0, "piece starts on a split boundary");

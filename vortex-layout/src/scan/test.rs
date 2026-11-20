@@ -23,6 +23,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::Handle;
+use vortex_io::runtime::current::CurrentThreadRuntime;
+use vortex_io::runtime::current::CurrentThreadWorkerPool;
 use vortex_io::runtime::single::SingleThreadRuntime;
 use vortex_io::session::RuntimeSession;
 use vortex_io::session::RuntimeSessionExt;
@@ -38,10 +40,20 @@ use crate::session::LayoutSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
+/// A runtime driven by background threads, so splits the pools spawn make progress while test
+/// workers block on their streams with `futures::executor`.
+static RUNTIME: LazyLock<(CurrentThreadRuntime, CurrentThreadWorkerPool)> = LazyLock::new(|| {
+    let runtime = CurrentThreadRuntime::new();
+    let pool = runtime.new_pool();
+    pool.set_workers(4);
+    (runtime, pool)
+});
+
 pub fn new_session() -> VortexSession {
     VortexSession::empty()
         .with::<LayoutSession>()
         .with::<RuntimeSession>()
+        .with_handle(RUNTIME.0.handle())
 }
 
 pub fn session_with_handle(handle: Handle) -> VortexSession {
@@ -72,6 +84,7 @@ pub struct TestLayoutReader {
     filter_exprs: Option<Arc<Mutex<Vec<BoundExpression>>>>,
     in_flight: Option<Arc<InFlight>>,
     yields: fn(u64) -> usize,
+    built_projections: Option<Arc<AtomicUsize>>,
 }
 
 /// Counts projections running at once, and the most that ever were.
@@ -104,6 +117,7 @@ impl TestLayoutReader {
             filter_exprs: None,
             in_flight: None,
             yields: |_| 0,
+            built_projections: None,
         }
     }
 
@@ -144,6 +158,12 @@ impl TestLayoutReader {
     /// before it finishes, so tests can make splits complete out of row order.
     pub fn with_yields(mut self, yields: fn(u64) -> usize) -> Self {
         self.yields = yields;
+        self
+    }
+
+    /// Counts the projections built, which is when a split registers its reads.
+    pub fn with_built_projections(mut self, built: Arc<AtomicUsize>) -> Self {
+        self.built_projections = Some(built);
         self
     }
 
@@ -272,6 +292,9 @@ impl LayoutReader for TestLayoutReader {
         let fail = self.fail_projection || (self.fail_first_projection && row_range.start == 0);
         let in_flight = self.in_flight.clone();
         let yields = (self.yields)(row_range.start);
+        if let Some(built) = &self.built_projections {
+            built.fetch_add(1, Ordering::SeqCst);
+        }
 
         Ok(Box::pin(async move {
             for _ in 0..yields {
