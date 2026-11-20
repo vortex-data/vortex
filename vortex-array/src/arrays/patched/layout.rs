@@ -49,8 +49,18 @@ impl<'a> PatchLayout<'a> {
             lane_offsets.len()
         );
         vortex_ensure!(
+            n_lanes.is_power_of_two() && n_lanes <= PATCH_CHUNK_SIZE,
+            "patch lanes must be a power of two of at most {PATCH_CHUNK_SIZE}, got {n_lanes}"
+        );
+        vortex_ensure!(
             lane_offsets.last().is_none_or(|&end| end as usize <= indices.len()),
             "lane offsets exceed the number of patches"
+        );
+        // Positions within a chunk are what keep writes inside the array. A bitwise OR of all
+        // indices vectorizes, which keeps this check cheap enough to run on every execution.
+        vortex_ensure!(
+            indices.iter().fold(0u16, |acc, &i| acc | i) < PATCH_CHUNK_SIZE as u16,
+            "patch indices must be less than {PATCH_CHUNK_SIZE}"
         );
         Ok(Self {
             offset,
@@ -59,6 +69,28 @@ impl<'a> PatchLayout<'a> {
             lane_offsets,
             indices,
         })
+    }
+
+    /// Fully validates the layout, which may come from an untrusted source: lane offsets must be
+    /// non-decreasing, and every patch must belong to the lane it is stored in.
+    ///
+    /// [`PatchLayout::try_new`] only performs the checks needed for safe execution on the CPU.
+    /// This check also covers the lane assignment that data-parallel kernels rely on, and is run
+    /// when an array is deserialized.
+    pub fn validate(&self) -> VortexResult<()> {
+        let lane_mask = self.n_lanes - 1;
+        for (slot, window) in self.lane_offsets.windows(2).enumerate() {
+            let (start, end) = (window[0] as usize, window[1] as usize);
+            vortex_ensure!(start <= end, "lane offsets must be non-decreasing");
+            let lane = slot & lane_mask;
+            for &index in &self.indices[start..end] {
+                vortex_ensure!(
+                    (index as usize) & lane_mask == lane,
+                    "patch index {index} does not belong to lane {lane}"
+                );
+            }
+        }
+        Ok(())
     }
 
     /// The number of chunks spanned by the array, including the partial first and last chunks.
@@ -97,27 +129,35 @@ impl<'a> PatchLayout<'a> {
         self.indices
     }
 
+    /// The range of patches between two lane offsets.
+    ///
+    /// Offsets are clamped to the patches, so that a corrupt layout can produce wrong values but
+    /// never index outside the patches.
+    #[inline]
+    fn range(&self, start: usize, end: usize) -> Range<usize> {
+        let n = self.indices.len();
+        let start = (self.lane_offsets[start] as usize).min(n);
+        let end = (self.lane_offsets[end] as usize).min(n);
+        start..end
+    }
+
     /// The range of patches, across all lanes, in `chunk`.
     #[inline]
     pub fn chunk_patches(&self, chunk: usize) -> Range<usize> {
-        let start = self.lane_offsets[chunk * self.n_lanes] as usize;
-        let end = self.lane_offsets[(chunk + 1) * self.n_lanes] as usize;
-        start..end
+        self.range(chunk * self.n_lanes, (chunk + 1) * self.n_lanes)
     }
 
     /// The range of patches in `lane` of `chunk`.
     #[inline]
     pub fn lane_patches(&self, chunk: usize, lane: usize) -> Range<usize> {
         let idx = chunk * self.n_lanes + lane;
-        self.lane_offsets[idx] as usize..self.lane_offsets[idx + 1] as usize
+        self.range(idx, idx + 1)
     }
 
     /// The range of patches for all chunks, including any outside of the array's bounds.
     #[inline]
     pub fn all_patches(&self) -> Range<usize> {
-        let start = self.lane_offsets[0] as usize;
-        let end = self.lane_offsets[self.lane_offsets.len() - 1] as usize;
-        start..end
+        self.range(0, self.lane_offsets.len() - 1)
     }
 
     /// Calls `f(chunk_position, patch)` for every patch of `chunk`, where `chunk_position` is the
@@ -329,6 +369,22 @@ mod tests {
         assert!(transpose(&[2u32, 1], 0, 10, 1).is_err());
         assert!(transpose(&[10u32], 0, 10, 1).is_err());
         assert!(transpose(&[1u32], 0, 10, 3).is_err());
+    }
+
+    #[test]
+    fn layout_rejects_malformed_children() {
+        let check = |n_lanes, offsets: &[u32], indices: &[u16]| {
+            PatchLayout::try_new(0, 10, n_lanes, offsets, indices).and_then(|l| l.validate())
+        };
+        // Decreasing lane offsets.
+        assert!(check(2, &[1, 0, 1], &[0]).is_err());
+        // An index outside its chunk.
+        assert!(PatchLayout::try_new(0, 10, 1, &[0, 1], &[1024]).is_err());
+        // An index in the wrong lane.
+        assert!(check(2, &[0, 1, 1], &[1]).is_err());
+        // Offsets past the patches.
+        assert!(PatchLayout::try_new(0, 10, 1, &[0, 2], &[1]).is_err());
+        assert!(check(2, &[0, 1, 2], &[2, 3]).is_ok());
     }
 
     #[test]

@@ -365,3 +365,109 @@ fn take_and_filter_primitive_across_chunks() -> VortexResult<()> {
     );
     Ok(())
 }
+
+mod serde {
+    use vortex_buffer::ByteBufferMut;
+    use vortex_session::registry::ReadContext;
+
+    use super::*;
+    use crate::ArrayContext;
+    use crate::arrays::patched::PatchedArraySlotsExt;
+    use crate::serde::SerializeOptions;
+    use crate::serde::SerializedArray;
+    use crate::session::ArraySessionExt;
+
+    /// Serialize and decode `array`, checking that it decodes to a patched array of the same
+    /// values, and returning the decoded array.
+    fn round_trip(array: ArrayRef) -> VortexResult<ArrayRef> {
+        let session = VortexSession::empty();
+        session.arrays().register(Patched);
+        let ctx = ArrayContext::empty().with_allowed_ids(
+            session
+                .arrays()
+                .registry()
+                .read(|map| map.keys().copied().collect()),
+        );
+        let mut bytes = ByteBufferMut::empty();
+        for buffer in array.serialize(&ctx, &session, &SerializeOptions::default())? {
+            bytes.extend_from_slice(buffer.as_ref());
+        }
+        let decoded = SerializedArray::try_from(bytes.freeze())?.decode(
+            array.dtype(),
+            array.len(),
+            &ReadContext::new(ctx.to_ids()),
+            &session,
+        )?;
+        assert!(decoded.is::<Patched>(), "{}", decoded.display_tree());
+        let mut exec = session.create_execution_ctx();
+        let expected = array.execute::<crate::Canonical>(&mut exec)?.into_array();
+        assert_arrays_eq!(decoded.clone(), expected, &mut exec);
+        Ok(decoded)
+    }
+
+    #[test]
+    fn nullable_patches() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = Patched::try_new(
+            PrimitiveArray::from_option_iter((0..3000u32).map(|i| (i % 3 != 0).then_some(i)))
+                .into_array(),
+            indices(&[0, 5, 1500, 2999]),
+            PrimitiveArray::from_option_iter([Some(1u32), None, Some(3), None]).into_array(),
+            &mut ctx,
+        )?;
+        round_trip(array.into_array())?;
+        Ok(())
+    }
+
+    #[test]
+    fn sliced_arrays_write_only_their_patches() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let positions: Vec<u32> = (0..5000).step_by(10).collect();
+        let array = Patched::try_new(
+            PrimitiveArray::from_iter(0..5000u32).into_array(),
+            indices(&positions),
+            PrimitiveArray::from_iter(positions.iter().map(|p| p + 100_000)).into_array(),
+            &mut ctx,
+        )?
+        .into_array();
+
+        let sliced = array.slice(2100..3500)?.optimize_ctx(&SESSION)?;
+        assert_eq!(sliced.as_::<Patched>().patch_values().len(), 500);
+        let decoded = round_trip(sliced)?;
+        // Chunks 2 and 3 hold positions 2048..4096, with one patch every 10 positions.
+        let decoded = decoded.as_::<Patched>();
+        assert_eq!(
+            decoded.patch_values().len(),
+            (2048..4096).filter(|p| p % 10 == 0).count()
+        );
+
+        // A slice within one chunk, at an offset.
+        round_trip(array.slice(1030..1031)?.optimize_ctx(&SESSION)?)?;
+        Ok(())
+    }
+
+    #[test]
+    fn sparse_strings_and_bools() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let strings = Patched::sparse(
+            indices(&[1, 1500]),
+            VarBinViewArray::from_iter_nullable_str([Some("a long patch value, not inlined"), None])
+                .into_array(),
+            2000,
+            Scalar::utf8("fill", Nullability::NonNullable),
+            &mut ctx,
+        )?;
+        round_trip(strings.into_array())?;
+
+        let bools = Patched::sparse_with_lanes(
+            indices(&[0, 7]),
+            BoolArray::from_iter([true, true]).into_array(),
+            10,
+            Scalar::bool(false, Nullability::NonNullable),
+            4,
+            &mut ctx,
+        )?;
+        round_trip(bools.into_array())?;
+        Ok(())
+    }
+}
