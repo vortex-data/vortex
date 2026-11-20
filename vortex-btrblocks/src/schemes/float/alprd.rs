@@ -22,6 +22,7 @@ use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
+use vortex_fastlanes::bitpacked_v1_id;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -43,7 +44,8 @@ impl Scheme for ALPRDScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![vortex_alp::ALPRD.id()]
+        // ALP-RD bit-packs both children with the v1 encoding.
+        vec![vortex_alp::ALPRD.id(), bitpacked_v1_id()]
     }
 
     fn expected_compression_ratio(
