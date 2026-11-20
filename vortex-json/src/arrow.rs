@@ -127,7 +127,6 @@ impl ArrowExtVTable for Json {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::sync::LazyLock;
 
     use arrow_array::ArrayRef as ArrowArrayRef;
     use arrow_array::StringArray;
@@ -152,16 +151,9 @@ mod tests {
     use vortex_arrow::CompactBuffers;
     use vortex_arrow::ExecuteArrowExt;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use crate::Json;
-    use crate::initialize;
-
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty();
-        initialize(&session);
-        session
-    });
+    use crate::SESSION;
 
     /// A field that names `arrow.json` over `data_type`, with `metadata` under the metadata key when
     /// it is given.

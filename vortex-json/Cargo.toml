@@ -19,6 +19,7 @@ workspace = true
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
 prost = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 vortex-array = { workspace = true, default-features = false }
 vortex-arrow = { workspace = true }
@@ -28,6 +29,7 @@ vortex-session = { workspace = true }
 
 [dev-dependencies]
 hegeltest = { workspace = true }
+rstest = { workspace = true }
 serde_json = { workspace = true }
 vortex-array = { workspace = true, default-features = false, features = [
     "_test-harness",
