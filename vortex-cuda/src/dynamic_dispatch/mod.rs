@@ -19,7 +19,6 @@
 
 use std::borrow::Borrow;
 use std::mem::size_of;
-use std::sync::Arc;
 
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -29,9 +28,6 @@ use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBufferExt;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::array::scalar::Scalar;
-use vortex::buffer::Alignment;
-use vortex::buffer::ByteBuffer;
-use vortex::buffer::ByteBufferMut;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -40,6 +36,7 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex_cuda_driver::CudaFunction;
 use vortex_cuda_driver::DevicePtr;
+use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::PushKernelArg;
 use vortex_cuda_driver::SyncOnDrop;
@@ -185,7 +182,20 @@ pub fn dispatch_kernel(
     Ok((function, ranges.min(resident_blocks.max(1))))
 }
 
-/// A dispatch plan serialized as a packed byte buffer.
+// SAFETY: `DispatchPlanParam` is a bindgen `#[repr(C)]` byte array matching the kernel parameter.
+unsafe impl DeviceRepr for DispatchPlanParam {}
+
+/// Size in bytes of a packed plan whose stages have the given numbers of scalar ops.
+pub(crate) fn packed_plan_size(scalar_op_counts: impl IntoIterator<Item = usize>) -> usize {
+    size_of::<PlanHeader>()
+        + scalar_op_counts
+            .into_iter()
+            .map(|ops| size_of::<PackedStage>() + ops * size_of::<ScalarOp>())
+            .sum::<usize>()
+}
+
+/// A dispatch plan serialized as packed bytes in a [`DispatchPlanParam`], which the kernel takes
+/// by value.
 ///
 /// Matching the C-side `PlanHeader` + `PackedStage` ABI in `dynamic_dispatch.h`:
 ///
@@ -197,7 +207,7 @@ pub fn dispatch_kernel(
 /// ```
 #[derive(Clone)]
 pub struct CudaDispatchPlan {
-    buffer: ByteBuffer,
+    param: DispatchPlanParam,
     /// Total elements decoded by the input stages, all stages but the last.
     input_stage_len: u64,
 }
@@ -209,7 +219,7 @@ impl CudaDispatchPlan {
     ///
     /// # Panics
     ///
-    /// Panics if `stages` is empty or the serialized plan exceeds 65535 bytes.
+    /// Panics if `stages` is empty or the serialized plan exceeds `MAX_PLAN_BYTES`.
     pub fn new<I>(stages: I, output_ptype: PTypeTag) -> Self
     where
         I: IntoIterator,
@@ -219,29 +229,27 @@ impl CudaDispatchPlan {
             stages.into_iter().map(|s| s.borrow().clone()).collect();
         assert!(!stages.is_empty());
 
-        let header_size = size_of::<PlanHeader>();
-        let stage_header_size = size_of::<PackedStage>();
-        let scalar_op_size = size_of::<ScalarOp>();
-
-        // Calculate total size and validate.
-        let mut total_size = header_size;
-        for stage in &stages {
-            total_size += stage_header_size;
-            total_size += stage.scalar_ops.len() * scalar_op_size;
-        }
+        let total_size = packed_plan_size(stages.iter().map(|stage| stage.scalar_ops.len()));
         assert!(
-            total_size <= u16::MAX as usize,
-            "packed plan size {total_size} exceeds u16::MAX"
+            total_size <= MAX_PLAN_BYTES as usize,
+            "packed plan size {total_size} exceeds MAX_PLAN_BYTES"
         );
 
-        let mut buffer = ByteBufferMut::with_capacity_aligned(total_size, Alignment::of::<u32>());
+        let mut param = DispatchPlanParam {
+            bytes: [0; MAX_PLAN_BYTES as usize],
+        };
+        let mut len = 0;
+        let mut push = |bytes: &[u8]| {
+            param.bytes[len..len + bytes.len()].copy_from_slice(bytes);
+            len += bytes.len();
+        };
 
         let header = PlanHeader {
             num_stages: stages.len() as u8,
             output_ptype,
             plan_size_bytes: total_size as u16,
         };
-        buffer.extend_from_slice(header.as_packed_bytes());
+        push(header.as_packed_bytes());
 
         for stage in &stages {
             let packed_stage = PackedStage {
@@ -252,15 +260,15 @@ impl CudaDispatchPlan {
                 num_scalar_ops: stage.scalar_ops.len() as u8,
                 source_ptype: stage.source_ptype,
             };
-            buffer.extend_from_slice(packed_stage.as_packed_bytes());
+            push(packed_stage.as_packed_bytes());
             for op in &stage.scalar_ops {
-                buffer.extend_from_slice(op.as_packed_bytes());
+                push(op.as_packed_bytes());
             }
         }
 
-        assert_eq!(buffer.len(), total_size);
+        assert_eq!(len, total_size);
         Self {
-            buffer: buffer.freeze(),
+            param,
             // Every stage but the last, the output stage, is an input stage.
             input_stage_len: stages
                 .iter()
@@ -271,9 +279,9 @@ impl CudaDispatchPlan {
         }
     }
 
-    /// The raw packed plan bytes, ready for upload to the device.
-    pub fn as_bytes(&self) -> &[u8] {
-        self.buffer.as_ref()
+    /// The plan as the kernel parameter it is launched with.
+    pub fn kernel_param(&self) -> &DispatchPlanParam {
+        &self.param
     }
 
     /// Number of stages in the plan.
@@ -287,7 +295,8 @@ impl CudaDispatchPlan {
     }
 
     fn header(&self) -> PlanHeader {
-        unsafe { *self.buffer.as_ptr().cast() }
+        // SAFETY: The plan starts with a `PlanHeader`, and `DispatchPlanParam` is 8-byte aligned.
+        unsafe { *self.param.bytes.as_ptr().cast() }
     }
 }
 
@@ -454,7 +463,7 @@ impl MaterializedPlan {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical>
     where
-        T: vortex_cuda_driver::DeviceRepr + vortex::dtype::NativePType,
+        T: DeviceRepr + vortex::dtype::NativePType,
     {
         let nullability = self.validity.nullability();
 
@@ -465,13 +474,6 @@ impl MaterializedPlan {
         }
 
         let mut output = ctx.device_alloc::<T>(len.next_multiple_of(1024))?;
-
-        // Upload the packed plan bytes to the device.
-        let device_plan = Arc::new(
-            ctx.stream()
-                .clone_htod(self.dispatch_plan.as_bytes())
-                .map_err(|e| vortex_err!("copy plan to device: {e}"))?,
-        );
 
         let (cuda_function, num_blocks) = dispatch_kernel(
             ctx,
@@ -505,23 +507,16 @@ impl MaterializedPlan {
             })
             .collect::<VortexResult<Vec<_>>>()?;
 
-        let (plan_ptr, plan_read_record) = device_plan
-            .device_ptr(&stream)
-            .map_err(|e| vortex_err!("dynamic dispatch plan pointer: {e}"))?;
         let array_len_u64 = len as u64;
 
         let launch_result = ctx.launch_kernel_config(&cuda_function, config, len, |args| {
             args.arg(&mut output);
             args.arg(&array_len_u64);
-            args.arg(&plan_ptr);
+            args.arg(self.dispatch_plan.kernel_param());
         });
 
-        let finish_result = SyncOnDrop::finish_all(
-            device_buffer_read_records
-                .into_iter()
-                .chain([plan_read_record]),
-        )
-        .map_err(|e| vortex_err!("dynamic dispatch buffer tracking: {e}"));
+        let finish_result = SyncOnDrop::finish_all(device_buffer_read_records)
+            .map_err(|e| vortex_err!("dynamic dispatch buffer tracking: {e}"));
         launch_result.inspect_err(|_| {
             if let Err(error) = &finish_result {
                 tracing::error!(%error, "Failed to track dynamic dispatch buffers after launch failure");
@@ -589,7 +584,6 @@ mod tests {
     use vortex_array::arrays::FilterArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::patches::Patches;
-    use vortex_cuda_driver::DevicePtr;
     use vortex_cuda_driver::LaunchConfig;
     use vortex_cuda_driver::PushKernelArg;
 
@@ -790,15 +784,6 @@ mod tests {
             .device_alloc::<u32>(output_len)
             .vortex_expect("alloc output");
 
-        let device_plan = Arc::new(
-            cuda_ctx
-                .stream()
-                .clone_htod(plan.as_bytes())
-                .map_err(|e| vortex_err!("copy plan to device: {e}"))?,
-        );
-        let (plan_ptr, record_plan) = device_plan
-            .device_ptr(cuda_ctx.stream())
-            .map_err(|e| vortex_err!("dynamic dispatch plan pointer: {e}"))?;
         let array_len_u64 = output_len as u64;
 
         cuda_ctx
@@ -809,24 +794,14 @@ mod tests {
         let mut launch_builder = cuda_ctx.launch_builder(cuda_function);
         launch_builder.arg(&mut output);
         launch_builder.arg(&array_len_u64);
-        launch_builder.arg(&plan_ptr);
+        launch_builder.arg(plan.kernel_param());
 
         let config = LaunchConfig {
             grid_dim: (num_blocks, 1, 1),
             block_dim: (BLOCK_SIZE, 1, 1),
             shared_mem_bytes,
         };
-        let launch_result =
-            unsafe { launch_builder.launch(config) }.map_err(|e| vortex_err!("kernel launch: {e}"));
-        let finish_result = record_plan
-            .finish()
-            .map_err(|e| vortex_err!("dynamic dispatch plan tracking: {e}"));
-        launch_result.inspect_err(|_| {
-            if let Err(error) = &finish_result {
-                tracing::error!(%error, "Failed to track dynamic dispatch plan after launch failure");
-            }
-        })?;
-        finish_result?;
+        unsafe { launch_builder.launch(config) }.map_err(|e| vortex_err!("kernel launch: {e}"))?;
 
         cuda_ctx
             .stream()
@@ -3077,6 +3052,49 @@ mod tests {
             &mut ctx,
         )
         .into_array())
+    }
+
+    /// The plan is passed by value in a `MAX_PLAN_BYTES` kernel parameter. Each nested FoR adds
+    /// one scalar op, so the largest plan that fits is fused and decodes correctly, and one more
+    /// op falls back to unfused dispatch.
+    #[rstest]
+    #[case::largest_fused_plan(0, true)]
+    #[case::one_op_too_many(1, false)]
+    #[crate::test]
+    async fn test_plan_size_limit(
+        #[case] extra_ops: usize,
+        #[case] fused: bool,
+    ) -> VortexResult<()> {
+        let max_ops =
+            (MAX_PLAN_BYTES as usize - size_of::<PlanHeader>() - size_of::<PackedStage>())
+                / size_of::<ScalarOp>();
+        let ops = max_ops + extra_ops;
+        let len = 3000u32;
+
+        let mut array = PrimitiveArray::new(Buffer::from_iter(0..len), NonNullable).into_array();
+        for _ in 0..ops {
+            array = FoR::try_new(array, Scalar::from(1u32))?.into_array();
+        }
+        assert_eq!(packed_plan_size([ops]) <= MAX_PLAN_BYTES as usize, fused);
+
+        let plan = DispatchPlan::new(&array, CudaDispatchMode::DynDispatchOnly)?;
+        assert_eq!(matches!(plan, DispatchPlan::Fused(_)), fused);
+        assert_eq!(matches!(plan, DispatchPlan::Unfused), !fused);
+        if !fused {
+            return Ok(());
+        }
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let plan = dispatch_plan(&array, &mut cuda_ctx).await?;
+        let actual = run_dynamic_dispatch_plan(
+            &cuda_ctx,
+            len as usize,
+            &plan.dispatch_plan,
+            plan.shared_mem_bytes,
+        )?;
+        let expected: Vec<u32> = (0..len).map(|i| i + ops as u32).collect();
+        assert_eq!(actual, expected);
+        Ok(())
     }
 
     /// Dict where codes are BitPacked u32 with patches exceeding the bit width.
