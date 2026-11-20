@@ -36,6 +36,7 @@ pub use work::MapOutput;
 pub use work::MappedArray;
 pub use work::PoolLimit;
 pub use work::UnitOutput;
+pub use work::UnitStream;
 pub use work::WorkPoolOptions;
 pub use work::WorkUnit;
 pub use work::open_work_pool;

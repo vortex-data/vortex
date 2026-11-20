@@ -39,6 +39,8 @@ use async_channel::Receiver;
 use async_channel::Sender;
 use futures::FutureExt;
 use futures::StreamExt;
+use futures::TryFutureExt;
+use futures::TryStreamExt;
 use futures::future;
 use futures::future::BoxFuture;
 use futures::ready;
@@ -63,6 +65,9 @@ use super::ScanPoolRef;
 /// The arrays a unit returns, in row order.
 pub type UnitOutput = BoxFuture<'static, VortexResult<Vec<ArrayRef>>>;
 
+/// The arrays a unit yields one at a time, as it produces them.
+pub type UnitStream = BoxStream<'static, VortexResult<ArrayRef>>;
+
 /// The units an expansion yields, in row order, in its place.
 pub type Expansion = BoxFuture<'static, VortexResult<Vec<WorkUnit>>>;
 
@@ -86,6 +91,8 @@ pub struct WorkUnit {
 enum UnitKind {
     /// Called once a worker takes the unit.
     Run(Box<dyn FnOnce() -> UnitOutput + Send>),
+    /// Called once a worker takes the unit; yields its arrays as they are produced.
+    Stream(Box<dyn FnOnce() -> UnitStream + Send>),
     /// Called once the unit is expanded.
     Expand(Box<dyn FnOnce() -> Expansion + Send>),
 }
@@ -95,6 +102,16 @@ impl WorkUnit {
     pub fn run(share: f64, run: impl FnOnce() -> UnitOutput + Send + 'static) -> Self {
         Self {
             kind: UnitKind::Run(Box::new(run)),
+            share,
+        }
+    }
+
+    /// A unit that `stream` starts once a worker takes it, whose arrays an unordered pool passes
+    /// on as they are produced rather than once the unit is done. An ordered pool collects them, so
+    /// they must be in row order there.
+    pub fn stream(share: f64, stream: impl FnOnce() -> UnitStream + Send + 'static) -> Self {
+        Self {
+            kind: UnitKind::Stream(Box::new(stream)),
             share,
         }
     }
@@ -235,11 +252,25 @@ impl Shared {
         *self.taken.lock() += share;
     }
 
-    /// Takes a unit that runs, and starts it.
+    /// Takes a unit that runs, and starts it, returning all of its arrays at once.
     fn run(&self, unit: WorkUnit) -> UnitOutput {
         self.take(unit.share);
         match unit.kind {
             UnitKind::Run(run) => run(),
+            UnitKind::Stream(stream) => stream().try_collect::<Vec<_>>().boxed(),
+            UnitKind::Expand(_) => unreachable!("expansions are not run"),
+        }
+    }
+
+    /// Takes a unit that runs, and starts it, returning its arrays as they are produced.
+    fn stream(&self, unit: WorkUnit) -> UnitStream {
+        self.take(unit.share);
+        match unit.kind {
+            UnitKind::Run(run) => run()
+                .map_ok(|arrays| stream::iter(arrays.into_iter().map(Ok)))
+                .try_flatten_stream()
+                .boxed(),
+            UnitKind::Stream(stream) => stream(),
             UnitKind::Expand(_) => unreachable!("expansions are not run"),
         }
     }
@@ -252,7 +283,7 @@ impl Shared {
         }
         match unit.kind {
             UnitKind::Expand(expand) => expand(),
-            UnitKind::Run(_) => unreachable!("only expansions expand"),
+            UnitKind::Run(_) | UnitKind::Stream(_) => unreachable!("only expansions expand"),
         }
     }
 
@@ -422,24 +453,6 @@ struct UnorderedPool {
 }
 
 impl UnorderedPool {
-    fn run(shared: &Arc<Shared>, work: Work) -> UnitOutput {
-        match work {
-            Work::Unit(unit) => shared.run(unit),
-            Work::Expand(unit, slot) => {
-                let expansion = shared.expand(unit);
-                async move {
-                    let expanded = expansion.await.map(|units| {
-                        slot.shared.queue(&slot.sender, units);
-                        Vec::new()
-                    });
-                    drop(slot);
-                    expanded
-                }
-                .boxed()
-            }
-        }
-    }
-
     /// Starts the lanes, once.
     fn start_lanes(&self) {
         let mut lanes = self.lanes.lock();
@@ -461,53 +474,70 @@ impl UnorderedPool {
     }
 }
 
-/// A lane: runs units one at a time and sends their rows to the workers, trimmed to a trimmed
-/// limit and mapped. Ends once the units run out, a trimmed limit is spent, a unit fails, or the
-/// pool is gone.
+/// A lane: runs units one at a time and sends their rows to the workers as they are produced,
+/// trimmed to a trimmed limit and mapped. Ends once the units run out, a trimmed limit is spent, a
+/// unit fails, or the pool is gone.
 async fn lane(shared: Arc<Shared>, units: Receiver<Work>, output: Sender<VortexResult<ArrayRef>>) {
     while !shared.limit.is_trimmed_out() && !shared.failed.load(Ordering::Acquire) {
         let Ok(work) = units.recv().await else {
             return;
         };
-        let arrays = match UnorderedPool::run(&shared, work).await {
-            Ok(arrays) => arrays,
-            Err(err) => {
-                shared.failed.store(true, Ordering::Release);
-                drop(output.send(Err(err)).await);
-                return;
+        let mut arrays = match work {
+            Work::Unit(unit) => shared.stream(unit),
+            Work::Expand(unit, slot) => {
+                let expanded = shared.expand(unit).await;
+                // The expansion's units go into the channel before its slot passes on.
+                let expanded = expanded.map(|units| slot.shared.queue(&slot.sender, units));
+                drop(slot);
+                match expanded {
+                    Ok(()) => continue,
+                    Err(err) => stream::once(future::ready(Err(err))).boxed(),
+                }
             }
         };
-        for array in arrays {
-            if array.is_empty() {
-                continue;
-            }
-            let array = match &shared.limit {
-                PoolLimit::Trim(limit) => {
-                    let granted = limit.take(array.len());
-                    if granted == 0 {
-                        return;
-                    }
-                    let array = if granted < array.len() {
-                        array.slice(0..granted)
-                    } else {
-                        Ok(array)
-                    };
-                    match (array, &shared.map_trimmed) {
-                        (Ok(array), Some(map)) => map(array).await,
-                        (array, _) => array,
-                    }
-                }
-                PoolLimit::Unlimited | PoolLimit::Reserve(_) => Ok(array),
-            };
-            let failed = array.is_err();
-            if failed {
-                shared.failed.store(true, Ordering::Release);
-            }
-            if output.send(array).await.is_err() || failed {
+        while let Some(array) = arrays.next().await {
+            if !emit(&shared, &output, array).await {
                 return;
             }
         }
     }
+}
+
+/// Sends one of a lane's arrays to the workers, trimmed to a trimmed limit and mapped. Returns
+/// whether the lane goes on: not once a trimmed limit is spent, the array is an error, a unit
+/// failed elsewhere, or the workers are gone.
+async fn emit(
+    shared: &Shared,
+    output: &Sender<VortexResult<ArrayRef>>,
+    array: VortexResult<ArrayRef>,
+) -> bool {
+    if shared.failed.load(Ordering::Acquire) {
+        return false;
+    }
+    let array = match (array, &shared.limit) {
+        (Ok(array), _) if array.is_empty() => return true,
+        (Ok(array), PoolLimit::Trim(limit)) => {
+            let granted = limit.take(array.len());
+            if granted == 0 {
+                return false;
+            }
+            let array = if granted < array.len() {
+                array.slice(0..granted)
+            } else {
+                Ok(array)
+            };
+            match (array, &shared.map_trimmed) {
+                (Ok(array), Some(map)) => map(array).await,
+                (array, _) => array,
+            }
+        }
+        (array, _) => array,
+    };
+    let failed = array.is_err();
+    if failed {
+        shared.failed.store(true, Ordering::Release);
+    }
+    output.send(array).await.is_ok() && !failed
 }
 
 impl ScanPool for UnorderedPool {
