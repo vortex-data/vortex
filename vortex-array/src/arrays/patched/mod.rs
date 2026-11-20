@@ -111,18 +111,22 @@ pub fn default_patch_lanes(dtype: &DType) -> usize {
     }
 }
 
+/// The number of patches each lane should hold before a chunk is split into more lanes.
+const PATCHES_PER_LANE: usize = 32;
+
 /// The number of lanes to lay out `n_patches` patches of an array of `len` values of `dtype`.
 ///
 /// Lanes let data-parallel kernels give each lane its own patches, but cost an offset per lane per
-/// chunk: for 8-bit values with all 128 FastLanes lanes, that is 512 bytes for each 1024 values.
-/// When a chunk holds only a few patches, extra lanes give no parallelism, so this picks the
-/// smallest power of two at least the average number of patches per chunk, capped at the
-/// [`default_patch_lanes`] of the type. Any power of two below the FastLanes lane count groups
-/// whole FastLanes lanes, since position `i` belongs to lane `i % n_lanes`.
+/// chunk, and executing patches in lane order rather than position order costs some locality.
+/// This picks the smallest power of two of lanes that holds at most about 32 patches each on
+/// average, capped at the [`default_patch_lanes`] of the type: sparse patches use a single lane per
+/// chunk, and only dense patches are split across lanes, up to the FastLanes lane count. Any power
+/// of two below the FastLanes lane count groups whole FastLanes lanes, since position `i` belongs
+/// to lane `i % n_lanes`.
 pub fn patch_lanes_for(dtype: &DType, len: usize, n_patches: usize) -> usize {
     let n_chunks = len.div_ceil(PATCH_CHUNK_SIZE).max(1);
     n_patches
-        .div_ceil(n_chunks)
+        .div_ceil(n_chunks * PATCHES_PER_LANE)
         .next_power_of_two()
         .min(default_patch_lanes(dtype))
 }

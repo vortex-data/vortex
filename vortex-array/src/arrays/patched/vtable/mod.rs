@@ -42,6 +42,7 @@ use crate::arrays::patched::execute::PatchedCanonicalParts;
 use crate::arrays::patched::execute::PatchedInner;
 use crate::arrays::patched::execute::execute_canonical;
 use crate::arrays::patched::execute::scatter;
+use crate::arrays::patched::execute::to_canonical;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
@@ -257,9 +258,9 @@ impl VTable for Patched {
                 patch_indices: slots.patch_indices,
                 inner: match slots.inner.as_opt::<Constant>() {
                     Some(constant) => PatchedInner::Constant(constant.scalar().clone()),
-                    None => PatchedInner::Canonical(slots.inner.execute::<Canonical>(ctx)?),
+                    None => PatchedInner::Canonical(to_canonical(slots.inner, ctx)?),
                 },
-                values: slots.patch_values.execute::<Canonical>(ctx)?,
+                values: to_canonical(slots.patch_values, ctx)?,
             },
             ctx,
         )?;

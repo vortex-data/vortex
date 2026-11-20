@@ -13,6 +13,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -40,6 +41,17 @@ use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
+
+/// Execute `array` to canonical form, returning it directly when it already is.
+///
+/// Executing an array that is already canonical still runs the executor's optimizer over it, a
+/// fixed cost that dominates for the small patch values of a sparse array.
+pub(crate) fn to_canonical(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    match array.as_opt::<AnyCanonical>() {
+        Some(canonical) => Ok(Canonical::from(canonical)),
+        None => array.execute::<Canonical>(ctx),
+    }
+}
 
 /// The executed children of a patched array.
 pub(crate) struct PatchedCanonicalParts<'a> {

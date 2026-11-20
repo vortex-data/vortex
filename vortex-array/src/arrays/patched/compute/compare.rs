@@ -8,6 +8,7 @@
 //! inner array, as in a sparse array, the fill value is compared directly.
 
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -21,11 +22,15 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::patched::PATCH_CHUNK_SIZE;
+use crate::arrays::patched::PatchLayout;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::patched::execute::PatchedCanonicalParts;
 use crate::arrays::patched::execute::PatchedInner;
 use crate::arrays::patched::execute::execute_canonical;
+use crate::arrays::patched::execute::to_canonical;
+use crate::arrays::patched::patch_validity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
@@ -35,6 +40,7 @@ use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::binary::scalar_cmp;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
+use crate::validity::Validity;
 
 impl CompareKernel for Patched {
     fn compare(
@@ -46,6 +52,12 @@ impl CompareKernel for Patched {
         let Some(rhs) = rhs.as_constant() else {
             return Ok(None);
         };
+
+        if !lhs.inner().is::<Constant>()
+            && let Some(result) = compare_primitive_fused(lhs, rhs, operator, ctx)?
+        {
+            return Ok(Some(result));
+        }
 
         let values = compare_values(lhs.patch_values(), rhs, operator, ctx)?;
         let dtype = values.dtype().clone();
@@ -69,7 +81,7 @@ impl CompareKernel for Patched {
                 Operator::from(operator),
             )?
             .execute::<Canonical>(ctx)?;
-        let values = values.execute::<Canonical>(ctx)?;
+        let values = to_canonical(values, ctx)?;
         let layout = lhs.execute_layout(ctx)?;
         let layout = layout.layout()?;
         let result = execute_canonical(
@@ -87,9 +99,90 @@ impl CompareKernel for Patched {
     }
 }
 
+/// Compare a patched array of sparse, non-null primitive patch values: compare the inner array with its
+/// own kernel, then write the comparison of each patch value straight over its bit, as an
+/// encoding with interior patches does, without materializing the compared patch values.
+fn compare_primitive_fused(
+    lhs: ArrayView<'_, Patched>,
+    rhs: &Scalar,
+    operator: CompareOperator,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let values = lhs.patch_values();
+    let DType::Primitive(ptype, _) = values.dtype() else {
+        return Ok(None);
+    };
+    let ptype = *ptype;
+    if rhs.is_null()
+        || !rhs.dtype().is_primitive()
+        || rhs.dtype().as_ptype() != ptype
+        || !values.validity()?.definitely_no_nulls()
+    {
+        return Ok(None);
+    }
+
+    // Dense patches, averaging more than 32 per chunk, are faster through the word-at-a-time bit
+    // patching of the general path.
+    let layout = lhs.execute_layout(ctx)?;
+    let layout = layout.layout()?;
+    if layout.all_patches().len() > 32 * layout.n_chunks() {
+        return Ok(None);
+    }
+
+    let inner = lhs
+        .inner()
+        .binary(
+            ConstantArray::new(rhs.clone(), lhs.len()).into_array(),
+            Operator::from(operator),
+        )?
+        .execute::<BoolArray>(ctx)?;
+    let values = values.clone().execute::<PrimitiveArray>(ctx)?;
+
+    // The patched rows become valid, as the patch values are.
+    let validity = patch_validity(
+        inner.validity()?,
+        Validity::AllValid,
+        values.len(),
+        &layout,
+        ctx,
+    )?;
+    let mut bits = inner
+        .into_bit_buffer()
+        .try_into_mut()
+        .unwrap_or_else(|bits| BitBufferMut::copy_from(&bits));
+    match_each_native_ptype!(ptype, |T| {
+        let values = values.as_slice::<T>();
+        let rhs = rhs
+            .as_primitive()
+            .as_::<T>()
+            .vortex_expect("a valid primitive scalar of the values' type");
+        match operator {
+            CompareOperator::Eq => patch_compared(&mut bits, &layout, values, |v| v.is_eq(rhs)),
+            CompareOperator::NotEq => patch_compared(&mut bits, &layout, values, |v| !v.is_eq(rhs)),
+            CompareOperator::Gt => patch_compared(&mut bits, &layout, values, |v| v.is_gt(rhs)),
+            CompareOperator::Gte => patch_compared(&mut bits, &layout, values, |v| v.is_ge(rhs)),
+            CompareOperator::Lt => patch_compared(&mut bits, &layout, values, |v| v.is_lt(rhs)),
+            CompareOperator::Lte => patch_compared(&mut bits, &layout, values, |v| v.is_le(rhs)),
+        }
+    });
+    Ok(Some(BoolArray::new(bits.freeze(), validity).into_array()))
+}
+
+/// Set the bit of each patched position to `predicate` of its patch value.
+#[inline]
+fn patch_compared<T: Copy>(
+    bits: &mut BitBufferMut,
+    layout: &PatchLayout<'_>,
+    values: &[T],
+    predicate: impl Fn(T) -> bool,
+) {
+    assert_eq!(bits.len(), layout.len());
+    layout.for_each(|pos, patch| bits.set_to(pos, predicate(values[patch])));
+}
+
 /// Compare the patch values against `rhs`.
 ///
-/// Primitive patch values are few and compared directly, with the predicates of the primitive
+/// A few primitive patch values are compared directly, with the predicates of the primitive
 /// comparison kernel, rather than through a separately executed comparison.
 fn compare_values(
     values: &ArrayRef,
@@ -103,7 +196,12 @@ fn compare_values(
             Operator::from(operator),
         );
     };
-    if rhs.is_null() || !rhs.dtype().is_primitive() || rhs.dtype().as_ptype() != *ptype {
+    // Many values are faster through the vectorized comparison kernel.
+    if values.len() > 4 * PATCH_CHUNK_SIZE
+        || rhs.is_null()
+        || !rhs.dtype().is_primitive()
+        || rhs.dtype().as_ptype() != *ptype
+    {
         return values.binary(
             ConstantArray::new(rhs.clone(), values.len()).into_array(),
             Operator::from(operator),

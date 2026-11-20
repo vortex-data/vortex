@@ -28,8 +28,8 @@ use vortex_error::VortexResult;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitWidthsView;
-use crate::bitpacking::array::bitpack_decompress::unpack_into_primitive_builder;
 use crate::FL_CHUNK_SIZE;
+use crate::bitpacking::array::bitpack_decompress::unpack_into_primitive_builder;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
 
 /// Executes a [`Patched`] parent of a [`BitPacked`] array in one pass.
