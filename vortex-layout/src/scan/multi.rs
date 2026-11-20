@@ -437,6 +437,14 @@ impl DataSourceScan for MultiLayoutScan {
         &self.dtype
     }
 
+    fn split(self: Box<Self>, _n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
+        Ok(vec![self])
+    }
+
+    fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
+        Ok(Arc::new(PartitionPool::new(self)))
+    }
+
     fn partition_count(&self) -> Precision<usize> {
         let count = self.ready.len() + self.deferred.len();
         if self.deferred.is_empty() {
