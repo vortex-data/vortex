@@ -10,7 +10,6 @@ use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
 
-use crate::extension::datetime::operations::TemporalConvert;
 use crate::scalar_fn::ScalarFnPluginRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::between::Between;
@@ -18,6 +17,8 @@ use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::byte_length::ByteLength;
 use crate::scalar_fn::fns::case_when::CaseWhen;
 use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::change_time_unit::ChangeTimeUnit;
+use crate::scalar_fn::fns::convert_time_zone::ConvertTimeZone;
 use crate::scalar_fn::fns::ext_storage::ExtStorage;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
@@ -39,6 +40,8 @@ use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZone;
 use crate::scalar_fn::fns::select::Select;
 use crate::scalar_fn::fns::stat::StatFn;
 use crate::scalar_fn::fns::strpos::Strpos;
+use crate::scalar_fn::fns::timestamp_to_date::TimestampToDate;
+use crate::scalar_fn::fns::timestamp_to_time::TimestampToTime;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::zip::Zip;
 
@@ -75,6 +78,8 @@ impl Default for ScalarFnSession {
         this.register(ByteLength);
         this.register(CaseWhen);
         this.register(Cast);
+        this.register(ChangeTimeUnit);
+        this.register(ConvertTimeZone);
         this.register(ExtStorage);
         this.register(FillNull);
         this.register(GetItem);
@@ -96,7 +101,8 @@ impl Default for ScalarFnSession {
         this.register(Select);
         this.register(StatFn);
         this.register(Strpos);
-        this.register(TemporalConvert);
+        this.register(TimestampToDate);
+        this.register(TimestampToTime);
         this.register(VariantGet);
         this.register(Zip);
 

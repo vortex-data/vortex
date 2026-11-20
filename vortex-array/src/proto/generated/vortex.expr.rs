@@ -187,31 +187,17 @@ pub struct CastOpts {
     #[prost(message, optional, tag = "1")]
     pub target: ::core::option::Option<super::dtype::DType>,
 }
-/// Options for `vortex.temporal_convert`.
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct TemporalConvertOpts {
-    #[prost(oneof = "temporal_convert_opts::Operation", tags = "1, 2, 3, 4")]
-    pub operation: ::core::option::Option<temporal_convert_opts::Operation>,
+/// Options for `vortex.change_time_unit`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ChangeTimeUnitOpts {
+    /// The target time unit, as the same code that the temporal dtype metadata stores.
+    #[prost(uint32, tag = "1")]
+    pub unit: u32,
+    #[prost(enumeration = "change_time_unit_opts::Rounding", tag = "2")]
+    pub rounding: i32,
 }
-/// Nested message and enum types in `TemporalConvertOpts`.
-pub mod temporal_convert_opts {
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct ChangeUnit {
-        /// The temporal dtype metadata's time unit code.
-        #[prost(uint32, tag = "1")]
-        pub unit: u32,
-        #[prost(enumeration = "Rounding", tag = "2")]
-        pub rounding: i32,
-    }
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct TimestampToDate {}
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct TimestampToTime {}
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct ConvertZone {
-        #[prost(string, tag = "1")]
-        pub time_zone: ::prost::alloc::string::String,
-    }
+/// Nested message and enum types in `ChangeTimeUnitOpts`.
+pub mod change_time_unit_opts {
     #[derive(
         Clone,
         Copy,
@@ -254,17 +240,12 @@ pub mod temporal_convert_opts {
             }
         }
     }
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
-    pub enum Operation {
-        #[prost(message, tag = "1")]
-        ChangeUnit(ChangeUnit),
-        #[prost(message, tag = "2")]
-        TimestampToDate(TimestampToDate),
-        #[prost(message, tag = "3")]
-        TimestampToTime(TimestampToTime),
-        #[prost(message, tag = "4")]
-        ConvertZone(ConvertZone),
-    }
+}
+/// Options for `vortex.convert_time_zone`.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ConvertTimeZoneOpts {
+    #[prost(string, tag = "1")]
+    pub time_zone: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct FieldNames {

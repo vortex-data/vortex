@@ -19,6 +19,8 @@ use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::Lambda;
+use crate::extension::datetime::TemporalRounding;
+use crate::extension::datetime::TimeUnit;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::EmptyOptions;
@@ -31,6 +33,10 @@ use crate::scalar_fn::fns::byte_length::ByteLength;
 use crate::scalar_fn::fns::case_when::CaseWhen;
 use crate::scalar_fn::fns::case_when::CaseWhenOptions;
 use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::change_time_unit::ChangeTimeUnit;
+use crate::scalar_fn::fns::change_time_unit::ChangeTimeUnitOptions;
+use crate::scalar_fn::fns::convert_time_zone::ConvertTimeZone;
+use crate::scalar_fn::fns::convert_time_zone::ConvertTimeZoneOptions;
 use crate::scalar_fn::fns::dynamic::DynamicComparison;
 use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
 use crate::scalar_fn::fns::dynamic::Rhs;
@@ -66,6 +72,8 @@ use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZoneOptions;
 use crate::scalar_fn::fns::select::FieldSelection;
 use crate::scalar_fn::fns::select::Select;
 use crate::scalar_fn::fns::strpos::Strpos;
+use crate::scalar_fn::fns::timestamp_to_date::TimestampToDate;
+use crate::scalar_fn::fns::timestamp_to_time::TimestampToTime;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_get::VariantGetOptions;
 use crate::scalar_fn::fns::variant_get::VariantPath;
@@ -1487,6 +1495,73 @@ pub fn bound_replace_time_zone(
     ReplaceTimeZone
         .try_new_bound_expr(options, [input, ambiguous])
         .vortex_expect("timezone replacement requires a timestamp and a UTF-8 ambiguity policy")
+}
+
+// ---- ChangeTimeUnit ----
+
+/// Convert a [`Date`], [`Time`], or [`Timestamp`] to a coarser `unit` with an explicit
+/// [`TemporalRounding`].
+///
+/// `unit` **must** be coarser than the input unit and valid for the input type (a [`Date`]
+/// supports only days and milliseconds), or binding fails. At execution,
+/// [`TemporalRounding::Exact`] fails on a count with a remainder, and a [`Time`] fails when it
+/// rounds up to midnight, because the result must stay within the same day. A [`Timestamp`] keeps
+/// its time zone, and nulls stay null.
+///
+/// [`Date`]: crate::extension::datetime::Date
+/// [`Time`]: crate::extension::datetime::Time
+/// [`Timestamp`]: crate::extension::datetime::Timestamp
+pub fn change_time_unit(
+    input: Expression,
+    unit: TimeUnit,
+    rounding: TemporalRounding,
+) -> Expression {
+    ChangeTimeUnit.new_expr(ChangeTimeUnitOptions { unit, rounding }, [input])
+}
+
+// ---- ConvertTimeZone ----
+
+/// Change the time zone of a [`Timestamp`] and keep its instant, so the stored count does not
+/// change.
+///
+/// The input **must** be a [`Timestamp`] with a time zone, or binding fails. Use
+/// [`replace_time_zone`] to keep the local clock time in another zone instead.
+///
+/// [`Timestamp`]: crate::extension::datetime::Timestamp
+pub fn convert_time_zone(input: Expression, time_zone: impl Into<Arc<str>>) -> Expression {
+    ConvertTimeZone.new_expr(
+        ConvertTimeZoneOptions {
+            time_zone: time_zone.into(),
+        },
+        [input],
+    )
+}
+
+// ---- TimestampToDate ----
+
+/// Extract the local calendar date of a [`Timestamp`] as a [`Date`] in days.
+///
+/// A timestamp with a time zone uses the offset of that zone at its instant, and a timestamp
+/// without a time zone already counts local time. The input **must** be a [`Timestamp`], or
+/// binding fails. A date outside the `i32` range of days fails at execution.
+///
+/// [`Date`]: crate::extension::datetime::Date
+/// [`Timestamp`]: crate::extension::datetime::Timestamp
+pub fn timestamp_to_date(input: Expression) -> Expression {
+    TimestampToDate.new_expr(EmptyOptions, [input])
+}
+
+// ---- TimestampToTime ----
+
+/// Extract the local time of day of a [`Timestamp`] as a [`Time`] in the same unit.
+///
+/// The time zone applies as in [`timestamp_to_date`]. The input **must** be a [`Timestamp`], or
+/// binding fails.
+///
+/// [`Time`]: crate::extension::datetime::Time
+/// [`Timestamp`]: crate::extension::datetime::Timestamp
+pub fn timestamp_to_time(input: Expression) -> Expression {
+    TimestampToTime.new_expr(EmptyOptions, [input])
 }
 
 /// Constructors for expressions whose children have already been bound and type-checked.

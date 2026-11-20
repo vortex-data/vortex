@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod kernel;
+mod temporal;
 
 use std::fmt::Display;
 use std::fmt::Formatter;
 
 pub use kernel::*;
 use prost::Message;
+pub(crate) use temporal::TemporalCast;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -40,9 +42,6 @@ use crate::dtype::StructFields;
 use crate::expr::BoundExpression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
-use crate::extension::datetime::TemporalMetadata;
-use crate::extension::datetime::convert::TemporalCast;
-use crate::extension::datetime::convert::temporal_metadata;
 use crate::proto::expr as pb;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -55,31 +54,19 @@ use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::is_not_null_node;
 
-/// Allows specific top-level temporal conversions, nullability changes, and typed nulls.
+/// Checks that a cast involving an extension dtype changes only its top-level nullability or
+/// creates typed nulls of a nullable dtype from an untyped [`DType::Null`].
 ///
-/// Returns the [`TemporalCast`] for a supported pair of temporal dtypes, or `None` when the
-/// generic cast applies. Nested fields support only nullability changes and typed nulls. A
-/// container may expose unused children to its cast kernel, so a fallible value conversion could
-/// see hidden rows.
+/// The rule also holds for every extension dtype nested in a struct, list, fixed-size list, or
+/// map, which the cast pairs up the same way as its kernels do. Otherwise a cast could
+/// reinterpret a nested extension that the top-level dtypes do not show.
+///
+/// Callers first allow the exact temporal conversions that [`TemporalCast::classify`] selects,
+/// and only at the top level. A container can hand its cast kernel child values that no row
+/// references, and a fallible conversion would fail on them.
 ///
 /// Use [`ext_storage`](crate::expr::ext_storage) to extract an extension array's storage.
-pub(crate) fn bind_extension_cast(
-    source: &DType,
-    target: &DType,
-) -> VortexResult<Option<TemporalCast>> {
-    let temporal = TemporalCast::classify(source, target);
-    if temporal.is_none() {
-        check_opaque_cast(source, target)?;
-    }
-    Ok(temporal)
-}
-
-/// Reject a cast that would reinterpret the values of an _opaque_ extension type.
-///
-/// `cast` treats an extension type as opaque: it can change the nullability or produce typed
-/// nulls, but it never converts the values to or from another dtype, because only the type knows
-/// what its storage means. The check also applies to list, map, and struct fields.
-fn check_opaque_cast(source: &DType, target: &DType) -> VortexResult<()> {
+pub(crate) fn check_extension_cast(source: &DType, target: &DType) -> VortexResult<()> {
     if source.is_extension() || target.is_extension() {
         if !source.eq_ignore_nullability(target)
             && !(*source == DType::Null && target.is_nullable())
@@ -96,10 +83,10 @@ fn check_opaque_cast(source: &DType, target: &DType) -> VortexResult<()> {
         (
             DType::List(source, _) | DType::FixedSizeList(source, ..),
             DType::List(target, _) | DType::FixedSizeList(target, ..),
-        ) => check_opaque_cast(source, target),
+        ) => check_extension_cast(source, target),
         (DType::Map(source, _), DType::Map(target, _)) => {
-            check_opaque_cast(&source.key_dtype(), &target.key_dtype())?;
-            check_opaque_cast(&source.value_dtype(), &target.value_dtype())
+            check_extension_cast(&source.key_dtype(), &target.key_dtype())?;
+            check_extension_cast(&source.value_dtype(), &target.value_dtype())
         }
         (DType::Struct(source, _), DType::Struct(target, _)) => {
             check_struct_extension_cast(source, target)
@@ -115,51 +102,23 @@ fn extension_cast_hint(source: &DType, target: &DType) -> Option<&'static str> {
     if source.is_extension() && !target.is_extension() {
         return Some("Use ext_storage to access raw extension values.");
     }
-
-    match (temporal_metadata(source), temporal_metadata(target)) {
-        (
-            Some(TemporalMetadata::Timestamp(_, Some(source_zone))),
-            Some(TemporalMetadata::Timestamp(_, Some(target_zone))),
-        ) if source_zone != target_zone => {
-            Some("Use convert_time_zone to change the time zone while preserving the instant.")
-        }
-        (
-            Some(TemporalMetadata::Timestamp(_, source_zone)),
-            Some(TemporalMetadata::Timestamp(_, target_zone)),
-        ) if source_zone.is_some() != target_zone.is_some() => {
-            Some("Use replace_time_zone to add or remove a time zone while preserving wall time.")
-        }
-        (Some(TemporalMetadata::Timestamp(..)), Some(TemporalMetadata::Date(_))) => {
-            Some("Use timestamp_to_date to extract the local calendar date in days.")
-        }
-        (Some(TemporalMetadata::Timestamp(..)), Some(TemporalMetadata::Time(_))) => {
-            Some("Use timestamp_to_time to extract the local time of day in the timestamp's unit.")
-        }
-        (Some(TemporalMetadata::Date(from)), Some(TemporalMetadata::Date(to)))
-        | (Some(TemporalMetadata::Time(from)), Some(TemporalMetadata::Time(to)))
-        | (Some(TemporalMetadata::Timestamp(from, _)), Some(TemporalMetadata::Timestamp(to, _)))
-            if from < to =>
-        {
-            Some("Use change_time_unit to select an explicit rounding mode.")
-        }
-        _ => None,
-    }
+    temporal::temporal_cast_hint(source, target)
 }
 
-/// Apply [`check_opaque_cast`] to each pair of fields that
+/// [`check_extension_cast`] for each pair of fields that
 /// [`struct_cast_fields`](crate::arrays::struct_::compute::cast::struct_cast_fields) casts. A
 /// target field that the source lacks becomes nulls, so it reinterprets nothing.
 fn check_struct_extension_cast(source: &StructFields, target: &StructFields) -> VortexResult<()> {
     if source.names() == target.names() {
         for (source, target) in source.fields().zip(target.fields()) {
-            check_opaque_cast(&source, &target)?;
+            check_extension_cast(&source, &target)?;
         }
         return Ok(());
     }
 
     for (name, target) in target.names().iter().zip(target.fields()) {
         if let Some(source) = source.field(name) {
-            check_opaque_cast(&source, &target)?;
+            check_extension_cast(&source, &target)?;
         }
     }
     Ok(())
@@ -235,7 +194,10 @@ impl ScalarFnVTable for Cast {
     }
 
     fn return_dtype(&self, dtype: &DType, arg_dtypes: &[DType]) -> VortexResult<DType> {
-        let _ = bind_extension_cast(&arg_dtypes[0], dtype)?;
+        let source = &arg_dtypes[0];
+        if TemporalCast::classify(source, dtype).is_none() {
+            check_extension_cast(source, dtype)?;
+        }
         Ok(dtype.clone())
     }
 
