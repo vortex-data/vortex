@@ -20,6 +20,7 @@ use datafusion::arrow::datatypes::Int32Type;
 use datafusion::arrow::datatypes::Schema;
 use datafusion::arrow::datatypes::UInt32Type;
 use datafusion::arrow::util::pretty::pretty_format_batches;
+use datafusion::datasource::file_format::FileFormat;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::SessionConfig;
@@ -29,6 +30,7 @@ use datafusion_common::Result as DFResult;
 use datafusion_common::arrow::compute::cast;
 use datafusion_common::arrow::compute::concat_batches;
 use datafusion_common::config::ConfigOptions;
+use datafusion_common::stats::Precision as DFPrecision;
 use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
@@ -89,6 +91,7 @@ use vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata;
 use vortex_tensor::vector::ARROW_VECTOR_EXTENSION_NAME;
 use vortex_tensor::vector::Vector;
 
+use crate::VortexFormat;
 use crate::VortexFormatFactory;
 use crate::VortexSource;
 use crate::common_tests::TestSessionContext;
@@ -1495,5 +1498,58 @@ async fn test_ree_dict_predicate_memtable_oracle(
     let actual = actual.collect().await?;
     let expected = ctx.session.sql(&query("oracle")).await?.collect().await?;
     assert_eq!(batch_values(&actual), batch_values(&expected));
+    Ok(())
+}
+
+#[rstest]
+#[tokio::test]
+async fn infer_stats_reports_approx_distinct_as_inexact(
+    #[values(false, true)] disable_editions: bool,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    let session = VortexSession::default();
+    let path = "distinct.vortex".into();
+
+    let st = StructArray::try_new(
+        ["numbers", "constant"].into(),
+        vec![
+            buffer![1u32, 2, 2, 3, 3, 3].into_array(),
+            buffer![7u32; 6].into_array(),
+        ],
+        6,
+        Validity::NonNullable,
+    )?;
+    let mut writer = ObjectStoreWrite::new(Arc::clone(&ctx.store), &path).await?;
+    // NDV has no legacy stats slot, so it is only stored with the nested footer statistics.
+    let mut options = session.write_options().include_nested_statistics();
+    if disable_editions {
+        options = options.disable_editions();
+    }
+    options
+        .write(&mut writer, st.into_array().to_array_stream())
+        .await?;
+    writer.shutdown().await?;
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("numbers", DataType::UInt32, false),
+        Field::new("constant", DataType::UInt32, false),
+    ]));
+    let object = ctx.store.head(&path).await?;
+    let stats = VortexFormat::new(session)
+        .infer_stats(&ctx.session.state(), &ctx.store, schema, &object)
+        .await?;
+
+    // NDV is only in the footer when the edition check is off, and it is an estimate.
+    let expected = if disable_editions {
+        DFPrecision::Inexact(3)
+    } else {
+        DFPrecision::Absent
+    };
+    assert_eq!(stats.column_statistics[0].distinct_count, expected);
+    // A constant column is still known exactly from its bounds, whatever the sketch says.
+    assert_eq!(
+        stats.column_statistics[1].distinct_count,
+        DFPrecision::Exact(1)
+    );
     Ok(())
 }
