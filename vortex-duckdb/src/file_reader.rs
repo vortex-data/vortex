@@ -143,7 +143,8 @@ pub struct FileScanState {
     /// The pool of the file's scan, whose workers the threads scanning the file poll. Set when the
     /// file is initialized for a scan that reads through a pool.
     pool: OnceLock<ScanPoolRef>,
-    /// Set once a worker of `pool` has ended, so the pool has no work left for a new thread.
+    /// Set once a worker of `pool` has ended, so the pool has no work left to start for a new
+    /// thread.
     finished: AtomicBool,
     cache: ConversionCache,
 }
@@ -154,11 +155,14 @@ impl FileScanState {
         if let Some(scan) = self.v2.get() {
             return (!scan.is_exhausted()).then_some(Split::V2);
         }
+        // A thread leaves the file once every unit of its pool is taken, as it leaves a file whose
+        // split list is empty, rather than waiting for the pool's last unit to finish: the
+        // file's last worker reads the rows still to come, and the others move to the next file.
         let pool = self.pool.get()?;
-        if self.finished.load(Ordering::Acquire) || pool.is_exhausted() {
+        if self.finished.load(Ordering::Acquire) || pool.is_taken() {
             return None;
         }
-        Some(Split::Worker(Arc::clone(pool).worker()))
+        Some(Split::Worker(Arc::clone(pool).worker_until_taken()))
     }
 }
 
@@ -358,7 +362,7 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
                 Some(array) => array,
                 None => {
                     let Some(array) = RUNTIME.block_on(worker.next()).transpose()? else {
-                        // A worker ends only once its pool has no work left.
+                        // A worker ends only once its pool has no work left to start.
                         if let Some(file) = &local.file {
                             file.finished.store(true, Ordering::Release);
                         }

@@ -61,6 +61,18 @@ pub trait ScanPool: 'static + Send + Sync {
     /// so a host drops a worker early only when it abandons the scan.
     fn worker(self: Arc<Self>) -> SendableArrayStream;
 
+    /// Returns a worker that ends once workers have taken every unit and no row waits for it,
+    /// rather than once the pool is drained, unless it is the pool's last worker, which reads the
+    /// rows still to come.
+    ///
+    /// A host that moves threads between pools, such as one pool per file, uses it so that a
+    /// thread moves on once nothing is left to start, as it would from a list of splits, rather
+    /// than waiting for the pool's last unit to finish. Pools whose workers already end that way
+    /// return a [`worker`](Self::worker).
+    fn worker_until_taken(self: Arc<Self>) -> SendableArrayStream {
+        self.worker()
+    }
+
     /// The fraction of the pool's work that workers have taken, from 0.0 to 1.0, for a host's
     /// progress bar. Never blocks.
     fn progress(&self) -> f64 {
@@ -73,6 +85,14 @@ pub trait ScanPool: 'static + Send + Sync {
     /// pool. `false` is always a safe answer. Never blocks.
     fn is_exhausted(&self) -> bool {
         false
+    }
+
+    /// Whether workers have taken every unit of the pool, though some may still be running, so a
+    /// [`worker_until_taken`](Self::worker_until_taken) started now would find nothing to start.
+    ///
+    /// `false` is always a safe answer. Never blocks.
+    fn is_taken(&self) -> bool {
+        self.is_exhausted()
     }
 }
 
