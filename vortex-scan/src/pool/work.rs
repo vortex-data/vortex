@@ -709,7 +709,7 @@ impl Reader {
         let uncounted = self
             .pool
             .workers
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |workers| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |workers| {
                 workers.checked_sub(1).filter(|&left| left > 0)
             })
             .is_ok();
