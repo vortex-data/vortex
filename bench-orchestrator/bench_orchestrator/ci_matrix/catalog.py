@@ -200,7 +200,16 @@ BENCHMARKS = (
         benchmark=Benchmark.TPCH,
         name="TPC-H on NVME",
         scale_factor=100,
-        runs={"nightly": with_scan_api(DEFAULT)},
+        runs={"nightly": DEFAULT},
+    ),
+    # A job of its own, like TPC-DS SF=100's targets: if develop's slow `VortexTable` path runs past
+    # the job timeout at SF=100, it loses only its own results.
+    BenchmarkCase(
+        id="tpch-nvme-scan-api",
+        benchmark=Benchmark.TPCH,
+        name="TPC-H on NVME (DataFusion Scan API)",
+        scale_factor=100,
+        runs={"nightly": Coverage(SCAN_API_TARGETS)},
     ),
     BenchmarkCase(
         id="tpch-s3",

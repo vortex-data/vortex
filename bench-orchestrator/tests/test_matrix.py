@@ -61,6 +61,7 @@ EXPECTED_IDS = {
     "pr-full": PR_FULL_IDS,
     "nightly": (
         "tpch-nvme",
+        "tpch-nvme-scan-api",
         "tpch-s3",
         "tpcds-nvme-10",
         "tpcds-s3-10",
@@ -140,7 +141,7 @@ SCAN_API_IDS = {
     "pr-all": {"clickbench-nvme", "tpch-nvme"},
     "pr-full": {"clickbench-nvme", "tpch-nvme"},
     "develop": {"clickbench-nvme", "tpch-nvme"},
-    "nightly": {"tpch-nvme"},
+    "nightly": {"tpch-nvme-scan-api"},
     "pr-compact": set(),
 }
 
@@ -152,9 +153,10 @@ def test_scan_api_target_runs_only_on_clickbench_and_tpch_nvme(preset: str, expe
     assert {entry["id"] for entry in entries if SCAN_API_TARGET in _targets(entry)} == expected_ids
     for entry in entries:
         if SCAN_API_TARGET in _targets(entry):
-            # The Scan API target reads the default target's Vortex files; it needs no data of its own.
-            assert ("datafusion", "vortex") in _targets(entry)
+            # The Scan API target reads the same Vortex files as the default target.
             assert "vortex" in cast("list[str]", entry["data_formats"])
+            if preset != "nightly":
+                assert ("datafusion", "vortex") in _targets(entry)
 
 
 def test_scan_api_target_round_trips_through_targets_json() -> None:
