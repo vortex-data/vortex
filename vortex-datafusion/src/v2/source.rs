@@ -406,8 +406,9 @@ impl VortexDataSource {
 /// During execution, it builds the final Vortex [`ScanRequest`] from the
 /// current projection, pushed filters, ordering hints, and row limit.
 ///
-/// Unordered scans expose the requested DataFusion output partitions; a scan with a declared
-/// global ordering uses one output partition.
+/// A scan exposes the requested DataFusion output partitions. With a declared ordering, each output
+/// partition keeps that ordering, as a sorted file group does in DataFusion's own file scans, and
+/// DataFusion merges the partitions where it needs one global order.
 ///
 /// Each execution scans once, through [`DataSource::create_sibling_state`], and the first output
 /// partition polled starts the scan. Like DataFusion's own file scans, the output partitions share
@@ -415,8 +416,9 @@ impl VortexDataSource {
 ///
 /// - An unordered scan is [opened] once, and every output partition reads a clone of its stream,
 ///   so partitions that finish early keep taking work.
-/// - A scan whose output partitions must each keep their order is [split] into one fixed piece per
-///   output partition, and output partition `i` reads piece `i` in order. Partitions beyond the
+/// - A scan with a declared ordering, or whose output partitions DataFusion asks to keep their
+///   order, is [split] into one fixed piece per output partition, and output partition `i` reads
+///   piece `i` in order. The pieces are contiguous, so each partition keeps the ordering. Partitions beyond the
 ///   piece count return no rows.
 ///
 /// Setting [`SCAN_POOL_ENV`] to `0` instead has the output partitions take partitions from one
@@ -479,7 +481,7 @@ pub struct VortexDataSource {
     dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
     /// An optional row limit populated by [`DataSource::with_fetch`].
     limit: Option<usize>,
-    /// Whether to preserve a declared global order, which keeps one output partition.
+    /// Whether to preserve a declared ordering in each output partition.
     ordered: bool,
     /// Whether each output partition must return its rows in order, as DataFusion requests
     /// through [`DataSource::with_preserve_order`].
@@ -506,7 +508,8 @@ impl fmt::Debug for VortexDataSource {
 
 impl VortexDataSource {
     fn output_partition_count(&self) -> usize {
-        if self.ordered || (!self.split_scan && self.limit.is_some()) {
+        // The shared partition stream keeps an ordering only in one output partition.
+        if !self.split_scan && (self.ordered || self.limit.is_some()) {
             1
         } else {
             self.output_partitions
@@ -1746,7 +1749,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn proven_ordering_keeps_one_output_partition_and_remaps_identity_outputs()
+    async fn proven_ordering_holds_in_each_output_partition_and_remaps_identity_outputs()
     -> anyhow::Result<()> {
         let data_source: DataSourceRef = Arc::new(TestDataSource {
             dtype: test_dtype(),
@@ -1759,12 +1762,33 @@ mod tests {
                 LexOrdering::new([PhysicalSortExpr::new_default(Arc::clone(&key))])
                     .expect("one key"),
             )
+            .with_split_scan(true)
             .build()
             .await?;
+        let mut shared_partitions = source.clone();
+        shared_partitions.split_scan = false;
+        let shared_partitions = shared_partitions
+            .repartitioned(4, 0, None)?
+            .expect("repartitioning supported");
+        assert_eq!(shared_partitions.output_partitioning().partition_count(), 1);
+
+        // Output partition `i` reads piece `i` of the split, in order.
         let source = source
             .repartitioned(4, 0, None)?
             .expect("repartitioning supported");
-        assert_eq!(source.output_partitioning().partition_count(), 1);
+        assert_eq!(source.output_partitioning().partition_count(), 4);
+        let plan = Arc::new(DataSourceExec::new(Arc::clone(&source))) as Arc<dyn ExecutionPlan>;
+        let context = Arc::new(TaskContext::default());
+        let mut partitions = Vec::new();
+        for partition in 0..4 {
+            let batches: Vec<RecordBatch> = plan
+                .execute(partition, Arc::clone(&context))?
+                .try_collect()
+                .await?;
+            partitions.push(partition_values(&batches));
+        }
+        assert_eq!(partitions, [vec![0, 1], vec![100, 101], vec![], vec![]]);
+
         let projected = source
             .try_swapping_with_projection(&ProjectionExprs::from(vec![ProjectionExpr::new(
                 Arc::clone(&key),
