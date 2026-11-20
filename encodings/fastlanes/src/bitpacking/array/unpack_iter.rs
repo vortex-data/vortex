@@ -201,6 +201,92 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
         debug_assert_eq!(local_idx, self.len);
     }
 
+    /// Decode all chunks directly into `output`, calling `after_chunk(chunk, output)` as soon as
+    /// each chunk listed in `hooked_chunks` has been decoded, while its values are still in cache.
+    ///
+    /// `chunk` is the index of the 1024-element FastLanes chunk, counting the partial first chunk
+    /// of an offset array as chunk 0, and `hooked_chunks` must be ascending. Runs of chunks between
+    /// hooked chunks are unpacked by the same tight loop as [`Self::decode_into`]. Every value of a
+    /// chunk is initialized when its hook runs.
+    pub(crate) fn decode_into_with<F>(
+        &mut self,
+        output: &mut [MaybeUninit<T>],
+        hooked_chunks: &[usize],
+        mut after_chunk: F,
+    ) where
+        F: FnMut(usize, &mut [MaybeUninit<T>]),
+    {
+        debug_assert_eq!(output.len(), self.len);
+        debug_assert!(hooked_chunks.is_sorted());
+        let mut hooked = hooked_chunks.iter().copied().peekable();
+        let mut local_idx = 0;
+
+        if let Some(initial) = self.initial() {
+            local_idx = initial.len();
+            output[..local_idx].write_copy_of_slice(initial);
+            if hooked.next_if_eq(&0).is_some() {
+                after_chunk(0, output);
+            }
+        }
+
+        if self.num_chunks > 1 {
+            let full = self.full_chunks_range();
+            // The output position of the first full chunk.
+            let base = local_idx;
+            let mut start = full.start;
+            while start < full.end {
+                let hook = hooked.peek().copied().filter(|&c| c < full.end);
+                let stop = hook.unwrap_or(full.end).max(start);
+                if start < stop {
+                    self.decode_chunks_into(
+                        start..stop,
+                        &mut output[base + (start - full.start) * CHUNK_SIZE..],
+                    );
+                    start = stop;
+                }
+                if let Some(chunk) = hook {
+                    hooked.next();
+                    if chunk >= full.start {
+                        self.decode_chunks_into(
+                            chunk..chunk + 1,
+                            &mut output[base + (chunk - full.start) * CHUNK_SIZE..],
+                        );
+                        after_chunk(chunk, output);
+                        start = chunk + 1;
+                    }
+                }
+            }
+            local_idx += full.len() * CHUNK_SIZE;
+        }
+
+        if let Some(trailer) = self.trailer() {
+            let trailer_len = trailer.len();
+            output[local_idx..][..trailer_len].write_copy_of_slice(trailer);
+            local_idx += trailer_len;
+            let chunk = self.num_chunks - 1;
+            if hooked.next_if_eq(&chunk).is_some() {
+                after_chunk(chunk, output);
+            }
+        }
+
+        debug_assert_eq!(local_idx, self.len);
+    }
+
+    /// Unpack the full chunks `chunks` into the start of `output`.
+    fn decode_chunks_into(&self, chunks: Range<usize>, output: &mut [MaybeUninit<T>]) {
+        let elems_per_chunk = self.elems_per_chunk();
+        let output = &mut output[..chunks.len() * CHUNK_SIZE];
+        for (chunk, dst) in chunks.zip(output.chunks_exact_mut(CHUNK_SIZE)) {
+            let packed = &self.packed[chunk * elems_per_chunk..][..elems_per_chunk];
+            // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout, and the destination is
+            // exactly one chunk long.
+            unsafe {
+                let dst: &mut [T::Physical] = mem::transmute(dst);
+                self.strategy.unpack_chunk(self.bit_width, packed, dst);
+            }
+        }
+    }
+
     /// Decode all chunks (initial, full, and trailer), mapping each unpacked value through f.
     pub(crate) fn decode_map_into<U>(
         &mut self,

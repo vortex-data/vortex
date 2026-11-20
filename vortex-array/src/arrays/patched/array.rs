@@ -10,7 +10,9 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
+use crate::AnyCanonical;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -338,9 +340,18 @@ impl Patched {
 
         let values = match permutation {
             None => values,
-            Some(permutation) => values.take(
-                PrimitiveArray::new(permutation, Validity::NonNullable).into_array(),
-            )?,
+            Some(permutation) => {
+                let permuted = values.take(
+                    PrimitiveArray::new(permutation, Validity::NonNullable).into_array(),
+                )?;
+                // Reorder canonical values now, rather than on every execution. Compressed values
+                // stay lazy so that the reordering does not decompress them.
+                if values.is::<AnyCanonical>() {
+                    permuted.execute::<Canonical>(ctx)?.into_array()
+                } else {
+                    permuted
+                }
+            }
         };
 
         let slots = PatchedSlots {

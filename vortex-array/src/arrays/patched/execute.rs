@@ -160,7 +160,7 @@ fn lazy_patched(
 }
 
 /// The validity of a patched array, given the validity of its inner and values children.
-pub(crate) fn patch_validity(
+pub fn patch_validity(
     inner: Validity,
     values: Validity,
     n_values: usize,

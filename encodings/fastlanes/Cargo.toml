@@ -105,6 +105,10 @@ name = "for_decode"
 harness = false
 
 [[bench]]
+name = "patched_decode"
+harness = false
+
+[[bench]]
 name = "patched_search"
 harness = false
 
