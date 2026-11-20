@@ -21,6 +21,7 @@ use futures::FutureExt;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use mimalloc::MiMalloc;
+use parquet::basic::Compression;
 use regex::Regex;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_bench::Engine;
@@ -57,6 +58,9 @@ use vortex_bench::public_bi::PBIDataset::HashTags;
 use vortex_bench::setup_logging_and_tracing_with_format;
 use vortex_bench::statpopgen::StatPopGenBenchmark;
 use vortex_bench::v3;
+
+/// The size record name of Parquet written with Snappy, beside `parquet`, which is zstd level 3.
+const PARQUET_SNAPPY_FORMAT: &str = "parquet-snappy";
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -527,6 +531,23 @@ async fn run_benchmark_for_dataset(
                         result.compressed_size,
                         uncompressed_size.context("compression size requires Arrow memory size")?,
                     ));
+                    if *format == Format::Parquet && !mode.is_gpu() {
+                        // Snappy Parquet is measured for size only: one untimed write.
+                        let snappy = ParquetCompressor::with_compression(Compression::SNAPPY)
+                            .compress(&input)
+                            .await
+                            .with_context(|| {
+                                format!("compressing {bench_name} as Snappy Parquet")
+                            })?;
+                        v3_records.push(v3::named_compression_size_record(
+                            v3_dataset,
+                            v3_variant,
+                            PARQUET_SNAPPY_FORMAT,
+                            snappy.size,
+                            uncompressed_size
+                                .context("compression size requires Arrow memory size")?,
+                        ));
+                    }
                     ratios.extend(result.ratios);
                     timings.push(result.timing);
                     compressed = Some(result.compressed);
