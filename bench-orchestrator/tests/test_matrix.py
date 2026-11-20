@@ -37,7 +37,17 @@ REGULAR_IDS = (
 COMPACT_IDS = tuple(
     benchmark_id for benchmark_id in REGULAR_IDS if benchmark_id not in {"polarsignals", "vortex-queries"}
 )
-DEVELOP_IDS = (*REGULAR_IDS[:-1], "job-nvme", "tpch-nested-nvme", "vortex-queries")
+DEVELOP_IDS = (
+    "clickbench-nvme",
+    "clickbench-nvme-scans",
+    "clickbench-sorted-nvme",
+    "tpch-nvme",
+    "tpch-nvme-scans",
+    *REGULAR_IDS[3:-1],
+    "job-nvme",
+    "tpch-nested-nvme",
+    "vortex-queries",
+)
 # TPC-DS SF=10 on NVMe runs in the PR presets and nightly, not on every develop commit.
 PR_IDS = (*REGULAR_IDS[:7], "tpcds-nvme-10", *REGULAR_IDS[7:])
 PR_FULL_IDS = (*PR_IDS[:-1], "job-nvme", "tpch-nested-nvme", "vortex-queries")
@@ -114,6 +124,7 @@ ALL_SCANS = {
     ("duckdb", "vortex [file, v2]"),
     ("duckdb", "vortex [file, v1]"),
 }
+OTHER_SCANS = {("datafusion", "vortex [datasource, v1]")}
 
 
 @pytest.mark.parametrize(("preset", "expected_ids"), EXPECTED_IDS.items())
@@ -163,7 +174,9 @@ def test_pr_target_selection() -> None:
 
     for benchmark_id in ("clickbench-nvme", "tpch-nvme"):
         assert _targets(pr[benchmark_id]) == ALL_SCANS
-        assert ALL_SCANS <= _targets(develop[benchmark_id])
+        # develop runs the other scans in a job of their own, so a failure cannot lose the defaults.
+        assert ALL_SCANS <= _targets(develop[benchmark_id]) | _targets(develop[f"{benchmark_id}-scans"])
+        assert OTHER_SCANS.isdisjoint(_targets(develop[benchmark_id]))
     assert _targets(pr["tpch-nvme-10"]) == {
         ("datafusion", "parquet"),
         ("datafusion", "vortex [file, v2]"),
@@ -181,10 +194,9 @@ def test_pr_target_selection() -> None:
         assert set(cast("list[str]", entry["data_formats"])) == {"parquet", "vortex-compact"}
 
 
-OTHER_SCANS = {("datafusion", "vortex [datasource, v1]")}
 OTHER_SCAN_IDS = {
     "pr": {"clickbench-nvme", "tpch-nvme"},
-    "develop": {"clickbench-nvme", "tpch-nvme"},
+    "develop": {"clickbench-nvme-scans", "tpch-nvme-scans"},
     "pr-compact": set(),
 }
 

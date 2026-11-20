@@ -392,6 +392,64 @@ def _with_all_scan_presets(benchmark: BenchmarkCase) -> BenchmarkCase:
     return replace(benchmark, runs=runs)
 
 
+# Presets that run a benchmark's other scans in a companion job, `<id>-scans`, beside the default
+# targets: every nightly benchmark, and develop wherever it covers every scan. A target failure fails
+# its job before the results are written, so a new scan cannot lose the default targets' history; at
+# nightly scale the other scans would also roughly double a job that runs close to its timeout.
+# TPC-DS SF=100 already runs one target per job, see `TPCDS_SF100_TARGETS`. PR presets keep every
+# scan in one job, so their comment shows them side by side.
+SCAN_COMPANION_PRESETS = ("develop", "nightly")
+
+
+def _split_scans(coverage: Coverage, preset: str) -> bool:
+    return preset == "nightly" or coverage.scans is ScanCoverage.ALL
+
+
+def _with_scan_companion(benchmark: BenchmarkCase) -> tuple[BenchmarkCase, ...]:
+    """Move a benchmark's other scans in `SCAN_COMPANION_PRESETS` into a companion job."""
+    if benchmark in TPCDS_SF100_CASES:
+        return (benchmark,)
+    split = {
+        preset: coverage
+        for preset, coverage in benchmark.runs.items()
+        if preset in SCAN_COMPANION_PRESETS and _split_scans(coverage, preset)
+    }
+    if not split:
+        return (benchmark,)
+    main = replace(
+        benchmark,
+        runs={**benchmark.runs, **{preset: replace(c, scans=ScanCoverage.DEFAULT) for preset, c in split.items()}},
+    )
+    alternates = {preset: replace(c, scans=ScanCoverage.ALTERNATES) for preset, c in split.items()}
+    alternates = {
+        preset: coverage
+        for preset, coverage in alternates.items()
+        if len(coverage.resolved_targets(benchmark.benchmark)) > 0
+    }
+    if not alternates:
+        return (main,)
+    companion = replace(
+        benchmark,
+        id=f"{benchmark.id}-scans",
+        name=f"{benchmark.name} (other Vortex scans)",
+        # A distinct key: each S3 job clears and re-uploads its own copy of the data.
+        remote_key=f"{benchmark.remote_key}-scans" if benchmark.remote_key is not None else None,
+        runs=alternates,
+    )
+    return (main, companion)
+
+
+PR_ALL_SOURCES = ("pr", "pr-compact", "pr-full")
+
+
+def _with_all_scan_presets(benchmark: BenchmarkCase) -> BenchmarkCase:
+    runs = {
+        preset: with_all_scans(coverage) if preset in ALL_SCAN_PRESETS else coverage
+        for preset, coverage in benchmark.runs.items()
+    }
+    return replace(benchmark, runs=runs)
+
+
 def _nightly_scan_cases(benchmark: BenchmarkCase) -> tuple[BenchmarkCase, ...]:
     """Run a nightly benchmark's other scans in a job of its own beside it.
 
@@ -432,6 +490,6 @@ CATALOG = Catalog(
     benchmarks=tuple(
         _with_pr_all(_with_all_scan_presets(case))
         for benchmark in BENCHMARKS
-        for case in (benchmark, *_nightly_scan_cases(benchmark))
+        for case in _with_scan_companion(benchmark)
     ),
 )
