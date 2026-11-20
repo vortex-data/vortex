@@ -246,7 +246,8 @@ struct LayoutReaderScan {
 }
 
 impl LayoutReaderScan {
-    /// The scan over the rows that remain, as develop's DuckDB scan builds it for a file.
+    /// A scan builder over this scan's reader, with its selection, projection, filter, metrics
+    /// and split concurrency. Callers give it the row range to read.
     fn builder(&self) -> ScanBuilder<ArrayRef> {
         ScanBuilder::new(self.session.clone(), Arc::clone(&self.reader))
             .with_selection(self.selection.clone())
