@@ -14,6 +14,7 @@ use futures::FutureExt;
 use futures::Stream;
 use futures::stream;
 use futures::stream::StreamExt;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
@@ -37,6 +38,7 @@ use vortex_scan::Partition;
 use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
+use vortex_scan::pool::PartitionPool;
 use vortex_scan::pool::ScanPoolRef;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
@@ -45,19 +47,10 @@ use crate::LayoutReaderRef;
 use crate::scan::limit::RowLimit;
 use crate::scan::metrics::ScanMetrics;
 use crate::scan::metrics::ScanRecorder;
-use crate::scan::pool::FileWork;
-use crate::scan::pool::PiecePartition;
-use crate::scan::pool::PoolFile;
-use crate::scan::pool::PoolOptions;
-use crate::scan::pool::PreparedScan;
-use crate::scan::pool::open_pool;
+use crate::scan::pool::SplitPool;
 use crate::scan::scan_builder::ScanBuilder;
 
 /// An implementation of a [`DataSource`] that reads data from a [`LayoutReaderRef`].
-///
-/// When a scan is [split](DataSourceScan::split) or [opened](DataSourceScan::open), its units are
-/// the layout's splits. Workers of an opened scan share them, each keeping several in flight on
-/// the session's runtime.
 pub struct LayoutReaderDataSource {
     reader: LayoutReaderRef,
     session: VortexSession,
@@ -212,7 +205,6 @@ impl DataSource for LayoutReaderDataSource {
             dtype,
             projection,
             filter,
-            limit: scan_request.limit,
             remaining_limit: scan_request.limit,
             row_limit,
             selection: scan_request.selection,
@@ -236,8 +228,6 @@ struct LayoutReaderScan {
     dtype: DType,
     projection: BoundExpression,
     filter: Option<BoundExpression>,
-    /// The request's limit.
-    limit: Option<u64>,
     /// Limit rows not yet covered by the splits produced so far; production stops at zero.
     /// Decremented only for filterless scans, where each split's output is exactly its
     /// selected row count.
@@ -254,39 +244,96 @@ struct LayoutReaderScan {
 }
 
 impl LayoutReaderScan {
-    /// Prepares the scan once, for splitting or opening.
-    fn into_split_scan(self) -> VortexResult<LayoutSplitScan> {
-        let row_count = DataSourceScan::row_count(&self);
-        let options = LayoutScanOptions {
+    /// The scan over the rows that remain, as develop's DuckDB scan builds it for a file.
+    fn builder(&self) -> ScanBuilder<ArrayRef> {
+        ScanBuilder::new(self.session.clone(), Arc::clone(&self.reader))
+            .with_selection(self.selection.clone())
+            .with_projection(self.projection.clone())
+            .with_some_filter(self.filter.clone())
+            .with_some_scan_metrics(self.metrics.clone())
+            .with_some_max_splits_in_flight(self.split_concurrency)
+    }
+
+    /// This scan over `rows` only. Only a scan without a limit is cut into pieces, so a piece
+    /// has no limit to share.
+    fn piece(&self, rows: Range<u64>) -> Self {
+        Self {
+            reader: Arc::clone(&self.reader),
             session: self.session.clone(),
-            dtype: self.dtype,
+            dtype: self.dtype.clone(),
+            projection: self.projection.clone(),
+            filter: self.filter.clone(),
+            remaining_limit: None,
+            row_limit: None,
             ordered: self.ordered,
-            limit: self.limit,
-            has_filter: self.filter.is_some(),
             split_concurrency: self.split_concurrency,
-        };
-        let row_range = clamp_row_range(self.next_row..self.end_row, self.reader.row_count());
-        let scan = ScanBuilder::new(self.session, self.reader)
-            .with_row_range(row_range)
-            .with_selection(self.selection)
-            .with_projection(self.projection)
-            .with_some_filter(self.filter)
-            .with_some_scan_metrics(self.metrics)
-            .with_ordered(self.ordered)
-            .prepare()?;
-        let ranges = scan.split_ranges(None);
-        Ok(LayoutSplitScan {
-            options,
-            row_count,
-            scan: Arc::new(scan),
-            ranges,
-        })
+            selection: self.selection.clone(),
+            metrics: self.metrics.clone(),
+            next_row: rows.start,
+            end_row: rows.end,
+            split_size: self.split_size,
+        }
     }
 }
 
 impl DataSourceScan for LayoutReaderScan {
     fn dtype(&self) -> &DType {
         &self.dtype
+    }
+
+    /// Cuts the scan at the layout's natural split boundaries, into pieces of about equal rows.
+    ///
+    /// A scan with a limit stays whole, because the limit is one budget across all its rows.
+    fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
+        if n.get() == 1 || self.remaining_limit.is_some() || self.next_row >= self.end_row {
+            return Ok(vec![self]);
+        }
+        let ranges = self
+            .builder()
+            .prepare()?
+            .split_ranges(Some(self.next_row..self.end_row));
+        let pieces: Vec<Range<u64>> = group_contiguous(ranges, n)
+            .into_iter()
+            .filter_map(|group| Some(group.first()?.start..group.last()?.end))
+            .collect();
+        if pieces.len() <= 1 {
+            return Ok(vec![self]);
+        }
+        Ok(pieces
+            .into_iter()
+            .map(|rows| Box::new(self.piece(rows)) as DataSourceScanRef)
+            .collect())
+    }
+
+    /// Opens the scan into a queue of its split futures, which workers claim one at a time and
+    /// run themselves: develop's DuckDB scan of a file.
+    ///
+    /// Split futures cannot share a limit, and workers of a queue finish splits out of row
+    /// order. So a scan with a limit, or an ordered one, keeps its partition pipeline and hands
+    /// its partitions to workers instead.
+    fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
+        if self.remaining_limit.is_some() || self.ordered {
+            return Ok(Arc::new(PartitionPool::new(self)));
+        }
+        let splits = self
+            .builder()
+            .prepare()?
+            .execute(Some(self.next_row..self.end_row))?;
+        Ok(Arc::new(SplitPool::new(self.dtype, splits)))
+    }
+
+    fn row_count(&self) -> Precision<u64> {
+        let selected = self
+            .selection
+            .row_count_in_range(&(self.next_row..self.end_row));
+        let rows = self
+            .remaining_limit
+            .map_or(selected, |limit| selected.min(limit));
+        if self.filter.is_some() {
+            Precision::inexact(rows)
+        } else {
+            Precision::exact(rows)
+        }
     }
 
     fn partition_count(&self) -> Precision<usize> {
@@ -300,143 +347,6 @@ impl DataSourceScan for LayoutReaderScan {
 
     fn partitions(self: Box<Self>) -> PartitionStream {
         (*self).boxed()
-    }
-
-    fn row_count(&self) -> Precision<u64> {
-        let selected = self
-            .selection
-            .row_count_in_range(&(self.next_row..self.end_row));
-        let rows = self.limit.map_or(selected, |limit| selected.min(limit));
-        if self.filter.is_some() {
-            Precision::inexact(rows)
-        } else {
-            Precision::exact(rows)
-        }
-    }
-
-    fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
-        Box::new(self.into_split_scan()?).split(n)
-    }
-
-    fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
-        Box::new(self.into_split_scan()?).open()
-    }
-}
-
-/// Clamps a requested row range to the rows of the source.
-fn clamp_row_range(row_range: Range<u64>, total_rows: u64) -> Range<u64> {
-    let end = row_range.end.min(total_rows);
-    row_range.start.min(end)..end
-}
-
-/// What a [`LayoutSplitScan`] and every piece cut from it share.
-#[derive(Clone)]
-struct LayoutScanOptions {
-    session: VortexSession,
-    dtype: DType,
-    ordered: bool,
-    limit: Option<u64>,
-    has_filter: bool,
-    split_concurrency: Option<NonZeroUsize>,
-}
-
-/// A prepared scan of one layout reader over some of its splits: a [`LayoutReaderScan`] that was
-/// split or opened, or a piece cut from one.
-struct LayoutSplitScan {
-    options: LayoutScanOptions,
-    row_count: Precision<u64>,
-    scan: Arc<PreparedScan>,
-    /// The scan's units: its layout splits, in row order.
-    ranges: Vec<Range<u64>>,
-}
-
-impl LayoutSplitScan {
-    /// A piece over some of the prepared scan's split `ranges`.
-    fn piece(
-        options: &LayoutScanOptions,
-        scan: Arc<PreparedScan>,
-        ranges: Vec<Range<u64>>,
-    ) -> Self {
-        let selected = ranges
-            .iter()
-            .map(|range| scan.selected_row_count(range))
-            .sum::<u64>();
-        Self {
-            options: options.clone(),
-            row_count: if options.has_filter {
-                Precision::inexact(selected)
-            } else {
-                Precision::exact(selected)
-            },
-            scan,
-            ranges,
-        }
-    }
-}
-
-impl DataSourceScan for LayoutSplitScan {
-    fn dtype(&self) -> &DType {
-        &self.options.dtype
-    }
-
-    fn partition_count(&self) -> Precision<usize> {
-        Precision::exact(1usize)
-    }
-
-    fn partitions(self: Box<Self>) -> PartitionStream {
-        let index = self.ranges.first().map_or(0, |range| {
-            usize::try_from(range.start).unwrap_or(usize::MAX)
-        });
-        PiecePartition::stream(self, index)
-    }
-
-    fn row_count(&self) -> Precision<u64> {
-        self.row_count
-    }
-
-    fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
-        if self.options.limit.is_some() || self.ranges.len() <= 1 || n.get() == 1 {
-            return Ok(vec![self]);
-        }
-        let LayoutSplitScan {
-            options,
-            scan,
-            ranges,
-            ..
-        } = *self;
-        Ok(group_contiguous(ranges, n)
-            .into_iter()
-            .map(|ranges| {
-                Box::new(LayoutSplitScan::piece(&options, Arc::clone(&scan), ranges))
-                    as DataSourceScanRef
-            })
-            .collect())
-    }
-
-    fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
-        let LayoutScanOptions {
-            session,
-            dtype,
-            ordered,
-            limit,
-            has_filter,
-            split_concurrency,
-        } = self.options;
-        if limit == Some(0) {
-            return Box::new(Empty::new(dtype, 0)).open();
-        }
-        let work = FileWork::start(self.scan, self.ranges)?;
-        let options = PoolOptions {
-            session,
-            dtype,
-            ordered,
-            limit,
-            has_filter,
-            split_concurrency,
-            // A single opened file has nothing to open.
-            open_concurrency: 1,
-        };
-        Ok(open_pool(options, vec![PoolFile::Opened(work)], None))
     }
 }
 
@@ -602,20 +512,22 @@ impl Partition for LayoutReaderSplit {
 }
 
 /// A scan that produces no data, only empty arrays with the correct row count.
-pub(crate) struct Empty {
+struct Empty {
     dtype: DType,
     row_count: u64,
-}
-
-impl Empty {
-    pub(crate) fn new(dtype: DType, row_count: u64) -> Self {
-        Self { dtype, row_count }
-    }
 }
 
 impl DataSourceScan for Empty {
     fn dtype(&self) -> &DType {
         &self.dtype
+    }
+
+    fn split(self: Box<Self>, _n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
+        Ok(vec![self])
+    }
+
+    fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
+        Ok(Arc::new(PartitionPool::new(self)))
     }
 
     fn partition_count(&self) -> Precision<usize> {
@@ -841,417 +753,94 @@ mod tests {
 }
 
 #[cfg(test)]
-mod pool_tests {
+mod split_open_tests {
     use std::num::NonZeroUsize;
     use std::sync::Arc;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
 
-    use futures::StreamExt;
-    use rstest::rstest;
-    use vortex_array::dtype::DType;
-    use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::StructFields;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::root;
-    use vortex_buffer::Buffer;
+    use futures::TryStreamExt;
+    use futures::executor::block_on;
+    use futures::executor::block_on_stream;
+    use futures::future::try_join_all;
+    use vortex_array::expr::stats::Precision;
     use vortex_error::VortexResult;
-    use vortex_metrics::DefaultMetricsRegistry;
-    use vortex_metrics::MetricValue;
-    use vortex_metrics::MetricsRegistry;
+    use vortex_io::runtime::BlockingRuntime;
+    use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_scan::DataSource;
-    use vortex_scan::DataSourceScanRef;
     use vortex_scan::ScanRequest;
-    use vortex_scan::selection::Selection;
-    use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 
     use super::LayoutReaderDataSource;
     use super::group_contiguous;
     use crate::scan::test::TestLayoutReader;
     use crate::scan::test::collect_scan_values;
-    use crate::scan::test::keep_odd;
     use crate::scan::test::new_session;
-    use crate::scan::test::read_with_one_worker;
-    use crate::scan::test::read_with_workers;
+    use crate::scan::test::session_with_handle;
 
-    fn counter_values(registry: &DefaultMetricsRegistry) -> Vec<u64> {
-        registry
-            .snapshot()
-            .iter()
-            .map(|metric| match metric.value() {
-                MetricValue::Counter(counter) => counter.value(),
-                _ => panic!("expected a scan counter"),
-            })
-            .collect()
+    fn source() -> LayoutReaderDataSource {
+        LayoutReaderDataSource::new(
+            Arc::new(TestLayoutReader::new(64).with_split_size(4)),
+            new_session(),
+        )
     }
 
-    fn plan(
-        source: &LayoutReaderDataSource,
-        request: ScanRequest,
-    ) -> VortexResult<DataSourceScanRef> {
-        futures::executor::block_on(source.scan(request))
-    }
-
-    /// Earlier splits finish last, so completion order is the reverse of row order.
-    fn slow_start(row: u64) -> usize {
-        usize::try_from(32u64.saturating_sub(row)).unwrap_or(0)
-    }
-
-    fn source(reader: TestLayoutReader) -> LayoutReaderDataSource {
-        LayoutReaderDataSource::new(Arc::new(reader), new_session())
-    }
-
-    /// Each opened scan is one execution: it counts one file scan, and one attempt per split.
+    /// Workers of an opened scan each claim splits until none is left, so together they read
+    /// every row once.
     #[test]
-    fn opened_executions_share_aggregate_handles() -> VortexResult<()> {
-        let registry = Arc::new(DefaultMetricsRegistry::default());
-        let source = source(TestLayoutReader::new(8).with_split_size(2))
-            .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry));
-        for execution in 1..=2 {
-            let pool = plan(&source, ScanRequest::default())?.open()?;
-            let values = read_with_workers(&pool, 2)?.concat();
-            assert_eq!(values.len(), 8);
-            assert_eq!(
-                counter_values(&registry),
-                [4 * execution, 0, 0, execution, 0]
-            );
-        }
+    fn opened_workers_read_every_row_once() -> VortexResult<()> {
+        let pool = block_on(source().scan(ScanRequest::default()))?.open()?;
+        let workers = (0..3).map(|_| Arc::clone(&pool).worker().try_collect::<Vec<_>>());
+        let arrays = block_on(try_join_all(workers))?;
+        let mut values = collect_scan_values(arrays.into_iter().flatten().map(Ok))?;
+        values.sort_unstable();
+        assert_eq!(values, (0..64).collect::<Vec<_>>());
+        assert!(pool.is_exhausted());
+        assert_eq!(pool.progress(), 1.0);
         Ok(())
     }
 
-    /// N workers on one pool read every split exactly once.
-    #[rstest]
-    #[case::ordered(true)]
-    #[case::unordered(false)]
-    fn workers_read_every_split_once(#[case] ordered: bool) -> VortexResult<()> {
-        let source = source(TestLayoutReader::new(64).with_split_size(1));
-        let pool = plan(
-            &source,
-            ScanRequest {
-                ordered,
-                ..Default::default()
-            },
-        )?
-        .open()?;
-        let per_worker = read_with_workers(&pool, 4)?;
-
-        let mut values = per_worker.concat();
-        values.sort_unstable();
+    /// Splitting cuts at the layout's split boundaries, and the pieces read the rows in order.
+    #[test]
+    fn split_cuts_at_split_boundaries() -> VortexResult<()> {
+        let scan = block_on(source().scan(ScanRequest::default()))?;
+        let pieces = scan.split(NonZeroUsize::try_from(4)?)?;
+        assert_eq!(pieces.len(), 4);
+        let mut values = Vec::new();
+        for piece in pieces {
+            assert_eq!(piece.row_count(), Precision::exact(16u64));
+            values.extend(collect_scan_values(block_on_stream(
+                piece.open()?.worker(),
+            ))?);
+        }
         assert_eq!(values, (0..64).collect::<Vec<_>>());
         Ok(())
     }
 
-    /// A worker of an ordered pool yields rows in row order, even when later splits finish
-    /// first, and later workers of the pool get nothing.
+    /// A limit is one budget across the scan, so a limited scan stays whole and opens into its
+    /// partitions, which apply the limit.
     #[test]
-    fn ordered_worker_yields_row_order() -> VortexResult<()> {
-        let read = |ordered| {
-            let source = source(
-                TestLayoutReader::new(32)
-                    .with_split_size(1)
-                    .with_yields(slow_start),
-            );
-            let pool = plan(
-                &source,
-                ScanRequest {
-                    ordered,
-                    ..Default::default()
-                },
-            )?
-            .open()?;
-            let first = read_with_one_worker(Arc::clone(&pool))?;
-            let second = read_with_one_worker(pool)?;
-            assert!(second.is_empty());
-            Ok::<_, vortex_error::VortexError>(first)
+    fn limited_scan_stays_whole() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let source = LayoutReaderDataSource::new(
+            Arc::new(TestLayoutReader::new(64).with_split_size(4)),
+            session_with_handle(runtime.handle()),
+        );
+        let request = || ScanRequest {
+            limit: Some(10),
+            ..Default::default()
         };
+        let scan = runtime.block_on(source.scan(request()))?;
+        assert_eq!(scan.split(NonZeroUsize::try_from(4)?)?.len(), 1);
 
-        assert_eq!(read(true)?, (0..32).collect::<Vec<_>>());
-        // The same splits complete out of order, so an unordered worker does not keep row order.
-        assert_ne!(read(false)?, (0..32).collect::<Vec<_>>());
-        Ok(())
-    }
-
-    /// A limit holds across several workers of an unordered pool, whether splits reserve their
-    /// rows up front (no filter) or trim their output (filter).
-    #[rstest]
-    #[case::reserved(None)]
-    #[case::trimmed(Some(root()))]
-    fn unordered_limit_holds_across_workers(
-        #[case] filter: Option<Expression>,
-    ) -> VortexResult<()> {
-        let source = source(TestLayoutReader::new(64).with_split_size(2));
-        let pool = plan(
-            &source,
-            ScanRequest {
-                filter,
-                limit: Some(7),
-                ..Default::default()
-            },
-        )?
-        .open()?;
-        let mut values = read_with_workers(&pool, 4)?.concat();
-        values.sort_unstable();
-        values.dedup();
-        assert_eq!(values.len(), 7);
-        Ok(())
-    }
-
-    /// Split tasks are built as `execute_stream` builds them: all of a file's at once, so their
-    /// reads are registered together, when a worker takes its first split; but one at a time, as
-    /// workers take them, when the scan has both a filter and a limit.
-    #[rstest]
-    #[case::unfiltered(None, None, true)]
-    #[case::filtered(Some(root()), None, true)]
-    #[case::limited(None, Some(1000), true)]
-    #[case::filtered_and_limited(Some(root()), Some(1000), false)]
-    fn split_tasks_build_like_execute_stream(
-        #[case] filter: Option<Expression>,
-        #[case] limit: Option<u64>,
-        #[case] up_front: bool,
-    ) -> VortexResult<()> {
-        let built = Arc::new(AtomicUsize::new(0));
-        let source = source(
-            TestLayoutReader::new(16)
-                .with_split_size(1)
-                .with_built_projections(Arc::clone(&built)),
-        );
-        let pool = plan(
-            &source,
-            ScanRequest {
-                filter,
-                limit,
-                split_concurrency: NonZeroUsize::new(1),
-                ..Default::default()
-            },
-        )?
-        .open()?;
-        let mut worker = Arc::clone(&pool).worker();
-        assert!(futures::executor::block_on(worker.next()).is_some());
-        let built_after_first = built.load(Ordering::SeqCst);
-        if up_front {
-            assert_eq!(built_after_first, 16);
-        } else {
-            assert!(
-                built_after_first < 16,
-                "built {built_after_first} splits up front"
-            );
-        }
-
-        let rest = collect_scan_values(futures::executor::block_on_stream(worker))?;
-        assert_eq!(rest.len(), 15);
-        assert_eq!(built.load(Ordering::SeqCst), 16);
-        Ok(())
-    }
-
-    /// A pool reports the share of its splits that workers have taken, and is exhausted once
-    /// none are left to take.
-    #[rstest]
-    #[case::ordered(true)]
-    #[case::unordered(false)]
-    fn pools_report_progress_and_exhaustion(#[case] ordered: bool) -> VortexResult<()> {
-        let source = source(TestLayoutReader::new(8).with_split_size(2));
-        let pool = plan(
-            &source,
-            ScanRequest {
-                ordered,
-                ..Default::default()
-            },
-        )?
-        .open()?;
-        assert_eq!(pool.progress(), 0.0);
-        assert!(!pool.is_exhausted());
-
-        let values = read_with_one_worker(Arc::clone(&pool))?;
-        assert_eq!(values.len(), 8);
-        assert_eq!(pool.progress(), 1.0);
-        assert!(pool.is_exhausted());
-        assert!(read_with_one_worker(pool)?.is_empty());
-        Ok(())
-    }
-
-    /// An ordered pool with a limit returns exactly the first `limit` rows.
-    #[rstest]
-    #[case::reserved(false, &[0, 1, 2, 3, 4])]
-    #[case::trimmed(true, &[1, 3, 5, 7, 9])]
-    fn ordered_limit_returns_the_first_rows(
-        #[case] filtered: bool,
-        #[case] expected: &[i32],
-    ) -> VortexResult<()> {
-        let source = source(
-            TestLayoutReader::new(32)
-                .with_split_size(2)
-                .with_keep_row(keep_odd)
-                .with_yields(slow_start),
-        );
-        let pool = plan(
-            &source,
-            ScanRequest {
-                filter: filtered.then(root),
-                ordered: true,
-                limit: Some(5),
-                ..Default::default()
-            },
-        )?
-        .open()?;
-        assert_eq!(read_with_one_worker(pool)?, expected);
-        Ok(())
-    }
-
-    /// With a sparse selection and no filter, each split contributes only its selected rows, so
-    /// the workers keep taking splits until the limit is actually filled.
-    #[rstest]
-    #[case::ordered(true)]
-    #[case::unordered(false)]
-    fn opened_sparse_selection_with_limit_fills_the_limit(
-        #[case] ordered: bool,
-    ) -> VortexResult<()> {
-        let source = source(TestLayoutReader::new(12).with_split_size(2));
-
-        // Every two-row split contains exactly one selected row (the even ones).
-        let selection =
-            Selection::IncludeByIndex(StrictSortedBuffer::try_new(Buffer::from_iter([
-                0u64, 2, 4, 6, 8, 10,
-            ]))?);
-        let pool = plan(
-            &source,
-            ScanRequest {
-                selection,
-                limit: Some(3),
-                ordered,
-                ..Default::default()
-            },
-        )?
-        .open()?;
-        let mut values = read_with_one_worker(pool)?;
-        if !ordered {
-            values.sort_unstable();
-        }
-        assert_eq!(values, [0, 2, 4]);
-        Ok(())
-    }
-
-    /// `split(n)` pieces cover the scan exactly, are in row order, and never cut a layout split.
-    #[rstest]
-    #[case::fewer_pieces_than_splits(3, 3)]
-    #[case::more_pieces_than_splits(16, 7)]
-    fn split_pieces_cover_the_scan_on_split_boundaries(
-        #[case] n: usize,
-        #[case] expected_pieces: usize,
-    ) -> VortexResult<()> {
-        // Splits of three rows: [0, 3), [3, 6), ..., [18, 20).
-        let source = source(TestLayoutReader::new(20).with_split_size(3));
-        let scan = plan(&source, ScanRequest::default())?;
-        let pieces = scan.split(NonZeroUsize::new(n).expect("non-zero"))?;
-        assert_eq!(pieces.len(), expected_pieces);
-        assert_eq!(
-            pieces
-                .iter()
-                .map(|piece| piece.row_count().as_exact())
-                .sum::<Option<u64>>(),
-            Some(20)
-        );
-
-        let mut values = Vec::new();
-        for piece in pieces {
-            // The scan is unordered, so a piece's splits may finish in any order.
-            let mut piece_values = read_with_one_worker(piece.open()?)?;
-            piece_values.sort_unstable();
-            let first = *piece_values.first().expect("pieces are not empty");
-            let last = *piece_values.last().expect("pieces are not empty");
-            assert_eq!(first % 3, 0, "piece starts on a split boundary");
-            assert!(
-                (last + 1) % 3 == 0 || last == 19,
-                "piece ends on a split boundary"
-            );
-            values.extend(piece_values);
-        }
-        assert_eq!(values, (0..20).collect::<Vec<_>>());
-        Ok(())
-    }
-
-    /// A piece read through the partitions API returns the same rows as its pool.
-    #[test]
-    fn split_pieces_read_through_partitions() -> VortexResult<()> {
-        let source = source(TestLayoutReader::new(20).with_split_size(3));
-        let scan = plan(
-            &source,
-            ScanRequest {
-                ordered: true,
-                ..Default::default()
-            },
-        )?;
-        let mut values = Vec::new();
-        for piece in scan.split(NonZeroUsize::new(3).expect("non-zero"))? {
-            let partitions =
-                futures::executor::block_on_stream(piece.partitions()).collect::<Vec<_>>();
-            assert_eq!(partitions.len(), 1);
-            for partition in partitions {
-                values.extend(collect_scan_values(futures::executor::block_on_stream(
-                    partition?.execute()?,
-                ))?);
-            }
-        }
-        assert_eq!(values, (0..20).collect::<Vec<_>>());
+        let pool = runtime.block_on(source.scan(request()))?.open()?;
+        let values = collect_scan_values(runtime.block_on_stream(pool.worker()))?;
+        assert_eq!(values.len(), 10);
         Ok(())
     }
 
     #[test]
-    fn split_keeps_a_limited_scan_whole() -> VortexResult<()> {
-        let source = source(TestLayoutReader::new(20).with_split_size(3));
-        let scan = plan(
-            &source,
-            ScanRequest {
-                limit: Some(4),
-                ..Default::default()
-            },
-        )?;
-        let pieces = scan.split(NonZeroUsize::new(4).expect("non-zero"))?;
-        assert_eq!(pieces.len(), 1);
-        Ok(())
-    }
-
-    #[test]
-    fn grouping_never_returns_more_groups_than_requested() {
-        let ranges = (0..10u64)
-            .map(|start| start * 10..start * 10 + 10)
-            .collect();
-        let groups = group_contiguous(ranges, NonZeroUsize::new(3).expect("non-zero"));
-        assert_eq!(groups.len(), 3);
-        assert_eq!(groups.concat().len(), 10);
-    }
-
-    /// A length-only scan opens into one pool whose workers together return its rows once.
-    #[test]
-    fn length_only_scan_returns_its_rows_once_across_workers() -> VortexResult<()> {
-        let source = source(TestLayoutReader::new(10).with_dtype(DType::Struct(
-            StructFields::empty(),
-            Nullability::NonNullable,
-        )));
-        let pool = plan(
-            &source,
-            ScanRequest {
-                limit: Some(7),
-                ..Default::default()
-            },
-        )?
-        .open()?;
-        let rows: usize = std::thread::scope(|scope| {
-            let handles = (0..3)
-                .map(|_| {
-                    let worker = Arc::clone(&pool).worker();
-                    scope.spawn(move || {
-                        futures::executor::block_on_stream(worker)
-                            .map(|array| array.map(|array| array.len()))
-                            .sum::<VortexResult<usize>>()
-                    })
-                })
-                .collect::<Vec<_>>();
-            handles
-                .into_iter()
-                .map(|handle| handle.join().expect("worker thread panicked"))
-                .sum::<VortexResult<usize>>()
-        })?;
-        assert_eq!(rows, 7);
+    fn group_contiguous_keeps_ranges_whole() -> VortexResult<()> {
+        let ranges = vec![0..10, 10..12, 12..30, 30..31];
+        let groups = group_contiguous(ranges, NonZeroUsize::try_from(2)?);
+        assert_eq!(groups, vec![vec![0..10, 10..12], vec![12..30, 30..31]]);
         Ok(())
     }
 }
