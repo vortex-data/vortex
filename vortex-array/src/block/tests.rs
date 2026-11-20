@@ -57,6 +57,11 @@ use crate::session::ArraySession;
 use crate::test_harness::trace::trace_op;
 use crate::validity::Validity;
 
+thread_local! {
+    /// How many times this thread asked a test op for its block op.
+    static BLOCK_OPS_BUILT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
@@ -350,6 +355,7 @@ impl VTable for TestOp {
         child_dtype: &DType,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        BLOCK_OPS_BUILT.with(|count| count.set(count.get() + 1));
         let wide = child_dtype == &dtype(PType::I64);
         Ok(match array.data().0 {
             TestOpKind::AddOne => Some(Box::new(AddOne {
@@ -690,6 +696,27 @@ ExecuteSlot slot=0 parent=vortex.test.op(i32, len=2000) child=vortex.test.counte
         traced.output,
         PrimitiveArray::from_iter(2..2002i32),
         &mut ctx
+    );
+    Ok(())
+}
+
+/// An op is built once per frame. A child that is not a leaf yet executes while the op its parent
+/// built waits in the frame, and the canonical result, a leaf, starts the chain with that op.
+#[test]
+fn op_waits_in_its_frame_for_the_leaf() -> VortexResult<()> {
+    let leaf = PrimitiveArray::from_iter(0..3000i32).into_array();
+    let array = add(op(TestOpKind::Pass, leaf));
+    let before = BLOCK_OPS_BUILT.with(std::cell::Cell::get);
+    let trace = fused(array)?;
+    // `fused` also runs the array with fusion off, which builds no op.
+    assert_eq!(BLOCK_OPS_BUILT.with(std::cell::Cell::get) - before, 1);
+    assert_eq!(
+        trace,
+        "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
+fuse start array=vortex.primitive(i32, len=3000)
+fuse extend parent=vortex.test.op(i32, len=3000) ops=1
+drive ops=1 len=3000
+block_op 0 in_place i32->i32 leaf -> leaf"
     );
     Ok(())
 }

@@ -37,6 +37,7 @@ use crate::IntoArray;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::aggregate_fn::session::AggregateKernels;
 use crate::array::ArrayId;
+use crate::block::BlockOp;
 use crate::block::FusedChain;
 use crate::block::fusable_ptype;
 use crate::builders::ArrayBuilder;
@@ -491,35 +492,52 @@ impl ArrayRef {
 /// On the way up, start a block program from `child` with the spine parent suspended on the top
 /// of the stack, extend it with each spine parent above that transforms blocks, popping their
 /// frames, and drive it: the values of the last parent it reached. Returns `child` back if the
-/// first parent cannot start a program.
+/// first parent has no op, or `child` is not a leaf yet.
 fn try_fuse(
     stack: &mut Vec<StackFrame>,
     child: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Result<ArrayRef, ArrayRef>> {
-    let Some(frame) = fusable_frame(stack) else {
+    // The op first, so a parent without one costs no source.
+    let Some(mut op) = take_op(stack, child.dtype(), ctx)? else {
         return Ok(Err(child));
     };
-    let mut chain = match FusedChain::start(child, &frame.parent_array, frame.slot_idx, ctx)? {
-        Ok(chain) => chain,
-        Err(child) => return Ok(Err(child)),
+    let Some(source) = child.block_source(ctx)? else {
+        // Not a leaf yet: the child executes, and the op waits in its frame for the result.
+        stack.last_mut().vortex_expect("the op's frame").op = Some(op);
+        return Ok(Err(child));
     };
-    stack.pop();
-    while let Some(frame) = fusable_frame(stack) {
-        match chain.extend(&frame.parent_array, frame.slot_idx, ctx)? {
-            Ok(extended) => {
-                chain = extended;
-                stack.pop();
-            }
-            Err(chain) => return chain.drive(ctx).map(Ok),
-        }
+    let mut chain = FusedChain::start(&child, source)?;
+    // Release the leaf, so a buffer it owned is again the source's alone.
+    drop(child);
+    loop {
+        let parent = stack.pop().vortex_expect("the op's frame").parent_array;
+        chain.push(&parent, op)?;
+        let Some(next) = take_op(stack, chain.dtype(), ctx)? else {
+            return chain.drive(ctx).map(Ok);
+        };
+        op = next;
     }
-    chain.drive(ctx).map(Ok)
 }
 
-/// The frame on the top of the stack, if [`spine_can_fuse`] passed when it was pushed.
-fn fusable_frame(stack: &[StackFrame]) -> Option<&StackFrame> {
-    stack.last().filter(|frame| frame.fuse)
+/// The block op of the parent on the top of the stack over its spine child of `dtype`, if
+/// [`spine_can_fuse`] passed when its frame was pushed. Built on the way up, once per frame: an op
+/// built while the child was not yet a leaf waits in the frame, and a parent without one turns its
+/// frame off.
+fn take_op(
+    stack: &mut [StackFrame],
+    dtype: &DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Box<dyn BlockOp>>> {
+    let Some(frame) = stack.last_mut().filter(|frame| frame.fuse) else {
+        return Ok(None);
+    };
+    if let Some(op) = frame.op.take() {
+        return Ok(Some(op));
+    }
+    let op = frame.parent_array.block_op(frame.slot_idx, dtype, ctx)?;
+    frame.fuse = op.is_some();
+    Ok(op)
 }
 
 /// Whether slot `slot_idx` of `parent`, which asked for it as its spine, may fuse with the
@@ -572,6 +590,7 @@ fn push_frame(
         slot_idx,
         done,
         fuse,
+        op: None,
         original_dtype: child.dtype().clone(),
         original_len: child.len(),
     });
@@ -586,6 +605,8 @@ struct StackFrame {
     /// Whether the parent asked for this slot with [`ExecutionStep::ExecuteSpine`] and
     /// [`spine_can_fuse`] passed, so the executor may fuse the slot with the parent's block op.
     fuse: bool,
+    /// The parent's block op, once [`take_op`] built it while the slot was not yet a leaf.
+    op: Option<Box<dyn BlockOp>>,
     original_dtype: DType,
     original_len: usize,
 }
