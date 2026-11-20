@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::RecursiveCanonical;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
@@ -62,11 +62,14 @@ pub(super) fn normalize_struct_children(
     let default = Scalar::default_value(&array.dtype().with_nullability(Nullability::NonNullable))
         .cast(array.dtype())?;
     let defaults = ConstantArray::new(default, array.len()).into_array();
+    // Zip leaves its validity as a lazy zip over the input validities. Execute it too, so writers
+    // receive a materialized bitmap instead of re-evaluating, or failing to serialize, the zip.
     Ok(visible
         .clone()
         .into_array()
         .zip(array, defaults)?
-        .execute::<Canonical>(ctx)?
+        .execute::<RecursiveCanonical>(ctx)?
+        .0
         .into_array())
 }
 
