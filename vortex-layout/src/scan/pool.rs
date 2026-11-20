@@ -75,6 +75,7 @@ use crate::scan::repeated_scan::MapFn;
 use crate::scan::repeated_scan::RepeatedScan;
 use crate::scan::repeated_scan::SplitConcurrency;
 use crate::scan::repeated_scan::can_prune_file;
+use crate::scan::repeated_scan::recheck_prune_file;
 use crate::scan::repeated_scan::spawn_lazy_split;
 use crate::scan::repeated_scan::spawn_map_trimmed;
 use crate::scan::repeated_scan::stop_on_error;
@@ -98,15 +99,33 @@ pub(crate) struct FileScan {
     /// The task of each split, built together when a worker first takes one of them. `None`
     /// where the split has no rows to read, or a worker has taken it.
     tasks: OnceCell<Vec<Mutex<Option<SplitFuture>>>>,
+    /// Whether whole-file statistics reject the filter when the file's first split is taken.
+    pruned: OnceCell<bool>,
 }
 
 impl FileScan {
+    /// Whether whole-file statistics reject the filter, checked again when the first split is
+    /// taken, as [`RepeatedScan::execute_stream`] checks when it starts: a filter with dynamic
+    /// parts may reject the file by then though it did not when the pool was opened.
+    async fn is_pruned(&self) -> VortexResult<bool> {
+        let pruned = self
+            .pruned
+            .get_or_try_init(|| future::ready(recheck_prune_file(&self.ctx)))
+            .await?;
+        Ok(*pruned)
+    }
+
     /// The tasks of the file's splits, built on first use. A file whose tasks are built once a
-    /// reserved limit is spent builds none.
+    /// reserved limit is spent, or that statistics now reject, builds none.
     async fn tasks(&self, limit: &PoolLimit) -> VortexResult<&[Mutex<Option<SplitFuture>>]> {
         let tasks = self
             .tasks
-            .get_or_try_init(|| future::ready(self.build_tasks(limit)))
+            .get_or_try_init(|| async {
+                if self.is_pruned().await? {
+                    return Ok(Vec::new());
+                }
+                self.build_tasks(limit)
+            })
             .await?;
         Ok(tasks)
     }
@@ -162,6 +181,7 @@ impl FileWork {
                 ctx,
                 ranges,
                 tasks: OnceCell::new(),
+                pruned: OnceCell::new(),
             })),
         })
     }
@@ -400,12 +420,21 @@ impl Shared {
             let Some(mask) = file.scan.split_mask(&file.ranges[index]) else {
                 return future::ready(Ok(None)).boxed();
             };
-            return spawn_lazy_split(&handle, move || split_exec(&file.ctx, mask).map(Some))
-                .boxed();
+            return async move {
+                if file.is_pruned().await? {
+                    return Ok(None);
+                }
+                spawn_lazy_split(&handle, move || split_exec(&file.ctx, mask).map(Some)).await
+            }
+            .boxed();
         }
         let shared = Arc::clone(self);
         async move {
-            let task = file.tasks(&shared.limit).await?[index].lock().take();
+            let task = file
+                .tasks(&shared.limit)
+                .await?
+                .get(index)
+                .and_then(|task| task.lock().take());
             match task {
                 Some(task) if spawn => handle.spawn(task).await,
                 Some(task) => task.await,
