@@ -41,7 +41,6 @@ use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::proto::expr as expr_pb;
 use vortex::scalar::Scalar;
-use vortex::scan::planning::driver::Run;
 use vortex::scan::stream::ScanStream;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -205,14 +204,10 @@ pub struct AggregateState {
 }
 assert_impl_all!(GlobalState: Send, Sync);
 
-/// The scan work that one thread does on a file.
-pub enum Split {
-    /// A clone of the file's V1 scan stream, which the thread polls inline. It claims the file's
-    /// splits as it has room for them until none is left, and yields only the splits it claimed.
-    V1(ScanStream),
-    /// Chunks of the file's V2 scan, taken by the thread until the scan has none left.
-    V2,
-}
+/// The scan work that one thread does on a file: a clone of the file's opened scan stream, which
+/// the thread polls inline. It takes the file's work as it has room for it until none is left,
+/// and yields only the work it took.
+pub struct Split(pub ScanStream);
 
 /// field position, accumulator
 pub type Partials = Vec<(usize, Box<dyn DynAccumulator>)>;
@@ -227,8 +222,6 @@ pub struct LocalState {
     /// DuckDB's global multi-file lock; see `OpenFileReader`.
     pub(crate) retired_files: Vec<Arc<FileScanState>>,
     pub(crate) retired_splits: Vec<Split>,
-    /// The planning run on which this thread runs the chunks of V2 scans.
-    pub(crate) run: Run,
     /// Chunks of an array that this thread has yet to export, in reverse order.
     pub(crate) pending: Vec<ArrayRef>,
 
@@ -437,7 +430,6 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
         file: None,
         retired_files: Vec::new(),
         retired_splits: Vec::new(),
-        run: Run::new(),
         pending: Vec::new(),
         finished: false,
     }
