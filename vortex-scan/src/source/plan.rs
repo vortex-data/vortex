@@ -204,9 +204,9 @@ pub enum PlanSourceChild {
 ///
 /// [`open`](DataSourceScan::open) prepares each ready child of the scan once and hands its parts,
 /// the chunks of its plan, or the child's [splits](PlanChild::with_splits) when it has them, to
-/// workers, which keep several in flight on the session's runtime. Expanding a deferred child is a unit
-/// of work too: the worker that takes it expands it and puts the work of its children back for
-/// any worker to take. See the pool's documentation in `plan_pool.rs`.
+/// the pool, which keeps several in flight on the session's runtime. Expanding a deferred child is a
+/// unit of work too: expanding it puts the work of its children back in the pool. See the pool's
+/// documentation in `plan_pool.rs`.
 ///
 /// # Partitions
 ///

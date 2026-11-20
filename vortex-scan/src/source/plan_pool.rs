@@ -8,14 +8,15 @@
 //! a part is the rows between two of the child's splits for the fields the scan reads, such as a
 //! file's layout splits, else one of the scan's chunks. A root whose filter changes while the scan
 //! runs, as a top-N's bound does, prunes the child as a whole before it spawns parts; it reads
-//! zone maps to do so, so it is an expansion instead. A worker spawns each part it takes onto the
+//! zone maps to do so, so it is an expansion instead. The pool spawns each part it runs onto the
 //! session's runtime, where it is driven on a planning run of its own that awaits only its reads:
 //! with a filter, the part's pruning plans first, continuing into the chunks of the rows pruning
 //! kept; without, the chunks directly.
 //!
 //! Work creates work: expanding a deferred child, whether a file to open, a manifest entry or a
 //! table partition, yields the units of the children it expands into, which may be deferred in
-//! turn. The [pool](crate::pool::open_work_pool) shares the units among the workers.
+//! turn. The [pool](crate::pool::open_work_pool) runs the units on its lanes and shares their output among the
+//! workers.
 //!
 //! Each top-level child has an equal share of the pool's progress. A deferred child divides its
 //! share evenly among the children it expands into, and a prepared child divides its share among
@@ -82,6 +83,7 @@ pub(super) fn open(state: Arc<ScanState>, units: Vec<Unit>) -> VortexResult<Scan
             PoolLimit::Trim(RowLimit::new(limit))
         }),
         split_concurrency: state.split_concurrency,
+        handle: state.session.handle(),
         // An ordered pool expands each deferred child only once the units before it are taken;
         // an unordered one expands every child as soon as a worker takes it.
         expand_concurrency: if state.ordered {
@@ -189,8 +191,8 @@ fn run_root(
                     let child = Arc::clone(&child);
                     let session = session.clone();
                     units.push(WorkUnit::run(per_row * part_rows as f64, move || {
-                        // Another runtime thread may run the part while this worker drives its
-                        // other parts, and its reads start right away.
+                        // Another runtime thread may run the part while its lane waits, and its
+                        // reads start right away.
                         session
                             .handle()
                             .spawn(run_part(child, scope, planner))

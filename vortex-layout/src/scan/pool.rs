@@ -166,7 +166,7 @@ pub(crate) struct PoolOptions {
     pub(crate) limit: Option<u64>,
     /// Whether the scan filters rows, so a split's output row count is unknown up front.
     pub(crate) has_filter: bool,
-    /// The request's bound on the splits each worker keeps in flight.
+    /// The request's bound on the splits the pool keeps in flight.
     pub(crate) split_concurrency: Option<NonZeroUsize>,
     /// The most deferred files that are queued or being opened at once.
     pub(crate) open_concurrency: usize,
@@ -203,20 +203,27 @@ pub(crate) fn open_pool(
     }
     // A limit's trimmed arrays are optimized again, on a CPU task, as `execute_stream` does.
     let handle = options.session.handle();
+    let map_handle = handle.clone();
     let session = options.session;
     let identity: MapFn<ArrayRef> = Arc::new(Ok);
     let map_trimmed: MapOutput = Arc::new(move |array| {
-        spawn_map_trimmed(&handle, session.clone(), Arc::clone(&identity), Ok(array)).boxed()
+        spawn_map_trimmed(
+            &map_handle,
+            session.clone(),
+            Arc::clone(&identity),
+            Ok(array),
+        )
+        .boxed()
     });
     open_work_pool(
         WorkPoolOptions {
             dtype: options.dtype,
             ordered: options.ordered,
             limit,
-            // A worker takes the place of a partition that one host thread drains, so it keeps as
-            // many splits in flight as a partition's stream does by default: four per core, at most
-            // the request's `split_concurrency`.
+            // The pool keeps as many splits in flight as one scan stream does: four per core, at
+            // most the request's `split_concurrency`.
             split_concurrency: options.split_concurrency,
+            handle,
             expand_concurrency: NonZeroUsize::new(options.open_concurrency)
                 .unwrap_or(NonZeroUsize::MIN),
             map_trimmed: Some(map_trimmed),
