@@ -96,12 +96,10 @@ async fn decode_zstd_buffers(
 
     // We need to copy nvcomp args to the device; these come from the
     // host-resident decode plan.
-    let (frame_ptrs_handle, frame_sizes_handle, output_sizes_handle, output_ptrs_handle) = futures::try_join!(
-        ctx.copy_to_device(frame_ptrs)?,
-        ctx.copy_to_device(plan.frame_sizes())?,
-        ctx.copy_to_device(plan.output_sizes())?,
-        ctx.copy_to_device(output_ptrs)?
-    )?;
+    let frame_ptrs_handle = ctx.copy_to_device(&frame_ptrs)?;
+    let frame_sizes_handle = ctx.copy_to_device(&plan.frame_sizes())?;
+    let output_sizes_handle = ctx.copy_to_device(&plan.output_sizes())?;
+    let output_ptrs_handle = ctx.copy_to_device(&output_ptrs)?;
 
     let mut device_actual_sizes: CudaSlice<usize> = ctx.device_alloc(plan.num_frames())?;
     let mut device_statuses: CudaSlice<nvcompStatus_t> = ctx.device_alloc(plan.num_frames())?;
@@ -192,7 +190,7 @@ async fn move_frames_to_device(
 ) -> VortexResult<Vec<BufferHandle>> {
     let mut results = Vec::with_capacity(compressed_buffers.len());
     for frame in compressed_buffers {
-        results.push(ctx.ensure_on_device(frame.clone()).await?);
+        results.push(ctx.ensure_on_device(frame.clone())?);
     }
     Ok(results)
 }

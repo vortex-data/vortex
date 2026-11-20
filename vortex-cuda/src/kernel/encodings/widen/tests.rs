@@ -36,7 +36,7 @@ async fn upload(child: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Arr
         Canonical::Primitive(child) => {
             let parts = child.into_data_parts();
             Ok(PrimitiveArray::from_buffer_handle(
-                ctx.ensure_on_device(parts.buffer).await?,
+                ctx.ensure_on_device(parts.buffer)?,
                 parts.ptype,
                 parts.validity,
             )
@@ -45,7 +45,7 @@ async fn upload(child: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Arr
         Canonical::Decimal(child) => {
             let parts = child.into_data_parts();
             Ok(DecimalArray::try_new_handle(
-                ctx.ensure_on_device(parts.values).await?,
+                ctx.ensure_on_device(parts.values)?,
                 parts.values_type,
                 parts.decimal_dtype,
                 parts.validity,

@@ -209,7 +209,7 @@ pub(crate) async fn decode_onpair_varbin(
 
     let Some(decoded) = decode_onpair_bytes(onpair.as_view(), ctx).await? else {
         // Zero decoded bytes: all-zero offsets and an empty values heap.
-        let offsets = ctx.copy_to_device(vec![0i32; len + 1])?.await?;
+        let offsets = ctx.copy_to_device(&vec![0i32; len + 1])?;
         let allocation = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?)?;
         let values = BufferHandle::new_device(allocation.slice(0..0));
         return Ok(DecodedVarBin {
@@ -351,11 +351,9 @@ async fn stage_dict(
         dict_s8[code * 8..code * 8 + head].copy_from_slice(&token[..head]);
     }
 
-    let (s8_dev, padded_dev, lens_dev) = futures::try_join!(
-        ctx.copy_to_device(dict_s8)?,
-        ctx.copy_to_device(dict_padded)?,
-        ctx.copy_to_device(lens)?,
-    )?;
+    let s8_dev = ctx.copy_to_device(&dict_s8)?;
+    let padded_dev = ctx.copy_to_device(&dict_padded)?;
+    let lens_dev = ctx.copy_to_device(&lens)?;
 
     Ok(StagedDict {
         dict_s8: s8_dev,
@@ -414,7 +412,7 @@ where
         buffer: offsets_buffer,
         ..
     } = codes_offsets.into_data_parts();
-    let offsets_dev = ctx.ensure_on_device(offsets_buffer).await?;
+    let offsets_dev = ctx.ensure_on_device(offsets_buffer)?;
     let window_fn = ctx.load_function_with_suffixes(
         "onpair",
         &["window_offsets", &ptype, &offsets_ptype.to_string()],
@@ -558,7 +556,7 @@ async fn stage_codes(
         buffer: codes_buffer,
         ..
     } = codes.into_data_parts();
-    let codes_dev = ctx.ensure_on_device(codes_buffer).await?;
+    let codes_dev = ctx.ensure_on_device(codes_buffer)?;
 
     let num_batches = num_tokens.div_ceil(TOKENS_PER_BATCH);
     let chunk_offsets = onpair_batch_offsets(
@@ -596,7 +594,7 @@ async fn empty_views(
     validity: Validity,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
-    let views = ctx.copy_to_device(vec![0i128; num_rows])?.await?;
+    let views = ctx.copy_to_device(&vec![0i128; num_rows])?;
     Ok(Canonical::VarBinView(unsafe {
         VarBinViewArray::new_handle_unchecked(views, Arc::from([]), dtype, validity)
     }))
@@ -802,7 +800,7 @@ mod tests {
 
         // Rebuild the array with its dictionary blob resident on the device.
         let dict_bytes = view.dict_bytes_handle().as_host().to_vec();
-        let dict_device = cuda_ctx.copy_to_device(dict_bytes)?.await?;
+        let dict_device = cuda_ctx.copy_to_device(&dict_bytes)?;
         let device_onpair = OnPair::try_new(
             dtype.clone(),
             dict_device,

@@ -122,8 +122,8 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
     } = ends.into_data_parts();
 
     // Set up device buffers.
-    let ends_device = ctx.ensure_on_device(ends_buffer).await?;
-    let values_device = ctx.ensure_on_device(values_buffer).await?;
+    let ends_device = ctx.ensure_on_device(ends_buffer)?;
+    let values_device = ctx.ensure_on_device(values_buffer)?;
 
     let mut output_slice = ctx.device_alloc::<V>(output_len)?;
 
@@ -159,7 +159,7 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
                 bits: validity_bits,
                 meta: validity_meta,
             } = validity_bools.into_data().into_parts(validity_len);
-            let validity_device = ctx.ensure_on_device(validity_bits).await?;
+            let validity_device = ctx.ensure_on_device(validity_bits)?;
             let validity_view = validity_device.cuda_view::<u8>()?;
 
             // Each thread owns a whole output byte, so threads never race on bits in one byte.
