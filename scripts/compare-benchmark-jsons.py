@@ -727,16 +727,30 @@ def format_duration(value_ns: object) -> str:
 
 
 def format_query_cell(
-    pr_value: object, ratio: object, improvement_threshold: float, regression_threshold: float
+    base_value: object,
+    pr_value: object,
+    ratio: object,
+    improvement_threshold: float,
+    regression_threshold: float,
 ) -> str:
-    """Render one query cell as `PR time (PR/base)`, bold and marked once it clears the threshold."""
+    """Render one query cell as `develop → PR (PR/develop)`, bold and marked past the threshold.
+
+    The unit is written once when both times share it, as in `131 → 118 ms (0.90)`.
+    """
 
     if pd.isna(pr_value):
         return "—"
-    duration = format_duration(pr_value)
+    pr_text = format_duration(pr_value)
+    if pd.isna(base_value):
+        return f"— → {pr_text}"
+    base_text = format_duration(base_value)
+    base_number, base_unit = base_text.rsplit(" ", 1)
+    if pr_text.endswith(f" {base_unit}"):
+        base_text = base_number
+    cell = f"{base_text} → {pr_text}"
     if pd.isna(ratio) or float(ratio) <= 0:
-        return duration
-    cell = f"{duration} ({float(ratio):.2f})"
+        return cell
+    cell += f" ({float(ratio):.2f})"
     marker = format_change_marker(float(ratio), improvement_threshold, regression_threshold)
     return f"**{cell}** {marker}" if marker else cell
 
@@ -744,7 +758,12 @@ def format_query_cell(
 def is_sql_query(query: object) -> bool:
     """Return whether a row's query is a SQL query number, not a random-access variant."""
 
-    return isinstance(query, (int, np.integer)) and not isinstance(query, bool)
+    if isinstance(query, bool):
+        return False
+    if isinstance(query, (int, np.integer)):
+        return True
+    # A column that also holds query-less rows stores the numbers as floats.
+    return isinstance(query, (float, np.floating)) and float(query).is_integer()
 
 
 def query_column_label(engine: str, file_format: str) -> str:
@@ -773,6 +792,30 @@ def query_column_sort_key(combo: tuple[str, str]) -> tuple[int, int, str, str]:
     )
 
 
+# Notes printed under the query table caption when a column of that variant is present.
+FORMAT_VARIANT_NOTES = {
+    "scan-api": (
+        "`[scan-api]` columns run DataFusion through the Scan API (`VortexTable`) on the V1 scan. "
+        "Compare them with their own develop times, not with the V2 `datafusion:vortex` column."
+    ),
+}
+
+
+def format_query_table_caption(df: pd.DataFrame, base_label: str, pr_label: str, threshold_pct: int) -> str:
+    """Say what the query table compares, and note any format variant its columns carry."""
+
+    lines = [
+        f"Each cell is develop `{base_label}` → this PR `{pr_label}` (hot runs), with PR ÷ develop in "
+        f"parentheses: below 1.00 is faster. Changes past ±{threshold_pct}% are bold. The geomean row "
+        "compares each target's geomean over its queries."
+    ]
+    variants = {
+        str(file_format).split(" [", 1)[1].rstrip("]") for file_format in df["file_format"] if " [" in str(file_format)
+    }
+    lines += [FORMAT_VARIANT_NOTES[variant] for variant in sorted(variants) if variant in FORMAT_VARIANT_NOTES]
+    return "<br>".join(lines)
+
+
 def format_query_table(
     df: pd.DataFrame,
     run: str,
@@ -781,11 +824,13 @@ def format_query_table(
 ) -> str | None:
     """Render one row per query and one column per target, with a geomean row first.
 
-    Each cell is the PR's `run` ("hot" or "cold") time and its ratio to the base; the
-    geomean row holds the geomean time and the geomean ratio over the queries with a base.
+    Each cell compares the develop baseline's `run` ("hot" or "cold") time with the PR's and
+    gives their ratio. The geomean row does the same with each target's geomeans over its
+    queries; it does not compare targets with each other.
     """
 
     value_column = f"{run}_value_pr"
+    base_column = f"{run}_value_base"
     ratio_column = "ratio" if run == "hot" else "cold_ratio"
     rows = df[df[value_column].notna()].copy()
     if rows.empty:
@@ -801,14 +846,15 @@ def format_query_table(
         key=query_column_sort_key,
     )
 
-    def cell(value: object, ratio: object) -> str:
-        return format_query_cell(value, ratio, improvement_threshold, regression_threshold)
+    def cell(base_value: object, value: object, ratio: object) -> str:
+        return format_query_cell(base_value, value, ratio, improvement_threshold, regression_threshold)
 
     geomean_cells = []
     for engine, file_format in combos:
         target_rows = rows[(rows["engine"] == engine) & (rows["file_format"] == file_format)]
         geomean_cells.append(
             cell(
+                geometric_mean_from_values(target_rows[base_column]),
                 geometric_mean_from_values(target_rows[value_column]),
                 calculate_geometric_mean(target_rows, ratio_column),
             )
@@ -824,7 +870,7 @@ def format_query_table(
             if match.empty:
                 cells.append("—")
             else:
-                cells.append(cell(match[value_column].iloc[0], match[ratio_column].iloc[0]))
+                cells.append(cell(match[base_column].iloc[0], match[value_column].iloc[0], match[ratio_column].iloc[0]))
         table_rows.append([label, *cells])
 
     headers = ["query", *(query_column_label(engine, file_format) for engine, file_format in combos)]
@@ -1160,10 +1206,11 @@ def format_report_help() -> str:
             "each run the warm path saves. Rows whose results predate per-run reporting "
             "show only one value, taken from the value the runner reported.",
             "- **Query tables**: One row per query and one column per target. Each cell "
-            "reads `PR time (PR/base)`, so `0.80` is 20% faster. A change that clears this "
-            "suite's threshold is bold and marked 🔴 slower or 🟢 faster; anything smaller is "
-            "noise here and is left plain. The `geomean` row holds the geomean time and the "
-            "geomean ratio. Hot runs are shown first and cold runs are folded below them.",
+            "reads `develop → PR (PR ÷ develop)`, so `(0.80)` is 20% faster than develop. A "
+            "change that clears this suite's threshold is bold and marked 🔴 slower or 🟢 "
+            "faster; anything smaller is noise here and is left plain. The `geomean` row "
+            "compares each target's geomean over its queries with develop's. Hot runs are "
+            "shown first and cold runs are folded below them.",
             "- **Other tables**: Each cell reads `PR / base / %diff`, marked the same way.",
             "",
             "</details>",
@@ -1338,6 +1385,8 @@ def main() -> None:
     sql_df = df3[sql_mask]
     hot_table = format_query_table(sql_df, "hot", improvement_threshold, regression_threshold)
     if hot_table is not None:
+        print(format_query_table_caption(sql_df, base_label, pr_commit_id[:8], threshold_pct))
+        print("")
         print(hot_table)
         print("")
     cold_table = format_query_table(sql_df, "cold", improvement_threshold, regression_threshold)

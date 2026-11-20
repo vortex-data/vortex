@@ -358,7 +358,7 @@ def test_comparison_report_retains_sql_analysis(tmp_path: Path) -> None:
     assert "How to read Verdict and Engines" in report
     # SQL queries share one table, with a row per query and a column per target.
     assert markdown_row(report, "query") == ["query", "datafusion:vortex", "datafusion:parquet"]
-    assert markdown_row(report, "tpch_q01") == ["tpch_q01", "**70.0 ns (0.88)** 🟢", "105 ns (1.05)"]
+    assert markdown_row(report, "tpch_q01") == ["tpch_q01", "**80.0 → 70.0 ns (0.88)** 🟢", "100 → 105 ns (1.05)"]
     assert "<summary>datafusion / " not in report
     assert "unknown" not in report
 
@@ -407,11 +407,11 @@ def test_only_changes_past_the_suite_threshold_are_marked(tmp_path: Path) -> Non
 
     report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
 
-    assert markdown_row(report, "tpch_q01")[1] == "109 ns (1.09)"
-    assert markdown_row(report, "tpch_q02")[1] == "**111 ns (1.11)** 🔴"
-    assert markdown_row(report, "tpch_q03")[1] == "**89.0 ns (0.89)** 🟢"
+    assert markdown_row(report, "tpch_q01")[1] == "100 → 109 ns (1.09)"
+    assert markdown_row(report, "tpch_q02")[1] == "**100 → 111 ns (1.11)** 🔴"
+    assert markdown_row(report, "tpch_q03")[1] == "**100 → 89.0 ns (0.89)** 🟢"
     # The geomean row leads the table: geomean time and geomean ratio.
-    assert markdown_row(report, "**geomean**")[1] == "102 ns (1.02)"
+    assert markdown_row(report, "**geomean**")[1] == "100 → 102 ns (1.02)"
 
 
 def test_report_splits_cold_and_hot_runs(tmp_path: Path) -> None:
@@ -440,8 +440,8 @@ def test_report_splits_cold_and_hot_runs(tmp_path: Path) -> None:
 
     # Hot runs come first; cold runs follow in their own folded table.
     hot, cold = markdown_rows(report, "tpch_q01")
-    assert hot == ["tpch_q01", "**50.0 ns (0.50)** 🟢", "100 ns (1.00)"]
-    assert cold == ["tpch_q01", "**2.00 µs (2.00)** 🔴", "1.00 µs (1.00)"]
+    assert hot == ["tpch_q01", "**100 → 50.0 ns (0.50)** 🟢", "100 → 100 ns (1.00)"]
+    assert cold == ["tpch_q01", "**1.00 → 2.00 µs (2.00)** 🔴", "1.00 → 1.00 µs (1.00)"]
     assert "<summary>Cold runs (first iteration)</summary>" in report
     assert "**Attributed Vortex impact**: -50.0%" in report
     assert "**Vortex (geomean)**: hot 0.500x ✅ · cold 2.000x ❌" in report
@@ -476,8 +476,8 @@ def test_verdict_ignores_a_cold_start_only_regression(tmp_path: Path) -> None:
     assert "**Attributed Vortex impact**: +0.0%" in report
     assert "**Vortex (geomean)**: hot 1.000x ➖ · cold 4.000x ❌" in report
     hot, cold = markdown_rows(report, "tpch_q01")
-    assert hot[1] == "100 ns (1.00)"
-    assert cold[1] == "**400 ns (4.00)** 🔴"
+    assert hot[1] == "100 → 100 ns (1.00)"
+    assert cold[1] == "**100 → 400 ns (4.00)** 🔴"
 
 
 def file_size_record(commit: str, size: int) -> dict[str, object]:
@@ -800,7 +800,7 @@ def test_report_compares_ingest_records(tmp_path: Path) -> None:
     assert "**Engines**: DataFusion " in report
     assert "random-access " in report
     assert "ignored when records exist" not in report
-    assert markdown_row(report, "tpch_q01")[1:] == ["**70.0 ns (0.88)** 🟢", "105 ns (1.05)"]
+    assert markdown_row(report, "tpch_q01")[1:] == ["**80.0 → 70.0 ns (0.88)** 🟢", "100 → 105 ns (1.05)"]
     assert markdown_row(report, "random-access/taxi/uniform/parquet-cached")[1] == "105 / 100 / +5.0%"
     assert markdown_row(report, "random-access/taxi/uniform/lance-cached")[1] == "300 / — / no baseline"
     assert "<summary>random-access / lance / ns " in report
@@ -822,7 +822,7 @@ def test_report_compares_file_size_records_from_the_database(tmp_path: Path) -> 
 
     report = render_report(tmp_path, base_records, pr_results, "TPC-H", pr_records)
 
-    assert markdown_row(report, "tpch_q01")[1] == "80.0 ns (1.00)"
+    assert markdown_row(report, "tpch_q01")[1] == "80.0 → 80.0 ns (1.00)"
     assert "<summary>File Size Changes (2 files changed, -16.7% overall, 1↑ 1↓)</summary>" in report
     assert "| part-1.vortex | 10 | vortex-file-compressed | 50 B | 0 B | -50 B | -100.0% |" in report
 
@@ -837,7 +837,7 @@ def test_report_handles_a_baseline_of_only_file_sizes(tmp_path: Path) -> None:
 
     report = render_report(tmp_path, base_records, pr_results, "TPC-H", pr_records)
 
-    assert markdown_row(report, "tpch_q01")[1] == "80.0 ns"
+    assert markdown_row(report, "tpch_q01")[1] == "— → 80.0 ns"
     assert "<summary>File Size Changes (1 files changed, +25.0% overall, 1↑ 0↓)</summary>" in report
 
 
@@ -983,7 +983,9 @@ def test_query_table_puts_a_format_variant_beside_its_base_format(tmp_path: Path
         "datafusion:parquet",
         "duckdb:vortex",
     ]
-    assert markdown_row(report, "tpch_q01")[2] == "**1.20 ms (0.80)** 🟢"
+    assert markdown_row(report, "tpch_q01")[2] == "**1.50 → 1.20 ms (0.80)** 🟢"
+    # The variant's column carries a note on what it measures.
+    assert "`[scan-api]` columns run DataFusion through the Scan API" in report
 
 
 def test_format_duration_picks_a_readable_unit() -> None:
@@ -995,3 +997,31 @@ def test_format_duration_picks_a_readable_unit() -> None:
     assert compare.format_duration(152_400_000) == "152 ms"
     assert compare.format_duration(2_500_000_000) == "2.50 s"
     assert compare.format_duration(float("nan")) == "—"
+
+
+def test_query_cell_names_both_units_when_they_differ() -> None:
+    compare = load_compare_module()
+
+    assert compare.format_query_cell(980_000, 1_020_000, 1.04, 0.9, 1.1) == "980 µs → 1.02 ms (1.04)"
+
+
+def test_query_table_says_what_it_compares(tmp_path: Path) -> None:
+    base = [query_record("base-sha", 1, "datafusion", "vortex-file-compressed", 80)]
+    pr = [query_record("pr-sha", 1, "datafusion", "vortex-file-compressed", 80)]
+    pr_results = [stored_timing_row("pr-sha", "ignored when records exist", 1)]
+
+    report = render_report(tmp_path, base, pr_results, "TPC-H", pr)
+
+    assert "Each cell is develop `base-sha` → this PR `pr-sha` (hot runs)" in report
+    assert "[scan-api]" not in report
+
+
+def test_float_query_numbers_still_count_as_sql_queries() -> None:
+    compare = load_compare_module()
+
+    assert compare.is_sql_query(3)
+    assert compare.is_sql_query(3.0)
+    assert not compare.is_sql_query(3.5)
+    assert not compare.is_sql_query("random-access/taxi/cached")
+    assert not compare.is_sql_query(None)
+    assert not compare.is_sql_query(True)
