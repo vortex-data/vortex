@@ -16,6 +16,7 @@ use vortex::array::ArrayVTable;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::Extension;
 use vortex::array::arrays::ExtensionArray;
@@ -120,6 +121,18 @@ impl CudaExecutionCtx {
     /// Get a mutable handle to the CPU execution context.
     pub fn execution_ctx(&mut self) -> &mut ExecutionCtx {
         &mut self.ctx
+    }
+
+    /// A context with the same settings on another stream from the session's pool, so that work
+    /// enqueued on each can run concurrently. Order work across the two with events.
+    pub fn fork(&self) -> VortexResult<Self> {
+        Ok(Self {
+            stream: self.cuda_session.stream()?,
+            ctx: self.ctx.session().create_execution_ctx(),
+            cuda_session: self.cuda_session.clone(),
+            strategy: Arc::clone(&self.strategy),
+            dispatch_mode: self.dispatch_mode,
+        })
     }
 
     /// Set the launch strategy for the execution context.
