@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -277,12 +278,14 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         row_range: Some(file_rows(state, filter)),
         selection: filter.row_selection.clone(),
         ordered: false,
+        // DuckDB runs one thread per core, so its threads are the scan's parallelism: each runs
+        // one split at a time. A clone with room for more would claim splits other threads could
+        // have run, leaving them nothing on a file with few splits.
+        split_concurrency: Some(NonZeroUsize::MIN),
         ..ScanRequest::default()
     };
-    // An unordered scan without a limit opens into a stream over a queue of the file's splits.
-    // Each clone claims splits as it has room for them, keeps a few in flight on the runtime,
-    // and yields each as it finishes, so the threads polling clones decode while their reads are
-    // pending.
+    // An unordered scan without a limit opens into a stream over a queue of the file's splits,
+    // whose clones each claim the next split once they have finished their last.
     let source = LayoutReaderDataSource::new(Arc::clone(&state.reader), SESSION.clone());
     let stream = RUNTIME.block_on(source.scan(request))?.open()?;
     if state.stream.set(Mutex::new(stream)).is_err() {
