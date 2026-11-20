@@ -1,8 +1,6 @@
 //! The stream that an opened scan returns, which host threads share by each polling a clone.
 
-use std::any::Any;
 use std::fmt;
-use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
@@ -15,17 +13,10 @@ use futures::stream;
 use futures::stream::BoxStream;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
-use vortex_array::expr::stats::Precision;
 use vortex_array::stream::ArrayStream;
-use vortex_array::stream::ArrayStreamExt;
-use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 
-use crate::DataSourceScan;
 use crate::DataSourceScanRef;
-use crate::Partition;
-use crate::PartitionRef;
-use crate::PartitionStream;
 
 /// Starts a new worker over the shared work of an opened scan.
 type NewWorker = dyn Fn() -> BoxStream<'static, VortexResult<ArrayRef>> + Send + Sync;
@@ -121,85 +112,6 @@ impl ArrayStream for ScanStream {
     }
 }
 
-/// Splits an unordered scan by opening it once and handing each of `n` pieces a clone of its
-/// stream.
-///
-/// The pieces share the scan's work, so which piece returns which rows is unspecified. Together
-/// they return every row once, and they must be read in the same process. A piece opens into its
-/// clone, does not split further, and has one partition that reads its clone.
-pub fn split_shared(
-    scan: DataSourceScanRef,
-    n: NonZeroUsize,
-) -> VortexResult<Vec<DataSourceScanRef>> {
-    let stream = scan.open()?;
-    let mut pieces: Vec<DataSourceScanRef> = (1..n.get())
-        .map(|_| {
-            Box::new(SharedScan {
-                stream: stream.clone(),
-            }) as DataSourceScanRef
-        })
-        .collect();
-    pieces.push(Box::new(SharedScan { stream }));
-    Ok(pieces)
-}
-
-/// A piece of a [`split_shared`] scan: one clone of the opened scan's stream.
-struct SharedScan {
-    stream: ScanStream,
-}
-
-impl DataSourceScan for SharedScan {
-    fn dtype(&self) -> &DType {
-        &self.stream.dtype
-    }
-
-    fn partition_count(&self) -> Precision<usize> {
-        Precision::exact(1usize)
-    }
-
-    fn partitions(self: Box<Self>) -> PartitionStream {
-        let partition = Box::new(SharedPartition {
-            stream: self.stream,
-        }) as PartitionRef;
-        stream::once(async move { Ok(partition) }).boxed()
-    }
-
-    fn split(self: Box<Self>, _n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
-        Ok(vec![self])
-    }
-
-    fn open(self: Box<Self>) -> VortexResult<ScanStream> {
-        Ok(self.stream)
-    }
-}
-
-/// The one partition of a [`SharedScan`].
-struct SharedPartition {
-    stream: ScanStream,
-}
-
-impl Partition for SharedPartition {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn index(&self) -> usize {
-        0
-    }
-
-    fn row_count(&self) -> Precision<u64> {
-        Precision::Absent
-    }
-
-    fn byte_size(&self) -> Precision<u64> {
-        Precision::Absent
-    }
-
-    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
-        Ok(ArrayStreamExt::boxed(self.stream))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::any::Any;
@@ -221,10 +133,8 @@ mod tests {
     use vortex_array::stream::SendableArrayStream;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_err;
 
     use super::ScanStream;
-    use super::split_shared;
     use crate::DataSourceScan;
     use crate::DataSourceScanRef;
     use crate::Partition;
@@ -317,21 +227,6 @@ mod tests {
         })
         .open()?;
         assert_eq!(total_rows([stream.clone(), stream.clone(), stream])?, 14);
-        Ok(())
-    }
-
-    #[test]
-    fn shared_pieces_read_every_row_once() -> VortexResult<()> {
-        let scan = Box::new(PartitionOnlyScan {
-            rows: vec![2, 3, 4, 5],
-        });
-        let pieces = split_shared(scan, NonZeroUsize::new(3).ok_or_else(|| vortex_err!("3"))?)?;
-        assert_eq!(pieces.len(), 3);
-        let streams = pieces
-            .into_iter()
-            .map(|piece| piece.open())
-            .collect::<VortexResult<Vec<_>>>()?;
-        assert_eq!(total_rows(streams)?, 14);
         Ok(())
     }
 }
