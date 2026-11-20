@@ -9,6 +9,7 @@ use rustc_hash::FxHashSet;
 use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::BoundExpression;
+use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -35,10 +36,12 @@ use super::segment_target;
 use crate::execution::filter_expr::FilterExpr;
 use crate::execution::pipeline::Scan;
 use crate::execution::pipeline::Split;
+use crate::plan::Eval;
 use crate::plan::FilterPlan;
 use crate::plan::PlanRef;
 use crate::plan::Zoned;
 use crate::plan::optimize;
+use crate::plan::optimize::optimize_pruning;
 use crate::plan::plan_row_idx_expression;
 use crate::planning::planner::Planner;
 use crate::planning::planner::PlannerOutput;
@@ -86,7 +89,7 @@ impl FilterPlans {
             .map(|expr| {
                 expr.falsify(session)?
                     .map(|pruning| {
-                        optimize(
+                        optimize_pruning(
                             plan_row_idx_expression(pruning, root.clone(), session)?,
                             session,
                         )
@@ -96,7 +99,7 @@ impl FilterPlans {
             .map(|plan| {
                 let plan = plan?;
                 match plan {
-                    Some(plan) if metadata_only(&plan)? => Ok(Some(plan)),
+                    Some(plan) if metadata_only(&plan)? && may_prune(&plan)? => Ok(Some(plan)),
                     _ => Ok(None),
                 }
             })
@@ -141,6 +144,23 @@ impl FilterPlans {
             .filter(|(idx, _)| !self.expression.is_switched_off(*idx))
             .filter_map(|(_, plan)| plan.as_ref())
     }
+}
+
+/// Returns false for a pruning plan that folds to a constant false or null.
+///
+/// Such a plan never discards a row, so running it only costs time. This happens when the
+/// optimizer drops every clause of a proof that it cannot keep, for example a null-count clause
+/// beneath a nullable struct. A plan that folds to true still runs, because it discards every row
+/// without reading them.
+fn may_prune(plan: &PlanRef) -> VortexResult<bool> {
+    let Some(eval) = plan.as_opt::<Eval>() else {
+        return Ok(true);
+    };
+    let expression = eval.expression().clone().optimize()?;
+
+    Ok(expression
+        .as_opt::<Literal>()
+        .is_none_or(|value| value.as_bool().value() == Some(true)))
 }
 
 /// A pruning plan must not fetch data when its requested statistics are unavailable.
