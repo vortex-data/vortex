@@ -283,7 +283,7 @@ impl Shared {
         }
         match unit.kind {
             UnitKind::Expand(expand) => expand(),
-            UnitKind::Run(_) => unreachable!("only expansions expand"),
+            UnitKind::Run(_) | UnitKind::Stream(_) => unreachable!("only expansions expand"),
         }
     }
 
