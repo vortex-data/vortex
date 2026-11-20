@@ -406,6 +406,7 @@ mod tests {
     use crate::CanonicalCudaExt;
     use crate::arrow::DeviceArrayExt;
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
+    use crate::device_buffer::cuda_address;
     use crate::device_buffer::cuda_backing_allocation;
     use crate::session::CudaSession;
 
@@ -458,7 +459,7 @@ mod tests {
         let bytes = backing.try_to_host()?.await?;
         assert!(bytes[logical_bytes..].iter().all(|byte| *byte == 0));
 
-        let bits_ptr = bits.cuda_device_ptr()?;
+        let bits_ptr = cuda_address(&bits)?;
         let mut exported = actual
             .clone()
             .into_array()

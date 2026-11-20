@@ -961,7 +961,6 @@ mod tests {
     use vortex::session::VortexSession;
     use vortex_cuda_macros::test as cuda_test;
 
-    use crate::CudaBufferExt;
     use crate::CudaSession;
     use crate::arrow::ARROW_DEVICE_CUDA;
     use crate::arrow::ArrowArray;
@@ -974,6 +973,7 @@ mod tests {
     use crate::arrow::PrivateData;
     use crate::arrow::release_device_array;
     use crate::arrow::release_schema;
+    use crate::device_buffer::cuda_address;
 
     unsafe extern "C" fn count_release(array: *mut ArrowArray) {
         // SAFETY: The callback receives the live array created by counted_array.
@@ -1075,7 +1075,7 @@ mod tests {
         assert!(!array.buffers.is_null());
         // SAFETY: The live export exposes n_buffers readable buffer pointers.
         let exported_ptr = unsafe { *array.buffers.add(index) } as u64;
-        assert_eq!(exported_ptr, buffer.cuda_device_ptr()?);
+        assert_eq!(exported_ptr, cuda_address(buffer)?);
         buffer.try_to_host_sync()
     }
 
