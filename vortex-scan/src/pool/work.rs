@@ -10,21 +10,29 @@
 //! it onto the session's runtime if it likes; the pool decides who takes which unit, how many run
 //! at once, and when the scan's row limit stops the workers.
 //!
-//! - An unordered pool hands units out through a channel. The worker that expands a unit sends
-//!   the units it yields back into the channel, where any worker can take them. At most
-//!   `expand_concurrency` expansions are queued or running at once; each holds a slot that it
-//!   passes on to the next waiting expansion when it is done, or when its worker drops it. The
-//!   channel closes once every expansion has finished, which ends the workers.
-//! - An ordered pool gives all of its units, in row order, to its first worker, which expands each
-//!   unit in its place, `expand_concurrency` top-level expansions ahead; later workers get
-//!   nothing. Parallel ordered reads cut the scan with `split` first.
+//! Workers share the output, not the work. A pool keeps up to `in_flight` units running at once,
+//! however many workers read it: four per core, at most the request's `split_concurrency`, as one
+//! scan stream does. The number of workers is only the host's parallelism.
 //!
-//! Each worker keeps up to its in-flight bound of units running at once: four per core, at most
-//! the request's `split_concurrency`, the in-flight total of a partition's stream.
+//! - An unordered pool runs `in_flight` lanes on the session's runtime once its first worker
+//!   starts. Each lane takes the next unit from a channel of units, runs it, and sends its rows,
+//!   trimmed to a trimmed limit, into one bounded output channel. A lane that expands a unit sends
+//!   the units it yields back into the channel of units. At most `expand_concurrency` expansions
+//!   are queued or running at once; each holds a slot that it passes on to the next waiting
+//!   expansion when it is done, or when it is dropped. Workers only take rows from the output
+//!   channel, so whichever worker asks next gets the next rows. The output channel closes once
+//!   every lane has ended, which ends the workers. An error stops every lane, dropping a worker
+//!   gives up nothing, and dropping the pool aborts the lanes.
+//! - An ordered pool gives all of its units, in row order, to its first worker, which keeps
+//!   `in_flight` of them running at once and expands each unit in its place, `expand_concurrency`
+//!   top-level expansions ahead; later workers get nothing. Parallel ordered reads cut the scan
+//!   with `split` first.
 
 use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::task::Poll;
 
 use async_channel::Receiver;
@@ -43,6 +51,8 @@ use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
+use vortex_io::runtime::Handle;
+use vortex_io::runtime::Task;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use super::RowLimit;
@@ -56,7 +66,7 @@ pub type UnitOutput = BoxFuture<'static, VortexResult<Vec<ArrayRef>>>;
 /// The units an expansion yields, in row order, in its place.
 pub type Expansion = BoxFuture<'static, VortexResult<Vec<WorkUnit>>>;
 
-/// Maps each array a worker returns, as a future that the worker runs `in flight` at a time.
+/// Maps each array of a trimmed limit's pool once it is trimmed.
 pub type MapOutput = Arc<dyn Fn(ArrayRef) -> MappedArray + Send + Sync>;
 
 /// One mapped array.
@@ -144,8 +154,10 @@ pub struct WorkPoolOptions {
     pub ordered: bool,
     /// The scan's row limit, and how it is applied.
     pub limit: PoolLimit,
-    /// The request's bound on the units each worker keeps in flight.
+    /// The request's bound on the units the pool keeps in flight.
     pub split_concurrency: Option<NonZeroUsize>,
+    /// The runtime that an unordered pool's lanes run on.
+    pub handle: Handle,
     /// The most expansions that are queued or running at once.
     pub expand_concurrency: NonZeroUsize,
     /// Maps every array the workers return under a [trimmed](PoolLimit::Trim) limit, such as to
@@ -166,6 +178,8 @@ pub fn open_work_pool(options: WorkPoolOptions, units: Vec<WorkUnit>) -> ScanPoo
         limit: options.limit,
         map_trimmed: options.map_trimmed,
         in_flight,
+        handle: options.handle,
+        failed: AtomicBool::new(false),
         taken: Mutex::new(0.0),
         slots: Mutex::new(Slots {
             free: expand_concurrency,
@@ -183,10 +197,13 @@ pub fn open_work_pool(options: WorkPoolOptions, units: Vec<WorkUnit>) -> ScanPoo
 
     let (sender, receiver) = async_channel::unbounded();
     shared.queue(&sender, units);
+    let (output, outputs) = async_channel::bounded(in_flight);
     Arc::new(UnorderedPool {
         dtype: options.dtype,
         shared,
-        receiver,
+        units: receiver,
+        outputs,
+        lanes: Mutex::new(Lanes::Idle(output)),
     })
 }
 
@@ -194,8 +211,12 @@ pub fn open_work_pool(options: WorkPoolOptions, units: Vec<WorkUnit>) -> ScanPoo
 struct Shared {
     limit: PoolLimit,
     map_trimmed: Option<MapOutput>,
-    /// The units each worker keeps in flight.
+    /// The units the pool keeps in flight.
     in_flight: usize,
+    /// The runtime that an unordered pool's lanes run on.
+    handle: Handle,
+    /// Whether a unit of an unordered pool failed, which stops its lanes.
+    failed: AtomicBool,
     /// The share of the pool's work that workers have taken.
     taken: Mutex<f64>,
     /// An unordered pool's expansion slots.
@@ -277,13 +298,12 @@ impl Shared {
         self.taken.lock().clamp(0.0, 1.0)
     }
 
-    /// A worker's output: the arrays of its units, trimmed to a trimmed limit and mapped, ending
-    /// after the first error or once a trimmed limit is spent.
+    /// An ordered worker's output: the arrays of its units, trimmed to a trimmed limit and mapped,
+    /// ending after the first error or once a trimmed limit is spent.
     fn output(
         self: Arc<Self>,
         dtype: DType,
         outputs: BoxStream<'static, VortexResult<Vec<ArrayRef>>>,
-        ordered: bool,
     ) -> SendableArrayStream {
         let arrays = stop_on_error(outputs)
             .flat_map(|arrays| match arrays {
@@ -302,12 +322,7 @@ impl Shared {
                     Ok(array) => map(array),
                     Err(err) => future::ready(Err(err)).boxed(),
                 });
-                let mapped = if ordered {
-                    mapped.buffered(self.in_flight).boxed()
-                } else {
-                    mapped.buffer_unordered(self.in_flight).boxed()
-                };
-                stop_on_error(mapped)
+                stop_on_error(mapped.buffered(self.in_flight).boxed())
             }
             _ => arrays,
         };
@@ -386,11 +401,24 @@ fn send(sender: &Sender<Work>, work: Work) {
     drop(sender.try_send(work));
 }
 
-/// A pool whose workers share its units through a channel.
+/// The lanes of an unordered pool.
+enum Lanes {
+    /// Not started: the sender of the output channel, for the lanes to hold once they start.
+    Idle(Sender<VortexResult<ArrayRef>>),
+    /// Running, until the pool is dropped, which aborts them.
+    Running(
+        #[expect(dead_code, reason = "held so that dropping the pool aborts the lanes")]
+        Vec<Task<()>>,
+    ),
+}
+
+/// A pool whose lanes run its units on the runtime, and whose workers share their output.
 struct UnorderedPool {
     dtype: DType,
     shared: Arc<Shared>,
-    receiver: Receiver<Work>,
+    units: Receiver<Work>,
+    outputs: Receiver<VortexResult<ArrayRef>>,
+    lanes: Mutex<Lanes>,
 }
 
 impl UnorderedPool {
@@ -411,6 +439,75 @@ impl UnorderedPool {
             }
         }
     }
+
+    /// Starts the lanes, once.
+    fn start_lanes(&self) {
+        let mut lanes = self.lanes.lock();
+        let Lanes::Idle(output) = &*lanes else {
+            return;
+        };
+        let output = output.clone();
+        let running = (0..self.shared.in_flight)
+            .map(|_| {
+                self.shared.handle.spawn(lane(
+                    Arc::clone(&self.shared),
+                    self.units.clone(),
+                    output.clone(),
+                ))
+            })
+            .collect();
+        // Dropping the pool's own sender leaves the lanes holding the output channel open.
+        *lanes = Lanes::Running(running);
+    }
+}
+
+/// A lane: runs units one at a time and sends their rows to the workers, trimmed to a trimmed
+/// limit and mapped. Ends once the units run out, a trimmed limit is spent, a unit fails, or the
+/// pool is gone.
+async fn lane(shared: Arc<Shared>, units: Receiver<Work>, output: Sender<VortexResult<ArrayRef>>) {
+    while !shared.limit.is_trimmed_out() && !shared.failed.load(Ordering::Acquire) {
+        let Ok(work) = units.recv().await else {
+            return;
+        };
+        let arrays = match UnorderedPool::run(&shared, work).await {
+            Ok(arrays) => arrays,
+            Err(err) => {
+                shared.failed.store(true, Ordering::Release);
+                drop(output.send(Err(err)).await);
+                return;
+            }
+        };
+        for array in arrays {
+            if array.is_empty() {
+                continue;
+            }
+            let array = match &shared.limit {
+                PoolLimit::Trim(limit) => {
+                    let granted = limit.take(array.len());
+                    if granted == 0 {
+                        return;
+                    }
+                    let array = if granted < array.len() {
+                        array.slice(0..granted)
+                    } else {
+                        Ok(array)
+                    };
+                    match (array, &shared.map_trimmed) {
+                        (Ok(array), Some(map)) => map(array).await,
+                        (array, _) => array,
+                    }
+                }
+                PoolLimit::Unlimited | PoolLimit::Reserve(_) => Ok(array),
+            };
+            let failed = array.is_err();
+            if failed {
+                shared.failed.store(true, Ordering::Release);
+            }
+            if output.send(array).await.is_err() || failed {
+                return;
+            }
+        }
+    }
 }
 
 impl ScanPool for UnorderedPool {
@@ -419,18 +516,15 @@ impl ScanPool for UnorderedPool {
     }
 
     fn worker(self: Arc<Self>) -> SendableArrayStream {
+        self.start_lanes();
         let dtype = self.dtype.clone();
-        let shared = Arc::clone(&self.shared);
-        let runner = Arc::clone(&shared);
-        let receiver = self.receiver.clone();
-        let in_flight = shared.in_flight;
-        // The worker holds the pool, so the pool is dropped only after its last worker.
-        let outputs = receiver
-            .take_while(move |_| future::ready(!self.shared.limit.is_trimmed_out()))
-            .map(move |work| UnorderedPool::run(&runner, work))
-            .buffer_unordered(in_flight)
-            .boxed();
-        shared.output(dtype, outputs, false)
+        // The worker holds the pool, so the lanes run until the pool's last worker is dropped.
+        let arrays = stream::unfold(self, |pool| async move {
+            let array = pool.outputs.recv().await.ok()?;
+            Some((array, pool))
+        })
+        .boxed();
+        ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, stop_on_error(arrays)))
     }
 
     fn progress(&self) -> f64 {
@@ -441,17 +535,18 @@ impl ScanPool for UnorderedPool {
     }
 
     fn is_exhausted(&self) -> bool {
-        // Slots hold senders, so the channel closes only once every unit is in it.
-        self.shared.limit.is_trimmed_out()
-            || (self.receiver.is_closed() && self.receiver.is_empty())
+        // The lanes hold the output channel's senders, so it closes once every lane has ended.
+        self.outputs.is_closed() && self.outputs.is_empty()
     }
 }
 
 impl Drop for UnorderedPool {
     fn drop(&mut self) {
-        // Queued expansions hold senders of the channel itself; drain them so it can be freed.
-        self.receiver.close();
-        while self.receiver.try_recv().is_ok() {}
+        // Queued expansions hold senders of the channel of units itself; drain them so it can be
+        // freed. The lanes are aborted when they are dropped.
+        self.units.close();
+        while self.units.try_recv().is_ok() {}
+        self.outputs.close();
     }
 }
 
@@ -529,7 +624,7 @@ impl ScanPool for OrderedPool {
             })
             .buffered(shared.in_flight)
             .boxed();
-        shared.output(dtype, outputs, true)
+        shared.output(dtype, outputs)
     }
 
     fn progress(&self) -> f64 {
@@ -547,6 +642,7 @@ mod tests {
     use std::num::NonZeroUsize;
     use std::ops::Range;
     use std::sync::Arc;
+    use std::sync::LazyLock;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
@@ -564,6 +660,9 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
+    use vortex_io::runtime::BlockingRuntime;
+    use vortex_io::runtime::current::CurrentThreadRuntime;
+    use vortex_io::runtime::current::CurrentThreadWorkerPool;
 
     use super::PoolLimit;
     use super::WorkPoolOptions;
@@ -572,6 +671,16 @@ mod tests {
     use crate::pool::RowLimit;
     use crate::pool::ScanPoolRef;
     use crate::test::SESSION;
+
+    /// A runtime driven by background threads, so the lanes the pools spawn make progress while
+    /// test workers block on their streams with `futures::executor`.
+    static RUNTIME: LazyLock<(CurrentThreadRuntime, CurrentThreadWorkerPool)> =
+        LazyLock::new(|| {
+            let runtime = CurrentThreadRuntime::new();
+            let pool = runtime.new_pool();
+            pool.set_workers(4);
+            (runtime, pool)
+        });
 
     fn dtype() -> DType {
         DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -640,6 +749,7 @@ mod tests {
             ordered,
             limit,
             split_concurrency: NonZeroUsize::new(2),
+            handle: RUNTIME.0.handle(),
             expand_concurrency: NonZeroUsize::new(expand_concurrency).unwrap_or(NonZeroUsize::MIN),
             map_trimmed: None,
         }
