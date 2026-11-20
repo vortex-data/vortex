@@ -35,7 +35,6 @@ use vortex_array::extension::datetime::Time;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::validity::Validity;
-use vortex_arrow::test_harness::DefaultExport;
 use vortex_arrow::test_harness::check_containers;
 use vortex_error::VortexExpect;
 use vortex_json::Json;
@@ -148,7 +147,6 @@ impl ArrowRoundTrip {
     pub fn check(self) {
         check_containers(
             self.array,
-            DefaultExport::Supported,
             &mut ARROW_ROUND_TRIP_SESSION.create_execution_ctx(),
         )
         .vortex_expect("Arrow transport must preserve dtype and stored values");
