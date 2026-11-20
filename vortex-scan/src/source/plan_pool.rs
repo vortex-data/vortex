@@ -223,7 +223,9 @@ fn run_root(
         if unassigned > 0 {
             units.push(WorkUnit::skipped(per_row * unassigned as f64));
         }
-        // The lanes of an unordered pool take the child's parts in turn with other children's.
+        // An unordered pool's lanes take the child's parts in runs of adjacent parts, in turn with
+        // other children's. A part is a layout split, as a V1 split is, so a run's parts read
+        // adjacent segments, and polling them together lets their reads coalesce.
         Ok(vec![WorkUnit::turn(units)])
     }
     .boxed()
