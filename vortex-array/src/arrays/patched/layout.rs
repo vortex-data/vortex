@@ -256,7 +256,10 @@ impl<'a> PatchLayout<'a> {
                 index < self.offset || index >= end
             })
         };
-        out_of_bounds(0) || out_of_bounds(n_chunks - 1)
+        // Only a first chunk that starts before the array, or a last chunk that ends after it,
+        // can hold patches outside the array.
+        (self.offset > 0 && out_of_bounds(0))
+            || (!end.is_multiple_of(PATCH_CHUNK_SIZE) && out_of_bounds(n_chunks - 1))
     }
 
     /// The number of patches inside the array.

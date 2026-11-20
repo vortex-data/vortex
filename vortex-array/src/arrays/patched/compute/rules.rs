@@ -23,6 +23,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastKernel;
 use crate::scalar_fn::fns::cast::CastReduce;
@@ -98,6 +99,16 @@ impl ArrayParentReduceRule<Patched> for PatchedScalarFnPushDownRule {
                 .collect::<Vec<_>>();
             Ok(ScalarFnArray::try_new(scalar_fn.clone(), children)?.into_array())
         };
+
+        // Comparisons over a constant inner array are left to the compare kernel, which compares
+        // the fill value directly.
+        if array.inner().is::<Constant>()
+            && scalar_fn
+                .as_opt::<Binary>()
+                .is_some_and(|op| op.to_compare_operator().is_some())
+        {
+            return Ok(None);
+        }
 
         let inner = apply(array.inner())?;
         let values = apply(array.patch_values())?;
