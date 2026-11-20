@@ -221,8 +221,8 @@ impl MultiLayoutDataSource {
 
     /// Sets the concurrency for opening deferred readers.
     ///
-    /// Controls how many file opens run in parallel via `buffer_unordered`.
-    /// Defaults to the number of available CPU cores.
+    /// Controls how many file opens run in parallel, on the partitions path and in an opened
+    /// scan's pool alike. Defaults to the number of available CPU cores.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         self.concurrency = concurrency;
         self
@@ -424,6 +424,7 @@ impl MultiLayoutScan {
                 source_dtype: self.source_dtype,
                 dtype: self.dtype,
                 request: self.request,
+                open_concurrency: self.concurrency,
             }),
             children,
             index: 0,
@@ -736,6 +737,8 @@ struct ScanContext {
     source_dtype: DType,
     dtype: DType,
     request: BoundScanRequest,
+    /// The most deferred files that are opened at once.
+    open_concurrency: usize,
 }
 
 impl ScanContext {
@@ -957,11 +960,13 @@ impl DataSourceScan for MultiLayoutSplitScan {
         }
 
         let options = PoolOptions {
+            session: context.session.clone(),
             dtype: context.dtype.clone(),
             ordered: request.ordered,
             limit: request.limit,
             has_filter: request.has_filter(),
-            splits_in_flight: request.split_concurrency,
+            split_concurrency: request.split_concurrency,
+            open_concurrency: context.open_concurrency,
         };
         let prepare: PrepareFile = Arc::new(move |reader| context.start_file(reader));
         Ok(open_pool(options, files, Some(prepare)))
@@ -1277,12 +1282,81 @@ mod pool_tests {
         worker.poll_next_unpin(cx)
     }
 
+    /// An unordered pool opens at most the source's open concurrency of deferred files at once,
+    /// however many workers are waiting for splits.
+    #[test]
+    fn deferred_opens_are_bounded() -> VortexResult<()> {
+        let opens = Arc::new(AtomicUsize::new(0));
+        let gates: Vec<_> = (0..6).map(|_| Arc::new(Gate::default())).collect();
+        let factories = gates
+            .iter()
+            .enumerate()
+            .map(|(index, gate)| {
+                let base = 100 * i32::try_from(index).expect("few files");
+                Arc::new(GatedFactory {
+                    reader: Arc::new(TestLayoutReader::new(4).with_split_size(1).with_base(base)),
+                    gate: Arc::clone(gate),
+                    opens: Arc::clone(&opens),
+                }) as Arc<dyn LayoutReaderFactory>
+            })
+            .collect();
+        let source =
+            MultiLayoutDataSource::new_deferred(i32_dtype(), factories, vec![], &new_session())
+                .with_concurrency(2);
+        let pool = plan(&source, ScanRequest::default())?.open()?;
+        let mut workers: Vec<_> = (0..4).map(|_| Arc::clone(&pool).worker()).collect();
+        let mut noop = Context::from_waker(noop_waker_ref());
+        for worker in &mut workers {
+            assert!(poll_worker(worker, &mut noop).is_pending());
+        }
+        // Opens run on the session's runtime; give them time to start.
+        for _ in 0..200 {
+            if opens.load(Ordering::SeqCst) >= 2 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert_eq!(opens.load(Ordering::SeqCst), 2);
+
+        for gate in &gates {
+            gate.release();
+        }
+        let mut values = std::thread::scope(|scope| {
+            let handles: Vec<_> = workers
+                .into_iter()
+                .map(|worker| {
+                    scope.spawn(move || {
+                        collect_scan_values(futures::executor::block_on_stream(worker))
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("worker thread panicked"))
+                .collect::<VortexResult<Vec<_>>>()
+        })?
+        .concat();
+        values.sort_unstable();
+        let expected: Vec<i32> = (0..6)
+            .flat_map(|file| (0..4).map(move |row| 100 * file + row))
+            .collect();
+        assert_eq!(values, expected);
+        assert_eq!(opens.load(Ordering::SeqCst), 6);
+        Ok(())
+    }
+
     /// A deferred file is opened by a worker, and its splits are shared with other workers. A
     /// worker that finds only an open in progress waits, and is woken when the open adds splits.
     #[test]
     fn deferred_file_splits_are_shared_with_waiting_workers() -> VortexResult<()> {
         let (source, gates) = gated_source(1, 16);
-        let pool = plan(&source, ScanRequest::default())?.open()?;
+        // Each worker holds at most two splits, so the opener leaves splits for the waiter.
+        let request = ScanRequest {
+            split_concurrency: NonZeroUsize::new(2),
+            ..Default::default()
+        };
+        let pool = plan(&source, request)?.open()?;
         let mut opener = Arc::clone(&pool).worker();
         let mut waiter = Arc::clone(&pool).worker();
         let mut noop = Context::from_waker(noop_waker_ref());
