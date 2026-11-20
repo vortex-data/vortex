@@ -16,10 +16,13 @@ use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
+use vortex_array::arrays::Patched;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt as _;
 
 use crate::ArrayAndStats;
+use crate::schemes::patches::sparse_to_patched;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -42,7 +45,11 @@ impl Scheme for NullDominatedSparseScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![Sparse.id()]
+        let mut encodings = vec![Sparse.id()];
+        if use_experimental_patches() {
+            encodings.push(Patched.id());
+        }
+        encodings
     }
 
     /// Children: indices=0.
@@ -93,6 +100,17 @@ impl Scheme for NullDominatedSparseScheme {
         let sparse_encoded = Sparse::encode(data.array(), None, exec_ctx)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
+            if use_experimental_patches() {
+                return sparse_to_patched(
+                compressor,
+                &compress_ctx,
+                self.id(),
+                sparse,
+                0,
+                None,
+                exec_ctx,
+            );
+            }
             let indices = sparse
                 .patches()
                 .indices()

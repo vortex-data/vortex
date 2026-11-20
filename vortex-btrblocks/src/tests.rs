@@ -23,6 +23,8 @@ use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::Patched;
+use vortex_array::arrays::patched::PatchedArraySlotsExt;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -408,8 +410,13 @@ fn test_bitpacking_compresses_its_validity() -> VortexResult<()> {
         .build();
     let compressed = assert_roundtrip(&compressor, &input)?;
 
-    assert!(compressed.is::<BitPacked>(), "{}", compressed.encoding_id());
-    assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
+    // With experimental patched arrays, the exceptions wrap the bit-packed array.
+    let packed = match compressed.as_opt::<Patched>() {
+        Some(patched) => patched.inner().clone(),
+        None => compressed,
+    };
+    assert!(packed.is::<BitPacked>(), "{}", packed.encoding_id());
+    assert!(packed.validity()?.to_array(input.len()).nbytes() < 100);
     Ok(())
 }
 

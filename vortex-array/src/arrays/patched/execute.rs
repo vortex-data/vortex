@@ -8,6 +8,7 @@ use std::sync::Arc;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -17,6 +18,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::Patched;
@@ -34,6 +36,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// The executed children of a patched array.
@@ -43,8 +46,16 @@ pub(crate) struct PatchedCanonicalParts<'a> {
     /// The un-executed lane offsets and indices, which lazy results reuse.
     pub lane_offsets: ArrayRef,
     pub patch_indices: ArrayRef,
-    pub inner: Canonical,
+    pub inner: PatchedInner,
     pub values: Canonical,
+}
+
+/// The executed inner array of a patched array.
+pub(crate) enum PatchedInner {
+    Canonical(Canonical),
+    /// A constant inner array, as in a sparse array, which is written straight into the output
+    /// instead of being materialized and then copied.
+    Constant(Scalar),
 }
 
 /// Canonicalize a patched array whose inner and values children are canonical.
@@ -60,6 +71,20 @@ pub(crate) fn execute_canonical(
         inner,
         values,
     } = parts;
+
+    let inner = match inner {
+        PatchedInner::Canonical(inner) => inner,
+        PatchedInner::Constant(fill) => {
+            if !layout.all_patches().is_empty()
+                && let Some(result) = patch_constant(&dtype, &fill, &values, &layout, ctx)?
+            {
+                return Ok(result);
+            }
+            ConstantArray::new(fill, layout.len())
+                .into_array()
+                .execute::<Canonical>(ctx)?
+        }
+    };
 
     if layout.all_patches().is_empty() {
         return Ok(inner.into_array());
@@ -127,6 +152,109 @@ pub(crate) fn execute_canonical(
                 .execute::<Canonical>(ctx)
                 .map(IntoArray::into_array)
         }
+    }
+}
+
+/// Patch a constant array directly into a new output, for the types where that avoids
+/// materializing the constant first. Returns `None` for other types.
+fn patch_constant(
+    dtype: &DType,
+    fill: &Scalar,
+    values: &Canonical,
+    layout: &PatchLayout<'_>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let len = layout.len();
+    let fill_validity = if fill.is_null() {
+        Validity::AllInvalid
+    } else {
+        Validity::from(dtype.nullability())
+    };
+
+    Ok(Some(match (dtype, values) {
+        (DType::Primitive(ptype, _), Canonical::Primitive(values)) => {
+            let validity = patch_validity(
+                fill_validity,
+                values.validity()?,
+                values.len(),
+                layout,
+                ctx,
+            )?;
+            match_each_native_ptype!(*ptype, |V| {
+                let fill = fill.as_primitive().as_::<V>().unwrap_or_default();
+                let mut output = BufferMut::<V>::full(fill, len);
+                scatter(&mut output, values.as_slice::<V>(), layout);
+                PrimitiveArray::new(output.freeze(), validity).into_array()
+            })
+        }
+        (DType::Bool(_), Canonical::Bool(values)) => {
+            let validity = patch_validity(
+                fill_validity,
+                values.validity()?,
+                values.len(),
+                layout,
+                ctx,
+            )?;
+            let mut bits = if fill.as_bool().value().unwrap_or(false) {
+                BitBufferMut::new_set(len)
+            } else {
+                BitBufferMut::new_unset(len)
+            };
+            let patch_bits = values.to_bit_buffer();
+            layout.for_each(|pos, patch| bits.set_to(pos, patch_bits.value(patch)));
+            BoolArray::new(bits.freeze(), validity).into_array()
+        }
+        (DType::Utf8(_) | DType::Binary(_), Canonical::VarBinView(values)) => {
+            let validity = patch_validity(
+                fill_validity,
+                values.validity()?,
+                values.len(),
+                layout,
+                ctx,
+            )?;
+            let bytes: &[u8] = match dtype {
+                DType::Utf8(_) => fill.as_utf8().value().map_or(&[], |s| s.as_bytes()),
+                _ => fill.as_binary().value().map_or(&[], |b| b.as_slice()),
+            };
+            // A fill value too long to inline is stored as the first data buffer.
+            let mut buffers = Vec::with_capacity(values.data_buffers().len() + 1);
+            if bytes.len() > BinaryView::MAX_INLINED_SIZE {
+                buffers.push(BufferHandle::new_host(ByteBuffer::copy_from(bytes)));
+            }
+            let fill_view = BinaryView::make_view(bytes, 0, 0);
+            #[expect(clippy::cast_possible_truncation, reason = "at most one fill buffer")]
+            let buffer_shift = buffers.len() as u32;
+            buffers.extend(values.data_buffers().iter().cloned());
+
+            let mut views = BufferMut::<BinaryView>::full(fill_view, len);
+            let value_views = values.views();
+            layout.for_each(|pos, patch| {
+                views[pos] = shift_view(value_views[patch], buffer_shift);
+            });
+            // SAFETY: the fill view references the first buffer when it is not inlined, and the
+            // value views reference the values' buffers, shifted past it.
+            unsafe {
+                VarBinViewArray::new_handle_unchecked(
+                    BufferHandle::new_host(views.freeze().into_byte_buffer()),
+                    buffers.into(),
+                    dtype.clone(),
+                    validity,
+                )
+            }
+            .into_array()
+        }
+        _ => return Ok(None),
+    }))
+}
+
+/// A view that references buffer `i` of an array, rewritten to reference buffer `i + shift`.
+#[inline]
+fn shift_view(view: BinaryView, shift: u32) -> BinaryView {
+    if view.is_inlined() || shift == 0 {
+        view
+    } else {
+        let r = view.as_view();
+        BinaryView::from(r.with_buffer_and_offset(r.buffer_index + shift, r.offset))
     }
 }
 
@@ -310,13 +438,7 @@ fn patch_varbinview(
     let mut views = BufferMut::<BinaryView>::copy_from(inner.views());
     let value_views = values.views();
     layout.for_each(|pos, patch| {
-        let view = value_views[patch];
-        views[pos] = if view.is_inlined() || buffer_shift == 0 {
-            view
-        } else {
-            let r = view.as_view();
-            BinaryView::from(r.with_buffer_and_offset(r.buffer_index + buffer_shift, r.offset))
-        };
+        views[pos] = shift_view(value_views[patch], buffer_shift);
     });
 
     // SAFETY: the views of `inner` reference its own buffers unchanged, and the views of `values`

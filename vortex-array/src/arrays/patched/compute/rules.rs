@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
@@ -13,6 +14,7 @@ use crate::arrays::Patched;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::Slice;
+use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
@@ -22,6 +24,7 @@ use crate::dtype::DType;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::cast::CastKernel;
 use crate::scalar_fn::fns::cast::CastReduce;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::pack::Pack;
@@ -113,15 +116,49 @@ impl ArrayParentReduceRule<Patched> for PatchedScalarFnPushDownRule {
 impl CastReduce for Patched {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // A cast can fail on the filler values the inner array holds at patched positions, or on
-        // patches outside a sliced array. Push it down only when it cannot fail on any value, or
-        // when the inner array is constant, where it fails exactly when a sparse array would.
-        if !casts_infallibly(array.dtype(), dtype) && !array.inner().is::<Constant>() {
+        // patches outside a sliced array, so only casts that cannot fail are pushed down here.
+        if !casts_infallibly(array.dtype(), dtype) {
             return Ok(None);
         }
 
         let inner = array.inner().cast(dtype.clone())?;
         let values = array.patch_values().cast(dtype.clone())?;
 
+        // SAFETY: casts preserve length, and both children now have the target dtype.
+        let patched =
+            unsafe { Patched::with_inner_and_values(&array, dtype.clone(), inner, values) };
+        Ok(Some(patched.into_array()))
+    }
+}
+
+impl CastKernel for Patched {
+    /// Pushes a fallible cast down over a constant inner array, as for a sparse array.
+    ///
+    /// The cast is pushed down only when every stored patch is visible, so that it fails exactly
+    /// when casting the array row by row would.
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let Some(constant) = array.inner().as_opt::<Constant>() else {
+            return Ok(None);
+        };
+        let layout = array.execute_layout(ctx)?;
+        let layout = layout.layout()?;
+        if layout.all_patches().len() != array.patch_values().len()
+            || layout.has_out_of_bounds_patches()
+        {
+            return Ok(None);
+        }
+        // The fill value may be hidden by patches at every position, so a failure to cast it is
+        // left to the row-by-row cast to report.
+        let Ok(fill) = constant.scalar().cast(dtype) else {
+            return Ok(None);
+        };
+
+        let inner = ConstantArray::new(fill, array.len()).into_array();
+        let values = array.patch_values().cast(dtype.clone())?;
         // SAFETY: casts preserve length, and both children now have the target dtype.
         let patched =
             unsafe { Patched::with_inner_and_values(&array, dtype.clone(), inner, values) };

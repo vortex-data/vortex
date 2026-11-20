@@ -10,9 +10,13 @@ use crate::arrays::Patched;
 use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::arrays::filter::FilterExecuteAdaptor;
 use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::cast::CastExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_execute_parent_kernel(Dict.id(), Patched, TakeExecuteAdaptor(Patched));
     kernels.register_execute_parent_kernel(Filter.id(), Patched, FilterExecuteAdaptor(Patched));
+    kernels.register_execute_parent_kernel(Cast.id(), Patched, CastExecuteAdaptor(Patched));
 }

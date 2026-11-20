@@ -31,6 +31,7 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
+use crate::arrays::Constant;
 use crate::arrays::Primitive;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
@@ -38,6 +39,7 @@ use crate::arrays::patched::PatchedData;
 use crate::arrays::patched::PatchedSlots;
 use crate::arrays::patched::PatchedSlotsView;
 use crate::arrays::patched::execute::PatchedCanonicalParts;
+use crate::arrays::patched::execute::PatchedInner;
 use crate::arrays::patched::execute::execute_canonical;
 use crate::arrays::patched::execute::scatter;
 use crate::buffer::BufferHandle;
@@ -46,6 +48,7 @@ use crate::builders::PrimitiveBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::match_each_native_ptype;
+use crate::matcher::Matcher;
 use crate::require_child;
 use crate::validity::Validity;
 
@@ -58,6 +61,18 @@ pub(crate) fn initialize(session: &VortexSession) {
 
 #[derive(Clone, Debug)]
 pub struct Patched;
+
+/// Matches canonical and constant arrays: the forms of the inner array that a patched array
+/// executes from.
+struct CanonicalOrConstant;
+
+impl Matcher for CanonicalOrConstant {
+    type Match<'a> = &'a ArrayRef;
+
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
+        (array.is::<Constant>() || AnyCanonical::matches(array)).then_some(array)
+    }
+}
 
 impl ValidityVTable<Patched> for Patched {
     fn validity(array: ArrayView<'_, Patched>) -> VortexResult<Validity> {
@@ -215,7 +230,10 @@ impl VTable for Patched {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.inner(), PatchedSlots::INNER => AnyCanonical);
+        // A constant inner array is patched directly, without being materialized first. That
+        // includes the constant results of functions pushed down into a constant inner array.
+        let array =
+            require_child!(array, array.inner(), PatchedSlots::INNER => CanonicalOrConstant);
         let array =
             require_child!(array, array.lane_offsets(), PatchedSlots::LANE_OFFSETS => Primitive);
         let array =
@@ -237,7 +255,10 @@ impl VTable for Patched {
                 layout,
                 lane_offsets: slots.lane_offsets,
                 patch_indices: slots.patch_indices,
-                inner: slots.inner.execute::<Canonical>(ctx)?,
+                inner: match slots.inner.as_opt::<Constant>() {
+                    Some(constant) => PatchedInner::Constant(constant.scalar().clone()),
+                    None => PatchedInner::Canonical(slots.inner.execute::<Canonical>(ctx)?),
+                },
                 values: slots.patch_values.execute::<Canonical>(ctx)?,
             },
             ctx,
