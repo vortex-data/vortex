@@ -51,7 +51,7 @@ use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
 use vortex_bench::v3;
 use vortex_datafusion::metrics::VortexMetricsFinder;
-use vortex_datafusion::v2::VortexTable;
+use vortex_datafusion::table::VortexTable;
 
 /// Common arguments shared across benchmarks
 #[derive(Parser)]

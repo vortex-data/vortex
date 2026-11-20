@@ -27,12 +27,12 @@ use vortex::expr::stats::Precision as VortexPrecision;
 use vortex::scan::DataSourceRef;
 use vortex::session::VortexSession;
 
-use crate::v2::source::VortexDataSource;
+use crate::table::source::VortexDataSource;
 
 /// DataFusion [`TableProvider`] backed by a Vortex
 /// [`DataSourceRef`].
 ///
-/// `VortexTable` is the usual entry point into [`crate::v2`] when you want to
+/// `VortexTable` is the usual entry point into [`crate::table`] when you want to
 /// register an existing Vortex source with DataFusion.
 ///
 /// Use it when another part of the system has already built a Vortex source and
@@ -56,7 +56,7 @@ use crate::v2::source::VortexDataSource;
 /// use vortex::VortexSessionDefault;
 /// use vortex::scan::DataSourceRef;
 /// use vortex::session::VortexSession;
-/// use vortex_datafusion::v2::VortexTable;
+/// use vortex_datafusion::table::VortexTable;
 ///
 /// # let data_source: DataSourceRef = todo!();
 /// let table = Arc::new(VortexTable::new(

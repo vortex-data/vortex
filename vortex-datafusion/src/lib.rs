@@ -8,7 +8,7 @@
 //! - [`VortexFormatFactory`] for the file-based integration used by SQL,
 //!   `CREATE EXTERNAL TABLE`, and
 //!   [`ListingTable`].
-//! - [`v2`] for direct integration from an existing Vortex
+//! - [`table`] for direct integration from an existing Vortex
 //!   [`DataSourceRef`].
 //!
 //! # Registering The File Format
@@ -53,7 +53,7 @@
 //! # Registering An Existing Vortex Data Source
 //!
 //! If your application already has a Vortex [`DataSourceRef`], use
-//! [`v2::VortexTable`] to register it directly with DataFusion:
+//! [`table::VortexTable`] to register it directly with DataFusion:
 //!
 //! ```no_run
 //! use std::sync::Arc;
@@ -63,7 +63,7 @@
 //! use vortex::VortexSessionDefault;
 //! use vortex::scan::DataSourceRef;
 //! use vortex::session::VortexSession;
-//! use vortex_datafusion::v2::VortexTable;
+//! use vortex_datafusion::table::VortexTable;
 //!
 //! # let data_source: DataSourceRef = todo!();
 //! let table = Arc::new(VortexTable::new(
@@ -114,7 +114,7 @@ use vortex::expr::stats::Precision;
 pub mod convert;
 mod persistent;
 mod row_index;
-pub mod v2;
+pub mod table;
 
 #[cfg(test)]
 mod tests;
