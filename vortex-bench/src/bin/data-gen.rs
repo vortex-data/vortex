@@ -24,9 +24,10 @@ use vortex_bench::Opts;
 use vortex_bench::conversions::convert_parquet_directory_to_vortex;
 use vortex_bench::create_benchmark;
 use vortex_bench::generate_duckdb_registration_sql;
+use vortex_bench::parquet_copies::SizeFormat;
+use vortex_bench::parquet_copies::write_size_format;
+use vortex_bench::parquet_copies::write_snappy_parquet_directory;
 use vortex_bench::setup_logging_and_tracing_with_format;
-use vortex_bench::size_formats::SizeFormat;
-use vortex_bench::size_formats::write_size_format;
 
 #[derive(Parser)]
 #[command(name = "bench-data-gen")]
@@ -49,8 +50,8 @@ struct Args {
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
 
-    /// Formats to write only for their file sizes, from the base Parquet files. No benchmark
-    /// query reads them.
+    /// Formats to write only for their file sizes, from the base Parquet files. No query reads
+    /// them.
     #[arg(long, value_delimiter = ',', value_enum)]
     size_formats: Vec<SizeFormat>,
 
@@ -95,6 +96,12 @@ async fn main() -> anyhow::Result<()> {
             .any(|f| matches!(f, Format::VortexCompact))
         {
             convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Compact).await?;
+        }
+
+        if args.formats.contains(&Format::ParquetSnappy) {
+            let base_path = base_path.clone();
+            tokio::task::spawn_blocking(move || write_snappy_parquet_directory(&base_path))
+                .await??;
         }
 
         if args

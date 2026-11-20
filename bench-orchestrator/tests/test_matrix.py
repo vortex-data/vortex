@@ -330,9 +330,22 @@ def test_only_develop_tpcds_sf1_writes_size_only_formats(preset: str) -> None:
     writers = {entry["id"]: entry["size_formats"] for entry in _entries(preset) if entry["size_formats"]}
 
     if preset == "develop":
-        assert writers == {"tpcds-nvme": ["arrow-ipc", "lance", "parquet-snappy"]}
+        assert writers == {"tpcds-nvme": ["arrow-ipc"]}
     else:
         assert writers == {}
+
+
+def test_develop_tpcds_sf1_queries_snappy_parquet_and_lance() -> None:
+    entry = {entry["id"]: entry for entry in _entries("develop")}["tpcds-nvme"]
+    targets = {(target["engine"], target["format"]) for target in entry["targets"]}
+
+    assert {
+        ("datafusion", "parquet-snappy"),
+        ("duckdb", "parquet-snappy"),
+        ("datafusion", "lance"),
+    } <= targets
+    assert entry["data_formats"][:2] == ["parquet", "parquet-snappy"]
+    assert "lance" not in entry["data_formats"]
 
 
 def test_resolver_rejects_a_size_only_format_that_a_target_reads() -> None:

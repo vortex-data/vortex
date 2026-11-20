@@ -41,6 +41,8 @@ class Format(Enum):
     """Data formats for benchmarks."""
 
     PARQUET = "parquet"
+    # The base Parquet files rewritten with Snappy, which `data-gen` writes beside them.
+    PARQUET_SNAPPY = "parquet-snappy"
     VORTEX = "vortex"
     VORTEX_COMPACT = "vortex-compact"
     VORTEX_SPATIAL_NATIVE = "vortex-spatial-native"
@@ -71,13 +73,12 @@ class ScanEngine(Enum):
 class SizeFormat(Enum):
     """A format a benchmark writes only to record its file sizes. No query reads it.
 
-    `vx-bench write-size-formats` writes Arrow IPC and Snappy Parquet with `data-gen
-    --size-formats`, and Lance with `lance-bench --data-only`.
+    `vx-bench write-size-formats` writes Arrow IPC with `data-gen --size-formats`, and Lance with
+    `lance-bench --data-only`.
     """
 
     ARROW_IPC = "arrow-ipc"
     LANCE = "lance"
-    PARQUET_SNAPPY = "parquet-snappy"
 
 
 class Benchmark(Enum):
@@ -103,12 +104,14 @@ class Benchmark(Enum):
 ENGINE_FORMATS: dict[Engine, list[Format]] = {
     Engine.DATAFUSION: [
         Format.PARQUET,
+        Format.PARQUET_SNAPPY,
         Format.VORTEX,
         Format.VORTEX_COMPACT,
         Format.LANCE,
     ],
     Engine.DUCKDB: [
         Format.PARQUET,
+        Format.PARQUET_SNAPPY,
         Format.VORTEX,
         Format.VORTEX_COMPACT,
         Format.VORTEX_SPATIAL_NATIVE,

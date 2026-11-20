@@ -55,12 +55,12 @@ pub mod job;
 pub mod measurements;
 pub mod memory;
 pub mod output;
+pub mod parquet_copies;
 pub mod polarsignals;
 pub mod public_bi;
 pub mod random_access;
 pub mod realnest;
 pub mod runner;
-pub mod size_formats;
 pub mod spatialbench;
 pub mod statpopgen;
 pub mod tpcds;
@@ -218,6 +218,11 @@ pub enum Format {
     Csv,
     #[clap(name = "parquet")]
     Parquet,
+    /// Parquet with Snappy compression, the base Parquet files written again with Snappy in
+    /// place of zstd. Only suites that list it generate it.
+    #[clap(name = "parquet-snappy")]
+    #[serde(rename = "parquet-snappy")]
+    ParquetSnappy,
     #[clap(name = "vortex")]
     #[serde(rename = "vortex")]
     OnDiskVortex,
@@ -273,6 +278,7 @@ impl Format {
             Format::ArrowIpc => "arrow-ipc",
             Format::Csv => "csv",
             Format::Parquet => "parquet",
+            Format::ParquetSnappy => "parquet-snappy",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
             Format::VortexSpatialNative => "vortex-spatial-native",
@@ -287,6 +293,7 @@ impl Format {
             Format::ArrowIpc => "arrow",
             Format::Csv => "csv",
             Format::Parquet => "parquet",
+            Format::ParquetSnappy => "parquet",
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
             Format::VortexSpatialNative => "vortex",

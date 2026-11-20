@@ -136,7 +136,7 @@ def parquet_format_name(path: Path, directory: str = "parquet") -> str:
     level 3). A file written with another codec, such as Snappy in a downloaded dataset, is
     `parquet-<codec>`. A file whose footer cannot be read, or that mixes codecs, keeps the name of
     its `directory` with a warning: `parquet`, as before codecs were recorded, or
-    `parquet-snappy`, which `data-gen --size-formats` writes.
+    `parquet-snappy`, which `data-gen --formats parquet-snappy` writes.
     """
     try:
         codecs = parquet_codecs(path)
@@ -177,8 +177,7 @@ def main() -> None:
         sys.exit(1)
 
     # Every on-disk format, named as `Format::name()` in `vortex-bench/src/lib.rs` names its
-    # directory, and `parquet-snappy`, a `SizeFormat` in `vortex-bench/src/size_formats.rs`. The
-    # "vortex" CLI argument maps to the "vortex-file-compressed" directory.
+    # directory. The "vortex" CLI argument maps to the "vortex-file-compressed" directory.
     formats_to_capture = {
         "arrow-ipc",
         "csv",

@@ -69,7 +69,7 @@ def test_write_size_formats_runs_data_gen_and_lance_bench(tmp_path, monkeypatch)
             "write-size-formats",
             "tpcds",
             "--formats-json",
-            '["arrow-ipc","lance","parquet-snappy"]',
+            '["arrow-ipc","lance"]',
             "--opt",
             "scale-factor=1.0",
         ],
@@ -77,7 +77,7 @@ def test_write_size_formats_runs_data_gen_and_lance_bench(tmp_path, monkeypatch)
 
     assert result.exit_code == 0, result.stdout
     assert commands == [
-        [str(data_gen), "tpcds", "--size-formats", "arrow-ipc,parquet-snappy", "--opt", "scale-factor=1.0"],
+        [str(data_gen), "tpcds", "--size-formats", "arrow-ipc", "--opt", "scale-factor=1.0"],
         [str(lance_bench), "tpcds", "--data-only", "--opt", "scale-factor=1.0"],
     ]
 
