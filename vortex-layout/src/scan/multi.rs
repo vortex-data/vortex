@@ -1162,10 +1162,8 @@ mod pool_tests {
     use async_trait::async_trait;
     use futures::StreamExt;
     use futures::future::poll_fn;
-    use futures::task::ArcWake;
     use futures::task::AtomicWaker;
     use futures::task::noop_waker_ref;
-    use futures::task::waker;
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::dtype::Nullability;
@@ -1266,15 +1264,6 @@ mod pool_tests {
         (source, gates)
     }
 
-    #[derive(Default)]
-    struct WakeFlag(AtomicBool);
-
-    impl ArcWake for WakeFlag {
-        fn wake_by_ref(arc_self: &Arc<Self>) {
-            arc_self.0.store(true, Ordering::SeqCst);
-        }
-    }
-
     fn poll_worker(
         worker: &mut SendableArrayStream,
         cx: &mut Context<'_>,
@@ -1332,47 +1321,27 @@ mod pool_tests {
         Ok(())
     }
 
-    /// A deferred file is opened by a worker, and its splits are shared with other workers. A
-    /// worker that finds only an open in progress waits, and is woken when the open adds splits.
+    /// Rows go to whichever worker asks for them: a worker that stops asking holds none back,
+    /// so another worker that waited while the file opened reads all of it.
     #[test]
-    fn deferred_file_splits_are_shared_with_waiting_workers() -> VortexResult<()> {
+    fn rows_go_to_whichever_worker_asks() -> VortexResult<()> {
         let (source, gates) = gated_source(1, 16);
-        // Each worker holds at most two splits, so the opener leaves splits for the waiter.
-        let request = ScanRequest {
-            split_concurrency: NonZeroUsize::new(2),
-            ..Default::default()
-        };
-        let pool = plan(&source, request)?.open()?;
-        let mut opener = Arc::clone(&pool).worker();
+        let pool = plan(&source, ScanRequest::default())?.open()?;
+        let mut idle = Arc::clone(&pool).worker();
         let mut waiter = Arc::clone(&pool).worker();
         let mut noop = Context::from_waker(noop_waker_ref());
-        let flag = Arc::new(WakeFlag::default());
-        let flag_waker = waker(Arc::clone(&flag));
-        let mut flagged = Context::from_waker(&flag_waker);
 
-        // The opener takes the only file and blocks on its open; the waiter finds nothing to take
-        // but an open in progress, so it waits.
-        assert!(poll_worker(&mut opener, &mut noop).is_pending());
-        assert!(poll_worker(&mut waiter, &mut flagged).is_pending());
+        // Both workers find only an open in progress, so both wait.
+        assert!(poll_worker(&mut idle, &mut noop).is_pending());
+        assert!(poll_worker(&mut waiter, &mut noop).is_pending());
 
         gates[0].release();
-        // The opener's split runs on the session runtime, so wait for it rather than polling once.
-        let Some(first) = futures::executor::block_on(opener.next()) else {
-            panic!("the opener reads a split of the file it opened");
-        };
-        assert!(flag.0.load(Ordering::SeqCst), "the waiter is woken");
-
-        let waiter_values = collect_scan_values(futures::executor::block_on_stream(waiter))?;
-        let opener_values = collect_scan_values(
-            std::iter::once(first).chain(futures::executor::block_on_stream(opener)),
-        )?;
-        assert!(
-            !waiter_values.is_empty(),
-            "the waiter reads the opened file's splits"
-        );
-        let mut values = [opener_values, waiter_values].concat();
-        values.sort_unstable();
-        assert_eq!(values, (0..16).collect::<Vec<_>>());
+        let values = collect_scan_values(futures::executor::block_on_stream(waiter))?;
+        assert_eq!(values.len(), 16);
+        let mut sorted = values;
+        sorted.sort_unstable();
+        assert_eq!(sorted, (0..16).collect::<Vec<_>>());
+        assert!(futures::executor::block_on(idle.next()).is_none());
         Ok(())
     }
 
@@ -1478,10 +1447,10 @@ mod pool_tests {
         Ok(())
     }
 
-    /// A worker dropped while it opens a file gives up only that file: the next deferred file
-    /// still opens, and other workers read it.
+    /// Opens run in the pool's lanes, not in its workers, so dropping a worker that is waiting
+    /// on an open gives up nothing: the other workers still read every file.
     #[test]
-    fn dropped_opener_strands_only_its_file() -> VortexResult<()> {
+    fn dropped_worker_gives_up_nothing() -> VortexResult<()> {
         let (source, gates) = counted_source(3, 2, &Arc::default());
         let source = source.with_concurrency(1);
         let pool = plan(&source, ScanRequest::default())?.open()?;
@@ -1490,11 +1459,12 @@ mod pool_tests {
         assert!(poll_worker(&mut dropped, &mut noop).is_pending());
         drop(dropped);
 
-        gates[1].release();
-        gates[2].release();
+        for gate in &gates {
+            gate.release();
+        }
         let mut values = read_with_one_worker(pool)?;
         values.sort_unstable();
-        assert_eq!(values, [100, 101, 200, 201]);
+        assert_eq!(values, [0, 1, 100, 101, 200, 201]);
         Ok(())
     }
 
@@ -1605,11 +1575,16 @@ mod pool_tests {
         Ok(())
     }
 
-    /// A worker reads at most `split_concurrency` splits at once.
+    /// A pool reads at most `split_concurrency` splits at once, however many workers read it.
     #[rstest]
-    #[case(1)]
-    #[case(2)]
-    fn split_concurrency_bounds_each_worker(#[case] max: usize) -> VortexResult<()> {
+    #[case::ordered(true, 1)]
+    #[case::ordered(true, 2)]
+    #[case::unordered(false, 1)]
+    #[case::unordered(false, 2)]
+    fn split_concurrency_bounds_the_pool(
+        #[case] ordered: bool,
+        #[case] max: usize,
+    ) -> VortexResult<()> {
         let in_flight = Arc::new(InFlight::default());
         let reader: LayoutReaderRef = Arc::new(
             TestLayoutReader::new(64)
@@ -1620,13 +1595,15 @@ mod pool_tests {
         let pool = plan(
             &source,
             ScanRequest {
-                ordered: true,
+                ordered,
                 split_concurrency: NonZeroUsize::new(max),
                 ..Default::default()
             },
         )?
         .open()?;
-        assert_eq!(read_with_one_worker(pool)?, (0..64).collect::<Vec<_>>());
+        let mut values = read_with_workers(&pool, 4)?.concat();
+        values.sort_unstable();
+        assert_eq!(values, (0..64).collect::<Vec<_>>());
         assert!(in_flight.peak() <= max, "peak {}", in_flight.peak());
         Ok(())
     }

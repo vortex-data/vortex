@@ -3,34 +3,40 @@
 
 //! The work that the workers of an opened layout scan share.
 //!
-//! A pool's units are the splits of one or more files, and the files not yet opened. A worker
-//! takes units and keeps several splits in flight, each spawned onto the session's runtime; it
-//! never starts threads of its own. Opening a deferred file is a unit like any other, and at most
-//! `open_concurrency` opens are queued or running at once.
+//! A pool's units are the splits of one or more files, and the files not yet opened. Its splits
+//! run as tasks on the session's runtime, at most `splits_in_flight` at once across the whole
+//! pool; it never starts threads of its own. Opening a deferred file is a unit like any other, and
+//! at most `open_concurrency` opens are queued or running at once.
 //!
 //! Splits run as [`RepeatedScan::execute_stream`] runs them:
 //!
-//! - A scan with a filter and a limit builds each split on a CPU thread only once a worker takes
-//!   it ([`spawn_lazy_split`]), so no new split starts once the limit is spent, and optimizes the
+//! - A scan with a filter and a limit builds each split on a CPU thread only once it is taken
+//!   to run ([`spawn_lazy_split`]), so no new split starts once the limit is spent, and optimizes the
 //!   rows the limit keeps on a second CPU task ([`spawn_map_trimmed`]).
-//! - Every other scan builds all of a file's split tasks together, when a worker first takes one
-//!   of them, so the file's reads are registered at once and can coalesce. A limit is reserved
+//! - Every other scan builds all of a file's split tasks together, when the first of them is
+//!   taken, so the file's reads are registered at once and can coalesce. A limit is reserved
 //!   then, in split order.
 //!
-//! The pools differ in how workers share units:
+//! The pools differ in how workers share the work:
 //!
-//! - An unordered pool hands units out through a channel. The worker that opens a deferred file
-//!   sends the file's splits back into the channel, where any worker can take them, followed by
-//!   the next deferred file. The channel closes once every open has finished, which ends the
-//!   workers.
-//! - An ordered pool gives all of its units, in row order, to its first worker; later workers
-//!   get nothing. Parallel ordered reads cut the scan with `split` first.
+//! - An unordered pool runs `splits_in_flight` lanes on the runtime once its first worker starts.
+//!   Each lane takes the next unit from a channel of units, runs it, and sends its rows into one
+//!   bounded output channel; a lane that opens a deferred file sends the file's splits back into
+//!   the channel of units, followed by the next deferred file. Workers only take rows from the
+//!   output channel, so whichever worker asks next gets the next rows, however many workers there
+//!   are, and the number of workers is only the host's parallelism. The output channel closes
+//!   once every lane has finished, which ends the workers.
+//! - An ordered pool gives all of its units, in row order, to its first worker, which keeps
+//!   `splits_in_flight` of them running at once; later workers get nothing. Parallel ordered reads
+//!   cut the scan with `split` first.
 
 use std::any::Any;
 use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use async_channel::Receiver;
 use async_channel::Sender;
@@ -50,6 +56,7 @@ use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
+use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_scan::DataSourceScanRef;
 use vortex_scan::Partition;
@@ -194,12 +201,10 @@ pub(crate) fn open_pool(
         Some(limit) if options.has_filter => PoolLimit::Trim(RowLimit::new(limit)),
         Some(limit) => PoolLimit::Reserve(RowLimit::new(limit)),
     };
-    // A worker takes the place of a partition that one host thread drains, so it keeps as many
-    // splits in flight as a partition's stream does by default: four per core, at most the
-    // request's `split_concurrency`. A host with a worker per core therefore has the in-flight
-    // total of the partitions path, where each of DuckDB's threads drained one file's partition
-    // and each of DataFusion's `target_partitions` streams drained one partition, each with up to
-    // `4 × cores` splits in flight.
+    // The pool keeps as many splits in flight as one scan stream does by default: four per core,
+    // at most the request's `split_concurrency`, however many workers read it. The runtime's
+    // threads decode them, so more in flight would only read further ahead, and the file's
+    // registered reads already let I/O coalesce ahead of the splits being decoded.
     let splits_in_flight = SplitConcurrency {
         per_worker: DEFAULT_SPLITS_PER_THREAD,
         max: options.split_concurrency,
@@ -214,6 +219,7 @@ pub(crate) fn open_pool(
         file_share: 1.0 / files.len().max(1) as f64,
         progress: Mutex::new(0.0),
         deferred: Mutex::new(VecDeque::new()),
+        failed: AtomicBool::new(false),
     });
     if options.ordered {
         return Arc::new(OrderedPool {
@@ -245,10 +251,13 @@ pub(crate) fn open_pool(
             PoolFile::Deferred(factory) => shared.deferred.lock().push_back(factory),
         }
     }
+    let (output, outputs) = async_channel::bounded(splits_in_flight);
     Arc::new(UnorderedPool {
         dtype: options.dtype,
         shared,
-        receiver,
+        units: receiver,
+        outputs,
+        lanes: Mutex::new(Lanes::Idle(output)),
         splits_in_flight,
     })
 }
@@ -297,6 +306,8 @@ struct Shared {
     progress: Mutex<f64>,
     /// An unordered pool's deferred files that are not yet queued for opening, in file order.
     deferred: Mutex<VecDeque<Arc<dyn LayoutReaderFactory>>>,
+    /// Whether a unit of an unordered pool failed, which stops its lanes.
+    failed: AtomicBool,
 }
 
 impl Shared {
@@ -390,13 +401,12 @@ impl Shared {
         self.progress.lock().clamp(0.0, 1.0)
     }
 
-    /// A worker's output: skips splits with no rows, trims to a trimmed limit, and ends after the
-    /// first error or once a trimmed limit is spent. A trimmed array is optimized again, on a CPU
-    /// task, `splits_in_flight` at a time.
+    /// An ordered worker's output: skips splits with no rows, trims to a trimmed limit, and ends
+    /// after the first error or once a trimmed limit is spent. A trimmed array is optimized again,
+    /// on a CPU task, `splits_in_flight` at a time.
     fn output(
         self: Arc<Self>,
         outputs: BoxStream<'static, VortexResult<Option<ArrayRef>>>,
-        ordered: bool,
         splits_in_flight: usize,
     ) -> BoxStream<'static, VortexResult<ArrayRef>> {
         let trimmed = matches!(self.limit, PoolLimit::Trim(_));
@@ -410,12 +420,7 @@ impl Shared {
         let mapped = arrays.map(move |array| {
             spawn_map_trimmed(&handle, session.clone(), Arc::clone(&identity), array)
         });
-        let mapped = if ordered {
-            mapped.buffered(splits_in_flight).boxed()
-        } else {
-            mapped.buffer_unordered(splits_in_flight).boxed()
-        };
-        stop_on_error(mapped)
+        stop_on_error(mapped.buffered(splits_in_flight).boxed())
     }
 }
 
@@ -492,11 +497,24 @@ fn send(sender: &Sender<Work>, work: Work) {
     drop(sender.try_send(work));
 }
 
-/// A pool whose workers share its units through a channel.
+/// The lanes of an unordered pool.
+enum Lanes {
+    /// Not started: the sender of the output channel, for the lanes to hold once they start.
+    Idle(Sender<VortexResult<ArrayRef>>),
+    /// Running, until the pool is dropped, which aborts them.
+    Running(
+        #[expect(dead_code, reason = "held so that dropping the pool aborts the lanes")]
+        Vec<Task<()>>,
+    ),
+}
+
+/// A pool whose lanes run its units on the runtime, and whose workers share their output.
 struct UnorderedPool {
     dtype: DType,
     shared: Arc<Shared>,
-    receiver: Receiver<Work>,
+    units: Receiver<Work>,
+    outputs: Receiver<VortexResult<ArrayRef>>,
+    lanes: Mutex<Lanes>,
     splits_in_flight: usize,
 }
 
@@ -517,6 +535,73 @@ impl UnorderedPool {
             .boxed(),
         }
     }
+
+    /// Starts the lanes, once.
+    fn start_lanes(&self) {
+        let mut lanes = self.lanes.lock();
+        let Lanes::Idle(output) = &*lanes else {
+            return;
+        };
+        let output = output.clone();
+        let handle = self.shared.session.handle();
+        let running = (0..self.splits_in_flight)
+            .map(|_| {
+                handle.spawn(lane(
+                    Arc::clone(&self.shared),
+                    self.units.clone(),
+                    output.clone(),
+                ))
+            })
+            .collect();
+        // Dropping the pool's own sender leaves the lanes holding the output channel open.
+        *lanes = Lanes::Running(running);
+    }
+}
+
+/// A lane: runs units one at a time and sends their rows to the workers, trimming them to a
+/// trimmed limit. Ends once the units run out, a limit is spent, a unit fails, or every worker
+/// is gone.
+async fn lane(shared: Arc<Shared>, units: Receiver<Work>, output: Sender<VortexResult<ArrayRef>>) {
+    let handle = shared.session.handle();
+    let identity: MapFn<ArrayRef> = Arc::new(Ok);
+    while !shared.limit.is_trimmed_out() && !shared.failed.load(Ordering::Acquire) {
+        let Ok(work) = units.recv().await else {
+            return;
+        };
+        let array = match UnorderedPool::run(&shared, work).await {
+            Ok(Some(array)) => Ok(array),
+            Ok(None) => continue,
+            Err(err) => Err(err),
+        };
+        let array = match (&shared.limit, array) {
+            (PoolLimit::Trim(limit), Ok(array)) => {
+                let granted = limit.take(array.len());
+                if granted == 0 {
+                    return;
+                }
+                let array = if granted < array.len() {
+                    array.slice(0..granted)
+                } else {
+                    Ok(array)
+                };
+                spawn_map_trimmed(
+                    &handle,
+                    shared.session.clone(),
+                    Arc::clone(&identity),
+                    array,
+                )
+                .await
+            }
+            (_, array) => array,
+        };
+        let failed = array.is_err();
+        if failed {
+            shared.failed.store(true, Ordering::Release);
+        }
+        if output.send(array).await.is_err() || failed {
+            return;
+        }
+    }
 }
 
 impl ScanPool for UnorderedPool {
@@ -525,21 +610,15 @@ impl ScanPool for UnorderedPool {
     }
 
     fn worker(self: Arc<Self>) -> SendableArrayStream {
+        self.start_lanes();
         let dtype = self.dtype.clone();
-        let shared = Arc::clone(&self.shared);
-        let runner = Arc::clone(&shared);
-        let receiver = self.receiver.clone();
-        let splits_in_flight = self.splits_in_flight;
-        // The worker holds the pool, so the pool is dropped only after its last worker.
-        let outputs = receiver
-            .take_while(move |_| future::ready(!self.shared.limit.is_trimmed_out()))
-            .map(move |work| UnorderedPool::run(&runner, work))
-            .buffer_unordered(splits_in_flight)
-            .boxed();
-        ArrayStreamExt::boxed(ArrayStreamAdapter::new(
-            dtype,
-            shared.output(outputs, false, splits_in_flight),
-        ))
+        // The worker holds the pool, so the lanes run until the pool's last worker is dropped.
+        let arrays = stream::unfold(self, |pool| async move {
+            let array = pool.outputs.recv().await.ok()?;
+            Some((array, pool))
+        })
+        .boxed();
+        ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, stop_on_error(arrays)))
     }
 
     fn progress(&self) -> f64 {
@@ -550,17 +629,18 @@ impl ScanPool for UnorderedPool {
     }
 
     fn is_exhausted(&self) -> bool {
-        // Open slots hold senders, so the channel closes only once every unit is in it.
-        self.shared.limit.is_trimmed_out()
-            || (self.receiver.is_closed() && self.receiver.is_empty())
+        // The lanes hold the output channel's senders, so it closes once every lane has ended.
+        self.outputs.is_closed() && self.outputs.is_empty()
     }
 }
 
 impl Drop for UnorderedPool {
     fn drop(&mut self) {
-        // Pending opens hold senders of the channel itself; drain them so it can be freed.
-        self.receiver.close();
-        while self.receiver.try_recv().is_ok() {}
+        // Pending opens hold senders of the channel of units itself; drain them so it can be
+        // freed. The lanes are aborted when they are dropped.
+        self.units.close();
+        while self.units.try_recv().is_ok() {}
+        self.outputs.close();
     }
 }
 
@@ -611,7 +691,7 @@ impl ScanPool for OrderedPool {
             .boxed();
         ArrayStreamExt::boxed(ArrayStreamAdapter::new(
             dtype,
-            shared.output(outputs, true, self.splits_in_flight),
+            shared.output(outputs, self.splits_in_flight),
         ))
     }
 
