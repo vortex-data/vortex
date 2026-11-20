@@ -264,10 +264,12 @@ Level-wise execution writes a full-length buffer at every level of an encoding t
 FoR over FoR over BitPacked. Block fusion builds those levels into one pass over blocks of at most
 1024 rows instead, whose intermediates stay in L1.
 
-The loop trampolines down as usual. On the way back up, a child that can emit blocks
-(`VTable::block_source`, or a canonical primitive array) starts a block program when the parent
-waiting for it asked for it with `ExecuteSpine` and transforms it block by block
-(`VTable::block_op`). Each spine parent above extends the program with its op, and its frame is
+The loop trampolines down as usual. When a parent asks for its spine child with `ExecuteSpine`,
+the executor checks there whether the slot can fuse, from what does not need it executed: both
+arrays primitive, of one length, and no kernel that fusing would skip. A slot that cannot fuse
+runs as a plain `ExecuteSlot`. On the way back up, a leaf, a child whose `VTable::block_source`
+emits its values block by block (a canonical primitive array lends its buffer), starts a block
+program when its parent transforms it block by block (`VTable::block_op`). Each spine parent above extends the program with its op, and its frame is
 popped. When the next parent cannot extend it, or at the root, the executor drives the whole
 program right away, in place of the parents it reached, and execution carries on from there with
 the result. A program never waits, so the executor holds it as a value, not as an array.
@@ -275,9 +277,9 @@ the result. A program never waits, so the executor holds it as a value, not as a
 Fusion happens after an edge's `execute_parent` probes, so no parent kernel is skipped. An
 encoding opts in by requesting its spine with `require_spine!` once every other child it needs is
 executed, and by implementing `block_op` for that slot to produce exactly what `execute`
-produces. Fusion covers primitive arrays and does not stream validity, which each fused parent
-takes from its validity vtable. Disable it with `ExecutionCtx::with_block_fusion(false)` or
-`VORTEX_BLOCK_FUSION=0`. Traces show each `ExecuteSpine`, `fuse start`, `fuse extend` and
+produces. Fusion covers primitive arrays and does not stream validity: a spine parent's validity is its
+spine child's, so the program takes the leaf's. Disable it with
+`ExecutionCtx::with_block_fusion(false)`. Traces show each `ExecuteSpine`, `fuse start`, `fuse extend` and
 `drive`, and how each op ran over the first block.
 
 ## Incremental Execution

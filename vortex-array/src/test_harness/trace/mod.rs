@@ -665,9 +665,8 @@ pub(crate) fn record_execute_slot(
     });
 }
 
-pub(crate) fn record_fuse_start(input: &'static str, array: &ArrayRef) {
+pub(crate) fn record_fuse_start(array: &ArrayRef) {
     record(TraceEvent::FuseStart {
-        input,
         array: ArraySummary::new(array),
     });
 }
@@ -679,8 +678,8 @@ pub(crate) fn record_fuse_extend(parent: &ArrayRef, ops: usize) {
     });
 }
 
-pub(crate) fn record_block_drive(input: &'static str, ops: usize, len: usize) {
-    record(TraceEvent::BlockDrive { input, ops, len });
+pub(crate) fn record_block_drive(ops: usize, len: usize) {
+    record(TraceEvent::BlockDrive { ops, len });
 }
 
 /// Record how the executor ran one op of a fused chain, for the chain's first block only: every
@@ -954,7 +953,6 @@ enum TraceEvent {
         array: ArraySummary,
     },
     FuseStart {
-        input: &'static str,
         array: ArraySummary,
     },
     FuseExtend {
@@ -962,7 +960,6 @@ enum TraceEvent {
         ops: usize,
     },
     BlockDrive {
-        input: &'static str,
         ops: usize,
         len: usize,
     },
@@ -1214,15 +1211,11 @@ impl TraceEvent {
             TraceEvent::ExecuteDone { array } => {
                 write!(f, "Done array={array}")
             }
-            TraceEvent::FuseStart { input, array } => {
-                write!(f, "fuse start input={input} array={array}")
-            }
+            TraceEvent::FuseStart { array } => write!(f, "fuse start array={array}"),
             TraceEvent::FuseExtend { parent, ops } => {
                 write!(f, "fuse extend parent={parent} ops={ops}")
             }
-            TraceEvent::BlockDrive { input, ops, len } => {
-                write!(f, "drive input={input} ops={ops} len={len}")
-            }
+            TraceEvent::BlockDrive { ops, len } => write!(f, "drive ops={ops} len={len}"),
             TraceEvent::BlockOp {
                 op_idx,
                 shape,

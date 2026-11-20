@@ -120,30 +120,41 @@ fn fused(array: ArrayRef) -> VortexResult<String> {
         .join("\n"))
 }
 
-/// The trace of a DateTimeParts array of `len` rows combined where it stands, with no child
-/// executed first.
-fn combined(dtype: &DType, len: usize) -> String {
+/// The trace of `array`, a DateTimeParts array over FoR over BitPacked days, fused where it
+/// stands: FoR's unpack is the leaf, DateTimeParts' op combines each block of days with the same
+/// rows of its time parts, and the chain is driven at the root.
+fn combined(array: &ArrayRef) -> String {
+    let days = array.as_::<DateTimeParts>().days().dtype();
+    combined_rows(array.dtype(), days, array.len())
+}
+
+/// [`combined`] for `len` rows of a DateTimeParts array of `dtype` over days of `days`.
+fn combined_rows(dtype: &DType, days: &DType, len: usize) -> String {
+    let days_ptype = days.as_ptype();
     format!(
-        "fuse start input=zip array=vortex.datetimeparts({dtype}, len={len})
-drive input=zip ops=0 len={len}
-block_op 0 combine i64->i64 inputs -> output"
+        "ExecuteSpine slot=0 parent=vortex.datetimeparts({dtype}, len={len}) \
+         child=fastlanes.for.v2({days}, len={len})
+fuse start array=fastlanes.for.v2({days}, len={len})
+fuse extend parent=vortex.datetimeparts({dtype}, len={len}) ops=1
+drive ops=1 len={len}
+block_op 0 copy {days_ptype}->i64 scratch0 -> output"
     )
 }
 
-/// With FoR over BitPacked days, the children are combined where DateTimeParts stands, with no
-/// parent above it: days unpacked block by block, seconds and subseconds lent from their
-/// buffers, and the combined block copied to the output. No child executes on its own.
+/// DateTimeParts asks for days as its spine once its time parts are canonical. FoR over BitPacked
+/// days is the leaf, and DateTimeParts' op combines each block of days with the same rows of its
+/// time parts, with no parent above it. Days never executes on its own.
 #[rstest]
 #[case::plain(false, None)]
 #[case::nullable(true, None)]
 #[case::time_zone(false, Some("Europe/London"))]
-fn children_combine_where_date_time_parts_stands(
+fn days_fuse_into_date_time_parts(
     #[case] nullable: bool,
     #[case] tz: Option<&str>,
 ) -> VortexResult<()> {
     let array = date_time_parts(nullable, true, tz)?;
-    let dtype = array.dtype().clone();
-    assert_eq!(fused(array)?, combined(&dtype, LEN));
+    let expected = combined(&array);
+    assert_eq!(fused(array)?, expected);
     Ok(())
 }
 
@@ -152,14 +163,16 @@ fn children_combine_where_date_time_parts_stands(
 #[case::mid_chunk(517..2900)]
 #[case::within_a_block(1500..1600)]
 #[case::to_the_end(1023..LEN)]
-fn sliced_children_combine(#[case] rows: Range<usize>) -> VortexResult<()> {
-    let array = date_time_parts(true, true, None)?.slice(rows.clone())?;
-    let dtype = array.dtype().clone();
-    assert_eq!(fused(array)?, combined(&dtype, rows.len()));
+fn sliced_days_fuse(#[case] rows: Range<usize>) -> VortexResult<()> {
+    let whole = date_time_parts(true, true, None)?;
+    let days = whole.as_::<DateTimeParts>().days().dtype().clone();
+    let expected = combined_rows(whole.dtype(), &days, rows.len());
+    let array = whole.slice(rows)?;
+    assert_eq!(fused(array)?, expected);
     Ok(())
 }
 
-/// With every child canonical, combining saves no buffer, so DateTimeParts decodes as before.
+/// With days already canonical there is nothing to fuse, so DateTimeParts decodes as before.
 #[test]
 fn canonical_children_decode_level_wise() -> VortexResult<()> {
     let array = date_time_parts(false, false, None)?;
@@ -169,10 +182,10 @@ fn canonical_children_decode_level_wise() -> VortexResult<()> {
     Ok(())
 }
 
-/// Constant seconds and subseconds are folded into the combine, so days is its only input: a
-/// constant child is neither canonical nor a block source, so it could not be one.
+/// Constant time parts execute into buffers first, as level-wise decoding does, and days then
+/// fuses as usual.
 #[test]
-fn constant_parts_fold_into_the_combine() -> VortexResult<()> {
+fn constant_time_parts_execute_first() -> VortexResult<()> {
     let parts = date_time_parts(false, true, None)?;
     let parts = parts.as_::<DateTimeParts>();
     let array = DateTimeParts::try_new(
@@ -182,15 +195,24 @@ fn constant_parts_fold_into_the_combine() -> VortexResult<()> {
         ConstantArray::new(Scalar::from(5i32), LEN).into_array(),
     )?
     .into_array();
-    let dtype = array.dtype().clone();
-    assert_eq!(fused(array)?, combined(&dtype, LEN));
+    let (dtype, expected) = (array.dtype().clone(), combined(&array));
+    assert_eq!(
+        fused(array)?,
+        format!(
+            "ExecuteSlot slot=1 parent=vortex.datetimeparts({dtype}, len={LEN}) \
+             child=vortex.constant(i32, len={LEN})
+ExecuteSlot slot=2 parent=vortex.datetimeparts({dtype}, len={LEN}) \
+             child=vortex.constant(i32, len={LEN})
+{expected}"
+        )
+    );
     Ok(())
 }
 
-/// Seconds that are neither canonical nor a block source execute first, and days, asked for
-/// last, is then combined from its source rather than decoded on its own.
+/// Seconds that are not canonical execute first, and days, asked for last, then fuses from its
+/// source rather than being decoded on its own.
 #[test]
-fn time_parts_execute_before_days_combine() -> VortexResult<()> {
+fn time_parts_execute_before_days_fuses() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let parts = date_time_parts(false, true, None)?;
     let parts = parts.as_::<DateTimeParts>();
@@ -207,22 +229,21 @@ fn time_parts_execute_before_days_combine() -> VortexResult<()> {
         parts.subseconds().clone(),
     )?
     .into_array();
-    let dtype = array.dtype().clone();
+    let (dtype, expected) = (array.dtype().clone(), combined(&array));
     assert_eq!(
         fused(array)?,
         format!(
             "ExecuteSlot slot=1 parent=vortex.datetimeparts({dtype}, len={LEN}) \
-             child=vortex.dict(i32, len={LEN})\n{}",
-            combined(&dtype, LEN)
+             child=vortex.dict(i32, len={LEN})\n{expected}"
         )
     );
     Ok(())
 }
 
-/// Seconds stored wider than `i32` are cast by the level-wise decode, so the parts do not
-/// combine.
+/// Seconds stored wider than `i32` are cast by the level-wise decode, so DateTimeParts has no op
+/// for its days, and nothing fuses.
 #[test]
-fn wide_seconds_do_not_combine() -> VortexResult<()> {
+fn wide_seconds_do_not_fuse() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let parts = date_time_parts(false, true, None)?;
     let parts = parts.as_::<DateTimeParts>();
@@ -239,7 +260,11 @@ fn wide_seconds_do_not_combine() -> VortexResult<()> {
     )?
     .into_array();
     let before = fused_chain_count();
-    assert!(!fused(array)?.contains("fuse"));
+    let trace = fused(array)?;
+    assert!(
+        !trace.contains("fuse extend") && !trace.contains("drive "),
+        "{trace}"
+    );
     assert_eq!(fused_chain_count(), before);
     Ok(())
 }

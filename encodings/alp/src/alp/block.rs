@@ -31,9 +31,8 @@ pub(crate) fn alp_block_op(
     let exponents = array.exponents();
     let patches = array.patches();
     match_each_alp_float_ptype!(array.dtype().as_ptype(), |F| {
-        // ALP's execute asks for its patches before its encoded spine, so a fused chain only
-        // reaches ALP with them executed; a leaf ALP over a canonical child may still hold
-        // encoded patches, which resolving executes.
+        // ALP's execute executes its patches before it asks for its encoded spine, so they are
+        // canonical here and resolving them only collects them.
         let patches = match patches {
             Some(patches) => match BlockPatches::try_new(&patches, ctx, |_, value: F| value)? {
                 Some(patches) => Some(patches),
@@ -210,9 +209,9 @@ mod tests {
             format!(
                 "ExecuteSpine slot=0 parent=vortex.alp({alp}, len={len}) \
                  child=fastlanes.for.v2({for_bp}, len={len})
-fuse start input=source array=fastlanes.for.v2({for_bp}, len={len})
+fuse start array=fastlanes.for.v2({for_bp}, len={len})
 fuse extend parent=vortex.alp({alp}, len={len}) ops=1
-drive input=source ops=1 len={len}
+drive ops=1 len={len}
 block_op 0 copy {int}->{float} scratch0 -> output"
             )
         );

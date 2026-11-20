@@ -37,7 +37,6 @@ use crate::IntoArray;
 pub use crate::array::plugin::*;
 use crate::arrays::ConstantArray;
 use crate::arrays::constant::Constant;
-use crate::block::BlockCombineSpec;
 use crate::block::BlockOp;
 use crate::block::BlockSource;
 use crate::buffer::BufferHandle;
@@ -174,10 +173,11 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     }
 
     /// Emit this array's values block by block, for the executor to fuse with the parents that
-    /// wait for it. See [`crate::block`].
+    /// wait for it: an array that does is a leaf. See [`crate::block`].
     ///
     /// Returns `None` when the array cannot emit blocks without executing a child first, so the
-    /// executor executes it as usual. Only called on arrays of a primitive dtype, whose blocks
+    /// executor executes it as usual, until it is canonical, and a canonical primitive array is a
+    /// leaf. Only called on arrays of a primitive dtype, whose blocks
     /// hold values of that type.
     fn block_source(
         array: ArrayView<'_, Self>,
@@ -192,9 +192,9 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     ///
     /// The executor calls this for the slot `execute` requested with
     /// [`ExecutionStep::ExecuteSpine`](crate::ExecutionStep::ExecuteSpine), on an array whose
-    /// slot it took out to execute, so the implementation must not read that slot. It also calls
-    /// it for a slot that is already canonical, to fuse a leaf with its spine parents. The op must
-    /// produce exactly the values `execute` produces once that slot is canonical. `child_dtype` is
+    /// slot it took out to execute, so the implementation must not read that slot. The op must
+    /// produce exactly the values `execute` produces once that slot is canonical, and the array's
+    /// validity must be the slot's. `child_dtype` is
     /// the dtype of the child in `slot_idx`. Only called on arrays of a primitive dtype whose child
     /// in `slot_idx` has a primitive dtype too.
     fn block_op(
@@ -204,24 +204,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockOp>>> {
         _ = (array, slot_idx, child_dtype, ctx);
-        Ok(None)
-    }
-
-    /// Combine blocks of several children into blocks of this array's values, for the executor
-    /// to fuse with those children without materializing them. See [`crate::block`].
-    ///
-    /// The executor calls this on an array before executing it. The combine must produce exactly
-    /// the values `execute` produces. The executor only uses it when every child in the
-    /// returned slots is primitive, of this array's length, and canonical or a block source, and
-    /// at least one is a block source; otherwise the array executes, and the executor asks again
-    /// once `execute` has executed a child. An `execute` that needs several children should ask
-    /// for the one most worth combining, typically the block source, last.
-    /// Only called on arrays whose dtype is primitive, or an extension type stored as one.
-    fn block_combine(
-        array: ArrayView<'_, Self>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<BlockCombineSpec>> {
-        _ = (array, ctx);
         Ok(None)
     }
 }
