@@ -17,7 +17,6 @@ use vortex_error::vortex_panic;
 use vortex_session::registry::Id;
 
 use crate::ExecutionCtx;
-use crate::block::BlockCombineSpec;
 use crate::block::BlockOp;
 use crate::block::BlockSource;
 use crate::buffer::BufferHandle;
@@ -201,13 +200,6 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
         this: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockSource>>>;
-
-    /// See [`VTable::block_combine`].
-    fn block_combine(
-        &self,
-        this: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<BlockCombineSpec>>;
 
     /// See [`VTable::block_op`].
     fn block_op(
@@ -484,16 +476,6 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         // SAFETY: this adapter belongs to the ArrayData<V> stored in `this`.
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::block_source(view, ctx)
-    }
-
-    fn block_combine(
-        &self,
-        this: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<BlockCombineSpec>> {
-        // SAFETY: this adapter belongs to the ArrayData<V> stored in `this`.
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        V::block_combine(view, ctx)
     }
 
     fn block_op(

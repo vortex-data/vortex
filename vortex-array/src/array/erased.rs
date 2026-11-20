@@ -42,7 +42,6 @@ use crate::arrays::Constant;
 use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
 use crate::arrays::SliceArray;
-use crate::block::BlockCombineSpec;
 use crate::block::BlockOp;
 use crate::block::BlockSource;
 use crate::buffer::BufferHandle;
@@ -688,14 +687,6 @@ impl ArrayRef {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockSource>>> {
         self.0.data.block_source(self, ctx)
-    }
-
-    /// See [`VTable::block_combine`](crate::vtable::VTable::block_combine).
-    pub(crate) fn block_combine(
-        &self,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<BlockCombineSpec>> {
-        self.0.data.block_combine(self, ctx)
     }
 
     /// See [`VTable::block_op`](crate::vtable::VTable::block_op).

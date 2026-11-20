@@ -12,10 +12,8 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_array::block::BlockCombine;
-use vortex_array::block::BlockCombineSpec;
-use vortex_array::block::BlockIn;
-use vortex_array::block::BlockOut;
+use vortex_array::block::Block;
+use vortex_array::block::BlockOp;
 use vortex_array::block::Written;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -25,6 +23,7 @@ use vortex_array::dtype::PType;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::match_each_integer_ptype;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSource;
 use vortex_compute::lane_kernels::IndexedSourceExt;
@@ -32,10 +31,10 @@ use vortex_compute::lane_kernels::LaneZip;
 use vortex_compute::lane_kernels::Repeat;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 
 use crate::array::DateTimePartsParts;
-use crate::array::DateTimePartsSlots;
 use crate::timestamp::SECONDS_PER_DAY;
 
 /// Decode a [`DateTimePartsParts`] back into a [`TemporalArray`].
@@ -117,15 +116,16 @@ pub fn decode_to_temporal(
     ))
 }
 
-/// The combine of a [`DateTimeParts`](crate::DateTimeParts) array over its non-constant children,
-/// or `None` if it decodes some other way: a constant part is folded in, as
-/// [`decode_to_temporal`] does, and a non-constant seconds or subseconds part must be `i32`.
-pub(crate) fn block_combine(
+/// The block op of a [`DateTimeParts`](crate::DateTimeParts) array over its days slot, once its
+/// seconds and subseconds are executed: each block of days is combined with the same rows of the
+/// time parts, as [`decode_to_temporal`] does. `None` when it decodes some other way: a unit of
+/// days, or a time part that is not `i32`, which the level-wise decode casts.
+pub(crate) fn days_block_op(
     dtype: &DType,
-    days: &ArrayRef,
+    days_dtype: &DType,
     seconds: &ArrayRef,
     subseconds: &ArrayRef,
-) -> Option<BlockCombineSpec> {
+) -> Option<Box<dyn BlockOp>> {
     let DType::Extension(ext) = dtype else {
         return None;
     };
@@ -136,89 +136,59 @@ pub(crate) fn block_combine(
         TimeUnit::Seconds => 1,
         TimeUnit::Days => return None,
     };
-    let DType::Primitive(days_ptype, _) = days.dtype() else {
+    let DType::Primitive(days_ptype, _) = days_dtype else {
         return None;
     };
     if !days_ptype.is_int() {
         return None;
     }
-    let mut slots = vec![DateTimePartsSlots::DAYS];
-    let mut part = |array: &ArrayRef, slot: usize| -> Option<BlockPart> {
-        // Level-wise decoding reads each part as `i32`, so a part of any other type does not
-        // combine.
-        if array.dtype() != &DType::Primitive(PType::I32, Nullability::NonNullable) {
-            return None;
-        }
-        if let Some(constant) = array.as_constant() {
-            return Some(BlockPart::Constant(constant.as_primitive().as_::<i64>()?));
-        }
-        slots.push(slot);
-        Some(BlockPart::Values)
+    let part = |array: &ArrayRef| {
+        (array.dtype() == &DType::Primitive(PType::I32, Nullability::NonNullable))
+            .then(|| {
+                array
+                    .as_opt::<Primitive>()
+                    .map(|part| part.to_buffer::<i32>())
+            })
+            .flatten()
     };
-    let seconds = part(seconds, DateTimePartsSlots::SECONDS)?;
-    let subseconds = part(subseconds, DateTimePartsSlots::SUBSECONDS)?;
-    let combine = match_each_integer_ptype!(days_ptype, |D| {
+    let (seconds, subseconds) = (part(seconds)?, part(subseconds)?);
+    Some(match_each_integer_ptype!(days_ptype, |D| {
         Box::new(CombineParts::<D> {
             seconds,
             subseconds,
             divisor,
             _days: PhantomData,
-        }) as Box<dyn BlockCombine>
-    });
-    Some(BlockCombineSpec { slots, combine })
+        }) as Box<dyn BlockOp>
+    }))
 }
 
-/// A seconds or subseconds part as a combine reads it.
-#[derive(Clone, Copy)]
-enum BlockPart {
-    Constant(i64),
-    /// The next `i32` input.
-    Values,
-}
-
-/// Combines blocks of days with seconds and subseconds, as [`decode_to_temporal`] does.
+/// Combines blocks of days with the same rows of seconds and subseconds.
 struct CombineParts<D> {
-    seconds: BlockPart,
-    subseconds: BlockPart,
+    seconds: Buffer<i32>,
+    subseconds: Buffer<i32>,
     divisor: i64,
     _days: PhantomData<fn(D)>,
 }
 
-impl<D: NativePType + AsPrimitive<i64>> BlockCombine for CombineParts<D> {
-    fn process<'a>(
-        &mut self,
-        _start: usize,
-        inputs: &[BlockIn<'_>],
-        mut out: BlockOut<'a>,
-    ) -> VortexResult<Written<'a>> {
-        let len = out.len();
-        let days = inputs[0].as_slice::<D>();
-        let mut next = inputs[1..].iter();
-        let mut values = |part: BlockPart| match part {
-            BlockPart::Values => next.next().map(|block| block.as_slice::<i32>()),
-            BlockPart::Constant(_) => None,
+impl<D: NativePType + AsPrimitive<i64>> BlockOp for CombineParts<D> {
+    fn process<'a>(&mut self, start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
+        let Block::Copy { input, mut out } = block else {
+            vortex_bail!("DateTimeParts combines days into a block of its own");
         };
-        let (seconds, subseconds) = (values(self.seconds), values(self.subseconds));
-        let values = out.as_uninit::<i64>();
-        match (self.seconds, seconds, self.subseconds, subseconds) {
-            (BlockPart::Constant(s), _, BlockPart::Constant(u), _) => combine_parts(
-                days,
-                Repeat::new(s, len),
-                Repeat::new(u, len),
-                self.divisor,
-                values,
-            ),
-            (BlockPart::Constant(s), _, _, Some(u)) => {
-                combine_parts(days, Repeat::new(s, len), u, self.divisor, values)
-            }
-            (_, Some(s), BlockPart::Constant(u), _) => {
-                combine_parts(days, s, Repeat::new(u, len), self.divisor, values)
-            }
-            (_, Some(s), _, Some(u)) => combine_parts(days, s, u, self.divisor, values),
-            _ => vortex_panic!("a combine has an input for each non-constant part"),
-        }
+        let rows = start..start + input.len();
+        combine_parts(
+            input.as_slice::<D>(),
+            &self.seconds[rows.clone()],
+            &self.subseconds[rows],
+            self.divisor,
+            out.as_uninit::<i64>(),
+        );
         // SAFETY: `combine_parts` writes every value of `out`.
         Ok(unsafe { Written::assume_init(out) })
+    }
+
+    fn supports_in_place(&self) -> bool {
+        false
     }
 }
 

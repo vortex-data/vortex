@@ -37,6 +37,7 @@ use crate::IntoArray;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::aggregate_fn::session::AggregateKernels;
 use crate::array::ArrayId;
+use crate::block::BlockOp;
 use crate::block::FusedChain;
 use crate::block::fusable_ptype;
 use crate::builders::ArrayBuilder;
@@ -54,7 +55,6 @@ use crate::optimizer::kernels::execute_parent_marker_key;
 use crate::optimizer::optimize_with_kernels;
 use crate::stats::ArrayStats;
 use crate::trace_op;
-use crate::validity::Validity;
 
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 2^22.
@@ -184,37 +184,37 @@ impl ArrayRef {
     /// partially consumes `current_array`: some slots already live in the builder, so a
     /// parent rewrite would observe inconsistent state and could discard accumulated builder
     /// data.
-    #[allow(clippy::cognitive_complexity)]
     pub fn execute_until<M: Matcher + 'static>(
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        Ok(self
-            .execute_loop::<M>(ctx, None)?
-            .vortex_expect("execution without a sink returns its result"))
+        match self.execute_loop::<M>(ctx)? {
+            Executed::Array(array) => Ok(array),
+            Executed::Chain(chain) => chain.drive(ctx),
+        }
     }
 
     /// Execute this array to canonical and append it to `builder`. A fused chain that reaches
     /// the root is driven straight into `builder`, so its values need no buffer of their own.
-    pub(crate) fn execute_into_builder(
+    pub(crate) fn execute_and_append(
         self,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        match self.execute_loop::<AnyCanonical>(ctx, Some(&mut *builder))? {
-            None => Ok(()),
-            Some(canonical) => canonical.append_to_builder(builder, ctx),
-        }
+        let canonical = match self.execute_loop::<AnyCanonical>(ctx)? {
+            Executed::Array(array) => array,
+            Executed::Chain(chain) => match chain.drive_into(builder, ctx)? {
+                Ok(()) => return Ok(()),
+                Err(chain) => chain.drive(ctx)?,
+            },
+        };
+        canonical.append_to_builder(builder, ctx)
     }
 
-    /// The loop of [`ArrayRef::execute_until`]. With a `sink`, a fused chain that stands for the
-    /// root is driven into it, and the loop returns `None`.
+    /// The loop of [`ArrayRef::execute_until`]. It stops early with a fused chain that stands for
+    /// the root, which its caller drives into a buffer or a builder.
     #[allow(clippy::cognitive_complexity)]
-    fn execute_loop<M: Matcher + 'static>(
-        self,
-        ctx: &mut ExecutionCtx,
-        mut sink: Option<&mut dyn ArrayBuilder>,
-    ) -> VortexResult<Option<ArrayRef>> {
+    fn execute_loop<M: Matcher + 'static>(self, ctx: &mut ExecutionCtx) -> VortexResult<Executed> {
         // Cloning the context's kernels releases the borrow of `ctx`, which the kernels need.
         let ctx_kernels = Arc::clone(&ctx.kernels);
 
@@ -263,9 +263,9 @@ impl ArrayRef {
                 // instead of being put back, and the chain is driven in place of the parents
                 // that extend it.
                 if done_canonical && ctx.block_fusion && current_builder.is_none() {
-                    match try_fuse(&mut stack, current_array, sink.as_deref_mut(), ctx)? {
-                        Ok(Driven::IntoBuilder) => return Ok(None),
-                        Ok(Driven::Array(driven)) => {
+                    match try_fuse(&mut stack, current_array, ctx)? {
+                        Ok(Executed::Chain(chain)) => return Ok(Executed::Chain(chain)),
+                        Ok(Executed::Array(driven)) => {
                             current_array = driven;
                             child_rewritten = false;
                             continue;
@@ -284,7 +284,7 @@ impl ArrayRef {
                         // free when the array is already marked as optimized.
                         current_array = optimizer.optimize_array(&current_array)?;
                         trace_op!(record_execute_until_return(&current_array));
-                        return Ok(Some(current_array));
+                        return Ok(Executed::Array(current_array));
                     }
                     Some(frame) => {
                         let _slot_idx = frame.slot_idx;
@@ -405,25 +405,14 @@ impl ArrayRef {
             // it in their place. This edge had its execute_parent probes in 2a and 2b, so fusing
             // skips no kernel.
             if ctx.block_fusion && current_builder.is_none() {
-                match try_fuse(&mut stack, current_array, sink.as_deref_mut(), ctx)? {
-                    Ok(Driven::IntoBuilder) => return Ok(None),
-                    Ok(Driven::Array(driven)) => {
+                match try_fuse(&mut stack, current_array, ctx)? {
+                    Ok(Executed::Chain(chain)) => return Ok(Executed::Chain(chain)),
+                    Ok(Executed::Array(driven)) => {
                         current_array = driven;
                         child_rewritten = false;
                         continue;
                     }
                     Err(child) => current_array = child,
-                }
-                // An array that combines blocks of its children fuses with them where it stands,
-                // even with no parent above to extend it: that saves each child's buffer.
-                match try_combine(&mut stack, current_array, kernels, sink.as_deref_mut(), ctx)? {
-                    Ok(Driven::IntoBuilder) => return Ok(None),
-                    Ok(Driven::Array(driven)) => {
-                        current_array = driven;
-                        child_rewritten = false;
-                        continue;
-                    }
-                    Err(array) => current_array = array,
                 }
             }
 
@@ -528,76 +517,67 @@ impl ArrayRef {
     }
 }
 
-fn block_fusion_default() -> bool {
-    static ENABLED: LazyLock<bool> =
-        LazyLock::new(|| std::env::var("VORTEX_BLOCK_FUSION").map_or(true, |v| v != "0"));
-    *ENABLED
-}
-
 /// On the way up, start a block program from `child` with the spine parent suspended on the top
 /// of the stack, extend it with each spine parent above that transforms blocks, popping their
-/// frames, and drive it: the values of the last parent it reached. Returns `child` back if the
-/// first parent cannot start a program.
+/// frames, and drive it: the values of the last parent it reached. A chain that reaches the root
+/// is returned undriven, for the caller of the loop to drive. Returns `child` back if the first
+/// parent has no op, or `child` is not a leaf yet.
 fn try_fuse(
     stack: &mut Vec<StackFrame>,
     child: ArrayRef,
-    sink: Option<&mut (dyn ArrayBuilder + '_)>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Result<Driven, ArrayRef>> {
-    let Some((frame, validity)) = fusable_frame(stack) else {
+) -> VortexResult<Result<Executed, ArrayRef>> {
+    // The op first, so a parent without one costs no source.
+    let Some(mut op) = take_op(stack, child.dtype(), ctx)? else {
         return Ok(Err(child));
     };
-    let chain = match FusedChain::start(child, &frame.parent_array, frame.slot_idx, validity, ctx)?
-    {
-        Ok(chain) => chain,
-        Err(child) => return Ok(Err(child)),
+    let Some(source) = child.block_source(ctx)? else {
+        // Not a leaf yet: the child executes, and the op waits in its frame for the result.
+        stack.last_mut().vortex_expect("the op's frame").op = Some(op);
+        return Ok(Err(child));
     };
-    stack.pop();
-    extend_and_drive(stack, chain, sink, ctx).map(Ok)
+    let mut chain = FusedChain::start(&child, source)?;
+    // Release the leaf, so a buffer it owned is again the source's alone.
+    drop(child);
+    loop {
+        let parent = stack.pop().vortex_expect("the op's frame").parent_array;
+        chain.push(&parent, op)?;
+        if stack.is_empty() {
+            return Ok(Ok(Executed::Chain(Box::new(chain))));
+        }
+        let Some(next) = take_op(stack, chain.dtype(), ctx)? else {
+            return Ok(Ok(Executed::Array(chain.drive(ctx)?)));
+        };
+        op = next;
+    }
 }
 
-/// Where the executor drove a fused chain.
-enum Driven {
-    /// Into a buffer of its own: the values of the last parent it reached.
+/// What the executor's loop ended with.
+enum Executed {
+    /// The executed array.
     Array(ArrayRef),
-    /// Into the sink the root's values go to, so execution is complete.
-    IntoBuilder,
+    /// A fused chain standing for the root, not yet driven.
+    Chain(Box<FusedChain>),
 }
 
-/// Extend `chain` with each spine parent up the stack that transforms blocks, popping their
-/// frames, and drive it: the values of the last parent it reached.
-fn extend_and_drive(
-    stack: &mut Vec<StackFrame>,
-    mut chain: FusedChain,
-    sink: Option<&mut (dyn ArrayBuilder + '_)>,
+/// The block op of the parent on the top of the stack over its spine child of `dtype`, if
+/// [`spine_can_fuse`] passed when its frame was pushed. Built on the way up, once per frame: an op
+/// built while the child was not yet a leaf waits in the frame, and a parent without one turns its
+/// frame off.
+fn take_op(
+    stack: &mut [StackFrame],
+    dtype: &DType,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Driven> {
-    while let Some((frame, validity)) = fusable_frame(stack) {
-        match chain.extend(&frame.parent_array, frame.slot_idx, validity, ctx)? {
-            Ok(extended) => {
-                chain = extended;
-                stack.pop();
-            }
-            Err(chain) => return chain.drive(ctx).map(Driven::Array),
-        }
+) -> VortexResult<Option<Box<dyn BlockOp>>> {
+    let Some(frame) = stack.last_mut().filter(|frame| frame.fuse) else {
+        return Ok(None);
+    };
+    if let Some(op) = frame.op.take() {
+        return Ok(Some(op));
     }
-    // The chain stands for the root, whose values are the sink's.
-    if stack.is_empty()
-        && let Some(builder) = sink
-    {
-        match chain.drive_into(builder, ctx)? {
-            Ok(()) => return Ok(Driven::IntoBuilder),
-            Err(back) => chain = back,
-        }
-    }
-    chain.drive(ctx).map(Driven::Array)
-}
-
-/// The frame on the top of the stack, with its parent's validity, if [`spine_can_fuse`] passed
-/// when it was pushed.
-fn fusable_frame(stack: &[StackFrame]) -> Option<(&StackFrame, &Validity)> {
-    let frame = stack.last()?;
-    Some((frame, frame.fusion_validity.as_ref()?))
+    let op = frame.parent_array.block_op(frame.slot_idx, dtype, ctx)?;
+    frame.fuse = op.is_some();
+    Ok(op)
 }
 
 /// Whether slot `slot_idx` of `parent`, which asked for it as its spine, may fuse with the
@@ -629,48 +609,6 @@ fn spine_can_fuse(
         })
 }
 
-/// Combine `array`'s children into a block program standing for `array`, if it combines blocks of
-/// its children and they are ready, extend it with each spine parent above that can, and drive it.
-/// Returns `array` back otherwise.
-///
-/// As in [`try_fuse`], an array with execute-parent kernels, or one the parent waiting for it has
-/// a kernel for, is not combined, and neither is a child whose own kernels would be skipped.
-fn try_combine(
-    stack: &mut Vec<StackFrame>,
-    array: ArrayRef,
-    kernels: &ParentExecutionKernels,
-    sink: Option<&mut (dyn ArrayBuilder + '_)>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Result<Driven, ArrayRef>> {
-    // The cheap refusals first: most arrays have no combine.
-    if fusable_ptype(&array).is_none() {
-        return Ok(Err(array));
-    }
-    let Some(spec) = array.block_combine(ctx)? else {
-        return Ok(Err(array));
-    };
-    if has_execute_parent_kernels(kernels, &array)
-        || stack.last().is_some_and(|frame| {
-            frame.parent_builder.is_some()
-                || kernels.contains_key(&execute_parent_key(
-                    frame.parent_array.encoding_id(),
-                    array.encoding_id(),
-                ))
-        })
-    {
-        return Ok(Err(array));
-    }
-    match FusedChain::combine(
-        array,
-        spec,
-        |child| !has_execute_parent_kernels(kernels, child),
-        ctx,
-    )? {
-        Ok(chain) => extend_and_drive(stack, chain, sink, ctx).map(Ok),
-        Err(array) => Ok(Err(array)),
-    }
-}
-
 /// Suspend `array` on the stack while its slot `slot_idx` executes, returning that child.
 #[allow(clippy::too_many_arguments)]
 fn push_frame(
@@ -682,9 +620,6 @@ fn push_frame(
     done: DonePredicate,
     fuse: bool,
 ) -> VortexResult<(ArrayRef, Option<Box<dyn ArrayBuilder>>)> {
-    // A fused chain stands for the parent with its slot executed, so take the parent's validity
-    // while the slot is in place.
-    let fusion_validity = fuse.then(|| array.validity()).transpose()?;
     // SAFETY: the slot is put back, or the parent driven to completion, before the parent
     // leaves the executor.
     let (parent, child) = unsafe { array.take_slot_unchecked(slot_idx) }?;
@@ -694,7 +629,8 @@ fn push_frame(
         parent_builder,
         slot_idx,
         done,
-        fusion_validity,
+        fuse,
+        op: None,
         original_dtype: child.dtype().clone(),
         original_len: child.len(),
     });
@@ -706,10 +642,11 @@ struct StackFrame {
     parent_builder: Option<Box<dyn ArrayBuilder>>,
     slot_idx: usize,
     done: DonePredicate,
-    /// For a parent that asked for this slot with [`ExecutionStep::ExecuteSpine`] while block
-    /// fusion is on, the parent's validity, so the executor may fuse the slot with the parent's
-    /// block op.
-    fusion_validity: Option<Validity>,
+    /// Whether the parent asked for this slot with [`ExecutionStep::ExecuteSpine`] and
+    /// [`spine_can_fuse`] passed, so the executor may fuse the slot with the parent's block op.
+    fuse: bool,
+    /// The parent's block op, once [`take_op`] built it while the slot was not yet a leaf.
+    op: Option<Box<dyn BlockOp>>,
     original_dtype: DType,
     original_len: usize,
 }
@@ -760,7 +697,7 @@ impl ExecutionCtx {
             allocator: OnceLock::new(),
             kernels,
             aggregate_kernels: OnceLock::new(),
-            block_fusion: block_fusion_default(),
+            block_fusion: true,
             #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
@@ -796,16 +733,11 @@ impl ExecutionCtx {
             .get_or_init(|| self.session.aggregate_fns().kernels_snapshot())
     }
 
-    /// Enable or disable block fusion of primitive encoding chains, which is on unless the
-    /// `VORTEX_BLOCK_FUSION` environment variable is `0`. See [`crate::block`].
+    /// Enable or disable block fusion of primitive encoding chains, which is on by default. See
+    /// [`crate::block`].
     pub fn with_block_fusion(mut self, enabled: bool) -> Self {
         self.block_fusion = enabled;
         self
-    }
-
-    /// Whether block fusion is enabled for this context.
-    pub fn block_fusion(&self) -> bool {
-        self.block_fusion
     }
 
     /// Set the allocator for this execution context.
@@ -951,9 +883,9 @@ impl Executable for ArrayRef {
 
 /// Execute `array` into the given `builder`.
 ///
-/// This uses the encoding's [`crate::array::VTable::append_to_builder`] implementation. Most
-/// encodings use the default path of `execute::<Canonical>` followed by re-dispatching
-/// `append_to_builder` on the canonical array, while encodings like `Chunked` can override that to
+/// This uses the encoding's [`crate::array::VTable::append_to_builder`] implementation. By default
+/// an encoding executes to canonical and appends the result, driving a fused chain that stands
+/// for the whole array straight into the builder, while encodings like `Chunked` override that to
 /// append child-by-child without materializing the entire parent.
 ///
 /// The builder must have a [`DType`] that is a nullability-superset of `array.dtype()`.
@@ -1164,8 +1096,8 @@ pub enum ExecutionStep {
 
     /// Like [`ExecuteSlot`](Self::ExecuteSlot), and a promise that the slot is this encoding's
     /// spine: the last slot it waits for, after which its `execute` only transforms the slot's
-    /// values row by row, as its [`block_op`](crate::vtable::VTable::block_op) does. Every other
-    /// slot it needs must already be executed.
+    /// values row by row, as its [`block_op`](crate::vtable::VTable::block_op) does, and its
+    /// validity is the slot's. Every other slot it needs must already be executed.
     ///
     /// The executor may then fuse the slot's execution with this encoding's transform and with
     /// any spine parents waiting above it, block by block, instead of materializing each level.

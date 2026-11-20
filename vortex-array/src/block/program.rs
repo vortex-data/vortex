@@ -7,19 +7,17 @@ use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use smallvec::SmallVec;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
 use super::BLOCK_LEN;
 use super::Block;
 use super::BlockBuf;
-use super::BlockCombine;
 use super::BlockIn;
 use super::BlockInOut;
 use super::BlockOp;
@@ -50,30 +48,9 @@ pub(crate) fn fusable_ptype(array: &ArrayRef) -> Option<PType> {
     }
 }
 
-/// Where a program's values come from.
-pub(crate) enum ProgramInput {
-    /// A leaf's block source.
-    Source(Box<dyn BlockSource>),
-    /// A canonical primitive array, which the program decodes in place when it holds the only
-    /// reference to its buffer and every op keeps the width.
-    Canonical(PrimitiveArray),
-    /// A parent combining blocks of several children.
-    Zip(ZipSource),
-}
-
-impl ProgramInput {
-    pub(crate) fn name(&self) -> &'static str {
-        match self {
-            ProgramInput::Source(_) => "source",
-            ProgramInput::Canonical(_) => "canonical",
-            ProgramInput::Zip(_) => "zip",
-        }
-    }
-}
-
-/// A fused chain built from the leaf up: an input, then the ops of the parents above it.
+/// A fused chain built from the leaf up: the leaf's source, then the ops of the parents above it.
 pub(crate) struct BlockProgram {
-    input: ProgramInput,
+    source: Box<dyn BlockSource>,
     ops: Vec<Box<dyn BlockOp>>,
     /// The input's type, then each op's output type.
     ptypes: Vec<PType>,
@@ -81,9 +58,9 @@ pub(crate) struct BlockProgram {
 }
 
 impl BlockProgram {
-    pub(crate) fn new(input: ProgramInput, ptype: PType, len: usize) -> Self {
+    pub(crate) fn new(source: Box<dyn BlockSource>, ptype: PType, len: usize) -> Self {
         Self {
-            input,
+            source,
             ops: Vec::new(),
             ptypes: vec![ptype],
             len,
@@ -96,10 +73,6 @@ impl BlockProgram {
         self.ptypes.push(ptype);
     }
 
-    pub(crate) fn input_name(&self) -> &'static str {
-        self.input.name()
-    }
-
     pub(crate) fn ops(&self) -> usize {
         self.ops.len()
     }
@@ -110,40 +83,33 @@ impl BlockProgram {
         validity: Validity,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<PrimitiveArray> {
-        let (len, out_ptype) = (self.len, self.out_ptype());
-        if let ProgramInput::Canonical(array) = self.input {
-            let in_place = !self.ops.is_empty()
-                && (0..self.ops.len()).all(|i| in_place_op(&self.ops, &self.ptypes, i));
-            self.input = match_each_native_ptype!(array.ptype(), |S| {
-                match array.try_into_buffer_mut::<S>() {
-                    Ok(mut values) if in_place => {
-                        // SAFETY: `values` holds `len` initialized values of `ptypes[0]`, and
-                        // every op keeps the width, so each block is overwritten in place.
-                        unsafe {
-                            run_blocks_in_place(
-                                &mut self.ops,
-                                &self.ptypes,
-                                len,
-                                values.as_mut_ptr().cast(),
-                            )?
-                        };
-                        #[cfg(any(test, feature = "_test-harness"))]
-                        {
-                            super::FUSED_CHAINS.with(|count| count.set(count.get() + 1));
-                            super::IN_PLACE_CHAINS.with(|count| count.set(count.get() + 1));
-                        }
-                        return Ok(PrimitiveArray::from_byte_buffer(
-                            values.into_byte_buffer().freeze(),
-                            out_ptype,
-                            validity,
-                        ));
-                    }
-                    Ok(values) => {
-                        ProgramInput::Source(Box::new(PrimitiveSource::new(values.freeze())))
-                    }
-                    Err(values) => ProgramInput::Source(Box::new(PrimitiveSource::new(values))),
-                }
-            });
+        vortex_ensure!(
+            !self.ops.is_empty(),
+            "a block program needs at least one op"
+        );
+        let (len, out_ptype) = (self.len, *self.ptypes.last().vortex_expect("input type"));
+        // When every op keeps the width and the source owns its buffer outright, such as a
+        // canonical leaf nothing else references, each block is overwritten where it lies.
+        let in_place = (0..self.ops.len()).all(|i| in_place_op(&self.ops, &self.ptypes, i));
+        if in_place && let Some(mut values) = self.source.take_buffer() {
+            vortex_ensure_eq!(
+                values.len(),
+                len * self.ptypes[0].byte_width(),
+                "an owned source buffer holds the program's rows"
+            );
+            // SAFETY: `values` holds `len` initialized values of `ptypes[0]`, and every op keeps
+            // the width, so each block is overwritten in place.
+            unsafe { run_blocks_in_place(&mut self.ops, &self.ptypes, len, values.as_mut_ptr())? };
+            #[cfg(any(test, feature = "_test-harness"))]
+            {
+                super::FUSED_CHAINS.with(|count| count.set(count.get() + 1));
+                super::IN_PLACE_CHAINS.with(|count| count.set(count.get() + 1));
+            }
+            return Ok(PrimitiveArray::from_byte_buffer(
+                values.freeze(),
+                out_ptype,
+                validity,
+            ));
         }
         match_each_native_ptype!(out_ptype, |T| {
             let mut output = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
@@ -154,177 +120,35 @@ impl BlockProgram {
         })
     }
 
-    /// The type of the values the program produces.
-    pub(crate) fn out_ptype(&self) -> PType {
-        *self.ptypes.last().vortex_expect("input type")
-    }
-
     /// Run the program block by block, writing its values into `dst`, which holds one slot for
     /// each of them: a buffer of its own, or the uninitialized tail of a builder.
     pub(crate) fn write_into<T: NativePType>(
         mut self,
         dst: &mut [MaybeUninit<T>],
     ) -> VortexResult<()> {
-        let len = self.len;
         vortex_ensure_eq!(
             T::PTYPE,
-            self.out_ptype(),
+            *self.ptypes.last().vortex_expect("input type"),
             "a block program writes its own type"
         );
-        vortex_ensure_eq!(dst.len(), len, "a block program writes all of its rows");
+        vortex_ensure_eq!(
+            dst.len(),
+            self.len,
+            "a block program writes all of its rows"
+        );
         #[cfg(any(test, feature = "_test-harness"))]
         super::FUSED_CHAINS.with(|count| count.set(count.get() + 1));
         let dst = dst.as_mut_ptr().cast::<u8>();
-        if self.ops.is_empty() {
-            // A combine alone writes its blocks straight into `dst`.
-            let ProgramInput::Zip(mut zip) = self.input else {
-                vortex_bail!("a block program of {} needs an op", self.input.name());
-            };
-            trace_op!(record_block_op(
-                0,
-                "combine",
-                "inputs",
-                "output",
-                T::PTYPE,
-                T::PTYPE
-            ));
-            // SAFETY: `dst` has room for `len` values of `T`, the combine's output type.
-            return unsafe { zip.run_into(len, dst) };
-        }
-        let mut source: Box<dyn BlockSource> = match self.input {
-            ProgramInput::Source(source) => source,
-            ProgramInput::Zip(zip) => Box::new(zip),
-            ProgramInput::Canonical(array) => match_each_native_ptype!(array.ptype(), |S| {
-                Box::new(PrimitiveSource::new(array.to_buffer::<S>())) as Box<dyn BlockSource>
-            }),
-        };
         // SAFETY: `dst` has room for `len` values of `T`, the program's output type.
-        unsafe { run_blocks(source.as_mut(), &mut self.ops, &self.ptypes, len, dst) }
-    }
-}
-
-/// Feeds the same rows of each input to a [`BlockCombine`].
-pub(crate) struct ZipSource {
-    /// Each input's source, scratch and type.
-    inputs: Vec<(Box<dyn BlockSource>, Box<BlockBuf>, PType)>,
-    combine: Box<dyn BlockCombine>,
-    out_ptype: PType,
-}
-
-impl ZipSource {
-    pub(crate) fn new(
-        inputs: Vec<(Box<dyn BlockSource>, PType)>,
-        combine: Box<dyn BlockCombine>,
-        out_ptype: PType,
-    ) -> Self {
-        Self {
-            inputs: inputs
-                .into_iter()
-                .map(|(source, ptype)| (source, BlockBuf::new_boxed(), ptype))
-                .collect(),
-            combine,
-            out_ptype,
+        unsafe {
+            run_blocks(
+                self.source.as_mut(),
+                &mut self.ops,
+                &self.ptypes,
+                self.len,
+                dst,
+            )
         }
-    }
-}
-
-impl ZipSource {
-    /// Combine every block of the inputs into `dst`, on the grid of the first misaligned input.
-    ///
-    /// # Safety
-    ///
-    /// `dst` must have room for `len` values of the combine's output type.
-    pub(crate) unsafe fn run_into(&mut self, len: usize, dst: *mut u8) -> VortexResult<()> {
-        let offset = self.block_offset() % BLOCK_LEN;
-        let width = self.out_ptype.byte_width();
-        let mut start = 0;
-        while start < len {
-            let rows = block_rows(start, len, offset);
-            let n = rows.len();
-            // SAFETY: `start + n <= len`, so the block fits in `dst`.
-            unsafe { self.combine_into(rows, dst.add(start * width))? };
-            start += n;
-        }
-        Ok(())
-    }
-
-    /// Combine the inputs' values of `rows`, at most [`BLOCK_LEN`] of them, into `out`.
-    ///
-    /// # Safety
-    ///
-    /// `out` must have room for `rows.len()` values of the combine's output type.
-    unsafe fn combine_into(&mut self, rows: Range<usize>, out: *mut u8) -> VortexResult<()> {
-        let n = rows.len();
-        // Each input's block as a raw pointer: a block lent by a source stays valid until that
-        // source is filled again, which is not before the combine has read it.
-        let mut filled = SmallVec::<[_; 4]>::with_capacity(self.inputs.len());
-        for (source, buf, ptype) in &mut self.inputs {
-            let ptr = match source.fill(rows.clone(), buf)? {
-                SourceBlock::Scratch { offset, len } => {
-                    vortex_ensure_eq!(len, n, "block source emitted the wrong number of rows");
-                    vortex_ensure!(
-                        offset + len <= BLOCK_LEN,
-                        "block source overran its scratch"
-                    );
-                    // SAFETY: `offset + len <= BLOCK_LEN` values fit in the scratch, and the
-                    // pointer is taken after the fill, from the zip's own borrow of it.
-                    unsafe { buf.as_mut_ptr().add(offset * ptype.byte_width()) }.cast_const()
-                }
-                SourceBlock::Lent(block) => {
-                    vortex_ensure_eq!(
-                        block.len(),
-                        n,
-                        "block source emitted the wrong number of rows"
-                    );
-                    vortex_ensure_eq!(block.ptype(), *ptype);
-                    block.ptr
-                }
-            };
-            filled.push((ptr, *ptype));
-        }
-        let blocks: SmallVec<[BlockIn<'_>; 4]> = filled
-            .into_iter()
-            .map(|(ptr, ptype)| BlockIn {
-                ptr,
-                len: n,
-                ptype,
-                _borrow: PhantomData,
-            })
-            .collect();
-        let written = self.combine.process(
-            rows.start,
-            &blocks,
-            BlockOut {
-                ptr: out,
-                len: n,
-                ptype: self.out_ptype,
-                _borrow: PhantomData,
-            },
-        )?;
-        check_written(&written, out, n, self.out_ptype)
-    }
-}
-
-impl BlockSource for ZipSource {
-    fn fill<'s>(
-        &'s mut self,
-        rows: Range<usize>,
-        scratch: &'s mut BlockBuf,
-    ) -> VortexResult<SourceBlock<'s>> {
-        let n = rows.len();
-        vortex_ensure!(n <= BLOCK_LEN, "a block holds at most {BLOCK_LEN} rows");
-        // SAFETY: the scratch has room for `BLOCK_LEN` values of any primitive type.
-        unsafe { self.combine_into(rows, scratch.as_mut_ptr())? };
-        // `combine_into` checked the combine wrote the `n` values from the start of `scratch`.
-        Ok(SourceBlock::Scratch { offset: 0, len: n })
-    }
-
-    fn block_offset(&self) -> usize {
-        self.inputs
-            .iter()
-            .map(|(source, ..)| source.block_offset())
-            .find(|offset| offset % BLOCK_LEN != 0)
-            .unwrap_or(0)
     }
 }
 
@@ -348,6 +172,16 @@ impl<T: NativePType> BlockSource for PrimitiveSource<T> {
         Ok(SourceBlock::Lent(BlockIn::from_slice(
             &self.values.as_slice()[rows],
         )))
+    }
+
+    fn take_buffer(&mut self) -> Option<ByteBufferMut> {
+        match std::mem::replace(&mut self.values, Buffer::empty()).try_into_mut() {
+            Ok(values) => Some(values.into_byte_buffer()),
+            Err(values) => {
+                self.values = values;
+                None
+            }
+        }
     }
 }
 

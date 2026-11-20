@@ -58,6 +58,11 @@ use crate::session::ArraySession;
 use crate::test_harness::trace::trace_op;
 use crate::validity::Validity;
 
+thread_local! {
+    /// How many times this thread asked a test op for its block op.
+    static BLOCK_OPS_BUILT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
@@ -351,6 +356,7 @@ impl VTable for TestOp {
         child_dtype: &DType,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        BLOCK_OPS_BUILT.with(|count| count.set(count.get() + 1));
         let wide = child_dtype == &dtype(PType::I64);
         Ok(match array.data().0 {
             TestOpKind::AddOne => Some(Box::new(AddOne {
@@ -459,10 +465,10 @@ fn chain_builds_on_the_way_up_and_drives_at_the_root() -> VortexResult<()> {
         fused(add(add(counter)))?,
         "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
 ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.counter(i32, len=3000)
-fuse start input=source array=vortex.test.counter(i32, len=3000)
+fuse start array=vortex.test.counter(i32, len=3000)
 fuse extend parent=vortex.test.op(i32, len=3000) ops=1
 fuse extend parent=vortex.test.op(i32, len=3000) ops=2
-drive input=source ops=2 len=3000
+drive ops=2 len=3000
 block_op 0 in_place i32->i32 scratch0 -> scratch0
 block_op 1 copy i32->i32 scratch0 -> output"
     );
@@ -478,7 +484,7 @@ fn width_change_copies_between_scratch_blocks() -> VortexResult<()> {
     let trace = fused(array)?;
     assert!(
         trace.ends_with(
-            "drive input=source ops=3 len=2500
+            "drive ops=3 len=2500
 block_op 0 in_place i32->i32 scratch0 -> scratch0
 block_op 1 copy i32->i64 scratch0 -> scratch1
 block_op 2 copy i64->i64 scratch1 -> output"
@@ -496,7 +502,7 @@ fn op_without_in_place_support_copies() -> VortexResult<()> {
     let trace = fused(copying(copying(copying(counter))))?;
     assert!(
         trace.ends_with(
-            "drive input=source ops=3 len=2000
+            "drive ops=3 len=2000
 block_op 0 copy i32->i32 scratch0 -> scratch1
 block_op 1 copy i32->i32 scratch1 -> scratch0
 block_op 2 copy i32->i32 scratch0 -> output"
@@ -517,10 +523,10 @@ fn non_spine_parent_drives_the_chain_below_it() -> VortexResult<()> {
         "ExecuteSlot slot=0 parent=vortex.test.op(i32, len=1500) child=vortex.test.op(i32, len=1500)
 ExecuteSpine slot=0 parent=vortex.test.op(i32, len=1500) child=vortex.test.op(i32, len=1500)
 ExecuteSpine slot=0 parent=vortex.test.op(i32, len=1500) child=vortex.test.counter(i32, len=1500)
-fuse start input=source array=vortex.test.counter(i32, len=1500)
+fuse start array=vortex.test.counter(i32, len=1500)
 fuse extend parent=vortex.test.op(i32, len=1500) ops=1
 fuse extend parent=vortex.test.op(i32, len=1500) ops=2
-drive input=source ops=2 len=1500
+drive ops=2 len=1500
 block_op 0 in_place i32->i32 scratch0 -> scratch0
 block_op 1 copy i32->i32 scratch0 -> output"
     );
@@ -547,43 +553,55 @@ fn blocks_follow_the_source_grid(
     Ok(())
 }
 
-/// Over a canonical leaf, the program decodes in the leaf's own buffer when the executor holds
-/// the only reference to it, and copies the leaf into scratch when another owner shares it.
+/// A canonical leaf is a block source like any other. The program decodes in the leaf's own
+/// buffer when the executor holds the only reference to it, and copies the leaf into scratch when
+/// another owner shares it.
+///
+/// A primitive child of a spine parent is already canonical, so the executor never descends to
+/// it: the innermost op runs its own `execute`, and its result is the leaf of the ops above.
 #[test]
 fn canonical_leaf_in_place_only_when_owned() -> VortexResult<()> {
-    let build = || add(add(add(PrimitiveArray::from_iter(0..3000i32).into_array())));
-    let built = "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
-ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
-fuse start input=canonical array=vortex.primitive(i32, len=3000)
-fuse extend parent=vortex.test.op(i32, len=3000) ops=1
-fuse extend parent=vortex.test.op(i32, len=3000) ops=2
-fuse extend parent=vortex.test.op(i32, len=3000) ops=3
-drive input=canonical ops=3 len=3000";
-
+    let leaf = || PrimitiveArray::from_iter(0..3000i32).into_array();
     let before = in_place_chain_count();
     assert_eq!(
-        fused(build())?,
-        format!(
-            "{built}
+        fused(add(add(add(leaf()))))?,
+        "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
+ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
+fuse start array=vortex.primitive(i32, len=3000)
+fuse extend parent=vortex.test.op(i32, len=3000) ops=1
+fuse extend parent=vortex.test.op(i32, len=3000) ops=2
+drive ops=2 len=3000
 block_op 0 in_place i32->i32 leaf -> leaf
-block_op 1 in_place i32->i32 leaf -> leaf
-block_op 2 in_place i32->i32 leaf -> leaf"
-        )
+block_op 1 in_place i32->i32 leaf -> leaf"
     );
     assert_eq!(in_place_chain_count() - before, 1);
 
-    // `fused` executes a clone of its input first, so the leaf is shared while the clone runs:
-    // check that run on its own.
-    let shared = build();
+    // `Pass` returns the shared leaf itself, so the leaf reaches the ops above still shared.
+    let shared = leaf();
     let mut ctx = SESSION.create_execution_ctx();
-    let traced = trace_op(|| shared.clone().execute::<PrimitiveArray>(&mut ctx))?;
-    assert!(fusion_lines(&traced.trace.to_string()).ends_with(
-        "block_op 0 copy i32->i32 source -> scratch0
-block_op 1 in_place i32->i32 scratch0 -> scratch0
-block_op 2 copy i32->i32 scratch0 -> output"
-    ));
+    let before = in_place_chain_count();
+    let traced = trace_op(|| {
+        add(add(op(TestOpKind::Pass, shared.clone()))).execute::<PrimitiveArray>(&mut ctx)
+    })?;
+    assert_eq!(
+        fusion_lines(&traced.trace.to_string()),
+        "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
+ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
+fuse start array=vortex.primitive(i32, len=3000)
+fuse extend parent=vortex.test.op(i32, len=3000) ops=1
+fuse extend parent=vortex.test.op(i32, len=3000) ops=2
+drive ops=2 len=3000
+block_op 0 copy i32->i32 source -> scratch0
+block_op 1 copy i32->i32 scratch0 -> output"
+    );
+    assert_eq!(in_place_chain_count(), before);
     // The shared leaf still holds its own values.
-    assert_arrays_eq!(shared, build(), &mut ctx);
+    assert_arrays_eq!(shared, leaf(), &mut ctx);
+    assert_arrays_eq!(
+        traced.output,
+        PrimitiveArray::from_iter(2..3002i32),
+        &mut ctx
+    );
     Ok(())
 }
 
@@ -683,6 +701,27 @@ ExecuteSlot slot=0 parent=vortex.test.op(i32, len=2000) child=vortex.test.counte
     Ok(())
 }
 
+/// An op is built once per frame. A child that is not a leaf yet executes while the op its parent
+/// built waits in the frame, and the canonical result, a leaf, starts the chain with that op.
+#[test]
+fn op_waits_in_its_frame_for_the_leaf() -> VortexResult<()> {
+    let leaf = PrimitiveArray::from_iter(0..3000i32).into_array();
+    let array = add(op(TestOpKind::Pass, leaf));
+    let before = BLOCK_OPS_BUILT.with(std::cell::Cell::get);
+    let trace = fused(array)?;
+    // `fused` also runs the array with fusion off, which builds no op.
+    assert_eq!(BLOCK_OPS_BUILT.with(std::cell::Cell::get) - before, 1);
+    assert_eq!(
+        trace,
+        "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
+fuse start array=vortex.primitive(i32, len=3000)
+fuse extend parent=vortex.test.op(i32, len=3000) ops=1
+drive ops=1 len=3000
+block_op 0 in_place i32->i32 leaf -> leaf"
+    );
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------------------------
 // Driving into a builder.
 // ---------------------------------------------------------------------------------------------
@@ -706,22 +745,22 @@ fn chunks_drive_into_the_builder() -> VortexResult<()> {
         fused(array)?,
         "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=1500) child=vortex.test.op(i32, len=1500)
 ExecuteSpine slot=0 parent=vortex.test.op(i32, len=1500) child=vortex.test.counter(i32, len=1500)
-fuse start input=source array=vortex.test.counter(i32, len=1500)
+fuse start array=vortex.test.counter(i32, len=1500)
 fuse extend parent=vortex.test.op(i32, len=1500) ops=1
 fuse extend parent=vortex.test.op(i32, len=1500) ops=2
-drive input=source ops=2 len=1500 into=builder
+drive ops=2 len=1500 into=builder
 block_op 0 in_place i32->i32 scratch0 -> scratch0
 block_op 1 copy i32->i32 scratch0 -> output
 ExecuteSpine slot=0 parent=vortex.test.op(i32, len=700) child=vortex.test.counter(i32, len=700)
-fuse start input=source array=vortex.test.counter(i32, len=700)
+fuse start array=vortex.test.counter(i32, len=700)
 fuse extend parent=vortex.test.op(i32, len=700) ops=1
-drive input=source ops=1 len=700 into=builder
+drive ops=1 len=700 into=builder
 block_op 0 copy i32->i32 scratch0 -> output
 ExecuteSlot slot=0 parent=vortex.test.op(i32, len=300) child=vortex.test.op(i32, len=300)
 ExecuteSpine slot=0 parent=vortex.test.op(i32, len=300) child=vortex.test.counter(i32, len=300)
-fuse start input=source array=vortex.test.counter(i32, len=300)
+fuse start array=vortex.test.counter(i32, len=300)
 fuse extend parent=vortex.test.op(i32, len=300) ops=1
-drive input=source ops=1 len=300
+drive ops=1 len=300
 block_op 0 copy i32->i32 scratch0 -> output"
     );
     Ok(())
