@@ -9,18 +9,20 @@ validate, and render these declarations.
 
 from dataclasses import replace
 
-from ..config import Benchmark, Engine, Format
-from .model import BenchmarkCase, Catalog, Coverage, Storage
+from ..config import Benchmark, BenchmarkTarget, Engine, Format, Integration, ScanEngine
+from .model import BenchmarkCase, Catalog, Coverage, ScanCoverage, Storage
 from .render import merge_coverage
-from .targets import df, duck, scan_api, targets
+from .targets import TargetSet, df, duck
 
 PRESETS = {
     "develop": "Every regular SQL benchmark at full target coverage.",
     "pr": "The quicker pull-request SQL benchmark matrix (action/bench-sql).",
     "pr-compact": "Pull-request SQL benchmarks for Vortex Compact plus Parquet controls.",
     "pr-all": "The union of the pr, pr-compact and pr-full matrices (action/bench-all).",
-    "pr-full": "Every regular SQL benchmark at full PR target coverage (action/bench-sql-extended).",
-    "nightly": "SF=100 TPC-H and nested TPC-H, and SF=10/100 TPC-DS, on NVMe and S3 at default targets.",
+    "pr-full": (
+        "Every regular SQL benchmark at full PR target coverage and every Vortex scan (action/bench-sql-extended)."
+    ),
+    "nightly": "SF=100 TPC-H and nested TPC-H, and SF=10/100 TPC-DS, on NVMe and S3, with every Vortex scan.",
 }
 
 # Reusable target coverage
@@ -60,16 +62,15 @@ COMPACT_TARGETS = df(Format.PARQUET, Format.VORTEX_COMPACT) | duck(
     Format.VORTEX_COMPACT,
 )
 
-# DataFusion through the Scan API (`VortexTable` over `MultiFileDataSource`), beside the default
-# FileOpener target on the same files. It runs the V1 scan whatever the suite's engine, so compare it
-# with its own history, not with the V2 `datafusion:vortex` row; see `uses_scan_v2`. It runs only on
-# ClickBench and TPC-H NVMe, to keep PR benchmark time down.
-SCAN_API_TARGETS = scan_api(Engine.DATAFUSION, Format.VORTEX)
+# Vortex targets name an integration (`file`, `datasource`) and a scan engine (`v1`, `v2`); see
+# `BenchmarkTarget`. Declared targets run the file integration on the suite's default engine.
+# `ScanCoverage.ALL` adds every other valid combination for the `vortex` format: DataFusion file-v1 and
+# datasource-v1 beside file-v2, and DuckDB file-v1 beside file-v2, on V2 suites.
 
 
-def with_scan_api(coverage: Coverage) -> Coverage:
-    """Add the DataFusion Scan API target to `coverage`."""
-    return replace(coverage, targets=coverage.targets | SCAN_API_TARGETS)
+def with_all_scans(coverage: Coverage) -> Coverage:
+    """Run every valid integration and scan engine combination for the `vortex` format."""
+    return replace(coverage, scans=ScanCoverage.ALL)
 
 
 DEFAULT = Coverage(DEFAULT_TARGETS)
@@ -90,29 +91,51 @@ JOB_DUCKDB = Coverage(duck(Format.PARQUET, Format.VORTEX, Format.DUCKDB))
 
 # Concrete benchmark cases
 
-# TPC-DS SF=100 runs one engine/format target per job, each on its own machine, so a single slow
-# target cannot push the others past the job timeout and lose their results.
+# TPC-DS SF=100 runs one target per job, each on its own machine, so a single slow target cannot
+# push the others past the job timeout and lose their results.
 TPCDS_SF100_TARGETS = (
-    (Engine.DATAFUSION, Format.PARQUET, "DataFusion", "Parquet"),
-    (Engine.DATAFUSION, Format.VORTEX, "DataFusion", "Vortex"),
-    (Engine.DUCKDB, Format.PARQUET, "DuckDB", "Parquet"),
-    (Engine.DUCKDB, Format.VORTEX, "DuckDB", "Vortex"),
+    (BenchmarkTarget(Engine.DATAFUSION, Format.PARQUET), "DataFusion, Parquet"),
+    (BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX), "DataFusion, Vortex"),
+    (BenchmarkTarget(Engine.DUCKDB, Format.PARQUET), "DuckDB, Parquet"),
+    (BenchmarkTarget(Engine.DUCKDB, Format.VORTEX), "DuckDB, Vortex"),
+    (
+        BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX, Integration.FILE, ScanEngine.V1),
+        "DataFusion, Vortex, file v1",
+    ),
+    (
+        BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX, Integration.DATASOURCE, ScanEngine.V1),
+        "DataFusion, Vortex, datasource v1",
+    ),
+    (
+        BenchmarkTarget(Engine.DUCKDB, Format.VORTEX, Integration.FILE, ScanEngine.V1),
+        "DuckDB, Vortex, file v1",
+    ),
 )
+
+
+def _tpcds_sf100_job(target: BenchmarkTarget) -> str:
+    """Name a TPC-DS SF=100 job after its target; default-scan targets keep their original names."""
+    job = f"{target.engine.value}-{target.format.value}"
+    if target.scan is not None:
+        job += f"-{target.integration.value}-{target.scan.value}"
+    return job
+
+
 TPCDS_SF100_CASES = tuple(
     BenchmarkCase(
-        id=f"tpcds-{storage.value}-100-{engine.value}-{fmt.value}",
+        id=f"tpcds-{storage.value}-100-{_tpcds_sf100_job(target)}",
         benchmark=Benchmark.TPCDS,
-        name=f"TPC-DS SF=100 on {storage.value.upper()} ({engine_name}, {fmt_name})",
+        name=f"TPC-DS SF=100 on {storage.value.upper()} ({label})",
         storage=storage,
         scale_factor=100.0,
         iterations=3,
         local_dir="vortex-bench/data/tpcds/100.0" if storage is Storage.S3 else None,
         # A distinct key per job: each job clears and re-uploads its own copy of the data.
-        remote_key=f"tpcds/100.0-{engine.value}-{fmt.value}" if storage is Storage.S3 else None,
-        runs={"nightly": Coverage(targets(engine, fmt))},
+        remote_key=f"tpcds/100.0-{_tpcds_sf100_job(target)}" if storage is Storage.S3 else None,
+        runs={"nightly": Coverage(TargetSet((target,)))},
     )
     for storage in (Storage.NVME, Storage.S3)
-    for engine, fmt, engine_name, fmt_name in TPCDS_SF100_TARGETS
+    for target, label in TPCDS_SF100_TARGETS
 )
 
 BENCHMARKS = (
@@ -122,10 +145,10 @@ BENCHMARKS = (
         name="Clickbench on NVME",
         dataset_dir="clickbench_partitioned",
         runs={
-            "pr": with_scan_api(DEFAULT),
+            "pr": with_all_scans(DEFAULT),
             "pr-compact": COMPACT,
-            "pr-full": with_scan_api(DEFAULT_WITH_DUCKDB_PR_FULL),
-            "develop": with_scan_api(FULL_LOCAL),
+            "pr-full": DEFAULT_WITH_DUCKDB_PR_FULL,
+            "develop": with_all_scans(FULL_LOCAL),
         },
     ),
     BenchmarkCase(
@@ -145,10 +168,10 @@ BENCHMARKS = (
         scale_factor=1.0,
         iterations=10,
         runs={
-            "pr": with_scan_api(DEFAULT),
+            "pr": with_all_scans(DEFAULT),
             "pr-compact": COMPACT,
-            "pr-full": with_scan_api(FULL_PR),
-            "develop": with_scan_api(FULL_LOCAL),
+            "pr-full": FULL_PR,
+            "develop": with_all_scans(FULL_LOCAL),
         },
     ),
     BenchmarkCase(
@@ -201,15 +224,6 @@ BENCHMARKS = (
         name="TPC-H on NVME",
         scale_factor=100,
         runs={"nightly": DEFAULT},
-    ),
-    # A job of its own, like TPC-DS SF=100's targets: if develop's slow `VortexTable` path runs past
-    # the job timeout at SF=100, it loses only its own results.
-    BenchmarkCase(
-        id="tpch-nvme-scan-api",
-        benchmark=Benchmark.TPCH,
-        name="TPC-H on NVME (DataFusion Scan API)",
-        scale_factor=100,
-        runs={"nightly": Coverage(SCAN_API_TARGETS)},
     ),
     BenchmarkCase(
         id="tpch-s3",
@@ -365,6 +379,44 @@ BENCHMARKS = (
     ),
 )
 
+# Presets whose every benchmark runs every valid integration and scan engine combination.
+ALL_SCAN_PRESETS = ("pr-full",)
+PR_ALL_SOURCES = ("pr", "pr-compact", "pr-full")
+
+
+def _with_all_scan_presets(benchmark: BenchmarkCase) -> BenchmarkCase:
+    runs = {
+        preset: with_all_scans(coverage) if preset in ALL_SCAN_PRESETS else coverage
+        for preset, coverage in benchmark.runs.items()
+    }
+    return replace(benchmark, runs=runs)
+
+
+def _nightly_scan_cases(benchmark: BenchmarkCase) -> tuple[BenchmarkCase, ...]:
+    """Run a nightly benchmark's other scans in a job of its own beside it.
+
+    The other combinations would roughly double the job, which already runs close to its timeout at
+    SF=100, and a strict target failure would lose the default targets' results with it. TPC-DS
+    SF=100 already runs one target per job, see `TPCDS_SF100_TARGETS`.
+    """
+    coverage = benchmark.runs.get("nightly")
+    if coverage is None or benchmark in TPCDS_SF100_CASES:
+        return ()
+    alternates = replace(coverage, scans=ScanCoverage.ALTERNATES)
+    if len(alternates.resolved_targets(benchmark.benchmark)) == 0:
+        return ()
+    return (
+        replace(
+            benchmark,
+            id=f"{benchmark.id}-scans",
+            name=f"{benchmark.name} (other Vortex scans)",
+            # A distinct key: each S3 job clears and re-uploads its own copy of the data.
+            remote_key=f"{benchmark.remote_key}-scans" if benchmark.remote_key is not None else None,
+            runs={"nightly": alternates},
+        ),
+    )
+
+
 PR_ALL_SOURCES = ("pr", "pr-compact", "pr-full")
 
 
@@ -372,7 +424,14 @@ def _with_pr_all(benchmark: BenchmarkCase) -> BenchmarkCase:
     sources = [benchmark.runs[preset] for preset in PR_ALL_SOURCES if preset in benchmark.runs]
     if not sources:
         return benchmark
-    return replace(benchmark, runs={**benchmark.runs, "pr-all": merge_coverage(sources)})
+    return replace(benchmark, runs={**benchmark.runs, "pr-all": merge_coverage(benchmark.benchmark, sources)})
 
 
-CATALOG = Catalog(presets=PRESETS, benchmarks=tuple(map(_with_pr_all, BENCHMARKS)))
+CATALOG = Catalog(
+    presets=PRESETS,
+    benchmarks=tuple(
+        _with_pr_all(_with_all_scan_presets(case))
+        for benchmark in BENCHMARKS
+        for case in (benchmark, *_nightly_scan_cases(benchmark))
+    ),
+)

@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 
-from ..config import BenchmarkTarget, Engine, Format, Integration
+from ..config import BenchmarkTarget, Engine, Format
 
 
 def _dedupe(targets: Iterable[BenchmarkTarget]) -> tuple[BenchmarkTarget, ...]:
@@ -41,9 +41,9 @@ class TargetSet:
         return len(self.targets)
 
 
-def targets(engine: Engine, *formats: Format, integration: Integration = Integration.DEFAULT) -> TargetSet:
-    """Build targets for one engine across several formats, reached through one integration."""
-    return TargetSet(tuple(BenchmarkTarget(engine=engine, format=fmt, integration=integration) for fmt in formats))
+def targets(engine: Engine, *formats: Format) -> TargetSet:
+    """Build targets for one engine across several formats."""
+    return TargetSet(tuple(BenchmarkTarget(engine=engine, format=fmt) for fmt in formats))
 
 
 def df(*formats: Format) -> TargetSet:
@@ -54,8 +54,3 @@ def df(*formats: Format) -> TargetSet:
 def duck(*formats: Format) -> TargetSet:
     """Build DuckDB targets across several formats."""
     return targets(Engine.DUCKDB, *formats)
-
-
-def scan_api(engine: Engine, *formats: Format) -> TargetSet:
-    """Build targets that reach several formats through one engine's Scan API integration."""
-    return targets(engine, *formats, integration=Integration.SCAN_API)

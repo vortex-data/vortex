@@ -3,7 +3,7 @@
 
 """Render declarative benchmark coverage as GitHub Actions matrices."""
 
-from ..config import Format
+from ..config import Benchmark, Format
 from .model import BenchmarkCase, Catalog, Coverage
 from .targets import TargetSet
 from .validate import validate_catalog
@@ -19,32 +19,34 @@ _FORMAT_ORDER = (
 )
 
 
-def _data_formats(coverage: Coverage) -> list[Format]:
+def _data_formats(coverage: Coverage, targets: TargetSet) -> list[Format]:
     if coverage.data_formats is not None:
         return list(coverage.data_formats)
 
-    present = {target.format for target in coverage.targets}
+    present = {target.format for target in targets}
     return [fmt for fmt in _FORMAT_ORDER if fmt in present and fmt not in _NOT_GENERATED]
 
 
-def merge_coverage(coverages: list[Coverage]) -> Coverage:
-    """Union several coverages: every target and every generated data format."""
+def merge_coverage(benchmark: Benchmark, coverages: list[Coverage]) -> Coverage:
+    """Union several coverages of `benchmark`: every resolved target and every generated format."""
     targets = TargetSet()
     formats: set[Format] = set()
     for coverage in coverages:
-        targets = targets | coverage.targets
-        formats.update(_data_formats(coverage))
+        resolved = coverage.resolved_targets(benchmark)
+        targets = targets | resolved
+        formats.update(_data_formats(coverage, resolved))
     return Coverage(targets, data_formats=tuple(fmt for fmt in _FORMAT_ORDER if fmt in formats))
 
 
 def _matrix_entry(benchmark: BenchmarkCase, coverage: Coverage) -> dict[str, object]:
+    targets = coverage.resolved_targets(benchmark.benchmark)
     entry: dict[str, object] = {
         "id": benchmark.id,
         "subcommand": benchmark.subcommand,
         "name": benchmark.name,
         "dataset_dir": benchmark.data_dir_name,
-        "targets": [target.to_dict() for target in coverage.targets],
-        "data_formats": [fmt.value for fmt in _data_formats(coverage)],
+        "targets": [target.to_dict() for target in targets],
+        "data_formats": [fmt.value for fmt in _data_formats(coverage, targets)],
     }
     if benchmark.scale_factor is not None:
         entry["scale_factor"] = str(benchmark.scale_factor)

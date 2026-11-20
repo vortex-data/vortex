@@ -14,14 +14,16 @@ from typing import final
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from ..config import Benchmark, Engine, Format, Integration, uses_scan_v2
+from ..config import Benchmark, Engine, Format, Integration, ScanEngine, default_scan_engine
 
 console = Console()
 
-# Arguments each backend's binary takes to run a non-default integration. A DuckDB Scan API target
-# needs an entry here once DuckDB has a `DataSource` table function.
+# Arguments each backend's binary takes to run an integration. A DuckDB datasource target needs an
+# entry here once DuckDB has a `DataSource` table function.
 INTEGRATION_ARGS: dict[tuple[Engine, Integration], list[str]] = {
-    (Engine.DATAFUSION, Integration.SCAN_API): ["--scan-api", "true"],
+    (Engine.DATAFUSION, Integration.FILE): [],
+    (Engine.DUCKDB, Integration.FILE): [],
+    (Engine.DATAFUSION, Integration.DATASOURCE): ["--scan-api", "true"],
 }
 
 
@@ -47,9 +49,13 @@ class BenchmarkExecutor:
         tracing: bool = False,
         runner: str | None = None,
         ingest_output: Path | None = None,
-        integration: Integration = Integration.DEFAULT,
+        integration: Integration = Integration.FILE,
+        scan: ScanEngine | None = None,
     ) -> list[str]:
-        """Build the command used to execute a benchmark binary."""
+        """Build the command used to execute a benchmark binary.
+
+        `scan` selects the Vortex scan engine; without one the binary runs the suite's default.
+        """
         self._check_integration(integration)
         cmd = [
             str(self.binary_path),
@@ -63,7 +69,8 @@ class BenchmarkExecutor:
 
         if self.backend in {Engine.DATAFUSION, Engine.DUCKDB}:
             cmd.extend(["--formats", ",".join(fmt.value for fmt in formats)])
-            cmd.extend(["--scan-v1", str(not uses_scan_v2(benchmark, integration)).lower()])
+            scan = scan if scan is not None else default_scan_engine(benchmark)
+            cmd.extend(["--scan-v1", str(scan is ScanEngine.V1).lower()])
             cmd.extend(INTEGRATION_ARGS.get((self.backend, integration), []))
         if self.backend == Engine.DUCKDB:
             cmd.append("--delete-duckdb-database")
@@ -97,7 +104,7 @@ class BenchmarkExecutor:
         return cmd
 
     def _check_integration(self, integration: Integration) -> None:
-        if integration is not Integration.DEFAULT and (self.backend, integration) not in INTEGRATION_ARGS:
+        if self.backend is not Engine.LANCE and (self.backend, integration) not in INTEGRATION_ARGS:
             raise ValueError(f"{self.backend.value} cannot run the {integration.value} integration")
 
     def list_queries(
@@ -138,7 +145,8 @@ class BenchmarkExecutor:
         runner: str | None = None,
         ingest_output: Path | None = None,
         on_result: Callable[[str], None] | None = None,
-        integration: Integration = Integration.DEFAULT,
+        integration: Integration = Integration.FILE,
+        scan: ScanEngine | None = None,
     ) -> list[str]:
         """
         Run benchmark and return results as JSON lines.
@@ -151,6 +159,7 @@ class BenchmarkExecutor:
             options: Additional options (e.g., scale_factor)
             track_memory: Enable memory tracking
             integration: How the engine reaches Vortex files
+            scan: The Vortex scan engine, or None for the suite's default
             on_result: Callback for each result line (for streaming)
 
         Returns:
@@ -169,6 +178,7 @@ class BenchmarkExecutor:
             runner=runner,
             ingest_output=ingest_output,
             integration=integration,
+            scan=scan,
         )
 
         if self.verbose:

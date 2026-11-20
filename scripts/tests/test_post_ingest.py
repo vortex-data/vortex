@@ -91,6 +91,20 @@ def test_invalid_file_size_never_starts_transaction(writer, commit, records, inv
         writer.ingest_postgres(object(), commit, records)
 
 
+@pytest.mark.parametrize("invalid", [{"integration": "scan-api"}, {"scan_engine": "v3"}, {"integration": 1}])
+def test_invalid_scan_axes_never_start_transaction(writer, commit, records, invalid):
+    records[0] = {**records[0], **invalid}
+    with pytest.raises(SystemExit, match=r"record 0 \(query_measurement\)"):
+        writer.ingest_postgres(object(), commit, records)
+
+
+def test_query_measurements_accept_scan_axes(writer, records):
+    record = {**records[0], "integration": "datasource", "scan_engine": "v1"}
+
+    kind = writer._validate_record_fields(record, 0)
+    writer._validate_record_values(record, kind, 0)
+
+
 def test_fact_rows_apply_in_lock_order(writer, commit, records, monkeypatch):
     records += [{**records[0], "query_idx": idx} for idx in (2, 3)]
     expected_records = deepcopy(records)

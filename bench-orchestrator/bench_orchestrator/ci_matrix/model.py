@@ -4,10 +4,10 @@
 """Data model for declarative CI benchmark coverage."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
-from ..config import Benchmark, Format
+from ..config import SCAN_COMBINATIONS, Benchmark, BenchmarkTarget, Format
 from .targets import TargetSet
 
 
@@ -18,12 +18,47 @@ class Storage(Enum):
     S3 = "s3"
 
 
+class ScanCoverage(Enum):
+    """Which integration and scan engine combinations a coverage runs for its Vortex targets."""
+
+    # Each Vortex target as declared: the file integration on the suite's default scan engine,
+    # unless the target names others.
+    DEFAULT = "default"
+    # The declared targets plus every other valid combination for the `vortex` format.
+    ALL = "all"
+    # Only the other valid combinations for the `vortex` format, for a job of their own.
+    ALTERNATES = "alternates"
+
+
 @dataclass(frozen=True)
 class Coverage:
     """Targets and generated formats for one benchmark in one preset."""
 
     targets: TargetSet
     data_formats: tuple[Format, ...] | None = None
+    scans: ScanCoverage = ScanCoverage.DEFAULT
+
+    def resolved_targets(self, benchmark: Benchmark) -> TargetSet:
+        """Return the targets this coverage runs in `benchmark`, with every scan engine named.
+
+        Combinations the suite cannot run, such as v2 on a list-layout suite, are left out of the
+        added ones; a declared target the suite cannot run stays in and fails validation.
+        """
+        resolved = [target.resolved(benchmark) for target in self.targets]
+        if self.scans is ScanCoverage.DEFAULT:
+            return TargetSet(tuple(resolved))
+
+        alternates: list[BenchmarkTarget] = []
+        for target in resolved:
+            if target.format is not Format.VORTEX:
+                continue
+            for integration, scan in SCAN_COMBINATIONS:
+                candidate = replace(target, integration=integration, scan=scan)
+                if candidate not in resolved and candidate.is_supported(benchmark):
+                    alternates.append(candidate)
+        if self.scans is ScanCoverage.ALTERNATES:
+            return TargetSet(tuple(alternates))
+        return TargetSet(tuple(resolved) + tuple(alternates))
 
 
 @dataclass(frozen=True)

@@ -965,29 +965,40 @@ def test_capture_file_sizes_reads_only_the_named_directory(tmp_path: Path) -> No
     assert [record["value"] for record in records] == [42]
 
 
-def test_query_table_puts_a_format_variant_beside_its_base_format(tmp_path: Path) -> None:
+def test_query_table_names_each_vortex_columns_integration_and_scan(tmp_path: Path) -> None:
+    # (engine, recorded format, integration, scan engine, develop ns, PR ns). The file integration on
+    # the default scan keeps the bare format, so develop's records carry no axes for it.
     targets = [
-        ("duckdb", "vortex-file-compressed", 90, 90),
-        ("datafusion", "parquet", 100, 100),
-        ("datafusion", "vortex-file-compressed [scan-api]", 1_500_000, 1_200_000),
-        ("datafusion", "vortex-file-compressed", 80, 80),
+        ("duckdb", "vortex-file-compressed", "file", "v2", 90, 90),
+        ("datafusion", "parquet", None, None, 100, 100),
+        ("datafusion", "vortex-file-compressed [datasource, v1]", "datasource", "v1", 1_500_000, 1_200_000),
+        ("datafusion", "vortex-file-compressed [file, v1]", "file", "v1", 70, 70),
+        ("datafusion", "vortex-file-compressed", "file", "v2", 80, 80),
     ]
-    base = [query_record("base-sha", 1, engine, fmt, base) for engine, fmt, base, _pr in targets]
-    pr = [query_record("pr-sha", 1, engine, fmt, pr) for engine, fmt, _base, pr in targets]
+    base = [query_record("base-sha", 1, engine, fmt, base) for engine, fmt, _i, _s, base, _pr in targets]
+    pr = [
+        {
+            **query_record("pr-sha", 1, engine, fmt, pr),
+            **({"integration": integration, "scan_engine": scan} if integration else {}),
+        }
+        for engine, fmt, integration, scan, _base, pr in targets
+    ]
     pr_results = [stored_timing_row("pr-sha", "ignored when records exist", 1)]
 
     report = render_report(tmp_path, base, pr_results, "TPC-H", pr)
 
     assert markdown_row(report, "query") == [
         "query",
-        "datafusion:vortex",
-        "datafusion:vortex [scan-api]",
+        "datafusion:vortex [file, v2]",
+        "datafusion:vortex [file, v1]",
+        "datafusion:vortex [datasource, v1]",
         "datafusion:parquet",
-        "duckdb:vortex",
+        "duckdb:vortex [file, v2]",
     ]
-    assert markdown_row(report, "tpch_q01")[2] == "**1.50 → 1.20 ms (0.80)** 🟢"
-    # The variant's column carries a note on what it measures.
-    assert "`[scan-api]` columns run DataFusion through the Scan API" in report
+    assert markdown_row(report, "tpch_q01")[3] == "**1.50 → 1.20 ms (0.80)** 🟢"
+    # The bare default identity still matches develop's records.
+    assert markdown_row(report, "tpch_q01")[1] == "80.0 → 80.0 ns (1.00)"
+    assert "`datasource` through DataFusion's `VortexTable`" in report
 
 
 def test_format_duration_picks_a_readable_unit() -> None:
@@ -1015,7 +1026,7 @@ def test_query_table_says_what_it_compares(tmp_path: Path) -> None:
     report = render_report(tmp_path, base, pr_results, "TPC-H", pr)
 
     assert "Each cell is develop `base-sha` → this PR `pr-sha` (hot runs)" in report
-    assert "[scan-api]" not in report
+    assert "`datasource` through" not in report
 
 
 def test_float_query_numbers_still_count_as_sql_queries() -> None:

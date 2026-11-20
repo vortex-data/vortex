@@ -37,7 +37,7 @@ from .config import (
 from .data_cache import S3DataCache, cached_dataset
 from .runner.builder import BenchmarkBuilder
 from .runner.executor import BenchmarkExecutor
-from .runner.labels import relabel_ingest_file, relabel_result_line
+from .runner.labels import label_ingest_file, label_result_line
 from .storage.store import ResultStore
 
 app = typer.Typer(
@@ -363,6 +363,8 @@ def run(
 
     for warning in warnings:
         console.print(f"[yellow]Warning: {warning}[/yellow]")
+    # Vortex targets without a scan engine run the suite's default; name it from here on.
+    targets = list(dict.fromkeys(target.resolved(benchmark) for target in targets))
     if not targets:
         console.print("[red]No valid benchmark targets selected[/red]")
         raise typer.Exit(1)
@@ -401,16 +403,6 @@ def run(
     console.print(f"\n[bold]Running {benchmark.value} benchmark[/bold]")
     console.print(f"  Targets: {escape(', '.join(map(str, config.targets)))}")
     console.print(f"  Iterations: {iterations}")
-    scan_targets = [target for target in config.targets if target.engine in {Engine.DATAFUSION, Engine.DUCKDB}]
-    if scan_targets:
-        scan_versions = {target: "V2" if target.uses_scan_v2(benchmark) else "V1" for target in scan_targets}
-        if len(set(scan_versions.values())) == 1:
-            console.print(f"  Vortex scan: {next(iter(scan_versions.values()))}")
-        else:
-            console.print(
-                "  Vortex scan: "
-                + escape(", ".join(f"{target} {version}" for target, version in scan_versions.items()))
-            )
     if label:
         console.print(f"  Label: {label}")
     console.print()
@@ -432,7 +424,7 @@ def run(
                     query_results: list[str] = []
 
                     def stream(line: str, target: BenchmarkTarget = target) -> None:
-                        line = relabel_result_line(line, target)
+                        line = label_result_line(line, target, benchmark)
                         query_results.append(line)
                         write_result_line(line, ctx.write_raw_json, compatibility_file)
 
@@ -462,10 +454,11 @@ def run(
                                 ingest_output=part_ingest_output,
                                 on_result=stream,
                                 integration=target.integration,
+                                scan=target.scan,
                             )
                             if part_ingest_output is not None:
                                 if part_ingest_output.exists():
-                                    relabel_ingest_file(part_ingest_output, target)
+                                    label_ingest_file(part_ingest_output, target, benchmark)
                                 ingest_output_parts.append(part_ingest_output)
 
                             elapsed = (datetime.now() - started).total_seconds()

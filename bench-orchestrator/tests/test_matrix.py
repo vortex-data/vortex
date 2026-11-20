@@ -14,7 +14,7 @@ from bench_orchestrator.ci_matrix.catalog import CATALOG
 from bench_orchestrator.ci_matrix.model import Catalog, Coverage
 from bench_orchestrator.ci_matrix.render import render_matrix
 from bench_orchestrator.ci_matrix.targets import TargetSet
-from bench_orchestrator.config import BenchmarkTarget, Engine, Format, Integration, parse_targets_json
+from bench_orchestrator.config import BenchmarkTarget, Engine, Format, Integration, ScanEngine, parse_targets_json
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -61,17 +61,30 @@ EXPECTED_IDS = {
     "pr-full": PR_FULL_IDS,
     "nightly": (
         "tpch-nvme",
-        "tpch-nvme-scan-api",
+        "tpch-nvme-scans",
         "tpch-s3",
+        "tpch-s3-scans",
         "tpcds-nvme-10",
+        "tpcds-nvme-10-scans",
         "tpcds-s3-10",
+        "tpcds-s3-10-scans",
         *(
             f"tpcds-{storage}-100-{target}"
             for storage in ("nvme", "s3")
-            for target in ("datafusion-parquet", "datafusion-vortex", "duckdb-parquet", "duckdb-vortex")
+            for target in (
+                "datafusion-parquet",
+                "datafusion-vortex",
+                "duckdb-parquet",
+                "duckdb-vortex",
+                "datafusion-vortex-file-v1",
+                "datafusion-vortex-datasource-v1",
+                "duckdb-vortex-file-v1",
+            )
         ),
         "tpch-nested-nvme",
+        "tpch-nested-nvme-scans",
         "tpch-nested-s3",
+        "tpch-nested-s3-scans",
     ),
 }
 
@@ -81,12 +94,26 @@ def _entries(preset: str) -> list[dict[str, object]]:
 
 
 def _targets(entry: dict[str, object]) -> set[tuple[str, str]]:
-    """Return an entry's targets as `(engine, format)`, with any integration appended to the format."""
+    """Return an entry's targets as `(engine, format)`, with any scan axes appended to the format."""
     targets = cast("list[dict[str, str]]", entry["targets"])
     return {
-        (target["engine"], target["format"] + (f" [{target['integration']}]" if "integration" in target else ""))
+        (
+            target["engine"],
+            target["format"] + (f" [{target['integration']}, {target['scan']}]" if "integration" in target else ""),
+        )
         for target in targets
     }
+
+
+ALL_SCANS = {
+    ("datafusion", "parquet"),
+    ("datafusion", "vortex [file, v2]"),
+    ("datafusion", "vortex [file, v1]"),
+    ("datafusion", "vortex [datasource, v1]"),
+    ("duckdb", "parquet"),
+    ("duckdb", "vortex [file, v2]"),
+    ("duckdb", "vortex [file, v1]"),
+}
 
 
 @pytest.mark.parametrize(("preset", "expected_ids"), EXPECTED_IDS.items())
@@ -105,10 +132,27 @@ def test_tpcds_sf100_runs_one_target_per_job() -> None:
         entry for entry in _entries("nightly") if str(entry["id"]).startswith("tpcds-") and "-100-" in str(entry["id"])
     ]
 
-    assert len(nightly) == 8
+    assert len(nightly) == 14
     assert all(len(_targets(entry)) == 1 for entry in nightly)
+    assert {target for entry in nightly for target in _targets(entry)} == ALL_SCANS
     s3_keys = [entry["remote_key"] for entry in nightly if "remote_key" in entry]
-    assert len(s3_keys) == len(set(s3_keys)) == 4
+    assert len(s3_keys) == len(set(s3_keys)) == 7
+
+
+def test_nightly_runs_every_scan_with_its_other_scans_in_their_own_jobs() -> None:
+    nightly = {entry["id"]: entry for entry in _entries("nightly")}
+
+    assert _targets(nightly["tpch-nvme"]) | _targets(nightly["tpch-nvme-scans"]) == ALL_SCANS
+    assert {fmt for _engine, fmt in _targets(nightly["tpch-nvme-scans"])} == {
+        "vortex [file, v1]",
+        "vortex [datasource, v1]",
+    }
+    # Nested TPC-H reads list layouts, which the v2 scan cannot read yet.
+    assert _targets(nightly["tpch-nested-s3-scans"]) == {("datafusion", "vortex [datasource, v1]")}
+    assert nightly["tpch-s3-scans"]["remote_key"] != nightly["tpch-s3"]["remote_key"]
+    # Every S3 job clears and re-uploads its own copy of the data.
+    s3_keys = [entry["remote_key"] for entry in nightly.values() if "remote_key" in entry]
+    assert len(s3_keys) == len(set(s3_keys))
 
 
 def test_pr_target_selection() -> None:
@@ -117,12 +161,14 @@ def test_pr_target_selection() -> None:
     pr_compact = {entry["id"]: entry for entry in _entries("pr-compact")}
     pr_full = {entry["id"]: entry for entry in _entries("pr-full")}
 
-    assert _targets(pr["tpch-nvme"]) == {
+    for benchmark_id in ("clickbench-nvme", "tpch-nvme"):
+        assert _targets(pr[benchmark_id]) == ALL_SCANS
+        assert ALL_SCANS <= _targets(develop[benchmark_id])
+    assert _targets(pr["tpch-nvme-10"]) == {
         ("datafusion", "parquet"),
-        ("datafusion", "vortex"),
+        ("datafusion", "vortex [file, v2]"),
         ("duckdb", "parquet"),
-        ("duckdb", "vortex"),
-        ("datafusion", "vortex [scan-api]"),
+        ("duckdb", "vortex [file, v2]"),
     }
     assert ("datafusion", "lance") in _targets(develop["tpch-nvme"])
     for preset in (pr_full, develop):
@@ -131,42 +177,52 @@ def test_pr_target_selection() -> None:
     assert "vortex-compact" in cast("list[str]", pr_full["clickbench-nvme"]["data_formats"])
     for entry in pr_compact.values():
         targets = _targets(entry)
-        assert {file_format for _engine, file_format in targets} == {"parquet", "vortex-compact"}
+        assert {file_format.split(" [", 1)[0] for _engine, file_format in targets} == {"parquet", "vortex-compact"}
         assert set(cast("list[str]", entry["data_formats"])) == {"parquet", "vortex-compact"}
 
 
-SCAN_API_TARGET = ("datafusion", "vortex [scan-api]")
-SCAN_API_IDS = {
+OTHER_SCANS = {("datafusion", "vortex [datasource, v1]")}
+OTHER_SCAN_IDS = {
     "pr": {"clickbench-nvme", "tpch-nvme"},
-    "pr-all": {"clickbench-nvme", "tpch-nvme"},
-    "pr-full": {"clickbench-nvme", "tpch-nvme"},
     "develop": {"clickbench-nvme", "tpch-nvme"},
-    "nightly": {"tpch-nvme-scan-api"},
     "pr-compact": set(),
 }
 
 
-@pytest.mark.parametrize(("preset", "expected_ids"), SCAN_API_IDS.items())
-def test_scan_api_target_runs_only_on_clickbench_and_tpch_nvme(preset: str, expected_ids: set[str]) -> None:
+@pytest.mark.parametrize(("preset", "expected_ids"), OTHER_SCAN_IDS.items())
+def test_other_scans_run_on_clickbench_and_tpch_nvme(preset: str, expected_ids: set[str]) -> None:
     entries = _entries(preset)
 
-    assert {entry["id"] for entry in entries if SCAN_API_TARGET in _targets(entry)} == expected_ids
-    for entry in entries:
-        if SCAN_API_TARGET in _targets(entry):
-            # The Scan API target reads the same Vortex files as the default target.
-            assert "vortex" in cast("list[str]", entry["data_formats"])
-            if preset != "nightly":
-                assert ("datafusion", "vortex") in _targets(entry)
+    assert {entry["id"] for entry in entries if OTHER_SCANS & _targets(entry)} == expected_ids
 
 
-def test_scan_api_target_round_trips_through_targets_json() -> None:
+@pytest.mark.parametrize("preset", ["pr-full", "pr-all"])
+def test_pr_full_runs_every_valid_scan(preset: str) -> None:
+    for entry in _entries(preset):
+        targets = cast("list[dict[str, str]]", entry["targets"])
+        engines = {target["engine"] for target in targets if target["format"] == "vortex"}
+        scans = {
+            (target["engine"], target["integration"], target["scan"])
+            for target in targets
+            if target["format"] == "vortex"
+        }
+        expected = {(engine, "file", "v1") for engine in engines} | (
+            {("datafusion", "datasource", "v1")} if "datafusion" in engines else set()
+        )
+        if entry["id"] not in {"statpopgen", "polarsignals", "tpch-nested-nvme"}:
+            expected |= {(engine, "file", "v2") for engine in engines}
+        assert scans == expected, entry["id"]
+
+
+def test_scan_targets_round_trip_through_targets_json() -> None:
     (entry,) = [entry for entry in _entries("pr") if entry["id"] == "tpch-nvme"]
 
     targets = parse_targets_json(json.dumps(entry["targets"]))
 
-    assert BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX, Integration.SCAN_API) in targets
-    assert BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX) in targets
-    assert {"engine": "datafusion", "format": "vortex"} in cast("list[dict[str, str]]", entry["targets"])
+    assert BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX, Integration.DATASOURCE, ScanEngine.V1) in targets
+    assert BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX, Integration.FILE, ScanEngine.V2) in targets
+    assert BenchmarkTarget(Engine.DATAFUSION, Format.PARQUET) in targets
+    assert {"engine": "datafusion", "format": "parquet"} in cast("list[dict[str, str]]", entry["targets"])
 
 
 def test_pr_all_is_union_of_pr_compact_and_full() -> None:
