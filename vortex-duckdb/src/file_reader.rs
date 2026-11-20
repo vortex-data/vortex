@@ -10,6 +10,7 @@ use std::sync::atomic::Ordering;
 use futures::FutureExt;
 use futures::StreamExt;
 use object_store::registry::ObjectStoreRegistry;
+use parking_lot::Mutex;
 use url::Url;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute as _;
@@ -136,8 +137,9 @@ pub struct FileScanState {
     /// initialized for a V2 scan.
     v2: OnceLock<FileScan>,
     /// The opened stream of the file's V1 scan, which each thread scanning the file polls a clone
-    /// of. Set when the file is initialized for a V1 scan.
-    stream: OnceLock<ScanStream>,
+    /// of. Set when the file is initialized for a V1 scan. A stream is `Send` but not `Sync`, so
+    /// threads clone it under the lock.
+    stream: OnceLock<Mutex<ScanStream>>,
     /// Whether a clone of `stream` has ended, so no split of the file is left to claim.
     finished: AtomicBool,
     cache: ConversionCache,
@@ -156,7 +158,9 @@ impl FileScanState {
         if self.finished.load(Ordering::Acquire) {
             return None;
         }
-        self.stream.get().cloned().map(Split::V1)
+        self.stream
+            .get()
+            .map(|stream| Split::V1(stream.lock().clone()))
     }
 }
 
@@ -281,7 +285,7 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     // pending.
     let source = LayoutReaderDataSource::new(Arc::clone(&state.reader), SESSION.clone());
     let stream = RUNTIME.block_on(source.scan(request))?.open()?;
-    if state.stream.set(stream).is_err() {
+    if state.stream.set(Mutex::new(stream)).is_err() {
         vortex_panic!("file initialized twice");
     }
     Ok(false)
@@ -526,7 +530,7 @@ pub fn reader_get_progress_in_file(file: &OpenFileReader) -> f64 {
     state
         .stream
         .get()
-        .and_then(ScanStream::progress)
+        .and_then(|stream| stream.lock().progress())
         .map_or(0.0, |progress| 100.0 * progress)
 }
 
