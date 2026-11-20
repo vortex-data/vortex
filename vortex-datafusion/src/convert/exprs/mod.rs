@@ -51,6 +51,7 @@ use vortex::expr::Expression;
 use vortex::expr::Lambda;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
+use vortex::expr::ext_storage;
 use vortex::expr::get_item;
 use vortex::expr::in_list_of;
 use vortex::expr::is_not_null;
@@ -266,6 +267,8 @@ type Conversion<T> = Result<T, Unconverted>;
 /// Nested struct field access also uses Vortex semantics: a null parent produces a null child,
 /// whereas DataFusion extracts the child without applying parent validity. These differences
 /// are accepted for both filters and projections.
+/// Field access through an extension can run natively when Arrow exposes its Vortex storage and no
+/// plugin exports the selected field.
 /// Searched `CASE WHEN` expressions preserve short-circuit evaluation: conditions and
 /// branch values only execute on the rows that reach them, including fallible branches.
 /// Other expressions require compatible SQL semantics or remain in DataFusion.
@@ -746,40 +749,7 @@ impl DefaultExpressionConverter {
         }
 
         if ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some() {
-            // DataFusion's GetFieldFunc flattens nested field access into a single call
-            // with multiple field name arguments, e.g. `outer.inner.leaf` becomes
-            // get_field(Column("outer"), "inner", "leaf").
-            let [source, paths @ ..] = scalar_fn.args() else {
-                return Err(
-                    exec_datafusion_err!("get_field requires a source and field path").into(),
-                );
-            };
-            if paths.is_empty() {
-                return Err(exec_datafusion_err!("get_field requires a field path").into());
-            }
-            let mut source_type = source.data_type(schema)?;
-            let mut names = Vec::with_capacity(paths.len());
-            for path in paths {
-                let name = path
-                    .downcast_ref::<df_expr::Literal>()
-                    .and_then(|literal| literal.value().try_as_str().flatten())
-                    .ok_or_else(|| {
-                        exec_datafusion_err!("get_field path must be a non-null string literal")
-                    })?;
-                let DataType::Struct(fields) = &source_type else {
-                    return Err(Unconverted::Unsupported);
-                };
-                let (_, field) = fields.find(name).ok_or_else(|| {
-                    exec_datafusion_err!("get_field references missing field {name}")
-                })?;
-                source_type = field.data_type().clone();
-                names.push(name);
-            }
-            let mut result = self.convert_expr(source, schema, input_dtype)?;
-            for name in names {
-                result = get_item(name, result);
-            }
-            return Ok(result);
+            return self.convert_get_field(scalar_fn, schema, input_dtype);
         }
 
         if ScalarFunctionExpr::try_downcast_func::<ArraySum>(scalar_fn).is_some() {
@@ -821,6 +791,87 @@ impl DefaultExpressionConverter {
             scalar_fn.nullable(),
         ))?;
         Ok(cast(length(input), return_dtype))
+    }
+
+    /// Converts `get_field` to a chain of `get_item` reads.
+    ///
+    /// DataFusion can flatten nested access into one call, so `outer.inner.leaf` can arrive as
+    /// `get_field(outer, "inner", "leaf")`.
+    ///
+    /// Vortex extension types are opaque, so `get_item` cannot read into an extension value until
+    /// `ext_storage` exposes its storage. The converter can add that `ext_storage` without breaking
+    /// the opacity, because DataFusion already reads the storage: an Arrow extension type is only
+    /// metadata on its storage field, and `get_field` reads that field like any other struct. Both
+    /// sides read the same values only when Vortex exports the parent as exactly its storage, which
+    /// [`exports_extension_storage`] checks.
+    ///
+    /// [`exports_extension_storage`]: vortex_arrow::ArrowSession::exports_extension_storage
+    fn convert_get_field(
+        &self,
+        scalar_fn: &ScalarFunctionExpr,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        let [source, paths @ ..] = scalar_fn.args() else {
+            return Err(exec_datafusion_err!("get_field requires a source and field path").into());
+        };
+
+        if paths.is_empty() {
+            return Err(exec_datafusion_err!("get_field requires a field path").into());
+        }
+
+        // Keep the Arrow field of each step, because its metadata decides how Vortex exports it.
+        let source_field = source.return_field(schema)?;
+        let mut field = source_field.as_ref();
+        let mut steps = Vec::with_capacity(paths.len());
+        for path in paths {
+            let name = path
+                .downcast_ref::<df_expr::Literal>()
+                .and_then(|literal| literal.value().try_as_str().flatten())
+                .ok_or_else(|| {
+                    exec_datafusion_err!("get_field path must be a non-null string literal")
+                })?;
+            let DataType::Struct(fields) = field.data_type() else {
+                return Err(Unconverted::Unsupported);
+            };
+            let (_, child_field) = fields
+                .find(name)
+                .ok_or_else(|| exec_datafusion_err!("get_field references missing field {name}"))?;
+            steps.push((field, name));
+            field = child_field.as_ref();
+        }
+
+        let mut read = self.convert_expr(source, schema, input_dtype)?;
+        let mut reads_extension_storage = false;
+        for (parent_field, name) in steps {
+            // Check the Vortex dtype instead of the Arrow extension name, because the session
+            // imports an unknown extension name as a plain struct that `get_item` reads directly.
+            if let DType::Extension(ext_dtype) = converted_dtype(&read, input_dtype)? {
+                if !self
+                    .session
+                    .arrow()
+                    .exports_extension_storage(&ext_dtype, parent_field)
+                {
+                    return Err(Unconverted::Unsupported);
+                }
+
+                read = ext_storage(read);
+                reads_extension_storage = true;
+            }
+            read = get_item(name, read);
+        }
+
+        // A plugin exporter decides which Arrow data DataFusion sees for the selected field, so
+        // Vortex and DataFusion agree on that field only if the export keeps values. Columns and
+        // plain struct fields already assume this, and the check skips them so that their pushdown
+        // stays the same.
+        // TODO(connor): Drop this check once the Arrow plugin contract requires exports to keep
+        // values.
+        if reads_extension_storage && !self.session.arrow().exports_without_plugins(field) {
+            return Err(Unconverted::Unsupported);
+        }
+
+        Ok(read)
     }
 
     /// Converts `array_sum` to `list_sum`.
