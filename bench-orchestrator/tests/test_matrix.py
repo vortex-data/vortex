@@ -75,6 +75,7 @@ EXPECTED_GROUPS = {
                 "duckdb-parquet",
                 "duckdb-vortex",
                 "datafusion-vortex-file-v1",
+                "datafusion-vortex-datasource-v2",
                 "datafusion-vortex-datasource-v1",
                 "duckdb-vortex-file-v1",
             )
@@ -83,7 +84,7 @@ EXPECTED_GROUPS = {
         "tpch-nested-s3",
     ),
 }
-SCAN_SUFFIXES = ("datafusion-file-v1", "datafusion-datasource-v1", "duckdb-file-v1")
+SCAN_SUFFIXES = ("datafusion-file-v1", "datafusion-datasource-v2", "datafusion-datasource-v1", "duckdb-file-v1")
 
 
 def _entries(preset: str) -> list[dict[str, object]]:
@@ -121,6 +122,7 @@ ALL_SCANS = {
     ("datafusion", "parquet"),
     ("datafusion", "vortex [file, v2]"),
     ("datafusion", "vortex [file, v1]"),
+    ("datafusion", "vortex [datasource, v2]"),
     ("datafusion", "vortex [datasource, v1]"),
     ("duckdb", "parquet"),
     ("duckdb", "vortex [file, v2]"),
@@ -197,11 +199,11 @@ def test_tpcds_sf100_runs_one_target_per_job() -> None:
         entry for entry in _entries("nightly") if str(entry["id"]).startswith("tpcds-") and "-100-" in str(entry["id"])
     ]
 
-    assert len(nightly) == 14
+    assert len(nightly) == 16
     assert all(len(_targets(entry)) == 1 for entry in nightly)
     assert {target for entry in nightly for target in _targets(entry)} == ALL_SCANS
     s3_keys = [entry["remote_key"] for entry in nightly if "remote_key" in entry]
-    assert len(s3_keys) == len(set(s3_keys)) == 7
+    assert len(s3_keys) == len(set(s3_keys)) == 8
 
 
 def test_nightly_runs_every_scan() -> None:
@@ -251,6 +253,8 @@ def test_nightly_runs_every_valid_scan() -> None:
         )
         if not benchmark_id.startswith("tpch-nested"):
             expected |= {(engine, "vortex [file, v2]") for engine in engines}
+            if "datafusion" in engines:
+                expected.add(("datafusion", "vortex [datasource, v2]"))
         assert scans == expected, benchmark_id
 
 

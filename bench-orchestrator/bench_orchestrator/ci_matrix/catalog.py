@@ -70,7 +70,7 @@ COMPACT_TARGETS = df(Format.PARQUET, Format.VORTEX_COMPACT) | duck(
 # Vortex targets name an integration (`file`, `datasource`) and a scan engine (`v1`, `v2`); see
 # `BenchmarkTarget`. Declared targets run the file integration on the suite's default engine.
 # `ScanCoverage.ALL` adds every other valid combination for the `vortex` format: DataFusion file-v1 and
-# datasource-v1 beside file-v2, and DuckDB file-v1 beside file-v2, on V2 suites. Each combination runs
+# datasource-v2 and datasource-v1 beside file-v2, and DuckDB file-v1 beside file-v2, on V2 suites. Each combination runs
 # as a matrix entry, and so a machine, of its own, so covering them all adds machines, not wall time.
 
 
@@ -107,6 +107,10 @@ TPCDS_SF100_TARGETS = (
     (
         BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX, Integration.FILE, ScanEngine.V1),
         "DataFusion, Vortex, file v1",
+    ),
+    (
+        BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX, Integration.DATASOURCE, ScanEngine.V2),
+        "DataFusion, Vortex, datasource v2",
     ),
     (
         BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX, Integration.DATASOURCE, ScanEngine.V1),
