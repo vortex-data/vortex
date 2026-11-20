@@ -22,13 +22,14 @@
 //! - An unordered pool runs lanes on the runtime once its first worker starts: one for each run
 //!   of splits or open that is ready, more as they queue, and at most enough to keep
 //!   `splits_in_flight` splits running. Each lane takes the next unit from a channel of units,
-//!   runs it, and sends its rows into one bounded output channel. An opened file is one unit, its
-//!   turn, which a lane queues again after taking the file's next run of adjacent splits, so the
-//!   lanes read the opened files in turn, a run at a time, and poll each run's splits together so
-//!   that their reads coalesce. A lane that opens a deferred file queues the file's turn, followed
-//!   by the next deferred file. Workers only take rows from the output channel, so whichever
-//!   worker asks next gets the next rows, however many workers there are, and the number of
-//!   workers is only the host's parallelism. The output channel closes once every lane has
+//!   runs it, and sends its rows into one output channel, at most about `splits_in_flight` rows
+//!   ahead of the workers. An opened file is one unit, its turn, which a lane queues again after
+//!   taking the file's next run of adjacent splits, so the lanes read the opened files in turn, a
+//!   run at a time, and poll each run's splits together so that their reads coalesce. A lane
+//!   that opens a deferred file queues the file's turn, followed by the next deferred file.
+//!   Workers only take rows from the output channel, so whichever worker asks next gets the next
+//!   rows, however many workers there are, and the number of workers is only the host's
+//!   parallelism. The output channel closes once every lane has
 //!   finished, which ends the workers.
 //! - An ordered pool gives all of its units, in row order, to its first worker, which keeps
 //!   `splits_in_flight` of them running at once; later workers get nothing. Parallel ordered reads
@@ -37,12 +38,15 @@
 use std::any::Any;
 use std::collections::VecDeque;
 use std::iter;
+use std::mem;
 use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
+use std::task::Poll;
+use std::task::Waker;
 
 use async_channel::Receiver;
 use async_channel::Sender;
@@ -290,12 +294,13 @@ pub(crate) fn open_pool(
     // runs keep each file's reads as dense as a scan stream's, which runs all of its splits in
     // flight over one file; a run per open file would spread them over every open file.
     let run = (splits_in_flight / RUN_LANES).max(1);
-    let (output, outputs) = async_channel::bounded(splits_in_flight);
+    let (output, outputs) = async_channel::unbounded();
     let lanes = Arc::new(Lanes {
         shared: Arc::clone(&shared),
         units: receiver.clone(),
         run,
         max: (splits_in_flight / run).max(1),
+        backlog: Backlog::new(splits_in_flight),
         waiting: AtomicUsize::new(0),
         started: AtomicUsize::new(0),
         tasks: Mutex::new(Some(Vec::new())),
@@ -641,6 +646,60 @@ struct Lanes {
     started: AtomicUsize,
     /// The lanes started, until the pool is dropped, which aborts them. `None` once it is.
     tasks: Mutex<Option<Vec<Task<()>>>>,
+    /// The rows sent and not yet taken, which bound how far the lanes run ahead of the workers.
+    backlog: Backlog,
+}
+
+/// The rows that the lanes have sent and no worker has taken yet, up to about `cap`. The output
+/// channel itself is unbounded, so neither a send nor a take waits on its lock; a lane that finds
+/// `cap` rows waiting waits here instead, until the workers have taken half of them. The workers
+/// thus wake the waiting lanes once for every `cap / 2` rows they take, not once for each row, as
+/// a full bounded channel would.
+struct Backlog {
+    rows: AtomicUsize,
+    cap: usize,
+    /// The lanes waiting for room.
+    waiting: Mutex<Vec<Waker>>,
+}
+
+impl Backlog {
+    fn new(cap: usize) -> Self {
+        Self {
+            rows: AtomicUsize::new(0),
+            cap: cap.max(1),
+            waiting: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Waits until there is room for a row, then counts it. The lanes check and count apart, so
+    /// the backlog can pass `cap` by a row for each lane.
+    async fn admit(&self) {
+        future::poll_fn(|cx| {
+            if self.rows.load(Ordering::Acquire) < self.cap {
+                return Poll::Ready(());
+            }
+            let mut waiting = self.waiting.lock();
+            // Checked again under the lock, which a take holds to wake the lanes, so a lane
+            // either sees the room or is woken once there is.
+            if self.rows.load(Ordering::Acquire) < self.cap {
+                return Poll::Ready(());
+            }
+            waiting.push(cx.waker().clone());
+            Poll::Pending
+        })
+        .await;
+        self.rows.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// Counts a row that a worker took, and wakes the waiting lanes once half of `cap` is left.
+    /// The rows fall by one at a time, so they pass through that mark on the way down.
+    fn take(&self) {
+        let rows = self.rows.fetch_sub(1, Ordering::AcqRel).saturating_sub(1);
+        if rows == self.cap / 2 {
+            let waiting = mem::take(&mut *self.waiting.lock());
+            waiting.into_iter().for_each(Waker::wake);
+        }
+    }
 }
 
 impl Lanes {
@@ -752,7 +811,7 @@ async fn lane(lanes: Arc<Lanes>, output: Sender<VortexResult<ArrayRef>>) {
                 Ok(None) => continue,
                 Err(err) => Err(err),
             };
-            if !emit(&shared, &handle, &identity, &output, array).await {
+            if !emit(&shared, &lanes.backlog, &handle, &identity, &output, array).await {
                 return;
             }
         }
@@ -763,6 +822,7 @@ async fn lane(lanes: Arc<Lanes>, output: Sender<VortexResult<ArrayRef>>) {
 /// should go on: not once the limit is spent, a unit failed, or every worker is gone.
 async fn emit(
     shared: &Shared,
+    backlog: &Backlog,
     handle: &Handle,
     identity: &MapFn<ArrayRef>,
     output: &Sender<VortexResult<ArrayRef>>,
@@ -787,7 +847,8 @@ async fn emit(
     if failed {
         shared.failed.store(true, Ordering::Release);
     }
-    output.send(array).await.is_ok() && !failed
+    backlog.admit().await;
+    output.try_send(array).is_ok() && !failed
 }
 
 impl ScanPool for UnorderedPool {
@@ -801,6 +862,7 @@ impl ScanPool for UnorderedPool {
         // The worker holds the pool, so the lanes run until the pool's last worker is dropped.
         let arrays = stream::unfold(self, |pool| async move {
             let array = pool.outputs.recv().await.ok()?;
+            pool.lanes.backlog.take();
             Some((array, pool))
         })
         .boxed();
