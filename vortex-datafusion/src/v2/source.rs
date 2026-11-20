@@ -1029,6 +1029,7 @@ fn estimate_to_df_precision(est: &Precision<u64>) -> DFPrecision<usize> {
 #[cfg(test)]
 mod tests {
     use std::any::Any;
+    use std::num::NonZeroUsize;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
@@ -1075,6 +1076,8 @@ mod tests {
     use vortex::scan::Partition;
     use vortex::scan::PartitionRef;
     use vortex::scan::PartitionStream;
+    use vortex::scan::pool::PartitionPool;
+    use vortex::scan::pool::ScanPoolRef;
     use vortex::session::VortexSession;
     use vortex_arrow::ArrowSessionExt;
 
@@ -1219,6 +1222,14 @@ mod tests {
     impl DataSourceScan for TestScan {
         fn dtype(&self) -> &DType {
             &self.dtype
+        }
+
+        fn split(self: Box<Self>, _n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
+            Ok(vec![self])
+        }
+
+        fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
+            Ok(Arc::new(PartitionPool::new(self)))
         }
 
         fn partition_count(&self) -> Precision<usize> {

@@ -39,8 +39,10 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::stream;
 use futures::stream::BoxStream;
-use pool::PartitionPool;
+use pool::ScanPartition;
 use pool::ScanPoolRef;
 use selection::Selection;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -55,6 +57,7 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 /// A sendable stream of partitions.
 pub type PartitionStream = BoxStream<'static, VortexResult<PartitionRef>>;
@@ -213,15 +216,50 @@ pub type DataSourceScanRef = Box<dyn DataSourceScan>;
 /// pieces when each piece must be read on its own, such as by another process or with a declared
 /// order. Otherwise it [opens](Self::open) the scan into a pool and has each of its threads poll a
 /// worker of that pool.
-pub trait DataSourceScan: 'static + Send + IntoDataSourceScanRef {
+///
+/// A source implements [`split`](Self::split) and [`open`](Self::open) by putting its own tuned
+/// execution behind them. [`partitions`](Self::partitions) is derived from them for hosts that
+/// still read partitions.
+pub trait DataSourceScan: 'static + Send {
     /// The returned dtype of the scan.
     fn dtype(&self) -> &DType;
 
+    /// Cuts the scan into at most `n` scans that together read the same rows, in order.
+    ///
+    /// Splitting reads metadata only. The result is never empty. A scan that cannot be cut
+    /// returns itself as the one piece.
+    fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>>;
+
+    /// Opens the scan into a pool that host threads share by each polling a worker.
+    ///
+    /// A source that has no pool of its own yet may return a
+    /// [`PartitionPool`](pool::PartitionPool) over itself, as long as it implements
+    /// [`partitions`](Self::partitions): the default `partitions` opens the scan, so the two
+    /// together would never end.
+    fn open(self: Box<Self>) -> VortexResult<ScanPoolRef>;
+
     /// Returns an estimate of the total number of partitions the scan will produce.
-    fn partition_count(&self) -> Precision<usize>;
+    fn partition_count(&self) -> Precision<usize> {
+        Precision::Absent
+    }
 
     /// Returns a stream of partitions to be processed.
-    fn partitions(self: Box<Self>) -> PartitionStream;
+    ///
+    /// The default [splits](Self::split) the scan into one piece per available core and makes
+    /// each piece a partition, which [opens](Self::open) the piece and drains one worker of its
+    /// pool.
+    fn partitions(self: Box<Self>) -> PartitionStream {
+        let n = get_available_parallelism()
+            .and_then(NonZeroUsize::new)
+            .unwrap_or(NonZeroUsize::MIN);
+        match self.split(n) {
+            Ok(pieces) => stream::iter(pieces.into_iter().enumerate().map(|(index, scan)| {
+                Ok(Box::new(ScanPartition::new(index, scan)) as PartitionRef)
+            }))
+            .boxed(),
+            Err(err) => stream::once(async move { Err(err) }).boxed(),
+        }
+    }
 
     /// Estimates the rows this scan returns, from plan-time state only.
     fn row_count(&self) -> Precision<u64> {
@@ -231,36 +269,6 @@ pub trait DataSourceScan: 'static + Send + IntoDataSourceScanRef {
     /// Estimates the bytes this scan reads, before any filter, from plan-time state only.
     fn byte_size(&self) -> Precision<u64> {
         Precision::Absent
-    }
-
-    /// Cuts the scan into at most `n` scans that together read the same rows, in order.
-    ///
-    /// Splitting reads metadata only. The result is never empty. A scan that cannot be cut
-    /// returns itself as the one piece, which is the default.
-    fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
-        let _ = n;
-        Ok(vec![self.into_data_source_scan_ref()])
-    }
-
-    /// Opens the scan into a pool that host threads share by each polling a worker.
-    ///
-    /// The default pool hands out the scan's partitions, each to the next worker that asks.
-    fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
-        Ok(Arc::new(PartitionPool::new(
-            self.into_data_source_scan_ref(),
-        )))
-    }
-}
-
-/// Converts a boxed scan into a [`DataSourceScanRef`]. Implemented for every scan.
-pub trait IntoDataSourceScanRef {
-    /// Returns this scan as a [`DataSourceScanRef`].
-    fn into_data_source_scan_ref(self: Box<Self>) -> DataSourceScanRef;
-}
-
-impl<T: DataSourceScan> IntoDataSourceScanRef for T {
-    fn into_data_source_scan_ref(self: Box<Self>) -> DataSourceScanRef {
-        self
     }
 }
 
