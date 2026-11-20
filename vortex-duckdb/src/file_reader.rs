@@ -277,6 +277,10 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         row_range: Some(file_rows(state, filter)),
         selection: filter.row_selection.clone(),
         ordered: false,
+        // EXPERIMENT: VORTEX_DUCKDB_SPLIT_CONCURRENCY=n caps each clone's splits in flight.
+        split_concurrency: std::env::var("VORTEX_DUCKDB_SPLIT_CONCURRENCY")
+            .ok()
+            .and_then(|v| v.parse().ok()),
         ..ScanRequest::default()
     };
     // An unordered scan without a limit opens into a stream over a queue of the file's splits.

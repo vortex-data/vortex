@@ -155,7 +155,9 @@ impl DataSource for LayoutReaderDataSource {
         }
 
         // If statistics reject the entire requested range, skip the scan before partition construction.
-        if let Some(filter) = &filter {
+        // EXPERIMENT: VORTEX_SKIP_EAGER_PRUNE=1 skips the whole-range pruning check.
+        let skip_eager_prune = std::env::var("VORTEX_SKIP_EAGER_PRUNE").is_ok_and(|v| v == "1");
+        if let Some(filter) = filter.as_ref().filter(|_| !skip_eager_prune) {
             let mask = Mask::new_true(
                 usize::try_from(row_range.end - row_range.start).unwrap_or(usize::MAX),
             );
