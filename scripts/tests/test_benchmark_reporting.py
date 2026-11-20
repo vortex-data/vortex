@@ -1008,6 +1008,52 @@ def test_capture_file_sizes_names_parquet_by_codec(tmp_path: Path) -> None:
     assert "Could not read the Parquet footer" in result.stderr
 
 
+def test_capture_file_sizes_records_the_size_only_snappy_directory(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    scale_dir = data_dir / "tpcds" / "1.0"
+    zstd, snappy = 6, 1
+    files = {
+        ("parquet", "item.parquet"): parquet_with_codecs([zstd]),
+        ("parquet-snappy", "item.parquet"): parquet_with_codecs([snappy]),
+        ("parquet-snappy", "store.parquet"): b"not parquet",
+        ("arrow-ipc", "item.arrow"): b"x" * 80,
+    }
+    for (format_name, name), data in files.items():
+        path = scale_dir / format_name / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    output_path = tmp_path / "sizes.jsonl"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(CAPTURE_SCRIPT),
+            str(data_dir),
+            "--benchmark",
+            "tpcds",
+            "--dataset-dir",
+            "tpcds",
+            "--commit",
+            "deadbeef",
+            "-o",
+            str(output_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+    assert [(r["file_size"]["format"], r["file_size"]["file"]) for r in records] == [
+        ("arrow-ipc", "item.arrow"),
+        ("parquet", "item.parquet"),
+        ("parquet-snappy", "item.parquet"),
+        # An unreadable footer in the Snappy directory keeps that directory's name.
+        ("parquet-snappy", "store.parquet"),
+    ]
+
+
 def test_capture_file_sizes_reads_only_the_named_directory(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     for name, size in (("clickbench_partitioned", 42), ("clickbench_partitioned_10", 7)):

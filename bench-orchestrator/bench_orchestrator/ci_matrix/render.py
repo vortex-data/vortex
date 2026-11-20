@@ -3,7 +3,7 @@
 
 """Render declarative benchmark coverage as GitHub Actions matrices."""
 
-from ..config import Benchmark, BenchmarkTarget, Engine, Format, Integration, ScanEngine
+from ..config import Benchmark, BenchmarkTarget, Engine, Format, Integration, ScanEngine, SizeFormat
 from .model import BenchmarkCase, Catalog, Coverage, ScanCoverage
 from .targets import TargetSet
 from .validate import validate_catalog
@@ -31,12 +31,19 @@ def merge_coverage(benchmark: Benchmark, coverages: list[Coverage]) -> Coverage:
     """Union several coverages of `benchmark`: every resolved target and every generated format."""
     targets = TargetSet()
     formats: set[Format] = set()
+    size_formats: set[SizeFormat] = set()
     for coverage in coverages:
         resolved = coverage.resolved_targets(benchmark)
         targets = targets | resolved
         formats.update(_data_formats(coverage, resolved))
+        size_formats.update(coverage.size_formats)
     scans = ScanCoverage.ALL if any(c.scans is ScanCoverage.ALL for c in coverages) else ScanCoverage.DEFAULT
-    return Coverage(targets, data_formats=tuple(fmt for fmt in _FORMAT_ORDER if fmt in formats), scans=scans)
+    return Coverage(
+        targets,
+        data_formats=tuple(fmt for fmt in _FORMAT_ORDER if fmt in formats),
+        scans=scans,
+        size_formats=tuple(fmt for fmt in SizeFormat if fmt in size_formats),
+    )
 
 
 ScanGroup = tuple[Engine, Integration, ScanEngine]
@@ -95,6 +102,8 @@ def _matrix_entry(
         # File sizes and trees describe the data, which every entry of a case generates alike, so
         # only the default entry records them.
         "records_data": group is None,
+        # Formats the default entry writes after its queries, only for their file sizes.
+        "size_formats": [fmt.value for fmt in coverage.size_formats] if group is None else [],
     }
     if benchmark.scale_factor is not None:
         entry["scale_factor"] = str(benchmark.scale_factor)

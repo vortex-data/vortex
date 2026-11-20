@@ -129,23 +129,24 @@ def parquet_codecs(path: Path) -> set[str]:
     return codecs
 
 
-def parquet_format_name(path: Path) -> str:
+def parquet_format_name(path: Path, directory: str = "parquet") -> str:
     """Name a Parquet file's format by its codec, as `vortex` and `vortex-compact` name Vortex's.
 
     `parquet` is zstd, the codec every Parquet file the benchmarks write themselves uses (zstd
     level 3). A file written with another codec, such as Snappy in a downloaded dataset, is
-    `parquet-<codec>`. A file whose footer cannot be read, or that mixes codecs, keeps `parquet`
-    with a warning, as before codecs were recorded.
+    `parquet-<codec>`. A file whose footer cannot be read, or that mixes codecs, keeps the name of
+    its `directory` with a warning: `parquet`, as before codecs were recorded, or
+    `parquet-snappy`, which `data-gen --size-formats` writes.
     """
     try:
         codecs = parquet_codecs(path)
     except (OSError, ValueError, IndexError, struct.error) as error:
         print(f"Could not read the Parquet footer of {path}: {error}", file=sys.stderr)
-        return "parquet"
+        return directory
     if len(codecs) != 1:
         if codecs:
-            print(f"{path} mixes Parquet codecs {sorted(codecs)}; recording it as parquet", file=sys.stderr)
-        return "parquet"
+            print(f"{path} mixes Parquet codecs {sorted(codecs)}; recording it as {directory}", file=sys.stderr)
+        return directory
     codec = next(iter(codecs))
     return "parquet" if codec == "zstd" else f"parquet-{codec}"
 
@@ -176,7 +177,8 @@ def main() -> None:
         sys.exit(1)
 
     # Every on-disk format, named as `Format::name()` in `vortex-bench/src/lib.rs` names its
-    # directory. The "vortex" CLI argument maps to the "vortex-file-compressed" directory.
+    # directory, and `parquet-snappy`, a `SizeFormat` in `vortex-bench/src/size_formats.rs`. The
+    # "vortex" CLI argument maps to the "vortex-file-compressed" directory.
     formats_to_capture = {
         "arrow-ipc",
         "csv",
@@ -184,6 +186,7 @@ def main() -> None:
         "lance",
         "litdata",
         "parquet",
+        "parquet-snappy",
         "vortex-compact",
         "vortex-file-compressed",
         "vortex-spatial-native",
@@ -220,8 +223,8 @@ def main() -> None:
 
             size_bytes = file_path.stat().st_size
             recorded_format = (
-                parquet_format_name(file_path)
-                if format_name == "parquet" and file_path.suffix == ".parquet"
+                parquet_format_name(file_path, format_name)
+                if format_name in ("parquet", "parquet-snappy") and file_path.suffix == ".parquet"
                 else format_name
             )
 

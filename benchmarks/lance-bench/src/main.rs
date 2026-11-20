@@ -65,6 +65,11 @@ struct Args {
     #[arg(long, default_value_t = false)]
     print_queries: bool,
 
+    /// Write the benchmark's Lance data and exit without running queries. CI uses it to record
+    /// Lance file sizes for a benchmark whose queries it does not run on Lance.
+    #[arg(long, default_value_t = false)]
+    data_only: bool,
+
     #[arg(short)]
     output_path: Option<PathBuf>,
 
@@ -116,6 +121,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Convert Parquet to Lance format
     generate_lance_data(&*benchmark).await?;
+
+    if args.data_only {
+        return Ok(());
+    }
 
     let mut runner = SqlBenchmarkRunner::new(
         &*benchmark,
