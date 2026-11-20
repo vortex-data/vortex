@@ -32,7 +32,6 @@ use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_io::request::IoSource;
 use vortex_io::request::IoTarget;
-use vortex_io::segments::SegmentId;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -317,11 +316,11 @@ impl RecordingIoSource {
         }
     }
 
-    /// Answers segment `id` with `bytes`.
-    pub fn canned_bytes(&self, id: u32, bytes: ByteBuffer) {
+    /// Answers a range at `offset` with `bytes`.
+    pub fn canned_bytes(&self, offset: u64, bytes: ByteBuffer) {
         self.canned
             .lock()
-            .insert(IoTarget::segment(SegmentId::from(id)), Canned::Bytes(bytes));
+            .insert(IoTarget::range(offset, bytes.len()), Canned::Bytes(bytes));
     }
 
     /// Answers `target` with a size regardless of what it asked for, to test the driver's check.
@@ -352,11 +351,11 @@ impl RecordingIoSource {
 impl IoSource for RecordingIoSource {
     fn submit(&self, work: IoOwnerId, batch: Vec<IoRequest>) -> VortexResult<()> {
         for request in batch {
-            self.submissions.lock().push((work, request.clone()));
+            self.submissions.lock().push((work, request));
             if request.intent != IoIntent::Fetch {
                 continue;
             }
-            self.performed.lock().push(request.target.clone());
+            self.performed.lock().push(request.target);
             let result = match self.canned.lock().get(&request.target) {
                 Some(Canned::Bytes(bytes)) => {
                     Ok(IoResult::Bytes(BufferHandle::new_host(bytes.clone())))

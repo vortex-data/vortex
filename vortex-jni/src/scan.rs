@@ -137,7 +137,6 @@ fn build_scan_request(
         partition_selection: Selection::All,
         partition_range: None,
         split_concurrency,
-        target_partitions: None,
     })
 }
 

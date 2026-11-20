@@ -14,15 +14,16 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
-use vortex_io::request::SegmentReader;
 use vortex_layout::LayoutReader;
 use vortex_layout::layouts::list::List;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::metrics::ScanUsage;
 use vortex_layout::scan::scan_builder::ScanBuilder;
+use vortex_layout::scan::scan_builder::referenced_field_masks;
 use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::scan::v2::ScanFile;
 use vortex_layout::segments::SegmentSource;
@@ -30,6 +31,7 @@ use vortex_layout::segments::UsageSegmentSource;
 use vortex_scan::DataSourceRef;
 use vortex_scan::prepare::ScanCache;
 use vortex_scan::prepare::SegmentLocation;
+use vortex_scan::source::PlanChild;
 use vortex_scan::source::PlanDataSource;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -61,9 +63,6 @@ pub struct VortexFile {
     scan_cache: Option<FileScanCache>,
     /// Resource usage that segment reads and scans of this handle add to.
     usage: Option<Arc<ScanUsage>>,
-    /// How V2 scans read the file's segments when the session's I/O scheduler can read them
-    /// directly, or `None` to read through [`Self::segment_source`].
-    scan_reader: Option<SegmentReader>,
 }
 
 /// What repeated V2 scans of a file share: its segment locations, read from the footer once, and
@@ -79,7 +78,7 @@ struct FileScanCache {
 /// A list layout only ever holds a [`DType::List`], and the writer only decomposes the lists it
 /// reaches through struct fields and list elements. Maps and variants are conservatively assumed
 /// to contain one too, since their storage may be laid out as lists.
-fn may_contain_list_layout(dtype: &DType) -> bool {
+pub(crate) fn may_contain_list_layout(dtype: &DType) -> bool {
     match dtype {
         DType::List(..) | DType::Map(..) | DType::Variant(_) => true,
         DType::Null
@@ -133,13 +132,7 @@ impl VortexFile {
             layout_reader_cache: None,
             scan_cache: None,
             usage: None,
-            scan_reader: None,
         }
-    }
-
-    pub(crate) fn with_scan_reader(mut self, scan_reader: Option<SegmentReader>) -> Self {
-        self.scan_reader = scan_reader;
-        self
     }
 
     pub(crate) fn with_metadata(mut self, metadata: Arc<HashMap<String, ByteBuffer>>) -> Self {
@@ -166,7 +159,6 @@ impl VortexFile {
             layout_reader_cache: Some(OnceLock::new()),
             scan_cache: Some(scan_cache),
             usage: self.usage,
-            scan_reader: self.scan_reader,
         }
     }
 
@@ -224,7 +216,6 @@ impl VortexFile {
     pub fn with_segment_source(mut self, segment_source: Arc<dyn SegmentSource>) -> Self {
         self.segment_source = segment_source;
         self.usage = None;
-        self.scan_reader = None;
         if self.layout_reader_cache.is_some() {
             self.layout_reader_cache = Some(OnceLock::new());
         }
@@ -331,19 +322,47 @@ impl VortexFile {
     /// Create a [`DataSource`](vortex_scan::DataSource) from this file whose scans run on the
     /// planner-driven executor.
     ///
-    /// Each partition of a scan, a range of the file's rows, runs it with [`ScanDriver`](crate::v2::ScanDriver) from
+    /// The source is a [`PlanDataSource`] over [`plan_file`](Self::plan_child): hosts read its
+    /// scans through native `split` and `open`, or through one partition covering the requested
+    /// rows, which runs it with [`ScanDriver`](crate::v2::ScanDriver) from
     /// [`Partition::execute`](vortex_scan::Partition::execute). Every scan of the source shares
     /// one [`ScanCache`]: the file's, with [caching](Self::with_caching), or else one of its own.
-    /// A scan whose filter the file-level statistics prove false has no partitions. Stored footer
+    /// A scan whose filter the file-level statistics prove false reads nothing. Stored footer
     /// aggregates are available through the source statistics methods. Opening the source reads
     /// nothing and builds no layout reader.
     pub fn plan_data_source(&self) -> DataSourceRef {
-        let source = PlanDataSource::new(self.session.clone(), self.scan_file().into())
-            .with_row_count(self.row_count());
-        Arc::new(
-            FileDataSource::new(source, self.file_stats().cloned())
-                .with_file_pruning(self.row_count(), self.session.clone()),
-        )
+        let source = PlanDataSource::from_child(self.session.clone(), self.plan_child());
+        Arc::new(FileDataSource::new(source, self.file_stats().cloned()))
+    }
+
+    /// This file as a child of a [`PlanDataSource`]: its V2 scan input, row count, and a pruner
+    /// that skips scans whose filter the file-level statistics prove false.
+    ///
+    /// An opened scan of the child cuts its work on the file's layout splits over the fields it
+    /// reads, as a V1 scan of the same fields does.
+    pub fn plan_child(&self) -> PlanChild {
+        let splitter = {
+            let file = self.clone();
+            Arc::new(
+                move |projection: &BoundExpression, filter: Option<&BoundExpression>| {
+                    SplitBy::default().splits(
+                        file.layout_reader()?.as_ref(),
+                        &(0..file.row_count()),
+                        &referenced_field_masks(projection, filter)?,
+                    )
+                },
+            )
+        };
+        let file = PlanChild::new(self.scan_file().into())
+            .with_row_count(self.row_count())
+            .with_splitter(splitter);
+        let Some(statistics) = self.file_stats().cloned() else {
+            return file;
+        };
+        let (row_count, session) = (self.row_count(), self.session.clone());
+        file.with_pruner(Arc::new(move |filter| {
+            is_falsified_by_file_stats(filter, row_count, &statistics, &session)
+        }))
     }
 
     /// Initiate a scan of the file, returning a builder for projection, filtering, selection, and
@@ -365,14 +384,10 @@ impl VortexFile {
             Some(cache) => (Arc::clone(&cache.locations), Some(cache.plans.clone())),
             None => (self.footer.segment_locations(), None),
         };
-        let reader = self
-            .scan_reader
-            .clone()
-            .unwrap_or_else(|| SegmentReader::Opaque(Arc::clone(&self.segment_source)));
         ScanFile {
             layout: Arc::clone(self.footer.layout()),
             locations,
-            reader,
+            segments: Arc::clone(&self.segment_source),
             cache,
         }
     }

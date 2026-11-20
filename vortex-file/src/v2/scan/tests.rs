@@ -3,14 +3,11 @@
 
 use std::sync::Arc;
 use std::sync::LazyLock;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 
 use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
 use arrow_schema::Field;
 use futures::TryStreamExt;
-use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -18,7 +15,6 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::assert_arrays_eq;
-use vortex_array::buffer::BufferHandle;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
@@ -27,17 +23,13 @@ use vortex_array::expr::stats::Precision;
 use vortex_arrow::ArrowScanExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
-use vortex_buffer::Alignment;
-use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_io::VortexReadAt;
 use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::scan::v2::ScanBuilder;
-use vortex_layout::scan::v2::SegmentReader;
 use vortex_layout::session::LayoutSession;
 use vortex_scan::PartitionRef;
 use vortex_scan::ScanRequest;
@@ -57,7 +49,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-async fn file_bytes() -> VortexResult<ByteBuffer> {
+async fn file() -> VortexResult<VortexFile> {
     let chunks = 8;
     let numbers = ChunkedArray::from_iter(
         (0..chunks).map(|chunk| buffer![chunk, chunk + 1, chunk + 2, chunk + 3].into_array()),
@@ -73,11 +65,7 @@ async fn file_bytes() -> VortexResult<ByteBuffer> {
         .write_options()
         .write(&mut buf, array.into_array().to_array_stream())
         .await?;
-    Ok(buf.freeze())
-}
-
-async fn file() -> VortexResult<VortexFile> {
-    SESSION.open_options().open_buffer(file_bytes().await?)
+    SESSION.open_options().open_buffer(buf)
 }
 
 fn driver() -> ScanDriver {
@@ -112,62 +100,6 @@ async fn record_batches_match_arrays() -> VortexResult<()> {
 
     assert_eq!(derived, expected);
     assert_eq!(given, expected);
-    Ok(())
-}
-
-/// A reader of an in-memory file that counts its reads.
-#[derive(Clone)]
-struct CountingRead {
-    bytes: ByteBuffer,
-    reads: Arc<AtomicUsize>,
-}
-
-impl VortexReadAt for CountingRead {
-    fn concurrency(&self) -> usize {
-        self.bytes.concurrency()
-    }
-
-    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        self.bytes.size()
-    }
-
-    fn read_at(
-        &self,
-        offset: u64,
-        length: usize,
-        alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        self.reads.fetch_add(1, Ordering::Relaxed);
-        self.bytes.read_at(offset, length, alignment)
-    }
-}
-
-/// A file opened from a reader is placed: the session's scheduler reads its segments directly,
-/// starting from the ones the footer read already fetched.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn placed_files_scan_like_buffered_ones() -> VortexResult<()> {
-    let bytes = file_bytes().await?;
-    let reads = Arc::new(AtomicUsize::new(0));
-    let reader = CountingRead {
-        bytes: bytes.clone(),
-        reads: Arc::clone(&reads),
-    };
-    let placed = SESSION.open_options().open_read(reader).await?;
-    let buffered = SESSION.open_options().open_buffer(bytes)?;
-    assert!(matches!(
-        placed.scan_file().reader,
-        SegmentReader::Placed(_)
-    ));
-    let opened = reads.load(Ordering::Relaxed);
-
-    let scan = |file: &VortexFile| ScanBuilder::new(SESSION.clone(), file.scan_file());
-    let dtype = scan(&placed).dtype().clone();
-    let collect = |arrays: Vec<ArrayRef>| ChunkedArray::try_new(arrays, dtype.clone());
-    let actual = collect(driver().run(scan(&placed)).try_collect().await?)?;
-    let expected = collect(driver().run(scan(&buffered)).try_collect().await?)?;
-    assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
-    // The footer read covered the whole small file, so the scan reads nothing more.
-    assert_eq!(reads.load(Ordering::Relaxed), opened);
     Ok(())
 }
 

@@ -10,7 +10,6 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
 use vortex_expr::analysis::referenced_field_paths;
-use vortex_io::session::IoSchedulerSessionExt;
 use vortex_session::VortexSession;
 
 pub use crate::execution::ChunkPlanner;
@@ -24,6 +23,8 @@ use crate::execution::ROW_BLOCK_SIZE;
 pub use crate::execution::SegmentLocation;
 pub use crate::execution::cache::ScanCache;
 pub use crate::execution::cache::WeakScanCache;
+use crate::execution::io::segment_ranges;
+pub use crate::execution::part_root;
 use crate::execution::rows_per_chunk;
 use crate::plan::optimize;
 use crate::plan::plan_row_idx_expression;
@@ -180,15 +181,17 @@ impl ScanBuilder {
         } else {
             MAX_ROWS_PER_CHUNK
         };
-        let scheduler = self.session.io_scheduler();
-        let source = cache.register(&scheduler, Arc::clone(&file.locations), file.reader)?;
+        let ranges = match cache.ranges() {
+            Some(ranges) => ranges,
+            None => cache.insert_ranges(segment_ranges(&file.locations)),
+        };
         let values = cache.values();
         Ok(PreparedScan {
             session: self.session,
             rows: self.row_range.unwrap_or(0..row_count),
             selection: self.selection,
-            scheduler,
-            source,
+            segments: cache.retaining(file.segments),
+            ranges,
             cache,
             locations: file.locations,
             projection,

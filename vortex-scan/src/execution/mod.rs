@@ -14,15 +14,18 @@
 pub mod cache;
 pub mod driver;
 pub mod filter_expr;
+pub(crate) mod io;
 pub mod operator;
 pub(crate) mod operators;
 pub mod pipeline;
 pub mod planning;
+mod retain;
 pub(crate) mod zone_map;
 
 mod adaptor;
 mod chunk;
 mod filter;
+mod parts;
 mod projection;
 mod prune;
 mod selection;
@@ -30,9 +33,8 @@ mod selection;
 use std::ops::Range;
 use std::sync::Arc;
 
-use vortex_io::request::IoScheduler;
 use vortex_io::request::IoService;
-use vortex_io::request::RegisteredSource;
+use vortex_io::request::IoTarget;
 pub use vortex_io::segments::SegmentLocation;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -44,19 +46,31 @@ pub(crate) use self::chunk::ROW_BLOCK_SIZE;
 #[cfg(test)]
 pub(crate) use self::chunk::row_chunks;
 pub(crate) use self::chunk::rows_per_chunk;
-#[cfg(test)]
 pub(crate) use self::chunk::scan_chunks;
 use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;
+pub use self::parts::part_root;
 use self::projection::ProjectionPlanner;
 pub use self::prune::PruneNext;
 pub use self::prune::PrunePlanner;
 use crate::execution::cache::ScanCache;
+use crate::execution::io::SegmentRanges;
+use crate::execution::io::SegmentScanIo;
 use crate::execution::pipeline::ValueCache;
 use crate::plan::PlanRef;
 use crate::planning::planner::Planner;
 use crate::planning::planner::WorkScope;
 use crate::selection::Selection;
+use crate::source::SegmentSource;
+
+/// The byte range a read of the segment at `location` asks for.
+fn segment_target(location: &SegmentLocation) -> IoTarget {
+    IoTarget::Range {
+        offset: location.offset,
+        len: location.length as usize,
+        alignment: location.alignment,
+    }
+}
 
 /// A scan's plans over one file, built once from the file's footer and read by every planner of
 /// the scan. Nothing here touches a segment, and no planner plans again.
@@ -67,10 +81,10 @@ pub struct PreparedScan {
     pub(crate) rows: Range<u64>,
     /// The rows of `rows` the scan selects.
     pub(crate) selection: Selection,
-    /// The session's I/O scheduler, which serves every read of the scan.
-    pub(crate) scheduler: IoScheduler,
-    /// The file's registration with `scheduler`; reads name it by id.
-    pub(crate) source: Arc<RegisteredSource>,
+    /// Fetches segment bytes by id.
+    pub(crate) segments: Arc<dyn SegmentSource>,
+    /// The segments' byte ranges, back to their ids.
+    pub(crate) ranges: SegmentRanges,
     /// Held for the scan's life, so scans of the file that start meanwhile share it.
     #[expect(dead_code, reason = "kept alive, never read")]
     pub(crate) cache: ScanCache,
@@ -105,10 +119,13 @@ impl PreparedScan {
         self.filter.as_deref()
     }
 
-    /// The service a driver takes IO sessions from: the session's I/O scheduler, which serves
-    /// every read a planner of the scan requests by source and segment.
+    /// The service a driver takes IO sessions from: every read a planner of the scan requests is
+    /// served from it by segment.
     pub fn io(&self) -> Arc<dyn IoService> {
-        Arc::new(self.scheduler.clone())
+        Arc::new(SegmentScanIo::new(
+            Arc::clone(&self.segments),
+            Arc::clone(&self.ranges),
+        ))
     }
 
     /// The planner of one chunk's selected rows: its conjuncts when the scan has a filter, else

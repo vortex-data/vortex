@@ -70,7 +70,6 @@
 use std::any::Any;
 use std::fmt;
 use std::fmt::Formatter;
-use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -499,7 +498,6 @@ impl VortexDataSource {
                 filter: self.filter.clone(),
                 limit: self.limit.map(|l| u64::try_from(l).unwrap_or(u64::MAX)),
                 ordered: self.ordered,
-                target_partitions: NonZeroUsize::new(self.target_parallelism),
                 ..Default::default()
             };
             let data_source = Arc::clone(&self.data_source);

@@ -20,18 +20,18 @@ use vortex_io::request::IoIntent;
 use vortex_io::request::IoRequest;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
-use vortex_io::request::IoTarget;
-use vortex_io::request::SourceId;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use super::FILTERED_ROWS_PER_CHUNK;
 use super::PreparedScan;
+use super::SegmentLocation;
 use super::SelectedRows;
 use super::adaptor::AdaptorStep;
 use super::adaptor::Piece;
 use super::adaptor::ScanAdaptor;
 use super::projection::ProjectionPlanner;
+use super::segment_target;
 use crate::execution::filter_expr::FilterExpr;
 use crate::execution::pipeline::Scan;
 use crate::execution::pipeline::Split;
@@ -215,7 +215,7 @@ impl FilterPlanner {
 
 /// Publishes a hint for each of `segments` not in `seen`, and adds it there.
 pub(super) fn hint(
-    source: SourceId,
+    locations: &[SegmentLocation],
     next_hint: &mut u32,
     intent: IoIntent,
     segments: &[SegmentId],
@@ -229,8 +229,7 @@ pub(super) fn hint(
         batch.push(IoRequest {
             intent,
             request: IoRequestId(*next_hint),
-            source,
-            target: IoTarget::segment(segment),
+            target: segment_target(&locations[*segment as usize]),
         });
         *next_hint -= 1;
     }
@@ -289,9 +288,9 @@ impl Planner for FilterPlanner {
             )?;
             let mut batch = Vec::new();
             let mut seen = FxHashSet::default();
-            let source = self.scan.source.id();
+            let locations = &self.scan.locations;
             hint(
-                source,
+                locations,
                 &mut self.next_hint,
                 IoIntent::Prefetch,
                 &predicates,
@@ -299,7 +298,7 @@ impl Planner for FilterPlanner {
                 &mut batch,
             );
             hint(
-                source,
+                locations,
                 &mut self.next_hint,
                 IoIntent::Announce,
                 &projection,
@@ -380,11 +379,7 @@ impl Planner for FilterPlanner {
             self.active = Some((
                 index,
                 version,
-                ScanAdaptor::new(
-                    scan,
-                    Arc::clone(&self.scan.locations),
-                    self.scan.source.id(),
-                ),
+                ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)),
             ));
             return Ok(PlannerOutput::Continue);
         }

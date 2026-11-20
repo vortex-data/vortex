@@ -31,6 +31,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::BlockingRuntime;
+use vortex_io::runtime::Handle;
+use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_scan::row_mask::RowMask;
 use vortex_scan::selection::Selection;
@@ -84,7 +86,7 @@ pub struct RepeatedScan<A> {
 pub type ScanTasks<A> = Vec<BoxFuture<'static, VortexResult<Option<A>>>>;
 
 /// A function applied to each projected split array.
-type MapFn<A> = Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>;
+pub(crate) type MapFn<A> = Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>;
 
 impl RepeatedScan<ArrayRef> {
     pub fn execute_array_iter<B: BlockingRuntime>(
@@ -175,7 +177,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
     }
 
     /// Each execution gets its own recorder, so file events count once for each execution.
-    fn task_context(&self) -> Arc<TaskContext> {
+    pub(crate) fn task_context(&self) -> Arc<TaskContext> {
         Arc::new(TaskContext {
             filter: self
                 .filter
@@ -188,7 +190,10 @@ impl<A: 'static + Send> RepeatedScan<A> {
         })
     }
 
-    fn split_ranges(&self, row_range: Option<Range<u64>>) -> Vec<Range<u64>> {
+    /// The row ranges of the scan's splits within `row_range`, in row order.
+    ///
+    /// Ranges whose rows the selection excludes are included; [`Self::split_mask`] skips them.
+    pub(crate) fn split_ranges(&self, row_range: Option<Range<u64>>) -> Vec<Range<u64>> {
         let selection_range: Option<Range<u64>> = match &self.selection {
             Selection::IncludeByIndex(buf) if !buf.is_empty() => {
                 Some(buf[0]..buf[buf.len() - 1] + 1)
@@ -244,6 +249,33 @@ impl<A: 'static + Send> RepeatedScan<A> {
         }
     }
 
+    /// Whether the selection includes any row of `range`.
+    pub(crate) fn selects_rows(&self, range: &Range<u64>) -> bool {
+        self.selection.row_count_in_range(range) != 0
+    }
+
+    /// The number of rows of `range` that the selection includes.
+    pub(crate) fn selected_row_count(&self, range: &Range<u64>) -> u64 {
+        self.selection.row_count_in_range(range)
+    }
+
+    /// The selected rows of the split over `range`, or `None` if the selection excludes them all.
+    pub(crate) fn split_mask(&self, range: &Range<u64>) -> Option<RowMask> {
+        selected_mask(&self.selection, range)
+    }
+
+    /// Builds the task of one split. The task does no work until it is polled, but building it
+    /// may register the split's reads with the reader, so build it only when it is about to run.
+    ///
+    /// `mask` must select at least one row.
+    pub(crate) fn split_task(
+        &self,
+        ctx: &Arc<TaskContext>,
+        mask: RowMask,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<Option<A>>>> {
+        Ok(map_split(split_exec(ctx, mask)?, &self.map_fn))
+    }
+
     /// The non-empty row masks of the splits within `row_range`, in split order.
     fn split_masks(&self, row_range: Option<Range<u64>>) -> impl Iterator<Item = RowMask> + '_ {
         self.split_ranges(row_range)
@@ -296,21 +328,13 @@ impl<A: 'static + Send> RepeatedScan<A> {
                 .map(move |split| {
                     let ctx = Arc::clone(&ctx);
                     let selection = selection.clone();
-                    split_handle.spawn_nested(move |handle| async move {
-                        let task = handle
-                            .spawn_cpu(move || {
-                                let Some(row_mask) =
-                                    split.either(Some, |range| selected_mask(&selection, &range))
-                                else {
-                                    return Ok(None);
-                                };
-                                split_exec(&ctx, row_mask).map(Some)
-                            })
-                            .await?;
-                        match task {
-                            Some(task) => task.await,
-                            None => Ok(None),
-                        }
+                    spawn_lazy_split(&split_handle, move || {
+                        let Some(row_mask) =
+                            split.either(Some, |range| selected_mask(&selection, &range))
+                        else {
+                            return Ok(None);
+                        };
+                        split_exec(&ctx, row_mask).map(Some)
                     })
                 });
                 let map_fn = Arc::clone(map_fn);
@@ -319,9 +343,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
                     .boxed();
                 let session = self.session.clone();
                 let mapped = limit_rows(arrays, limit).map(move |array| {
-                    let map_fn = Arc::clone(&map_fn);
-                    let session = session.clone();
-                    handle.spawn_cpu(move || map_fn(array?.optimize_ctx(&session)?))
+                    spawn_map_trimmed(&handle, session.clone(), Arc::clone(&map_fn), array)
                 });
                 buffer(mapped, ordered, concurrency)
             }
@@ -356,14 +378,52 @@ impl<A: 'static + Send> RepeatedScan<A> {
     }
 }
 
+/// Builds a split's task on a CPU thread and runs it, both on the session's runtime.
+///
+/// This is how scans with a filter and a limit run their splits: a split's output row count is
+/// unknown until its filter has run, so each split is built only once it is about to run, and none
+/// start once the limit is spent. `build` returns `None` when the split has nothing to read. Every
+/// other scan builds all of its split tasks up front with [`RepeatedScan::split_task`], so that
+/// their reads are registered together and can coalesce, and runs each with [`Handle::spawn`].
+pub(crate) fn spawn_lazy_split(
+    handle: &Handle,
+    build: impl FnOnce() -> VortexResult<Option<SplitFuture>> + Send + 'static,
+) -> Task<VortexResult<Option<ArrayRef>>> {
+    handle.spawn_nested(move |handle| async move {
+        match handle.spawn_cpu(build).await? {
+            Some(task) => task.await,
+            None => Ok(None),
+        }
+    })
+}
+
+/// Optimizes an array that a limit may have trimmed and maps it, on a CPU thread: the second
+/// stage of a scan with a filter and a limit, after [`spawn_lazy_split`].
+pub(crate) fn spawn_map_trimmed<A: Send + 'static>(
+    handle: &Handle,
+    session: VortexSession,
+    map_fn: MapFn<A>,
+    array: VortexResult<ArrayRef>,
+) -> Task<VortexResult<A>> {
+    handle.spawn_cpu(move || map_fn(array?.optimize_ctx(&session)?))
+}
+
 /// This function returns `None` if the selection excludes every row in `range`.
 fn selected_mask(selection: &Selection, range: &Range<u64>) -> Option<RowMask> {
     let mask = selection.row_mask(range);
     (!mask.mask().all_false()).then_some(mask)
 }
 
-fn can_prune_file(ctx: &TaskContext) -> VortexResult<bool> {
+/// Counts a file scan attempt and returns whether whole-file statistics reject the filter.
+pub(crate) fn can_prune_file(ctx: &TaskContext) -> VortexResult<bool> {
     ctx.count::<true>(ScanRecorder::attempt_file_scan);
+    recheck_prune_file(ctx)
+}
+
+/// Returns whether whole-file statistics reject the filter, for a file whose scan attempt
+/// [`can_prune_file`] has already counted. A filter with dynamic parts, such as a join's, may
+/// reject a file later that it did not reject when the scan started.
+pub(crate) fn recheck_prune_file(ctx: &TaskContext) -> VortexResult<bool> {
     if let Some(filter) = &ctx.filter
         && can_prune_conjuncts(filter, ctx.reader.as_ref())?
     {
@@ -421,7 +481,7 @@ fn limit_rows(
 }
 
 /// Yield the first error and drop upstream without polling it again.
-fn stop_on_error<T: Send + 'static>(
+pub(crate) fn stop_on_error<T: Send + 'static>(
     stream: BoxStream<'static, VortexResult<T>>,
 ) -> BoxStream<'static, VortexResult<T>> {
     let mut stream = Some(stream);
@@ -438,6 +498,10 @@ fn stop_on_error<T: Send + 'static>(
     .boxed()
 }
 
+/// The splits a scan keeps in flight for each worker thread by default, which allows for some I/O
+/// lookahead without too much impact on work-stealing.
+pub(crate) const DEFAULT_SPLITS_PER_THREAD: usize = 4;
+
 /// How many splits a scan makes progress on at once: `per_worker` for each worker thread, as
 /// [`get_available_parallelism`] counts them, and at most `max` in all when that is set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -447,7 +511,7 @@ pub(crate) struct SplitConcurrency {
 }
 
 impl SplitConcurrency {
-    fn splits_in_flight(self) -> usize {
+    pub(crate) fn splits_in_flight(self) -> usize {
         let scaled = self
             .per_worker
             .saturating_mul(get_available_parallelism().unwrap_or(1));

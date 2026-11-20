@@ -25,7 +25,6 @@ use vortex_buffer::Alignment;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_io::request::SegmentReader;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -266,7 +265,7 @@ impl Store {
             dtype: plan.dtype().clone(),
             root: LazyPlanRef::ready(plan),
             locations,
-            reader: SegmentReader::Opaque(Arc::clone(self) as Arc<dyn SegmentSource>),
+            segments: Arc::clone(self) as Arc<dyn SegmentSource>,
             cache: None,
         }
     }

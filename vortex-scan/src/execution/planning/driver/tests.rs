@@ -11,8 +11,6 @@ use vortex_array::assert_arrays_eq;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_io::request::IoRequest;
-use vortex_io::request::SourceId;
-use vortex_io::segments::SegmentId;
 
 use super::*;
 use crate::execution::planning::tests::scripted::Log;
@@ -24,17 +22,12 @@ use crate::execution::planning::tests::scripted::array_of;
 use crate::execution::planning::tests::scripted::ctx;
 use crate::execution::planning::tests::scripted::scope;
 
-fn request(id: u32, segment: u32) -> IoRequest {
+fn request(id: u32, offset: u64) -> IoRequest {
     IoRequest {
         intent: IoIntent::Fetch,
         request: IoRequestId(id),
-        source: SourceId(0),
-        target: segment_target(segment),
+        target: IoTarget::range(offset, 4),
     }
-}
-
-fn segment_target(segment: u32) -> IoTarget {
-    IoTarget::segment(SegmentId::from(segment))
 }
 
 fn driver(source: &Arc<RecordingIoSource>) -> Driver {
@@ -164,7 +157,7 @@ fn needs_io_delivers_every_request_in_order() -> VortexResult<()> {
     assert!(batches.is_empty());
     assert_eq!(
         source.performed(),
-        vec![segment_target(4), segment_target(0)]
+        vec![IoTarget::range(4, 4), IoTarget::range(0, 4)]
     );
     assert_eq!(
         log.events(),
@@ -195,7 +188,7 @@ fn fetch_published_ahead_is_delivered_when_awaited() -> VortexResult<()> {
         &log,
     );
     driver(&source).run(root)?;
-    assert_eq!(source.performed(), vec![segment_target(0)]);
+    assert_eq!(source.performed(), vec![IoTarget::range(0, 4)]);
     assert_eq!(
         log.events(),
         vec![
@@ -235,7 +228,7 @@ fn continue_requeues() -> VortexResult<()> {
 fn io_failure_propagates_after_two_performs() -> VortexResult<()> {
     let log = Log::default();
     let source = source();
-    source.fail(segment_target(4), "disk on fire");
+    source.fail(IoTarget::range(4, 4), "disk on fire");
     let root = ScriptedPlanner::boxed(
         "root",
         vec![
@@ -268,7 +261,7 @@ fn completions_out_of_order_within_one_batch() -> VortexResult<()> {
     driver(&source).run(root)?;
     assert_eq!(
         source.performed(),
-        vec![segment_target(0), segment_target(4)],
+        vec![IoTarget::range(0, 4), IoTarget::range(4, 4)],
         "submitted in request order"
     );
     assert_eq!(
@@ -287,7 +280,7 @@ fn completions_out_of_order_within_one_batch() -> VortexResult<()> {
 fn completions_out_of_order_across_parked_items() -> VortexResult<()> {
     let log = Log::default();
     let source = lifo_source();
-    let child = |id: u32, offset: u32| {
+    let child = |id: u32, offset: u64| {
         PlannerStep::Planner(
             scope(0..1),
             vec![
@@ -319,7 +312,7 @@ fn completions_out_of_order_across_parked_items() -> VortexResult<()> {
 fn lying_source_fails_before_delivery() -> VortexResult<()> {
     let log = Log::default();
     let source = source();
-    source.answer_with_size(segment_target(0), 4);
+    source.answer_with_size(IoTarget::range(0, 4), 4);
     let root = ScriptedPlanner::boxed(
         "root",
         vec![PlannerStep::Io(vec![request(0, 0)]), PlannerStep::Done],
@@ -648,8 +641,8 @@ fn a_waiting_item_is_not_revisited_per_delivery() -> VortexResult<()> {
     let io = RecordingIoSource::default();
     let batch: Vec<IoRequest> = (0..FETCHES)
         .map(|id| {
-            io.canned_bytes(id * 4, buffer![0u8; 4].into_byte_buffer());
-            request(id, id * 4)
+            io.canned_bytes(u64::from(id) * 4, buffer![0u8; 4].into_byte_buffer());
+            request(id, u64::from(id) * 4)
         })
         .collect();
     let io = Arc::new(io);

@@ -118,7 +118,7 @@ impl Planner for PrunePlanner {
             let mut batch = Vec::new();
             let mut seen = FxHashSet::default();
             hint(
-                self.scan.source.id(),
+                &self.scan.locations,
                 &mut self.next_hint,
                 IoIntent::Prefetch,
                 &segments,
@@ -170,11 +170,7 @@ impl Planner for PrunePlanner {
             )?
             .with_row_offset(self.scan.row_offset)
             .with_value_cache(self.scan.values.clone());
-            self.active = Some(ScanAdaptor::new(
-                scan,
-                Arc::clone(&self.scan.locations),
-                self.scan.source.id(),
-            ));
+            self.active = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
             return Ok(PlannerOutput::Continue);
         }
         // Every pruning plan has run: the planner this one continues into gets the kept rows.

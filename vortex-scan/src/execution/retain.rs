@@ -9,40 +9,46 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::TryFutureExt;
 use parking_lot::Mutex;
+use rustc_hash::FxHashMap;
 use vortex_array::buffer::BufferHandle;
-use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::segments::SegmentFuture;
-use crate::segments::SegmentId;
-use crate::segments::SegmentSource;
+use crate::source::SegmentFuture;
+use crate::source::SegmentId;
+use crate::source::SegmentSource;
 
 /// The host bytes of recently read segments, evicting the least recently used past a budget.
 ///
 /// A V2 scan cuts its rows into chunks that each read through a session of their own, and a
-/// stored segment that spans a chunk boundary is read by every chunk it overlaps. A registered
+/// stored segment that spans a chunk boundary is read by every chunk it overlaps. The file's segment
 /// source shares a read only while it is in flight, so a chunk that starts after its neighbour
 /// finished would read the segment again. Neighbouring chunks run close together, so a small
 /// budget is enough to read each such segment once.
-pub(crate) struct RetainedSegments {
+pub(super) struct RetainedSegments {
     budget: u64,
     state: Mutex<State>,
 }
 
-/// The bytes a registered source retains by default.
-pub const DEFAULT_RETAINED_BYTES: u64 = 64 << 20;
+/// The bytes a file's scans retain by default.
+const DEFAULT_RETAINED_BYTES: u64 = 64 << 20;
+
+impl Default for RetainedSegments {
+    fn default() -> Self {
+        Self::new(DEFAULT_RETAINED_BYTES)
+    }
+}
 
 #[derive(Default)]
 struct State {
     bytes: u64,
     tick: u64,
     /// Each retained segment and the tick of its last use.
-    segments: HashMap<SegmentId, (BufferHandle, u64)>,
+    segments: FxHashMap<SegmentId, (BufferHandle, u64)>,
     /// Retained segments by the tick of their last use, oldest first.
     by_use: BTreeMap<u64, SegmentId>,
 }
 
 impl RetainedSegments {
-    pub(crate) fn new(budget: u64) -> Self {
+    pub(super) fn new(budget: u64) -> Self {
         Self {
             budget,
             state: Mutex::default(),
@@ -88,9 +94,9 @@ impl RetainedSegments {
 
 /// Serves segments from [`RetainedSegments`] before reading them from `inner`, and retains
 /// what it reads.
-pub(crate) struct RetainingSegmentSource {
-    pub(crate) inner: Arc<dyn SegmentSource>,
-    pub(crate) retained: Arc<RetainedSegments>,
+pub(super) struct RetainingSegmentSource {
+    pub(super) inner: Arc<dyn SegmentSource>,
+    pub(super) retained: Arc<RetainedSegments>,
 }
 
 impl SegmentSource for RetainingSegmentSource {
@@ -112,7 +118,7 @@ mod tests {
     use vortex_buffer::ByteBuffer;
 
     use super::RetainedSegments;
-    use crate::segments::SegmentId;
+    use crate::source::SegmentId;
 
     fn buffer(len: usize) -> BufferHandle {
         BufferHandle::new_host(ByteBuffer::from(vec![0u8; len]))

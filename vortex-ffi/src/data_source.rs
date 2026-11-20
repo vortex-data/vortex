@@ -24,8 +24,8 @@ use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex::scan::DataSource;
-use vortex::scan::union::UnionDataSource;
 use vortex::session::VortexSession;
 
 use crate::RUNTIME;
@@ -38,7 +38,7 @@ use crate::scan::vx_estimate_type;
 use crate::session::vx_session;
 use crate::string::vx_view;
 
-// UnionDataSource's fields are Arc'd inside
+// MultiLayoutDataSource's fields are Arc'd inside
 box_wrapper!(
     /// A reference to one or more possibly remote paths.
     ///
@@ -47,7 +47,7 @@ box_wrapper!(
     /// may be requested from a single vx_data_source.
     ///
     /// Copying a vx_data_source via vx_data_source_clone is a cheap operation.
-    UnionDataSource,
+    MultiLayoutDataSource,
     vx_data_source
 );
 
@@ -181,8 +181,8 @@ pub unsafe extern "C-unwind" fn vx_data_source_new_buffer(
             unsafe { slice::from_raw_parts(buffer.cast::<u8>(), buffer_len) };
         let buffer = ByteBuffer::from(Bytes::from_static(bytes));
         let file = session.open_options().open_buffer(buffer)?;
-        let ds = UnionDataSource::new_with_first(
-            file.data_source()?,
+        let ds = MultiLayoutDataSource::new_with_first(
+            file.layout_reader()?,
             Vec::new(),
             vec![Some(buffer_len as u64)],
             session,

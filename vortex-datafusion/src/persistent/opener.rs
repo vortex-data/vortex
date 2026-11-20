@@ -56,7 +56,6 @@ use vortex::layout::LayoutReader;
 use vortex::layout::scan::metrics::ScanMetrics;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
-use vortex::layout::scan::v2::SegmentReader;
 use vortex::layout::scan::v2::partition_row_range;
 use vortex::layout::segments::SegmentSource;
 use vortex::metrics::Label;
@@ -487,14 +486,11 @@ impl FileOpener for VortexOpener {
             let map_batch = move |chunk| to_record_batch(chunk, &stream_target_field, &session);
             let stream = if scan_v2 {
                 let mut scan_file = vxf.scan_file();
-                // A placed file is shared through its scan cache's scheduler registration.
-                if let SegmentReader::Opaque(segments) = scan_file.reader {
-                    scan_file.reader = SegmentReader::Opaque(shared_segment_source(
-                        &segment_sources,
-                        &file.object_meta.location,
-                        segments,
-                    ));
-                }
+                scan_file.segments = shared_segment_source(
+                    &segment_sources,
+                    &file.object_meta.location,
+                    scan_file.segments,
+                );
                 scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta.location));
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)

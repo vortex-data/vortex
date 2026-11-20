@@ -5,15 +5,11 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use super::*;
 
-fn segment(id: u32) -> IoTarget {
-    IoTarget::segment(SegmentId::from(id))
-}
-
 #[test]
 fn request_id_is_a_map_key() {
     let mut pending: HashMap<IoRequestId, IoTarget> = HashMap::default();
     pending.insert(IoRequestId(0), IoTarget::Size);
-    pending.insert(IoRequestId(1), segment(1));
+    pending.insert(IoRequestId(1), IoTarget::range(8, 16));
     assert_eq!(pending.remove(&IoRequestId(0)), Some(IoTarget::Size));
     assert!(pending.contains_key(&IoRequestId(1)));
     assert!(!pending.contains_key(&IoRequestId(0)));
@@ -24,34 +20,28 @@ fn batches_compare_structurally() {
     let batch: IoBatch = vec![IoRequest {
         intent: IoIntent::Fetch,
         request: IoRequestId(3),
-        source: SourceId(0),
-        target: segment(0),
+        target: IoTarget::range(0, 4),
     }];
     assert_eq!(
         batch,
         vec![IoRequest {
             intent: IoIntent::Fetch,
             request: IoRequestId(3),
-            source: SourceId(0),
-            target: segment(0),
+            target: IoTarget::range(0, 4),
         }]
     );
     for request in [
         IoRequest {
             intent: IoIntent::Prefetch,
-            ..batch[0].clone()
+            ..batch[0]
         },
         IoRequest {
             request: IoRequestId(4),
-            ..batch[0].clone()
+            ..batch[0]
         },
         IoRequest {
-            source: SourceId(1),
-            ..batch[0].clone()
-        },
-        IoRequest {
-            target: segment(1),
-            ..batch[0].clone()
+            target: IoTarget::range(0, 5),
+            ..batch[0]
         },
     ] {
         assert_ne!(batch, vec![request]);
@@ -63,36 +53,36 @@ fn batches_compare_structurally() {
 fn slot_allocates_fresh_ids_and_hands_back_one_result() {
     let mut slot = IoSlot::default();
     assert!(!slot.is_waiting());
-    let batch = slot.issue(SourceId(0), IoTarget::Size);
+    let batch = slot.issue(IoTarget::Size);
     assert_eq!(batch[0].request, IoRequestId(0));
     assert!(slot.is_waiting());
     slot.deliver(IoRequestId(0), IoResult::Size(9));
     assert!(!slot.is_waiting());
     assert!(matches!(slot.take(), Some(IoResult::Size(9))));
     assert!(slot.take().is_none());
-    let batch = slot.issue(SourceId(0), segment(0));
+    let batch = slot.issue(IoTarget::range(0, 1));
     assert_eq!(batch[0].request, IoRequestId(1));
 }
 
 #[test]
-fn segment_targets_name_their_bytes() {
-    let ranges = IoTarget::Segment {
-        segment: SegmentId::from(0),
-        bytes: SegmentBytes::Ranges(Arc::from([0..4, 8..12])),
+fn ranges_carry_their_alignment() {
+    let aligned = IoTarget::Range {
+        offset: 0,
+        len: 4,
+        alignment: Alignment::new(8),
     };
-    assert_ne!(ranges, segment(0));
+    assert_ne!(aligned, IoTarget::range(0, 4));
     assert!(
         IoResult::Bytes(BufferHandle::new_host(vortex_buffer::ByteBuffer::empty()))
-            .matches(&ranges)
+            .matches(&aligned)
     );
-    assert!(!IoResult::Size(0).matches(&ranges));
 }
 
 #[test]
 #[should_panic(expected = "not outstanding")]
 fn slot_rejects_unknown_ids() {
     let mut slot = IoSlot::default();
-    slot.issue(SourceId(0), IoTarget::Size);
+    slot.issue(IoTarget::Size);
     slot.deliver(IoRequestId(7), IoResult::Size(1));
 }
 
@@ -100,7 +90,7 @@ fn slot_rejects_unknown_ids() {
 #[should_panic(expected = "answered with bytes")]
 fn slot_rejects_mismatched_variants() {
     let mut slot = IoSlot::default();
-    slot.issue(SourceId(0), IoTarget::Size);
+    slot.issue(IoTarget::Size);
     slot.deliver(
         IoRequestId(0),
         IoResult::Bytes(BufferHandle::new_host(vortex_buffer::ByteBuffer::empty())),

@@ -1,77 +1,56 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! IO requests, results, and the scheduler that fulfils them.
+//! IO requests, results, and the source that fulfils them.
 //!
-//! A request names a registered source, a segment of that source, and the bytes of the segment it
-//! wants. A source has exactly one other property a consumer may ask for, its length, because a
-//! Vortex file cannot be located from its start without it. Where a segment's bytes live is
-//! construction-time data the scheduler holds, so every read keeps its name from the operator that
-//! asks for it to the source that serves it.
+//! The protocol moves bytes at a range. A source has exactly one other property a consumer may
+//! ask for, its length, because a Vortex file cannot be located from its start without it.
+//! Nothing else is a request: anything a stage needs that is not bytes at a range is
+//! construction-time data for that stage.
 
-use std::ops::Range;
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 
 use vortex_array::buffer::BufferHandle;
+use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
-mod retain;
-mod scheduler;
+mod source;
 
-pub use retain::DEFAULT_RETAINED_BYTES;
-pub use scheduler::IoScheduler;
-pub use scheduler::PlacedSegments;
-pub use scheduler::RegisteredSource;
-pub use scheduler::SegmentReader;
-
-pub use crate::segments::SegmentId;
+pub use source::ReadAtIoSource;
 
 /// Consumer-chosen label for one request, unique within the issuing object.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IoRequestId(pub u32);
 
-/// A source registered with an [`IoScheduler`], unique among the scheduler's live sources.
+/// What to fetch from the source: its length, or bytes at a range. This enum is closed; see the
+/// module documentation.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct SourceId(pub u32);
-
-/// What to fetch from a source: its length, or bytes of one of its segments.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum IoTarget {
     /// Total length of the source in bytes.
     Size,
-    /// Bytes of one segment.
-    Segment {
-        /// The segment, local to the request's source.
-        segment: SegmentId,
-        /// Which bytes of the segment.
-        bytes: SegmentBytes,
+    /// An absolute byte range.
+    Range {
+        /// Absolute byte offset of the first byte.
+        offset: u64,
+        /// Number of bytes to read.
+        len: usize,
+        /// The alignment the delivered bytes have at least.
+        alignment: Alignment,
     },
 }
 
 impl IoTarget {
-    /// The whole of `segment`.
-    pub fn segment(segment: SegmentId) -> Self {
-        Self::Segment {
-            segment,
-            bytes: SegmentBytes::All,
+    /// A byte range whose bytes need no particular alignment.
+    pub fn range(offset: u64, len: usize) -> Self {
+        Self::Range {
+            offset,
+            len,
+            alignment: Alignment::none(),
         }
     }
-}
-
-/// The bytes of a segment a request wants. Either way they are delivered as one buffer at the
-/// segment's alignment.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum SegmentBytes {
-    /// The whole segment.
-    All,
-    /// Sorted, disjoint ranges, relative to the start of the segment, delivered concatenated in
-    /// order with no padding. A consumer that rounds each range out to the segment's alignment
-    /// gets every buffer inside it aligned, because a segment's buffers are padded relative to
-    /// its start. One buffer per range is one request per range.
-    Ranges(Arc<[Range<u64>]>),
 }
 
 /// A stage's reason for registering bytes. Optional hints may be declined by the service.
@@ -85,15 +64,13 @@ pub enum IoIntent {
     Announce,
 }
 
-/// One request: a consumer-chosen id, the source it reads, and the target it names.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+/// One request: a consumer-chosen id and the target it names.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IoRequest {
     /// Required delivery, background prefetch, or coalescing-only interest.
     pub intent: IoIntent,
     /// Identifies the request within the issuing object.
     pub request: IoRequestId,
-    /// The source to read.
-    pub source: SourceId,
     /// What to fetch.
     pub target: IoTarget,
 }
@@ -102,7 +79,7 @@ pub struct IoRequest {
 pub type IoBatch = Vec<IoRequest>;
 
 /// Result for one request. The variant matches the target: `Size` for `Size`, `Bytes` for
-/// `Segment`. The driver checks this before delivering, so a consumer never sees a mismatch.
+/// `Range`. The driver checks this before delivering, so a consumer never sees a mismatch.
 #[derive(Debug, Clone)]
 pub enum IoResult {
     /// Total length of the source in bytes.
@@ -116,7 +93,7 @@ impl IoResult {
     pub fn matches(&self, target: &IoTarget) -> bool {
         matches!(
             (self, target),
-            (Self::Size(_), IoTarget::Size) | (Self::Bytes(_), IoTarget::Segment { .. })
+            (Self::Size(_), IoTarget::Size) | (Self::Bytes(_), IoTarget::Range { .. })
         )
     }
 
@@ -169,10 +146,10 @@ pub trait IoSource: Send + Sync {
     fn clear(&self);
 }
 
-/// An IO service, shared by everything that reads its sources.
+/// A byte source's IO service, shared by everything that reads the source.
 ///
 /// Each registration scope reads through its own [`IoSource`], and the service is free to share
-/// and coalesce the reads of all of them. [`IoScheduler`] is the default implementation.
+/// and coalesce the reads of all of them.
 pub trait IoService: Send + Sync {
     /// A fresh source for one registration scope.
     fn session(&self) -> Arc<dyn IoSource>;
@@ -199,20 +176,19 @@ pub struct IoSlot {
 }
 
 impl IoSlot {
-    /// Issues a request for `target` of `source` with a fresh id. Panics if one is already
-    /// outstanding or its result has not been taken, since that is a bug in the owner.
-    pub fn issue(&mut self, source: SourceId, target: IoTarget) -> IoBatch {
+    /// Issues a request for `target` with a fresh id. Panics if one is already outstanding or
+    /// its result has not been taken, since that is a bug in the owner.
+    pub fn issue(&mut self, target: IoTarget) -> IoBatch {
         if self.request.is_some() || self.result.is_some() {
             vortex_panic!("IoSlot: issue while a request is outstanding");
         }
         let request = IoRequest {
             intent: IoIntent::Fetch,
             request: IoRequestId(self.next_id),
-            source,
             target,
         };
         self.next_id += 1;
-        self.request = Some(request.clone());
+        self.request = Some(request);
         vec![request]
     }
 
