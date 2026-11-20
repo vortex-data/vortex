@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Source inputs and byte access for scans.
+//! Source inputs and byte access for scans, and the [`DataSource`](crate::DataSource) that scans
+//! them.
 
 use std::sync::Arc;
 
@@ -32,3 +33,14 @@ pub struct ScanInput {
     /// State shared by repeated scans of this input.
     pub cache: Option<ScanCache>,
 }
+
+mod plan;
+
+pub use plan::DeferredPlanChild;
+pub use plan::FilePruner;
+pub use plan::PlanChild;
+pub use plan::PlanDataSource;
+pub use plan::PlanSourceChild;
+
+#[cfg(test)]
+mod tests;
