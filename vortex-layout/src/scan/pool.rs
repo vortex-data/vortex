@@ -19,11 +19,12 @@
 //!
 //! The pools differ in how workers share the work:
 //!
-//! - An unordered pool runs lanes on the runtime once its first worker starts: one for each unit
-//!   that is ready, more as units queue, and at most `splits_in_flight`. Each lane takes the next
-//!   unit from a channel of units, runs it, and sends its rows into one bounded output channel; a
-//!   lane that opens a deferred file sends the file's splits back into the channel of units,
-//!   followed by the next deferred file. Workers only take rows from the
+//! - An unordered pool runs lanes on the runtime once its first worker starts: one for each split
+//!   or open that is ready, more as they queue, and at most `splits_in_flight`. Each lane takes the
+//!   next unit from a channel of units, runs it, and sends its rows into one bounded output
+//!   channel. An opened file is one unit, its turn, which a lane queues again after taking the
+//!   file's next split, so the lanes read the opened files' splits in turn. A lane that opens a
+//!   deferred file queues the file's turn, followed by the next deferred file. Workers only take rows from the
 //!   output channel, so whichever worker asks next gets the next rows, however many workers there
 //!   are, and the number of workers is only the host's parallelism. The output channel closes
 //!   once every lane has finished, which ends the workers.
@@ -242,6 +243,7 @@ pub(crate) fn open_pool(
         progress: Mutex::new(0.0),
         deferred: Mutex::new(VecDeque::new()),
         failed: AtomicBool::new(false),
+        pending: AtomicUsize::new(0),
     });
     if options.ordered {
         return Arc::new(OrderedPool {
@@ -257,18 +259,14 @@ pub(crate) fn open_pool(
     let mut opens = 0;
     for file in files {
         match file {
-            PoolFile::Opened(work) => {
-                for split in shared.file_splits(work) {
-                    send(&sender, Work::Split(split));
-                }
-            }
+            PoolFile::Opened(work) => shared.queue_file(&sender, work),
             PoolFile::Deferred(factory) if opens < open_concurrency => {
                 opens += 1;
                 let slot = OpenSlot {
                     shared: Arc::clone(&shared),
                     sender: sender.clone(),
                 };
-                send(&sender, Work::Open(factory, slot));
+                shared.queue(&sender, Work::Open(factory, slot));
             }
             PoolFile::Deferred(factory) => shared.deferred.lock().push_back(factory),
         }
@@ -338,6 +336,8 @@ struct Shared {
     deferred: Mutex<VecDeque<Arc<dyn LayoutReaderFactory>>>,
     /// Whether a unit of an unordered pool failed, which stops its lanes.
     failed: AtomicBool,
+    /// The splits and opens of an unordered pool that are queued and not yet taken by a lane.
+    pending: AtomicUsize,
 }
 
 impl Shared {
@@ -454,6 +454,24 @@ impl Shared {
         .boxed()
     }
 
+    /// Queues a unit of an unordered pool, counting the splits or open it holds as pending.
+    fn queue(&self, sender: &Sender<Work>, work: Work) {
+        let units = match &work {
+            Work::File(splits, _) => splits.len(),
+            Work::Open(..) => 1,
+        };
+        self.pending.fetch_add(units, Ordering::AcqRel);
+        send(sender, work);
+    }
+
+    /// Queues an opened file of an unordered pool as one turn among the files.
+    fn queue_file(&self, sender: &Sender<Work>, work: FileWork) {
+        let splits: VecDeque<FileSplit> = self.file_splits(work).into();
+        if !splits.is_empty() {
+            self.queue(sender, Work::File(splits, sender.clone()));
+        }
+    }
+
     fn progress(&self) -> f64 {
         if self.limit.is_trimmed_out() {
             return 1.0;
@@ -520,11 +538,39 @@ fn limit_output(
     .boxed()
 }
 
-/// A unit of an unordered pool.
+/// A unit of an unordered pool's channel.
 enum Work {
-    Split(FileSplit),
-    /// A deferred file, and the open slot it holds until its splits are in the channel.
+    /// An opened file's turn: the splits not yet taken, in row order. The lane that takes the
+    /// turn takes the file's next split and queues the turn again behind the other files' turns,
+    /// so the lanes take splits from every opened file in turn rather than from one file after
+    /// another. Each file then has only a few splits in flight, which keeps its first rows, and
+    /// any dynamic filter they tighten, ahead of its later splits.
+    File(VecDeque<FileSplit>, Sender<Work>),
+    /// A deferred file, and the open slot it holds until its turn is in the channel.
     Open(Arc<dyn LayoutReaderFactory>, OpenSlot),
+}
+
+/// What a lane takes from a unit.
+enum Taken {
+    Split(FileSplit),
+    Open(Arc<dyn LayoutReaderFactory>, OpenSlot),
+}
+
+impl Work {
+    /// Takes the unit's split or open, queueing a file's turn again while it has splits left.
+    fn take(self) -> Option<Taken> {
+        match self {
+            Work::File(mut splits, sender) => {
+                let split = splits.pop_front()?;
+                if !splits.is_empty() {
+                    let requeue = sender.clone();
+                    send(&requeue, Work::File(splits, sender));
+                }
+                Some(Taken::Split(split))
+            }
+            Work::Open(factory, slot) => Some(Taken::Open(factory, slot)),
+        }
+    }
 }
 
 /// One of an unordered pool's `open_concurrency` open slots. Its sender keeps the channel open
@@ -535,8 +581,8 @@ struct OpenSlot {
 }
 
 impl Drop for OpenSlot {
-    /// Passes the slot to the next deferred file, queued behind the splits of the file that held
-    /// it, so opens keep pace with the workers. The slot passes on whether the open finished or a
+    /// Passes the slot to the next deferred file, queued behind the turns already in the channel,
+    /// so opens keep pace with the workers. The slot passes on whether the open finished or a
     /// dropped worker gave it up, so that worker strands only the file it was opening.
     fn drop(&mut self) {
         if self.sender.is_closed() {
@@ -547,7 +593,7 @@ impl Drop for OpenSlot {
                 shared: Arc::clone(&self.shared),
                 sender: self.sender.clone(),
             };
-            send(&self.sender, Work::Open(next, slot));
+            self.shared.queue(&self.sender, Work::Open(next, slot));
         }
     }
 }
@@ -558,8 +604,8 @@ fn send(sender: &Sender<Work>, work: Work) {
 }
 
 /// The lanes of an unordered pool. They start when its first worker does, as many as there are
-/// units ready, and grow while units wait for a lane, up to `splits_in_flight`, so a scan with
-/// few units spawns and wakes few tasks.
+/// splits and opens ready, and grow while those wait for a lane, up to `splits_in_flight`, so a
+/// scan with few units spawns and wakes few tasks.
 struct Lanes {
     shared: Arc<Shared>,
     units: Receiver<Work>,
@@ -594,10 +640,11 @@ impl Lanes {
         self.started.store(tasks.len(), Ordering::Release);
     }
 
-    /// The units that the lanes waiting for one will not take.
+    /// The pending splits and opens that the lanes waiting for one will not take.
     fn unserved(&self) -> usize {
-        self.units
-            .len()
+        self.shared
+            .pending
+            .load(Ordering::Acquire)
             .saturating_sub(self.waiting.load(Ordering::Acquire))
     }
 }
@@ -617,14 +664,12 @@ struct UnorderedPool {
 impl UnorderedPool {
     /// Runs a unit on the lane that took it. The lane is already a task on the runtime, so
     /// spawning the unit as another task would only add a hop.
-    fn run(shared: &Arc<Shared>, work: Work) -> SplitOutput {
-        match work {
-            Work::Split(split) => shared.take_split(split, false),
-            Work::Open(factory, slot) => async move {
+    fn run(shared: &Arc<Shared>, taken: Taken) -> SplitOutput {
+        match taken {
+            Taken::Split(split) => shared.take_split(split, false),
+            Taken::Open(factory, slot) => async move {
                 let opened = slot.shared.open_file(factory).await.map(|work| {
-                    for split in slot.shared.file_splits(work) {
-                        send(&slot.sender, Work::Split(split));
-                    }
+                    slot.shared.queue_file(&slot.sender, work);
                     None
                 });
                 drop(slot);
@@ -657,10 +702,14 @@ async fn lane(lanes: Arc<Lanes>, output: Sender<VortexResult<ArrayRef>>) {
         let Ok(work) = work else {
             return;
         };
+        let Some(taken) = work.take() else {
+            continue;
+        };
+        shared.pending.fetch_sub(1, Ordering::AcqRel);
         // Units the waiting lanes will not take get lanes of their own, such as the splits an
         // open has just queued.
         lanes.grow(&output);
-        let array = match UnorderedPool::run(&shared, work).await {
+        let array = match UnorderedPool::run(&shared, taken).await {
             Ok(Some(array)) => Ok(array),
             Ok(None) => continue,
             Err(err) => Err(err),
