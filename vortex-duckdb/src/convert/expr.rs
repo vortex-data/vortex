@@ -441,8 +441,8 @@ fn not_distinct_from(left: Expression, right: Expression) -> Expression {
 // rounding mode for that conversion, and this check has only the DuckDB types. DuckDB and Vortex
 // also round casts from floats to integers differently.
 // TODO(connor): Send extension literals from the DuckDB and DataFusion converters, and map
-// truncating SQL casts to named functions (item RU3 of
-// https://github.com/vortex-data/vortex/issues/11114).
+// truncating DuckDB casts to named functions, as the DataFusion converter does for timestamps
+// (item RU3 of https://github.com/vortex-data/vortex/issues/11114).
 fn can_push_cast(cast: &duckdb::BoundCast<'_>, target: &duckdb::LogicalTypeRef) -> bool {
     !cast.is_try && target.is_primitive_integer() && cast.child.return_type().is_primitive_integer()
 }
