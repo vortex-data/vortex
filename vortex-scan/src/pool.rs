@@ -4,6 +4,7 @@
 //! Pools of work that host threads share by each polling a worker.
 
 use std::any::Any;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -138,6 +139,37 @@ pub fn trim_to_limit(
     })
     .filter(|array| future::ready(array.as_ref().map_or(true, |array| !array.is_empty())))
     .boxed()
+}
+
+/// Groups consecutive `items` into at most `n` contiguous groups of about equal total `weight`.
+///
+/// Never cuts an item: each lands whole in one group. Every group is non-empty.
+pub fn group_contiguous<T>(
+    items: Vec<T>,
+    n: NonZeroUsize,
+    weight: impl Fn(&T) -> u64,
+) -> Vec<Vec<T>> {
+    let total = items
+        .iter()
+        .map(|item| u128::from(weight(item)))
+        .sum::<u128>()
+        .max(1);
+    let n_groups = n.get() as u128;
+    let mut groups: Vec<Vec<T>> = Vec::new();
+    let mut current_group = None;
+    let mut before = 0u128;
+    for item in items {
+        let group = (before * n_groups / total).min(n_groups - 1);
+        before += u128::from(weight(&item));
+        if current_group != Some(group) {
+            current_group = Some(group);
+            groups.push(Vec::new());
+        }
+        if let Some(last) = groups.last_mut() {
+            last.push(item);
+        }
+    }
+    groups
 }
 
 /// A pool whose workers take partitions one at a time from a scan's shared partition stream.
@@ -281,6 +313,7 @@ mod tests {
     use super::RowLimit;
     use super::ScanPool;
     use super::ScanPoolRef;
+    use super::group_contiguous;
     use super::trim_to_limit;
     use crate::DataSourceScan;
     use crate::DataSourceScanRef;
@@ -535,5 +568,15 @@ mod tests {
             vec![3, 3, 1]
         );
         Ok(())
+    }
+
+    #[test]
+    fn group_contiguous_balances_weights() {
+        let groups = group_contiguous(
+            vec![4u64, 4, 4, 4, 1, 1],
+            NonZeroUsize::new(3).unwrap_or(NonZeroUsize::MIN),
+            |w| *w,
+        );
+        assert_eq!(groups, vec![vec![4, 4], vec![4], vec![4, 1, 1]]);
     }
 }
