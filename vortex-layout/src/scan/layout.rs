@@ -838,9 +838,10 @@ mod split_open_tests {
 
     #[test]
     fn group_contiguous_keeps_ranges_whole() -> VortexResult<()> {
-        let ranges = vec![0..10, 10..12, 12..30, 30..31];
+        // Each range joins the group its first row falls in.
+        let ranges = vec![0..10, 10..16, 16..26, 26..32];
         let groups = group_contiguous(ranges, NonZeroUsize::try_from(2)?);
-        assert_eq!(groups, vec![vec![0..10, 10..12], vec![12..30, 30..31]]);
+        assert_eq!(groups, vec![vec![0..10, 10..16], vec![16..26, 26..32]]);
         Ok(())
     }
 }
